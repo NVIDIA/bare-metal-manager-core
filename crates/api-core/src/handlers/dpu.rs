@@ -22,6 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
 use ::rpc::{common as rpc_common, forge as rpc};
+use carbide_dpf::dpu_cr_name;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
@@ -34,7 +35,7 @@ use db::{
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
-use model::hardware_info::MachineInventory;
+use model::hardware_info::{MachineInventory, MachineInventorySoftwareComponent};
 use model::instance::config::extension_services::InstanceExtensionServiceConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
@@ -105,6 +106,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let primary_dpu_snapshot = snapshot
         .host_snapshot
+        .status
         .interfaces
         .iter()
         .find(|x| x.primary_interface)
@@ -120,7 +122,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         Some(ip) => ip,
         None => {
             return Err(CarbideError::FailedPrecondition(format!(
-                "DPU {dpu_machine_id} needs discovery. Does not have a loopback IP yet."
+                "DPU {dpu_machine_id} needs discovery. does not have a loopback IP yet"
             ))
             .into());
         }
@@ -138,7 +140,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .is_none()
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "DPU {dpu_machine_id} needs discovery. Does not have a secondary VTEP IP yet."
+            "DPU {dpu_machine_id} needs discovery. does not have a secondary VTEP IP yet"
         ))
         .into());
     };
@@ -193,6 +195,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
     let booturl_override = if snapshot
         .host_snapshot
+        .status
         .hardware_info
         .as_ref()
         .map(|h| h.machine_type)
@@ -813,6 +816,76 @@ pub(crate) async fn update_agent_reported_inventory(
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
+    // For DPF-ingested DPUs the agent runs containerized and cannot enumerate
+    // the DPF services directly. Read service versions from the DPF operator
+    // on every inventory report so the DB stays current after upgrades.
+    let mut txn = api.txn_begin().await?;
+    let host_snapshot =
+        db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, LoadSnapshotOptions::default())
+            .await?;
+    txn.commit().await?;
+
+    if let Some(snapshot) = host_snapshot
+        && snapshot.host_snapshot.config.dpf.used_for_ingestion
+    {
+        let machine = snapshot
+            .dpu_snapshots
+            .iter()
+            .find(|d| d.id == dpu_machine_id)
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "dpu",
+                id: dpu_machine_id.to_string(),
+            })?;
+
+        let dpf_sdk = api.dpf_sdk.as_ref().ok_or_else(|| {
+            CarbideError::internal(format!(
+                "dpf SDK unavailable but DPU {dpu_machine_id} was ingested via DPF"
+            ))
+        })?;
+
+        // Both BMC MACs are needed to build the DPU CR name queried from the DPF
+        // operator. If either is not yet recorded, skip the DPF inventory update
+        // for this report rather than rejecting it; a later heartbeat retries once
+        // the MACs are known.
+        let (Some(dpu_device_id), Some(host_node_id)) =
+            (machine.dpf_id(), snapshot.host_snapshot.dpf_id())
+        else {
+            tracing::debug!(
+                machine_id = %dpu_machine_id,
+                "skipping DPF service inventory update: DPU or host BMC MAC not yet known"
+            );
+            return Ok(Response::new(()));
+        };
+        let dpu_name = dpu_cr_name(&dpu_device_id, &host_node_id);
+
+        let service_versions = dpf_sdk
+            .get_service_versions_for_dpu(&dpu_name)
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+        let inventory = MachineInventory {
+            components: service_versions
+                .into_iter()
+                .map(|v| MachineInventorySoftwareComponent {
+                    name: v.name,
+                    version: v.version,
+                    url: v.url,
+                })
+                .collect(),
+        };
+
+        let mut txn = api.txn_begin().await?;
+        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
+        txn.commit().await?;
+
+        tracing::debug!(
+            machine_id = %dpu_machine_id,
+            component_count = inventory.components.len(),
+            "updated DPF service inventory from operator",
+        );
+        return Ok(Response::new(()));
+    }
+
     if let Some(inventory) = request.inventory.as_ref() {
         let mut txn = api.txn_begin().await?;
 
@@ -947,7 +1020,7 @@ pub(crate) async fn record_dpu_network_status(
             &mut txn,
             *host_interface_id,
             Some(timestamp.parse().map_err(|e| {
-                CarbideError::InvalidArgument(format!("Failed parsing dhcp timestamp: {e}"))
+                CarbideError::InvalidArgument(format!("failed parsing dhcp timestamp: {e}"))
             })?),
         )
         .await?;
@@ -978,7 +1051,7 @@ pub(crate) async fn record_dpu_network_status(
                 id: dpu_machine_id.to_string(),
             })?;
 
-        if snapshot.host_snapshot.dpf.used_for_ingestion {
+        if snapshot.host_snapshot.config.dpf.used_for_ingestion {
             // DPF-managed DPUs don't use this upgrade path. Clear any stale flag so the DPU
             // doesn't keep receiving upgrade signals after the host was switched to DPF.
             if dpu_machine.needs_agent_upgrade() {
@@ -1043,11 +1116,11 @@ async fn wakeup_host_state_handler_by_dpu_id(
     api: &Api,
     dpu_machine_id: &MachineId,
 ) -> Result<(), DatabaseError> {
-    let host_machine =
+    let host_machines_by_dpu_ids =
         db::machine::lookup_host_machine_ids_by_dpu_ids(&mut api.db_reader(), &[*dpu_machine_id])
             .await?;
 
-    if let Some(host_machine_id) = host_machine.first()
+    if let Some(host_machine_id) = host_machines_by_dpu_ids.get(dpu_machine_id)
         && let Err(err) = api
             .machine_state_handler_enqueuer
             .enqueue_object(host_machine_id)
@@ -1224,7 +1297,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
             .contains(&health_report::HealthAlertClassification::prevent_allocations())
     }) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. Set this precondition with: `machine health-override add --template host-update <id>`.",
+            "machine {machine_id} must have a 'HostUpdateInProgress' health alert with the 'PreventAllocations' classification before reprovisioning. set this precondition with: `machine health-override add --template host-update <id>`",
         )).into());
     }
 
@@ -1305,7 +1378,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
             if ids.is_empty() {
                 return Err(CarbideError::InvalidArgument(
-                    format!("No DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. Use `set` to begin reprovisioning DPUs."),
+                    format!("no DPUs are currently reprovisioning on {machine_id}, cannot restart reprovisioning. use `set` to begin reprovisioning DPUs"),
                 )
                     .into());
             }

@@ -190,7 +190,7 @@ pub async fn report_scout_firmware_upgrade_status(
     } = machine.current_state().clone()
     else {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Machine {machine_id} is not in WaitingForScoutUpgrade state"
+            "machine {machine_id} is not in WaitingForScoutUpgrade state"
         ))
         .into());
     };
@@ -203,7 +203,7 @@ pub async fn report_scout_firmware_upgrade_status(
             "Rejecting stale scout firmware upgrade status report",
         );
         return Err(CarbideError::FailedPrecondition(format!(
-            "Scout firmware upgrade status task ID mismatch for machine {machine_id}"
+            "scout firmware upgrade status task ID mismatch for machine {machine_id}"
         ))
         .into());
     }

@@ -77,7 +77,7 @@ fn main() -> Result<()> {
 
         let generated = generator
             .generate_rust_types_for(&crd, Some(format!("-f {}", crd_path.display())))
-            .with_context(|| format!("failed to generate Rust types for {}", crd_path.display()))?;
+            .with_context(|| format!("failed to generate rust types for {}", crd_path.display()))?;
 
         let output_path = out_dir.join(format!("{module_name}.rs"));
         fs::write(&output_path, generated)

@@ -2466,7 +2466,7 @@ mod tests {
                 let mut f = fs::File::create(ERR_FILE).unwrap();
                 f.write_all(startup_yaml.as_bytes()).unwrap();
             })
-            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+            .wrap_err(format!("YAML parser error. output written to {ERR_FILE}"))?;
 
         Ok(())
     }
@@ -2523,7 +2523,7 @@ mod tests {
                 let mut f = fs::File::create(ERR_FILE).unwrap();
                 f.write_all(startup_yaml.as_bytes()).unwrap();
             })
-            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+            .wrap_err(format!("YAML parser error. output written to {ERR_FILE}"))?;
 
         Ok(())
     }
@@ -2589,7 +2589,7 @@ mod tests {
                 let mut f = fs::File::create(ERR_FILE).unwrap();
                 f.write_all(startup_yaml.as_bytes()).unwrap();
             })
-            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+            .wrap_err(format!("YAML parser error. output written to {ERR_FILE}"))?;
 
         Ok(())
     }
@@ -2642,7 +2642,7 @@ mod tests {
                 let mut f = fs::File::create(ERR_FILE).unwrap();
                 f.write_all(startup_yaml.as_bytes()).unwrap();
             })
-            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+            .wrap_err(format!("YAML parser error. output written to {ERR_FILE}"))?;
 
         Ok(())
     }
@@ -3140,7 +3140,7 @@ mod tests {
         // check dhcp server
         let dhcp_path = hbn_root.join("etc/supervisor/conf.d/default-forge-dhcp-server.conf");
         let dhcp_contents =
-            super::read_limited(&dhcp_path).wrap_err(format!("Failed reading {dhcp_path:?}"))?;
+            super::read_limited(&dhcp_path).wrap_err(format!("failed reading {dhcp_path:?}"))?;
         assert_eq!(dhcp_contents, crate::dhcp::TMPL_EMPTY);
         Ok(())
     }
@@ -3330,7 +3330,7 @@ mod tests {
                 let mut f = fs::File::create(ERR_FILE).unwrap();
                 f.write_all(startup_yaml.as_bytes()).unwrap();
             })
-            .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+            .wrap_err(format!("YAML parser error. output written to {ERR_FILE}"))?;
         assert_eq!(yaml_obj.len(), 2); // 'header' and 'set'
         Ok(())
     }

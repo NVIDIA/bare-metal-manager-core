@@ -21,7 +21,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
-use carbide_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
+use carbide_secrets::credentials::{
+    CredentialKey, CredentialType, CredentialWriter, Credentials, NicLockdownIkm,
+};
 use carbide_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use carbide_utils::HostPortPair;
 use eyre::Report;
@@ -190,12 +192,23 @@ async fn drop_pg_database_with_retry_if_exists(db_url: &str) -> eyre::Result<()>
     Ok(())
 }
 
+pub struct TestApiServerArgs {
+    pub bmc_proxy: Option<HostPortPair>,
+    pub firmware_directory: PathBuf,
+    pub addr_index: usize,
+    pub put_dev_bin_in_path: bool,
+    pub insecure_discovery: bool,
+}
+
 pub async fn start_api_server(
     test_env: IntegrationTestEnvironment,
-    bmc_proxy: Option<HostPortPair>,
-    firmware_directory: PathBuf,
-    addr_index: usize,
-    put_dev_bin_in_path: bool,
+    TestApiServerArgs {
+        bmc_proxy,
+        firmware_directory,
+        addr_index,
+        put_dev_bin_in_path,
+        insecure_discovery,
+    }: TestApiServerArgs,
     cancel_token: CancellationToken,
 ) -> eyre::Result<ApiServerHandle> {
     // Destructure into vars to save typing
@@ -259,6 +272,7 @@ pub async fn start_api_server(
                 cancel_token,
                 ready_channel: ready_tx,
                 credential_config,
+                insecure_discovery,
             })
             .await
             .inspect_err(|e| {
@@ -315,12 +329,36 @@ pub async fn populate_initial_vault_secrets(
 
     credential_manager
         .set_credentials(
+            &CredentialKey::DpuUefi {
+                credential_type: CredentialType::DpuHardwareDefault,
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "password".to_string(),
+            },
+        )
+        .await?;
+
+    credential_manager
+        .set_credentials(
             &CredentialKey::HostUefi {
                 credential_type: CredentialType::SiteDefault,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),
                 password: "password".to_string(),
+            },
+        )
+        .await?;
+
+    credential_manager
+        .set_credentials(
+            &CredentialKey::NicLockdownIkm {
+                credential_type: NicLockdownIkm::SiteWide { version: 0 },
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "test-lockdown-ikm".to_string(),
             },
         )
         .await?;

@@ -193,6 +193,20 @@ It supports these common deployment modes:
 inject image pull secrets; images must be public, preloaded, or configured with
 existing imagePullSecrets in values.
 
+When `REGISTRY_PULL_SECRET` is set, preflight also validates that the exact
+rendered NICo Core image ref (and any registry-qualified image refs in the Core
+values file) can be pulled with it, and fails fast on bad credentials or a
+missing tag instead of surfacing an `ImagePullBackOff` late in setup. The
+secret is sent only to the `NICO_IMAGE_REGISTRY` host and to the Bearer token
+endpoint that host advertises via `WWW-Authenticate` (a registry's token
+service may live on a separate host, e.g. an SSO endpoint); refs on other
+registries are probed anonymously and report warnings at most. Without the
+secret, authentication, not-found, server, and transport failures are
+warnings (malformed image references and unexpected HTTP responses remain
+errors, as does a missing `curl` when validation is required), and an
+unreachable registry host skips the image checks entirely
+(air-gapped/preloaded installs).
+
 ## What gets deployed
 
 ```text

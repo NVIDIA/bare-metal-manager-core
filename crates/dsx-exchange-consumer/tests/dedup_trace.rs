@@ -15,10 +15,9 @@
  * limitations under the License.
  */
 
-//! Proves the reshape left the dedup site's log line byte-identical: converting
-//! the counter to a metric-only event kept the `tracing::trace!` beside it, so
-//! the dedup branch still emits exactly one "Deduplicating unchanged value"
-//! line at TRACE with its original fields.
+//! Exercises the public message loop far enough to prove
+//! `MessageDeduplicated` writes one TRACE record with the point context
+//! operators use.
 //!
 //! Its own test binary on purpose: `tracing` caches callsite interest the first
 //! time a callsite is hit, so a `capture_logs` (thread-local) subscriber only
@@ -29,18 +28,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use carbide_dsx_exchange_consumer::DsxConsumerError;
 use carbide_dsx_exchange_consumer::api_client::RackHealthReportSink;
 use carbide_dsx_exchange_consumer::config::CacheConfig;
 use carbide_dsx_exchange_consumer::health_updater::HealthUpdater;
 use carbide_dsx_exchange_consumer::messages::{FaultValue, LeakMetadata, ValueMessage};
 use carbide_dsx_exchange_consumer::mqtt_consumer::MqttMessage;
-use carbide_dsx_exchange_consumer::{ConsumerMetrics, DsxConsumerError};
 use carbide_instrument::testing::capture_logs;
 use health_report::HealthReport;
 use tokio::sync::mpsc;
 
-/// Accepts every report so the first value caches and the identical second one
-/// takes the dedup branch.
+/// `OkSink` accepts every report so the first value enters the cache and an
+/// identical second value reaches the dedup branch.
 struct OkSink;
 
 #[async_trait]
@@ -81,7 +80,6 @@ fn dedup_site_keeps_its_trace_verbatim() {
                     value_state_ttl: Duration::from_secs(3600),
                 },
                 Arc::new(OkSink),
-                ConsumerMetrics::new(&meter),
                 meter.clone(),
             );
 
@@ -124,7 +122,8 @@ fn dedup_site_keeps_its_trace_verbatim() {
         .collect();
     assert_eq!(dedup.len(), 1, "expected one dedup trace; got {logs:?}");
     assert_eq!(dedup[0].level, tracing::Level::TRACE);
-    // The original trace's fields ride the line unchanged.
+    // `point_type`, `point_path`, and `value` identify the update that was
+    // skipped.
     assert!(
         dedup[0]
             .fields

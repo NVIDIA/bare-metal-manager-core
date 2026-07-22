@@ -148,7 +148,7 @@ fn operating_system_row_to_ipxe_script(
         name: row.name.clone(),
         description: row.description.clone(),
         hash: row.ipxe_definition_hash.clone().unwrap_or_default(),
-        tenant_id: Some(row.org.clone()),
+        tenant_id: row.org.clone(),
         ipxe_template_id,
         parameters,
         artifacts,
@@ -269,7 +269,7 @@ impl PxeInstructions {
 
         renderer
             .render(ipxeos, &reserved_params)
-            .map_err(|e| CarbideError::internal(format!("Failed to render iPXE script: {}", e)))
+            .map_err(|e| CarbideError::internal(format!("failed to render iPXE script: {}", e)))
     }
 
     pub async fn get_pxe_instructions(
@@ -391,7 +391,7 @@ exit ||
 
         let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
             .await
-            .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
+            .map_err(|e| CarbideError::InvalidArgument(format!("get machine failed, error: {e}")))?
             .ok_or(CarbideError::InvalidArgument(
                 "invalid machine id. not found in db".to_string(),
             ))?;
@@ -459,7 +459,7 @@ exit ||
         if target.arch == rpc::MachineArchitecture::Arm {
             console = "ttyAMA0";
             qcow_imager_url = "chain ${base-url}/internal/aarch64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-        } else if let Some(hardware_info) = machine.hardware_info.as_ref()
+        } else if let Some(hardware_info) = machine.status.hardware_info.as_ref()
             && let Some(dmi_info) = hardware_info.dmi_data.as_ref()
             && (dmi_info.sys_vendor == "Lenovo" || dmi_info.sys_vendor == "Supermicro")
         {

@@ -26,10 +26,11 @@ use serde::{Deserialize, Serialize};
 /// reported by Redfish. Carrying both identifiers is what makes boot-interface
 /// operations resilient -- callers target the MAC first and fall back to the
 /// [stable] `interface_id`, so the boot interface stays addressable even if one
-/// identifier becomes unavailable. That happens, for example, after a DPU
-/// `DpuMode` -> `NicMode` flip: some vendor BIOSes stop probing the adapter and
-/// the MAC drops out of `NetworkDeviceFunctions` / `EthernetInterfaces` /
-/// `NetworkAdapters`, leaving the `interface_id` as the reliable handle.
+/// identifier becomes unavailable. That happens, for example, after a BlueField
+/// operating-mode flip from DPU to NIC: some vendor BIOSes stop probing the
+/// adapter and the MAC drops out of `NetworkDeviceFunctions` /
+/// `EthernetInterfaces` / `NetworkAdapters`, leaving the `interface_id` as the
+/// reliable handle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct MachineBootInterface {

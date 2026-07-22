@@ -86,19 +86,3 @@ pub mod nic_intel_i210;
 
 /// NVIDIA ConnectX-7.
 pub mod nic_nvidia_cx7;
-
-use bmc_vendor::BMCVendor;
-
-pub fn bmc_vendor_to_udev_dmi(v: BMCVendor) -> &'static str {
-    match v {
-        BMCVendor::Lenovo => "Lenovo",
-        BMCVendor::Dell => "Dell Inc.",
-        BMCVendor::Nvidia => "https://www.mellanox.com",
-        BMCVendor::Supermicro => "Supermicro",
-        BMCVendor::Hpe => "HPE",
-        BMCVendor::LenovoAMI => "Unknown",
-        BMCVendor::Liteon => "Unknown",
-        BMCVendor::Delta => "Unknown",
-        BMCVendor::Unknown => "Unknown",
-    }
-}

@@ -49,10 +49,11 @@ pub async fn get_ek_cert_by_machine_id(
         },
     )
     .await?
-    .ok_or_else(|| CarbideError::internal(format!("Machine with id {machine_id} not found.")))?;
+    .ok_or_else(|| CarbideError::internal(format!("machine with id {machine_id} not found")))?;
 
     // obtain an ek cert
     let tpm_ek_cert = machine
+        .status
         .hardware_info
         .as_ref()
         .ok_or_else(|| CarbideError::internal("hardware info not found".to_string()))?

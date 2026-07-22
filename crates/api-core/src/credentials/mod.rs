@@ -44,7 +44,7 @@ impl UpdateCredentials {
             let credential_purpose = CredentialPurpose::try_from(credential.credential_purpose)
                 .map_err(|error| {
                     CarbideError::internal(format!(
-                        "invalid discriminant {error:?} for Credential Purpose from grpc?"
+                        "invalid discriminant {error:?} for credential purpose from grpc?"
                     ))
                 })?;
 

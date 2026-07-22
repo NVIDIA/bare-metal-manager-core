@@ -26,7 +26,10 @@ use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use mac_address::MacAddress;
-use model::expected_machine::{DpuMode, ExpectedHostNic, ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedMachine, ExpectedMachineData, HostDpuPolicy,
+};
+use model::machine_boot_interface::MachineBootInterface;
 use model::test_support::ManagedHostConfig;
 
 struct ZeroDpuEnv {
@@ -97,7 +100,7 @@ async fn register_zero_dpu_expected_machine(
             bmc_mac_address: managed_host.bmc_mac_address,
             data: ExpectedMachineData {
                 serial_number: managed_host.serial.clone(),
-                dpu_mode: DpuMode::NoDpu,
+                dpu_policy: HostDpuPolicy::Ignore,
                 ..Default::default()
             },
         },
@@ -363,8 +366,8 @@ async fn test_predicted_live_boot_interface_id_outranks_retained_at_promotion(
 /// A zero-DPU host with no declared primary recovers its primary (boot)
 /// interface from the boot pair preserved across `--delete-interfaces` in
 /// `retained_boot_interfaces`. This is the DPU->NIC flip re-registration case:
-/// the operator patches `dpu_mode = nic_mode` and force-deletes, declaring no
-/// primary, and the host comes back with no managed DPU -- so neither the
+/// the operator selects `HostDpuPolicy::Ignore` and force-deletes, declaring
+/// no primary, and the host comes back with no managed DPU -- so neither the
 /// declared-primary nor the DPU-host-PF path names a primary. Without the
 /// retained fallback the re-ingested host would come up with no primary at all,
 /// leaving the machine-controller no boot target to set a boot order from.
@@ -657,7 +660,7 @@ async fn test_zero_dpu_multi_nic_no_declaration_adopts_without_primary_collision
         non_dpu_macs: vec![nic_a, nic_b],
         ..ManagedHostConfig::default()
     };
-    // No declared primary: NoDpu with empty host_nics.
+    // No declared primary: `Ignore` with empty host_nics.
     register_zero_dpu_expected_machine(&env, &mock_host).await?;
 
     // Both NICs lease before site-explorer runs -> two anonymous primary rows.
@@ -749,10 +752,10 @@ async fn test_zero_dpu_multi_nic_no_declaration_adopts_without_primary_collision
     Ok(())
 }
 
-/// A zero-DPU host that declares one of its NICs `primary` mints that intent
-/// onto the prediction, and DHCP promotion lands it: the declared NIC promotes
-/// as primary and the other as non-primary -- even when the non-declared NIC
-/// leases first.
+/// A zero-DPU host that declares one of its NICs `primary` refreshes the
+/// endpoint-level boot-interface pair and mints that intent onto the
+/// prediction. DHCP promotion then lands the declared NIC as primary and the
+/// other as non-primary -- even when the non-declared NIC leases first.
 #[sqlx_test]
 async fn test_zero_dpu_declared_primary_promotes_as_primary(
     pool: PgPool,
@@ -775,7 +778,7 @@ async fn test_zero_dpu_declared_primary_promotes_as_primary(
             bmc_mac_address: mock_host.bmc_mac_address,
             data: ExpectedMachineData {
                 serial_number: mock_host.serial.clone(),
-                dpu_mode: DpuMode::NoDpu,
+                dpu_policy: HostDpuPolicy::Ignore,
                 host_nics: vec![
                     ExpectedHostNic {
                         mac_address: primary_nic,
@@ -817,11 +820,33 @@ async fn test_zero_dpu_declared_primary_promotes_as_primary(
     );
     env.site_explorer.run_single_iteration().await?;
     let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_boot_interface(
+        host_bmc_ip,
+        &MachineBootInterface {
+            mac_address: other_nic,
+            interface_id: "NIC.Embedded.2-1-1".to_string(),
+        },
+        &mut txn,
+    )
+    .await?;
     db::explored_endpoints::set_preingestion_complete(host_bmc_ip, &mut txn).await?;
     txn.commit().await?;
     env.site_explorer.run_single_iteration().await?;
 
     let mut txn = env.pool.begin().await?;
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should still exist after ingestion");
+    assert_eq!(
+        endpoint.boot_interface(),
+        Some(MachineBootInterface {
+            mac_address: primary_nic,
+            interface_id: "NIC.Embedded.1-1-1".to_string(),
+        }),
+        "Ignore policy should refresh a stale endpoint pair from the explicitly declared primary NIC",
+    );
     let predicted_primary =
         db::predicted_machine_interface::find_by_mac_address(&mut txn, primary_nic)
             .await?

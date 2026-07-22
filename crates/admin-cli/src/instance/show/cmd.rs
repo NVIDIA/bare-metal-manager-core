@@ -263,8 +263,50 @@ async fn convert_instance_to_nice_format(
                             Some(
                                 forgerpc::instance_interface_config::NetworkDetails::VpcPrefixId(x),
                             ) => x.to_string().into(),
+                            Some(forgerpc::instance_interface_config::NetworkDetails::Vpc(_)) => {
+                                "Automatic VPC selection".into()
+                            }
                             None => "NA".into(),
                         },
+                    ),
+                    (
+                        "REQUESTED VPC ID",
+                        match if_config.and_then(|c| c.network_details.as_ref()) {
+                            Some(forgerpc::instance_interface_config::NetworkDetails::Vpc(
+                                selection,
+                            )) => selection
+                                .vpc_id
+                                .map(|vpc_id| vpc_id.to_string().into())
+                                .unwrap_or_else(|| "NA".into()),
+                            _ => "NA".into(),
+                        },
+                    ),
+                    (
+                        "REQUESTED IP FAMILY",
+                        match if_config.and_then(|c| c.network_details.as_ref()) {
+                            Some(forgerpc::instance_interface_config::NetworkDetails::Vpc(
+                                selection,
+                            )) => selection.family_mode().as_str_name().into(),
+                            _ => "NA".into(),
+                        },
+                    ),
+                    (
+                        "RESOLVED IPV4 PREFIX ID",
+                        status
+                            .resolved_vpc_prefixes
+                            .as_ref()
+                            .and_then(|resolved| resolved.ipv4_vpc_prefix_id)
+                            .map(|id| id.to_string().into())
+                            .unwrap_or_else(|| "NA".into()),
+                    ),
+                    (
+                        "RESOLVED IPV6 PREFIX ID",
+                        status
+                            .resolved_vpc_prefixes
+                            .as_ref()
+                            .and_then(|resolved| resolved.ipv6_vpc_prefix_id)
+                            .map(|id| id.to_string().into())
+                            .unwrap_or_else(|| "NA".into()),
                     ),
                     (
                         "MAC ADDR",

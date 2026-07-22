@@ -141,7 +141,7 @@ impl Route {
 
             let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
                 .await
-                .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+                .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
             let fout = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(fout)
@@ -177,7 +177,7 @@ impl Route {
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         if output.status.success() {
@@ -216,7 +216,7 @@ impl Route {
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         if output.status == ExitStatus::from_raw(0) {

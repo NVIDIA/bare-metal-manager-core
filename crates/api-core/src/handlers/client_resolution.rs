@@ -194,7 +194,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
         ResolvedClient::MachineInterface(machine_interface) => {
             let domain_id = machine_interface.domain_id.ok_or_else(|| {
                 CarbideError::internal(format!(
-                    "Machine Interface did not have an associated domain {}",
+                    "machine interface did not have an associated domain {}",
                     machine_interface.id
                 ))
             })?;
@@ -203,7 +203,7 @@ pub(crate) async fn resolve_cloud_init_instructions(
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
-                    CarbideError::internal(format!("Could not find domain with id {domain_id}"))
+                    CarbideError::internal(format!("could not find domain with id {domain_id}"))
                 })?
                 .to_owned();
 
@@ -272,6 +272,9 @@ pub(crate) async fn resolve_cloud_init_instructions(
                     hbn_bridge: traffic_intercept_bridging.map(|b| b.hbn_bridge.clone()),
                     host_representor_intercept_bridging: traffic_intercept_bridging
                         .and_then(|b| b.host_representor_intercept_bridging_provisioning_config()),
+                    bootstrap_ca_source: rpc::BootstrapCaSource::from(
+                        api.runtime_config.dpu_config.bootstrap_ca_source,
+                    ) as i32,
                 }),
                 metadata,
                 api_url_override,

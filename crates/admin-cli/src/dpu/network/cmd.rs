@@ -196,6 +196,7 @@ pub async fn show_dpu_network_config(
     Ok(())
 }
 
+#[allow(deprecated)]
 pub async fn show_dpu_status(
     api_client: &ApiClient,
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,

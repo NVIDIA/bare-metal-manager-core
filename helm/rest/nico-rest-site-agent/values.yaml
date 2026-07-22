@@ -69,6 +69,10 @@ bootstrap:
   # this site with nico-rest-site-manager and creates the site-registration secret.
   # Requires envConfig.CLUSTER_ID to be set.
   enabled: false
+  # Set `repository` + `tag` to override (they win when both are set); otherwise the
+  # combined `image` below is used.
+  # repository: alpine/k8s
+  # tag: 1.29.4
   image: alpine/k8s:1.29.4
   siteManager:
     address: nico-rest-site-manager.nico-rest

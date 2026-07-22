@@ -137,7 +137,8 @@ impl UpstreamStatus {
 /// failure's detail already reaches the caller in the 502 response body.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_upstream_request_duration_milliseconds",
+    event_name = "bmc_proxy_upstream_request_completed",
+    metric_name = "carbide_bmc_proxy_upstream_request_duration_milliseconds",
     component = "nico-bmc-proxy",
     log = off,
     metric = histogram,

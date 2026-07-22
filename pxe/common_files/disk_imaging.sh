@@ -149,6 +149,7 @@ function add_cloud_init() {
 	mkdir -p "$seed_dir"
 	curl --fail --retry 5 --retry-all-errors -k "$cloud_init_url/user-data" --output "$seed_dir/user-data" 2>&1 | tee "$log_output"
 	curl --fail --retry 5 --retry-all-errors -k "$cloud_init_url/meta-data" --output "$seed_dir/meta-data" 2>&1 | tee "$log_output"
+	curl --fail --retry 5 --retry-all-errors -k "$cloud_init_url/network-config" --output "$seed_dir/network-config" 2>&1 | tee "$log_output"
 }
 
 function expand_root_fs() {

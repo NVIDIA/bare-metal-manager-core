@@ -22,11 +22,11 @@ use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use carbide_site_explorer::enrich_endpoint_exploration_report;
 use config_version::ConfigVersion;
 use model::expected_entity::ExpectedEntity;
-use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::utils::resolve_bmc_address;
 
 pub(crate) async fn find_explored_endpoint_ids(
     api: &Api,
@@ -377,7 +377,7 @@ pub(crate) async fn refresh_endpoint_report(
         Some(guard) => guard,
         None => {
             return Err(CarbideError::AlreadyInProgress(format!(
-                "Endpoint refresh already in progress for {bmc_ip}"
+                "endpoint refresh already in progress for {bmc_ip}"
             ))
             .into());
         }
@@ -455,7 +455,7 @@ pub(crate) async fn refresh_endpoint_report(
 
         let ep = endpoints.into_iter().next().ok_or_else(|| {
             tonic::Status::from(CarbideError::internal(format!(
-                "Endpoint {bmc_ip} not found after update"
+                "endpoint {bmc_ip} not found after update"
             )))
         })?;
 
@@ -500,7 +500,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot pause/resume remediation for endpoint {bmc_ip} because a machine exists for it"
+            "cannot pause/resume remediation for endpoint {bmc_ip} because a machine exists for it"
         ))
         .into());
     }
@@ -518,20 +518,7 @@ pub(crate) async fn is_bmc_in_managed_host(
 ) -> Result<Response<IsBmcInManagedHostResponse>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
-    let address = if req.ip_address.contains(':') {
-        req.ip_address.clone()
-    } else {
-        format!("{}:443", req.ip_address)
-    };
-
-    let mut addrs = lookup_host(address).await?;
-    let Some(bmc_addr) = addrs.next() else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
-            req.ip_address
-        ))
-        .into());
-    };
+    let bmc_addr = resolve_bmc_address(&req.ip_address).await?;
 
     let in_managed_host =
         carbide_site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &api.database_connection)
@@ -572,7 +559,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     if in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot delete endpoint {bmc_ip} because a machine exists for it. Did you mean to force-delete the machine?"
+            "cannot delete endpoint {bmc_ip} because a machine exists for it. did you mean to force-delete the machine?"
         ))
         .into());
     }

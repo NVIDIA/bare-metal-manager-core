@@ -29,7 +29,7 @@ use tokio::sync::mpsc;
 use crate::DsxConsumerError;
 use crate::config::{MqttAuthMode, MqttConfig};
 use crate::messages::{LeakMetadata, ValueMessage};
-use crate::metrics::{MessageDropped, MessageReceived};
+use crate::metrics::{DroppedMessageType, MessageDropped, MessageReceived};
 
 /// Message types received from MQTT.
 #[derive(Debug, Clone)]
@@ -100,8 +100,9 @@ pub async fn connect(
                 emit(MessageReceived);
                 let msg = MqttMessage::Metadata { topic, metadata };
                 if tx.try_send(msg).is_err() {
-                    emit(MessageDropped);
-                    tracing::warn!("Message queue full, dropping metadata message");
+                    emit(MessageDropped {
+                        message_type: DroppedMessageType::Metadata,
+                    });
                 }
                 std::future::ready(())
             }
@@ -116,8 +117,9 @@ pub async fn connect(
                 emit(MessageReceived);
                 let msg = MqttMessage::Value { topic, value };
                 if tx.try_send(msg).is_err() {
-                    emit(MessageDropped);
-                    tracing::warn!("Message queue full, dropping value message");
+                    emit(MessageDropped {
+                        message_type: DroppedMessageType::Value,
+                    });
                 }
                 std::future::ready(())
             }

@@ -21,11 +21,13 @@
 //! The counters are `carbide-instrument` events declared with `log = off`:
 //! the Kea process installs no tracing subscriber, so the C++ `LOG_ERROR`
 //! lines in `callouts.cc` remain the log side and the events move only the
-//! metric. The two request counters keep their pre-standard names via
-//! `name_unchecked` -- the names and the `reason` label key existing
-//! dashboards select on stay byte-identical. The certificate-expiry gauge is
-//! point-in-time state, not an occurrence, and stays on the observable-gauge
-//! pattern.
+//! metric. The two request counters declare their existing exposed Prometheus
+//! series names directly, so the names and the `reason` label key that
+//! existing dashboards select on stay byte-identical. The certificate-expiry
+//! gauge is point-in-time state, not an occurrence, and stays on the
+//! observable-gauge pattern. `metrics_server` installs the metrics endpoint's
+//! Prometheus-only meter provider, so there is no separate OTLP instrument-name
+//! contract for these counters.
 
 use std::ops::Deref;
 use std::sync::Arc;
@@ -96,7 +98,7 @@ impl From<u8> for V6ReplyMessageType {
 }
 
 /// Why the hook dropped or refused a DHCP request, as the bounded `reason`
-/// label on the grandfathered `carbide-dhcp.dropped_requests` counter.
+/// label on the grandfathered `carbide_dhcp_dropped_requests_total` counter.
 ///
 /// The rendered strings are part of the metric's contract: the long-counted
 /// reasons render byte-identically to the strings their sites have always
@@ -293,8 +295,8 @@ impl From<&str> for V6DropReason {
 /// of it next.
 #[derive(Event)]
 #[event(
-    name = "carbide-dhcp.requests",
-    name_unchecked,
+    event_name = "kea_dhcp_request_received",
+    metric_name = "carbide_dhcp_requests_total",
     component = "carbide-dhcp",
     log = off,
     metric = counter,
@@ -307,8 +309,8 @@ pub struct DhcpRequestReceived;
 /// lease selection and then a missing machine at send time) counts each site.
 #[derive(Event)]
 #[event(
-    name = "carbide-dhcp.dropped_requests",
-    name_unchecked,
+    event_name = "kea_dhcp_request_dropped",
+    metric_name = "carbide_dhcp_dropped_requests_total",
     component = "carbide-dhcp",
     log = off,
     metric = counter,
@@ -322,7 +324,8 @@ pub struct DhcpRequestDropped {
 /// The DHCPv6 hook dropped a packet before Kea could safely answer it.
 #[derive(Event)]
 #[event(
-    name = "carbide_dropped_v6_requests_total",
+    event_name = "kea_dhcp_v6_request_dropped",
+    metric_name = "carbide_dropped_v6_requests_total",
     component = "carbide-dhcp",
     log = off,
     metric = counter,
@@ -340,7 +343,8 @@ pub struct DhcpV6RequestDropped {
 /// standard name rather than a grandfathered one.
 #[derive(Event)]
 #[event(
-    name = "carbide_dhcp_replies_sent_total",
+    event_name = "kea_dhcp_reply_sent",
+    metric_name = "carbide_dhcp_replies_sent_total",
     component = "carbide-dhcp",
     log = off,
     metric = counter,
@@ -354,7 +358,8 @@ pub struct DhcpReplySent {
 /// A fully assembled DHCPv6 response left `pkt6_send` for transmission.
 #[derive(Event)]
 #[event(
-    name = "carbide_dhcp_v6_replies_sent_total",
+    event_name = "kea_dhcp_v6_reply_sent",
+    metric_name = "carbide_dhcp_v6_replies_sent_total",
     component = "carbide-dhcp",
     log = off,
     metric = counter,

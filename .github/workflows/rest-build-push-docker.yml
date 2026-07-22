@@ -427,25 +427,3 @@ jobs:
 
           ARTIFACTS=$(jq -c . artifacts.json)
           echo "artifacts=$ARTIFACTS" >> $GITHUB_OUTPUT
-
-  security-container-scan-summary:
-    name: Container Scan Summary
-    runs-on: ${{ inputs.runner }}
-    needs:
-      - build-nico-rest-api
-      - build-nico-rest-db
-      - build-nico-rest-site-manager
-      - build-nico-rest-workflow
-      - build-nico-rest-site-agent
-      - build-nico-rest-cert-manager
-      - build-nico-flow
-      - build-nico-psm
-      - build-nico-nsm
-    if: always()
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: NVIDIA/dsx-github-actions/.github/actions/security-container-scan-aggregate@aa4e470cc53f3886545c7d72a984eb81f1d203e2 # v1.16.2
-        with:
-          post-pr-comment: 'true'

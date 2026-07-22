@@ -20,6 +20,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
+use carbide_instrument::{DynamicLog, Event, LogAt};
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
 /// Metrics that are gathered in a single dpa monitor run
@@ -71,7 +72,7 @@ impl MetricHolder {
     pub fn new(meter: Meter, hold_period: Duration) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
         let instruments = DpaMonitorInstruments::new(meter, last_iteration_metrics.clone());
-        instruments.init_counters_and_histograms();
+        instruments.init_counters();
         Self {
             instruments,
             last_iteration_metrics,
@@ -80,16 +81,45 @@ impl MetricHolder {
 
     /// Updates the most recent metrics
     pub fn update_metrics(&self, metrics: DpaMonitorMetrics) {
-        // Emit the last recent latency metrics
-        self.instruments.emit_counters_and_histograms(&metrics);
+        self.instruments.emit_counters(&metrics);
         self.last_iteration_metrics.update(metrics);
+    }
+}
+
+/// `DpaMonitorIterationFinished` closes one DPA monitor pass. Every emission
+/// records its duration in the existing label-free histogram; a non-empty
+/// `error` also retains the historical warning.
+#[derive(Event)]
+#[event(
+    event_name = "dpa_monitor_iteration_finished",
+    metric_name = "carbide_dpa_monitor_iteration_latency_milliseconds",
+    component = "dpa-monitor",
+    log = dynamic,
+    metric = histogram,
+    message = "DPA monitor error",
+    describe = "Time consumed for one monitor iteration"
+)]
+pub(crate) struct DpaMonitorIterationFinished {
+    #[observation]
+    pub latency: Duration,
+    /// An empty value turns off logging without skipping the latency sample.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for DpaMonitorIterationFinished {
+    fn log_at(&self) -> LogAt {
+        if self.error.is_empty() {
+            LogAt::Off
+        } else {
+            LogAt::Level(tracing::Level::WARN)
+        }
     }
 }
 
 /// Instruments that are used by pub struct DpaMonitor
 #[allow(dead_code)]
 pub struct DpaMonitorInstruments {
-    pub iteration_latency: Histogram<f64>,
     pub operations_latency: Histogram<f64>,
     pub dpa_config_apply_latency: Histogram<f64>,
     pub heartbeats_sent: Counter<u64>,
@@ -99,11 +129,6 @@ pub struct DpaMonitorInstruments {
 
 impl DpaMonitorInstruments {
     pub fn new(meter: Meter, shared_metrics: SharedMetricsHolder<DpaMonitorMetrics>) -> Self {
-        let iteration_latency = meter
-            .f64_histogram("carbide_dpa_monitor_iteration_latency")
-            .with_description("Time consumed for one monitor iteration")
-            .with_unit("ms")
-            .build();
         let dpa_config_apply_latency = meter
             .f64_histogram("carbide_dpa_monitor_dpa_config_apply_latency")
             .with_description("Time since dpa config was requested for this instance")
@@ -138,7 +163,6 @@ impl DpaMonitorInstruments {
             .build();
 
         Self {
-            iteration_latency,
             dpa_config_apply_latency,
             operations_latency,
             heartbeats_sent,
@@ -147,20 +171,158 @@ impl DpaMonitorInstruments {
         }
     }
 
-    fn init_counters_and_histograms(&self) {
+    fn init_counters(&self) {
         self.heartbeats_sent.add(0, &[]);
         self.creates.add(0, &[]);
         self.deletes.add(0, &[]);
     }
 
-    fn emit_counters_and_histograms(&self, metrics: &DpaMonitorMetrics) {
-        self.iteration_latency.record(
-            1000.0 * metrics.recording_started_at.elapsed().as_secs_f64(),
-            &[],
-        );
+    fn emit_counters(&self, metrics: &DpaMonitorMetrics) {
         self.heartbeats_sent
             .add(metrics.num_heartbeats_sent as u64, &[]);
         self.creates.add(metrics.num_creates as u64, &[]);
         self.deletes.add(metrics.num_deletes as u64, &[]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    const EXPOSED_METRIC: &str = "carbide_dpa_monitor_iteration_latency_milliseconds";
+
+    #[test]
+    fn dpa_monitor_iteration_results_pair_latency_with_failure_log() {
+        struct IterationCase {
+            latency: Duration,
+            error: &'static str,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        value_scenarios!(
+            run = |IterationCase { latency, error }| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(DpaMonitorIterationFinished {
+                        latency,
+                        error: error.to_string(),
+                    });
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
+
+                Observation {
+                    log_count: logs.len(),
+                    log,
+                    histogram_count_delta: metrics.histogram_count_delta(EXPOSED_METRIC, &[]),
+                    histogram_sum_delta: metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
+                }
+            };
+            "successful iteration stays silent" {
+                IterationCase {
+                    latency: Duration::from_millis(125),
+                    error: "",
+                } => Observation {
+                    log_count: 0,
+                    log: None,
+                    histogram_count_delta: 1,
+                    histogram_sum_delta: 125.0,
+                },
+            }
+            "fractional milliseconds remain precise" {
+                IterationCase {
+                    latency: Duration::from_micros(125_500),
+                    error: "",
+                } => Observation {
+                    log_count: 0,
+                    log: None,
+                    histogram_count_delta: 1,
+                    histogram_sum_delta: 125.5,
+                },
+            }
+            "failed iteration retains the warning" {
+                IterationCase {
+                    latency: Duration::from_millis(375),
+                    error: "simulated iteration failure",
+                } => Observation {
+                    log_count: 1,
+                    log: Some(LogObservation {
+                        level: tracing::Level::WARN,
+                        metadata_name: "dpa_monitor_iteration_finished".to_string(),
+                        message: "DPA monitor error".to_string(),
+                        event_name: Some("dpa_monitor_iteration_finished".to_string()),
+                        metric_name: Some(EXPOSED_METRIC.to_string()),
+                        error: Some("simulated iteration failure".to_string()),
+                    }),
+                    histogram_count_delta: 1,
+                    histogram_sum_delta: 375.0,
+                },
+            }
+        );
+    }
+
+    /// The Event replaces the manual histogram without changing its exposed
+    /// family name, HELP text, unit suffix, or label-free samples.
+    #[test]
+    fn dpa_monitor_iteration_histogram_exposition_stays_stable() {
+        let metrics = MetricsCapture::start();
+        emit(DpaMonitorIterationFinished {
+            latency: Duration::from_millis(125),
+            error: String::new(),
+        });
+
+        let encoded = metrics.render();
+        assert!(
+            encoded.contains(&format!(
+                "# HELP {EXPOSED_METRIC} Time consumed for one monitor iteration\n"
+            )),
+            "description or exposed family changed:\n{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!("# TYPE {EXPOSED_METRIC} histogram\n")),
+            "expected the millisecond family to remain a histogram:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains("carbide_dpa_monitor_iteration_latency_milliseconds_milliseconds"),
+            "the unit suffix must be applied exactly once:\n{encoded}"
+        );
+        for suffix in ["count", "sum"] {
+            let prefix = format!("{EXPOSED_METRIC}_{suffix} ");
+            let sample = encoded
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("missing {prefix} sample:\n{encoded}"));
+            assert!(
+                !sample.contains('{'),
+                "iteration latency must remain label-free: {sample}"
+            );
+        }
     }
 }

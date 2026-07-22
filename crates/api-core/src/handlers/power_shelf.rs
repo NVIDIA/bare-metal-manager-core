@@ -138,7 +138,8 @@ pub async fn find_by_ids(
     )
     .await?;
 
-    let _ = txn.rollback().await;
+    txn.rollback_or_log("read-only load of power shelves by id")
+        .await;
 
     let power_shelves = convert_power_shelves(power_shelf_list)?;
 

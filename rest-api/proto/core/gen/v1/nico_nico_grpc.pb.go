@@ -584,11 +584,9 @@ type ForgeClient interface {
 	// rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
 	// Updates the Operating System on a running instance
 	UpdateInstanceOperatingSystem(ctx context.Context, in *InstanceOperatingSystemUpdateRequest, opts ...grpc.CallOption) (*Instance, error)
-	// Updates the configuration of a running instance.
-	// Only the following configurations of an instance can be changed:
-	// - Keyset IDs
-	// - Metadata (Name, Description, Labels)
-	// - Operating System Details
+	// Updates the mutable desired configuration and metadata of a running instance.
+	// `config` and `metadata` are complete values, not patches. Callers must
+	// preserve fields and selector variants they do not intend to change.
 	// The update will take effect asynchronously. Users should monitor `Instance.status.synced`
 	// to determine whether all updates have been applied.
 	UpdateInstanceConfig(ctx context.Context, in *InstanceConfigUpdateRequest, opts ...grpc.CallOption) (*Instance, error)
@@ -6040,11 +6038,9 @@ type ForgeServer interface {
 	// rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
 	// Updates the Operating System on a running instance
 	UpdateInstanceOperatingSystem(context.Context, *InstanceOperatingSystemUpdateRequest) (*Instance, error)
-	// Updates the configuration of a running instance.
-	// Only the following configurations of an instance can be changed:
-	// - Keyset IDs
-	// - Metadata (Name, Description, Labels)
-	// - Operating System Details
+	// Updates the mutable desired configuration and metadata of a running instance.
+	// `config` and `metadata` are complete values, not patches. Callers must
+	// preserve fields and selector variants they do not intend to change.
 	// The update will take effect asynchronously. Users should monitor `Instance.status.synced`
 	// to determine whether all updates have been applied.
 	UpdateInstanceConfig(context.Context, *InstanceConfigUpdateRequest) (*Instance, error)

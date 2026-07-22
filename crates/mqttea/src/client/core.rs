@@ -667,7 +667,8 @@ fn should_replay_subscriptions(has_connected_before: bool, session_present: bool
 // already logs its own details, so this event is metric-only.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_mqtt_reconnects_total",
+    event_name = "mqtt_reconnected",
+    metric_name = "carbide_mqtt_reconnects_total",
     component = "mqttea",
     log = off,
     metric = counter,
@@ -681,7 +682,8 @@ struct MqttReconnected {}
 // never run).
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_mqtt_dispatch_dropped_total",
+    event_name = "mqtt_handler_dispatch_dropped",
+    metric_name = "carbide_mqtt_dispatch_dropped_total",
     component = "mqttea",
     log = error,
     metric = counter,

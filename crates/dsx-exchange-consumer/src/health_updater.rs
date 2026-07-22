@@ -26,30 +26,24 @@ use moka::ops::compute::Op;
 use opentelemetry::metrics::Meter;
 use tokio::sync::mpsc;
 
-use crate::ConsumerMetrics;
 use crate::api_client::{HEALTH_REPORT_SOURCE, RackHealthReportSink};
 use crate::config::CacheConfig;
 use crate::messages::{FaultValue, LeakMetadata, LeakPointType, ValueMessage};
-use crate::metrics::{MessageAge, MessageDeduplicated, MessageProcessed};
+use crate::metrics::{
+    HealthReportPersistFailed, LeakAlertDetected, MessageAge, MessageDeduplicated, MessageProcessed,
+};
 use crate::mqtt_consumer::MqttMessage;
 
 /// Health status updater that processes MQTT messages and updates the API.
 pub struct HealthUpdater<S: RackHealthReportSink> {
     topic_prefix: String,
     api: Arc<S>,
-    metrics: ConsumerMetrics,
     metadata_cache: Cache<String, LeakMetadata>,
     value_state_cache: Cache<String, FaultValue>,
 }
 
 impl<S: RackHealthReportSink> HealthUpdater<S> {
-    pub fn new(
-        topic_prefix: String,
-        cache_config: CacheConfig,
-        api: Arc<S>,
-        metrics: ConsumerMetrics,
-        meter: Meter,
-    ) -> Self {
+    pub fn new(topic_prefix: String, cache_config: CacheConfig, api: Arc<S>, meter: Meter) -> Self {
         let metadata_cache: Cache<String, LeakMetadata> = Cache::builder()
             .time_to_live(cache_config.metadata_ttl)
             .build();
@@ -64,7 +58,6 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
         Self {
             topic_prefix,
             api,
-            metrics,
             metadata_cache,
             value_state_cache,
         }
@@ -155,7 +148,6 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
 
         let value = msg.value;
         let api = self.api.clone();
-        let metrics = self.metrics.clone();
 
         // Use and_try_compute_with for atomic check-and-update with serialized access.
         // Concurrent calls on the same key are executed serially.
@@ -165,33 +157,28 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
             .and_try_compute_with(|maybe_entry| {
                 let metadata = metadata.clone();
                 let api = api.clone();
-                let metrics = metrics.clone();
                 async move {
                     // Check for deduplication
                     if let Some(entry) = &maybe_entry
                         && *entry.value() == value
                     {
-                        emit(MessageDeduplicated);
-                        tracing::trace!(
-                            point_path = %point_path,
-                            point_type = %metadata.point_type,
-                            value = ?value,
-                            "Deduplicating unchanged value"
-                        );
+                        emit(MessageDeduplicated {
+                            point_path: point_path.to_string(),
+                            point_type: leak_type,
+                            value: format!("{value:?}"),
+                        });
                         return Ok(Op::Nop);
                     }
 
                     // Value differs or no entry - send API update
                     let send_result = if matches!(value, FaultValue::Faulting) {
-                        metrics.record_alert_detected(&metadata.point_type);
-                        tracing::info!(
-                            point_path = %point_path,
-                            rack_id = %metadata.rack_id,
-                            rack_name = %metadata.rack_name,
-                            point_type = %metadata.point_type,
-                            value = ?value,
-                            "Leak alert detected, inserting health override"
-                        );
+                        emit(LeakAlertDetected {
+                            point_type: leak_type,
+                            point_path: point_path.to_string(),
+                            rack_id: metadata.rack_id.clone(),
+                            rack_name: metadata.rack_name.clone(),
+                            value: format!("{value:?}"),
+                        });
 
                         let report = build_leak_alert_report(&metadata, leak_type);
                         api.insert_rack_health_report(&metadata.rack_id, report)
@@ -221,8 +208,14 @@ impl<S: RackHealthReportSink> HealthUpdater<S> {
             Ok(_) => {
                 emit(MessageProcessed);
             }
-            Err(_) => {
-                // API call failed - will retry on next message
+            Err(e) => {
+                // Surface the persist failure and count it. The value re-arrives
+                // on the next message, so processing still retries -- but the
+                // drop is now visible instead of silently discarded.
+                emit(HealthReportPersistFailed {
+                    rack_id: metadata.rack_id.clone(),
+                    error: e.to_string(),
+                });
             }
         }
     }
@@ -290,10 +283,6 @@ mod tests {
             metadata_ttl: Duration::from_secs(3600),
             value_state_ttl: Duration::from_secs(3600),
         }
-    }
-
-    fn test_metrics() -> ConsumerMetrics {
-        ConsumerMetrics::new(&test_meter())
     }
 
     fn test_metadata(point_type: &str, rack_id: &str) -> LeakMetadata {
@@ -450,7 +439,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -482,7 +470,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -513,7 +500,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -535,7 +521,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -561,7 +546,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -593,7 +577,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -634,7 +617,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             Arc::new(FailingSink),
-            test_metrics(),
             test_meter(),
         );
 
@@ -669,7 +651,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 
@@ -719,7 +700,6 @@ mod tests {
             TEST_PREFIX.to_string(),
             test_cache_config(),
             sink.clone(),
-            test_metrics(),
             test_meter(),
         );
 

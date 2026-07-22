@@ -211,7 +211,7 @@ async fn test_create_instance_with_ipxe_template_os(_: PgPoolOptions, options: P
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "template-os".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: Some("iPXE template based OS".to_string()),
                 is_active: true,
                 allow_override: true,
@@ -298,7 +298,7 @@ async fn create_os_definition(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: name.to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: None,
                 is_active,
                 allow_override: false,
@@ -386,7 +386,7 @@ async fn test_allocate_instance_rejects_not_ready_os(_: PgPoolOptions, options: 
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "not-ready-os".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: false,
@@ -650,7 +650,7 @@ async fn test_create_instance_with_raw_ipxe_os_and_verify_pxe_rendering(
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "raw-ipxe-os".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: Some("raw iPXE OS for instance test".to_string()),
                 is_active: true,
                 allow_override: true,
@@ -735,7 +735,7 @@ async fn test_create_instance_with_templated_ipxe_os_with_artifacts_and_verify_p
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "templated-os-with-artifacts".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: Some("templated iPXE OS with artifacts".to_string()),
                 is_active: true,
                 allow_override: true,

@@ -58,7 +58,7 @@ pub(crate) async fn trigger_machine_attestation(
                 id: format!("{}", machine_id),
             }));
         }
-        1 => &machines[0].bmc_info,
+        1 => &machines[0].status.bmc_info,
         _ => {
             return Err(Status::from(CarbideError::Internal {
                 message: format!("Found more than one machine for machine id {}", machine_id),

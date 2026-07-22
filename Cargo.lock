@@ -883,10 +883,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-server",
- "bmc-vendor",
  "bytes",
- "carbide-rpc",
- "carbide-utils",
  "chrono",
  "clap",
  "duration-str",
@@ -1496,6 +1493,7 @@ dependencies = [
  "carbide-sqlx-testing",
  "carbide-test-harness",
  "carbide-test-support",
+ "carbide-utils",
  "carbide-uuid",
  "carbide-version",
  "chrono",
@@ -1510,6 +1508,7 @@ dependencies = [
  "lazy_static",
  "mac_address",
  "oauth2",
+ "rand 0.10.1",
  "regex",
  "reqwest 0.13.4",
  "serde",
@@ -1746,9 +1745,11 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-dpa",
+ "carbide-instrument",
  "carbide-macros",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -1953,6 +1954,7 @@ dependencies = [
  "carbide-dpu-fmds-shared",
  "carbide-instrument",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
@@ -2135,6 +2137,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-ib-fabric",
+ "carbide-instrument",
  "carbide-secrets",
  "carbide-test-support",
  "carbide-tls",
@@ -2193,6 +2196,7 @@ dependencies = [
  "ctor",
  "dashmap",
  "futures-util",
+ "logfmt",
  "opentelemetry 0.32.0",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
@@ -2205,6 +2209,8 @@ dependencies = [
 name = "carbide-instrument-macros"
 version = "0.0.0"
 dependencies = [
+ "carbide-observability-schema",
+ "carbide-test-support",
  "proc-macro2",
  "quote",
  "syn 2.0.117",
@@ -2336,6 +2342,7 @@ dependencies = [
  "axum",
  "base64",
  "bmc-mock",
+ "carbide-api-model",
  "carbide-network",
  "carbide-rpc",
  "carbide-test-support",
@@ -2346,6 +2353,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossterm",
+ "dhcproto",
  "duration-str",
  "eyre",
  "figment",
@@ -2361,6 +2369,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "toml 1.1.2+spec-1.1.0",
  "tonic",
  "tower",
@@ -2392,6 +2401,7 @@ dependencies = [
  "carbide-utils",
  "carbide-uuid",
  "chrono",
+ "component-manager",
  "config-version",
  "duration-str",
  "eyre",
@@ -2535,6 +2545,7 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
@@ -2554,11 +2565,14 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-instrument",
  "carbide-rack",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-utils",
  "carbide-uuid",
  "chrono",
+ "component-manager",
  "config-version",
  "duration-str",
  "eyre",
@@ -2586,6 +2600,10 @@ dependencies = [
  "uuid",
  "x509-parser",
 ]
+
+[[package]]
+name = "carbide-observability-schema"
+version = "0.0.0"
 
 [[package]]
 name = "carbide-power-shelf-controller"
@@ -2628,6 +2646,7 @@ dependencies = [
  "carbide-uuid",
  "chrono",
  "futures-util",
+ "libc",
  "libredfish",
  "opentelemetry 0.32.0",
  "prometheus-text-parser",
@@ -2678,6 +2697,7 @@ dependencies = [
  "prometheus",
  "rand 0.10.1",
  "serde",
+ "serde_yaml",
  "tempfile",
  "tera",
  "tokio",
@@ -2764,6 +2784,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-instrument",
  "carbide-secrets",
+ "carbide-test-support",
  "carbide-utils",
  "chrono",
  "http",
@@ -3036,6 +3057,7 @@ dependencies = [
  "async-trait",
  "carbide-api-db",
  "carbide-api-model",
+ "carbide-instrument",
  "carbide-redfish",
  "carbide-utils",
  "config-version",
@@ -6716,7 +6738,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.19#b52345f45212c674245dffb6053b34dec53ac57b"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.22#53c0b12569d6de1ecccde826d495618ff987d8c6"
 dependencies = [
  "chrono",
  "clap",
@@ -7539,6 +7561,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "carbide-instrument",
  "clap",
  "fmt",
  "jsonwebtoken",
@@ -7664,9 +7687,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f381d59345a3974aacc20e44148621457b5002d32fe5c9850fbce9c11c22f90"
+checksum = "a479451ed177b194f1516905192cca7afcb19df746929a696cde25bb59505d22"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7681,9 +7704,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67abd866b1c01bd615cd18afc96305cd436076a16d7a76e53b25bed7fab8422b"
+checksum = "de3e56d83d55644a02a8df38e8708acaae92502e9365ed89283659e772f384e3"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7705,9 +7728,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5ec054643796ede5865fff5f0e3913ddc2bf7f954975f6f512b40d78be07db7"
+checksum = "a53785a0f2fe9ec12e7d5eea889878f9f6957dd71057685b65d4a67014382192"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7720,9 +7743,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34c88dbe8742e28c0e733596661d9c4605ef6cab438cf2c54d1ceb9577053f9a"
+checksum = "40e98d0fb2cfe55eef14406dc37abe45d8423eeff76e4f24bac222a30e9fd6b0"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7738,9 +7761,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-schema"
-version = "0.11.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc0a401a80543b6d7c27f28614bc70aa37103cd95b03b0746419bd87e43977f3"
+checksum = "fab0ee38389eee599875be88eee81f6f879d0671e830d20ec424654b74097bd5"
 dependencies = [
  "glob",
 ]
@@ -10886,9 +10909,9 @@ dependencies = [
 
 [[package]]
 name = "sse-stream"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3962b63f038885f15bce2c6e02c0e7925c072f1ac86bb60fd44c5c6b762fb72"
+checksum = "39f24a9b78c40b90817bbcd1821c74ddfd74916aadd29403d001532a9195532d"
 dependencies = [
  "bytes",
  "futures-util",
@@ -13171,6 +13194,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "carbide-observability-schema",
  "cargo_metadata",
  "chrono",
  "clap",

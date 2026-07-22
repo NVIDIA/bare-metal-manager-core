@@ -207,15 +207,23 @@ impl SyncLogFileWriter {
 
         tracing::info!(file_size_bytes = self.current_size, "rotating log file");
 
-        // flush and drop the current file handle before renaming
-        if let Some(mut file) = self.current_file.take() {
-            let _ = file.flush();
+        // Flush and drop the current handle before renaming. If the flush fails
+        // we would rename a file still missing its buffered bytes, so keep the
+        // writer and defer rotation to the next write instead of losing them.
+        if let Some(mut file) = self.current_file.take()
+            && let Err(e) = file.flush()
+        {
+            tracing::warn!(error = %e, "failed to flush log file; deferring rotation");
+            self.current_file = Some(file);
+            return Ok(());
         }
 
         let current_path = self.log_path();
 
         if self.max_backups == 0 {
-            let _ = fs::remove_file(&current_path);
+            if let Err(e) = fs::remove_file(&current_path) {
+                tracing::warn!(error = %e, path = %current_path.display(), "failed to remove current log file during rotation");
+            }
         } else {
             self.shift_backups(&current_path);
         }
@@ -229,19 +237,31 @@ impl SyncLogFileWriter {
         for i in (1..self.max_backups).rev() {
             let from = self.rotated_path(i);
             let to = self.rotated_path(i + 1);
-            if from.exists() {
-                let _ = fs::rename(&from, &to);
+            match fs::rename(&from, &to) {
+                Ok(()) => {}
+                // No backup at this index yet -- nothing to shift.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, from = %from.display(), to = %to.display(), "failed to shift rotated log file");
+                }
             }
         }
 
         // current -> .1
         let backup = self.rotated_path(1);
-        let _ = fs::rename(current_path, &backup);
+        if let Err(e) = fs::rename(current_path, &backup) {
+            tracing::warn!(error = %e, from = %current_path.display(), to = %backup.display(), "failed to rotate current log file to backup");
+        }
 
         // prune the oldest backup beyond the limit
         let oldest = self.rotated_path(self.max_backups + 1);
-        if oldest.exists() {
-            let _ = fs::remove_file(&oldest);
+        match fs::remove_file(&oldest) {
+            Ok(()) => {}
+            // Nothing beyond the limit to prune.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                tracing::warn!(error = %e, path = %oldest.display(), "failed to prune oldest rotated log file");
+            }
         }
     }
 }

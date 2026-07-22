@@ -62,8 +62,20 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
 
         let machine_guids = guids.entry(host_machine_id).or_default();
 
-        let discovery_info = machine.discovery_info.as_ref().unwrap();
-        let ib_status = machine.ib_status.expect("IB status is missing");
+        let discovery_info = machine
+            .status
+            .as_ref()
+            .unwrap()
+            .discovery_info
+            .as_ref()
+            .unwrap();
+        let ib_status = machine
+            .status
+            .as_ref()
+            .unwrap()
+            .infiniband
+            .clone()
+            .expect("IB status is missing");
         assert_eq!(
             discovery_info.infiniband_interfaces.len(),
             ib_status.ib_interfaces.len()
@@ -311,8 +323,20 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
 
         let machine = env.find_machine(rpc_machine_id).await.remove(0);
 
-        let discovery_info = machine.discovery_info.as_ref().unwrap();
-        let ib_status = machine.ib_status.expect("IB status is missing");
+        let discovery_info = machine
+            .status
+            .as_ref()
+            .unwrap()
+            .discovery_info
+            .as_ref()
+            .unwrap();
+        let ib_status = machine
+            .status
+            .as_ref()
+            .unwrap()
+            .infiniband
+            .clone()
+            .expect("IB status is missing");
         assert_eq!(
             discovery_info.infiniband_interfaces.len(),
             ib_status.ib_interfaces.len()

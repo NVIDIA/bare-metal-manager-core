@@ -1163,6 +1163,14 @@ pub struct PeriodicLogConfig {
     /// discovered LogService.
     #[serde(default)]
     pub exclude_services: Vec<String>,
+
+    /// When true, on the first encounter of a LogService with no saved state,
+    /// anchor at the current highest entry ID without emitting existing entries.
+    /// Subsequent polls collect only new entries, matching SSE real-time
+    /// behaviour. Defaults to false (existing entries are collected on first
+    /// run). Also applies when auto-mode downgrades to periodic collection.
+    #[serde(default)]
+    pub skip_initial_history: bool,
 }
 
 impl Default for PeriodicLogConfig {
@@ -1172,6 +1180,7 @@ impl Default for PeriodicLogConfig {
             state_refresh_interval: Duration::from_secs(1800),
             logs_state_file: "/tmp/logs_collector_{machine_id}.json".to_string(),
             exclude_services: vec!["Journal".to_string()],
+            skip_initial_history: false,
         }
     }
 }

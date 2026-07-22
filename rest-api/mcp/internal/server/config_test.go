@@ -14,7 +14,7 @@ import (
 func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 	type expect struct {
 		baseURL, org, apiName, token string
-		wantErr                      bool
+		errContains                  string
 	}
 	cases := []struct {
 		name     string
@@ -24,7 +24,7 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 		expected expect
 	}{
 		{
-			name: "tool_args_win_every_field",
+			name: "tool_args_resolve_every_field_without_configured_base_url",
 			in: map[string]any{
 				"base_url": "https://from-arg.example.com/",
 				"org":      "arg-org",
@@ -32,12 +32,110 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 				"token":    "Bearer arg-token",
 			},
 			req:  requestWithBearer("inbound-bearer"),
-			opts: Options{BaseURL: "https://opts.example.com", Org: "opts-org", APIName: "opts-name", Token: "opts-token"},
+			opts: Options{Org: "opts-org", APIName: "opts-name", Token: "opts-token"},
 			expected: expect{
 				baseURL: "https://from-arg.example.com",
 				org:     "arg-org",
 				apiName: "arg-name",
 				token:   "arg-token",
+			},
+		},
+		{
+			name: "configured_base_url_rejects_different_call_destination",
+			in: map[string]any{
+				"base_url": "https://from-arg.example.com",
+				"org":      "arg-org",
+				"token":    "arg-token",
+			},
+			req:  requestWithBearer("inbound-bearer"),
+			opts: Options{BaseURL: "https://opts.example.com", Org: "opts-org", Token: "opts-token"},
+			expected: expect{
+				errContains: "does not match the configured server base URL",
+			},
+		},
+		{
+			name: "configured_base_url_accepts_matching_normalized_call_destination",
+			in: map[string]any{
+				"base_url": "https://opts.example.com///",
+			},
+			req:  requestWithBearer("from-header"),
+			opts: Options{BaseURL: "https://opts.example.com/", Org: "opts-org", APIName: "nico", Token: "opts-token"},
+			expected: expect{
+				baseURL: "https://opts.example.com",
+				org:     "opts-org",
+				apiName: "nico",
+				token:   "from-header",
+			},
+		},
+		{
+			name: "configured_base_url_accepts_matching_scheme_and_host_case",
+			in: map[string]any{
+				"base_url": "https://OPTS.example.com/v2/",
+			},
+			req:  requestWithBearer("from-header"),
+			opts: Options{BaseURL: "HTTPS://opts.example.com/v2", Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				baseURL: "https://OPTS.example.com/v2",
+				org:     "opts-org",
+				apiName: "nico",
+				token:   "from-header",
+			},
+		},
+		{
+			name: "configured_base_url_accepts_matching_explicit_default_port",
+			in: map[string]any{
+				"base_url": "https://opts.example.com/v2",
+			},
+			req:  requestWithBearer("from-header"),
+			opts: Options{BaseURL: "https://opts.example.com:443/v2", Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				baseURL: "https://opts.example.com/v2",
+				org:     "opts-org",
+				apiName: "nico",
+				token:   "from-header",
+			},
+		},
+		{
+			name: "configured_base_url_rejects_different_path_case",
+			in: map[string]any{
+				"base_url": "https://opts.example.com/V2",
+			},
+			opts: Options{BaseURL: "https://opts.example.com/v2", Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				errContains: "does not match the configured server base URL",
+			},
+		},
+		{
+			name: "dynamic_destination_rejects_inbound_bearer_without_call_token",
+			in: map[string]any{
+				"base_url": "https://from-arg.example.com",
+			},
+			req:  requestWithBearer("from-header"),
+			opts: Options{Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				errContains: "refusing to forward inherited credentials",
+			},
+		},
+		{
+			name: "dynamic_destination_rejects_default_token_without_call_token",
+			in: map[string]any{
+				"base_url": "https://from-arg.example.com",
+			},
+			opts: Options{Org: "opts-org", APIName: "nico", Token: "opts-token"},
+			expected: expect{
+				errContains: "refusing to forward inherited credentials",
+			},
+		},
+		{
+			name: "dynamic_destination_without_credentials_is_allowed",
+			in: map[string]any{
+				"base_url": "https://from-arg.example.com/",
+			},
+			opts: Options{Org: "opts-org", APIName: "nico"},
+			expected: expect{
+				baseURL: "https://from-arg.example.com",
+				org:     "opts-org",
+				apiName: "nico",
 			},
 		},
 		{
@@ -70,7 +168,7 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 			req:  nil,
 			opts: Options{BaseURL: "https://opts.example.com"},
 			expected: expect{
-				wantErr: true,
+				errContains: "missing required config value(s): org",
 			},
 		},
 		{
@@ -79,7 +177,7 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 			req:  nil,
 			opts: Options{Org: "opts-org"},
 			expected: expect{
-				wantErr: true,
+				errContains: "missing required config value(s): base_url",
 			},
 		},
 		{
@@ -88,7 +186,7 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 			req:  nil,
 			opts: Options{},
 			expected: expect{
-				wantErr: true,
+				errContains: "missing required config value(s): org, base_url",
 			},
 		},
 		{
@@ -129,8 +227,8 @@ func TestFromCallConfig_PrecedenceChain(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			var cfg resolvedConfig
 			err := cfg.FromCallConfig(c.in, c.req, c.opts)
-			if c.expected.wantErr {
-				require.Error(t, err)
+			if c.expected.errContains != "" {
+				require.ErrorContains(t, err, c.expected.errContains)
 				return
 			}
 			require.NoError(t, err)

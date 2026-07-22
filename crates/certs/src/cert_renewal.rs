@@ -43,7 +43,8 @@ const MAX_CERT_RENEWAL_FAILURE_TIME_SECS: u64 = 5 * 60; // 5min
 /// short retry window on failure).
 #[derive(Event)]
 #[event(
-    name = "carbide_certs_renewals_total",
+    event_name = "cert_renewal_completed",
+    metric_name = "carbide_certs_renewals_total",
     component = "carbide-certs",
     log = dynamic,
     metric = counter,

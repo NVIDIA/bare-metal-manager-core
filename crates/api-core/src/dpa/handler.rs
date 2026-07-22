@@ -224,7 +224,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
 
     let machine = machine.unwrap();
 
-    let cur_spx_status_observations = machine.spx_status_observation.unwrap_or_default();
+    let cur_spx_status_observations = machine.status.spx_status_observation.unwrap_or_default();
     let mut new_spx_status_observations = MachineSpxStatusObservation::default();
 
     let mut add_new_observation = true;

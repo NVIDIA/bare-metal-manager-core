@@ -78,12 +78,12 @@ fn boot_interface_target_from(
 
 /// What a Redfish boot step should do with a host's boot interface.
 ///
-/// Separates "not ready yet" from "broken". A zero-DPU host (`NoDpu` or
-/// `NicMode`) boots from a plain NIC that takes its first HostInband lease only
-/// after the host comes up, so until then it has no boot interface to
-/// resolve -- the controller should wait, not fail. A host with managed DPUs
-/// always has its DPU-facing primary set at promotion, so a missing boot
-/// interface there is a genuine fault.
+/// Separates "not ready yet" from "broken". A zero-DPU host (policy `Ignore` or
+/// `Nic`) boots from a plain NIC that takes its first HostInband lease only
+/// after the host comes up, so until then it has no boot interface to resolve --
+/// the controller should wait, not fail. A host with managed DPUs always has its
+/// DPU-facing primary set at promotion, so a missing boot interface there is a
+/// genuine fault.
 #[derive(Debug)]
 pub enum BootInterfaceResolution {
     /// The boot interface resolved; target it.

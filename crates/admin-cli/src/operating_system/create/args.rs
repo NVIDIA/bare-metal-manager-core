@@ -36,8 +36,12 @@ pub struct Args {
     #[clap(short, long, help = "Name of the operating system definition.")]
     pub name: String,
 
-    #[clap(short, long, help = "Organization identifier for this OS definition.")]
-    pub org: String,
+    #[clap(
+        short,
+        long,
+        help = "Optional tenant organization identifier for this OS definition. Omit for OS definitions owned by provider."
+    )]
+    pub org: Option<String>,
 
     #[clap(
         long,

@@ -27,12 +27,12 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_secrets::credentials::CredentialManager;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::rack::RackId;
 use chrono::Utc;
+use component_manager::component_manager::ComponentManager;
 use config::NvLinkConfig;
 use config_version::Versioned;
 use db::machine::find_machine_ids;
@@ -49,7 +49,7 @@ use libnmxc::nmxc_model::{
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 use metrics::{
     AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperationStatus,
-    NvlPartitionMonitorMetrics,
+    NvlPartitionMonitorIterationFinished, NvlPartitionMonitorMetrics,
 };
 use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
 use model::instance::status::SyncState;
@@ -59,7 +59,6 @@ use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkSta
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
 use model::nvl_logical_partition::LogicalPartition;
 use model::nvl_partition::{NvlPartition, NvlPartitionName};
-use model::rack_type::RackProfileConfig;
 use sqlx::PgPool;
 #[cfg(feature = "test-support")]
 pub use switch_cert_monitor::{SwitchCertificateMonitor, SwitchCertificateMonitorIterationResult};
@@ -78,6 +77,7 @@ const NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT: u32 = 16;
 fn managed_host_chassis_serial(snapshot: &ManagedHostStateSnapshot) -> Option<String> {
     snapshot
         .host_snapshot
+        .status
         .nvlink_info
         .as_ref()
         .map(|info| info.chassis_serial.trim())
@@ -86,6 +86,7 @@ fn managed_host_chassis_serial(snapshot: &ManagedHostStateSnapshot) -> Option<St
         .or_else(|| {
             snapshot
                 .host_snapshot
+                .status
                 .hardware_info
                 .as_ref()
                 .and_then(HardwareInfo::first_gpu_platform_chassis_serial)
@@ -159,7 +160,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 
     if let Some(snapshot_info) =
-        snapshot.and_then(|snapshot| snapshot.host_snapshot.nvlink_info.as_ref())
+        snapshot.and_then(|snapshot| snapshot.host_snapshot.status.nvlink_info.as_ref())
     {
         return MachineNvLinkInfo {
             domain_uuid,
@@ -173,7 +174,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 
     let gpus = snapshot
-        .and_then(|snapshot| snapshot.host_snapshot.hardware_info.as_ref())
+        .and_then(|snapshot| snapshot.host_snapshot.status.hardware_info.as_ref())
         .map(nvlink_gpus_from_hardware_info)
         .unwrap_or_default();
 
@@ -184,8 +185,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 }
 
-/// Populates missing `machines.nvlink_info` entries, nil `domain_uuid`, or empty `chassis_serial`
-/// using NMX-C hello.
+/// Populates missing `machines.status.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
 fn populate_machine_nvlink_info_if_needed(
     machine_nvlink_info: &mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
     managed_host_snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -927,9 +927,7 @@ pub struct NvLinkManager {
     meter: opentelemetry::metrics::Meter,
     config: NvLinkConfig,
     host_health: HostHealthConfig,
-    rms_client: Option<Arc<dyn librms::RmsApi>>,
-    credential_manager: Arc<dyn CredentialManager>,
-    rack_profiles: RackProfileConfig,
+    component_manager: Option<Arc<ComponentManager>>,
     work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -939,9 +937,7 @@ pub struct NvLinkManagerArgs {
     pub meter: opentelemetry::metrics::Meter,
     pub config: NvLinkConfig,
     pub host_health: HostHealthConfig,
-    pub rms_client: Option<Arc<dyn librms::RmsApi>>,
-    pub credential_manager: Arc<dyn CredentialManager>,
-    pub rack_profiles: RackProfileConfig,
+    pub component_manager: Option<Arc<ComponentManager>>,
     pub work_lock_manager_handle: WorkLockManagerHandle,
 }
 
@@ -953,9 +949,7 @@ impl NvLinkManager {
             meter: args.meter,
             config: args.config,
             host_health: args.host_health,
-            rms_client: args.rms_client,
-            credential_manager: args.credential_manager,
-            rack_profiles: args.rack_profiles,
+            component_manager: args.component_manager,
             work_lock_manager_handle: args.work_lock_manager_handle,
         }
     }
@@ -980,9 +974,7 @@ impl NvLinkManager {
                 self.db_pool,
                 self.meter,
                 self.config,
-                self.rms_client,
-                self.credential_manager,
-                self.rack_profiles,
+                self.component_manager,
                 self.work_lock_manager_handle,
             );
             join_set
@@ -1059,19 +1051,16 @@ impl NvlPartitionMonitor {
         let timer = PeriodicTimer::new(self.config.monitor_run_interval);
         loop {
             let mut tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(num_changes) => {
-                    if num_changes > 0 {
-                        // Decrease the interval if changes have been made.
-                        tick.set_interval(Duration::from_millis(1000));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "NVLink partition monitor error",
-                    );
-                }
+            // `run_single_iteration` owns the completion event, including the
+            // historical `WARN`; this loop only needs the successful change
+            // count to adjust its cadence.
+            if self
+                .run_single_iteration()
+                .await
+                .is_ok_and(|num_changes| num_changes > 0)
+            {
+                // Decrease the interval if changes have been made.
+                tick.set_interval(Duration::from_millis(1000));
             }
 
             tokio::select! {
@@ -1108,6 +1097,16 @@ impl NvlPartitionMonitor {
             check_nvl_partition_span.record("otel.status_message", format!("{e:?}"));
         }
         check_nvl_partition_span.record("metrics", metrics.to_string());
+        check_nvl_partition_span.in_scope(|| {
+            carbide_instrument::emit(NvlPartitionMonitorIterationFinished {
+                latency: metrics.recording_started_at.elapsed(),
+                error: result
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            });
+        });
         self.metric_holder.update_metrics(metrics);
         result
     }
@@ -1310,7 +1309,7 @@ impl NvlPartitionMonitor {
                 );
                 for (machine_id, nvlink_info) in &nvlink_info_db_updates {
                     if let Some(snapshot) = managed_host_snapshots_domain.get_mut(machine_id) {
-                        snapshot.host_snapshot.nvlink_info = Some(nvlink_info.clone());
+                        snapshot.host_snapshot.status.nvlink_info = Some(nvlink_info.clone());
                     }
                 }
             }
@@ -1950,7 +1949,7 @@ impl NvlPartitionMonitor {
             return Ok(());
         }
 
-        if let Some(nvlink_info) = &mh.host_snapshot.nvlink_info {
+        if let Some(nvlink_info) = &mh.host_snapshot.status.nvlink_info {
             for gpu in &nvlink_info.gpus {
                 let nmxc_partition = match partition_ctx.gpu_to_partition_map.get(&gpu.guid) {
                     // GPU is in a partition, so we need to remove it from the partition.

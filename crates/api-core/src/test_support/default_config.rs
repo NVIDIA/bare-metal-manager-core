@@ -22,6 +22,7 @@ use std::default::Default;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_ib_fabric::config::IbFabricDefinition;
 use carbide_machine_controller::config::{
     BomValidationConfig, FirmwareGlobal, MachineStateControllerConfig, MachineValidationConfig,
@@ -134,6 +135,7 @@ pub fn get() -> CarbideConfig {
         dpu_ipmi_reboot_attempts: Some(0),
         bmc_session_lockout_threshold: default_bmc_session_lockout_threshold(),
         allow_bmc_basic_auth_fallback: false,
+        allow_insecure_discovery: true,
         initial_domain_name: Some("test.com".to_string()),
         sitename: Some("testsite".to_string()),
         initial_dpu_agent_upgrade_policy: None,
@@ -195,6 +197,7 @@ pub fn get() -> CarbideConfig {
             switch_mtls_services: vec![],
         },
         dpu_config: InitialDpuConfig {
+            bootstrap_ca_source: BootstrapCaSource::LegacyDownload,
             dpu_nic_firmware_initial_update_enabled: true,
             dpu_nic_firmware_reprovision_update_enabled: true,
             dpu_models: dpu_fw_example(),
@@ -290,6 +293,7 @@ pub fn get() -> CarbideConfig {
         ntp_servers: vec![],
         secrets: None,
         dhcp_lease_expiry_handling: false,
+        certificates: Default::default(),
     }
 }
 

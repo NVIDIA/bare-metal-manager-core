@@ -165,7 +165,7 @@ pub(crate) async fn sign_machine_identity(
 
     let machine_id: MachineId = machine_id_str
         .parse()
-        .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine ID format: {e}")))?;
+        .map_err(|e| CarbideError::InvalidArgument(format!("invalid machine ID format: {e}")))?;
 
     let req = request.get_ref();
 

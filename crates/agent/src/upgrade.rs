@@ -171,7 +171,7 @@ async fn upgrade_check(
 }
 
 fn mtime(p: &Path) -> eyre::Result<SystemTime> {
-    let stat = fs::metadata(p).wrap_err_with(|| format!("Failed stat of '{}'", p.display()))?;
+    let stat = fs::metadata(p).wrap_err_with(|| format!("failed stat of '{}'", p.display()))?;
     let Ok(binary_mtime) = stat.modified() else {
         eyre::bail!(
             "failed reading mtime of forge-dpu-agent binary at '{}'",

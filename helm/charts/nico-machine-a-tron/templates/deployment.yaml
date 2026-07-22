@@ -1,0 +1,178 @@
+{{- $root := . }}
+{{- $namespace := include "nico-machine-a-tron.namespace" . }}
+{{- $baseName := include "nico-machine-a-tron.name" . }}
+
+{{/*
+Count pods that should be deployed:
+- When bmcServices.enabled: only pods with CIDR
+- Otherwise: all pods with machines
+*/}}
+{{- $activePods := 0 }}
+{{- range $podName, $podConfig := .Values.pods }}
+{{- if $root.Values.bmcServices.enabled }}
+{{- if $podConfig.cidr }}
+{{- $activePods = add $activePods 1 }}
+{{- end }}
+{{- else }}
+{{- if $podConfig.machines }}
+{{- $activePods = add $activePods 1 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- range $podName, $podConfig := .Values.pods }}
+{{/*
+Skip conditions:
+- When bmcServices.enabled: skip pods without CIDR
+- Otherwise: skip pods without machines
+*/}}
+{{- if $root.Values.bmcServices.enabled }}
+{{- if not $podConfig.cidr }}
+{{- continue }}
+{{- end }}
+{{- else }}
+{{- if not $podConfig.machines }}
+{{- continue }}
+{{- end }}
+{{- end }}
+
+{{- $name := $baseName }}
+{{- if gt $activePods 1 }}
+{{- $name = printf "%s-%s" $baseName $podName }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
+    {{- if gt $activePods 1 }}
+    nvidia-infra-controller/pod-name: {{ $podName | quote }}
+    {{- end }}
+  annotations:
+    {{- tpl (toYaml $root.Values.annotations) $root | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 6 }}
+      {{- if gt $activePods 1 }}
+      nvidia-infra-controller/pod-name: {{ $podName | quote }}
+      {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "nico-machine-a-tron.labels" $root | nindent 8 }}
+        {{- if gt $activePods 1 }}
+        nvidia-infra-controller/pod-name: {{ $podName | quote }}
+        {{- end }}
+      annotations:
+        kubectl.kubernetes.io/default-container: {{ $baseName }}
+    spec:
+      automountServiceAccountToken: {{ $root.Values.automountServiceAccountToken }}
+      serviceAccountName: {{ $baseName }}
+      terminationGracePeriodSeconds: {{ $root.Values.terminationGracePeriodSeconds }}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $baseName }}
+          image: "{{ include "nico-machine-a-tron.image" $root }}"
+          imagePullPolicy: {{ ($root.Values.global.image).pullPolicy | default $root.Values.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            {{- toYaml $root.Values.command | nindent 12 }}
+          env:
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.envFrom.vaultApproleTokens.secretName }}
+                  key: VAULT_ROLE_ID
+                  optional: true
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.envFrom.vaultApproleTokens.secretName }}
+                  key: VAULT_SECRET_ID
+                  optional: true
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $root.Values.envFrom.vaultToken.secretName }}
+                  key: token
+                  optional: true
+            - name: VAULT_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $root.Values.envFrom.vaultClusterInfo.configMapName }}
+                  key: VAULT_SERVICE
+                  optional: true
+            - name: MACHINE_A_TRON_CONFIG_PATH
+              value: "/etc/nvidia-infra-controller/machine-a-tron/mat.toml"
+            - name: FORGE_ROOT_CA_PATH
+              value: "/var/run/secrets/spiffe.io/ca.crt"
+            - name: CLIENT_CERT_PATH
+              value: "/var/run/secrets/spiffe.io/tls.crt"
+            - name: CLIENT_KEY_PATH
+              value: "/var/run/secrets/spiffe.io/tls.key"
+            - name: RUST_BACKTRACE
+              value: {{ $root.Values.env.RUST_BACKTRACE | quote }}
+            - name: RUST_LIB_BACKTRACE
+              value: {{ $root.Values.env.RUST_LIB_BACKTRACE | quote }}
+            {{- with $root.Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: redfish
+              containerPort: {{ $root.Values.service.bmcMock.port }}
+            - name: ssh
+              containerPort: {{ $root.Values.machineATron.mockBmcSshPort }}
+            - name: metrics
+              containerPort: {{ $root.Values.service.metrics.port }}
+          livenessProbe:
+            {{- toYaml $root.Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $root.Values.readinessProbe | nindent 12 }}
+          volumeMounts:
+            - name: config-files
+              mountPath: /etc/forge/machine-a-tron
+            - name: config-files
+              mountPath: /etc/nvidia-infra-controller/machine-a-tron
+            - name: spiffe
+              mountPath: "/var/run/secrets/spiffe.io"
+              readOnly: true
+            - name: nico-roots
+              mountPath: "/var/run/secrets/forge-roots"
+              readOnly: true
+            - name: nico-roots
+              mountPath: "/var/run/secrets/nico-roots"
+              readOnly: true
+            {{- if $root.Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ $root.Values.machineATron.persistDir }}
+              {{- if gt $activePods 1 }}
+              subPath: {{ $podName }}
+              {{- end }}
+            {{- end }}
+          resources:
+            {{- toYaml $root.Values.resources | nindent 12 }}
+      volumes:
+        - name: config-files
+          configMap:
+            name: {{ $name }}-config-files
+        - name: spiffe
+          secret:
+            secretName: {{ $name }}-certificate
+        - name: nico-roots
+          secret:
+            secretName: nico-roots
+        {{- if $root.Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $baseName }}-data
+        {{- end }}
+{{- end }}

@@ -50,7 +50,7 @@ impl Run for Args {
                 self.dpf_enabled,
                 self.bmc_ip_address,
                 self.bmc_retain_credentials,
-                self.dpu_mode,
+                self.dpu_policy,
                 self.bmc_ip_allocation,
                 self.disable_lockdown
                     .map(|dl| ::rpc::forge::HostLifecycleProfile {

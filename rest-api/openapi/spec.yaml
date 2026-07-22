@@ -3747,6 +3747,8 @@ paths:
       description: |-
         Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
+        All items in a batch update must provide the same set of fields.
+
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
         Infrastructure Provider must own the Expected Machines.
@@ -21507,7 +21509,8 @@ components:
           type:
             - string
             - 'null'
-          description: Optional BMC IP address (IPv4 or IPv6). When set, pre-allocates a reserved IP for the BMC.
+          description: |-
+            Optional BMC IP address (IPv4 or IPv6). A non-null address sets the value and pre-allocates a reserved IP for the BMC. An explicit null clears the value. In an individual update, omission preserves the current value. Empty strings are invalid.
         name:
           type:
             - string

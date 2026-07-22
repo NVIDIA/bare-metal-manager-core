@@ -215,7 +215,7 @@ pub(crate) async fn clear_host_uefi_password(
     // which is resolved per-device by BMC MAC. Without the MAC we cannot pick the
     // right credential, so fail rather than guess the site default and present a
     // wrong password to the BMC.
-    let bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
+    let bmc_mac = snapshot.host_snapshot.status.bmc_info.mac.ok_or_else(|| {
         CarbideError::InvalidArgument(
             "specified machine does not have a known BMC MAC address".into(),
         )
@@ -259,7 +259,7 @@ pub(crate) async fn clear_host_uefi_password(
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to run clear_host_uefi_password call");
             CarbideError::internal(format!(
-                "Failed redfish clear_host_uefi_password subtask: {e}"
+                "failed redfish clear_host_uefi_password subtask: {e}"
             ))
         })?;
 
@@ -330,7 +330,7 @@ pub(crate) async fn set_host_uefi_password(
     // keys the host_uefi rotation bookkeeping recorded below, so reject the
     // request up front rather than driving the device and only then discovering
     // we cannot track its convergence.
-    let host_bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
+    let host_bmc_mac = snapshot.host_snapshot.status.bmc_info.mac.ok_or_else(|| {
         CarbideError::InvalidArgument(
             "specified machine does not have a known BMC MAC address".into(),
         )
@@ -369,7 +369,7 @@ pub(crate) async fn set_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to run uefi_setup call");
-            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
+            CarbideError::internal(format!("failed redfish uefi_setup subtask: {e}"))
         })?;
     // uefi_setup returns a BMC job_id; the password change completes
     // asynchronously on the device and we do not poll it here. We optimistically

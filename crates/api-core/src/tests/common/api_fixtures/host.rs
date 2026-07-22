@@ -69,7 +69,7 @@ pub async fn host_discover_dhcp(
         &mut txn,
         ObjectColumnFilter::One(
             network_prefix::SegmentIdColumn,
-            &predicted_host.interfaces[0].segment_id,
+            &predicted_host.status.interfaces[0].segment_id,
         ),
     )
     .await

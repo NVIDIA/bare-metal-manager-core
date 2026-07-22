@@ -10,7 +10,7 @@ configuration guides linked below.
 |---|---|---|
 | Ethernet | VPC + VpcPrefix (+ optional Network Security Group) | DPU VRF per VPC (HBN / NVUE) over a pure type-5 EVPN overlay |
 | InfiniBand | InfiniBand partition | UFM P_Key partition membership; `IbFabricMonitor` reconciler |
-| NVLink | NVLink logical partition | NMX-M / NMX-C partition lifecycle; `NvlPartitionMonitor` reconciler |
+| NVLink | NVLink logical partition | NMX-C partition lifecycle; `NvlPartitionMonitor` reconciler |
 
 ---
 
@@ -119,12 +119,11 @@ UFM / OpenSM hardening.
 
 ## NVLink
 
-NVLink logical partitions group GPUs across hosts into a single isolated
-NVLink domain. NICo drives partition lifecycle against the NMX-M REST API and
-the NMX-C gRPC API and reconciles desired partitions periodically. Each tenant
-instance that requests NVLink connectivity is placed into the partition
-corresponding to its allocation; a host whose GPUs are not in a partition
-cannot reach any other host's GPUs over NVLink.
+NVLink logical partitions express how GPUs should be grouped across hosts.
+Within each physical NVLink domain, NICo places the requested GPUs into an
+NMX-C partition and reconciles that partition through the NMX-C gRPC API.
+Multiple tenants' partitions can coexist in one physical domain, while GPUs in
+different partitions remain isolated from each other.
 
 See [NVLink Partitioning](nvlink_partitioning.md) for the operator
 configuration guide.
@@ -155,7 +154,7 @@ The following invariants apply to every fabric.
   APIs the normal lifecycle uses, so external fabric managers do not retain
   stale tenant references.
 - **External fabric reachability is monitored.** Each external fabric service
-  (UFM, NMX-M, NMX-C) is monitored from NICo with request-success and latency
+  (UFM and NMX-C) is monitored from NICo with request-success and latency
   metrics so that fabric-side outages can be distinguished from NICo-side
   configuration errors.
 

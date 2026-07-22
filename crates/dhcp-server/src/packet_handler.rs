@@ -188,10 +188,14 @@ impl DecodedPacket {
     /// Relay/Gateway IP is used as destination ip.
     /// Only exception is if ciaddr is not empty. If it is not empty means client already has a IP
     /// and listening on it.
-    fn decide_dst_ip(&self, _message_type: MessageType) -> (Ipv4Addr, u16) {
+    fn decide_dst_ip(
+        &self,
+        _message_type: MessageType,
+        relay_response_port: u16,
+    ) -> (Ipv4Addr, u16) {
         // Relayed packet.
         if self.packet.giaddr() != Ipv4Addr::from([0, 0, 0, 0]) {
-            return (self.packet.giaddr(), 67); // Relayed packet. Relay listen on 67
+            return (self.packet.giaddr(), relay_response_port);
         }
 
         // Client unicast packet. Lease renewal case.
@@ -283,7 +287,8 @@ pub async fn process_packet(
         )
         .await?;
 
-    let (dst_address, dst_port) = decoded_packet.decide_dst_ip(msg_type);
+    let (dst_address, dst_port) =
+        decoded_packet.decide_dst_ip(msg_type, config.relay_response_port);
 
     let packet =
         create_dhcp_reply_packet(&decoded_packet, circuit_id, dhcp_response, config, msg_type)?;

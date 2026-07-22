@@ -209,7 +209,7 @@ impl KubernetesPodServicesHandler {
             .args(["restart", service])
             .output()
             .await
-            .wrap_err(format!("Failed to restart {}", service))?;
+            .wrap_err(format!("failed to restart {}", service))?;
 
         if !restart.status.success() {
             let stderr = String::from_utf8_lossy(&restart.stderr);
@@ -267,7 +267,7 @@ impl KubernetesPodServicesHandler {
             .truncate(true)
             .open(&tmp_path)
             .await
-            .wrap_err_with(|| format!("Failed to create tmp file {}", tmp_path.display()))?;
+            .wrap_err_with(|| format!("failed to create tmp file {}", tmp_path.display()))?;
 
         tmp_file
             .write_all(labeled_yaml.as_bytes())
@@ -287,7 +287,7 @@ impl KubernetesPodServicesHandler {
             .await
             .wrap_err_with(|| {
                 format!(
-                    "Failed to rename {} to {}",
+                    "failed to rename {} to {}",
                     tmp_path.display(),
                     pod_spec_path.display()
                 )
@@ -326,7 +326,7 @@ impl KubernetesPodServicesHandler {
             }
             Err(e) => {
                 return Err(e).wrap_err_with(|| {
-                    format!("Failed to remove pod spec {}", pod_spec_path.display())
+                    format!("failed to remove pod spec {}", pod_spec_path.display())
                 });
             }
         }
@@ -1015,13 +1015,13 @@ Environment="NO_PROXY=127.0.0.1,localhost,.svc,.svc.cluster.local"
         let kubelet_dir = Path::new(KUBERNETES_POD_DIR);
         std::fs::create_dir_all(kubelet_dir).wrap_err_with(|| {
             format!(
-                "Failed to create kubelet directory at {}",
+                "failed to create kubelet directory at {}",
                 kubelet_dir.display()
             )
         })?;
 
         let dir_iter = std::fs::read_dir(kubelet_dir).wrap_err_with(|| {
-            format!("Failed to read kubelet directory {}", kubelet_dir.display())
+            format!("failed to read kubelet directory {}", kubelet_dir.display())
         })?;
 
         for entry in dir_iter {

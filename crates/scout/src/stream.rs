@@ -77,12 +77,10 @@ pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::ta
                     );
                 }
             }
-            emit(ScoutStreamReconnect {});
-            tracing::warn!(
-                api_endpoint = %options.api,
-                %machine_id,
-                "scout stream reconnecting after 10s delay",
-            );
+            emit(ScoutStreamReconnect {
+                api_endpoint: options.api.clone(),
+                machine_id,
+            });
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
     })
