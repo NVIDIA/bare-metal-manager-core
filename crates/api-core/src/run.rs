@@ -50,6 +50,10 @@ pub struct CoreRunInputs<'a> {
     pub credential_config: CredentialConfig,
     pub logging: Logging,
     pub meter: opentelemetry::metrics::Meter,
+    /// The dedicated per-object state metrics registry, `None` when the
+    /// opt-in endpoint is disabled. Created (and served) by the composition
+    /// crate; core registers the per-object collectors on it.
+    pub per_object_metrics: Option<prometheus::Registry>,
     pub join_set: &'a mut JoinSet<()>,
     pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     pub cancel_token: CancellationToken,
@@ -92,6 +96,7 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
         credential_config,
         logging: tconf,
         meter,
+        per_object_metrics,
         join_set,
         admin_ui_routes_builder,
         cancel_token,
@@ -111,49 +116,6 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
         tokio_worker_threads = %std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string()),
         "Tokio worker thread configuration",
     );
-
-    // The opt-in per-object state metrics live on their own bare Prometheus
-    // registry (native pull collectors, not OpenTelemetry instruments, whose
-    // per-stream cardinality limit a per-object fleet vastly exceeds) and
-    // their own listener, so operators can scrape (or skip) them
-    // independently — which is also why it stays in core rather than the
-    // composition crate's process-metrics pipeline. No alt-prefix mirroring
-    // here: it would double every per-object family.
-    let per_object_config = &carbide_config.observability.per_object_state_metrics;
-    if per_object_config.enabled && per_object_config.object_types.is_empty() {
-        tracing::warn!(
-            "observability.per_object_state_metrics.enabled is set but object_types is empty; \
-             not starting the per-object metrics endpoint"
-        );
-    }
-    let per_object_metrics = (per_object_config.enabled
-        && !per_object_config.object_types.is_empty())
-    .then(prometheus::Registry::new);
-    if let Some(registry) = &per_object_metrics {
-        let address = per_object_config.listen_address;
-        join_set
-            .build_task()
-            .name("per_object_metrics_endpoint")
-            .spawn({
-                let cancel_token = cancel_token.clone();
-                let registry = registry.clone();
-                async move {
-                    if let Err(e) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
-                        &metrics_endpoint::MetricsEndpointConfig {
-                            address,
-                            registry,
-                            health_controller: None,
-                            additional_prefix: None,
-                        },
-                        cancel_token,
-                    )
-                    .await
-                    {
-                        tracing::error!("Per-object metrics endpoint failed with error: {}", e);
-                    }
-                }
-            })?;
-    }
 
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
         log_filter: tconf.filter.clone(),

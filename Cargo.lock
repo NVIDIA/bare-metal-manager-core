@@ -1254,7 +1254,6 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
- "metrics-endpoint",
  "mockito",
  "mqttea",
  "nras",

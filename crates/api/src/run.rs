@@ -93,6 +93,8 @@ pub async fn run(
         registry,
         cancel_token.clone(),
     )?;
+    let per_object_metrics =
+        start_per_object_metrics_endpoint(&mut join_set, &carbide_config, cancel_token.clone())?;
 
     run_core(CoreRunInputs {
         carbide_config,
@@ -100,6 +102,7 @@ pub async fn run(
         credential_config,
         logging,
         meter,
+        per_object_metrics,
         join_set: &mut join_set,
         admin_ui_routes_builder,
         cancel_token,
@@ -157,6 +160,59 @@ fn start_metrics_endpoint(
         })?;
 
     Ok(())
+}
+
+/// Starts the dedicated listener for the opt-in per-object state metrics and
+/// returns their bare Prometheus registry (`None` when disabled). Per-object
+/// series are native pull collectors on their own registry — not
+/// OpenTelemetry instruments, whose per-stream cardinality limit a per-object
+/// fleet vastly exceeds — and their own endpoint, so operators can scrape (or
+/// skip) them independently. No alt-prefix mirroring here: it would double
+/// every per-object family.
+fn start_per_object_metrics_endpoint(
+    join_set: &mut JoinSet<()>,
+    carbide_config: &carbide_api_core::cfg::file::CarbideConfig,
+    cancel_token: CancellationToken,
+) -> eyre::Result<Option<prometheus::Registry>> {
+    let per_object_config = &carbide_config.observability.per_object_state_metrics;
+    if per_object_config.enabled && per_object_config.object_types.is_empty() {
+        tracing::warn!(
+            "observability.per_object_state_metrics.enabled is set but object_types is empty; \
+             not starting the per-object metrics endpoint"
+        );
+    }
+    let per_object_metrics = (per_object_config.enabled
+        && !per_object_config.object_types.is_empty())
+    .then(prometheus::Registry::new);
+    if let Some(registry) = &per_object_metrics {
+        let address = per_object_config.listen_address;
+        join_set
+            .build_task()
+            .name("per_object_metrics_endpoint")
+            .spawn({
+                let registry = registry.clone();
+                async move {
+                    if let Err(error) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
+                        &metrics_endpoint::MetricsEndpointConfig {
+                            address,
+                            registry,
+                            health_controller: None,
+                            additional_prefix: None,
+                        },
+                        cancel_token,
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            per_object_metrics_address = %address,
+                            error = %error,
+                            "Per-object metrics endpoint failed",
+                        );
+                    }
+                }
+            })?;
+    }
+    Ok(per_object_metrics)
 }
 
 fn validate_network_prefixes(
