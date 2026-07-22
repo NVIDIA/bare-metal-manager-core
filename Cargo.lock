@@ -1954,6 +1954,7 @@ dependencies = [
  "carbide-dpu-fmds-shared",
  "carbide-instrument",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "carbide-version",
