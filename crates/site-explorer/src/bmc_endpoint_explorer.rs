@@ -382,8 +382,9 @@ impl BmcEndpointExplorer {
             );
             current_bmc_credentials
         } else {
-            // Rotate factory credentials to the site-wide BMC root password.
-            // Return an error if the current credentials cannot log in.
+            // use redfish to set the machine's BMC root password to
+            // match Forge's sitewide BMC root password (from the factory default).
+            // return an error if we cannot log into the machine's BMC using current credentials
             let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
             let rotation = self
                 .set_bmc_root_password(
@@ -846,8 +847,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
                         // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
                         match vendor {
                             RedfishVendor::NvidiaDpu => {
-                                // Try the DPU hardware default password to handle the DPU case.
-                                // This password will not work for a Viking host and we will return an error.
+                                // This machine is a DPU.
+                                // Try the DPU hardware default password to handle the DPU case
+                                // This password will not work for a Viking host and we will return an error
                                 self.get_default_hardware_dpu_bmc_root_credentials()
                             }
                             _ => {
