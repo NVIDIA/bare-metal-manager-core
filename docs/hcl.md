@@ -68,7 +68,7 @@ This list outlines platforms that are under development and have not undergone f
 
 ## Coming Soon: Community-Added Platforms
 
-Community-added platforms will be listed here separately from NVIDIA-maintained platforms. Each entry will identify a contact for questions and issues and link to the corresponding GitHub issue or discussion for implementation history and ongoing coordination.
+Community-added platforms will be listed here separately from NVIDIA-maintained platforms. Each entry will identify a contact for questions and issues and link to the corresponding GitHub contribution for implementation history and ongoing coordination.
 
 No community-added platforms are currently listed.
 
