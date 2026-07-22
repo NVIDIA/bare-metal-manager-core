@@ -17,24 +17,12 @@
 
 //! BMC MAC addresses that must be hidden from discovery, DHCP, or both.
 
-use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
-use sqlx::{FromRow, PgConnection};
+use model::ignored_bmc_mac::{IgnoredBmcMac, NewIgnoredBmcMac};
+use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
-
-/// The persisted suppression state for one BMC MAC address.
-#[derive(Clone, Debug, Eq, FromRow, PartialEq)]
-pub struct IgnoredBmcMac {
-    pub bmc_mac_address: MacAddress,
-    pub reason: String,
-    pub suppress_site_explorer: bool,
-    pub suppress_dhcp: bool,
-    pub dhcp_discover_suppressed_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
 
 /// Inserts or replaces the desired suppression state for a BMC MAC.
 ///
@@ -43,10 +31,7 @@ pub struct IgnoredBmcMac {
 /// direction clears the observation so a later enable must be observed again.
 pub async fn upsert(
     txn: &mut PgConnection,
-    bmc_mac_address: MacAddress,
-    reason: &str,
-    suppress_site_explorer: bool,
-    suppress_dhcp: bool,
+    input: &NewIgnoredBmcMac,
 ) -> DatabaseResult<IgnoredBmcMac> {
     const QUERY: &str = "INSERT INTO ignored_bmc_macs (
         bmc_mac_address,
@@ -74,10 +59,10 @@ pub async fn upsert(
         updated_at";
 
     sqlx::query_as(QUERY)
-        .bind(bmc_mac_address)
-        .bind(reason)
-        .bind(suppress_site_explorer)
-        .bind(suppress_dhcp)
+        .bind(input.bmc_mac_address)
+        .bind(&input.reason)
+        .bind(input.suppress_site_explorer)
+        .bind(input.suppress_dhcp)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(QUERY, e))
@@ -156,20 +141,19 @@ pub async fn record_dhcp_discover_suppressed(
             ELSE updated_at
         END,
         dhcp_discover_suppressed_at = COALESCE(dhcp_discover_suppressed_at, NOW())
-    WHERE bmc_mac_address = $1 AND suppress_dhcp
-    RETURNING TRUE";
+    WHERE bmc_mac_address = $1 AND suppress_dhcp";
 
-    sqlx::query_scalar(QUERY)
+    sqlx::query(QUERY)
         .bind(bmc_mac_address)
-        .fetch_optional(txn)
+        .execute(txn)
         .await
-        .map(|suppressed| suppressed.unwrap_or(false))
+        .map(|result| result.rows_affected() > 0)
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
 /// Deletes the suppression record for one BMC MAC.
 ///
-/// Returns `true` when a row was removed. 
+/// Returns `true` when a row was removed.
 pub async fn delete(txn: &mut PgConnection, bmc_mac_address: MacAddress) -> DatabaseResult<bool> {
     const QUERY: &str = "DELETE FROM ignored_bmc_macs WHERE bmc_mac_address = $1";
 
@@ -199,6 +183,7 @@ pub async fn delete_many(
 #[cfg(test)]
 mod tests {
     use mac_address::MacAddress;
+    use model::ignored_bmc_mac::NewIgnoredBmcMac;
 
     use super::{
         delete, delete_many, find, find_site_explorer_suppressed, is_dhcp_suppressed,
@@ -209,19 +194,42 @@ mod tests {
         MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, last])
     }
 
+    fn upsert_input(
+        last: u8,
+        reason: &str,
+        suppress_site_explorer: bool,
+        suppress_dhcp: bool,
+    ) -> NewIgnoredBmcMac {
+        NewIgnoredBmcMac {
+            bmc_mac_address: mac(last),
+            reason: reason.to_string(),
+            suppress_site_explorer,
+            suppress_dhcp,
+        }
+    }
+
     #[crate::sqlx_test]
     async fn suppression_flags_are_independent(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();
 
-        upsert(txn.as_mut(), mac(1), "decommissioning", true, false)
-            .await
-            .unwrap();
-        upsert(txn.as_mut(), mac(2), "decommissioning", false, true)
-            .await
-            .unwrap();
-        upsert(txn.as_mut(), mac(3), "decommissioning", true, true)
-            .await
-            .unwrap();
+        upsert(
+            txn.as_mut(),
+            &upsert_input(1, "decommissioning", true, false),
+        )
+        .await
+        .unwrap();
+        upsert(
+            txn.as_mut(),
+            &upsert_input(2, "decommissioning", false, true),
+        )
+        .await
+        .unwrap();
+        upsert(
+            txn.as_mut(),
+            &upsert_input(3, "decommissioning", true, true),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             find_site_explorer_suppressed(txn.as_mut()).await.unwrap(),
@@ -237,9 +245,12 @@ mod tests {
     async fn dhcp_discovery_is_recorded_only_while_suppressed(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();
 
-        upsert(txn.as_mut(), mac(1), "site explorer only", true, false)
-            .await
-            .unwrap();
+        upsert(
+            txn.as_mut(),
+            &upsert_input(1, "site explorer only", true, false),
+        )
+        .await
+        .unwrap();
         assert!(
             !record_dhcp_discover_suppressed(txn.as_mut(), mac(1))
                 .await
@@ -254,7 +265,7 @@ mod tests {
                 .is_none()
         );
 
-        upsert(txn.as_mut(), mac(1), "dhcp handoff", true, true)
+        upsert(txn.as_mut(), &upsert_input(1, "dhcp handoff", true, true))
             .await
             .unwrap();
         assert!(
@@ -276,7 +287,7 @@ mod tests {
     async fn idempotent_upsert_preserves_dhcp_observation(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();
 
-        upsert(txn.as_mut(), mac(1), "dhcp handoff", true, true)
+        upsert(txn.as_mut(), &upsert_input(1, "dhcp handoff", true, true))
             .await
             .unwrap();
         record_dhcp_discover_suppressed(txn.as_mut(), mac(1))
@@ -288,19 +299,22 @@ mod tests {
             .unwrap()
             .dhcp_discover_suppressed_at;
 
-        let record = upsert(txn.as_mut(), mac(1), "retry", true, true)
+        let record = upsert(txn.as_mut(), &upsert_input(1, "retry", true, true))
             .await
             .unwrap();
         assert_eq!(record.dhcp_discover_suppressed_at, observed_at);
 
-        let record = upsert(txn.as_mut(), mac(1), "release DHCP", true, false)
+        let record = upsert(txn.as_mut(), &upsert_input(1, "release DHCP", true, false))
             .await
             .unwrap();
         assert!(record.dhcp_discover_suppressed_at.is_none());
 
-        let record = upsert(txn.as_mut(), mac(1), "suppress DHCP again", true, true)
-            .await
-            .unwrap();
+        let record = upsert(
+            txn.as_mut(),
+            &upsert_input(1, "suppress DHCP again", true, true),
+        )
+        .await
+        .unwrap();
         assert!(record.dhcp_discover_suppressed_at.is_none());
     }
 
@@ -309,9 +323,12 @@ mod tests {
         let mut txn = pool.begin().await.unwrap();
 
         for last in 1..=3 {
-            upsert(txn.as_mut(), mac(last), "decommissioning", true, true)
-                .await
-                .unwrap();
+            upsert(
+                txn.as_mut(),
+                &upsert_input(last, "decommissioning", true, true),
+            )
+            .await
+            .unwrap();
         }
 
         assert!(delete(txn.as_mut(), mac(1)).await.unwrap());

@@ -1,3 +1,6 @@
+-- BMC MAC addresses that must be hidden from Site Explorer discovery, DHCP, or
+-- both. dhcp_discover_suppressed_at records the first DHCPDISCOVER ignored while
+-- DHCP suppression is active, used to confirm the BMC has withdrawn its lease.
 CREATE TABLE ignored_bmc_macs (
     bmc_mac_address MACADDR PRIMARY KEY,
     reason TEXT NOT NULL,

@@ -59,6 +59,7 @@ pub mod health;
 pub mod host_machine_update;
 pub mod ib;
 pub mod ib_partition;
+pub mod ignored_bmc_mac;
 pub mod instance;
 pub mod instance_address;
 pub mod instance_type;
