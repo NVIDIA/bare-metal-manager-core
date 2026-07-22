@@ -120,7 +120,6 @@ impl DynamicLog for DpaMonitorIterationFinished {
 /// Instruments that are used by pub struct DpaMonitor
 #[allow(dead_code)]
 pub struct DpaMonitorInstruments {
-    pub operations_latency: Histogram<f64>,
     pub dpa_config_apply_latency: Histogram<f64>,
     pub heartbeats_sent: Counter<u64>,
     pub creates: Counter<u64>,
@@ -132,11 +131,6 @@ impl DpaMonitorInstruments {
         let dpa_config_apply_latency = meter
             .f64_histogram("carbide_dpa_monitor_dpa_config_apply_latency")
             .with_description("Time since dpa config was requested for this instance")
-            .with_unit("ms")
-            .build();
-        let operations_latency = meter
-            .f64_histogram("carbide_dpa_monitor_operations_latency")
-            .with_description("Time consumed for one operations")
             .with_unit("ms")
             .build();
         let heartbeats_sent = meter
@@ -164,7 +158,6 @@ impl DpaMonitorInstruments {
 
         Self {
             dpa_config_apply_latency,
-            operations_latency,
             heartbeats_sent,
             creates,
             deletes,
