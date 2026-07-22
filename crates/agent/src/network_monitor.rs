@@ -624,7 +624,9 @@ impl Ping for HbnExecPinger {
 /// Parse ping standard output to valid dpu ping result,
 /// including number of successful pings and average latency.
 pub fn parse_ping_stdout(dpu_info: DpuInfo, stdout: &str) -> Result<DpuPingResult, eyre::Report> {
-    let summary_re = Regex::new(r"(\d+) packets transmitted, (\d+) received, (\d+)% packet loss")?;
+    let summary_re = Regex::new(
+        r"(\d+) packets transmitted, (\d+) received,(?:\s*\+\d+ errors,)? (\d+)% packet loss",
+    )?;
     let rtt_re = Regex::new(r"rtt min/avg/max/mdev = [\d\.]+/([\d\.]+)/[\d\.]+/[\d\.]+ ms")?;
 
     let success_count = summary_re
@@ -687,6 +689,13 @@ mod parse_ping_stdout_tests {
                 "PING 172.20.0.200 (172.20.0.200) 56(84) bytes of data.\n\n\
                  --- 172.20.0.200 ping statistics ---\n\
                  5 packets transmitted, 0 received, 100% packet loss, time 4092ms" =>
+                    Yields((0, None)),
+            }
+
+            "complete packet loss with errors field" {
+                "PING 172.20.0.200 (172.20.0.200) 56(84) bytes of data.\n\n\
+                 --- 172.20.0.200 ping statistics ---\n\
+                 5 packets transmitted, 0 received, +5 errors, 100% packet loss, time 4092ms" =>
                     Yields((0, None)),
             }
 
