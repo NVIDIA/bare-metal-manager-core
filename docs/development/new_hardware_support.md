@@ -6,7 +6,7 @@ Changes for new hardware must not break existing platforms. Guard quirks behind 
 
 For background on how NICo uses Redfish end to end, see [Redfish Workflow](../architecture/redfish_workflow.md). For currently supported hardware, see the [Hardware Compatibility List](../hcl.md).
 
-After support for a platform is added, update the Hardware Compatibility List as part of the same contribution. Include contact information for the person or team responsible for questions and issues, and link the corresponding GitHub issue or discussion so users and maintainers can find the implementation history and follow-up context.
+After support for a platform is added, update the Hardware Compatibility List as part of the same contribution. Include contact information for the person or team responsible for questions and issues (via Github issues and discussions), and link the corresponding contribution so users and maintainers can find the implementation history.
 
 ## Before You Start
 
