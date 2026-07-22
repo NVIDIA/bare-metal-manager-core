@@ -914,20 +914,21 @@ mod http_request_tests {
     use axum::routing::get;
     use carbide_instrument::emit;
     use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::Check;
     use tower::ServiceExt;
 
     use super::*;
 
     const REQUEST_METRIC: &str = "http_requests_total";
     const LATENCY_METRIC: &str = "request_latency_milliseconds";
+    const HISTOGRAM_SUM_TOLERANCE: f64 = 1e-9;
 
     enum EventCase {
         Request,
         Response,
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug)]
     struct EventObservation {
         request_delta: f64,
         latency_count_delta: u64,
@@ -944,6 +945,27 @@ mod http_request_tests {
         method_kind: Option<CapturedFieldKind>,
         request_path_kind: Option<CapturedFieldKind>,
         latency_kind: Option<CapturedFieldKind>,
+    }
+
+    impl EventObservation {
+        fn assert_matches(self, expected: Self, scenario: &str) {
+            assert_eq!(
+                self.request_delta, expected.request_delta,
+                "{scenario}: request counter delta"
+            );
+            assert_eq!(
+                self.latency_count_delta, expected.latency_count_delta,
+                "{scenario}: latency histogram count delta"
+            );
+            assert!(
+                (self.latency_sum_delta - expected.latency_sum_delta).abs()
+                    < HISTOGRAM_SUM_TOLERANCE,
+                "{scenario}: expected latency histogram sum delta {}, got {}",
+                expected.latency_sum_delta,
+                self.latency_sum_delta
+            );
+            assert_eq!(self.logs, expected.logs, "{scenario}: structured logs");
+        }
     }
 
     fn observe_event(case: EventCase) -> EventObservation {
@@ -979,62 +1001,61 @@ mod http_request_tests {
 
     #[test]
     fn http_events_preserve_metrics_and_structured_logs() {
-        check_values(
-            [
-                Check {
-                    scenario: "request start increments the legacy counter and logs request context",
-                    input: EventCase::Request,
-                    expect: EventObservation {
-                        request_delta: 1.0,
-                        latency_count_delta: 0,
-                        latency_sum_delta: 0.0,
-                        logs: vec![LogObservation {
-                            metadata_name: "dpu_agent_http_request_started".to_string(),
-                            level: tracing::Level::INFO,
-                            message: "HTTP request started".to_string(),
-                            fields: vec![
-                                (
-                                    "event_name".to_string(),
-                                    "dpu_agent_http_request_started".to_string(),
-                                ),
-                                ("metric_name".to_string(), REQUEST_METRIC.to_string()),
-                                ("method".to_string(), "GET".to_string()),
-                                ("request_path".to_string(), "/latest/meta-data".to_string()),
-                            ],
-                            method_kind: Some(CapturedFieldKind::Debug),
-                            request_path_kind: Some(CapturedFieldKind::Debug),
-                            latency_kind: None,
-                        }],
-                    },
+        for check in [
+            Check {
+                scenario: "request start increments the legacy counter and logs request context",
+                input: EventCase::Request,
+                expect: EventObservation {
+                    request_delta: 1.0,
+                    latency_count_delta: 0,
+                    latency_sum_delta: 0.0,
+                    logs: vec![LogObservation {
+                        metadata_name: "dpu_agent_http_request_started".to_string(),
+                        level: tracing::Level::INFO,
+                        message: "HTTP request started".to_string(),
+                        fields: vec![
+                            (
+                                "event_name".to_string(),
+                                "dpu_agent_http_request_started".to_string(),
+                            ),
+                            ("metric_name".to_string(), REQUEST_METRIC.to_string()),
+                            ("method".to_string(), "GET".to_string()),
+                            ("request_path".to_string(), "/latest/meta-data".to_string()),
+                        ],
+                        method_kind: Some(CapturedFieldKind::Debug),
+                        request_path_kind: Some(CapturedFieldKind::Debug),
+                        latency_kind: None,
+                    }],
                 },
-                Check {
-                    scenario: "response completion records milliseconds and logs native latency",
-                    input: EventCase::Response,
-                    expect: EventObservation {
-                        request_delta: 0.0,
-                        latency_count_delta: 1,
-                        latency_sum_delta: 12.5,
-                        logs: vec![LogObservation {
-                            metadata_name: "dpu_agent_http_response_generated".to_string(),
-                            level: tracing::Level::INFO,
-                            message: "HTTP response generated".to_string(),
-                            fields: vec![
-                                (
-                                    "event_name".to_string(),
-                                    "dpu_agent_http_response_generated".to_string(),
-                                ),
-                                ("metric_name".to_string(), LATENCY_METRIC.to_string()),
-                                ("latency_milliseconds".to_string(), "12.5".to_string()),
-                            ],
-                            method_kind: None,
-                            request_path_kind: None,
-                            latency_kind: Some(CapturedFieldKind::F64),
-                        }],
-                    },
+            },
+            Check {
+                scenario: "response completion records milliseconds and logs native latency",
+                input: EventCase::Response,
+                expect: EventObservation {
+                    request_delta: 0.0,
+                    latency_count_delta: 1,
+                    latency_sum_delta: 12.5,
+                    logs: vec![LogObservation {
+                        metadata_name: "dpu_agent_http_response_generated".to_string(),
+                        level: tracing::Level::INFO,
+                        message: "HTTP response generated".to_string(),
+                        fields: vec![
+                            (
+                                "event_name".to_string(),
+                                "dpu_agent_http_response_generated".to_string(),
+                            ),
+                            ("metric_name".to_string(), LATENCY_METRIC.to_string()),
+                            ("latency_milliseconds".to_string(), "12.5".to_string()),
+                        ],
+                        method_kind: None,
+                        request_path_kind: None,
+                        latency_kind: Some(CapturedFieldKind::F64),
+                    }],
                 },
-            ],
-            observe_event,
-        );
+            },
+        ] {
+            observe_event(check.input).assert_matches(check.expect, check.scenario);
+        }
     }
 
     #[test]
