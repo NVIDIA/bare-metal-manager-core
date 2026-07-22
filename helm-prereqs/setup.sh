@@ -86,6 +86,19 @@
 #                          Site-wide BMC root password. REQUIRED unless --skip-dpf.
 #                          setup.sh deploys Core with DPF off, sets this via
 #                          nico-admin-cli, then enables DPF and restarts carbide-api.
+#   NICO_DPF_DPU_AGENT_CHART_VERSION
+#                          Helm chart version for nico-dpu-agent. Defaults to the
+#                          version baked into the carbide-api binary at build time
+#                          (CARBIDE_BUILD_HELM_VERSION). Set this when testing a
+#                          dev/PR image whose chart version was never published to
+#                          the registry — point it at the latest published version
+#                          (e.g. the most recent main build tag).
+#   NICO_DPF_FMDS_CHART_VERSION
+#                          Same override for the nico-fmds chart.
+#   NICO_DPF_DHCP_SERVER_CHART_VERSION
+#                          Same override for the nico-dhcp-server chart.
+#   NICO_DPF_OTEL_CHART_VERSION
+#                          Same override for the nico-otelcol chart.
 #
 # Usage:
 #   export KUBECONFIG=/path/to/kubeconfig
@@ -199,6 +212,13 @@ NICO_DPF_IMAGE_TAG="${NICO_DPF_IMAGE_TAG:-${NICO_DPF_VERSION}}"
 # set through a running carbide-api (with DPF off). setup.sh deploys Core with
 # DPF disabled, sets this via nico-admin-cli, then enables DPF and restarts.
 NICO_DPF_BMC_ROOT_PASSWORD="${NICO_DPF_BMC_ROOT_PASSWORD:-}"
+# Optional chart-version overrides for NICo-owned DPF services. Useful when
+# testing a dev/PR image whose baked-in version was never published to the
+# chart registry — point at the latest published version instead.
+NICO_DPF_DPU_AGENT_CHART_VERSION="${NICO_DPF_DPU_AGENT_CHART_VERSION:-}"
+NICO_DPF_FMDS_CHART_VERSION="${NICO_DPF_FMDS_CHART_VERSION:-}"
+NICO_DPF_DHCP_SERVER_CHART_VERSION="${NICO_DPF_DHCP_SERVER_CHART_VERSION:-}"
+NICO_DPF_OTEL_CHART_VERSION="${NICO_DPF_OTEL_CHART_VERSION:-}"
 
 # ---------------------------------------------------------------------------
 # Failure handler — offer to run clean.sh if setup exits with an error.
@@ -1009,6 +1029,20 @@ else
             indpf==1 && /^[[:space:]]*enabled[[:space:]]*=/ { sub(/=[[:space:]]*true/, "= false"); indpf=0 }
             { print }
         ' "${_DPF_ON_VALUES}" > "${_DPF_OFF_VALUES}"
+
+        # Inject per-service chart-version overrides into both value files.
+        # These let operators (and QA) pin NICo-owned DPF service charts to a
+        # published version when testing a dev/PR image whose baked-in version
+        # does not exist in the registry.
+        _dpf_inject_service_overrides() {
+            local file="$1"
+            [[ -n "${NICO_DPF_DPU_AGENT_CHART_VERSION}" ]] && printf '\n[dpf.services.dpu_agent]\nhelm_version = "%s"\n' "${NICO_DPF_DPU_AGENT_CHART_VERSION}" >> "${file}"
+            [[ -n "${NICO_DPF_FMDS_CHART_VERSION}" ]]      && printf '\n[dpf.services.fmds]\nhelm_version = "%s"\n'      "${NICO_DPF_FMDS_CHART_VERSION}"      >> "${file}"
+            [[ -n "${NICO_DPF_DHCP_SERVER_CHART_VERSION}" ]] && printf '\n[dpf.services.dhcp_server]\nhelm_version = "%s"\n' "${NICO_DPF_DHCP_SERVER_CHART_VERSION}" >> "${file}"
+            [[ -n "${NICO_DPF_OTEL_CHART_VERSION}" ]]      && printf '\n[dpf.services.otel]\nhelm_version = "%s"\n'      "${NICO_DPF_OTEL_CHART_VERSION}"      >> "${file}"
+        }
+        _dpf_inject_service_overrides "${_DPF_ON_VALUES}"
+        _dpf_inject_service_overrides "${_DPF_OFF_VALUES}"
 
         # Guard against a silent no-op: if the ON values don't actually enable
         # [dpf] (e.g. --core-values with no/commented [dpf] block, or an inline

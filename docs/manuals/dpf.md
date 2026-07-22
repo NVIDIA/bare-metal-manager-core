@@ -51,6 +51,13 @@ export NICO_DPF_DPU_INTERFACE=<controller-interface>   # keepalived interface fo
 export NICO_DPF_DPU_CLUSTER_VIP=<vip>                  # VIP the DPUs use to reach their control plane
 export NICO_DPF_BMC_ROOT_PASSWORD=<bmc-password>       # site-wide BMC root (see "BMC root precondition")
 export NICO_DPF_METALLB_POOL=<pool>                    # optional: MetalLB pool advertising the VIP
+# Optional: pin NICo-owned DPF service chart versions when testing a dev/PR
+# image whose baked-in version was never published to the chart registry.
+# Point at the latest published version (e.g. most recent main build tag).
+# export NICO_DPF_DPU_AGENT_CHART_VERSION=<published-version>
+# export NICO_DPF_FMDS_CHART_VERSION=<published-version>
+# export NICO_DPF_DHCP_SERVER_CHART_VERSION=<published-version>
+# export NICO_DPF_OTEL_CHART_VERSION=<published-version>
 ./setup.sh                                             # DPF installs by default; add --skip-dpf to opt out
 ```
 
