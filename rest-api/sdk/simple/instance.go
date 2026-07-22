@@ -322,6 +322,9 @@ func (im InstanceManager) Delete(ctx context.Context, id string) *ApiError {
 				sshKeyGroupIDsToDelete = filterOutIDs(sshKeyGroupIDsToDelete, sharedIDs)
 			}
 		}
+	} else {
+		logger.Warn().Str("instanceId", id).Err(getErr).
+			Msg("failed to get Instance; skipping SSH Key Group cleanup")
 	}
 
 	_, resp, err := im.client.apiClient.InstanceAPI.DeleteInstance(ctx, im.client.apiMetadata.Organization, id).Execute()

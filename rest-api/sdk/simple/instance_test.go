@@ -4,6 +4,7 @@
 package simple
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -282,6 +284,35 @@ func TestInstanceManagerDeleteSkipsSharedAutoCreatedSSHKeyGroup(t *testing.T) {
 	apiErr := NewInstanceManager(client).Delete(context.Background(), "inst-1")
 	require.Nil(t, apiErr)
 	assert.Empty(t, deletedSSHKeyGroups, "shared auto-created SSH Key Group must not be deleted")
+}
+
+func TestInstanceManagerDeleteWarnsWhenInstanceLookupFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			http.Error(w, `{"message":"lookup failed"}`, http.StatusInternalServerError)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"message":"accepted"}`)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs)
+	client := newSimpleTestClient(server.URL)
+	client.Logger = &logger
+
+	apiErr := NewInstanceManager(client).Delete(context.Background(), "inst-1")
+	require.Nil(t, apiErr)
+	assert.Contains(t, logs.String(), `"level":"warn"`)
+	assert.Contains(t, logs.String(), `"instanceId":"inst-1"`)
+	assert.Contains(t, logs.String(), `"error":`)
+	assert.Contains(t, logs.String(), `"message":"failed to get Instance; skipping SSH Key Group cleanup"`)
 }
 
 func newSimpleTestClient(baseURL string) *Client {
