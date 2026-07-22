@@ -41,6 +41,7 @@ carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-web = { path = "../api-web" }
 carbide-http-connector = { path = "../http-connector" }
 carbide-instrument = { path = "../instrument" }
+carbide-kms-provider = { path = "../kms-provider" }
 carbide-machine-controller = { path = "../machine-controller" }
 carbide-metrics-utils = { path = "../metrics-utils" }
 carbide-secrets = { path = "../secrets" }
@@ -78,10 +79,12 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
+tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "local-time",
 ] }
+vaultrs = { workspace = true }
 
 [features]
 default = ["linux-build"]
@@ -92,6 +95,9 @@ carbide-version = { path = "../version" }
 
 [dev-dependencies]
 # Internal dependencies. PLEASE KEEP ALPHABETIZED ORDER.
+carbide-api-core = { path = "../api-core", default-features = false, features = [
+  "test-support",
+] }
 trace-propagation = { path = "../trace-propagation" }
 
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.

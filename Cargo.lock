@@ -1141,6 +1141,7 @@ dependencies = [
  "carbide-api-web",
  "carbide-http-connector",
  "carbide-instrument",
+ "carbide-kms-provider",
  "carbide-machine-controller",
  "carbide-metrics-utils",
  "carbide-secrets",
@@ -1165,8 +1166,10 @@ dependencies = [
  "tokio-util",
  "trace-propagation",
  "tracing",
+ "tracing-log",
  "tracing-opentelemetry 0.33.0",
  "tracing-subscriber",
+ "vaultrs",
 ]
 
 [[package]]
@@ -1302,12 +1305,10 @@ dependencies = [
  "tower-http 0.7.0",
  "trace-propagation",
  "tracing",
- "tracing-log",
  "tracing-subscriber",
  "tss-esapi",
  "url",
  "uuid",
- "vaultrs",
  "x509-parser",
  "zeroize",
 ]

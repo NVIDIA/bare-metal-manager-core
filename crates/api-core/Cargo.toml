@@ -174,7 +174,6 @@ tower-http = { workspace = true, features = [
   "normalize-path",
 ] }
 tracing = { workspace = true }
-tracing-log = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "local-time",
@@ -182,7 +181,6 @@ tracing-subscriber = { workspace = true, features = [
 tss-esapi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
-vaultrs = { workspace = true }
 x509-parser = { workspace = true, features = ["verify"] }
 zeroize = { workspace = true }
 

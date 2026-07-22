@@ -82,9 +82,7 @@ use model::resource_pool::{self, ResourcePoolDef};
 use model::route_server::RouteServerSourceType;
 use model::vpc::VpcDefinition;
 use opentelemetry::metrics::Meter;
-use sqlx::postgres::PgSslMode;
-use sqlx::{ConnectOptions, PgPool};
-use sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
+use sqlx::PgPool;
 use state_controller::controller::{Enqueuer, StateController};
 use state_controller::per_object::{PerObjectStateMetrics, PerObjectStateRecorder};
 use state_controller::state_change_emitter::StateChangeEmitterBuilder;
@@ -92,7 +90,6 @@ use tokio::sync::Semaphore;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing_log::AsLog as _;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -135,59 +132,6 @@ pub fn create_ipmi_tool(
         }
     }
 }
-/// Configure and create a postgres connection pool
-///
-/// This connects to the database to verify settings
-pub(crate) async fn create_and_connect_postgres_pool(
-    config: &CarbideConfig,
-) -> eyre::Result<PgPool> {
-    for (name, value) in [
-        (
-            "database_pool_acquire_timeout",
-            config.database_pool_acquire_timeout,
-        ),
-        (
-            "database_pool_idle_timeout",
-            config.database_pool_idle_timeout,
-        ),
-        (
-            "database_pool_max_lifetime",
-            config.database_pool_max_lifetime,
-        ),
-    ] {
-        if value.is_zero() {
-            eyre::bail!("{name} must be greater than zero");
-        }
-    }
-
-    // We need logs to be enabled at least at `INFO` level. Otherwise
-    // our global logging filter would reject the logs before they get injected
-    // into the `SqlxQueryTracing` layer.
-    let mut database_connect_options = config
-        .database_url
-        .parse::<sqlx::postgres::PgConnectOptions>()?
-        .log_statements(SQLX_STATEMENTS_LOG_LEVEL.as_log().to_level_filter());
-    if let Some(ref tls_config) = config.tls {
-        let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
-        if !tls_disabled {
-            tracing::info!("using TLS for postgres connection.");
-            database_connect_options = database_connect_options
-                .ssl_mode(PgSslMode::Require) //TODO: move this to VerifyFull once it actually works
-                .ssl_root_cert(&tls_config.root_cafile_path);
-        }
-    }
-    Ok(sqlx::pool::PoolOptions::new()
-        .max_connections(config.max_database_connections)
-        // Lifecycle settings are operator-configurable; each `database_pool_*`
-        // config field documents what it bounds. The defaults are sqlx's own,
-        // so exposing them changes no behavior -- tuning belongs to the site.
-        .acquire_timeout(config.database_pool_acquire_timeout)
-        .idle_timeout(Some(config.database_pool_idle_timeout))
-        .max_lifetime(Some(config.database_pool_max_lifetime))
-        .connect_with(database_connect_options)
-        .await?)
-}
-
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
 pub async fn start_api(
@@ -2330,34 +2274,5 @@ mod tests {
 
         assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
         assert!(msg.contains("beta"), "expected `beta` in {msg}");
-    }
-
-    /// The pool builder rejects zero-valued lifecycle settings before it
-    /// touches the database, naming the offending field.
-    #[tokio::test]
-    async fn zero_database_pool_durations_are_rejected_at_startup() {
-        type ZeroOut = fn(&mut CarbideConfig);
-        let cases: [(&str, ZeroOut); 3] = [
-            ("database_pool_acquire_timeout", |config| {
-                config.database_pool_acquire_timeout = std::time::Duration::ZERO
-            }),
-            ("database_pool_idle_timeout", |config| {
-                config.database_pool_idle_timeout = std::time::Duration::ZERO
-            }),
-            ("database_pool_max_lifetime", |config| {
-                config.database_pool_max_lifetime = std::time::Duration::ZERO
-            }),
-        ];
-        for (field, zero_out) in cases {
-            let mut config = crate::test_support::default_config::get();
-            zero_out(&mut config);
-            let err = create_and_connect_postgres_pool(&config)
-                .await
-                .expect_err("a zero-valued pool duration must be rejected");
-            assert!(
-                err.to_string().contains(field),
-                "error must name `{field}`, got: {err}"
-            );
-        }
     }
 }

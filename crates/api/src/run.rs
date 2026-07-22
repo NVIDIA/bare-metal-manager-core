@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 use carbide_api_core::AdminUiRoutesBuilder;
-use carbide_api_core::bootstrap::{CoreRunInputs, Logging, run_core};
+use carbide_api_core::bootstrap::{CoreRunInputs, Logging, run_core, start_core_runtime};
 use carbide_secrets::CredentialConfig;
 use eyre::WrapErr;
 use tokio::sync::oneshot::Sender;
@@ -28,6 +28,7 @@ use tracing::subscriber::NoSubscriber;
 
 use crate::logging::setup_logging;
 use crate::metrics::{Metrics, setup_metrics};
+use crate::resources::{RuntimeResources, setup_resources};
 
 /// Run the carbide-api server until `cancel_token` is cancelled.
 #[allow(clippy::too_many_arguments)]
@@ -96,14 +97,34 @@ pub async fn run(
     let per_object_metrics =
         start_per_object_metrics_endpoint(&mut join_set, &carbide_config, cancel_token.clone())?;
 
+    let dynamic_settings =
+        start_core_runtime(&carbide_config, logging, &mut join_set, &cancel_token);
+
+    let RuntimeResources {
+        credential_manager,
+        certificate_provider,
+        db_pool,
+        secrets_context,
+    } = setup_resources(
+        &carbide_config,
+        &credential_config,
+        &meter,
+        &mut join_set,
+        &cancel_token,
+    )
+    .await?;
+
     run_core(CoreRunInputs {
         carbide_config,
         initial_objects,
-        credential_config,
-        logging,
         meter,
         per_object_metrics,
         join_set: &mut join_set,
+        dynamic_settings,
+        credential_manager,
+        certificate_provider,
+        db_pool,
+        secrets_context,
         admin_ui_routes_builder,
         cancel_token,
         ready_channel,
