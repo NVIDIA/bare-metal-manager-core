@@ -1219,6 +1219,7 @@ mod tests {
                 "failing-switch-host",
             )),
             rack_id: None,
+            labels: Default::default(),
             bmc,
         });
 

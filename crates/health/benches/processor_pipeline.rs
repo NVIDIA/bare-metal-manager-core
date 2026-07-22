@@ -95,6 +95,7 @@ fn event_context() -> EventContext {
             mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         },
         collector_type: "sensor_collector",
+        labels: Default::default(),
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: Some(MACHINE_ID.parse().expect("valid machine id")),
             machine_serial: None,
@@ -274,6 +275,7 @@ fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
                     mac: MacAddress::from_str(&mac).unwrap(),
                 },
                 collector_type: "sensor_collector",
+                labels: Default::default(),
                 metadata: Some(EndpointMetadata::Machine(MachineData {
                     machine_id: Some(MACHINE_ID.parse().expect("valid machine id")),
                     machine_serial: None,

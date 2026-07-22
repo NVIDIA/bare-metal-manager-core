@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -201,6 +201,9 @@ pub struct StaticBmcEndpoint {
     pub power_shelf: Option<StaticPowerShelfEndpoint>,
     pub switch: Option<StaticSwitchEndpoint>,
     pub rack_id: Option<String>,
+    /// User-defined labels attached to telemetry emitted for this endpoint.
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -272,6 +275,7 @@ impl Debug for StaticBmcEndpoint {
             .field("power_shelf", &self.power_shelf)
             .field("switch", &self.switch)
             .field("rack_id", &self.rack_id)
+            .field("labels", &self.labels)
             .finish()
     }
 }
@@ -306,6 +310,52 @@ impl StaticBmcEndpoint {
             return Err(format!(
                 "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
             ));
+        }
+
+        const RESERVED_LABELS: &[&str] = &[
+            "collector_type",
+            "endpoint_ip",
+            "endpoint_key",
+            "endpoint_mac",
+            "machine_id",
+            "machine_slot_number",
+            "machine_tray_index",
+            "nvlink_domain_uuid",
+            "rack_id",
+            "serial_number",
+            "switch_id",
+            "switch_slot_number",
+            "switch_tray_index",
+            "system_uuid",
+        ];
+
+        if self.labels.len() > 32 {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}].labels supports at most 32 labels"
+            ));
+        }
+
+        for (name, value) in &self.labels {
+            let mut chars = name.chars();
+            let valid_start = chars
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_');
+            let valid_rest = chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+            if !valid_start || !valid_rest {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} must match [a-zA-Z_][a-zA-Z0-9_]*"
+                ));
+            }
+            if RESERVED_LABELS.contains(&name.as_str()) {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} is reserved"
+                ));
+            }
+            if value.len() > 1024 {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].labels value for {name:?} exceeds 1024 bytes"
+                ));
+            }
         }
 
         Ok(())
@@ -1847,6 +1897,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: None,
+            labels: BTreeMap::new(),
         }
     }
 
@@ -3837,6 +3888,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:11"
 username = "admin"
 password = "pass"
+labels = { site = "rno-dev7", environment = "development" }
 machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", driver_version = "570.82", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 "#;
 
@@ -3851,6 +3903,15 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
             .as_ref()
             .expect("machine metadata");
 
+        config.validate().expect("valid custom labels");
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .labels
+                .get("site")
+                .map(String::as_str),
+            Some("rno-dev7")
+        );
+
         assert_eq!(machine.slot_number, Some(15));
         assert_eq!(machine.tray_index, Some(5));
         assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
@@ -3858,6 +3919,34 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
             machine.nvlink_domain_uuid.as_deref(),
             Some("00000000-0000-0000-0000-000000000000")
         );
+    }
+
+    #[test]
+    fn test_static_endpoint_rejects_invalid_or_reserved_label_names() {
+        for (name, expected) in [("bad-label", "must match"), ("system_uuid", "is reserved")] {
+            let toml_content = format!(
+                r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+labels = {{ {name} = "value" }}
+machine = {{ id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0" }}
+"#
+            );
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(&toml_content))
+                .extract()
+                .expect("label syntax should parse");
+
+            let error = config.validate().expect_err("label should be rejected");
+            assert!(error.contains(expected), "unexpected error: {error}");
+        }
     }
 
     #[test]

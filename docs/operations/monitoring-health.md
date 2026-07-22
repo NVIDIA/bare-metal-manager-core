@@ -111,7 +111,14 @@ port = 443
 mac = "aa:bb:cc:dd:ee:ff"
 username = "admin"
 password = "secret"
+labels = { site = "rno-dev7", cluster = "cluster-01", environment = "development" }
 ```
+
+Static endpoints may define up to 32 custom telemetry labels. Label names must
+match `[a-zA-Z_][a-zA-Z0-9_]*`; names owned by the health service, such as
+`machine_id`, `system_uuid`, `endpoint_ip`, and `collector_type`, are reserved.
+Custom labels are exported as Prometheus labels and OTLP resource attributes,
+as a `labels` object in JSONL logs, and as a structured map in tracing events.
 
 Collector defaults from the example config:
 

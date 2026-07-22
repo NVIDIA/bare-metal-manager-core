@@ -69,6 +69,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
             mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         },
         collector_type: "sensor_collector",
+        labels: Default::default(),
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: Some(machine_id.parse().expect("valid machine id")),
             machine_serial: None,

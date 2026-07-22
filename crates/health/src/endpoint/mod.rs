@@ -61,6 +61,7 @@ pub(crate) mod test_support {
             addr,
             metadata,
             rack_id,
+            labels: Default::default(),
             bmc,
         }
     }

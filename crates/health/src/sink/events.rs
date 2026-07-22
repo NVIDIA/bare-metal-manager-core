@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
@@ -48,6 +49,7 @@ pub struct EventContext {
     pub collector_type: &'static str,
     pub metadata: Option<EndpointMetadata>,
     pub rack_id: Option<RackId>,
+    pub labels: BTreeMap<String, String>,
 }
 
 impl EventContext {
@@ -58,11 +60,16 @@ impl EventContext {
             collector_type,
             metadata: endpoint.metadata.clone(),
             rack_id: endpoint.rack_id.clone(),
+            labels: endpoint.labels.clone(),
         }
     }
 
     pub fn endpoint_key(&self) -> &str {
         &self.endpoint_key
+    }
+
+    pub fn labels(&self) -> &BTreeMap<String, String> {
+        &self.labels
     }
 
     /// Returns machine metadata when this context belongs to a machine endpoint.
@@ -677,6 +684,7 @@ mod tests {
             collector_type: "unit-test",
             metadata,
             rack_id: Some(RackId::new("rack-1")),
+            labels: Default::default(),
         }
     }
 

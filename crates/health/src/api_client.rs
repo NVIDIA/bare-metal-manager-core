@@ -609,6 +609,7 @@ impl ApiEndpointSource {
             addr,
             metadata,
             rack_id,
+            labels: Default::default(),
             bmc,
         }))
     }

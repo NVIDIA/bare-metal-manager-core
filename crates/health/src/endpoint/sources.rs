@@ -193,6 +193,7 @@ impl StaticEndpointSource {
                 addr,
                 metadata,
                 rack_id: cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str())),
+                labels: cfg.labels.clone(),
                 bmc,
             };
             endpoints.push(Arc::new(endpoint));
@@ -289,6 +290,7 @@ mod tests {
                 power_shelf: None,
                 switch: None,
                 rack_id: None,
+                labels: Default::default(),
             },
             StaticBmcEndpoint {
                 ip: ip("10.0.0.2"),
@@ -300,6 +302,7 @@ mod tests {
                 power_shelf: None,
                 switch: None,
                 rack_id: None,
+                labels: Default::default(),
             },
         ];
 
@@ -335,6 +338,7 @@ mod tests {
                 nmxt_enabled: None,
             }),
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -372,6 +376,7 @@ mod tests {
             }),
             switch: None,
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -412,6 +417,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: Some("RACK_1".to_string()),
+            labels: std::collections::BTreeMap::from([("site".to_string(), "dev".to_string())]),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -424,6 +430,10 @@ mod tests {
                 .as_ref()
                 .map(|rack_id| rack_id.as_str()),
             Some("RACK_1")
+        );
+        assert_eq!(
+            endpoints[0].labels.get("site").map(String::as_str),
+            Some("dev")
         );
         match &endpoints[0].metadata {
             Some(EndpointMetadata::Machine(machine)) => {
@@ -457,6 +467,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -483,6 +494,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);

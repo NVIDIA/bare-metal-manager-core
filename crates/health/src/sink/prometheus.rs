@@ -207,6 +207,12 @@ impl DataSink for PrometheusSink {
             }
             CollectorEvent::Metric(sample) => match self.get_or_create_stream_metrics(context) {
                 Ok(stream_metrics) => {
+                    let mut labels = sample.labels.clone();
+                    for (name, value) in context.labels() {
+                        if labels.iter().all(|(existing, _)| existing.as_ref() != name) {
+                            labels.push((Cow::Owned(name.clone()), value.clone()));
+                        }
+                    }
                     stream_metrics.record(
                         GaugeReading::new(
                             Self::metric_reading_key(sample),
@@ -215,7 +221,7 @@ impl DataSink for PrometheusSink {
                             sample.unit.clone(),
                             sample.value,
                         )
-                        .with_labels(sample.labels.clone()),
+                        .with_labels(labels),
                     );
                 }
                 Err(error) => {
@@ -277,6 +283,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "sensor_collector",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: Some(
                     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
@@ -330,6 +337,7 @@ mod tests {
                 mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
             },
             collector_type: "switch_collector",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-001".to_string(),

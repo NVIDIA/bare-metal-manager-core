@@ -108,6 +108,8 @@ struct JsonLogRecord<'a> {
     component_type: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     nvlink_domain_uuid: Option<String>,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    labels: &'a std::collections::BTreeMap<String, String>,
     severity: &'a str,
     body: &'a str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -126,6 +128,7 @@ impl<'a> JsonLogRecord<'a> {
             driver_version: context.driver_version(),
             component_type: context.component_type(),
             nvlink_domain_uuid: context.nvlink_domain_uuid().map(|id| id.to_string()),
+            labels: context.labels(),
             severity: &record.severity,
             body: &record.body,
             attributes: record
@@ -293,12 +296,17 @@ mod tests {
             collector_type: "test",
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         }
     }
 
     /// Builds a log context with representative machine metadata.
     fn machine_context() -> EventContext {
         EventContext {
+            labels: std::collections::BTreeMap::from([(
+                "site".to_string(),
+                "rno-dev7".to_string(),
+            )]),
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: Some(
                     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
@@ -496,6 +504,7 @@ mod tests {
         assert_eq!(parsed["machine_serial"], "MN-001");
         assert_eq!(parsed["driver_version"], "570.82");
         assert_eq!(parsed["component_type"], "compute_node");
+        assert_eq!(parsed["labels"]["site"], "rno-dev7");
         assert_eq!(
             parsed["nvlink_domain_uuid"],
             "00000000-0000-0000-0000-000000000000"
