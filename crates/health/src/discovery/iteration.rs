@@ -20,9 +20,12 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
+use futures::{StreamExt, stream};
+
 use super::DiscoveryIterationStats;
 use super::cleanup::{stop_ineligible_nmxc_collectors, stop_removed_bmc_collectors};
 use super::context::{CollectorKind, DiscoveryLoopContext};
+use super::identity::with_primary_system_uuid;
 use super::spawn::{spawn_collectors_for_endpoint, switch_supports_nmxc_subscription};
 use crate::HealthError;
 use crate::config::Configurable;
@@ -73,6 +76,31 @@ pub async fn run_discovery_iteration(
         .filter(|ep| shard_manager.should_monitor(ep))
         .cloned()
         .collect();
+
+    // Resolve machine identity before any collector can emit. Failed endpoints
+    // are omitted from this pass and retried by the next discovery iteration,
+    // preserving the invariant that machine telemetry always carries the
+    // primary ComputerSystem UUID.
+    let identity_concurrency = ctx.discovery_config.discovery_concurrency.max(1);
+    let resolved_endpoints: Vec<Option<Arc<BmcEndpoint>>> = stream::iter(sharded_endpoints)
+        .map(|endpoint| async move {
+            match with_primary_system_uuid(&endpoint).await {
+                Ok(endpoint) => Some(endpoint),
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        bmc_address = ?endpoint.addr,
+                        "Could not resolve primary ComputerSystem UUID; skipping endpoint"
+                    );
+                    None
+                }
+            }
+        })
+        .buffer_unordered(identity_concurrency)
+        .collect()
+        .await;
+    let sharded_endpoints: Vec<Arc<BmcEndpoint>> =
+        resolved_endpoints.into_iter().flatten().collect();
 
     if sharded_endpoints.is_empty() {
         tracing::warn!("No endpoints assigned to this shard");

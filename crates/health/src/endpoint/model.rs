@@ -126,6 +126,12 @@ pub struct MachineData {
     /// Hardware chassis serial discovered from machine DMI data, when known.
     pub machine_serial: Option<String>,
 
+    /// UUID reported by the primary Redfish ComputerSystem resource.
+    ///
+    /// Endpoint discovery resolves this before machine collectors start so every
+    /// telemetry event can carry the same hardware identity.
+    pub machine_uuid: Option<uuid::Uuid>,
+
     /// Physical rack slot where the machine is installed, when known.
     pub slot_number: Option<i32>,
 

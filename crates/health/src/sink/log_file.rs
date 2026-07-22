@@ -99,6 +99,8 @@ struct JsonLogRecord<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     machine_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    machine_uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     machine_serial: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     driver_version: Option<&'a str>,
@@ -119,6 +121,7 @@ impl<'a> JsonLogRecord<'a> {
             endpoint: context.endpoint_key(),
             collector: context.collector_type,
             machine_id: context.machine_id().map(|id| id.to_string()),
+            machine_uuid: context.machine_uuid().map(|id| id.to_string()),
             machine_serial: context.machine_serial(),
             driver_version: context.driver_version(),
             component_type: context.component_type(),
@@ -303,6 +306,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: Some("MN-001".to_string()),
+                machine_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")),
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
@@ -484,6 +488,10 @@ mod tests {
         assert_eq!(
             parsed["machine_id"],
             "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+        );
+        assert_eq!(
+            parsed["machine_uuid"],
+            "4c4c4544-0044-4710-8052-cac04f4b4632"
         );
         assert_eq!(parsed["machine_serial"], "MN-001");
         assert_eq!(parsed["driver_version"], "570.82");

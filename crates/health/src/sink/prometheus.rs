@@ -96,6 +96,9 @@ impl PrometheusSink {
         if let Some(machine_id) = context.machine_id() {
             labels.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
         }
+        if let Some(machine_uuid) = context.machine_uuid() {
+            labels.push((Cow::Borrowed("machine_uuid"), machine_uuid.to_string()));
+        }
         if let Some(switch_id) = context.switch_id() {
             labels.push((Cow::Borrowed("switch_id"), switch_id.to_string()));
         }
@@ -281,6 +284,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: Some("MN-001".to_string()),
+                machine_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")),
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
@@ -301,6 +305,10 @@ mod tests {
             Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
         );
         assert_eq!(label_value("serial_number"), Some("MN-001"));
+        assert_eq!(
+            label_value("machine_uuid"),
+            Some("4c4c4544-0044-4710-8052-cac04f4b4632")
+        );
         assert_eq!(label_value("rack_id"), Some("RACK_1"));
         assert_eq!(label_value("machine_slot_number"), Some("15"));
         assert_eq!(label_value("machine_tray_index"), Some("5"));

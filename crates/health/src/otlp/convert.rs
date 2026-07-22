@@ -88,6 +88,9 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
     }
+    if let Some(machine_uuid) = context.machine_uuid() {
+        attrs.push(kv("machine.uuid", machine_uuid.to_string()));
+    }
     if let Some(machine_serial) = context.machine_serial() {
         attrs.push(kv("machine.serial", machine_serial.to_string()));
     }
@@ -406,6 +409,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: Some("MN-001".to_string()),
+                machine_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")),
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(domain_uuid),
@@ -417,6 +421,10 @@ mod tests {
         let attrs = resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_1"));
+        assert_eq!(
+            attr_value(&attrs, "machine.uuid"),
+            Some("4c4c4544-0044-4710-8052-cac04f4b4632")
+        );
         assert_eq!(attr_value(&attrs, "machine.serial"), Some("MN-001"));
         assert_eq!(attr_value(&attrs, "driver.version"), Some("570.82"));
         assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
@@ -442,6 +450,7 @@ mod tests {
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: None,
                 machine_serial: None,
+                machine_uuid: None,
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
@@ -455,6 +464,7 @@ mod tests {
         assert_eq!(attr_value(&attrs, "machine.id"), None);
         assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
         assert_eq!(attr_value(&attrs, "machine.serial"), None);
+        assert_eq!(attr_value(&attrs, "machine.uuid"), None);
         assert_eq!(attr_value(&attrs, "driver.version"), None);
         assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
     }

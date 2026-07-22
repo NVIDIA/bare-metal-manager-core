@@ -152,6 +152,7 @@ impl StaticEndpointSource {
                 Some(EndpointMetadata::Machine(MachineData {
                     machine_id,
                     machine_serial: machine.serial.clone(),
+                    machine_uuid: None,
                     slot_number: machine.slot_number,
                     tray_index: machine.tray_index,
                     nvlink_domain_uuid,
