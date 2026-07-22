@@ -60,6 +60,13 @@ struct PendingReWrap {
 /// Historical journal entries are re-wrapped too: they must stay
 /// decryptable, and re-wrapping them is what lets an old KEK be retired
 /// completely.
+// Custom-lint exception for #2665 (@chet): this function intentionally keeps a
+// dedicated detached connection alive across awaits because the re-wrap lock is
+// session-scoped and releases when that connection closes. The custom lint
+// classifies bare `PgConnection`s as transactions, but no transaction is open on
+// this connection; batch reads, KMS work, and batch-write transactions use
+// separate pool connections.
+#[allow(txn_held_across_await)]
 pub async fn re_wrap_stale(
     pool: &PgPool,
     kms: &dyn KmsBackend,

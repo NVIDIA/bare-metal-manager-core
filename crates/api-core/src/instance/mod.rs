@@ -488,6 +488,11 @@ async fn allocate_prefix_candidate_once(
 ///
 /// Every unsuccessful attempt explicitly rolls back its savepoint before the
 /// caller advances or retries, releasing any lock acquired only by that attempt.
+// Custom-lint exception for #3456 (@bcavnvidia): the lint treats the outer
+// `PgConnection` as a transaction held across every await. All awaits here are
+// database work performed through an inner savepoint, which is explicitly
+// committed or rolled back before returning.
+#[allow(txn_held_across_await)]
 async fn attempt_prefix_candidate(
     txn: &mut PgConnection,
     vpc_id: VpcId,
