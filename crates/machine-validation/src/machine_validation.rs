@@ -160,13 +160,13 @@ impl MachineValidation {
         Ok(())
     }
     pub(crate) async fn create_forge_client(
-        self,
+        &self,
     ) -> Result<forge_tls_client::ForgeClientT, MachineValidationError> {
         let client_config = ForgeClientConfig::new(
-            self.options.root_ca,
+            self.options.root_ca.clone(),
             Some(ClientCert {
-                cert_path: self.options.client_cert,
-                key_path: self.options.client_key,
+                cert_path: self.options.client_cert.clone(),
+                key_path: self.options.client_key.clone(),
             }),
         );
         let api_config = ApiConfig::new(&self.options.api, &client_config);
@@ -352,26 +352,159 @@ impl MachineValidation {
         ))
     }
 
-    pub async fn pull_container(image_name: &str) {
+    /// Resolve registry credentials for `image_name` from the Nico API.
+    /// Returns `(username, password, registry)` when credentials are found,
+    /// or `None` when the registry cannot be determined, no credential is
+    /// stored, or the RPC fails — in all cases the pull proceeds without
+    /// credentials.
+    async fn resolve_registry_credential(
+        &self,
+        image_name: &str,
+    ) -> Option<(String, String, String)> {
+        let registry = match Self::extract_registry(image_name) {
+            Ok(r) => r,
+            Err(e) => {
+                error!(error = %e, "Skipping registry credential lookup");
+                return None;
+            }
+        };
+        let mut client = match self.create_forge_client().await {
+            Ok(c) => c,
+            Err(e) => {
+                error!(error = %e, "Failed to build Forge client for registry credential lookup");
+                return None;
+            }
+        };
+        let response = client
+            .get_container_registry_credential(tonic::Request::new(
+                rpc::forge::GetContainerRegistryCredentialRequest {
+                    registry: registry.to_string(),
+                },
+            ))
+            .await;
+        match response {
+            Ok(resp) => {
+                let r = resp.into_inner();
+                Some((r.username, r.password, registry.to_string()))
+            }
+            Err(status) if status.code() == tonic::Code::NotFound => {
+                // No credential registered — treat as public registry.
+                None
+            }
+            Err(e) => {
+                error!(registry = %registry, error = %e, "Failed to fetch registry credential");
+                None
+            }
+        }
+    }
+
+    /// Extract the registry hostname from an OCI image reference.
+    /// `"nvcr.io/foo/bar:tag"` → `Ok("nvcr.io")`.
+    /// Returns an error for bare image names and Docker Hub path shorthands
+    /// that carry no explicit registry hostname.
+    fn extract_registry(image_name: &str) -> Result<&str, MachineValidationError> {
+        // Without a slash the entire string is a bare image name or image:tag
+        // (e.g. "ubuntu:22.04") — there is no registry component to extract.
+        let Some(slash) = image_name.find('/') else {
+            return Err(MachineValidationError::Generic(format!(
+                "cannot determine registry from image reference {image_name:?}: \
+                 no host component (no '/' found)"
+            )));
+        };
+        let first = &image_name[..slash];
+        // The first component is a registry hostname when it contains a dot
+        // (e.g. "nvcr.io"), a colon for host:port (e.g. "localhost:5000"),
+        // or is exactly "localhost" (port-less local registry).
+        // Plain path prefixes like "library" are Docker Hub shorthands with no
+        // explicit registry host.
+        if first.contains('.') || first.contains(':') || first == "localhost" {
+            Ok(first)
+        } else {
+            Err(MachineValidationError::Generic(format!(
+                "cannot determine registry from image reference {image_name:?}: \
+                 first component {first:?} is not a hostname"
+            )))
+        }
+    }
+
+    /// Pull `image_name` into the local containerd store via nerdctl.
+    ///
+    /// If the Nico API has a credential for the image's registry, logs in
+    /// with `nerdctl login --password-stdin` before pulling so the password
+    /// never appears in process arguments or logs.
+    pub async fn pull_container(&self, image_name: &str) {
         tracing::info!(%image_name, "Pulling machine validation image");
-        let command_string = format!(" nerdctl -n default pull {image_name}");
-        tracing::info!(
-            command = %command_string,
-            "Executing machine validation command"
-        );
-        match TokioCmd::new("sh")
-            .args(vec!["-c".to_string(), command_string])
+
+        if let Some((username, password, registry)) =
+            self.resolve_registry_credential(image_name).await
+        {
+            let registry = registry.as_str();
+            // Pipe the password via stdin so it never appears in process arguments.
+            // stdout/stderr are discarded (null) — we only need the exit status, and
+            // leaving them piped-but-unread risks a pipe-buffer deadlock if nerdctl
+            // produces enough output before exiting.
+            use std::process::Stdio;
+            use std::time::Duration;
+
+            use tokio::io::AsyncWriteExt;
+
+            const LOGIN_TIMEOUT: Duration = Duration::from_secs(60);
+
+            match tokio::process::Command::new("nerdctl")
+                .args([
+                    "-n",
+                    "default",
+                    "login",
+                    registry,
+                    "-u",
+                    &username,
+                    "--password-stdin",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(mut child) => {
+                    if let Some(mut stdin) = child.stdin.take()
+                        && let Err(e) = stdin.write_all(password.as_bytes()).await
+                    {
+                        error!(%registry, error = %e, "Failed to write password to nerdctl login stdin");
+                    }
+                    match tokio::time::timeout(LOGIN_TIMEOUT, child.wait()).await {
+                        Ok(Ok(status)) if status.success() => {
+                            info!(%registry, "Logged in to container registry")
+                        }
+                        Ok(Ok(status)) => {
+                            error!(%registry, exit_code = ?status.code(), "nerdctl login failed")
+                        }
+                        Ok(Err(e)) => {
+                            error!(%registry, error = %e, "Failed to wait for nerdctl login")
+                        }
+                        Err(_) => {
+                            error!(%registry, "nerdctl login timed out");
+                            let _ = child.kill().await;
+                            let _ = child.wait().await;
+                        }
+                    }
+                }
+                Err(e) => error!(%registry, error = %e, "Failed to spawn nerdctl login"),
+            }
+        }
+
+        match TokioCmd::new("nerdctl")
+            .args(["-n", "default", "pull", image_name])
             .timeout(DEFAULT_TIMEOUT)
             .output_with_timeout()
             .await
         {
             Ok(result) => info!(
-                image_name = %image_name,
+                %image_name,
                 stdout = %result.stdout,
                 "Pulled machine validation container image",
             ),
             Err(e) => error!(
-                image_name = %image_name,
+                %image_name,
                 error = %e,
                 "Failed to pull machine validation container image",
             ),
@@ -493,7 +626,8 @@ impl MachineValidation {
                 // Execute command in host
                 command_string = format!("chroot /host /bin/bash -c \"{command_string}\"");
             }
-            Self::pull_container(&test.img_name.clone().unwrap_or_default()).await;
+            self.pull_container(&test.img_name.clone().unwrap_or_default())
+                .await;
             let ctr_arg = test.container_arg.clone().unwrap_or("".to_string());
             command_string = format!(
                 "ctr run --rm --privileged --no-pivot \
@@ -671,5 +805,54 @@ impl MachineValidation {
             info!("To be implemented");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MachineValidation;
+
+    #[test]
+    fn extract_registry_parses_known_registries() {
+        assert_eq!(
+            MachineValidation::extract_registry("nvcr.io/foo/bar:latest").unwrap(),
+            "nvcr.io"
+        );
+        assert_eq!(
+            MachineValidation::extract_registry("docker.io/library/ubuntu:22.04").unwrap(),
+            "docker.io"
+        );
+        assert_eq!(
+            MachineValidation::extract_registry("ghcr.io/org/image:v1").unwrap(),
+            "ghcr.io"
+        );
+    }
+
+    #[test]
+    fn extract_registry_handles_port_in_hostname() {
+        assert_eq!(
+            MachineValidation::extract_registry("localhost:5000/myimage:tag").unwrap(),
+            "localhost:5000"
+        );
+    }
+
+    #[test]
+    fn extract_registry_handles_bare_localhost() {
+        assert_eq!(
+            MachineValidation::extract_registry("localhost/myrepo:tag").unwrap(),
+            "localhost"
+        );
+    }
+
+    #[test]
+    fn extract_registry_errors_on_bare_image_name() {
+        assert!(MachineValidation::extract_registry("ubuntu:22.04").is_err());
+        assert!(MachineValidation::extract_registry("myimage:latest").is_err());
+    }
+
+    #[test]
+    fn extract_registry_errors_on_docker_hub_shorthand() {
+        // "library/ubuntu" has a slash but "library" is not a hostname
+        assert!(MachineValidation::extract_registry("library/ubuntu").is_err());
     }
 }

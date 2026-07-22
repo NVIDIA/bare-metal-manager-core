@@ -404,6 +404,12 @@ service Forge {
   rpc GetCredentialRotationStatus(CredentialRotationStatusRequest)
       returns (CredentialRotationStatusResult);
 
+  // Get Container registry credentials 
+  rpc GetContainerRegistryCredential(GetContainerRegistryCredentialRequest)
+    returns (GetContainerRegistryCredentialResponse);
+  rpc SetContainerRegistryCredential(SetContainerRegistryCredentialRequest)
+    returns (google.protobuf.Empty);
+
   // Route Server Management
   rpc GetRouteServers(google.protobuf.Empty) returns (RouteServerEntries);
   rpc AddRouteServers(RouteServers) returns (google.protobuf.Empty);
@@ -9357,4 +9363,19 @@ message GetMachineBootInterfacesResponse {
   // non-underlay prediction. Absent when there are no predictions or when the
   // pick refuses to guess among several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
+}
+
+message GetContainerRegistryCredentialRequest {
+  string registry = 1;
+}
+
+message GetContainerRegistryCredentialResponse {
+  string username = 1;
+  string password = 2;
+}
+
+message SetContainerRegistryCredentialRequest {
+  string registry = 1;
+  string username = 2;
+  string password = 3;
 }

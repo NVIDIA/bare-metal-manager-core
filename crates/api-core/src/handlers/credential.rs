@@ -23,8 +23,8 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge::{self as rpc};
 use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
 use carbide_secrets::credentials::{
-    BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
-    NicLockdownIkm,
+    BgpCredentialType, BmcCredentialType, CredentialKey, CredentialReader, CredentialType,
+    Credentials, NicLockdownIkm,
 };
 use mac_address::MacAddress;
 use model::ConfigValidationError;
@@ -758,4 +758,60 @@ pub(crate) async fn renew_machine_certificate(
     }
 
     Err(CarbideError::ClientCertificateError("no client certificate presented?".to_string()).into())
+}
+
+pub async fn get_container_registry_credential(
+    api: &Api,
+    request: Request<rpc::GetContainerRegistryCredentialRequest>,
+) -> Result<Response<rpc::GetContainerRegistryCredentialResponse>, Status> {
+    let registry = request.into_inner().registry;
+    if registry.is_empty() {
+        return Err(CarbideError::InvalidArgument("registry must not be empty".into()).into());
+    }
+    let key = CredentialKey::ContainerRegistry {
+        registry: registry.clone(),
+    };
+    match api
+        .credential_manager
+        .get_credentials(&key)
+        .await
+        .map_err(|e| CarbideError::internal(format!("get registry credential: {e:?}")))?
+    {
+        Some(Credentials::UsernamePassword { username, password }) => {
+            Ok(Response::new(rpc::GetContainerRegistryCredentialResponse {
+                username,
+                password,
+            }))
+        }
+        None => Err(CarbideError::NotFoundError {
+            kind: "container_registry_credential",
+            id: registry,
+        }
+        .into()),
+    }
+}
+
+pub(crate) async fn set_container_registry_credential(
+    api: &Api,
+    request: Request<rpc::SetContainerRegistryCredentialRequest>,
+) -> Result<Response<()>, Status> {
+    // Credentials are sensitive — do not log request data.
+    let req = request.into_inner();
+    if req.registry.is_empty() {
+        return Err(CarbideError::InvalidArgument("registry must not be empty".into()).into());
+    }
+    let key = CredentialKey::ContainerRegistry {
+        registry: req.registry,
+    };
+    api.credential_manager
+        .set_credentials(
+            &key,
+            &Credentials::UsernamePassword {
+                username: req.username,
+                password: req.password,
+            },
+        )
+        .await
+        .map_err(|e| CarbideError::internal(format!("set registry credential: {e:?}")))?;
+    Ok(Response::new(()))
 }

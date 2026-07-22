@@ -430,6 +430,9 @@ pub enum CredentialKey {
     RackMaintenanceAccessToken {
         rack_id: RackId,
     },
+    ContainerRegistry {
+        registry: String,
+    },
 }
 
 /// The site-wide default credentials endpoint exploration requires before it
@@ -472,6 +475,7 @@ pub enum CredentialPrefix {
     MqttAuth,
     MachineIdentityEncryptionKey,
     RackMaintenanceAccessToken,
+    ContainerRegistry,
 }
 
 impl CredentialPrefix {
@@ -495,6 +499,7 @@ impl CredentialPrefix {
             Self::MqttAuth => "mqtt/",
             Self::MachineIdentityEncryptionKey => "machine_identity/",
             Self::RackMaintenanceAccessToken => "racks/",
+            Self::ContainerRegistry => "container_registries/",
         }
     }
 
@@ -517,6 +522,7 @@ impl CredentialPrefix {
             Self::MqttAuth,
             Self::MachineIdentityEncryptionKey,
             Self::RackMaintenanceAccessToken,
+            Self::ContainerRegistry,
         ]
     }
 }
@@ -583,6 +589,7 @@ impl CredentialKey {
                 CredentialPrefix::MachineIdentityEncryptionKey
             }
             Self::RackMaintenanceAccessToken { .. } => CredentialPrefix::RackMaintenanceAccessToken,
+            Self::ContainerRegistry { .. } => CredentialPrefix::ContainerRegistry,
         }
     }
 
@@ -693,6 +700,9 @@ impl CredentialKey {
             },
             CredentialKey::RackMaintenanceAccessToken { rack_id } => {
                 Cow::from(format!("racks/{rack_id}/maintenance/access-token"))
+            }
+            CredentialKey::ContainerRegistry { registry } => {
+                Cow::from(format!("container_registries/{registry}/auth"))
             }
         }
     }
@@ -1201,6 +1211,16 @@ mod tests {
                     },
                     expect: PathChecks::all_hold(),
                 },
+                Check {
+                    scenario: "container registry",
+                    input: Row {
+                        key: CredentialKey::ContainerRegistry {
+                            registry: "nvcr.io".to_string(),
+                        },
+                        expected_prefix: "container_registries/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
             ],
             |Row {
                  key,
@@ -1276,6 +1296,9 @@ mod tests {
                 key_id: "k".to_string(),
             },
             CredentialKey::RackMaintenanceAccessToken { rack_id },
+            CredentialKey::ContainerRegistry {
+                registry: "nvcr.io".to_string(),
+            },
         ];
 
         for key in &keys {
@@ -1295,6 +1318,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 17);
     }
 }

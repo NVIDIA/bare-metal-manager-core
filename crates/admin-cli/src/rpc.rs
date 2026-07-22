@@ -1968,6 +1968,22 @@ impl ApiClient {
             .await?)
     }
 
+    pub async fn set_container_registry_credential(
+        &self,
+        registry: String,
+        username: String,
+        password: String,
+    ) -> CarbideCliResult<()> {
+        Ok(self
+            .0
+            .set_container_registry_credential(rpc::SetContainerRegistryCredentialRequest {
+                registry,
+                username,
+                password,
+            })
+            .await?)
+    }
+
     pub async fn add_update_machine_validation_external_config(
         &self,
         name: String,

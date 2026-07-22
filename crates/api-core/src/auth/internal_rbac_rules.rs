@@ -488,6 +488,8 @@ impl InternalRBACRules {
             "GetMachineValidationExternalConfig",
             vec![ForgeAdminCLI, Scout],
         );
+        x.perm("GetContainerRegistryCredential", vec![ForgeAdminCLI, Scout]);
+        x.perm("SetContainerRegistryCredential", vec![ForgeAdminCLI]);
         x.perm(
             "AddUpdateMachineValidationExternalConfig",
             vec![ForgeAdminCLI, SiteAgent],

@@ -970,6 +970,20 @@ impl Forge for Api {
         crate::handlers::credential::get_switch_nvos_credentials(self, request).await
     }
 
+    async fn get_container_registry_credential(
+        &self,
+        request: Request<rpc::GetContainerRegistryCredentialRequest>,
+    ) -> Result<Response<rpc::GetContainerRegistryCredentialResponse>, Status> {
+        crate::handlers::credential::get_container_registry_credential(self, request).await
+    }
+
+    async fn set_container_registry_credential(
+        &self,
+        request: Request<rpc::SetContainerRegistryCredentialRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::credential::set_container_registry_credential(self, request).await
+    }
+
     /// Network status of each managed host, as reported by forge-dpu-agent.
     /// For use by forge-admin-cli
     ///
