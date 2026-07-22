@@ -2123,7 +2123,7 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous GetDpuMachines workflow")
 
 	// Block until the workflow has completed and returned success/error.
-	var controllerDpuMachines []*corev1.DpuMachine
+	var controllerDpuMachines corev1.DpuMachineList
 	wferr := we.Get(wfCtx, &controllerDpuMachines)
 	if wferr != nil {
 		var timeoutErr *tp.TimeoutError
@@ -2136,7 +2136,7 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to retrieve Machine DPU information from Site: %s", uwerr), nil)
 	}
 
-	apiDpuMachines = model.NewAPIDpuMachines(controllerDpuMachines, model.APIDpuMachineProtoContext{
+	apiDpuMachines = model.NewAPIDpuMachines(controllerDpuMachines.GetMachines(), model.APIDpuMachineProtoContext{
 		HostMachineID:            mID,
 		SiteID:                   site.ID,
 		InfrastructureProviderID: site.InfrastructureProviderID,

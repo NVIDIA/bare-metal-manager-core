@@ -3317,7 +3317,7 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	cfg := common.GetTestConfig()
 
 	// Mock Temporal: success path returns two DPU machines for the workflow.
-	dpuMachineList := []*corev1.DpuMachine{
+	dpuMachineList := &corev1.DpuMachineList{Machines: []*corev1.DpuMachine{
 		{
 			Machine: &corev1.Machine{
 				Id:    &corev1.MachineId{Id: dpu1.ID},
@@ -3356,13 +3356,13 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 				DatacenterAsn:                65000,
 			},
 		},
-	}
+	}}
 
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("GetID").Return("test-workflow-id-dpu")
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		result := args.Get(1).(*[]*corev1.DpuMachine)
-		*result = dpuMachineList
+		result := args.Get(1).(*corev1.DpuMachineList)
+		result.Machines = dpuMachineList.Machines
 	}).Return(nil)
 
 	tsc := &tmocks.Client{}
