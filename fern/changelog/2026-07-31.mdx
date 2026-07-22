@@ -7,3 +7,21 @@ tags: ["release", "deployment", "ntp", "security", "database"]
 <Tip title="Coming soon">
   NICo v2.0 is scheduled for release in late July, 2026.
 </Tip>
+
+### NTP service (`nico-ntp`)
+
+NICo now ships a built-in NTP service. The `nico-ntp` subchart deploys a 3-replica [chrony](https://chrony-project.org/) StatefulSet, each replica exposed on its own MetalLB LoadBalancer VIP so DPUs have a stable, site-local clock source. The Kea DHCP hook advertises these VIPs to DPUs as DHCP option 42 NTP servers.
+
+Enable the service by setting `nico-ntp.externalService.enabled: true`, assigning three VIPs via `nico-ntp.externalService.perPodAnnotations`, and setting `nico-dhcp.config.kea.hookParameters.ntpServer` to the same VIPs (comma-separated). Enterprise NTP servers in `siteConfig.ntp_servers` continue to be used for BMC pre-ingestion time sync and can coexist with `nico-ntp`. Upstream NTP peers default to `time{1-4}.google.com`; override via `nico-ntp.ntp.upstreamServers` for air-gapped environments.
+
+### NVSwitch credential rotation
+
+The Vault policy for the `nico-vault-policy` role now includes full access to the `switch_nvos` credential paths, enabling automated NVSwitch NVOS credential rotation. `secret/data/switch_nvos/*` gains create, read, patch, list, update, and delete; `secret/metadata/switch_nvos/*` gains list, read, and delete; `secret/destroy/switch_nvos/*` gains update (KV v2 destroys versions via update, not delete). No operator action is required — the policy is applied automatically by `setup.sh` on install or upgrade.
+
+### Upgrade notes: REST database consolidation
+
+The NICo REST API database has moved from a standalone PostgreSQL instance to the shared Zalando-managed `nico-pg-cluster`. A new `nico_rest` database and `nico-rest.nico` user are provisioned automatically (gated on `rest.enabled: true`). Database credentials are now synced by External Secrets Operator as the `nico-rest-pg-creds` Secret in the `nico-rest` namespace, replacing the former `db-creds` Secret.
+
+To upgrade from v0.x: back up the REST database from the old standalone PostgreSQL pod, run `setup.sh` as normal to provision the new database and apply the ESO secret sync, then migrate data from the backup into `nico_rest` on `nico-pg-cluster` if preserving existing REST state is required. Confirm `nico-rest-pg-creds` exists in the `nico-rest` namespace before starting the `nico-rest-db` migration job.
+
+<Button intent="none" outlined rightIcon="arrow-right" href="/infra-controller/documentation/getting-started/quick-start-guide">Deploy NVIDIA Infra Controller</Button>
