@@ -121,9 +121,25 @@ func InsertPhoneHomeIntoUserData(documentRoot *yaml.Node, url string) error {
 		documentRoot.Content = []*yaml.Node{}
 	}
 
-	insertionNode, err := phoneHomeInsertionNode(documentRoot)
-	if err != nil {
-		return err
+	insertionNode := documentRoot
+	autoinstallNode := mappingValue(documentRoot, autoinstallName)
+	if autoinstallNode != nil {
+		if autoinstallNode.Kind != yaml.MappingNode {
+			return errors.New("autoinstall must be a mapping to insert phone-home")
+		}
+
+		insertionNode = mappingValue(autoinstallNode, autoinstallUserData)
+		if insertionNode == nil {
+			insertionNode = &yaml.Node{
+				Kind: yaml.MappingNode,
+				Tag:  "!!map",
+			}
+			targetUserDataKeyNode := &yaml.Node{}
+			targetUserDataKeyNode.SetString(autoinstallUserData)
+			autoinstallNode.Content = append(autoinstallNode.Content, targetUserDataKeyNode, insertionNode)
+		} else if insertionNode.Kind != yaml.MappingNode {
+			return errors.New("autoinstall user-data must be a mapping to insert phone-home")
+		}
 	}
 
 	// Remove existing phone-home blocks from both supported locations before
@@ -178,31 +194,6 @@ func mappingValue(mappingNode *yaml.Node, key string) *yaml.Node {
 	}
 
 	return nil
-}
-
-func phoneHomeInsertionNode(documentRoot *yaml.Node) (*yaml.Node, error) {
-	autoinstallNode := mappingValue(documentRoot, autoinstallName)
-	if autoinstallNode == nil {
-		return documentRoot, nil
-	}
-	if autoinstallNode.Kind != yaml.MappingNode {
-		return nil, errors.New("autoinstall must be a mapping to insert phone-home")
-	}
-
-	targetUserDataNode := mappingValue(autoinstallNode, autoinstallUserData)
-	if targetUserDataNode == nil {
-		targetUserDataNode = &yaml.Node{
-			Kind: yaml.MappingNode,
-			Tag:  "!!map",
-		}
-		targetUserDataKeyNode := &yaml.Node{}
-		targetUserDataKeyNode.SetString(autoinstallUserData)
-		autoinstallNode.Content = append(autoinstallNode.Content, targetUserDataKeyNode, targetUserDataNode)
-	} else if targetUserDataNode.Kind != yaml.MappingNode {
-		return nil, errors.New("autoinstall user-data must be a mapping to insert phone-home")
-	}
-
-	return targetUserDataNode, nil
 }
 
 // ProtobufLabelsFromAPILabels converts API labels (map[string]string) to protobuf labels ([]*corev1.Label)
