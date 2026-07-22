@@ -311,6 +311,10 @@ pub enum BmcCredentialType {
     BmcForgeAdmin {
         bmc_mac_address: MacAddress,
     },
+    /// Site-wide BF4 DPU BMC `service` account password
+    /// (`machines/bmc/site/bf4_service`). Written on first BF4 DPU ingestion;
+    /// distinct from the site-wide BMC root password.
+    SiteWideBf4Service,
 }
 
 impl BmcCredentialType {
@@ -651,6 +655,9 @@ impl CredentialKey {
                 BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
+                BmcCredentialType::SiteWideBf4Service => {
+                    Cow::from("machines/bmc/site/bf4_service")
+                }
             },
             CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
                 NicLockdownIkm::SiteWide { version } => {
@@ -796,6 +803,15 @@ mod tests {
             Credentials::validate_password_strength("abcdefghijk1234!"),
             Err(PasswordPolicyError::MissingCharacterClasses { .. })
         ));
+    }
+
+    #[test]
+    fn bf4_service_site_wide_path() {
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideBf4Service,
+        };
+        assert_eq!(key.to_key_str(), "machines/bmc/site/bf4_service");
+        assert_eq!(key.prefix(), CredentialPrefix::BmcCredentials);
     }
 
     // Pins the exact Vault path for the versioned lockdown IKM, including
@@ -1081,6 +1097,16 @@ mod tests {
                             credential_type: BmcCredentialType::BmcForgeAdmin {
                                 bmc_mac_address: mac,
                             },
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "bmc site wide bf4 service",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::SiteWideBf4Service,
                         },
                         expected_prefix: "machines/bmc/",
                     },

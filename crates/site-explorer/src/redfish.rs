@@ -120,6 +120,20 @@ impl RedfishClient {
             .await
     }
 
+    pub async fn get_redfish_product(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<Option<String>, EndpointExplorationError> {
+        let client = self
+            .create_anon_redfish_client(bmc_ip_address)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
+
+        Ok(service_root.product)
+    }
+
     pub async fn get_redfish_vendor(
         &self,
         bmc_ip_address: SocketAddr,
@@ -209,6 +223,23 @@ impl RedfishClient {
                 Some(bmc_ip_address.port()),
                 vendor,
                 current_bmc_root_credentials,
+                new_password,
+            )
+            .await
+            .map_err(map_redfish_client_creation_error)
+    }
+
+    pub async fn set_bf4_dpu_service_password(
+        &self,
+        bmc_ip_address: SocketAddr,
+        root_credentials: Credentials,
+        new_password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        self.redfish_client_pool
+            .set_bf4_dpu_service_password(
+                &bmc_ip_address.ip().to_string(),
+                Some(bmc_ip_address.port()),
+                root_credentials,
                 new_password,
             )
             .await

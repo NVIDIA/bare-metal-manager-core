@@ -145,6 +145,32 @@ impl CredentialClient {
         self.get_credentials(&key).await
     }
 
+    pub async fn get_sitewide_bf4_dpu_service_password(
+        &self,
+        create_if_missing: bool,
+    ) -> Result<String, EndpointExplorationError> {
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideBf4Service,
+        };
+
+        match self.get_credentials(&key).await {
+            Ok(Credentials::UsernamePassword { password, .. }) => Ok(password),
+            Err(EndpointExplorationError::MissingCredentials { .. }) if create_if_missing => {
+                let password = Credentials::generate_password();
+                self.set_credentials(
+                    &key,
+                    &Credentials::UsernamePassword {
+                        username: "service".to_string(),
+                        password: password.clone(),
+                    },
+                )
+                .await?;
+                Ok(password)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
         BmcCredentialsData {
             username: "root",
@@ -195,6 +221,7 @@ impl CredentialClient {
 mod tests {
     use std::sync::Arc;
 
+    use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
     use carbide_secrets::test_support::credentials::TestCredentialManager;
     use model::site_explorer::EndpointExplorationError;
 
@@ -218,5 +245,70 @@ mod tests {
         assert_eq!(metrics.endpoint_explorations, 0);
         assert_eq!(metrics.endpoint_explorations_success, 0);
         assert!(metrics.endpoint_explorations_failures_by_type.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_sitewide_bf4_dpu_service_password_returns_existing() {
+        let manager = Arc::new(TestCredentialManager::default());
+        manager
+            .set_credentials(
+                &CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::SiteWideBf4Service,
+                },
+                &Credentials::UsernamePassword {
+                    username: "service".to_string(),
+                    password: "stored-service-pass".to_string(),
+                },
+            )
+            .await
+            .expect("preset bf4 service password");
+
+        let client = CredentialClient::new(manager);
+        let password = client
+            .get_sitewide_bf4_dpu_service_password(false)
+            .await
+            .expect("existing bf4 service password");
+
+        assert_eq!(password, "stored-service-pass");
+    }
+
+    #[tokio::test]
+    async fn get_sitewide_bf4_dpu_service_password_creates_when_missing() {
+        let client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
+        let password = client
+            .get_sitewide_bf4_dpu_service_password(true)
+            .await
+            .expect("generated bf4 service password");
+
+        assert!(!password.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_sitewide_bf4_dpu_service_password_errors_when_missing_and_not_create() {
+        let client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
+        let error = client
+            .get_sitewide_bf4_dpu_service_password(false)
+            .await
+            .expect_err("missing bf4 service password should fail");
+
+        assert!(matches!(
+            error,
+            EndpointExplorationError::MissingCredentials { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn get_sitewide_bf4_dpu_service_password_is_stable_once_created() {
+        let client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
+        let first = client
+            .get_sitewide_bf4_dpu_service_password(true)
+            .await
+            .expect("first read creates site-wide BF4 service password");
+        let second = client
+            .get_sitewide_bf4_dpu_service_password(true)
+            .await
+            .expect("second read returns same site-wide BF4 service password");
+
+        assert_eq!(first, second);
     }
 }

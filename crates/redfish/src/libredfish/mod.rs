@@ -378,6 +378,37 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Rotate a BF4 DPU BMC's `service` account password using root credentials.
+    async fn set_bf4_dpu_service_password(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        root_credentials: Credentials,
+        new_password: String,
+    ) -> Result<(), RedfishClientCreationError> {
+        let (root_user, root_password) = match &root_credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        let client = self
+            .create_client(
+                host,
+                port,
+                RedfishAuth::Direct(root_user.clone(), root_password.clone()),
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        client
+            .change_password_by_id("service", new_password.as_str())
+            .await
+            .map_err(|err| redact_password(err, new_password.as_str()))
+            .map_err(|err| redact_password(err, root_password.as_str()))
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        Ok(())
+    }
+
     /// Resolve the precise `RedfishVendor` of a BMC, for callers (e.g.
     /// credential rotation) that need the exact dispatch vendor
     /// `set_bmc_root_password` branches on but have nowhere to read it from.
@@ -696,6 +727,28 @@ mod tests {
             .into_iter()
             .map(|call| call.vendor)
             .collect()
+    }
+
+    #[tokio::test]
+    async fn set_bf4_dpu_service_password_changes_service_account() {
+        let sim = RedfishSim::default();
+        sim.seed_user("root", "root_pass");
+        sim.seed_user("service", "Nvidia_12345!");
+
+        sim.set_bf4_dpu_service_password(
+            "127.0.0.1",
+            Some(443),
+            Credentials::new("root", "root_pass"),
+            "site_service_pass".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sim.user_password("service").as_deref(),
+            Some("site_service_pass")
+        );
+        assert_eq!(sim.user_password("root").as_deref(), Some("root_pass"));
     }
 
     #[tokio::test]

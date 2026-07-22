@@ -262,6 +262,15 @@ impl RedfishSim {
             .insert(username.to_string(), password.to_string());
     }
 
+    pub fn user_password(&self, account_id: &str) -> Option<String> {
+        self.state
+            .lock()
+            .unwrap()
+            .users
+            .get(account_id)
+            .cloned()
+    }
+
     /// Make `change_password` (the by-username path) fail with
     /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
     /// blocks it until change-on-first-use. `change_password_by_id` still
