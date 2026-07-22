@@ -111,7 +111,7 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
 
     /// Get service versions for a DPU from its owning DPUDeployment.
     ///
-    /// Looks up the DPU CR by device name, follows the
+    /// Looks up the DPU CR by its full node-device resource name, follows the
     /// `svc.dpu.nvidia.com/owned-by-dpudeployment` label to find the owning
     /// DPUDeployment, and resolves each service's version from its
     /// DPUServiceTemplate. Used to populate `agent_reported_inventory` once
