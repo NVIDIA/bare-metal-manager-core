@@ -80,6 +80,7 @@ impl MachinePerObjectInfo {
         // Vendor/model come from exploration reports, so they may be unknown.
         let dmi_data = state
             .host_snapshot
+            .status
             .hardware_info
             .as_ref()
             .and_then(|hardware_info| hardware_info.dmi_data.as_ref());
@@ -98,7 +99,12 @@ impl MachinePerObjectInfo {
                     .as_ref()
                     .map(ToString::to_string)
                     .unwrap_or_default(),
-                state.host_snapshot.hw_sku.clone().unwrap_or_default(),
+                state
+                    .host_snapshot
+                    .config
+                    .hw_sku
+                    .clone()
+                    .unwrap_or_default(),
                 dmi_data
                     .map(|dmi| dmi.sys_vendor.clone())
                     .unwrap_or_default(),
