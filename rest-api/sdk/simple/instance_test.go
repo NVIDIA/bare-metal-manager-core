@@ -6,6 +6,7 @@ package simple
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +188,7 @@ func TestFilterOutIDs(t *testing.T) {
 func TestInstanceManagerDeleteCleansUpAutoCreatedSSHKeyGroup(t *testing.T) {
 	deletedSSHKeyGroups := []string{}
 	listedInstances := false
+	requestOrder := []string{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -214,12 +216,14 @@ func TestInstanceManagerDeleteCleansUpAutoCreatedSSHKeyGroup(t *testing.T) {
 				]
 			}]`)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			requestOrder = append(requestOrder, "instance")
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = io.WriteString(w, `{"message":"accepted"}`)
 		case r.Method == http.MethodDelete && r.URL.Path == "/v2/org/test-org/nico/sshkeygroup/skg-auto":
 			deletedSSHKeyGroups = append(deletedSSHKeyGroups, "skg-auto")
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = io.WriteString(w, `{"message":"accepted"}`)
+			requestOrder = append(requestOrder, "skg-auto")
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"message":"cleanup failed"}`)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v2/org/test-org/nico/sshkeygroup/"):
 			t.Errorf("unexpected SSH Key Group delete: %s", r.URL.Path)
 			http.NotFound(w, r)
@@ -230,11 +234,17 @@ func TestInstanceManagerDeleteCleansUpAutoCreatedSSHKeyGroup(t *testing.T) {
 	}))
 	defer server.Close()
 
+	var logs bytes.Buffer
+	logger := zerolog.New(&logs)
 	client := newSimpleTestClient(server.URL)
+	client.Logger = &logger
 	apiErr := NewInstanceManager(client).Delete(context.Background(), "inst-1")
 	require.Nil(t, apiErr)
 	assert.True(t, listedInstances, "expected a site-scoped instance list to check shared SSH Key Groups")
 	assert.Equal(t, []string{"skg-auto"}, deletedSSHKeyGroups)
+	assert.Equal(t, []string{"instance", "skg-auto"}, requestOrder)
+	assert.Contains(t, logs.String(), `"level":"warn"`)
+	assert.Contains(t, logs.String(), `"sshKeyGroupId":"skg-auto"`)
 }
 
 func TestInstanceManagerDeleteSkipsSharedAutoCreatedSSHKeyGroup(t *testing.T) {
@@ -309,10 +319,14 @@ func TestInstanceManagerDeleteWarnsWhenInstanceLookupFails(t *testing.T) {
 
 	apiErr := NewInstanceManager(client).Delete(context.Background(), "inst-1")
 	require.Nil(t, apiErr)
-	assert.Contains(t, logs.String(), `"level":"warn"`)
-	assert.Contains(t, logs.String(), `"instanceId":"inst-1"`)
-	assert.Contains(t, logs.String(), `"error":`)
-	assert.Contains(t, logs.String(), `"message":"failed to get Instance; skipping SSH Key Group cleanup"`)
+
+	var logEntry map[string]interface{}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &logEntry))
+	assert.Equal(t, "warn", logEntry["level"])
+	assert.Equal(t, "inst-1", logEntry["instanceId"])
+	assert.Contains(t, logEntry["error"], "Code: 500")
+	assert.Contains(t, logEntry["error"], "lookup failed")
+	assert.Equal(t, "failed to get Instance; skipping SSH Key Group cleanup", logEntry["message"])
 }
 
 func newSimpleTestClient(baseURL string) *Client {
