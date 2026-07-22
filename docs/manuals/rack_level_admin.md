@@ -54,7 +54,8 @@ backends for switch and power-shelf access. NVIDIA Rack Manager Service (RMS)
 can serve compute, switch, and power-shelf roles and provides rack-level power
 and firmware operations. See
 [Component Manager RMS Backends](../configuration/component-manager-rms.md)
-for RMS configuration requirements.
+for RMS configuration requirements and the documented GB200, GB300, and VRNVL72
+role/vendor support matrix.
 
 ## Rack-Level Operations
 

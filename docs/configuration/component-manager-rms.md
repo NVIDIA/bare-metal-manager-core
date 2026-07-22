@@ -45,6 +45,33 @@ RMS support for `NodeDescriptor`. This best-effort legacy mapping does not
 participate in startup validation. VRNVL72 power shelves are descriptor-only
 because no matching legacy `NodeType` exists.
 
+## Supported RMS descriptor combinations
+
+RMS accepts these role, vendor, and product-family combinations:
+
+| `product_family` | Role | Supported vendor |
+| ---------------- | ---- | ---------------- |
+| `gb200` | `compute` | `nvidia` |
+| `gb200` | `switch` | `nvidia` |
+| `gb200` | `power_shelf` | `liteon`, `delta` |
+| `gb300` | `compute` | `nvidia`, `lenovo` |
+| `gb300` | `switch` | `nvidia` |
+| `gb300` | `power_shelf` | `liteon`, `delta` |
+| `vrnvl72` | `compute` | `nvidia` |
+| `vrnvl72` | `switch` | `nvidia` |
+| `vrnvl72` | `power_shelf` | `liteon`, `delta` |
+
+RMS compares normalized values: matching is case-insensitive and ignores
+spaces, hyphens, and underscores. For example, `Lite-On` and `LiteOn` are
+equivalent, as are `vr_nvl72` and `vrnvl72`. After normalization, RMS compares
+full values rather than prefixes, so `NVIDIACorp` does not match `NVIDIA`.
+
+VRNVL72 power shelves use the GB200 LiteOn or Delta internal implementation
+after descriptor resolution. RMS returns `INVALID_ARGUMENT` when no descriptor
+rule matches. NICo accepts other non-empty values at startup; RMS validates
+support when it receives a request. Consult the hardware compatibility list for
+the deployed RMS version when NICo and RMS versions differ.
+
 ## Startup validation
 
 NICo validates configured rack profiles at startup **when any component-manager
