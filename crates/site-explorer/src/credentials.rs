@@ -17,7 +17,6 @@
 
 use std::sync::Arc;
 
-use bmc_vendor;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
     REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS,
@@ -151,7 +150,7 @@ impl CredentialClient {
     /// 1. Model-specific vault entry (`machines/all_dpus/factory_default/bmc-metadata-items/{model}`)
     /// 2. Catch-all vault entry (`machines/all_dpus/factory_default/bmc-metadata-items/root`,
     ///    i.e. `DpuModel::Unknown`) — skipped when `model` is already `Unknown`
-    /// 3. Hardcoded default `root`/`0penBmc`
+    /// 3. Model's publicly-documented factory default (`DpuModel::default_factory_credentials`)
     ///
     /// Never fails: vault misses are silently swallowed and the hardcoded fallback is returned.
     pub async fn get_dpu_factory_default_credentials(
@@ -176,9 +175,10 @@ impl CredentialClient {
             }
         }
 
+        let (username, password) = model.default_factory_credentials();
         Credentials::UsernamePassword {
-            username: "root".to_string(),
-            password: "0penBmc".to_string(),
+            username: username.to_string(),
+            password: password.to_string(),
         }
     }
 

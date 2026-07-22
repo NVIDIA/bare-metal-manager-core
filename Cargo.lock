@@ -883,6 +883,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-server",
+ "bmc-vendor",
  "bytes",
  "chrono",
  "clap",

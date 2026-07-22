@@ -135,6 +135,21 @@ impl DpuModel {
             DpuModel::Unknown
         }
     }
+
+    /// Publicly-documented factory-default BMC credentials `(username, password)`
+    /// for this DPU generation.
+    ///
+    /// This is the single source of truth shared by site-explorer's last-resort
+    /// credential fallback (used when no vault entry is configured) and the BMC
+    /// mock's factory-default account, so the two cannot drift. BlueField-4 ships
+    /// with a distinct default account (`admin`); earlier generations and
+    /// unrecognized models use the legacy `root` default.
+    pub fn default_factory_credentials(&self) -> (&'static str, &'static str) {
+        match self {
+            DpuModel::BlueField4 => ("admin", "0penBmc"),
+            DpuModel::BlueField2 | DpuModel::BlueField3 | DpuModel::Unknown => ("root", "0penBmc"),
+        }
+    }
 }
 
 impl BMCVendor {
