@@ -130,7 +130,7 @@ pub struct MachineData {
     ///
     /// Endpoint discovery resolves this before machine collectors start so every
     /// telemetry event can carry the same hardware identity.
-    pub machine_uuid: Option<uuid::Uuid>,
+    pub system_uuid: Option<uuid::Uuid>,
 
     /// Physical rack slot where the machine is installed, when known.
     pub slot_number: Option<i32>,

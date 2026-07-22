@@ -484,7 +484,7 @@ impl ApiEndpointSource {
                     .as_ref()
                     .and_then(|info| info.dmi_data.as_ref())
                     .map(|dmi| dmi.chassis_serial.clone()),
-                machine_uuid: None,
+                system_uuid: None,
                 slot_number: machine
                     .placement_in_rack
                     .as_ref()

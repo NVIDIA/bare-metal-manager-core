@@ -48,7 +48,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     "Metric collection start"
                 );
             }
@@ -56,7 +56,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     metric = %metric.name,
                     key = %metric.key,
                     metric_type = %metric.metric_type,
@@ -69,7 +69,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     "Metric collection end"
                 );
             }
@@ -77,7 +77,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     "Collector removed"
                 );
             }
@@ -88,7 +88,7 @@ impl DataSink for TracingSink {
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
                     machine_id = context.machine_id().map(tracing::field::display),
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     machine_serial = context.machine_serial(),
                     driver_version = context.driver_version(),
                     component_type = context.component_type(),
@@ -103,7 +103,7 @@ impl DataSink for TracingSink {
                 tracing::info!(
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     firmware_name = %info.component,
                     version = %info.version,
                     "Firmware info event"
@@ -114,7 +114,7 @@ impl DataSink for TracingSink {
                     endpoint = %context.endpoint_key(),
                     collector = %context.collector_type,
                     machine_id = ?context.machine_id(),
-                    machine_uuid = context.machine_uuid().map(tracing::field::display),
+                    system_uuid = context.system_uuid().map(tracing::field::display),
                     success_count = report.successes.len(),
                     alert_count = report.alerts.len(),
                     alerts = ?report.alerts,

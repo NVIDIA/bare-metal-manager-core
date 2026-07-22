@@ -78,7 +78,7 @@ pub(super) async fn with_primary_system_uuid(
             endpoint.addr
         ))
     })?;
-    let machine_uuid = primary.uuid.ok_or_else(|| {
+    let system_uuid = primary.uuid.ok_or_else(|| {
         HealthError::GenericError(format!(
             "primary ComputerSystem {} on BMC {:?} does not expose a UUID",
             primary.id, endpoint.addr
@@ -89,7 +89,7 @@ pub(super) async fn with_primary_system_uuid(
     let Some(EndpointMetadata::Machine(machine)) = enriched.metadata.as_mut() else {
         unreachable!("machine endpoint checked above")
     };
-    machine.machine_uuid = Some(machine_uuid);
+    machine.system_uuid = Some(system_uuid);
 
     Ok(Arc::new(enriched))
 }

@@ -87,9 +87,9 @@ impl EventContext {
     }
 
     /// Returns the UUID reported by the primary Redfish ComputerSystem.
-    pub fn machine_uuid(&self) -> Option<uuid::Uuid> {
+    pub fn system_uuid(&self) -> Option<uuid::Uuid> {
         self.machine_metadata()
-            .and_then(|machine| machine.machine_uuid)
+            .and_then(|machine| machine.system_uuid)
     }
 
     /// Returns the uniform GPU driver version when it is known for the machine.
@@ -649,7 +649,7 @@ mod tests {
             ContextKind::Machine => Some(EndpointMetadata::Machine(MachineData {
                 machine_id: Some(machine_id()),
                 machine_serial: Some("MN-001".to_string()),
-                machine_uuid: None,
+                system_uuid: None,
                 slot_number: Some(7),
                 tray_index: Some(3),
                 nvlink_domain_uuid: Some(nvlink_domain_id()),
