@@ -9580,7 +9580,7 @@ paths:
     get:
       summary: Retrieve DPU Machines attached to a host Machine
       description: |
-        Retrieve DPU Machines attached to the host Machine, including the full network configuration sent to the DPU agent.
+        Retrieve DPU Machines attached to the host Machine, including network configuration fields exposed by the REST API. Internal-only and sensitive fields from the Core configuration are omitted.
 
         The response is built by scheduling a synchronous Temporal `GetDpuMachines` workflow against the Machine's Site for the DPU Machine IDs referenced by the host Machine's interfaces.
 
@@ -24851,7 +24851,7 @@ components:
     DpuMachine:
       title: DpuMachine
       type: object
-      description: A DPU Machine with its complete network configuration sent to the DPU agent.
+      description: A DPU Machine with network configuration fields exposed by the REST API.
       properties:
         id:
           type: string
@@ -24899,7 +24899,7 @@ components:
           description: Lifecycle state of the DPU
         dpuNetworkConfig:
           $ref: '#/components/schemas/DpuNetworkConfig'
-          description: Complete network configuration sent to the DPU agent
+          description: Network configuration fields exposed by the REST API
         lastRebooted:
           type:
             - string
@@ -24981,7 +24981,7 @@ components:
     DpuNetworkConfig:
       title: DpuNetworkConfig
       type: object
-      description: Complete network configuration for a DPU Machine sent to the DPU agent
+      description: Network configuration fields exposed for a DPU Machine. Internal-only and sensitive fields from the Core configuration are omitted.
       properties:
         asn:
           type: integer
