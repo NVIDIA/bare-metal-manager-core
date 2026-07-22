@@ -4,10 +4,17 @@
 package simple
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 )
 
 // TestToStandardInstanceUpdateRequest verifies that nil slice/map fields in an
@@ -135,4 +142,168 @@ func TestToStandardInstanceUpdateRequest(t *testing.T) {
 		assert.Contains(t, body, "dpuExtensionServiceDeployments")
 		assert.Contains(t, body, "labels")
 	})
+}
+
+func TestCollectAutoCreatedSSHKeyGroupIDs(t *testing.T) {
+	t.Run("returns only groups matching instance naming convention", func(t *testing.T) {
+		instance := standard.NewInstance()
+		instance.SetName("web")
+		auto := standard.NewSshKeyGroup()
+		auto.SetId("skg-auto")
+		auto.SetName(GetInstanceSshKeyGroupName("web"))
+		manual := standard.NewSshKeyGroup()
+		manual.SetId("skg-manual")
+		manual.SetName("shared-ops-keys")
+		instance.SetSshKeyGroups([]standard.SshKeyGroup{*auto, *manual})
+
+		assert.Equal(t, []string{"skg-auto"}, collectAutoCreatedSSHKeyGroupIDs(instance))
+	})
+
+	t.Run("returns nil when instance has no matching groups", func(t *testing.T) {
+		instance := standard.NewInstance()
+		instance.SetName("web")
+		manual := standard.NewSshKeyGroup()
+		manual.SetId("skg-manual")
+		manual.SetName("shared-ops-keys")
+		instance.SetSshKeyGroups([]standard.SshKeyGroup{*manual})
+
+		assert.Nil(t, collectAutoCreatedSSHKeyGroupIDs(instance))
+	})
+
+	t.Run("returns nil for nil instance", func(t *testing.T) {
+		assert.Nil(t, collectAutoCreatedSSHKeyGroupIDs(nil))
+	})
+}
+
+func TestFilterOutIDs(t *testing.T) {
+	exclude := map[string]struct{}{"b": {}}
+	assert.Equal(t, []string{"a", "c"}, filterOutIDs([]string{"a", "b", "c"}, exclude))
+	assert.Equal(t, []string{"a"}, filterOutIDs([]string{"a"}, nil))
+	assert.Nil(t, filterOutIDs(nil, exclude))
+}
+
+func TestInstanceManagerDeleteCleansUpAutoCreatedSSHKeyGroup(t *testing.T) {
+	deletedSSHKeyGroups := []string{}
+	listedInstances := false
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			_, _ = io.WriteString(w, `{
+				"id":"inst-1",
+				"name":"web",
+				"sshKeyGroupIds":["skg-auto","skg-manual"],
+				"sshKeyGroups":[
+					{"id":"skg-auto","name":"web-ssh-key-group"},
+					{"id":"skg-manual","name":"shared-ops-keys"}
+				]
+			}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/org/test-org/nico/instance":
+			listedInstances = true
+			w.Header().Set("x-pagination", `{"pageNumber":1,"pageSize":100,"total":1}`)
+			_, _ = io.WriteString(w, `[{
+				"id":"inst-1",
+				"name":"web",
+				"sshKeyGroupIds":["skg-auto","skg-manual"],
+				"sshKeyGroups":[
+					{"id":"skg-auto","name":"web-ssh-key-group"},
+					{"id":"skg-manual","name":"shared-ops-keys"}
+				]
+			}]`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"message":"accepted"}`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/org/test-org/nico/sshkeygroup/skg-auto":
+			deletedSSHKeyGroups = append(deletedSSHKeyGroups, "skg-auto")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"message":"accepted"}`)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v2/org/test-org/nico/sshkeygroup/"):
+			t.Errorf("unexpected SSH Key Group delete: %s", r.URL.Path)
+			http.NotFound(w, r)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := newSimpleTestClient(server.URL)
+	apiErr := NewInstanceManager(client).Delete(context.Background(), "inst-1")
+	require.Nil(t, apiErr)
+	assert.True(t, listedInstances, "expected a site-scoped instance list to check shared SSH Key Groups")
+	assert.Equal(t, []string{"skg-auto"}, deletedSSHKeyGroups)
+}
+
+func TestInstanceManagerDeleteSkipsSharedAutoCreatedSSHKeyGroup(t *testing.T) {
+	deletedSSHKeyGroups := []string{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			_, _ = io.WriteString(w, `{
+				"id":"inst-1",
+				"name":"web",
+				"sshKeyGroupIds":["skg-auto"],
+				"sshKeyGroups":[{"id":"skg-auto","name":"web-ssh-key-group"}]
+			}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/org/test-org/nico/instance":
+			w.Header().Set("x-pagination", `{"pageNumber":1,"pageSize":100,"total":2}`)
+			_, _ = io.WriteString(w, `[
+				{
+					"id":"inst-1",
+					"name":"web",
+					"sshKeyGroupIds":["skg-auto"],
+					"sshKeyGroups":[{"id":"skg-auto","name":"web-ssh-key-group"}]
+				},
+				{
+					"id":"inst-2",
+					"name":"db",
+					"sshKeyGroupIds":["skg-auto"],
+					"sshKeyGroups":[{"id":"skg-auto","name":"web-ssh-key-group"}]
+				}
+			]`)
+		case r.Method == http.MethodDelete && r.URL.Path == "/v2/org/test-org/nico/instance/inst-1":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"message":"accepted"}`)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/v2/org/test-org/nico/sshkeygroup/"):
+			deletedSSHKeyGroups = append(deletedSSHKeyGroups, strings.TrimPrefix(r.URL.Path, "/v2/org/test-org/nico/sshkeygroup/"))
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"message":"accepted"}`)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := newSimpleTestClient(server.URL)
+	apiErr := NewInstanceManager(client).Delete(context.Background(), "inst-1")
+	require.Nil(t, apiErr)
+	assert.Empty(t, deletedSSHKeyGroups, "shared auto-created SSH Key Group must not be deleted")
+}
+
+func newSimpleTestClient(baseURL string) *Client {
+	apiConfig := standard.NewConfiguration()
+	apiConfig.Servers = standard.ServerConfigurations{
+		{URL: baseURL, Description: "test"},
+	}
+	apiConfig.SetAPIName("nico")
+	return &Client{
+		Config: ClientConfig{
+			BaseURL: baseURL,
+			Org:     "test-org",
+			APIName: "nico",
+			Token:   "test-token",
+			Logger:  NewNoOpLogger(),
+		},
+		apiClient: standard.NewAPIClient(apiConfig),
+		apiMetadata: ApiMetadata{
+			Organization: "test-org",
+			SiteID:       "site-1",
+			TenantID:     "tenant-1",
+		},
+		Logger: NewNoOpLogger(),
+	}
 }
