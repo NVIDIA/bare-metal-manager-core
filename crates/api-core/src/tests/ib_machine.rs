@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_ib_fabric::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
+use carbide_instrument::testing::MetricsCapture;
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_managed_host;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBNetwork, IBQosConf};
@@ -243,7 +244,24 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
         Some(HashSet::from_iter([guid2.clone()]))
     );
 
+    let ufm_change_metrics = MetricsCapture::start();
     env.ib_fabric_monitor.run_single_iteration().await.unwrap();
+    let successful_unbinds = ufm_change_metrics.counter_delta(
+        "carbide_ib_monitor_ufm_changes_applied_total",
+        &[
+            ("fabric", "default"),
+            ("operation", "unbind_guid_from_pkey"),
+            ("status", "ok"),
+        ],
+    );
+    // Other API tests can drive the same process-global Event concurrently.
+    // The Event-level test pins exact counts; this check proves the monitor's
+    // reconciliation path reaches the UFM change Event.
+    assert!(
+        successful_unbinds >= 3.0,
+        "expected three successful UFM unbinds, observed {successful_unbinds}"
+    );
+    drop(ufm_change_metrics);
     assert_eq!(
         env.test_meter
             .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
@@ -290,32 +308,6 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
             .unwrap(),
         "1"
     );
-    // Automatic reconcilation unassigns the unexpected pkey
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "3".to_string()
-            )
-        ]
-    );
-
     active_lids.clear();
     for host_machine_id in host_machines.iter().copied() {
         println!("Testing host machine {host_machine_id}");
@@ -469,30 +461,5 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
             .formatted_metric("carbide_ib_monitor_machines_with_unknown_pkeys_count")
             .unwrap(),
         "0"
-    );
-    // No additional changes means the counter metric has the same values
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "3".to_string()
-            )
-        ]
     );
 }
