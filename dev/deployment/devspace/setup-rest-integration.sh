@@ -179,7 +179,8 @@ for attempt in {1..90}; do
   fi
 
   core_hosts="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
-    /opt/carbide/nico-admin-cli -f json machine show --hosts 2>/dev/null || true)"
+    /opt/carbide/nico-admin-cli -a "https://nico-api.${CORE_NAMESPACE}.svc.cluster.local:1079" \
+      -f json machine show --hosts 2>/dev/null || true)"
   core_host_count="$(jq -r \
     'if (.machines | type) == "array" then .machines | length else 0 end' \
     <<<"${core_hosts}" 2>/dev/null || printf '0')"
