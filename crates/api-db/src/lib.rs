@@ -47,6 +47,7 @@ pub mod host_firmware_config;
 pub mod host_machine_update;
 pub mod host_naming;
 pub mod ib_partition;
+pub mod ignored_bmc_mac;
 pub mod instance;
 pub mod instance_address;
 pub mod instance_network_config;
