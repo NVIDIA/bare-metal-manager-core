@@ -21,7 +21,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
-use bmc_vendor;
 use carbide_secrets::credentials::{
     CredentialKey, CredentialType, CredentialWriter, Credentials, NicLockdownIkm,
 };

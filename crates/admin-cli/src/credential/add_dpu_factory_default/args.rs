@@ -29,7 +29,7 @@ Add a model-specific factory-default for BlueField-3 DPUs:
     $ nico-admin-cli credential add-dpu-factory-default --model bf3 --username root --password mypassword
 
 Add a model-specific factory-default for BlueField-4 DPUs:
-    $ nico-admin-cli credential add-dpu-factory-default --model bf4 --username root --password mynewpassword
+    $ nico-admin-cli credential add-dpu-factory-default --model bf4 --username admin --password mynewpassword
 
 ")]
 pub struct Args {

@@ -88,8 +88,11 @@ impl From<&str> for BMCVendor {
     serde::Deserialize,
 )]
 pub enum DpuModel {
+    #[value(name = "bf2")]
     BlueField2,
+    #[value(name = "bf3")]
     BlueField3,
+    #[value(name = "bf4")]
     BlueField4,
     #[serde(other)]
     #[default]
