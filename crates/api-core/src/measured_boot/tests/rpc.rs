@@ -1736,6 +1736,28 @@ mod tests {
         Ok(())
     }
 
+    #[crate::sqlx_test]
+    async fn test_trust_approval_requires_existing_profile(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let env = create_test_env(db_conn).await;
+
+        let missing_profile = site::handle_add_measurement_trusted_profile(
+            &env.api,
+            mbrpc::AddMeasurementTrustedProfileRequest {
+                profile_id: Some(MeasurementSystemProfileId::new()),
+                approval_type: mbrpc::MeasurementApprovedTypePb::Persist.into(),
+                pcr_registers: None,
+                comments: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_profile.code(), tonic::Code::NotFound);
+
+        Ok(())
+    }
+
     // test_permissive_approvals is used to make sure that
     // having a site-wide "permissive" approval of "*" works
     // as intended.

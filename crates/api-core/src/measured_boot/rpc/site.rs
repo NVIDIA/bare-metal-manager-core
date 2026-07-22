@@ -24,6 +24,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use carbide_uuid::measured_boot::TrustedMachineId;
 use db::DatabaseError;
+use db::measured_boot::interface::profile::get_measurement_profile_record_by_id;
 use db::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
@@ -227,10 +228,21 @@ pub async fn handle_add_measurement_trusted_profile(
 ) -> Result<AddMeasurementTrustedProfileResponse, Status> {
     let mut txn = api.txn_begin().await?;
     let approval_type = req.approval_type();
+    let profile_id = req
+        .profile_id
+        .ok_or(CarbideError::MissingArgument("profile_id"))?;
+    get_measurement_profile_record_by_id(&mut txn, profile_id)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("failed to fetch measurement system profile: {e}"),
+        })?
+        .ok_or(CarbideError::NotFoundError {
+            kind: "MeasurementSystemProfile",
+            id: profile_id.to_string(),
+        })?;
     let approval_record = insert_into_approved_profiles(
         &mut txn,
-        req.profile_id
-            .ok_or(CarbideError::MissingArgument("profile_id"))?,
+        profile_id,
         MeasurementApprovedType::from(approval_type),
         req.pcr_registers,
         req.comments,
