@@ -32,6 +32,7 @@
 //! `carbide-api` binary and integration tests have one stable entrypoint.
 
 mod logging;
+mod metrics;
 mod run;
 
 pub use carbide_api_core::{AdminUiRoutesBuilder, Command, Options};

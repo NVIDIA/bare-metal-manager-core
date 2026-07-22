@@ -37,18 +37,20 @@ use crate::cfg::file::{
     SecretsConfig,
 };
 use crate::listener::AdminUiRoutesBuilder;
-use crate::logging::setup::{Logging, create_metric_for_spancount_reader, create_metrics};
+use crate::logging::setup::Logging;
 use crate::secrets::{SecretRouting, SecretsContext};
 use crate::{CarbideError, dynamic_settings, setup};
 
 /// Inputs prepared by the top-level `carbide-api` composition crate before
 /// core service initialization begins.
 #[doc(hidden)]
-pub struct CoreRunInputs {
+pub struct CoreRunInputs<'a> {
     pub carbide_config: Arc<CarbideConfig>,
     pub initial_objects: Option<InitialObjectsConfig>,
     pub credential_config: CredentialConfig,
     pub logging: Logging,
+    pub meter: opentelemetry::metrics::Meter,
+    pub join_set: &'a mut JoinSet<()>,
     pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
     pub cancel_token: CancellationToken,
     pub ready_channel: Sender<()>,
@@ -83,12 +85,14 @@ fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) ->
 /// layer feeding the UI's live log viewer: with the UI off, no per-event
 /// work is spent collecting lines nothing can read.
 #[doc(hidden)]
-pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
+pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
     let CoreRunInputs {
         carbide_config,
         initial_objects,
         credential_config,
         logging: tconf,
+        meter,
+        join_set,
         admin_ui_routes_builder,
         cancel_token,
         ready_channel,
@@ -108,53 +112,6 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
         "Tokio worker thread configuration",
     );
 
-    let metrics = create_metrics()?;
-    create_metric_for_spancount_reader(&metrics.meter, tconf.spancount_reader);
-    // Counts are process-global, so this exposes the host's layer too when an
-    // embedding binary (the integration harness) owns the subscriber.
-    carbide_instrument::log_events::register(&metrics.meter);
-    forge_http_connector::connector::register_global_metrics(&metrics.meter);
-
-    // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
-    // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
-    // while propagating any panics to the current task.
-    let mut join_set = JoinSet::new();
-
-    // Spin up the webserver which servers `/metrics` requests
-    if let Some(metrics_address) = carbide_config.metrics_endpoint {
-        // If a replacement prefix for "carbide_" is configured, also emit metrics under that
-        let additional_prefix =
-            carbide_config
-                .alt_metric_prefix
-                .clone()
-                .map(|alt| metrics_endpoint::PrefixMigration {
-                    old: "carbide_".to_string(),
-                    new: alt,
-                });
-        join_set.build_task().name("metrics_endpoint").spawn({
-            let cancel_token = cancel_token.clone();
-            async move {
-                if let Err(e) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
-                    &metrics_endpoint::MetricsEndpointConfig {
-                        address: metrics_address,
-                        registry: metrics.registry,
-                        health_controller: None,
-                        additional_prefix,
-                    },
-                    cancel_token,
-                )
-                .await
-                {
-                    tracing::error!(
-                        metrics_address = %metrics_address,
-                        error = %e,
-                        "Metrics endpoint failed",
-                    );
-                }
-            }
-        })?;
-    }
-
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
         log_filter: tconf.filter.clone(),
         site_explorer_enabled: carbide_config.site_explorer.enabled.clone(),
@@ -164,7 +121,7 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
         log_stream: tconf.log_stream,
     };
     dynamic_settings.start_reset_task(
-        &mut join_set,
+        join_set,
         dynamic_settings::RESET_PERIOD,
         cancel_token.clone(),
     );
@@ -180,7 +137,7 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
     let vault_config = vault_config_for_site(&credential_config.vault, &carbide_config);
 
     // One vault client serves every credential vault role below.
-    let vault_client = create_vault_client(&vault_config, metrics.meter.clone())?;
+    let vault_client = create_vault_client(&vault_config, meter.clone())?;
 
     // Certificate vending is selected independently of the credential store.
     // SharedVault (the default) reuses `vault_client` (no second client or token
@@ -196,7 +153,7 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
             trust_domain: vault_config.spiffe_trust_domain(),
             machine_base_path: vault_config.spiffe_machine_base_path(),
         },
-        metrics.meter.clone(),
+        meter.clone(),
     )?;
 
     let db_pool = setup::create_and_connect_postgres_pool(&carbide_config).await?;
@@ -249,7 +206,7 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
             secrets_config,
             &vault_config,
             &routing,
-            &mut join_set,
+            join_set,
             &cancel_token,
         )?;
 
@@ -406,10 +363,10 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
     setup::start_api(
-        &mut join_set,
+        join_set,
         carbide_config,
         initial_objects,
-        metrics.meter,
+        meter,
         dynamic_settings,
         redfish_pool,
         nv_redfish_pool,
@@ -422,10 +379,6 @@ pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
         ready_channel,
     )
     .await?;
-
-    // Block forever until all spawned tasks complete. Any panics in spawned tasks will be
-    // propagated here.
-    join_set.join_all().await;
 
     Ok(())
 }

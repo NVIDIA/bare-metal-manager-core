@@ -22,10 +22,12 @@ use carbide_api_core::bootstrap::{CoreRunInputs, Logging, run_core};
 use carbide_secrets::CredentialConfig;
 use eyre::WrapErr;
 use tokio::sync::oneshot::Sender;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::subscriber::NoSubscriber;
 
 use crate::logging::setup_logging;
+use crate::metrics::{Metrics, setup_metrics};
 
 /// Run the carbide-api server until `cancel_token` is cancelled.
 #[allow(clippy::too_many_arguments)]
@@ -75,16 +77,86 @@ pub async fn run(
         .wrap_err("setup_telemetry")?
     };
 
+    let Metrics {
+        registry,
+        meter,
+        _meter_provider,
+    } = setup_metrics(logging.spancount_reader.clone())?;
+
+    // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
+    // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
+    // while propagating any panics to the current task.
+    let mut join_set = JoinSet::new();
+    start_metrics_endpoint(
+        &mut join_set,
+        &carbide_config,
+        registry,
+        cancel_token.clone(),
+    )?;
+
     run_core(CoreRunInputs {
         carbide_config,
         initial_objects,
         credential_config,
         logging,
+        meter,
+        join_set: &mut join_set,
         admin_ui_routes_builder,
         cancel_token,
         ready_channel,
     })
-    .await
+    .await?;
+
+    // Block forever until all spawned tasks complete. Any panics in spawned tasks will be
+    // propagated here.
+    join_set.join_all().await;
+    Ok(())
+}
+
+fn start_metrics_endpoint(
+    join_set: &mut JoinSet<()>,
+    carbide_config: &carbide_api_core::cfg::file::CarbideConfig,
+    registry: prometheus::Registry,
+    cancel_token: CancellationToken,
+) -> eyre::Result<()> {
+    let Some(metrics_address) = carbide_config.metrics_endpoint else {
+        return Ok(());
+    };
+
+    // Spin up the web server which serves `/metrics` requests
+    // If a replacement prefix for "carbide_" is configured, also emit metrics under that
+    let additional_prefix =
+        carbide_config
+            .alt_metric_prefix
+            .clone()
+            .map(|alt| metrics_endpoint::PrefixMigration {
+                old: "carbide_".to_string(),
+                new: alt,
+            });
+    join_set
+        .build_task()
+        .name("metrics_endpoint")
+        .spawn(async move {
+            if let Err(error) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
+                &metrics_endpoint::MetricsEndpointConfig {
+                    address: metrics_address,
+                    registry,
+                    health_controller: None,
+                    additional_prefix,
+                },
+                cancel_token,
+            )
+            .await
+            {
+                tracing::error!(
+                    metrics_address = %metrics_address,
+                    error = %error,
+                    "Metrics endpoint failed",
+                );
+            }
+        })?;
+
+    Ok(())
 }
 
 fn validate_network_prefixes(

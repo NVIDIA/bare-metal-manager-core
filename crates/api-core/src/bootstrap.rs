@@ -21,6 +21,7 @@
 //! types that must cross the crate boundary while service implementation stays
 //! in `carbide-api-core`.
 
+pub use crate::api::metrics::ApiMetricsEmitter;
 pub use crate::logging::level_filter::{ActiveLevel, ReloadableFilter};
 pub use crate::logging::setup::{Logging, dep_log_filter};
 pub use crate::logging::stream::LogStreamLayer;
