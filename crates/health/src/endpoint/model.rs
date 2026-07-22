@@ -130,8 +130,9 @@ pub struct MachineData {
 
     /// UUID reported by the primary Redfish ComputerSystem resource.
     ///
-    /// Endpoint discovery resolves this before machine collectors start so every
-    /// telemetry event can carry the same hardware identity.
+    /// Endpoint discovery attempts to resolve this before machine collectors
+    /// start. It remains absent when the BMC is unavailable or does not expose
+    /// a usable UUID, allowing telemetry collection to continue.
     pub system_uuid: Option<uuid::Uuid>,
 
     /// Physical rack slot where the machine is installed, when known.

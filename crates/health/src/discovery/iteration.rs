@@ -77,30 +77,28 @@ pub async fn run_discovery_iteration(
         .cloned()
         .collect();
 
-    // Resolve machine identity before any collector can emit. Failed endpoints
-    // are omitted from this pass and retried by the next discovery iteration,
-    // preserving the invariant that machine telemetry always carries the
-    // primary ComputerSystem UUID.
+    // Resolve machine identity before collectors start when possible. UUID
+    // enrichment is best-effort: a BMC connection or data error must not
+    // suppress all telemetry for the endpoint. Resolution is attempted again
+    // on the next discovery iteration.
     let identity_concurrency = ctx.discovery_config.discovery_concurrency.max(1);
-    let resolved_endpoints: Vec<Option<Arc<BmcEndpoint>>> = stream::iter(sharded_endpoints)
+    let sharded_endpoints: Vec<Arc<BmcEndpoint>> = stream::iter(sharded_endpoints)
         .map(|endpoint| async move {
             match with_primary_system_uuid(&endpoint).await {
-                Ok(endpoint) => Some(endpoint),
+                Ok(endpoint) => endpoint,
                 Err(error) => {
                     tracing::warn!(
                         ?error,
                         bmc_address = ?endpoint.addr,
-                        "Could not resolve primary ComputerSystem UUID; skipping endpoint"
+                        "Could not resolve primary ComputerSystem UUID; continuing without it"
                     );
-                    None
+                    endpoint
                 }
             }
         })
         .buffer_unordered(identity_concurrency)
         .collect()
         .await;
-    let sharded_endpoints: Vec<Arc<BmcEndpoint>> =
-        resolved_endpoints.into_iter().flatten().collect();
 
     if sharded_endpoints.is_empty() {
         tracing::warn!("No endpoints assigned to this shard");
