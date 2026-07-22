@@ -97,9 +97,10 @@ pub(crate) enum OutcomeReason {
     UpstreamApiError,
 }
 
-/// A boot-path request resolved to a servable response -- the real script
-/// or an error template. Metric-only: the existing stderr lines on the
-/// failure paths stay as they are, and the rate is the signal.
+/// `PxeBootOutcome` records a boot-path result without writing a log. The
+/// quiet success and extractor paths use this type; failures that already
+/// have an `ERROR` record use the sibling Events below so one `emit()` writes
+/// the log and increments the counter.
 #[derive(Event)]
 #[event(
     event_name = "pxe_boot_outcome",
@@ -116,6 +117,52 @@ pub(crate) struct PxeBootOutcome {
     pub reason: OutcomeReason,
 }
 
+// Both failure Events write the same counter as `PxeBootOutcome`. Keep the
+// metric kind, description, and label keys identical so OpenTelemetry sees
+// one instrument while each route keeps its existing message.
+
+/// `PxeCloudInitRequestFailed` records a cloud-init request that fell back to
+/// the generic error template.
+#[derive(Event)]
+#[event(
+    event_name = "pxe_cloud_init_request_failed",
+    metric_name = "carbide_pxe_boot_outcomes_total",
+    component = "carbide-pxe",
+    log = error,
+    metric = counter,
+    message = "cloud-init request could not be served",
+    describe = "Number of PXE boot-path outcomes served, by endpoint and reason."
+)]
+pub(crate) struct PxeCloudInitRequestFailed {
+    #[label]
+    pub endpoint: BootEndpoint,
+    #[label]
+    pub reason: OutcomeReason,
+    #[context]
+    pub error: String,
+}
+
+/// `PxeCustomIpxeFetchFailed` records a custom iPXE lookup that fell back to
+/// the error script returned to the machine.
+#[derive(Event)]
+#[event(
+    event_name = "pxe_custom_ipxe_fetch_failed",
+    metric_name = "carbide_pxe_boot_outcomes_total",
+    component = "carbide-pxe",
+    log = error,
+    metric = counter,
+    message = "failed to fetch custom ipxe script",
+    describe = "Number of PXE boot-path outcomes served, by endpoint and reason."
+)]
+pub(crate) struct PxeCustomIpxeFetchFailed {
+    #[label]
+    pub endpoint: BootEndpoint,
+    #[label]
+    pub reason: OutcomeReason,
+    #[context]
+    pub error: String,
+}
+
 #[cfg(test)]
 mod tests {
     use carbide_instrument::emit;
@@ -123,6 +170,8 @@ mod tests {
     use carbide_test_support::{Check, check_values};
 
     use super::*;
+
+    const BOOT_OUTCOMES_METRIC: &str = "carbide_pxe_boot_outcomes_total";
 
     /// The label vocabulary is the dashboard contract: each variant renders
     /// as its snake_case name, byte for byte.
@@ -185,9 +234,8 @@ mod tests {
         );
     }
 
-    /// Each emit moves exactly its label pair's series, and none of them
-    /// builds a log line -- the event is declared `log = off` because this
-    /// binary has no tracing subscriber and its stderr lines stay untouched.
+    /// Each emit moves exactly its label pair's series. Even under the test
+    /// subscriber, `log = off` constructs no record for these quiet paths.
     #[test]
     fn boot_outcomes_count_per_label_without_logging() {
         let metrics = MetricsCapture::start();
@@ -242,6 +290,113 @@ mod tests {
             ),
             0.0,
             "an untouched label pair must not move",
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    enum FailureEvent {
+        CloudInit,
+        CustomIpxe,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FailureRecord {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        endpoint: Option<String>,
+        reason: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    /// Each failure Event keeps its route's `ERROR` record and increments the
+    /// existing label pair once. This is the contract that lets the route
+    /// replace its separate `tracing::error!` and `PxeBootOutcome` calls.
+    #[test]
+    fn boot_failures_log_and_count_once() {
+        check_values(
+            [
+                Check {
+                    scenario: "cloud-init generic error",
+                    input: FailureEvent::CloudInit,
+                    expect: FailureRecord {
+                        metadata_name: "pxe_cloud_init_request_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "cloud-init request could not be served".to_string(),
+                        event_name: Some("pxe_cloud_init_request_failed".to_string()),
+                        metric_name: Some(BOOT_OUTCOMES_METRIC.to_string()),
+                        endpoint: Some("cloud_init".to_string()),
+                        reason: Some("metadata_not_found".to_string()),
+                        error: Some("metadata is missing".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "custom iPXE lookup error",
+                    input: FailureEvent::CustomIpxe,
+                    expect: FailureRecord {
+                        metadata_name: "pxe_custom_ipxe_fetch_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "failed to fetch custom ipxe script".to_string(),
+                        event_name: Some("pxe_custom_ipxe_fetch_failed".to_string()),
+                        metric_name: Some(BOOT_OUTCOMES_METRIC.to_string()),
+                        endpoint: Some("boot".to_string()),
+                        reason: Some("upstream_api_error".to_string()),
+                        error: Some("API unavailable".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |failure| {
+                let metrics = MetricsCapture::start();
+                let (endpoint, reason, logs) = match failure {
+                    FailureEvent::CloudInit => {
+                        let endpoint = BootEndpoint::CloudInit;
+                        let reason = OutcomeReason::MetadataNotFound;
+                        let logs = capture_logs(|| {
+                            emit(PxeCloudInitRequestFailed {
+                                endpoint,
+                                reason,
+                                error: "metadata is missing".to_string(),
+                            });
+                        });
+                        (endpoint, reason, logs)
+                    }
+                    FailureEvent::CustomIpxe => {
+                        let endpoint = BootEndpoint::Boot;
+                        let reason = OutcomeReason::UpstreamApiError;
+                        let logs = capture_logs(|| {
+                            emit(PxeCustomIpxeFetchFailed {
+                                endpoint,
+                                reason,
+                                error: "API unavailable".to_string(),
+                            });
+                        });
+                        (endpoint, reason, logs)
+                    }
+                };
+
+                assert_eq!(logs.len(), 1, "one emit must produce one log record");
+                let log = &logs[0];
+                let endpoint = endpoint.label_value();
+                let reason = reason.label_value();
+                let labels = [("endpoint", endpoint.as_str()), ("reason", reason.as_str())];
+
+                FailureRecord {
+                    metadata_name: log.metadata_name.clone(),
+                    level: log.level,
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    endpoint: log.field("endpoint").map(str::to_string),
+                    reason: log.field("reason").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    counter_delta: metrics.counter_delta(BOOT_OUTCOMES_METRIC, &labels),
+                }
+            },
         );
     }
 }
