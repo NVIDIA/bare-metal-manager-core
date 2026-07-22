@@ -36,6 +36,8 @@ jobs:
             valueOverrides: '["nico-rest-api.config.keycloak.enabled=true","nico-rest-api.config.keycloak.baseURL=http://keycloak:8082","nico-rest-api.config.keycloak.realm=test","nico-rest-api.config.keycloak.clientID=test"]'
           - chart: helm/rest/nico-rest-site-agent
             valueOverrides: '[]'
+          - chart: helm/charts/nico-flow
+            valueOverrides: '[]'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,6 +63,7 @@ jobs:
         chart:
           - helm/rest/nico-rest
           - helm/rest/nico-rest-site-agent
+          - helm/charts/nico-flow
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
