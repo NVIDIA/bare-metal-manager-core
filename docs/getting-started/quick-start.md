@@ -205,7 +205,11 @@ envConfig:
 
 MetalLB provides LoadBalancer IPs for NICo Core services (nico-api, DHCP, DNS, PXE, SSH console). Without it, those services stay in `<pending>` state and the site is unreachable.
 
-> **NTP note:** NICo does not run a standalone NTP service. Instead, NTP server addresses are provided to managed hosts via DHCP option 42--configured in the `nico-dhcp` chart Kea hook parameters (`nico-ntpserver`). Point this to your enterprise NTP servers.
+<Note>
+NICo includes a built-in NTP service (`nico-ntp`). This is a 3-replica chrony StatefulSet where each replica gets its own MetalLB VIP.
+
+To use the service, set `nico-ntp.externalService.enabled: true`, assign three VIPs from your internal pool via `nico-ntp.externalService.perPodAnnotations`, and set `nico-dhcp.config.kea.hookParameters.ntpServer` to a comma-separated list of those same VIPs so DPUs receive them over DHCP. Enterprise NTP server IPs in `siteConfig.ntp_servers` continue to be used for BMC pre-ingestion time sync independently of `nico-ntp`.
+</Note>
 
 Edit `helm-prereqs/values/metallb-config.yaml`--this file ships pre-populated with example values. Replace all values labeled `# EXAMPLE` with your site-specific configuration before running `setup.sh`.
 
