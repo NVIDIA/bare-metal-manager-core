@@ -81,6 +81,7 @@ export VAULT_KV_MOUNT_LOCATION="secrets"
 export VAULT_PKI_MOUNT_LOCATION="certs"
 export VAULT_PKI_ROLE_NAME="role"
 export CARBIDE_WEB_AUTH_TYPE="none"
+# This local-only environment explicitly disables auth. Deployed WebUIs default to Basic.
 
 # Run SQL migrations
 echo "Running database migrations..."
@@ -92,8 +93,8 @@ menu() {
 
   ┌─────────────────────────────────────────┐
   │  http://localhost:1079/admin/           │
-  │  No in-process auth                     │
-  │  (recommended to set oauth2)            │
+  │  No auth (local development only)       │
+  │  Deployed WebUIs default to Basic       │
   │                                         │
   │  Templates: crates/api/templates/       │
   │                                         │

@@ -252,8 +252,8 @@ async fn test_create_ib_partition_over_max_limit(
         .expect_err("expected create ibpartition to fail")
         .to_string();
     assert!(
-        error.contains("Maximum Limit of Infiniband partitions had been reached"),
-        "Error message should contain 'Maximum Limit of Infiniband partitions had been reached', but is {error}"
+        error.contains("maximum limit of infiniband partitions had been reached"),
+        "Error message should contain 'maximum limit of infiniband partitions had been reached', but is {error}"
     );
 
     Ok(())
@@ -1000,7 +1000,7 @@ async fn test_handler_update_ib_partition_reject_tenant_org_change(
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(
         err.message()
-            .contains("Tenant organization ID should not be updated"),
+            .contains("tenant organization ID should not be updated"),
         "unexpected error: {err}"
     );
 
@@ -1050,7 +1050,7 @@ async fn test_handler_update_ib_partition_reject_pkey_change(
 
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(
-        err.message().contains("Partition key cannot be updated"),
+        err.message().contains("partition key cannot be updated"),
         "unexpected error: {err}"
     );
 

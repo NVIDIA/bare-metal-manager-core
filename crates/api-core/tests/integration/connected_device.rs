@@ -52,6 +52,8 @@ async fn test_find_connected_devices_by_machine_ids_single_id(pool: PgPool) {
 
     let host_machine = mh.host.rpc_machine().await;
     let expected_machine_id = host_machine
+        .status
+        .unwrap()
         .associated_dpu_machine_ids
         .into_iter()
         .next()

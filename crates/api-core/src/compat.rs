@@ -97,7 +97,7 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
                                 value: serde_json::to_string(
                                     &DpaCommand::try_from(command.clone()).map_err(|e| {
                                         CarbideError::internal(format!(
-                                            "Error converting MlxAction to JSON for legacy fields: {e}"
+                                            "error converting MlxAction to JSON for legacy fields: {e}"
                                         ))
                                     })?,
                                 )?,

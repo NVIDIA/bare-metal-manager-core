@@ -1,0 +1,12 @@
+apiVersion: v2
+name: nico-machine-a-tron
+description: Helm chart for Machine-A-Tron - a mock machine simulator for NICo development
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - nico
+  - machine-a-tron
+  - mock
+  - testing
+  - development

@@ -237,7 +237,7 @@ this ensures Vault and Postgres are initialised and the token file exists.
 Retrieve the environment variables for the run configuration:
 
 ```bash
-echo "NICO_WEB_AUTH_TYPE=basic"
+echo "CARBIDE_WEB_AUTH_TYPE=none  # local development only"
 echo "DATABASE_URL=postgresql://postgres:admin@localhost"
 echo "VAULT_ADDR=http://localhost:8201"
 echo "VAULT_KV_MOUNT_LOCATION=secrets"

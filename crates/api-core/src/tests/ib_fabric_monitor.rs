@@ -16,6 +16,7 @@
  */
 
 use carbide_ib_fabric::config::IBFabricConfig;
+use carbide_instrument::testing::MetricsCapture;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_managed_host};
@@ -34,7 +35,18 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     )
     .await;
 
+    let iteration_metrics = MetricsCapture::start();
     env.run_ib_fabric_monitor_iteration().await;
+    let iteration_count = iteration_metrics
+        .histogram_count_delta("carbide_ib_monitor_iteration_latency_milliseconds", &[]);
+    // Other API tests can drive the same process-global Event concurrently.
+    // The Event-level test pins exact-once behavior; this integration check
+    // only proves the real monitor path reaches the Event registry.
+    assert!(
+        iteration_count >= 1,
+        "expected the monitor pass to record latency, observed {iteration_count}"
+    );
+    drop(iteration_metrics);
     assert_eq!(
         env.test_meter
             .formatted_metric("carbide_ib_monitor_fabrics_count")
@@ -65,13 +77,6 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             .unwrap(),
         r#"{fabric="default"} 1"#
     );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("carbide_ib_monitor_iteration_latency_milliseconds_count")
-            .unwrap(),
-        r#"1"#
-    );
-
     // The fabric is configured securely
     assert_eq!(
         env.test_meter
@@ -143,11 +148,23 @@ async fn test_ib_port_down_sets_prevent_allocations_alert(
     }
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     let guid1 = discovery_info.infiniband_interfaces[0].guid.clone();
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let has_ib_port_down_alert = health.alerts.iter().any(|alert| alert.id == "IbPortDown");
     assert!(
         !has_ib_port_down_alert,
@@ -160,7 +177,13 @@ async fn test_ib_port_down_sets_prevent_allocations_alert(
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health.alerts.iter().find(|alert| alert.id == "IbPortDown");
     assert!(
         ib_port_down_alert.is_some(),
@@ -186,7 +209,13 @@ async fn test_ib_port_down_sets_prevent_allocations_alert(
 
     // Verify IbPortDown alert is cleared
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let has_ib_port_down_alert = health.alerts.iter().any(|alert| alert.id == "IbPortDown");
     assert!(
         !has_ib_port_down_alert,
@@ -222,7 +251,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     }
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     let guid1 = discovery_info.infiniband_interfaces[0].guid.clone();
     let guid2 = discovery_info.infiniband_interfaces[1].guid.clone();
     let total_ports = discovery_info.infiniband_interfaces.len();
@@ -234,7 +269,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health
         .alerts
         .iter()
@@ -265,7 +306,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health
         .alerts
         .iter()
@@ -289,7 +336,13 @@ async fn test_ib_multiple_ports_down(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_ib_fabric_monitor_iteration().await;
 
     let machine = env.find_machine(host_machine_id).await.remove(0);
-    let health = machine.health.as_ref().expect("Machine should have health");
+    let health = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .health
+        .as_ref()
+        .expect("Machine should have health");
     let ib_port_down_alert = health.alerts.iter().find(|alert| alert.id == "IbPortDown");
 
     assert!(

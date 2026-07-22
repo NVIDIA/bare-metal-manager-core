@@ -217,11 +217,11 @@ struct Expander {
 
 #[derive(thiserror::Error, Debug)]
 enum MemberRequestError {
-    #[error("Inner request to URI {0} returned failure: {1:?}, body: {2}")]
+    #[error("inner request to URI {0} returned failure: {1:?}, body: {2}")]
     UnsuccessfulResponse(String, axum::http::response::Parts, String),
-    #[error("Inner request to URI {0} returned a malformed response: {1}")]
+    #[error("inner request to URI {0} returned a malformed response: {1}")]
     MalformedResponse(String, String),
-    #[error("Error reading bytes from inner request to {0}")]
+    #[error("error reading bytes from inner request to {0}")]
     Axum(String, axum::Error),
 }
 

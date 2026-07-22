@@ -49,8 +49,8 @@ Print help (see a summary with -h)
 | [`add-uefi`](./credential-add-uefi.md) | Add site-wide DPU UEFI default credential (NOTE: this parameter can be set only once) |
 | [`add-host-factory-default`](./credential-add-host-factory-default.md) | Add manufacturer factory default BMC user/pass for a given vendor |
 | [`add-dpu-factory-default`](./credential-add-dpu-factory-default.md) | Add manufacturer factory default BMC user/pass for the DPUs |
-| [`add-nmx-m`](./credential-add-nmx-m.md) | Add NmxM credentials |
-| [`delete-nmx-m`](./credential-delete-nmx-m.md) | Delete NmxM credentials |
+| [`add-nmx-m`](./credential-add-nmx-m.md) | Deprecated compatibility command; NMX-M is no longer supported |
+| [`delete-nmx-m`](./credential-delete-nmx-m.md) | Deprecated compatibility command; NMX-M is no longer supported |
 | [`bgp`](./credential-bgp.md) | Manage leaf BGP passwords |
 
 ---

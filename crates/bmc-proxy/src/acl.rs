@@ -178,7 +178,7 @@ impl AclEntry {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("Error parsing ACL path {orig}: {err}")]
+#[error("error parsing ACL path {orig}: {err}")]
 pub struct AclPathParseError {
     orig: String,
     err: String,

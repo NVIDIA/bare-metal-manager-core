@@ -26,8 +26,39 @@ use carbide_utils::config::{
 };
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
-use model::expected_machine::DpuMode;
+use model::expected_machine::HostDpuPolicy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+#[derive(Deserialize, Serialize)]
+struct HostDpuPolicyConfigFields {
+    #[serde(default)]
+    dpu_policy: Option<HostDpuPolicy>,
+    #[serde(default, skip_serializing)]
+    dpu_mode: Option<HostDpuPolicy>,
+}
+
+fn deserialize_host_dpu_policy<'de, D>(deserializer: D) -> Result<Option<HostDpuPolicy>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let fields = HostDpuPolicyConfigFields::deserialize(deserializer)?;
+
+    Ok(fields.dpu_policy.or(fields.dpu_mode))
+}
+
+fn serialize_host_dpu_policy<S>(
+    dpu_policy: &Option<HostDpuPolicy>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    HostDpuPolicyConfigFields {
+        dpu_policy: *dpu_policy,
+        dpu_mode: None,
+    }
+    .serialize(serializer)
+}
 
 /// SiteExplorer related configuration for hardware discovery and ingestion.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -175,15 +206,18 @@ pub struct SiteExplorerConfig {
     #[serde(default = "SiteExplorerConfig::default_switches_created_per_run")]
     pub switches_created_per_run: u64,
 
-    /// Site-wide DPU operating mode. When set, applies to every host
-    /// that doesn't declare a per-host `ExpectedMachine.dpu_mode`
-    /// override (or that declares the default `DpuMode` variant,
-    /// which is indistinguishable from "unset"). Per-host `NicMode` /
-    /// `NoDpu` always wins. `None` means "site-wide setting unset"
-    /// and hosts fall back to the absolute default of
-    /// `DpuMode::DpuMode`.
-    #[serde(default)]
-    pub dpu_mode: Option<DpuMode>,
+    /// Site-wide host DPU policy. Per-host `Nic` and `Ignore` policies
+    /// override it; per-host `Manage` inherits it for backward compatibility.
+    /// `None` falls back to [`HostDpuPolicy::Manage`].
+    ///
+    /// The legacy `dpu_mode` field and values remain accepted during
+    /// deserialization.
+    #[serde(
+        flatten,
+        deserialize_with = "deserialize_host_dpu_policy",
+        serialize_with = "serialize_host_dpu_policy"
+    )]
+    pub dpu_policy: Option<HostDpuPolicy>,
 
     /// Controls which Redfish client implementation is used
     /// for hardware discovery (LibRedfish, NvRedfish, or
@@ -214,7 +248,7 @@ impl Default for SiteExplorerConfig {
             create_switches: Self::default_create_switches(),
             switches_created_per_run: Self::default_switches_created_per_run(),
             rotate_switch_nvos_credentials: Self::default_rotate_switch_nvos_credentials(),
-            dpu_mode: None,
+            dpu_policy: None,
             explore_mode: Self::default_explore_mode(),
         }
     }
@@ -244,7 +278,7 @@ impl PartialEq for SiteExplorerConfig {
             power_shelves_created_per_run,
             create_switches,
             switches_created_per_run,
-            dpu_mode,
+            dpu_policy,
             explore_mode,
         } = self;
 
@@ -276,7 +310,7 @@ impl PartialEq for SiteExplorerConfig {
             && create_switches.load(AtomicOrdering::Relaxed)
                 == other.create_switches.load(AtomicOrdering::Relaxed)
             && *switches_created_per_run == other.switches_created_per_run
-            && *dpu_mode == other.dpu_mode
+            && *dpu_policy == other.dpu_policy
             && *explore_mode == other.explore_mode
     }
 }

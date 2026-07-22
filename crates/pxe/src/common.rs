@@ -69,6 +69,7 @@ pub(crate) fn test_app_state() -> AppState {
             client_facing_api_url: "https://carbide-api.forge".to_string(),
             pxe_url: "http://carbide-pxe.forge".to_string(),
             static_pxe_url: "http://carbide-pxe.forge".to_string(),
+            bootstrap_root_ca_path: String::new(),
             forge_root_ca_path: String::new(),
             server_cert_path: String::new(),
             server_key_path: String::new(),

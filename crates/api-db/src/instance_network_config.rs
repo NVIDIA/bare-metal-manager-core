@@ -85,6 +85,7 @@ pub fn add_inband_interfaces_to_config(
             function_id: InterfaceFunctionId::Physical {},
             network_segment_id: Some(*host_inband_segment_id),
             network_details: None,
+            vpc_selection: None,
             ip_addrs: Default::default(),
             interface_prefixes: Default::default(),
             network_segment_gateways: Default::default(),

@@ -38,7 +38,8 @@ pub enum SecretsOperation {
 /// A Postgres secrets operation was attempted; counted the moment it starts.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_secrets_requests_total",
+    event_name = "secrets_request_started",
+    metric_name = "carbide_api_secrets_requests_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -52,7 +53,8 @@ struct SecretsRequestStarted {
 /// A Postgres secrets operation completed successfully.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_secrets_requests_succeeded_total",
+    event_name = "secrets_request_succeeded",
+    metric_name = "carbide_api_secrets_requests_succeeded_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -66,7 +68,8 @@ struct SecretsRequestSucceeded {
 /// A Postgres secrets operation failed -- it left scope without succeeding.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_secrets_requests_failed_total",
+    event_name = "secrets_request_failed",
+    metric_name = "carbide_api_secrets_requests_failed_total",
     component = "nico-api",
     log = off,
     metric = counter,
@@ -83,7 +86,8 @@ struct SecretsRequestFailed {
 /// sample is the same integer the counter has always reported.
 #[derive(Event)]
 #[event(
-    name = "carbide_api_secrets_request_duration_milliseconds",
+    event_name = "secrets_request_duration",
+    metric_name = "carbide_api_secrets_request_duration_milliseconds",
     component = "nico-api",
     log = off,
     metric = histogram,

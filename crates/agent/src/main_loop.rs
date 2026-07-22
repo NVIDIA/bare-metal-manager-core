@@ -29,6 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
+use carbide_instrument::emit;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -55,7 +56,10 @@ use crate::ethernet_virtualization::{
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
-use crate::instrumentation::{create_metrics, get_dpu_agent_meter, get_prometheus_registry};
+use crate::instrumentation::{
+    NetworkStatusConnectionFailed, NetworkStatusRpcFailed, NetworkStatusSucceeded, create_metrics,
+    get_dpu_agent_meter, get_prometheus_registry,
+};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
 use crate::util::get_host_boot_timestamp;
@@ -171,7 +175,7 @@ pub async fn setup_and_run(
             fmds_address = fmds_addr,
             "Using FmdsUpdater::External FMDS service"
         );
-        match crate::fmds_client::FmdsGrpcClient::connect(
+        let updater = match crate::fmds_client::FmdsGrpcClient::connect(
             fmds_addr,
             agent_config.machine_identity.clone(),
         )
@@ -185,7 +189,20 @@ pub async fn setup_and_run(
                 );
                 FmdsUpdater::Embedded(instance_metadata_state.clone())
             }
-        }
+        };
+        // External FMDS was configured: expose whether we reached it (1) or fell
+        // back to embedded (0). A gauge, not a counter -- the fallback is decided
+        // once at startup, so a single pre-scrape counter bump would be invisible
+        // to rate()/increase(); a gauge reports the state at every scrape.
+        let reached_external = matches!(updater, FmdsUpdater::External(_));
+        get_dpu_agent_meter()
+            .u64_observable_gauge("carbide_dpu_agent_fmds_external_connected")
+            .with_description(
+                "Whether the DPU agent reached its configured external FMDS (1) or fell back to embedded (0)",
+            )
+            .with_callback(move |observer| observer.observe(reached_external as u64, &[]))
+            .build();
+        updater
     } else {
         if options.enable_metadata_service {
             crate::metadata_service::spawn_metadata_service(
@@ -248,10 +265,10 @@ pub async fn setup_and_run(
     }
 
     let fmds_minimum_hbn_version = Version::from(FMDS_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-        "Unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to Version"
+        "unable to convert string: {FMDS_MINIMUM_HBN_VERSION} to version"
     ))?;
     let nvue_minimum_hbn_version = Version::from(NVUE_MINIMUM_HBN_VERSION).ok_or(eyre::eyre!(
-        "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
+        "unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to version"
     ))?;
 
     if options.agent_platform_type.is_dpu_os()
@@ -310,10 +327,13 @@ pub async fn setup_and_run(
         managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
     }
 
-    if options.agent_platform_type.is_dpu_os()
-        && let Err(e) = lldp::set_lldp_system_description(&machine_id)
-    {
-        tracing::warn!(error = %e, "Couldn't update LLDP system description")
+    if options.agent_platform_type.is_dpu_os() {
+        if let Err(e) = lldp::prepare_lldp().await {
+            tracing::error!(error = %e, "Couldn't prepare LLDP configuration");
+        }
+        if let Err(e) = lldp::set_lldp_system_description(&machine_id).await {
+            tracing::warn!(error = %e, "Couldn't update LLDP system description");
+        }
     }
 
     let periodic_config_reader = periodic_config_fetcher.reader();
@@ -812,14 +832,14 @@ impl MainLoop {
                             match nvue_system_build.strip_prefix("HBN ") {
                                 Some(hbn_version) => Ok(hbn_version.into()),
                                 None => Err(eyre::format_err!(
-                                    "Couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
+                                    "couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
                                 )),
                             }?
                         }
                     };
 
                     let hbn_version = Version::from(hbn_version.as_str())
-                        .ok_or(eyre::eyre!("Unable to convert string to version"))?;
+                        .ok_or(eyre::eyre!("unable to convert string to version"))?;
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
                     // after doing an initial version check instead of assuming _sf
                     self.hbn_device_names = HBNDeviceNames::new(hbn_version.clone());
@@ -828,7 +848,7 @@ impl MainLoop {
                     // HBN/DOCA is too old to support NVUE, we cannot configure it.
                     if hbn_version < self.nvue_minimum_hbn_version {
                         return Err(eyre::eyre!(
-                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})."
+                            "HBN version {hbn_version} is older than the minimum required for NVUE ({NVUE_MINIMUM_HBN_VERSION})"
                         ));
                     }
 
@@ -982,7 +1002,9 @@ impl MainLoop {
                         Ok((has_changed, astra_config_status)) => {
                             self.current_network_version.update_from(&conf);
                             has_changed_configs = has_changed;
-                            status_out.astra_config_status = Some(astra_config_status);
+                            if conf.astra_config.is_some() {
+                                status_out.astra_config_status = Some(astra_config_status);
+                            }
                             if self.options.agent_platform_type.is_dpu_os()
                                 && let Err(err) = mtu::ensure().await
                             {
@@ -1418,20 +1440,18 @@ pub async fn record_network_status(
     {
         Ok(client) => client,
         Err(err) => {
-            tracing::error!(
-                forge_api,
-                error = format!("{err:#}"),
-                "record_network_status: Could not connect to Forge API server. Will retry."
-            );
+            emit(NetworkStatusConnectionFailed::new(
+                forge_api.to_string(),
+                format!("{err:#}"),
+            ));
             return;
         }
     };
     let request = tonic::Request::new(status);
-    if let Err(err) = client.record_dpu_network_status(request).await {
-        tracing::error!(
-            error = format!("{err:#}"),
-            "Error while executing the record_network_status gRPC call"
-        );
+    let result = client.record_dpu_network_status(request).await;
+    match &result {
+        Ok(_) => emit(NetworkStatusSucceeded::new()),
+        Err(err) => emit(NetworkStatusRpcFailed::new(format!("{err:#}"))),
     }
 }
 
@@ -1522,7 +1542,7 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
 
         std::fs::read_to_string(test_data_dir.join("bfvcheck.out")).map_err(|e| {
             error!(error = %e, "Could not read bfvcheck.out");
-            eyre::eyre!("Could not read bfvcheck.out: {}", e)
+            eyre::eyre!("could not read bfvcheck.out: {}", e)
         })?
     } else {
         let mut cmd = tokio::process::Command::new("bash");
@@ -1535,7 +1555,7 @@ async fn hack_dpu_os_to_load_atf_uefi_with_specific_versions() -> eyre::Result<(
         // bump it to a minute just in case
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT * 6, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         String::from_utf8_lossy(&output.stdout).to_string()
     };
@@ -1580,11 +1600,11 @@ ATF: v2.2(release):4.9.3-")
         // This is not a typo, we have to run it twice as per NBU
         tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
         // This is not a typo, we have to run it twice as per NBU
         tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         let mut cmd = tokio::process::Command::new("bash");
         cmd.args(vec!["-c", "sync"]);
@@ -1593,7 +1613,7 @@ ATF: v2.2(release):4.9.3-")
         let cmd_str = pretty_cmd(cmd.as_std());
         tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         // And now for the pièce de résistance, a reboot inline on the dpu OS, and this command
         // takes a LONG time so we will put an egregiously large reboot time
@@ -1604,7 +1624,7 @@ ATF: v2.2(release):4.9.3-")
         let cmd_str = pretty_cmd(cmd.as_std());
         tokio::time::timeout(Duration::from_secs(60 * 10), cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
     }
 
     // This method will either reboot a card or just return ok.

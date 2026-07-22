@@ -740,7 +740,7 @@ helm-deploy-site-agent:
 
 # Deploy the standalone MCP server chart. The server is parameter-driven; for
 # local dev we point its default base URL at the in-cluster API so a tool call
-# only needs to supply org + token (a per-call base_url still overrides this).
+# only needs to supply org + token (a per-call base_url must match this value).
 helm-deploy-mcp:
 	helm upgrade --install nico-mcp $(MCP_CHART)/ \
 		--namespace nico-rest --create-namespace $(HELM_SET) \

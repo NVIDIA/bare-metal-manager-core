@@ -17,7 +17,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::net::{AddrParseError, IpAddr};
+use std::net::{AddrParseError, IpAddr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -61,17 +61,17 @@ const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches n
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcProxyError {
-    #[error("Error resolving BMC information through Carbide API: {0}")]
+    #[error("error resolving BMC information through carbide API: {0}")]
     Api(String),
-    #[error("Invalid configuration: {0}")]
+    #[error("invalid configuration: {0}")]
     InvalidConfiguration(String),
-    #[error("Internal error proxying request: {0}")]
+    #[error("internal error proxying request: {0}")]
     InternalProxying(String),
-    #[error("No credentials found for BMC IP address: {0}")]
+    #[error("no credentials found for BMC IP address: {0}")]
     NoCredentials(IpAddr),
-    #[error("Error spawning listener: {0}")]
+    #[error("error spawning listener: {0}")]
     Listen(std::io::Error),
-    #[error("Error loading TLS config: {0}")]
+    #[error("error loading TLS config: {0}")]
     TlsConfig(String),
 }
 
@@ -101,9 +101,9 @@ enum ForwardedTarget<'a> {
 
 #[derive(thiserror::Error, Debug)]
 enum ForwardedHeaderParseError {
-    #[error("Invalid IP in Forwarded host header: {0}")]
+    #[error("invalid IP in forwarded host header: {0}")]
     Ip(#[from] AddrParseError),
-    #[error("Invalid MAC address in Forwarded host header: {0}")]
+    #[error("invalid MAC address in forwarded host header: {0}")]
     Mac(#[from] MacParseError),
 }
 
@@ -224,7 +224,8 @@ impl RefreshableTlsAcceptor {
 /// Counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_tls_connection_attempted_total",
+    event_name = "bmc_proxy_tls_connection_attempted",
+    metric_name = "carbide_bmc_proxy_tls_connection_attempted_total",
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
@@ -236,7 +237,8 @@ struct TlsConnectionAttempted;
 /// stack. Counted, never logged.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_tls_connection_success_total",
+    event_name = "bmc_proxy_tls_connection_succeeded",
+    metric_name = "carbide_bmc_proxy_tls_connection_success_total",
     component = "nico-bmc-proxy",
     log = off,
     metric = counter,
@@ -257,21 +259,66 @@ enum ConnectionFailReason {
     TlsConnectionFailure,
 }
 
-/// An inbound connection failed before it could be served -- the TCP accept
-/// errored, the TLS acceptor could not be reloaded, or the TLS handshake
-/// errored. Metric-only: the `tracing::error!` beside each emit remains the log;
-/// the `reason` label distinguishes which leg failed.
+/// `TcpAcceptFailed` records a listener error before a peer connection exists.
+/// It increments the existing `tcp_connection_failure` series while keeping
+/// the per-attempt error in log-only context.
 #[derive(Event)]
 #[event(
-    name = "carbide_bmc_proxy_tls_connection_fail_total",
+    event_name = "bmc_proxy_tcp_accept_failed",
+    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
     component = "nico-bmc-proxy",
-    log = off,
+    log = error,
     metric = counter,
-    describe = "Number of failed inbound TCP connections"
+    message = "Error accepting connection",
+    describe = "Number of failed inbound connections, by failure reason"
+)]
+struct TcpAcceptFailed {
+    #[label]
+    reason: ConnectionFailReason,
+    #[context]
+    error: String,
+}
+
+/// `TlsCertificateReloadFailed` records a failure to rebuild the acceptor from
+/// the on-disk TLS configuration. It shares the existing failure counter, but
+/// keeps the reload error out of metric labels.
+#[derive(Event)]
+#[event(
+    event_name = "bmc_proxy_tls_certificate_reload_failed",
+    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
+    component = "nico-bmc-proxy",
+    log = error,
+    metric = counter,
+    message = "Error reloading TLS certificate, will retry",
+    describe = "Number of failed inbound connections, by failure reason"
+)]
+struct TlsCertificateReloadFailed {
+    #[label]
+    reason: ConnectionFailReason,
+    #[context]
+    error: String,
+}
+
+/// `TlsConnectionFailed` records a handshake error after the listener knows
+/// the peer. It shares the failure counter with the accept and reload events,
+/// while `peer_address` and `error` remain diagnostic context.
+#[derive(Event)]
+#[event(
+    event_name = "bmc_proxy_tls_connection_failed",
+    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
+    component = "nico-bmc-proxy",
+    log = error,
+    metric = counter,
+    message = "error accepting tls connection",
+    describe = "Number of failed inbound connections, by failure reason"
 )]
 struct TlsConnectionFailed {
     #[label]
     reason: ConnectionFailReason,
+    #[context]
+    error: String,
+    #[context]
+    peer_address: SocketAddr,
 }
 
 struct BmcProxy {
@@ -293,9 +340,9 @@ impl BmcProxy {
             let (conn, addr) = match incoming_connection {
                 Ok(incoming) => incoming,
                 Err(e) => {
-                    tracing::error!(error = %e, "Error accepting connection");
-                    emit(TlsConnectionFailed {
+                    emit(TcpAcceptFailed {
                         reason: ConnectionFailReason::TcpConnectionFailure,
+                        error: e.to_string(),
                     });
                     continue;
                 }
@@ -308,12 +355,9 @@ impl BmcProxy {
                     match RefreshableTlsAcceptor::new(self.state.config.tls.clone()).await {
                         Ok(acceptor) => acceptor,
                         Err(e) => {
-                            tracing::error!(
-                                error = %e,
-                                "Error reloading TLS certificate, will retry",
-                            );
-                            emit(TlsConnectionFailed {
+                            emit(TlsCertificateReloadFailed {
                                 reason: ConnectionFailReason::TlsCertificateInvalid,
+                                error: e.to_string(),
                             });
                             continue;
                         }
@@ -362,13 +406,10 @@ impl BmcProxy {
                             }
                         }
                         Err(error) => {
-                            tracing::error!(
-                                %error,
-                                peer_address = %addr,
-                                "error accepting tls connection"
-                            );
                             emit(TlsConnectionFailed {
                                 reason: ConnectionFailReason::TlsConnectionFailure,
+                                error: error.to_string(),
+                                peer_address: addr,
                             });
                         }
                     }
@@ -919,6 +960,30 @@ impl TryFrom<forge::BmcCredentials> for BmcCredentials {
     }
 }
 
+/// Format a host as a URI authority component, bracketing bare IPv6 literals
+/// and appending the port when present.
+///
+/// A bare IPv6 address such as `2001:db8::1` is not a valid URI authority — it
+/// must be bracketed (`[2001:db8::1]`). Without brackets, `http::uri::Authority`
+/// parsing (used by the caller to build the upstream URI) rejects the host, and
+/// an appended port is misparsed as part of the address.
+///
+/// The parse guard here covers operator-supplied override hosts, which are
+/// genuinely strings; the BMC's own typed `IpAddr` is bracketed off its enum
+/// variant by the caller and passes through unchanged (as do IPv4 addresses
+/// and hostnames).
+fn build_authority(host: Cow<'_, str>, port: Option<u16>) -> Cow<'_, str> {
+    let host = if host.parse::<Ipv6Addr>().is_ok() {
+        Cow::Owned(format!("[{host}]"))
+    } else {
+        host
+    };
+    match port {
+        Some(port) => Cow::Owned(format!("{host}:{port}")),
+        None => host,
+    }
+}
+
 async fn create_client(
     ip: IpAddr,
     api_client: &ForgeApiClient,
@@ -926,15 +991,21 @@ async fn create_client(
     client_cache: &HttpClientCache,
     bmc_proxy: &Option<HostPortPair>,
 ) -> Result<BmcClientInfo, BmcProxyError> {
+    // Bracket the BMC's own IP off its typed variant (IPv4 renders unchanged),
+    // mirroring health::BmcAddr::to_url() and the nv-redfish client.
+    let bmc_host = match ip {
+        IpAddr::V4(v4) => v4.to_string(),
+        IpAddr::V6(v6) => format!("[{v6}]"),
+    };
     let (host, port, add_custom_header) = match bmc_proxy {
         // No override
-        None => (Cow::<str>::Owned(ip.to_string()), None, false),
+        None => (Cow::<str>::Owned(bmc_host), None, false),
         // Override the host and port
         Some(HostPortPair::HostAndPort(h, p)) => (Cow::Borrowed(h.as_str()), Some(*p), true),
         // Only override the host
         Some(HostPortPair::HostOnly(h)) => (Cow::Borrowed(h.as_str()), None, true),
         // Only override the port
-        Some(HostPortPair::PortOnly(p)) => (Cow::Owned(ip.to_string()), Some(*p), false),
+        Some(HostPortPair::PortOnly(p)) => (Cow::Owned(bmc_host), Some(*p), false),
     };
     let mut header_map = HeaderMap::new();
     if add_custom_header {
@@ -944,10 +1015,7 @@ async fn create_client(
 
     let credentials = get_bmc_credentials(ip, api_client, credential_cache).await?;
 
-    let base_authority = match (host, port) {
-        (host, Some(port)) => Cow::Owned(format!("{}:{}", host, port)),
-        (host, None) => host,
-    };
+    let base_authority = build_authority(host, port);
 
     let base_upstream_uri = Uri::builder()
         .scheme("https")
@@ -1040,9 +1108,10 @@ async fn evict_cached_credentials(ip: IpAddr, credential_cache: &CredentialCache
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::collections::HashMap;
     use std::convert::Infallible;
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::sync::Arc;
 
@@ -1050,8 +1119,11 @@ mod tests {
     use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
     use bytes::Bytes;
     use carbide_authn::middleware::{AuthContext, ExternalUserInfo, Principal};
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::Outcome::{Fails, Yields};
-    use carbide_test_support::{Case, check_cases_async, scenarios, value_scenarios};
+    use carbide_test_support::{
+        Case, Check, check_cases_async, check_values, scenarios, value_scenarios,
+    };
     use carbide_utils::HostPortPair;
     use http_body_util::BodyExt;
     use mac_address::MacAddress;
@@ -1063,10 +1135,11 @@ mod tests {
     use tokio_stream::iter;
 
     use super::{
-        BmcCredentials, BmcProxyState, CredentialCache, ForwardedTarget, build_response,
-        copy_request_headers, create_client, evict_cached_credentials, forwarded_header_value,
-        get_http_client, ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
-        parse_forwarded_host_value, request_principal_ids,
+        BmcCredentials, BmcProxyState, ConnectionFailReason, CredentialCache, ForwardedTarget,
+        TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed, build_authority,
+        build_response, copy_request_headers, create_client, evict_cached_credentials,
+        forwarded_header_value, get_http_client, ip_for_forwarded_target, is_hop_by_hop_header,
+        method_supports_body, parse_forwarded_host_value, request_principal_ids,
     };
 
     #[derive(Clone, Copy)]
@@ -1326,6 +1399,45 @@ mod tests {
             credentials: summarize_credentials(client.credentials),
         })
         .map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn build_authority_brackets_ipv6() {
+        value_scenarios!(
+            run = |(host, port): (&str, Option<u16>)| {
+                let authority = build_authority(Cow::Borrowed(host), port).into_owned();
+                // The result is fed into `Uri::builder().authority(..)`, which
+                // rejects a bare IPv6 literal — guard that it always parses.
+                assert!(
+                    authority.parse::<http::uri::Authority>().is_ok(),
+                    "produced an invalid authority: {authority}"
+                );
+                authority
+            };
+            "IPv4 without port" {
+                ("192.0.2.5", None) => "192.0.2.5".to_string(),
+            }
+
+            "IPv4 with port" {
+                ("192.0.2.5", Some(443)) => "192.0.2.5:443".to_string(),
+            }
+
+            "bare IPv6 is bracketed" {
+                ("2001:db8::1", None) => "[2001:db8::1]".to_string(),
+            }
+
+            "bare IPv6 with port is bracketed" {
+                ("2001:db8::1", Some(443)) => "[2001:db8::1]:443".to_string(),
+            }
+
+            "already bracketed IPv6 is left unchanged" {
+                ("[2001:db8::1]", Some(443)) => "[2001:db8::1]:443".to_string(),
+            }
+
+            "hostname is left unchanged" {
+                ("bmc.example.com", Some(443)) => "bmc.example.com:443".to_string(),
+            }
+        );
     }
 
     #[test]
@@ -1863,36 +1975,156 @@ mod tests {
         assert_eq!(body, Bytes::from_static(br#"{"value":"ok"}"#));
     }
 
-    /// The `reason` label values are the metric's contract: each variant
-    /// renders to the exact snake_case string the fail counter has always
-    /// reported. The failure path is not exercised by the metrics endpoint
-    /// tests, so this is what locks those bytes.
+    const TLS_FAILURE_METRIC: &str = "carbide_bmc_proxy_tls_connection_fail_total";
+
+    struct TlsFailureInput {
+        reason: &'static str,
+        emit: fn(),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TlsFailureObservation {
+        counter_delta: f64,
+        logs: Vec<TlsFailureLog>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TlsFailureLog {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        reason: Option<String>,
+        error: Option<String>,
+        peer_address: Option<String>,
+    }
+
+    fn emit_tcp_accept_failure() {
+        carbide_instrument::emit(TcpAcceptFailed {
+            reason: ConnectionFailReason::TcpConnectionFailure,
+            error: "accept failed".to_string(),
+        });
+    }
+
+    fn emit_tls_certificate_reload_failure() {
+        carbide_instrument::emit(TlsCertificateReloadFailed {
+            reason: ConnectionFailReason::TlsCertificateInvalid,
+            error: "certificate reload failed".to_string(),
+        });
+    }
+
+    fn emit_tls_connection_failure() {
+        carbide_instrument::emit(TlsConnectionFailed {
+            reason: ConnectionFailReason::TlsConnectionFailure,
+            error: "handshake failed".to_string(),
+            peer_address: "192.0.2.20:443"
+                .parse::<SocketAddr>()
+                .expect("test peer address is valid"),
+        });
+    }
+
+    fn observe_tls_failure(input: TlsFailureInput) -> TlsFailureObservation {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(input.emit)
+            .into_iter()
+            .map(|log| {
+                let event_name = log.field("event_name").map(str::to_owned);
+                let metric_name = log.field("metric_name").map(str::to_owned);
+                let reason = log.field("reason").map(str::to_owned);
+                let error = log.field("error").map(str::to_owned);
+                let peer_address = log.field("peer_address").map(str::to_owned);
+                TlsFailureLog {
+                    level: log.level,
+                    metadata_name: log.metadata_name,
+                    message: log.message,
+                    event_name,
+                    metric_name,
+                    reason,
+                    error,
+                    peer_address,
+                }
+            })
+            .collect();
+
+        TlsFailureObservation {
+            counter_delta: metrics.counter_delta(TLS_FAILURE_METRIC, &[("reason", input.reason)]),
+            logs,
+        }
+    }
+
+    fn expected_tls_failure(
+        event_name: &str,
+        message: &str,
+        reason: &str,
+        error: &str,
+        peer_address: Option<&str>,
+    ) -> TlsFailureObservation {
+        TlsFailureObservation {
+            counter_delta: 1.0,
+            logs: vec![TlsFailureLog {
+                level: tracing::Level::ERROR,
+                metadata_name: event_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(event_name.to_string()),
+                metric_name: Some(TLS_FAILURE_METRIC.to_string()),
+                reason: Some(reason.to_string()),
+                error: Some(error.to_string()),
+                peer_address: peer_address.map(str::to_owned),
+            }],
+        }
+    }
+
+    /// Each accept, certificate reload, or handshake failure writes one ERROR
+    /// record and increments exactly one existing `reason` series.
     #[test]
-    fn connection_fail_reason_renders_expected_label_values() {
-        use carbide_instrument::LabelValue;
-        use carbide_test_support::{Check, check_values};
-
-        use super::ConnectionFailReason;
-
+    fn tls_connection_failures_emit_their_metric_and_historical_log() {
         check_values(
             [
                 Check {
                     scenario: "tcp accept failure",
-                    input: ConnectionFailReason::TcpConnectionFailure,
-                    expect: "tcp_connection_failure".to_string(),
+                    input: TlsFailureInput {
+                        reason: "tcp_connection_failure",
+                        emit: emit_tcp_accept_failure,
+                    },
+                    expect: expected_tls_failure(
+                        "bmc_proxy_tcp_accept_failed",
+                        "Error accepting connection",
+                        "tcp_connection_failure",
+                        "accept failed",
+                        None,
+                    ),
                 },
                 Check {
                     scenario: "tls certificate reload failure",
-                    input: ConnectionFailReason::TlsCertificateInvalid,
-                    expect: "tls_certificate_invalid".to_string(),
+                    input: TlsFailureInput {
+                        reason: "tls_certificate_invalid",
+                        emit: emit_tls_certificate_reload_failure,
+                    },
+                    expect: expected_tls_failure(
+                        "bmc_proxy_tls_certificate_reload_failed",
+                        "Error reloading TLS certificate, will retry",
+                        "tls_certificate_invalid",
+                        "certificate reload failed",
+                        None,
+                    ),
                 },
                 Check {
                     scenario: "tls handshake failure",
-                    input: ConnectionFailReason::TlsConnectionFailure,
-                    expect: "tls_connection_failure".to_string(),
+                    input: TlsFailureInput {
+                        reason: "tls_connection_failure",
+                        emit: emit_tls_connection_failure,
+                    },
+                    expect: expected_tls_failure(
+                        "bmc_proxy_tls_connection_failed",
+                        "error accepting tls connection",
+                        "tls_connection_failure",
+                        "handshake failed",
+                        Some("192.0.2.20:443"),
+                    ),
                 },
             ],
-            |reason| reason.label_value().to_string(),
+            observe_tls_failure,
         );
     }
 }

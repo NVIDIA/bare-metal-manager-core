@@ -18,12 +18,17 @@ use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
+use bmc_mock::{HostHardwareType, MachineInfo};
 use carbide_uuid::machine::MachineInterfaceId;
+use dhcproto::v4::MessageType;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 use crate::api_client::{ApiClient, ClientApiError};
+use crate::config::{DhcpType, MachineATronConfig};
+use crate::dhcp_wrapper_udp::UdpDhcpClient;
+pub use crate::dhcp_wrapper_udp::UdpDhcpService;
 
 pub type DhcpRelayResult<T> = Result<T, DhcpRelayError>;
 
@@ -31,7 +36,88 @@ pub type DhcpRelayResult<T> = Result<T, DhcpRelayError>;
 pub struct DhcpRequestInfo {
     pub mac_address: MacAddress,
     pub relay_address: Ipv4Addr,
-    pub template_dir: String,
+    pub vendor_class: Option<&'static str>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DhcpRequester {
+    Bmc,
+    System,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DhcpMachine {
+    Dpu,
+    Host(HostHardwareType),
+}
+
+impl From<&MachineInfo> for DhcpMachine {
+    fn from(machine_info: &MachineInfo) -> Self {
+        match machine_info {
+            MachineInfo::Dpu(_) => Self::Dpu,
+            MachineInfo::Host(host) => Self::Host(host.hw_type),
+        }
+    }
+}
+
+pub(crate) fn vendor_class(
+    machine_info: &MachineInfo,
+    requester: DhcpRequester,
+) -> Option<&'static str> {
+    vendor_class_for(DhcpMachine::from(machine_info), requester)
+}
+
+fn vendor_class_for(machine: DhcpMachine, requester: DhcpRequester) -> Option<&'static str> {
+    match (machine, requester) {
+        (DhcpMachine::Dpu, DhcpRequester::Bmc) => Some("NVIDIA/BF/BMC"),
+        (DhcpMachine::Dpu, DhcpRequester::System) => Some("NVIDIA/BF/OOB"),
+        (
+            DhcpMachine::Host(
+                HostHardwareType::DellPowerEdgeR750 | HostHardwareType::DellPowerEdgeR760Bf4,
+            ),
+            DhcpRequester::Bmc,
+        ) => Some("iDRAC"),
+        (DhcpMachine::Host(HostHardwareType::HpeProliantDl380aGen11), DhcpRequester::Bmc) => {
+            Some("CPQRIB3")
+        }
+        // These BMCs have no verified DHCP vendor class, so omit option 60 rather than
+        // reporting a value that may cause Carbide to misidentify the requester.
+        (
+            DhcpMachine::Host(
+                HostHardwareType::WiwynnGB200Nvl
+                | HostHardwareType::LenovoGB300Nvl
+                | HostHardwareType::NvidiaDgxGb300
+                | HostHardwareType::SupermicroGb300Nvl
+                | HostHardwareType::NvidiaDgxVr
+                | HostHardwareType::LiteOnPowerShelf
+                | HostHardwareType::DeltaPowerShelf
+                | HostHardwareType::NvidiaSwitchNd5200Ld
+                | HostHardwareType::NvidiaDgxH100
+                | HostHardwareType::GenericAmi
+                | HostHardwareType::GenericSupermicro,
+            ),
+            DhcpRequester::Bmc,
+        ) => None,
+        (
+            DhcpMachine::Host(
+                HostHardwareType::DellPowerEdgeR750
+                | HostHardwareType::DellPowerEdgeR760Bf4
+                | HostHardwareType::WiwynnGB200Nvl
+                | HostHardwareType::LenovoGB300Nvl
+                | HostHardwareType::NvidiaDgxGb300
+                | HostHardwareType::SupermicroGb300Nvl
+                | HostHardwareType::NvidiaDgxVr
+                | HostHardwareType::LiteOnPowerShelf
+                | HostHardwareType::DeltaPowerShelf
+                | HostHardwareType::NvidiaSwitchNd5200Ld
+                | HostHardwareType::NvidiaDgxH100
+                | HostHardwareType::GenericAmi
+                | HostHardwareType::HpeProliantDl380aGen11
+                | HostHardwareType::GenericSupermicro,
+            ),
+            DhcpRequester::System,
+        ) => Some("PXEClient:Arch:00007:UNDI:003000"),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -40,8 +126,44 @@ pub struct DhcpResponseInfo {
     pub ip_address: Ipv4Addr,
 }
 
-pub async fn request_ip(
-    api_client: ApiClient,
+#[derive(Clone, Debug)]
+pub enum DhcpClient {
+    Api(ApiClient),
+    UdpRelay(UdpDhcpClient),
+}
+
+impl DhcpClient {
+    pub async fn start(
+        config: &MachineATronConfig,
+        api_client: ApiClient,
+    ) -> eyre::Result<(Self, Option<UdpDhcpService>)> {
+        match config.dhcp {
+            DhcpType::Api {} => Ok((Self::Api(api_client), None)),
+            DhcpType::UdpRelay {
+                server_address,
+                listen_address,
+                advertise_address,
+            } => {
+                let (client, service) =
+                    UdpDhcpClient::start(server_address, listen_address, advertise_address).await?;
+                Ok((Self::UdpRelay(client), Some(service)))
+            }
+        }
+    }
+
+    pub async fn request_ip(
+        &self,
+        request_info: DhcpRequestInfo,
+    ) -> DhcpRelayResult<DhcpResponseInfo> {
+        match self {
+            Self::Api(api_client) => request_ip_from_api(api_client, request_info).await,
+            Self::UdpRelay(client) => client.request_ip(request_info).await,
+        }
+    }
+}
+
+async fn request_ip_from_api(
+    api_client: &ApiClient,
     request_info: DhcpRequestInfo,
 ) -> DhcpRelayResult<DhcpResponseInfo> {
     tracing::debug!(
@@ -52,9 +174,9 @@ pub async fn request_ip(
     let dhcp_record = api_client
         .discover_dhcp(
             request_info.mac_address,
-            request_info.template_dir.clone(),
             request_info.relay_address.to_string(),
             None,
+            request_info.vendor_class,
         )
         .await
         .inspect_err(|e| {
@@ -91,10 +213,25 @@ pub async fn request_ip(
 
 #[derive(thiserror::Error, Debug)]
 pub enum DhcpRelayError {
-    #[error("Client API error: {0}")]
+    #[error("client API error: {0}")]
     ClientApiError(#[from] ClientApiError),
-    #[error("Invalid DHCP record: {0}")]
+    #[error("invalid DHCP record: {0}")]
     InvalidDhcpRecord(String),
+    #[error("invalid DHCP packet: {0}")]
+    InvalidDhcpPacket(String),
+    #[error("DHCP I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("DHCP transaction ID {0} is already active")]
+    TransactionCollision(u32),
+    #[error("timed out waiting for {expected_type:?} for DHCP transaction {xid}")]
+    ResponseTimeout {
+        xid: u32,
+        expected_type: MessageType,
+    },
+    #[error("DHCP response receiver stopped")]
+    ResponseReceiverStopped,
+    #[error("DHCP server returned NAK for transaction {0}")]
+    NegativeAcknowledgement(u32),
 }
 
 impl From<tonic::Status> for DhcpRelayError {
@@ -194,4 +331,70 @@ fn synthesize_dhcp_response_for_host(
             .and_then(|x| x.parse().ok()),
         ip_address: ip,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    #[test]
+    fn derives_vendor_class_from_requester_and_machine() {
+        check_values(
+            [
+                Check {
+                    scenario: "DPU BMC",
+                    input: (DhcpMachine::Dpu, DhcpRequester::Bmc),
+                    expect: Some("NVIDIA/BF/BMC"),
+                },
+                Check {
+                    scenario: "DPU system OOB interface",
+                    input: (DhcpMachine::Dpu, DhcpRequester::System),
+                    expect: Some("NVIDIA/BF/OOB"),
+                },
+                Check {
+                    scenario: "Dell R750 BMC",
+                    input: (
+                        DhcpMachine::Host(HostHardwareType::DellPowerEdgeR750),
+                        DhcpRequester::Bmc,
+                    ),
+                    expect: Some("iDRAC"),
+                },
+                Check {
+                    scenario: "Dell R760 BMC",
+                    input: (
+                        DhcpMachine::Host(HostHardwareType::DellPowerEdgeR760Bf4),
+                        DhcpRequester::Bmc,
+                    ),
+                    expect: Some("iDRAC"),
+                },
+                Check {
+                    scenario: "HPE BMC",
+                    input: (
+                        DhcpMachine::Host(HostHardwareType::HpeProliantDl380aGen11),
+                        DhcpRequester::Bmc,
+                    ),
+                    expect: Some("CPQRIB3"),
+                },
+                Check {
+                    scenario: "unrecognized host BMC",
+                    input: (
+                        DhcpMachine::Host(HostHardwareType::GenericAmi),
+                        DhcpRequester::Bmc,
+                    ),
+                    expect: None,
+                },
+                Check {
+                    scenario: "host system PXE client",
+                    input: (
+                        DhcpMachine::Host(HostHardwareType::GenericAmi),
+                        DhcpRequester::System,
+                    ),
+                    expect: Some("PXEClient:Arch:00007:UNDI:003000"),
+                },
+            ],
+            |(machine, requester)| vendor_class_for(machine, requester),
+        );
+    }
 }

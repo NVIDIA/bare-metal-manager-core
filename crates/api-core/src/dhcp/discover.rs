@@ -671,7 +671,7 @@ pub async fn discover_dhcp(
             .or_else(|| network_segments.first())
             .ok_or_else(|| {
                 CarbideError::internal(format!(
-                    "No network segment defined for DHCPv6 relay address {parsed_relay}"
+                    "no network segment defined for DHCPv6 relay address {parsed_relay}"
                 ))
             })?;
         ensure_dhcpv6_enabled(segment)?;
@@ -794,7 +794,7 @@ pub async fn discover_dhcp(
         && segment.config.segment_type == NetworkSegmentType::Admin
     {
         return Err(CarbideError::FailedPrecondition(format!(
-            "DHCP request received on dormant non-primary admin interface {}. Ignoring.",
+            "DHCP request received on dormant non-primary admin interface {}. ignoring",
             machine_interface.id
         )));
     }
@@ -825,7 +825,7 @@ pub async fn discover_dhcp(
         let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
         if !dpus.is_empty() {
             return Err(CarbideError::internal(format!(
-                "DHCP request received for instance: {instance_id}. Ignoring."
+                "DHCP request received for instance: {instance_id}. ignoring"
             )));
         }
     }

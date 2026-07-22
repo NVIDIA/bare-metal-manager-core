@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun/extra/bundebug"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
@@ -463,6 +464,139 @@ func TestManageExpectedMachine_UpdateExpectedMachinesInDB(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManageExpectedMachine_UpdateExpectedMachinesInDB_BmcIpAddress(t *testing.T) {
+	ctx := context.Background()
+
+	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
+
+	testExpectedMachineSetupSchema(t, dbSession)
+
+	ipOrg := "test-provider-org"
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
+	ipu := cwu.TestBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, ipRoles)
+	ip := cwu.TestBuildInfrastructureProvider(t, dbSession, "test-provider", ipOrg, ipu)
+	st := cwu.TestBuildSite(t, dbSession, ip, "test-site-bmc-ip", cdbm.SiteStatusRegistered, nil, ipu)
+
+	type existingMachineCase struct {
+		name          string
+		initialBmcIP  *string
+		reportedBmcIP *string
+	}
+
+	tests := []existingMachineCase{
+		{
+			name:          "set previously unset BMC IP address",
+			initialBmcIP:  nil,
+			reportedBmcIP: cutil.GetPtr("192.0.2.10"),
+		},
+		{
+			name:          "change existing BMC IP address",
+			initialBmcIP:  cutil.GetPtr("192.0.2.20"),
+			reportedBmcIP: cutil.GetPtr("192.0.2.21"),
+		},
+		{
+			name:          "clear existing BMC IP address",
+			initialBmcIP:  cutil.GetPtr("192.0.2.30"),
+			reportedBmcIP: nil,
+		},
+	}
+
+	emDAO := cdbm.NewExpectedMachineDAO(dbSession)
+	existingIDs := make([]uuid.UUID, len(tests))
+	reportedMachines := make([]*corev1.ExpectedMachine, 0, len(tests)+1)
+	preservedName := "preserve-this-name"
+	for i, tt := range tests {
+		emID := uuid.New()
+		existingIDs[i] = emID
+		bmcMAC := fmt.Sprintf("00:11:22:33:66:%02d", i)
+		chassisSerialNumber := fmt.Sprintf("BMC-IP-SN-%d", i)
+		_, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+			ExpectedMachineID:   emID,
+			SiteID:              st.ID,
+			BmcMacAddress:       bmcMAC,
+			ChassisSerialNumber: chassisSerialNumber,
+			BmcIpAddress:        tt.initialBmcIP,
+			Name:                &preservedName,
+			CreatedBy:           ipu.ID,
+		})
+		require.NoError(t, err)
+
+		reportedMachines = append(reportedMachines, &corev1.ExpectedMachine{
+			Id:                  &corev1.UUID{Value: emID.String()},
+			BmcMacAddress:       bmcMAC,
+			ChassisSerialNumber: chassisSerialNumber,
+			BmcIpAddress:        tt.reportedBmcIP,
+		})
+	}
+
+	createdID := uuid.New()
+	createdBmcIP := "192.0.2.40"
+	reportedMachines = append(reportedMachines, &corev1.ExpectedMachine{
+		Id:                  &corev1.UUID{Value: createdID.String()},
+		BmcMacAddress:       "00:11:22:33:66:03",
+		ChassisSerialNumber: "BMC-IP-SN-3",
+		BmcIpAddress:        &createdBmcIP,
+	})
+
+	mei := ManageExpectedMachine{dbSession: dbSession}
+	err := mei.UpdateExpectedMachinesInDB(ctx, st.ID, &corev1.ExpectedMachineInventory{
+		ExpectedMachines: reportedMachines,
+		Timestamp:        timestamppb.Now(),
+		InventoryStatus:  corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+	})
+	require.NoError(t, err)
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updated, err := emDAO.Get(ctx, nil, existingIDs[i], nil, false)
+			require.NoError(t, err)
+			assert.Equal(t, tt.reportedBmcIP, updated.BmcIpAddress)
+			assert.Equal(t, &preservedName, updated.Name, "reconciling the BMC IP must preserve unrelated fields")
+		})
+	}
+
+	created, err := emDAO.Get(ctx, nil, createdID, nil, false)
+	require.NoError(t, err)
+	assert.Equal(t, &createdBmcIP, created.BmcIpAddress)
+
+	t.Run("rolls back a clear when the accompanying update fails", func(t *testing.T) {
+		emID := uuid.New()
+		originalBmcIP := "192.0.2.50"
+		_, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
+			ExpectedMachineID:   emID,
+			SiteID:              st.ID,
+			BmcMacAddress:       "00:11:22:33:66:04",
+			ChassisSerialNumber: "BMC-IP-SN-4",
+			BmcIpAddress:        &originalBmcIP,
+			Name:                &preservedName,
+			CreatedBy:           ipu.ID,
+		})
+		require.NoError(t, err)
+
+		nonexistentSkuID := "nonexistent-sku"
+		err = mei.UpdateExpectedMachinesInDB(ctx, st.ID, &corev1.ExpectedMachineInventory{
+			ExpectedMachines: []*corev1.ExpectedMachine{
+				{
+					Id:                  &corev1.UUID{Value: emID.String()},
+					BmcMacAddress:       "00:11:22:33:66:04",
+					ChassisSerialNumber: "BMC-IP-SN-4",
+					BmcIpAddress:        nil,
+					SkuId:               &nonexistentSkuID,
+				},
+			},
+			Timestamp:       timestamppb.Now(),
+			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+		})
+		require.NoError(t, err, "per-record reconciliation errors remain best effort")
+
+		unchanged, err := emDAO.Get(ctx, nil, emID, nil, false)
+		require.NoError(t, err)
+		assert.Equal(t, &originalBmcIP, unchanged.BmcIpAddress)
+		assert.Equal(t, &preservedName, unchanged.Name)
+	})
 }
 
 func TestManageExpectedMachine_UpdateExpectedMachinesInDB_RaceCondition(t *testing.T) {

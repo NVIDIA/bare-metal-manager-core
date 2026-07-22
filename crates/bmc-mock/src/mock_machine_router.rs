@@ -41,9 +41,9 @@ pub type SetSystemPowerResult = Result<(), SetSystemPowerError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum SetSystemPowerError {
-    #[error("Mock BMC reported bad request when setting system power: {0}")]
+    #[error("mock BMC reported bad request when setting system power: {0}")]
     BadRequest(String),
-    #[error("Mock BMC failed to send power command: {0}")]
+    #[error("mock BMC failed to send power command: {0}")]
     CommandSendError(String),
 }
 
@@ -66,6 +66,23 @@ pub fn machine_router(
     callbacks: Arc<dyn Callbacks>,
     mat_host_id: String,
     redfish_auth: bool,
+) -> (Router, BmcState) {
+    machine_router_with_injection_store(
+        machine_info,
+        callbacks,
+        mat_host_id,
+        redfish_auth,
+        Arc::new(InjectionStore::new()),
+    )
+}
+
+/// Return a machine router backed by a caller-provided injection store.
+pub fn machine_router_with_injection_store(
+    machine_info: &MachineInfo,
+    callbacks: Arc<dyn Callbacks>,
+    mat_host_id: String,
+    redfish_auth: bool,
+    injection: Arc<InjectionStore>,
 ) -> (Router, BmcState) {
     let system_config = machine_info.system_config(callbacks.clone());
     let chassis_config = machine_info.chassis_config();
@@ -110,7 +127,6 @@ pub fn machine_router(
     );
     let session_service_state =
         Arc::new(crate::redfish::session_service::SessionServiceState::new());
-    let injection = Arc::new(InjectionStore::new());
     let state = BmcState {
         bmc_vendor,
         bmc_product,

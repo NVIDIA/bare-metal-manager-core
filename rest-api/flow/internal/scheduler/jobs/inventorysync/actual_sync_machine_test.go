@@ -24,21 +24,17 @@ func TestCompareMachineFieldsForDrift_NoMismatch(t *testing.T) {
 		TrayIndex:       1,
 		HostID:          5,
 	}
-	actual := nicoapi.MachineDetail{
-		ChassisSerial:   ptr("SN001"),
-		FirmwareVersion: "1.0.0",
-	}
 	position := nicoapi.MachinePosition{
 		PhysicalSlotNum:  ptr(int32(2)),
 		ComputeTrayIndex: ptr(int32(1)),
 		TopologyID:       ptr(int32(5)),
 	}
 
-	diffs := compareMachineFieldsForDrift(expected, actual, &position)
+	diffs := compareMachineFieldsForDrift(expected, &position)
 	assert.Empty(t, diffs)
 }
 
-func TestCompareMachineFieldsForDrift_AllFieldsMismatch(t *testing.T) {
+func TestCompareMachineFieldsForDrift_AllPositionalFieldsMismatch(t *testing.T) {
 	expected := &model.Component{
 		SerialNumber:    "SN001",
 		FirmwareVersion: "1.0.0",
@@ -46,18 +42,14 @@ func TestCompareMachineFieldsForDrift_AllFieldsMismatch(t *testing.T) {
 		TrayIndex:       1,
 		HostID:          5,
 	}
-	actual := nicoapi.MachineDetail{
-		ChassisSerial:   ptr("SN999"),
-		FirmwareVersion: "2.0.0",
-	}
 	position := nicoapi.MachinePosition{
 		PhysicalSlotNum:  ptr(int32(10)),
 		ComputeTrayIndex: ptr(int32(3)),
 		TopologyID:       ptr(int32(7)),
 	}
 
-	diffs := compareMachineFieldsForDrift(expected, actual, &position)
-	assert.Len(t, diffs, 4)
+	diffs := compareMachineFieldsForDrift(expected, &position)
+	assert.Len(t, diffs, 3)
 
 	diffByField := make(map[string]model.FieldDiff)
 	for _, d := range diffs {
@@ -73,9 +65,8 @@ func TestCompareMachineFieldsForDrift_AllFieldsMismatch(t *testing.T) {
 	assert.Equal(t, "5", diffByField["host_id"].ExpectedValue)
 	assert.Equal(t, "7", diffByField["host_id"].ActualValue)
 
-	assert.Equal(t, "SN001", diffByField["serial_number"].ExpectedValue)
-	assert.Equal(t, "SN999", diffByField["serial_number"].ActualValue)
-
+	// Serial number is no longer a drift signal (correlation is by BMC MAC).
+	assert.NotContains(t, diffByField, "serial_number")
 	assert.NotContains(t, diffByField, "firmware_version")
 }
 
@@ -87,28 +78,22 @@ func TestCompareMachineFieldsForDrift_NilPositionFieldsSkipped(t *testing.T) {
 		TrayIndex:       1,
 		HostID:          5,
 	}
-	actual := nicoapi.MachineDetail{
-		ChassisSerial:   ptr("SN001"),
-		FirmwareVersion: "1.0.0",
-	}
 	// Position found but all fields nil — should not produce diffs
 	position := nicoapi.MachinePosition{}
 
-	diffs := compareMachineFieldsForDrift(expected, actual, &position)
+	diffs := compareMachineFieldsForDrift(expected, &position)
 	assert.Empty(t, diffs)
 }
 
-func TestCompareMachineFieldsForDrift_NilChassisSerialSkipped(t *testing.T) {
+func TestCompareMachineFieldsForDrift_SerialNeverCompared(t *testing.T) {
+	// Even when serial numbers differ, no drift is produced: serial is not a
+	// correlation/drift signal anymore.
 	expected := &model.Component{
 		SerialNumber: "SN001",
 	}
-	// Nil ChassisSerial from NICo — should not flag as mismatch
-	actual := nicoapi.MachineDetail{
-		ChassisSerial: nil,
-	}
 	position := nicoapi.MachinePosition{}
 
-	diffs := compareMachineFieldsForDrift(expected, actual, &position)
+	diffs := compareMachineFieldsForDrift(expected, &position)
 	assert.Empty(t, diffs)
 }
 
@@ -120,17 +105,13 @@ func TestCompareMachineFieldsForDrift_PartialMismatch(t *testing.T) {
 		TrayIndex:       1,
 		HostID:          5,
 	}
-	actual := nicoapi.MachineDetail{
-		ChassisSerial:   ptr("SN001"), // match
-		FirmwareVersion: "2.0.0",      // mismatch
-	}
 	position := nicoapi.MachinePosition{
 		PhysicalSlotNum:  ptr(int32(2)), // match
 		ComputeTrayIndex: ptr(int32(1)), // match
 		TopologyID:       ptr(int32(9)), // mismatch
 	}
 
-	diffs := compareMachineFieldsForDrift(expected, actual, &position)
+	diffs := compareMachineFieldsForDrift(expected, &position)
 	assert.Len(t, diffs, 1)
 
 	diffByField := make(map[string]model.FieldDiff)
@@ -145,19 +126,6 @@ func TestCompareMachineFieldsForDrift_PartialMismatch(t *testing.T) {
 	assert.NotContains(t, diffByField, "serial_number")
 }
 
-func TestCompareMachineFieldsForDrift_FirmwareVersionNotCompared(t *testing.T) {
-	expected := &model.Component{
-		FirmwareVersion: "", // empty in DB
-	}
-	actual := nicoapi.MachineDetail{
-		FirmwareVersion: "2.0.0", // NICo has value — should NOT produce drift (firmware_version is direct-write)
-	}
-	position := nicoapi.MachinePosition{}
-
-	diffs := compareMachineFieldsForDrift(expected, actual, &position)
-	assert.Empty(t, diffs)
-}
-
 func TestCompareMachineFieldsForDrift_MissingPositionReportsDrift(t *testing.T) {
 	expected := &model.Component{
 		SerialNumber:    "SN001",
@@ -166,13 +134,9 @@ func TestCompareMachineFieldsForDrift_MissingPositionReportsDrift(t *testing.T) 
 		TrayIndex:       1,
 		HostID:          5,
 	}
-	actual := nicoapi.MachineDetail{
-		ChassisSerial:   ptr("SN001"),
-		FirmwareVersion: "1.0.0",
-	}
 
 	// nil position means no entry in positionByID — should flag non-zero expected fields
-	diffs := compareMachineFieldsForDrift(expected, actual, nil)
+	diffs := compareMachineFieldsForDrift(expected, nil)
 	assert.Len(t, diffs, 3)
 
 	diffByField := make(map[string]model.FieldDiff)
@@ -197,11 +161,8 @@ func TestCompareMachineFieldsForDrift_MissingPositionZeroExpectedNoDrift(t *test
 		TrayIndex:    0,
 		HostID:       0,
 	}
-	actual := nicoapi.MachineDetail{
-		ChassisSerial: ptr("SN001"),
-	}
 
 	// nil position with zero-value expected fields — no position drift
-	diffs := compareMachineFieldsForDrift(expected, actual, nil)
+	diffs := compareMachineFieldsForDrift(expected, nil)
 	assert.Empty(t, diffs)
 }

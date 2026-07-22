@@ -40,10 +40,10 @@ struct BuildOrSpawn<IO: StateControllerIO> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StateControllerBuildError {
-    #[error("Missing parameter {0}")]
+    #[error("missing parameter {0}")]
     MissingArgument(&'static str),
 
-    #[error("Task spawn error: {0}")]
+    #[error("task spawn error: {0}")]
     IOError(#[from] std::io::Error),
 }
 

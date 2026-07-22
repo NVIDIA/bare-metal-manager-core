@@ -23,6 +23,7 @@ use super::args::{NvlinkInfoArgs, NvlinkInfoPopulateArgs};
 use crate::errors::{CarbideCliError, CarbideCliResult};
 use crate::rpc::ApiClient;
 
+#[allow(deprecated)]
 pub async fn handle_nvlink_info_show(
     args: NvlinkInfoArgs,
     api_client: &ApiClient,
@@ -59,6 +60,7 @@ pub async fn handle_nvlink_info_show(
     Ok(())
 }
 
+#[allow(deprecated)]
 pub async fn handle_nvlink_info_populate(
     args: NvlinkInfoPopulateArgs,
     _output_format: OutputFormat,

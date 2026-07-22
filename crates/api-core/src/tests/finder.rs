@@ -36,6 +36,22 @@ async fn test_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mh = create_managed_host(&env).await;
     let host_machine = mh.host().rpc_machine().await;
 
+    let status = host_machine
+        .status
+        .as_ref()
+        .expect("host machine must have a status message");
+    assert!(
+        !status.interfaces.is_empty(),
+        "status.interfaces must be populated for the host machine"
+    );
+    #[allow(deprecated)]
+    {
+        assert_eq!(
+            host_machine.interfaces, status.interfaces,
+            "interfaces must equal status.interfaces"
+        );
+    }
+
     mh.instance_builer(&env)
         .single_interface_network_config(segment_id)
         .keyset_ids(&["keyset1", "keyset2"])
@@ -153,7 +169,7 @@ async fn test_identify_uuid(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .build()
         .await;
     let res = mh.host().rpc_machine().await;
-    let interface_id = &res.interfaces[0].id;
+    let interface_id = &res.status.as_ref().unwrap().interfaces[0].id;
 
     // Network segment
     let req = rpc::forge::IdentifyUuidRequest {
@@ -246,8 +262,12 @@ async fn test_identify_mac(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         .into_inner()
         .machines
         .remove(0);
-    let interface_id = res.interfaces[0].id.as_ref().unwrap().to_string();
-    let mac_address = &res.interfaces[0].mac_address;
+    let interface_id = res.status.as_ref().unwrap().interfaces[0]
+        .id
+        .as_ref()
+        .unwrap()
+        .to_string();
+    let mac_address = &res.status.as_ref().unwrap().interfaces[0].mac_address;
 
     let req = rpc::forge::IdentifyMacRequest {
         mac_address: mac_address.to_string(),
@@ -279,7 +299,16 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     let res = mh.dpu().rpc_machine().await;
     assert_eq!(
-        res.discovery_info.unwrap().dmi_data.unwrap().product_serial,
+        res.status
+            .as_ref()
+            .unwrap()
+            .discovery_info
+            .as_ref()
+            .unwrap()
+            .dmi_data
+            .as_ref()
+            .unwrap()
+            .product_serial,
         dpu_config.serial
     );
 

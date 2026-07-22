@@ -22,25 +22,25 @@ use thiserror::Error;
 /// Error type for DPF operations.
 #[derive(Error, Debug)]
 pub enum DpfError {
-    #[error("Kubernetes client error: {0}")]
+    #[error("kubernetes client error: {0}")]
     KubeError(#[from] kube::Error),
 
-    #[error("Resource not found: {kind} '{name}'")]
+    #[error("resource not found: {kind} '{name}'")]
     NotFound { kind: &'static str, name: String },
 
-    #[error("Resource already exists: {kind} '{name}'")]
+    #[error("resource already exists: {kind} '{name}'")]
     AlreadyExists { kind: &'static str, name: String },
 
-    #[error("Timeout waiting for {operation}: {details}")]
+    #[error("timeout waiting for {operation}: {details}")]
     Timeout { operation: String, details: String },
 
-    #[error("Invalid state: {0}")]
+    #[error("invalid state: {0}")]
     InvalidState(String),
 
-    #[error("Configuration error: {0}")]
+    #[error("configuration error: {0}")]
     ConfigError(String),
 
-    #[error("Watcher error: {0}")]
+    #[error("watcher error: {0}")]
     WatcherError(String),
 
     #[error("JSON serialization error: {0}")]

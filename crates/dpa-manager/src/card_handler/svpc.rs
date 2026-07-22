@@ -116,6 +116,7 @@ impl SvpcInterfaceHandler {
         // TODO: This has to be changed when we support multiple VFs per NIC
         let observed = Self::at_most_one(
             machine
+                .status
                 .spx_status_observation
                 .iter()
                 .flat_map(|o| &o.spx_attachments)
@@ -206,6 +207,7 @@ impl SvpcInterfaceHandler {
         let this_mac = dpa_interface.mac_address;
 
         let this_nic_observed_attachments = machine
+            .status
             .spx_status_observation
             .clone()
             .map(|observed| {
@@ -336,7 +338,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         let client = dpa_info
             .mqtt_client
             .clone()
-            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+            .ok_or_else(|| eyre::eyre!("missing mqtt_client"))?;
 
         let txn = Self::reconcile_ready_state(
             monitor,
@@ -586,7 +588,7 @@ impl DpaInterfaceStateHandler for SvpcInterfaceHandler {
         let client = dpa_info
             .mqtt_client
             .clone()
-            .ok_or_else(|| eyre::eyre!("Missing mqtt_client"))?;
+            .ok_or_else(|| eyre::eyre!("missing mqtt_client"))?;
 
         let instance = mh.instance.as_ref().ok_or_else(|| {
             tracing::error!("reconcile_assigned_state instance is missing");

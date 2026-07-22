@@ -153,7 +153,7 @@ pub async fn find_by_name(
             "PowerShelf::find_by_name",
             sqlx::Error::Decode(
                 eyre::eyre!(
-                    "Searching for PowerShelf {} returned multiple results",
+                    "searching for PowerShelf {} returned multiple results",
                     name
                 )
                 .into(),
@@ -176,7 +176,7 @@ pub async fn find_by_id(
         Err(DatabaseError::new(
             "PowerShelf::find_by_id",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for PowerShelf {} returned multiple results", id).into(),
+                eyre::eyre!("searching for PowerShelf {} returned multiple results", id).into(),
             ),
         ))
     }

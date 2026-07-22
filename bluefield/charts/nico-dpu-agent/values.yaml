@@ -12,6 +12,29 @@ exposedPorts:
 ### Cert directory on the host (also used as the container mountPath).
 certsDir: /opt/forge
 
+### Bootstrap CA source. The default preserves the legacy PXE download and
+### renders the historical bare `init-container` invocation.
+bootstrapCa:
+  source: legacy_download
+  # Empty uses the agent's historical built-in URL. Set only to override it in
+  # legacy_download mode.
+  url: ""
+  # Required only for mounted mode. kind must be Secret or ConfigMap. The
+  # selected key is projected as /var/run/secrets/nico-bootstrap-ca/ca.pem.
+  # Mounted mode requires certsDir=/opt/forge, the dpu-agent's CA output path.
+  # Use a new, versioned object name for CA rotation. Updating data under the
+  # same name does not change the pod template or rerun the init container.
+  object: {}
+  # object:
+  #   kind: Secret
+  #   name: nico-bootstrap-ca-v1
+  #   key: ca.crt
+  # ConfigMap example:
+  # object:
+  #   kind: ConfigMap
+  #   name: nico-bootstrap-ca-v1
+  #   key: ca.crt
+
 ### Service specific values ###
 image:
   repository: ""

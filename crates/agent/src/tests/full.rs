@@ -151,7 +151,7 @@ async fn test_nvue_generic(
             let mut f = fs::File::create(ERR_FILE).unwrap();
             f.write_all(startup_yaml.as_bytes()).unwrap();
         })
-        .wrap_err(format!("YAML parser error. Output written to {ERR_FILE}"))?;
+        .wrap_err(format!("YAML parser error. output written to {ERR_FILE}"))?;
     assert_eq!(yaml_obj.len(), 2); // 'header' and 'set'
 
     let r = compare_lines(startup_yaml.as_str(), expected, None);
@@ -354,7 +354,7 @@ async fn run_common_parts(
 
         if start.elapsed() > std::time::Duration::from_secs(60) {
             return Err(eyre::eyre!(
-                "Health report was not sent 2 times in 30s. State: {:?}",
+                "health report was not sent 2 times in 30s. state: {:?}",
                 statel
             ));
         }
@@ -815,6 +815,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
                     device: None,
                     device_instance: 0u32,
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                 }],
                 configs_synced: rpc::SyncState::Synced.into(),
             }),

@@ -253,7 +253,7 @@ async fn test_set_primary_interface_rejects_non_admin_interface_on_dpu_host(
         err.message(),
     );
     assert!(
-        err.message().contains("Admin segment"),
+        err.message().contains("admin segment"),
         "expected the Admin-segment guard message, got: {}",
         err.message(),
     );

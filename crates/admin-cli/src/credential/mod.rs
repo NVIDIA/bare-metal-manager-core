@@ -38,6 +38,9 @@ use clap::Parser;
 
 use crate::cfg::dispatch::Dispatch;
 
+pub(crate) const NMX_M_UNSUPPORTED_MESSAGE: &str =
+    "NMX-M is no longer supported; use NMX-C for NVLink partition management";
+
 #[derive(Parser, Debug, Clone, Dispatch)]
 #[clap(rename_all = "kebab_case")]
 pub enum Cmd {
@@ -61,9 +64,9 @@ pub enum Cmd {
     AddHostFactoryDefault(add_host_factory_default::Args),
     #[clap(about = "Add manufacturer factory default BMC user/pass for the DPUs")]
     AddDpuFactoryDefault(add_dpu_factory_default::Args),
-    #[clap(about = "Add NmxM credentials")]
+    #[clap(about = "Deprecated compatibility command; NMX-M is no longer supported")]
     AddNmxM(add_nmxm::Args),
-    #[clap(about = "Delete NmxM credentials")]
+    #[clap(about = "Deprecated compatibility command; NMX-M is no longer supported")]
     DeleteNmxM(delete_nmxm::Args),
     #[clap(about = "Manage leaf BGP passwords", subcommand)]
     Bgp(bgp::Cmd),

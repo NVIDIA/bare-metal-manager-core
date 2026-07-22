@@ -138,7 +138,8 @@ pub async fn find_by_ids(
     )
     .await?;
 
-    let _ = txn.rollback().await;
+    txn.rollback_or_log("read-only load of power shelves by id")
+        .await;
 
     let power_shelves = convert_power_shelves(power_shelf_list)?;
 
@@ -155,7 +156,7 @@ pub async fn delete_power_shelf(
         Some(id) => id,
         None => {
             return Err(
-                CarbideError::InvalidArgument("Power shelf ID is required".to_string()).into(),
+                CarbideError::InvalidArgument("power shelf ID is required".to_string()).into(),
             );
         }
     };

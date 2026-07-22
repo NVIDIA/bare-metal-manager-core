@@ -307,7 +307,7 @@ pub(crate) async fn handle_spdm_trigger_state(
     let devices_scheduled = trigger_attestation(
         &services.db_pool,
         redfish_client,
-        &mh_snapshot.host_snapshot.bmc_info,
+        &mh_snapshot.host_snapshot.status.bmc_info,
         host_machine_id,
         std::time::Duration::MAX,
     )

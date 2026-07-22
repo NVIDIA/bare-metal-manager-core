@@ -152,8 +152,8 @@ pub async fn run_apply(sh_path: &super::FPath) -> eyre::Result<()> {
 
     let out = tokio::time::timeout(std::time::Duration::from_secs(3), cmd.output())
         .await
-        .wrap_err("Timeout")?
-        .wrap_err("Error running command")?;
+        .wrap_err("timeout")?
+        .wrap_err("error running command")?;
 
     if !out.status.success() {
         tracing::error!(

@@ -41,7 +41,7 @@ pub async fn handle_power(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     power_options_config: &PowerOptionConfig,
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
-    if let Some(power_options) = &mh_snapshot.host_snapshot.power_options {
+    if let Some(power_options) = &mh_snapshot.host_snapshot.status.power_options {
         match power_options.desired_power_state {
             model::power_manager::PowerState::On => {
                 handle_power_desired_on(power_options, mh_snapshot, ctx, power_options_config).await

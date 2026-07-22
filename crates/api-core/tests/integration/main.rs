@@ -20,6 +20,7 @@ mod connected_device;
 mod credential_rotation;
 mod dhcp_lease_expiration;
 mod dpu_machine_inventory;
+mod expected_rack;
 mod explored_managed_host_find;
 mod explored_mlx_devices;
 mod find_by_ids_guards;

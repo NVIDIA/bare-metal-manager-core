@@ -134,23 +134,23 @@ pub mod spdm {
 
     #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
     pub enum SpdmHandlerError {
-        #[error("Unable to complete measurement trigger: {0}")]
+        #[error("unable to complete measurement trigger: {0}")]
         TriggerMeasurementFail(String),
-        #[error("Nras error: {0}")]
+        #[error("nras error: {0}")]
         NrasError(#[from] nras::NrasError),
-        #[error("Missing values: {field} - {machine_id}/{device_id}")]
+        #[error("missing values: {field} - {machine_id}/{device_id}")]
         MissingData {
             field: String,
             machine_id: MachineId,
             device_id: String,
         },
-        #[error("Verifier not implemented at {module} for: {machine_id}/{device_id}")]
+        #[error("verifier not implemented at {module} for: {machine_id}/{device_id}")]
         VerifierNotImplemented {
             module: String,
             machine_id: MachineId,
             device_id: String,
         },
-        #[error("Verification Failed: {0}")]
+        #[error("verification failed: {0}")]
         VerificationFailed(String),
     }
 
@@ -189,9 +189,9 @@ pub mod spdm {
 
     #[derive(thiserror::Error, Debug, Clone)]
     pub enum SpdmObjectIdParseError {
-        #[error("The Object ID must have 2 parts but not as should be {0:?}")]
+        #[error("the object ID must have 2 parts but not as should be {0:?}")]
         WrongFormat(String),
-        #[error("The Machine ID parsing failed: {0}")]
+        #[error("the machine ID parsing failed: {0}")]
         MachineIdParsingFailed(#[from] carbide_uuid::machine::MachineIdParseError),
     }
 

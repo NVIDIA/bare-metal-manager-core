@@ -49,8 +49,8 @@ use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
-    ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase, NicMode, PowerDrainState,
-    PreingestionState, TimeSyncResetPhase,
+    BlueFieldOperatingMode, ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase,
+    PowerDrainState, PreingestionState, TimeSyncResetPhase,
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
@@ -64,8 +64,9 @@ use crate::bfb_rshim_copier::BfbRshimCopier;
 use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::metrics::{
     BfbCopyFinished, BfbCopyOutcome, FirmwareComponentLabel, FirmwareUpgradeTaskFinished,
-    FirmwareUploadFinished, FirmwareUploadMethod, PowerOperation, PreingestionMetrics,
-    UpgradeTaskFinalState, count_power_op,
+    FirmwareUploadFinished, FirmwareUploadMethod, MultipartFirmwareUploadUnsupported,
+    PowerControlLog, PowerControlStep, PowerOperation, PreingestionMetrics, UpgradeTaskFinalState,
+    instrument_power_op,
 };
 
 const NOT_FOUND: u16 = 404;
@@ -334,7 +335,7 @@ async fn one_endpoint(
         _ => None,
     };
     if let Some(host_bmc_ip) = endpoint_host_bmc_ip
-        && endpoint.report.nic_mode() == Some(NicMode::Nic)
+        && endpoint.report.bluefield_operating_mode() == Some(BlueFieldOperatingMode::Nic)
     {
         tracing::info!(
             bmc_ip_address = %endpoint.address,
@@ -1070,17 +1071,17 @@ impl PreingestionManagerStatic {
                             required_power_drain_count = *power_drains_needed,
                             "Firmware upgrade task complete; initiating required power drain"
                         );
-                        if let Err(e) = count_power_op(
+                        if instrument_power_op(
                             PowerOperation::ForceOff,
                             redfish_client.power(SystemPowerControl::ForceOff),
+                            PowerControlLog::Step {
+                                bmc_ip_address: endpoint.address,
+                                step: PowerControlStep::PowerOff,
+                            },
                         )
                         .await
+                        .is_err()
                         {
-                            tracing::error!(
-                                bmc_ip_address = %endpoint.address,
-                                error = %e,
-                                "Failed to power off"
-                            );
                             return Ok(());
                         }
 
@@ -1119,17 +1120,17 @@ impl PreingestionManagerStatic {
                                     %power_state,
                                     "ACPowercycle requires chassis to be Off, forcing off first"
                                 );
-                                if let Err(e) = count_power_op(
+                                if instrument_power_op(
                                     PowerOperation::ForceOff,
                                     redfish_client.power(SystemPowerControl::ForceOff),
+                                    PowerControlLog::Step {
+                                        bmc_ip_address: endpoint.address,
+                                        step: PowerControlStep::AcPowercyclePrerequisite,
+                                    },
                                 )
                                 .await
+                                .is_err()
                                 {
-                                    tracing::error!(
-                                        bmc_ip_address = %endpoint.address,
-                                        error = %e,
-                                        "Failed to force off"
-                                    );
                                     return Ok(());
                                 }
                                 let delay = if *power_drains_needed < 1000 {
@@ -1162,17 +1163,17 @@ impl PreingestionManagerStatic {
                                 return Ok(());
                             }
                         }
-                        if let Err(e) = count_power_op(
+                        if instrument_power_op(
                             PowerOperation::AcPowercycle,
                             redfish_client.power(SystemPowerControl::ACPowercycle),
+                            PowerControlLog::Step {
+                                bmc_ip_address: endpoint.address,
+                                step: PowerControlStep::AcPowercycle,
+                            },
                         )
                         .await
+                        .is_err()
                         {
-                            tracing::error!(
-                                bmc_ip_address = %endpoint.address,
-                                error = %e,
-                                "Failed to power cycle"
-                            );
                             return Ok(());
                         }
                     }
@@ -1198,17 +1199,17 @@ impl PreingestionManagerStatic {
                 }
                 Some(PowerDrainState::Powercycle) => {
                     tracing::info!(bmc_ip_address = %endpoint.address, "Turning system back on");
-                    if let Err(e) = count_power_op(
+                    if instrument_power_op(
                         PowerOperation::On,
                         redfish_client.power(SystemPowerControl::On),
+                        PowerControlLog::Step {
+                            bmc_ip_address: endpoint.address,
+                            step: PowerControlStep::PowerOn,
+                        },
                     )
                     .await
+                    .is_err()
                     {
-                        tracing::error!(
-                            bmc_ip_address = %endpoint.address,
-                            error = %e,
-                            "Failed to power on"
-                        );
                         return Ok(());
                     }
                     let delay = if *power_drains_needed < 1000 {
@@ -1237,17 +1238,17 @@ impl PreingestionManagerStatic {
                 bmc_ip_address = %endpoint.address,
                 "Firmware upgrade task complete; initiating required reboot"
             );
-            if let Err(e) = count_power_op(
+            if instrument_power_op(
                 PowerOperation::ForceRestart,
                 redfish_client.power(SystemPowerControl::ForceRestart),
+                PowerControlLog::Step {
+                    bmc_ip_address: endpoint.address,
+                    step: PowerControlStep::UefiReboot,
+                },
             )
             .await
+            .is_err()
             {
-                tracing::error!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Failed to reboot"
-                );
                 return Ok(());
             }
             db.with_txn(|txn| {
@@ -1273,14 +1274,17 @@ impl PreingestionManagerStatic {
                 bmc_ip_address = %endpoint.address,
                 "Firmware upgrade task complete; initiating required BMC reboot"
             );
-            if let Err(e) =
-                count_power_op(PowerOperation::BmcReset, redfish_client.bmc_reset()).await
+            if instrument_power_op(
+                PowerOperation::BmcReset,
+                redfish_client.bmc_reset(),
+                PowerControlLog::Step {
+                    bmc_ip_address: endpoint.address,
+                    step: PowerControlStep::BmcReboot,
+                },
+            )
+            .await
+            .is_err()
             {
-                tracing::error!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Failed to reboot BMC"
-                );
                 return Ok(());
             }
             db.with_txn(|txn| {
@@ -1306,28 +1310,31 @@ impl PreingestionManagerStatic {
             } else {
                 SystemPowerControl::ForceOff
             };
-            if let Err(e) =
-                count_power_op(poweroff_style.into(), redfish_client.power(poweroff_style)).await
+            if instrument_power_op(
+                poweroff_style.into(),
+                redfish_client.power(poweroff_style),
+                PowerControlLog::Step {
+                    bmc_ip_address: endpoint.address,
+                    step: PowerControlStep::PowerOff,
+                },
+            )
+            .await
+            .is_err()
             {
-                tracing::error!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Failed to power off"
-                );
                 return Ok(());
             }
             tokio::time::sleep(self.config.hgx_bmc_gpu_reboot_delay).await;
-            if let Err(e) = count_power_op(
+            if instrument_power_op(
                 PowerOperation::On,
                 redfish_client.power(SystemPowerControl::On),
+                PowerControlLog::Step {
+                    bmc_ip_address: endpoint.address,
+                    step: PowerControlStep::PowerOn,
+                },
             )
             .await
+            .is_err()
             {
-                tracing::error!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Failed to power on"
-                );
                 return Ok(());
             }
             // Does not need a wait
@@ -1341,28 +1348,17 @@ impl PreingestionManagerStatic {
             .await??;
             return Ok(());
         } else if *upgrade_type == FirmwareComponentType::Cec {
-            match count_power_op(
+            // The reset is best-effort; the Event records either failure before this continues.
+            instrument_power_op(
                 PowerOperation::ChassisReset,
                 redfish_client.chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart),
+                PowerControlLog::Step {
+                    bmc_ip_address: endpoint.address,
+                    step: PowerControlStep::CecChassisReset,
+                },
             )
             .await
-            {
-                Ok(()) => {}
-                Err(e) if e.to_string().contains("is not supported") => {
-                    tracing::error!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %e,
-                        "Chassis reset is not supported by current CEC firmware; host power cycle required"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %e,
-                        "Failed to call chassis reset"
-                    );
-                }
-            }
+            .ok();
         }
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
         db.with_txn(|txn| {
@@ -1557,18 +1553,20 @@ impl PreingestionManagerStatic {
                         return Ok(false);
                     }
                 };
-                if let Err(e) =
-                    count_power_op(PowerOperation::BmcReset, redfish_client.bmc_reset()).await
+                let next = attempts + 1;
+                if instrument_power_op(
+                    PowerOperation::BmcReset,
+                    redfish_client.bmc_reset(),
+                    PowerControlLog::InitialBmcReset {
+                        bmc_ip_address: endpoint.address,
+                        attempt: next,
+                        max_attempts: INITIAL_BMC_RESET_MAX_ATTEMPTS,
+                    },
+                )
+                .await
+                .is_err()
                 {
-                    let next = attempts + 1;
                     if next >= INITIAL_BMC_RESET_MAX_ATTEMPTS {
-                        tracing::warn!(
-                            bmc_ip_address = %endpoint.address,
-                            attempt = next,
-                            max_attempts = INITIAL_BMC_RESET_MAX_ATTEMPTS,
-                            error = %e,
-                            "Initial BMC reset failed; proceeding with preingestion without it"
-                        );
                         db.with_txn(|txn| {
                             db::explored_endpoints::set_preingestion_set_ntp_servers(
                                 endpoint.address,
@@ -1581,13 +1579,6 @@ impl PreingestionManagerStatic {
                         .await??;
                         return Ok(false);
                     }
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint.address,
-                        attempt = next,
-                        max_attempts = INITIAL_BMC_RESET_MAX_ATTEMPTS,
-                        error = %e,
-                        "Initial BMC reset failed; will retry"
-                    );
                     db.with_txn(|txn| {
                         db::explored_endpoints::set_preingestion_initial_bmc_reset(
                             endpoint.address,
@@ -1838,29 +1829,18 @@ impl PreingestionManagerStatic {
         redfish_client: &dyn libredfish::Redfish,
         endpoint: &ExploredEndpoint,
     ) -> bool {
-        match count_power_op(
+        match instrument_power_op(
             PowerOperation::ForceOff,
             redfish_client.power(SystemPowerControl::ForceOff),
+            PowerControlLog::RecoverySequence {
+                bmc_ip_address: endpoint.address,
+            },
         )
         .await
         {
             Ok(()) => {}
-            Err(e) if matches!(e, RedfishError::UnnecessaryOperation) => {
-                // ignore because it is already off
-                tracing::debug!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Power off not needed"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Could not turn off power"
-                );
-                return false;
-            }
+            Err(RedfishError::UnnecessaryOperation) => {}
+            Err(_) => return false,
         }
 
         let status = match redfish_client.get_power_state().await {
@@ -1882,12 +1862,16 @@ impl PreingestionManagerStatic {
             );
             return false;
         }
-        if let Err(e) = count_power_op(PowerOperation::BmcReset, redfish_client.bmc_reset()).await {
-            tracing::warn!(
-                bmc_ip_address = %endpoint.address,
-                error = %e,
-                "Could not reset BMC"
-            );
+        if instrument_power_op(
+            PowerOperation::BmcReset,
+            redfish_client.bmc_reset(),
+            PowerControlLog::RecoverySequence {
+                bmc_ip_address: endpoint.address,
+            },
+        )
+        .await
+        .is_err()
+        {
             return false;
         }
         true
@@ -1909,29 +1893,18 @@ impl PreingestionManagerStatic {
             return false;
         }
 
-        match count_power_op(
+        match instrument_power_op(
             PowerOperation::On,
             redfish_client.power(SystemPowerControl::On),
+            PowerControlLog::RecoverySequence {
+                bmc_ip_address: endpoint.address,
+            },
         )
         .await
         {
             Ok(()) => {}
-            Err(e) if matches!(e, RedfishError::UnnecessaryOperation) => {
-                // ignore because it is already on
-                tracing::debug!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Power on not needed"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    bmc_ip_address = %endpoint.address,
-                    error = %e,
-                    "Could not turn on power"
-                );
-                return false;
-            }
+            Err(RedfishError::UnnecessaryOperation) => {}
+            Err(_) => return false,
         }
 
         let status = match redfish_client.get_power_state().await {
@@ -2317,13 +2290,53 @@ impl PreingestionManagerStatic {
                 }
             };
 
+            /// Which capture setup failed, forcing the subprocess cleanup.
+            enum CaptureFailure {
+                Stdout,
+                Stderr,
+            }
+
+            impl std::fmt::Display for CaptureFailure {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str(match self {
+                        CaptureFailure::Stdout => "STDOUT capture failure",
+                        CaptureFailure::Stderr => "STDERR capture failure",
+                    })
+                }
+            }
+
+            // Kill then reap `child`, warning -- but not failing -- if either
+            // step errors. `context` names which capture setup failed, rendered
+            // via its `Display`.
+            async fn kill_and_reap(
+                child: &mut tokio::process::Child,
+                address: &str,
+                context: CaptureFailure,
+            ) {
+                if let Err(e) = child.kill().await {
+                    tracing::warn!(
+                        %address,
+                        %context,
+                        error = %e,
+                        "Upgrade script cleanup: failed to kill subprocess"
+                    );
+                }
+                if let Err(e) = child.wait().await {
+                    tracing::warn!(
+                        %address,
+                        %context,
+                        error = %e,
+                        "Upgrade script cleanup: failed to reap subprocess"
+                    );
+                }
+            }
+
             let Some(stdout) = cmd.stdout.take() else {
                 tracing::error!(
                     bmc_ip_address = address.as_str(),
                     "Upgrade script stdout creation failed"
                 );
-                let _ = cmd.kill().await;
-                let _ = cmd.wait().await;
+                kill_and_reap(&mut cmd, &address, CaptureFailure::Stdout).await;
                 upgrade_script_state.completed(address, false);
                 return;
             };
@@ -2334,8 +2347,7 @@ impl PreingestionManagerStatic {
                     bmc_ip_address = address.as_str(),
                     "Upgrade script stderr creation failed"
                 );
-                let _ = cmd.kill().await;
-                let _ = cmd.wait().await;
+                kill_and_reap(&mut cmd, &address, CaptureFailure::Stderr).await;
                 upgrade_script_state.completed(address, false);
                 return;
             };
@@ -2353,7 +2365,13 @@ impl PreingestionManagerStatic {
             while let Some(line) = lines.next_line().await.unwrap_or(None) {
                 tracing::info!("Upgrade script {address} {line}");
             }
-            let _ = tokio::join!(thread);
+            if let Err(e) = thread.await {
+                tracing::warn!(
+                    %address,
+                    error = %e,
+                    "Upgrade script STDERR logging task did not complete cleanly"
+                );
+            }
 
             match cmd.wait().await {
                 Err(e) => {
@@ -2576,19 +2594,18 @@ impl PreingestionManagerStatic {
                     post_install,
                     "Powering off host during BFB power cycle"
                 );
-                if let Err(e) = count_power_op(
+                if instrument_power_op(
                     PowerOperation::ForceOff,
                     redfish_client.power(SystemPowerControl::ForceOff),
+                    PowerControlLog::BfbPlatformPowercycle {
+                        dpu_bmc_ip_address: address,
+                        host_bmc_ip_address: *host_bmc_ip,
+                        post_install,
+                    },
                 )
                 .await
+                .is_err()
                 {
-                    tracing::error!(
-                        dpu_bmc_ip_address = %address,
-                        host_bmc_ip_address = %host_bmc_ip,
-                        post_install,
-                        error = %e,
-                        "Failed to power off host during BFB power cycle; will retry"
-                    );
                     return Ok(());
                 }
 
@@ -2629,19 +2646,18 @@ impl PreingestionManagerStatic {
                     post_install,
                     "Powering on host during BFB power cycle"
                 );
-                if let Err(e) = count_power_op(
+                if instrument_power_op(
                     PowerOperation::On,
                     redfish_client.power(SystemPowerControl::On),
+                    PowerControlLog::BfbPlatformPowercycle {
+                        dpu_bmc_ip_address: address,
+                        host_bmc_ip_address: *host_bmc_ip,
+                        post_install,
+                    },
                 )
                 .await
+                .is_err()
                 {
-                    tracing::error!(
-                        dpu_bmc_ip_address = %address,
-                        host_bmc_ip_address = %host_bmc_ip,
-                        post_install,
-                        error = %e,
-                        "Failed to power on host during BFB power cycle; will retry"
-                    );
                     return Ok(());
                 }
 
@@ -3295,6 +3311,8 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Ok,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: String::new(),
                     });
                     task.id
                 }
@@ -3302,12 +3320,9 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Error,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: e.to_string(),
                     });
-                    tracing::error!(
-                        bmc_ip_address = %endpoint_clone.address,
-                        error = %e,
-                        "Simple firmware update failed"
-                    );
                     return Ok(false);
                 }
             }
@@ -3325,19 +3340,18 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::Multipart,
                         outcome: Outcome::Ok,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: String::new(),
                     });
                     task
                 }
                 Err(RedfishError::NotSupported(err)) => {
-                    emit(FirmwareUploadFinished {
+                    emit(MultipartFirmwareUploadUnsupported {
                         method: FirmwareUploadMethod::Multipart,
                         outcome: Outcome::Error,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: err,
                     });
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint_clone.address,
-                        error = %err,
-                        "Multipart firmware update is not supported; trying HttpPushUri"
-                    );
                     let file = match File::open(artifact.local_path.as_path()).await {
                         Ok(f) => f,
                         Err(e) => {
@@ -3354,6 +3368,8 @@ impl PreingestionManagerStatic {
                             emit(FirmwareUploadFinished {
                                 method: FirmwareUploadMethod::HttpPush,
                                 outcome: Outcome::Ok,
+                                bmc_ip_address: endpoint_clone.address,
+                                error: String::new(),
                             });
                             task.id
                         }
@@ -3361,12 +3377,9 @@ impl PreingestionManagerStatic {
                             emit(FirmwareUploadFinished {
                                 method: FirmwareUploadMethod::HttpPush,
                                 outcome: Outcome::Error,
+                                bmc_ip_address: endpoint_clone.address,
+                                error: e.to_string(),
                             });
-                            tracing::error!(
-                                bmc_ip_address = %endpoint_clone.address,
-                                error = %e,
-                                "Failed to upload firmware via HttpPushUri"
-                            );
                             return Ok(false);
                         }
                     }
@@ -3375,12 +3388,9 @@ impl PreingestionManagerStatic {
                     emit(FirmwareUploadFinished {
                         method: FirmwareUploadMethod::Multipart,
                         outcome: Outcome::Error,
+                        bmc_ip_address: endpoint_clone.address,
+                        error: e.to_string(),
                     });
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint_clone.address,
-                        error = %e,
-                        "Failed to upload firmware via multipart update"
-                    );
                     return Ok(false);
                 }
             }

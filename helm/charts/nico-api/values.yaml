@@ -82,17 +82,22 @@ initContainers: []
 ## Boot-artifact init containers
 ## Each entry is rendered as a Kubernetes init container with the boot-artifacts
 ## volume automatically mounted at /forge-boot-artifacts/blobs/internal.
+## Prefer separate `repository` + `tag` fields (they win when set). The combined
+## `image: <ref>:<tag>` form is still honored for backward compatibility.
 bootArtifactContainers: []
 # bootArtifactContainers:
 #   - name: boot-artifacts-x86-64
-#     image: <your-registry>/boot-artifacts-x86_64:latest
+#     repository: <your-registry>/boot-artifacts-x86_64
+#     tag: latest
 #     command: ["sh", "-c", "cp -r /x86_64 /forge-boot-artifacts/blobs/internal"]
 #   - name: boot-artifacts-aarch64
-#     image: <your-registry>/boot-artifacts-aarch64:latest
+#     repository: <your-registry>/boot-artifacts-aarch64
+#     tag: latest
 #     # NOTE: the aarch64 image ships /aarch64 + /apt (NOT /firmware) — copying a missing dir crash-loops the init.
 #     command: ["sh", "-c", "cp -r /aarch64 /apt /forge-boot-artifacts/blobs/internal"]
 #   - name: machine-validation-config
-#     image: <your-registry>/machine-validation-config:latest
+#     repository: <your-registry>/machine-validation-config
+#     tag: latest
 #     command: ["sh", "-c", "cp -r /machine-validation /forge-boot-artifacts/blobs/internal"]
 
 service:
@@ -149,6 +154,18 @@ env:
   RUST_LIB_BACKTRACE: "0"
 
 extraEnv: []
+
+## Authentication for the /admin WebUI. CARBIDE_WEB_AUTH_TYPE in extraEnv
+## takes precedence for compatibility with existing installations.
+webAuth:
+  ## Allowed values: basic, oauth2, none.
+  mode: basic
+  basic:
+    ## Use an operator-managed password Secret instead of generating one.
+    ## Leave name empty to create nico-api-web-basic-auth with a generated password.
+    existingSecret:
+      name: ""
+      key: password
 
 ## External secret/configmap references mounted into the pod
 envFrom:

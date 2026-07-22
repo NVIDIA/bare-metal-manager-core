@@ -19,7 +19,6 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use mac_address::MacAddress;
-use rpc::DiscoveryInfo;
 use serde_json::json;
 
 use crate::{BootOptionKind, Callbacks, hw, redfish};
@@ -29,6 +28,7 @@ pub struct LenovoGB300Nvl<'a> {
     pub system_0_serial_number: Cow<'a, str>,
     pub chassis_0_serial_number: Cow<'a, str>,
     pub dpu: hw::bluefield3::Bluefield3<'a>,
+    pub cx8_mac_addresses: [MacAddress; 10],
     pub embedded_1g_nic: hw::nic_intel_i210::NicIntelI210,
     pub bmc_mac_address_eth0: MacAddress,
     pub bmc_mac_address_eth1: MacAddress,
@@ -276,13 +276,6 @@ impl LenovoGB300Nvl<'_> {
     pub fn update_service_config(&self) -> redfish::update_service::UpdateServiceConfig {
         redfish::update_service::UpdateServiceConfig {
             firmware_inventory: vec![],
-        }
-    }
-
-    pub fn discovery_info(&self) -> DiscoveryInfo {
-        DiscoveryInfo {
-            network_interfaces: vec![self.dpu.host_nic().discovery_info(0x0603)],
-            ..Default::default()
         }
     }
 }

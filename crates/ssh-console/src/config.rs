@@ -491,7 +491,7 @@ pub struct Defaults;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConfigError {
-    #[error("Could not read config file at {path}: {error}")]
+    #[error("could not read config file at {path}: {error}")]
     CouldNotRead { path: String, error: std::io::Error },
     #[error("TOML error reading config file at {path}: {error}")]
     InvalidToml {
@@ -506,7 +506,7 @@ pub enum ConfigError {
     },
     #[error("{what} {host} did not resolve to any addresses")]
     HostNotFound { what: String, host: String },
-    #[error("Invalid machine_id in BMC override config: {0}")]
+    #[error("invalid machine_id in BMC override config: {0}")]
     InvalidBmcOverrideMachineId(MachineIdParseError),
 }
 

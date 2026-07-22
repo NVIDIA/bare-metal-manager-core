@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::expected_machine::ExpectedMachineData;
+use model::expected_machine::{ExpectedMachineData, HostDpuPolicy};
 use model::metadata::Metadata;
 
 use super::*;
@@ -85,6 +85,42 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+/// Rows written before the model rename retain the legacy PostgreSQL enum
+/// labels. Reading them must translate those labels directly into the new
+/// policy vocabulary without a data migration.
+#[crate::sqlx_test]
+async fn test_legacy_dpu_mode_values_decode_as_host_dpu_policy(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_fixture_expected_machines(&pool).await;
+    let mut txn = pool.begin().await?;
+    let bmc_mac_address = "0a:0b:0c:0d:0e:0f".parse().unwrap();
+
+    for (stored_value, expected) in [
+        ("dpu_mode", HostDpuPolicy::Manage),
+        ("nic_mode", HostDpuPolicy::Nic),
+        ("no_dpu", HostDpuPolicy::Ignore),
+    ] {
+        sqlx::query(
+            "UPDATE expected_machines SET dpu_mode=$1::dpu_mode_t WHERE bmc_mac_address=$2",
+        )
+        .bind(stored_value)
+        .bind(bmc_mac_address)
+        .execute(txn.as_mut())
+        .await?;
+
+        let machine = db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), bmc_mac_address)
+            .await?
+            .expect("Expected machine not found");
+        assert_eq!(
+            machine.data.dpu_policy, expected,
+            "stored dpu_mode value {stored_value:?} should decode as {expected:?}",
+        );
+    }
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     create_fixture_expected_machines(&pool).await;
@@ -115,7 +151,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
-                dpu_mode: Default::default(),
+                dpu_policy: Default::default(),
                 bmc_ip_allocation: Default::default(),
                 host_lifecycle_profile: Default::default(),
             },

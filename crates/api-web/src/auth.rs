@@ -58,7 +58,7 @@ pub async fn callback(
     AxumState(_state): AxumState<Arc<Api>>,
     request_headers: HeaderMap,
     Query(query): Query<AuthRequest>,
-    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+    Extension(oauth2_layer): Extension<Option<Arc<Oauth2Layer>>>,
 ) -> AuthCallbackResponse {
     use AuthCallbackError::*;
     let Some(oauth2_layer) = oauth2_layer else {
@@ -85,6 +85,7 @@ pub async fn callback(
         // which includes an access token.
         let _ = match oauth2_layer
             .client
+            .clone()
             .set_client_secret(ClientSecret::new(client_secret.to_string()))
             .exchange_client_credentials()
             .add_scope(Scope::new(format!("{client_id}/.default")))

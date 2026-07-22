@@ -99,18 +99,48 @@ fn wait_for_metrics_initialization() -> bool {
     }
 }
 
+/// Read a TLS file path from the environment, falling back to the built-in
+/// default when the variable is unset, unreadable, or explicitly empty --
+/// `std::env::var` returns `Ok("")` for an empty variable, and an empty path
+/// must not reach the client config.
+fn forge_tls_path(var: &str, default: &str, label: &str) -> String {
+    match std::env::var(var) {
+        Ok(path) if !path.is_empty() => return path,
+        Ok(_) => {
+            log::warn!(
+                "{var} is set but empty; falling back to the built-in default {label} at {default}"
+            )
+        }
+        Err(e) => {
+            log::warn!(
+                "{var} unset or unreadable ({e}); falling back to the built-in default {label} at {default}"
+            )
+        }
+    }
+    default.to_string()
+}
+
 impl Default for CarbideDhcpContext {
     fn default() -> Self {
         Self {
             api_endpoint: "https://[::1]:1079".to_string(),
             nameservers: vec![Ipv4Addr::new(1, 1, 1, 1)],
             dns_servers_ipv6: Vec::new(),
-            forge_root_ca_path: std::env::var("FORGE_ROOT_CAFILE_PATH")
-                .unwrap_or_else(|_| tls_default::ROOT_CA.to_string()),
-            forge_client_cert_path: std::env::var("FORGE_CLIENT_CERT_PATH")
-                .unwrap_or_else(|_| tls_default::CLIENT_CERT.to_string()),
-            forge_client_key_path: std::env::var("FORGE_CLIENT_KEY_PATH")
-                .unwrap_or_else(|_| tls_default::CLIENT_KEY.to_string()),
+            forge_root_ca_path: forge_tls_path(
+                "FORGE_ROOT_CAFILE_PATH",
+                tls_default::ROOT_CA,
+                "root CA",
+            ),
+            forge_client_cert_path: forge_tls_path(
+                "FORGE_CLIENT_CERT_PATH",
+                tls_default::CLIENT_CERT,
+                "client certificate",
+            ),
+            forge_client_key_path: forge_tls_path(
+                "FORGE_CLIENT_KEY_PATH",
+                tls_default::CLIENT_KEY,
+                "client key",
+            ),
             ntpservers: vec![
                 Ipv4Addr::new(172, 20, 0, 24),
                 Ipv4Addr::new(172, 20, 0, 26),

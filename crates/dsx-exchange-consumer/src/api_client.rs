@@ -141,7 +141,7 @@ impl RackHealthReportSink for ConsoleRackHealthSink {
 fn parse_rack_id(rack_id: &str) -> Result<RackId, DsxConsumerError> {
     RackId::from_str(rack_id).map_err(|e| {
         DsxConsumerError::Api(tonic::Status::invalid_argument(format!(
-            "Invalid rack ID: {e}"
+            "invalid rack ID: {e}"
         )))
     })
 }

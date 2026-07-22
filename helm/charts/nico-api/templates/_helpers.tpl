@@ -45,6 +45,84 @@ Global image reference
 {{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}
 {{- end }}
 
+{{/* Validate and return the configured WebUI authentication mode. */}}
+{{- define "nico-api.webAuth.configuredMode" -}}
+{{- $mode := default "basic" .Values.webAuth.mode -}}
+{{- if not (has $mode (list "basic" "oauth2" "none")) -}}
+{{- fail (printf "nico-api.webAuth.mode must be one of basic, oauth2, or none; got %q" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+
+{{/* Whether extraEnv contains the legacy mode variable, including valueFrom entries. */}}
+{{- define "nico-api.webAuth.hasModeOverride" -}}
+{{- $found := false -}}
+{{- range .Values.extraEnv -}}
+  {{- if eq .name "CARBIDE_WEB_AUTH_TYPE" -}}
+    {{- $found = true -}}
+  {{- end -}}
+{{- end -}}
+{{- $found -}}
+{{- end -}}
+
+{{/* A literal legacy override, or an empty string when absent/valueFrom. */}}
+{{- define "nico-api.webAuth.literalModeOverride" -}}
+{{- range .Values.extraEnv -}}
+  {{- if and (eq .name "CARBIDE_WEB_AUTH_TYPE") (hasKey . "value") -}}
+    {{- .value -}}
+  {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nico-api.webAuth.hasLiteralModeOverride" -}}
+{{- $found := false -}}
+{{- range .Values.extraEnv -}}
+  {{- if and (eq .name "CARBIDE_WEB_AUTH_TYPE") (hasKey . "value") -}}
+    {{- $found = true -}}
+  {{- end -}}
+{{- end -}}
+{{- $found -}}
+{{- end -}}
+
+{{/* Statically known effective mode. "unknown" means extraEnv uses valueFrom. */}}
+{{- define "nico-api.webAuth.effectiveMode" -}}
+{{- $override := include "nico-api.webAuth.literalModeOverride" . -}}
+{{- if eq (include "nico-api.webAuth.hasLiteralModeOverride" .) "true" -}}
+  {{- if not (has $override (list "basic" "oauth2" "none")) -}}
+    {{- fail (printf "literal CARBIDE_WEB_AUTH_TYPE in nico-api.extraEnv must be one of basic, oauth2, or none; got %q" $override) -}}
+  {{- end -}}
+  {{- $override -}}
+{{- else if eq (include "nico-api.webAuth.hasModeOverride" .) "true" -}}
+unknown
+{{- else -}}
+{{- include "nico-api.webAuth.configuredMode" . -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Render a Basic password Secret for known basic mode, or conservative valueFrom mode. */}}
+{{- define "nico-api.webAuth.renderBasicSecret" -}}
+{{- $effective := include "nico-api.webAuth.effectiveMode" . -}}
+{{- if eq $effective "basic" -}}
+true
+{{- else if eq $effective "unknown" -}}
+  {{- if eq (include "nico-api.webAuth.configuredMode" .) "basic" -}}true{{- else -}}false{{- end -}}
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- define "nico-api.webAuth.basicSecretName" -}}
+{{- default "nico-api-web-basic-auth" .Values.webAuth.basic.existingSecret.name -}}
+{{- end -}}
+
+{{- define "nico-api.webAuth.basicSecretKey" -}}
+{{- default "password" .Values.webAuth.basic.existingSecret.key -}}
+{{- end -}}
+
+{{- define "nico-api.webAuth.hasExistingBasicSecret" -}}
+{{- if .Values.webAuth.basic.existingSecret.name -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
 {{/*
 Certificate spec
 Usage: {{ include "nico-api.certificateSpec" (dict "name" "{{ include "nico-api.name" . }}-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "nico-api.namespace" .)) }}

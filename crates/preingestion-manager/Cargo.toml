@@ -43,6 +43,7 @@ carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
 carbide-uuid = { path = "../uuid" }
+libc = { workspace = true }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 tempfile = { workspace = true }
 

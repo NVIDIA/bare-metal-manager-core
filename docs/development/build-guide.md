@@ -9,7 +9,7 @@ Two git submodules are pinned to known-good versions:
 | Submodule | Path | Pinned version |
 |-----------|------|----------------|
 | mkosi | `pxe/mkosi` | `v25` |
-| iPXE (secboot fork) | `pxe/ipxe/upstream` | `secboot-ioactive-20221109-302-gd7e58c5a8` |
+| iPXE (upstream) | `pxe/ipxe/upstream` | `v2.0.0-130-gbbd7821bd8` |
 
 To update a submodule to a newer version:
 

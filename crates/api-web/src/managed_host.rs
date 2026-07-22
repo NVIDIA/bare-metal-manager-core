@@ -129,6 +129,7 @@ impl ManagedHostRowDisplay {
 
         // Decompose hardware_info into the pieces we want to show
         let (vendor, model, num_gpus, num_ib_ifs, host_memory) = host_snapshot
+            .status
             .hardware_info
             .map(|hardware_info| {
                 let (vendor, model) = hardware_info
@@ -153,17 +154,20 @@ impl ManagedHostRowDisplay {
             })
             .unwrap_or_default();
         let host_bmc_ip = host_snapshot
+            .status
             .bmc_info
             .ip
             .map(|ip| ip.to_string())
             .unwrap_or_default();
         let host_bmc_mac = host_snapshot
+            .status
             .bmc_info
             .mac
             .map(|m| m.to_string())
             .unwrap_or_default();
 
         let (host_admin_ip, host_admin_mac) = host_snapshot
+            .status
             .interfaces
             .into_iter()
             .find(|i| i.primary_interface)
@@ -213,8 +217,8 @@ impl ManagedHostRowDisplay {
             maintenance_reference,
             maintenance_start_time,
             dpus: dpu_snapshots.into_iter().map_into().collect(),
-            dpf_enabled: host_snapshot.dpf.enabled,
-            dpf_used_for_ingestion: host_snapshot.dpf.used_for_ingestion,
+            dpf_enabled: host_snapshot.config.dpf.enabled,
+            dpf_used_for_ingestion: host_snapshot.config.dpf.used_for_ingestion,
         }
     }
 }
@@ -222,12 +226,18 @@ impl ManagedHostRowDisplay {
 impl From<model::machine::Machine> for AttachedDpuRowDisplay {
     fn from(item: Machine) -> Self {
         let bmc_ip = item
+            .status
             .bmc_info
             .ip
             .map(|ip| ip.to_string())
             .unwrap_or_default();
-        let bmc_mac = item.bmc_info.mac.map(|m| m.to_string()).unwrap_or_default();
-        let primary_iface = item.interfaces.iter().find(|i| i.primary_interface);
+        let bmc_mac = item
+            .status
+            .bmc_info
+            .mac
+            .map(|m| m.to_string())
+            .unwrap_or_default();
+        let primary_iface = item.status.interfaces.iter().find(|i| i.primary_interface);
         let oob_ip = primary_iface
             .and_then(|t| t.addresses.first().map(|a| a.to_string()))
             .unwrap_or_default();
