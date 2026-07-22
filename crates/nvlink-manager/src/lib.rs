@@ -335,6 +335,10 @@ fn tray_default_partition_name(slot_id: i32) -> String {
     format!("tray_partition_{slot_id}")
 }
 
+fn is_gpu_in_tray_default_partition(partition: &PartitionInfo, slot_id: i32) -> bool {
+    partition.name == tray_default_partition_name(slot_id)
+}
+
 impl PartitionProcessingContext {
     fn new(
         nmx_c_partitions: Vec<PartitionInfo>,
@@ -1681,25 +1685,29 @@ impl NvlPartitionMonitor {
                                 }
                                 None => {
                                     // TODO: should we add the partition NMX-C ID to the status obs?
-                                    if is_nmx_c_default_partition(&nmxc_partition) {
+                                    if is_nmx_c_default_partition(&nmxc_partition)
+                                        || is_gpu_in_tray_default_partition(
+                                            &nmxc_partition,
+                                            nvlink_gpu.slot_id,
+                                        )
+                                    {
                                         if instance_gpu_config.is_some() {
                                             tracing::info!(
                                                 gpu_guid = nvlink_gpu.guid,
                                                 machine_id = %instance.machine_id,
                                                 instance_id = %instance.id,
                                                 nmx_c_partition_id = partition_id,
-                                                "Removing GPU in machine and instance from default partition",
+                                                "Removing configured GPU from NMX-C holding partition",
                                             );
                                             gpu_action = GpuAction::RemoveFromUnknownPartition;
                                             gpu_ctx.partition_nmx_c_id =
                                                 nmxc_partition.partition_id.unwrap_or_default();
                                         } else {
-                                            // Do nothing if there is no config
+                                            // An omitted GPU config means this GPU should remain in its holding partition.
                                             gpu_action = GpuAction::NoOp;
                                         }
                                     } else {
-                                        // Monitor does not know about this partition, so just remove the GPU. On the next iteration
-                                        // the monitor will put the GPU in the correct partition (or leave it if the config says no partition)
+                                        // The monitor cannot safely preserve membership in an unrecognized partition.
                                         tracing::warn!(
                                             gpu_guid = nvlink_gpu.guid,
                                             nmx_c_partition_id = partition_id,
@@ -1966,8 +1974,7 @@ impl NvlPartitionMonitor {
                     }
                 };
 
-                let tray_nm = tray_default_partition_name(gpu.slot_id);
-                if nmxc_partition.name == tray_nm {
+                if is_gpu_in_tray_default_partition(nmxc_partition, gpu.slot_id) {
                     continue;
                 }
 
@@ -2587,6 +2594,36 @@ fn record_domain_health(
     }
     for (state, count) in counts {
         map.insert((domain.to_string(), state), count);
+    }
+}
+
+#[cfg(test)]
+mod partition_classification_tests {
+    use libnmxc::nmxc_model::PartitionInfo;
+
+    use super::is_gpu_in_tray_default_partition;
+
+    #[test]
+    fn tray_default_partition_match_is_slot_specific() {
+        let cases = [
+            ("tray_partition_1", 1, true),
+            ("tray_partition_1", 2, false),
+            ("tray_partition_1_extra", 1, false),
+            ("Default", 1, false),
+            ("unknown-partition", 1, false),
+        ];
+
+        for (name, slot_id, expected) in cases {
+            let partition = PartitionInfo {
+                name: name.to_string(),
+                ..Default::default()
+            };
+            assert_eq!(
+                is_gpu_in_tray_default_partition(&partition, slot_id),
+                expected,
+                "partition name {name:?}, slot {slot_id}",
+            );
+        }
     }
 }
 
