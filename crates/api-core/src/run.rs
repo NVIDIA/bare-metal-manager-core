@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use carbide_kms_provider::{
@@ -32,17 +31,28 @@ use sqlx::PgPool;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::subscriber::NoSubscriber;
 
 use crate::cfg::file::{
-    CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
+    CarbideConfig, CredentialBackend, ImportSource, InitialObjectsConfig, ProviderConfig,
+    SecretsConfig,
 };
 use crate::listener::AdminUiRoutesBuilder;
-use crate::logging::setup::{
-    Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
-};
+use crate::logging::setup::{Logging, create_metric_for_spancount_reader, create_metrics};
 use crate::secrets::{SecretRouting, SecretsContext};
 use crate::{CarbideError, dynamic_settings, setup};
+
+/// Inputs prepared by the top-level `carbide-api` composition crate before
+/// core service initialization begins.
+#[doc(hidden)]
+pub struct CoreRunInputs {
+    pub carbide_config: Arc<CarbideConfig>,
+    pub initial_objects: Option<InitialObjectsConfig>,
+    pub credential_config: CredentialConfig,
+    pub logging: Logging,
+    pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
+    pub cancel_token: CancellationToken,
+    pub ready_channel: Sender<()>,
+}
 
 /// Vault machine PKI URI SANs must match `[auth.trust]` when site auth config is present.
 fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) -> VaultConfig {
@@ -72,61 +82,17 @@ fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) ->
 /// "offer the UI", not "force it on". The flag also gates the log-stream
 /// layer feeding the UI's live log viewer: with the UI off, no per-event
 /// work is spent collecting lines nothing can read.
-#[allow(clippy::too_many_arguments)]
-pub async fn run(
-    debug: u8,
-    config_str: PathBuf,
-    site_config_str: Option<PathBuf>,
-    credential_config: CredentialConfig,
-    skip_logging_setup: bool,
-    admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
-    cancel_token: CancellationToken,
-    ready_channel: Sender<()>,
-) -> eyre::Result<()> {
-    let carbide_config = setup::parse_carbide_config(&config_str, site_config_str.as_deref())?;
-
-    // If `CarbideConfig.initial_objects_file` is set, load it into an
-    // `InitialObjectsConfig` so that `start_api` can reconcile its contents
-    // against the database on first startup.
-    let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
-        Some(setup::parse_initial_objects_config(path)?)
-    } else {
-        None
-    };
-
-    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
-    // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
-    for deny_prefix in carbide_config.deny_prefixes.iter() {
-        for site_fabric_prefix in carbide_config.site_fabric_prefixes.iter() {
-            if let ipnetwork::IpNetwork::V4(site_v4) = site_fabric_prefix
-                && deny_prefix.overlaps(*site_v4)
-            {
-                return Err(eyre::eyre!(
-                    "overlap found in deny_prefixes `{}` and site_fabric_prefixes `{}`",
-                    deny_prefix,
-                    site_fabric_prefix,
-                ));
-            }
-        }
-    }
-
-    let log_history_max_bytes = carbide_config
-        .log_history
-        .max_megabytes
-        .saturating_mul(1024 * 1024);
-    let tconf = if skip_logging_setup {
-        Logging::default()
-    } else {
-        setup_logging(
-            debug,
-            carbide_machine_controller::extra_logfmt_logging_fields(),
-            None::<NoSubscriber>,
-            log_history_max_bytes,
-            carbide_config.enable_admin_ui,
-            &carbide_config.tracing,
-        )
-        .wrap_err("setup_telemetry")?
-    };
+#[doc(hidden)]
+pub async fn run_core(inputs: CoreRunInputs) -> eyre::Result<()> {
+    let CoreRunInputs {
+        carbide_config,
+        initial_objects,
+        credential_config,
+        logging: tconf,
+        admin_ui_routes_builder,
+        cancel_token,
+        ready_channel,
+    } = inputs;
 
     // Redact credentials before printing the config
     let print_config = carbide_config.redacted();

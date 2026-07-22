@@ -77,7 +77,6 @@ component-manager = { path = "../component-manager" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
 libnmxc = { path = "../libnmxc" }
-logfmt = { path = "../logfmt" }
 metrics-endpoint = { path = "../metrics-endpoint" }
 mqttea = { path = "../mqttea" }
 nras = { path = "../nras" }
@@ -121,7 +120,6 @@ mac_address = { workspace = true }
 num_cpus = { workspace = true }
 nv-redfish = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }
-opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus = { workspace = true }
 opentelemetry-semantic-conventions = { workspace = true, features = [
   "semconv_experimental",
@@ -183,7 +181,6 @@ tower-http = { workspace = true, features = [
 ] }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
-tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",
   "local-time",

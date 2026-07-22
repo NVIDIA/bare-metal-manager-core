@@ -15,12 +15,13 @@
  * limitations under the License.
  */
 
-pub mod command_line;
-pub mod file;
-pub mod load;
-pub mod provenance;
+//! Implementation interface for the top-level `carbide-api` composition crate.
+//!
+//! This is not a general-purpose library API. It groups the process-bootstrap
+//! types that must cross the crate boundary while service implementation stays
+//! in `carbide-api-core`.
 
-/// The configuration reference document (`README.md`), embedded so the admin
-/// web UI can render per-field types, defaults, and descriptions for every
-/// option in [`file::CarbideConfig`].
-pub const CONFIG_REFERENCE_MD: &str = include_str!("README.md");
+pub use crate::logging::level_filter::{ActiveLevel, ReloadableFilter};
+pub use crate::logging::setup::{Logging, dep_log_filter};
+pub use crate::logging::stream::LogStreamLayer;
+pub use crate::run::{CoreRunInputs, run_core};
