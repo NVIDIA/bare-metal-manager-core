@@ -3818,6 +3818,41 @@ impl DpuMachineStateHandler {
         }
     }
 
+    /// Whether DPF owns platform configuration for this BF4 DPU.
+    ///
+    /// The persisted ingestion marker prevents an enabled-but-unused DPF
+    /// configuration from changing the legacy provisioning path.
+    fn is_dpf_managed_bf4(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        dpu_snapshot: &Machine,
+    ) -> Result<bool, StateHandlerError> {
+        if !state.host_snapshot.config.dpf.used_for_ingestion {
+            return Ok(false);
+        }
+
+        let dpf_sdk = self.dpf_sdk.as_deref().ok_or_else(|| {
+            StateHandlerError::InvalidState(
+                "DPF-managed machine reached DPU platform configuration without DPF configured"
+                    .to_string(),
+            )
+        })?;
+
+        let deployment_type = dpf_sdk
+            .deployment_type_for_dpu(dpu_snapshot)
+            .map_err(|error| {
+                StateHandlerError::InvalidState(format!(
+                    "failed to determine DPF deployment type for DPU {}: {error}",
+                    dpu_snapshot.id
+                ))
+            })?;
+
+        Ok(matches!(
+            deployment_type,
+            carbide_dpf::DpuDeploymentType::Bf4Generic
+        ))
+    }
+
     async fn is_secure_boot_disabled(
         &self,
         // passing in dpu_machine_id only for testing
@@ -4162,6 +4197,8 @@ impl DpuMachineStateHandler {
                     }
                 })?;
 
+                let dpf_managed_bf4 = self.is_dpf_managed_bf4(state, dpu_snapshot)?;
+
                 let dpu_redfish_client = match ctx
                     .services
                     .create_redfish_client_from_machine(dpu_snapshot)
@@ -4204,45 +4241,50 @@ impl DpuMachineStateHandler {
                     return Ok(outcome);
                 }
 
-                let boot_interface = None; // libredfish will choose the DPU
-                if self.enable_secure_boot {
-                    dpu_redfish_client
-                        .set_host_rshim(EnabledDisabled::Disabled)
-                        .await
-                        .map_err(|e| redfish_error("set_host_rshim", e))?;
-                    dpu_redfish_client
-                        .set_host_privilege_level(HostPrivilegeLevel::Restricted)
-                        .await
-                        .map_err(|e| redfish_error("set_host_privilege_level", e))?;
-                } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
-                    dpu_redfish_client.as_ref(),
-                    boot_interface,
-                    state.host_snapshot.associated_dpu_machine_ids().len(),
-                    &ctx.services.site_config,
-                )
-                .await
-                {
-                    // TODO(chet): I don't know if this is still a thing, but I'm pretty sure
-                    // it hasn't been fixed/addressed yet, and it appears to be logged all over
-                    // the place now.
-                    let msg = format!(
-                        "redfish machine_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
-                        dpu_snapshot.id, e
-                    );
-                    tracing::warn!(msg);
-                    let reboot_status = trigger_reboot_if_needed(
-                        dpu_snapshot,
-                        state,
-                        None,
-                        &self.reachability_params,
-                        ctx,
+                // DPF owns BF4 platform configuration. NICo still owns the
+                // UEFI credential change performed below until DPF credential
+                // management is available.
+                if !dpf_managed_bf4 {
+                    let boot_interface = None; // libredfish will choose the DPU
+                    if self.enable_secure_boot {
+                        dpu_redfish_client
+                            .set_host_rshim(EnabledDisabled::Disabled)
+                            .await
+                            .map_err(|e| redfish_error("set_host_rshim", e))?;
+                        dpu_redfish_client
+                            .set_host_privilege_level(HostPrivilegeLevel::Restricted)
+                            .await
+                            .map_err(|e| redfish_error("set_host_privilege_level", e))?;
+                    } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
+                        dpu_redfish_client.as_ref(),
+                        boot_interface,
+                        state.host_snapshot.associated_dpu_machine_ids().len(),
+                        &ctx.services.site_config,
                     )
-                    .await?;
+                    .await
+                    {
+                        // TODO(chet): I don't know if this is still a thing, but I'm pretty sure
+                        // it hasn't been fixed/addressed yet, and it appears to be logged all over
+                        // the place now.
+                        let msg = format!(
+                            "redfish machine_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
+                            dpu_snapshot.id, e
+                        );
+                        tracing::warn!(msg);
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
 
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
-                        dpu_snapshot.id
-                    )));
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )));
+                    }
                 }
 
                 let dpu_uefi_credentials = resolve_site_uefi_credentials(
@@ -4281,8 +4323,9 @@ impl DpuMachineStateHandler {
                     )));
                 }
 
-                // We need to reboot the DPU after configuring the BIOS settings appropriately
-                // so that they are applied
+                // The UEFI password is staged through Redfish BIOS settings,
+                // so retain the restart even when BF4 skips platform setup and
+                // BIOS verification.
                 handler_restart_dpu(
                     dpu_snapshot,
                     ctx,
@@ -4290,8 +4333,12 @@ impl DpuMachineStateHandler {
                 )
                 .await?;
 
-                let next_state = DpuInitState::PollingBiosSetup
-                    .next_state(&state.managed_state, dpu_machine_id)?;
+                let next_state = if dpf_managed_bf4 {
+                    DpuInitState::WaitingForNetworkConfig
+                } else {
+                    DpuInitState::PollingBiosSetup
+                }
+                .next_state(&state.managed_state, dpu_machine_id)?;
 
                 // The DPU's UEFI password is now the site-wide value (just set via
                 // uefi_setup above): record dpu_uefi convergence so the rotation
@@ -4319,6 +4366,16 @@ impl DpuMachineStateHandler {
             DpuInitState::PollingBiosSetup => {
                 let next_state = DpuInitState::WaitingForNetworkConfig
                     .next_state(&state.managed_state, dpu_machine_id)?;
+
+                // Handle BF4 machines already persisted in this state when the
+                // controller is upgraded: do not issue even one more BIOS query.
+                if self.is_dpf_managed_bf4(state, dpu_snapshot)? {
+                    tracing::info!(
+                        dpu_machine_id = %dpu_snapshot.id,
+                        "Skipping BIOS setup verification for DPF-managed BF4"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                }
 
                 let dpu_redfish_client = match ctx
                     .services

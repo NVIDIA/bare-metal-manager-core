@@ -79,6 +79,7 @@ struct RedfishSimState {
     /// When set, overrides the `Manufacturer` returned by `get_chassis`, so
     /// tests can drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
     chassis_manufacturer: Option<String>,
+    platform_actions: Vec<RedfishSimPlatformAction>,
 }
 
 /// Snapshot of a single `RedfishClientPool::create_client` invocation.
@@ -174,6 +175,11 @@ impl RedfishSim {
             .values()
             .map(|host| host.lockdown)
             .collect()
+    }
+
+    /// Return calls related to platform configuration and UEFI credentials.
+    pub fn platform_actions(&self) -> Vec<RedfishSimPlatformAction> {
+        self.state.lock().unwrap().platform_actions.clone()
     }
 
     /// Build a simulator with optional SPDM / firmware-integration test flags.
@@ -313,6 +319,15 @@ pub struct RedfishSimTimepoint {
     pos: HashMap<String, usize>,
 }
 
+/// Platform-configuration calls recorded separately from power actions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RedfishSimPlatformAction {
+    SetHostRshim { host: String },
+    SetHostPrivilegeLevel { host: String },
+    IsBiosSetup { host: String },
+    UefiSetup { dpu: bool },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RedfishSimAction {
     Power(libredfish::SystemPowerControl),
@@ -352,6 +367,11 @@ impl RedfishSimActions {
             .values()
             .flat_map(|actions| actions.iter().cloned())
             .collect()
+    }
+
+    /// Return Redfish actions issued to one simulated endpoint.
+    pub fn for_host(&self, host: &str) -> Vec<RedfishSimAction> {
+        self.host_actions.get(host).cloned().unwrap_or_default()
     }
 }
 
@@ -1483,7 +1503,14 @@ impl Redfish for RedfishSimClient {
         &'a self,
         _enabled: EnabledDisabled,
     ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            self.state.lock().unwrap().platform_actions.push(
+                RedfishSimPlatformAction::SetHostRshim {
+                    host: self._host.clone(),
+                },
+            );
+            Ok(())
+        })
     }
 
     fn get_host_rshim<'a>(
@@ -1540,9 +1567,17 @@ impl Redfish for RedfishSimClient {
 
     fn is_bios_setup<'a>(
         &'a self,
-        _: Option<libredfish::BootInterfaceRef<'a>>,
+        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
-        Box::pin(async move { Ok(self.state.lock().unwrap().is_bios_setup.unwrap_or(true)) })
+        Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            state
+                .platform_actions
+                .push(RedfishSimPlatformAction::IsBiosSetup {
+                    host: self._host.clone(),
+                });
+            Ok(state.is_bios_setup.unwrap_or(true))
+        })
     }
 
     fn get_secure_boot_certificate<'a>(
@@ -1926,7 +1961,14 @@ impl Redfish for RedfishSimClient {
         &'a self,
         _level: HostPrivilegeLevel,
     ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            self.state.lock().unwrap().platform_actions.push(
+                RedfishSimPlatformAction::SetHostPrivilegeLevel {
+                    host: self._host.clone(),
+                },
+            );
+            Ok(())
+        })
     }
 
     fn set_utc_timezone<'a>(&'a self) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
@@ -2005,9 +2047,14 @@ impl RedfishClientPool for RedfishSim {
     async fn uefi_setup(
         &self,
         _client: &dyn Redfish,
-        _dpu: bool,
+        dpu: bool,
         _sitewide_uefi_credentials: carbide_secrets::credentials::Credentials,
     ) -> Result<Option<String>, RedfishClientCreationError> {
+        self.state
+            .lock()
+            .unwrap()
+            .platform_actions
+            .push(RedfishSimPlatformAction::UefiSetup { dpu });
         Ok(None)
     }
 }

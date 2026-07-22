@@ -25,6 +25,7 @@ use ::rpc::forge as rpc;
 use ::rpc::forge::forge_server::Forge;
 use carbide_dpf::{DpfError, DpuDeploymentType, DpuPhase, DpuServiceVersion};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
+use carbide_redfish::libredfish::test_support::{RedfishSimAction, RedfishSimPlatformAction};
 use model::machine::ManagedHostState;
 use tokio::time::timeout;
 use tonic::Request;
@@ -35,7 +36,7 @@ use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_dpf, create_test_env_with_overrides, get_config,
 };
 
-fn default_mock() -> MockDpfOperations {
+fn default_mock(deployment_type: DpuDeploymentType) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
@@ -44,17 +45,14 @@ fn default_mock() -> MockDpfOperations {
     mock.expect_get_dpu_phase()
         .returning(|_, _| Ok(DpuPhase::Ready));
     mock.expect_deployment_type_for_dpu()
-        .returning(|_| Ok(DpuDeploymentType::Bf3));
+        .returning(move |_| Ok(deployment_type));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock
 }
 
-#[crate::sqlx_test]
-async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
-    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock());
-
-    let mut config = get_config();
-    config.dpf = crate::cfg::file::DpfConfig {
+/// DPF configuration shared by happy-path integration tests.
+fn dpf_config() -> crate::cfg::file::DpfConfig {
+    crate::cfg::file::DpfConfig {
         enabled: true,
         deployments: crate::cfg::file::DpfDeploymentsConfig {
             bf3: crate::cfg::file::DpfDeploymentConfig {
@@ -64,7 +62,15 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             ..Default::default()
         },
         ..Default::default()
-    };
+    }
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock(DpuDeploymentType::Bf3));
+
+    let mut config = get_config();
+    config.dpf = dpf_config();
 
     let env = create_test_env_with_overrides(
         pool,
@@ -90,13 +96,96 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     )));
 }
 
+/// Provision a BF4 through DPF and verify that NICo performs only the
+/// credential portion of post-ready platform handling.
+async fn assert_bf4_skips_platform_configuration(pool: sqlx::PgPool, enable_secure_boot: bool) {
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock(DpuDeploymentType::Bf4Generic));
+
+    let mut config = get_config();
+    config.dpf = dpf_config();
+    config.dpu_config.dpu_enable_secure_boot = enable_secure_boot;
+
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config).with_dpf_sdk(dpf_sdk),
+    )
+    .await;
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf(&env))
+        .await
+        .expect("timed out during BF4 initial provisioning");
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let dpu = mh.dpu().db_machine(&mut txn).await;
+
+    assert!(host.config.dpf.used_for_ingestion);
+    assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
+
+    let dpu_bmc_ip = dpu
+        .status
+        .bmc_info
+        .ip
+        .expect("DPU BMC IP must be present")
+        .to_string();
+
+    // BF4 must not receive the opaque vendor machine_setup call.
+    let dpu_redfish_actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .for_host(&dpu_bmc_ip);
+    assert!(
+        dpu_redfish_actions
+            .iter()
+            .all(|action| !matches!(action, RedfishSimAction::MachineSetup { .. })),
+        "BF4 received machine_setup: {dpu_redfish_actions:?}"
+    );
+
+    let platform_actions = env.redfish_sim.platform_actions();
+
+    // Credential replacement remains NICo-owned until DPF supports it.
+    assert_eq!(
+        platform_actions
+            .iter()
+            .filter(|action| matches!(action, RedfishSimPlatformAction::UefiSetup { dpu: true }))
+            .count(),
+        1,
+        "BF4 DPU UEFI credential was not replaced exactly once: {platform_actions:?}"
+    );
+
+    // No BF4 platform mutation or BIOS verification may run after DPF reports Ready.
+    assert!(
+        platform_actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimPlatformAction::SetHostRshim { host }
+                | RedfishSimPlatformAction::SetHostPrivilegeLevel { host }
+                | RedfishSimPlatformAction::IsBiosSetup { host }
+                if host == &dpu_bmc_ip
+        )),
+        "BF4 received post-ready platform configuration: {platform_actions:?}"
+    );
+}
+
+/// BF4 skips `machine_setup` when the legacy non-secure-boot branch is selected.
+#[crate::sqlx_test]
+async fn test_bf4_dpf_skips_machine_setup(pool: sqlx::PgPool) {
+    assert_bf4_skips_platform_configuration(pool, false).await;
+}
+
+/// BF4 skips the RShim and host-privilege mutations when secure boot is enabled.
+#[crate::sqlx_test]
+async fn test_bf4_dpf_skips_secure_boot_platform_setup(pool: sqlx::PgPool) {
+    assert_bf4_skips_platform_configuration(pool, true).await;
+}
+
 /// Verifies DPF inventory uses the host ingestion flag and composite DPU CR name,
 /// and preserves the last complete operator inventory when a later lookup fails.
 #[crate::sqlx_test]
 async fn test_dpf_inventory_uses_host_context_and_preserves_last_good_value(pool: sqlx::PgPool) {
     let queried_dpu_names = Arc::new(Mutex::new(Vec::new()));
     let fail_inventory_lookup = Arc::new(AtomicBool::new(false));
-    let mut mock = default_mock();
+    let mut mock = default_mock(DpuDeploymentType::Bf3);
     let queried_dpu_names_for_mock = queried_dpu_names.clone();
     let fail_inventory_lookup_for_mock = fail_inventory_lookup.clone();
     mock.expect_get_service_versions_for_dpu()
@@ -120,17 +209,7 @@ async fn test_dpf_inventory_uses_host_context_and_preserves_last_good_value(pool
     // Ingest through DPF so only the host receives used_for_ingestion.
     let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
-    config.dpf = crate::cfg::file::DpfConfig {
-        enabled: true,
-        deployments: crate::cfg::file::DpfDeploymentsConfig {
-            bf3: crate::cfg::file::DpfDeploymentConfig {
-                bfb_url: Some("http://example.com/test.bfb".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    config.dpf = dpf_config();
     let env = create_test_env_with_overrides(
         pool,
         TestEnvOverrides::with_config(config).with_dpf_sdk(dpf_sdk),
