@@ -1470,7 +1470,6 @@ func AuthorizeProviderSiteForCore(in AuthorizeProviderSiteForCoreInput) (tclient
 
 // IsTenant ensures that user is authorized to act as a Tenant Admin for the org.
 // if authorized it returns the tenant otherwise a relevant error.
-//
 // requirePrivilegedScope gates on the TargetedInstanceCreation capability: nil
 // means no privilege is required; a non-nil scope requires the capability to be
 // effective within that scope (see TenantPrivilegeScope).
@@ -1581,11 +1580,10 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 			if ts.Config.TargetedInstanceCreation != nil {
 				return *ts.Config.TargetedInstanceCreation, nil
 			}
-			if ts.Site == nil {
-				return false, errors.New("site relation is missing for TenantSite capability resolution")
+			if ts.Site != nil {
+				// An unset Site override inherits the Ready TenantAccount default.
+				providerID = &ts.Site.InfrastructureProviderID
 			}
-			// An unset Site override inherits the Ready TenantAccount default.
-			providerID = &ts.Site.InfrastructureProviderID
 		}
 	}
 
