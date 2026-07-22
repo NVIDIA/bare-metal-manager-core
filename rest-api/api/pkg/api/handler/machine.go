@@ -159,7 +159,7 @@ func NewGetAllMachineHandler(dbSession *cdb.Session, tc temporalClient.Client, c
 
 // Handle godoc
 // @Summary Get all Machines
-// @Description Get all Machines
+// @Description Get all Machines. Tenant results are restricted to Sites with effective TargetedInstanceCreation; no single-Site privilege scope is required.
 // @Tags Machine
 // @Accept json
 // @Produce json
@@ -366,7 +366,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			tenantAccounts, _, err := tenantAccountDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
 				TenantIDs:                tenantIDs,
 				InfrastructureProviderID: &infrastructureProvider.ID,
-			}, cdbp.PageInput{}, nil)
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
 			if err != nil {
 				logger.Error().Err(err).Msg("error retrieving Tenant Accounts for tenant IDs specified in query")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Accounts for Tenants specified in query", nil)
@@ -721,18 +721,6 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role: Provider Admins, or Tenant Admins whose site-effective
-	// TargetedInstanceCreation capability is enforced below against
-	// machine.SiteID. We intentionally do not request the privileged-tenant
-	// pre-gate here (requirePrivilegedScope=nil): the coarse ceiling would
-	// reject site-privileged tenants before machine.SiteID is known. The
-	// site-scoped TenantHasTargetedInstanceCreation check is the authoritative
-	// decision.
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, umh.dbSession, org, dbUser, false, nil)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get machine ID from URL param
 	mID := c.Param("id")
 
@@ -751,6 +739,12 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 
 	if machine.Site == nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site detail for Machine", nil)
+	}
+
+	// Scope tenant privilege to the Machine's Site before evaluating ownership.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, umh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &machine.SiteID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	isOwnerProvider := false

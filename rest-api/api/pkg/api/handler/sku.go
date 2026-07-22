@@ -74,13 +74,6 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role: Provider Admins/Viewers, or Tenant Admins. Site-scoped
-	// TargetedInstanceCreation is enforced below once the Site is known.
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, nil)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Site ID from query param - REQUIRED
 	siteIDStr := c.QueryParam("siteId")
 	if siteIDStr == "" {
@@ -94,6 +87,12 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data, DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site whose SKUs are requested.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate based on whether user is provider or tenant
@@ -221,13 +220,6 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role: Provider Admins/Viewers, or Tenant Admins. Site-scoped
-	// TargetedInstanceCreation is enforced below once the SKU's Site is known.
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, nil)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get SKU ID from URL param
 	skuID := c.Param("id")
 
@@ -252,6 +244,12 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for SKU, DB error", nil)
+	}
+
+	// Scope tenant privilege to the SKU's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate based on whether user is provider or tenant

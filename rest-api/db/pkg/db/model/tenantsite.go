@@ -288,8 +288,6 @@ func (tssd TenantSiteSQLDAO) Update(ctx context.Context, tx *db.Tx, input Tenant
 		ID: input.TenantSiteID,
 	}
 
-	// Validate mutually exclusive inputs before applying any write so a
-	// rejected request cannot leave the row partially updated.
 	updatedFields := []string{}
 
 	if input.EnableSerialConsole != nil {

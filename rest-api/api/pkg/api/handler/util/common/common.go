@@ -1563,7 +1563,7 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 	// Site-scoped: resolve the effective capability for the exact Site.
 	if siteID != nil {
 		tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-		ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, *siteID, nil)
+		ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, *siteID, []string{cdbm.SiteRelationName})
 		if err != nil {
 			if errors.Is(err, cdb.ErrDoesNotExist) {
 				siteDAO := cdbm.NewSiteDAO(dbSession)
@@ -1572,6 +1572,7 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 					return false, err
 				}
 
+				// Site-scoped: resolve the effective capability for the exact Site.
 				providerID = &site.InfrastructureProviderID
 			} else {
 				return false, err
@@ -1580,6 +1581,11 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 			if ts.Config.TargetedInstanceCreation != nil {
 				return *ts.Config.TargetedInstanceCreation, nil
 			}
+			if ts.Site == nil {
+				return false, errors.New("site relation is missing for TenantSite capability resolution")
+			}
+			// An unset Site override inherits the Ready TenantAccount default.
+			providerID = &ts.Site.InfrastructureProviderID
 		}
 	}
 

@@ -665,7 +665,7 @@ Retrieve all Expected Machines.
 
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` or `PROVIDER_VIEWER` suffix.
 
-Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
+Alternatively, Tenant Admins may retrieve Expected Machines across Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and, when provided, further restricts results to that Site.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

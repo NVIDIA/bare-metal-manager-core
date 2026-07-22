@@ -1915,9 +1915,9 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(tenantUser).Exec(ctx)
 	assert.Nil(t, err)
 
-	// Create TenantAccount linking tenant to infrastructure provider with
-	// TargetedInstanceCreation enabled. Site-scoped privilege also requires an
-	// explicit TenantSite override when an association row exists.
+	// Create a Ready TenantAccount with TargetedInstanceCreation enabled. The
+	// TenantSite below has no explicit override and therefore inherits this
+	// account default.
 	tenantAccount := &cdbm.TenantAccount{
 		ID:                       uuid.New(),
 		AccountNumber:            "TA-12345",
@@ -1931,13 +1931,11 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)
 
-	siteOverrideTrue := true
 	tenantSite := &cdbm.TenantSite{
 		ID:        uuid.New(),
 		TenantID:  tenant.ID,
 		TenantOrg: tenantOrg,
 		SiteID:    site.ID,
-		Config:    cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue},
 		CreatedBy: tenantUser.ID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantSite).Exec(ctx)

@@ -777,16 +777,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// Tenant 1
 	tnu1 := testInstanceBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu1)
-	// Privilege is resolved site-scoped: enable TargetedInstanceCreation on
-	// tn1's Ready TenantAccount and on its TenantSite associations.
+	// Privilege is resolved site-scoped. TenantSite associations without an
+	// explicit override inherit tn1's Ready TenantAccount default.
 	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn1.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu1)
 
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st1.ID, tnu1.ID)
 	assert.NotNil(t, ts1)
-	siteOverrideTrue := true
-	ts1.Config = cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue}
-	_, err := dbSession.DB.NewUpdate().Model(ts1).Column("config").WherePK().Exec(ctx)
-	assert.Nil(t, err)
 
 	al1 := testInstanceSiteBuildAllocation(t, dbSession, st1, tn1, "test-allocation-1", ipu)
 	assert.NotNil(t, al1)
@@ -1068,9 +1064,6 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// Associate tenant 1 with site 2
 	ts2t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st2.ID, tnu1.ID)
 	assert.NotNil(t, ts2t1)
-	ts2t1.Config = cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue}
-	_, err = dbSession.DB.NewUpdate().Model(ts2t1).Column("config").WherePK().Exec(ctx)
-	assert.Nil(t, err)
 
 	// Associate tenant 2 with site 1
 	ts1t2 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn2.ID, st1.ID, tnu1.ID)

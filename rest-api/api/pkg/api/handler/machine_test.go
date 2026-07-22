@@ -821,6 +821,13 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	_ = common.TestBuildTenantAccount(t, dbSession, ip4, &tenant4.ID, tnOrg4, cdbm.TenantAccountStatusReady, tnu4)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip4, &tenant5.ID, tnOrg5, cdbm.TenantAccountStatusReady, tnu5)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip4, &tenant6.ID, tnOrg6, cdbm.TenantAccountStatusReady, tnu6)
+	tenantIDsBeyondDefaultPage := make([]string, 0, cdbp.DefaultLimit+1)
+	for i := range cdbp.DefaultLimit + 1 {
+		tenantOrg := fmt.Sprintf("test-pagination-tenant-org-%d", i)
+		paginationTenant := testMachineBuildTenant(t, dbSession, tenantOrg, fmt.Sprintf("test-pagination-tenant-%d", i))
+		_ = common.TestBuildTenantAccount(t, dbSession, ip4, &paginationTenant.ID, tenantOrg, cdbm.TenantAccountStatusReady, ipu)
+		tenantIDsBeyondDefaultPage = append(tenantIDsBeyondDefaultPage, paginationTenant.ID.String())
+	}
 	vpc4 := testMachineBuildVpc(t, dbSession, ip, site, tenant4, tnOrg4, "test-vpc-4")
 
 	os4 := testMachineBuildOperatingSystem(t, dbSession, "test-os-4", tenant4.ID, tnu4)
@@ -1336,6 +1343,15 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedTotal:            cutil.GetPtr(3),
 			expectedTargetedInstance: true,
 			expectedTenant:           cutil.GetPtr(tenant4.ID.String()),
+		},
+		{
+			name:           "success case when Tenant IDs exceed the default TenantAccount page size",
+			reqOrgName:     ipOrg4,
+			user:           ipu,
+			queryTenantID:  tenantIDsBeyondDefaultPage,
+			expectedStatus: http.StatusOK,
+			expectedCnt:    0,
+			expectedTotal:  cutil.GetPtr(0),
 		},
 		{
 			name:           "returns nothing when tenant has no associated instance",

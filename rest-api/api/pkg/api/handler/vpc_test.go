@@ -318,10 +318,9 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	tnu := testVPCBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn := testVPCBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
-	// Privilege for `routingProfile` is resolved site-scoped: a Ready
-	// TenantAccount alone is not enough when a TenantSite association exists
-	// without an explicit override. Enable TargetedInstanceCreation on tn's
-	// account and on its TenantSite associations for the Sites under test.
+	// Privilege for `routingProfile` is resolved site-scoped. TenantSite
+	// associations without an explicit override inherit this Ready
+	// TenantAccount default.
 	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu)
 
 	tnu2 := testVPCBuildUser(t, dbSession, "test-starfleet-id-3", tnOrg, tnOrgRoles)
@@ -349,21 +348,13 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	al3 := testVPCSiteBuildAllocation(t, dbSession, st1, tn3, "test-allocation-tenant-3", ipu)
 	assert.NotNil(t, al3)
 
-	siteOverrideTrue := true
-
-	// Associate tenant 1 with site 1 (explicit TIC override required for site-scoped privilege)
+	// Associate tenant 1 with site 1; the unset override inherits the account default.
 	ts1t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st1.ID, tnu.ID)
 	assert.NotNil(t, ts1t1)
-	ts1t1.Config = cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue}
-	_, err := dbSession.DB.NewUpdate().Model(ts1t1).Column("config").WherePK().Exec(ctx)
-	assert.Nil(t, err)
 
-	// Associate tenant 1 with site 2
+	// Associate tenant 1 with site 2; the unset override inherits the account default.
 	ts2t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st2.ID, tnu.ID)
 	assert.NotNil(t, ts2t1)
-	ts2t1.Config = cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue}
-	_, err = dbSession.DB.NewUpdate().Model(ts2t1).Column("config").WherePK().Exec(ctx)
-	assert.Nil(t, err)
 
 	// Associate tenant 2 with site 1
 	ts1t2 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn2.ID, st1.ID, tnu2.ID)

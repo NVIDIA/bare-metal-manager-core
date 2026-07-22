@@ -3038,20 +3038,23 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 
 	cdbm.TestBuildTenantSite(t, dbSession, tenant, site, nil, effUser)
 	ts2 := cdbm.TestBuildTenantSite(t, dbSession, tenant, site2, &cdbm.TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)}, effUser)
+	cdbm.TestBuildTenantSite(t, dbSession, disabledTenant, site, nil, effUser)
 
 	siteTests := []struct {
 		name     string
+		tenant   *cdbm.Tenant
 		site     *cdbm.Site
 		expected bool
 	}{
-		{name: "TenantSite without explicit override is not privileged", site: site, expected: false},
-		{name: "limited override disables site", site: site2, expected: false},
-		{name: "global default when no tenant_site override", site: site3, expected: true},
+		{name: "TenantSite without explicit override inherits enabled account default", tenant: tenant, site: site, expected: true},
+		{name: "explicit override disables site", tenant: tenant, site: site2, expected: false},
+		{name: "enabled account default when no TenantSite exists", tenant: tenant, site: site3, expected: true},
+		{name: "TenantSite without explicit override inherits disabled account default", tenant: disabledTenant, site: site, expected: false},
 	}
 
 	for _, tc := range siteTests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &TenantPrivilegeScope{SiteID: &tc.site.ID})
+			got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant, &TenantPrivilegeScope{SiteID: &tc.site.ID})
 			assert.Nil(t, gerr)
 			assert.Equal(t, tc.expected, got)
 		})
