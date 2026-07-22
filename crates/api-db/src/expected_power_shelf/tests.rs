@@ -71,6 +71,27 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 }
 
 #[crate::sqlx_test]
+async fn test_create_preserves_bmc_ip_addresses(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let shelves = create_expected_power_shelves(&mut txn).await;
+
+    // Shelves at indices 3 and 4 are created with IP addresses
+    assert_eq!(
+        shelves[3].bmc_ip_address,
+        Some("192.168.1.100".parse().unwrap())
+    );
+    assert_eq!(
+        shelves[4].bmc_ip_address,
+        Some("192.168.1.101".parse().unwrap())
+    );
+
+    txn.rollback().await?;
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool
         .begin()

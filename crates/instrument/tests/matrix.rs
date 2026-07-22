@@ -21,7 +21,9 @@
 use std::time::Duration;
 
 use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
-use carbide_instrument::{Event, LabelValue, LogAt, MetricKind, Outcome, emit};
+use carbide_instrument::{
+    Event, LabelValue, LogAt, MetricKind, Outcome, emit, initialize_counter_series,
+};
 use carbide_test_support::value_scenarios;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
@@ -82,6 +84,94 @@ fn both_sides_from_one_emit() {
             &[("stage", "apply"), ("outcome", "error")],
         ),
         1.0
+    );
+}
+
+/// Counter initialization needs to expose the series without pretending the
+/// Event happened. The first real `emit` must therefore move the same series
+/// from zero to one and write exactly one log line.
+#[test]
+fn counter_series_initialization_does_not_emit_the_event() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_counter_initialized",
+        metric_name = "carbide_test_matrix_initialized_total",
+        component = "matrix-test",
+        log = warn,
+        metric = counter,
+        describe = "Number of initialized counter test events",
+        message = "initialized counter fired"
+    )]
+    struct InitializedCounter {
+        #[label]
+        stage: Stage,
+        #[context]
+        detail: String,
+    }
+
+    let event = InitializedCounter {
+        stage: Stage::PreFlight,
+        detail: "first real event".to_string(),
+    };
+    let metrics = MetricsCapture::start();
+    let initialization_logs = capture_logs(|| {
+        assert!(initialize_counter_series(&event));
+    });
+
+    assert!(initialization_logs.is_empty());
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_initialized_total",
+            &[("stage", "pre_flight")],
+        ),
+        0.0
+    );
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_initialized_total{stage=\"pre_flight\"} 0")
+    );
+
+    let logs = capture_logs(|| emit(event));
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].message, "initialized counter fired");
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_initialized_total",
+            &[("stage", "pre_flight")],
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn non_counter_event_cannot_initialize_a_counter_series() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_histogram_initialization_rejected",
+        metric_name = "carbide_test_matrix_initialization_milliseconds",
+        component = "matrix-test",
+        log = off,
+        metric = histogram,
+        describe = "Test initialization duration"
+    )]
+    struct Histogram {
+        #[observation]
+        latency: Duration,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        assert!(!initialize_counter_series(&Histogram {
+            latency: Duration::from_millis(10),
+        }));
+    });
+
+    assert!(logs.is_empty());
+    assert!(
+        !metrics
+            .render()
+            .contains("carbide_test_matrix_initialization_milliseconds")
     );
 }
 

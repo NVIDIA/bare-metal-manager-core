@@ -19,10 +19,9 @@
 //! The Carbide API server implementation.
 //!
 //! This crate holds the [`Api`] service (the gRPC `Forge` implementation and all
-//! the business logic behind it), plus the server bootstrap ([`run`]) and the
-//! request listener. The admin web UI lives in the separate `carbide-api-web`
-//! crate, which depends on this one; the thin `carbide-api` binary crate wires
-//! the two together.
+//! the business logic behind it), plus the request listener and runtime service
+//! assembly. The `carbide-api` crate owns process bootstrap, while the admin web
+//! UI lives in the separate `carbide-api-web` crate.
 
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 // The `test_support` module also compiles when a dependent enables the `test-support` feature, so
@@ -36,7 +35,8 @@
 // Most of this crate is private ("mod", not "pub mod"), so that we get working dead-code detection:
 // If modules here are public, rust will not find dead code for anything marked `pub` within the
 // module. We make public only the minimum surface needed by our two dependents:
-//   - the `carbide-api` binary crate, which needs `run`, `init_tools`, and the listener wiring; and
+//   - the `carbide-api` composition crate, which needs the hidden bootstrap interface,
+//     `init_tools`, and the listener wiring; and
 //   - the `carbide-api-web` crate, which needs the `Api` service type and a few shared types
 //     (`AuthContext`, `CarbideError`, `LogStream`/`LogLine`, `NUM_REQUIRED_APPROVALS`, and the
 //     `cfg::file` config types).
@@ -45,6 +45,8 @@
 mod api;
 mod attestation;
 mod auth;
+#[doc(hidden)]
+pub mod bootstrap;
 pub mod cfg;
 mod compat;
 mod credentials;
@@ -69,7 +71,7 @@ mod network_segment;
 mod run;
 mod scout_stream;
 pub mod secrets;
-pub mod setup;
+mod setup;
 mod storage;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -96,7 +98,6 @@ pub use crate::errors::CarbideError;
 pub use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;
 pub use crate::listener::{AdminUiRoutesBuilder, ApiListenMode, ApiTlsConfig};
 pub use crate::logging::stream::{LogLine, LogStream};
-pub use crate::run::run;
 
 /// Process-global tool list rendered in the admin web UI's "Tools" sidebar.
 ///

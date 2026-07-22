@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use carbide_kms_provider::{
@@ -32,17 +31,30 @@ use sqlx::PgPool;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing::subscriber::NoSubscriber;
 
 use crate::cfg::file::{
-    CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
+    CarbideConfig, CredentialBackend, ImportSource, InitialObjectsConfig, ProviderConfig,
+    SecretsConfig,
 };
 use crate::listener::AdminUiRoutesBuilder;
-use crate::logging::setup::{
-    Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
-};
+use crate::logging::setup::Logging;
 use crate::secrets::{SecretRouting, SecretsContext};
 use crate::{CarbideError, dynamic_settings, setup};
+
+/// Inputs prepared by the top-level `carbide-api` composition crate before
+/// core service initialization begins.
+#[doc(hidden)]
+pub struct CoreRunInputs<'a> {
+    pub carbide_config: Arc<CarbideConfig>,
+    pub initial_objects: Option<InitialObjectsConfig>,
+    pub credential_config: CredentialConfig,
+    pub logging: Logging,
+    pub meter: opentelemetry::metrics::Meter,
+    pub join_set: &'a mut JoinSet<()>,
+    pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
+    pub cancel_token: CancellationToken,
+    pub ready_channel: Sender<()>,
+}
 
 /// Vault machine PKI URI SANs must match `[auth.trust]` when site auth config is present.
 fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) -> VaultConfig {
@@ -72,61 +84,19 @@ fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) ->
 /// "offer the UI", not "force it on". The flag also gates the log-stream
 /// layer feeding the UI's live log viewer: with the UI off, no per-event
 /// work is spent collecting lines nothing can read.
-#[allow(clippy::too_many_arguments)]
-pub async fn run(
-    debug: u8,
-    config_str: PathBuf,
-    site_config_str: Option<PathBuf>,
-    credential_config: CredentialConfig,
-    skip_logging_setup: bool,
-    admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
-    cancel_token: CancellationToken,
-    ready_channel: Sender<()>,
-) -> eyre::Result<()> {
-    let carbide_config = setup::parse_carbide_config(&config_str, site_config_str.as_deref())?;
-
-    // If `CarbideConfig.initial_objects_file` is set, load it into an
-    // `InitialObjectsConfig` so that `start_api` can reconcile its contents
-    // against the database on first startup.
-    let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
-        Some(setup::parse_initial_objects_config(path)?)
-    } else {
-        None
-    };
-
-    // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
-    // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
-    for deny_prefix in carbide_config.deny_prefixes.iter() {
-        for site_fabric_prefix in carbide_config.site_fabric_prefixes.iter() {
-            if let ipnetwork::IpNetwork::V4(site_v4) = site_fabric_prefix
-                && deny_prefix.overlaps(*site_v4)
-            {
-                return Err(eyre::eyre!(
-                    "overlap found in deny_prefixes `{}` and site_fabric_prefixes `{}`",
-                    deny_prefix,
-                    site_fabric_prefix,
-                ));
-            }
-        }
-    }
-
-    let log_history_max_bytes = carbide_config
-        .log_history
-        .max_megabytes
-        .saturating_mul(1024 * 1024);
-    let tconf = if skip_logging_setup {
-        Logging::default()
-    } else {
-        setup_logging(
-            debug,
-            carbide_machine_controller::extra_logfmt_logging_fields(),
-            None::<NoSubscriber>,
-            log_history_max_bytes,
-            carbide_config.enable_admin_ui,
-            &carbide_config.tracing,
-        )
-        .wrap_err("setup_telemetry")?
-    };
+#[doc(hidden)]
+pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
+    let CoreRunInputs {
+        carbide_config,
+        initial_objects,
+        credential_config,
+        logging: tconf,
+        meter,
+        join_set,
+        admin_ui_routes_builder,
+        cancel_token,
+        ready_channel,
+    } = inputs;
 
     // Redact credentials before printing the config
     let print_config = carbide_config.redacted();
@@ -142,59 +112,13 @@ pub async fn run(
         "Tokio worker thread configuration",
     );
 
-    let metrics = create_metrics()?;
-    create_metric_for_spancount_reader(&metrics.meter, tconf.spancount_reader);
-    // Counts are process-global, so this exposes the host's layer too when an
-    // embedding binary (the integration harness) owns the subscriber.
-    carbide_instrument::log_events::register(&metrics.meter);
-    forge_http_connector::connector::register_global_metrics(&metrics.meter);
-
-    // All background tasks that run "forever" (until canceled) are added to this JoinSet. When
-    // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
-    // while propagating any panics to the current task.
-    let mut join_set = JoinSet::new();
-
-    // Spin up the webserver which servers `/metrics` requests
-    if let Some(metrics_address) = carbide_config.metrics_endpoint {
-        // If a replacement prefix for "carbide_" is configured, also emit metrics under that
-        let additional_prefix =
-            carbide_config
-                .alt_metric_prefix
-                .clone()
-                .map(|alt| metrics_endpoint::PrefixMigration {
-                    old: "carbide_".to_string(),
-                    new: alt,
-                });
-        join_set.build_task().name("metrics_endpoint").spawn({
-            let cancel_token = cancel_token.clone();
-            async move {
-                if let Err(e) = metrics_endpoint::run_metrics_endpoint_with_cancellation(
-                    &metrics_endpoint::MetricsEndpointConfig {
-                        address: metrics_address,
-                        registry: metrics.registry,
-                        health_controller: None,
-                        additional_prefix,
-                    },
-                    cancel_token,
-                )
-                .await
-                {
-                    tracing::error!(
-                        metrics_address = %metrics_address,
-                        error = %e,
-                        "Metrics endpoint failed",
-                    );
-                }
-            }
-        })?;
-    }
-
     // The opt-in per-object state metrics live on their own bare Prometheus
     // registry (native pull collectors, not OpenTelemetry instruments, whose
     // per-stream cardinality limit a per-object fleet vastly exceeds) and
     // their own listener, so operators can scrape (or skip) them
-    // independently. No alt-prefix mirroring here: it would double every
-    // per-object family.
+    // independently — which is also why it stays in core rather than the
+    // composition crate's process-metrics pipeline. No alt-prefix mirroring
+    // here: it would double every per-object family.
     let per_object_config = &carbide_config.observability.per_object_state_metrics;
     if per_object_config.enabled && per_object_config.object_types.is_empty() {
         tracing::warn!(
@@ -240,7 +164,7 @@ pub async fn run(
         log_stream: tconf.log_stream,
     };
     dynamic_settings.start_reset_task(
-        &mut join_set,
+        join_set,
         dynamic_settings::RESET_PERIOD,
         cancel_token.clone(),
     );
@@ -256,7 +180,7 @@ pub async fn run(
     let vault_config = vault_config_for_site(&credential_config.vault, &carbide_config);
 
     // One vault client serves every credential vault role below.
-    let vault_client = create_vault_client(&vault_config, metrics.meter.clone())?;
+    let vault_client = create_vault_client(&vault_config, meter.clone())?;
 
     // Certificate vending is selected independently of the credential store.
     // SharedVault (the default) reuses `vault_client` (no second client or token
@@ -272,7 +196,7 @@ pub async fn run(
             trust_domain: vault_config.spiffe_trust_domain(),
             machine_base_path: vault_config.spiffe_machine_base_path(),
         },
-        metrics.meter.clone(),
+        meter.clone(),
     )?;
 
     let db_pool = setup::create_and_connect_postgres_pool(&carbide_config).await?;
@@ -325,7 +249,7 @@ pub async fn run(
             secrets_config,
             &vault_config,
             &routing,
-            &mut join_set,
+            join_set,
             &cancel_token,
         )?;
 
@@ -482,10 +406,10 @@ pub async fn run(
         carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
 
     setup::start_api(
-        &mut join_set,
+        join_set,
         carbide_config,
         initial_objects,
-        metrics.meter,
+        meter,
         per_object_metrics,
         dynamic_settings,
         redfish_pool,
@@ -499,10 +423,6 @@ pub async fn run(
         ready_channel,
     )
     .await?;
-
-    // Block forever until all spawned tasks complete. Any panics in spawned tasks will be
-    // propagated here.
-    join_set.join_all().await;
 
     Ok(())
 }

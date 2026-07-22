@@ -104,20 +104,49 @@ async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
         }
     }"#;
 
-    post_machine_health_report(&app, &host_machine_id.to_string(), "add-report", payload).await;
+    let machine_id = host_machine_id.to_string();
+    let status = post_machine_health_report_with_request_context(
+        &app,
+        &machine_id,
+        "add-report",
+        payload,
+        "cross-site",
+        "https://attacker.example",
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 
-    let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let body = get_machine_health_page(&app, &machine_id).await;
+    assert!(!body.contains("web-health-test"));
+
+    post_machine_health_report(&app, &machine_id, "add-report", payload).await;
+
+    let body = get_machine_health_page(&app, &machine_id).await;
+    assert!(body.contains("web-health-test"));
+
+    let status = post_machine_health_report_with_request_context(
+        &app,
+        &machine_id,
+        "remove-report",
+        r#"{"source":"web-health-test"}"#,
+        "cross-site",
+        "https://attacker.example",
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let body = get_machine_health_page(&app, &machine_id).await;
     assert!(body.contains("web-health-test"));
 
     post_machine_health_report(
         &app,
-        &host_machine_id.to_string(),
+        &machine_id,
         "remove-report",
         r#"{"source":"web-health-test"}"#,
     )
     .await;
 
-    let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let body = get_machine_health_page(&app, &machine_id).await;
     assert!(!body.contains("web-health-test"));
 }
 
@@ -647,19 +676,40 @@ async fn post_machine_health_report(
     action: &str,
     payload: &str,
 ) {
-    let response = app
-        .clone()
+    let status = post_machine_health_report_with_request_context(
+        app,
+        machine_id,
+        action,
+        payload,
+        "same-origin",
+        "https://with.the.most",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+async fn post_machine_health_report_with_request_context(
+    app: &axum::Router,
+    machine_id: &str,
+    action: &str,
+    payload: &str,
+    sec_fetch_site: &str,
+    origin: &str,
+) -> StatusCode {
+    app.clone()
         .oneshot(
             web_request_builder()
                 .method(Method::POST)
                 .uri(format!("/admin/machine/{machine_id}/health/{action}"))
                 .header("Content-Type", "application/json")
+                .header("Sec-Fetch-Site", sec_fetch_site)
+                .header("Origin", origin)
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
         .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+        .unwrap()
+        .status()
 }
 
 async fn get_machine_health_page(app: &axum::Router, machine_id: &str) -> String {

@@ -21,7 +21,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, Event, LogAt};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
@@ -49,7 +49,6 @@ pub struct NvlPartitionMonitorMetrics {
     /// Number of stale partitions deleted from DB (not found in NMX-C)
     pub num_stale_partitions_deleted: usize,
     pub applied_changes: HashMap<AppliedChange, usize>,
-    pub operation_latencies: HashMap<AppliedChange, Vec<Duration>>,
     /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
     pub nvlink_config_apply_durations_ms: Vec<f64>,
     /// Chassis-level NMX-C connectivity failures that caused null nvlink status observations
@@ -73,7 +72,7 @@ pub enum ChassisNmxCUnreachableReason {
     PartitionMonitorWorkFailed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, LabelValue)]
 pub enum NmxcMetricOperation {
     Create,
     Remove,
@@ -81,7 +80,7 @@ pub enum NmxcMetricOperation {
     Update,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, LabelValue)]
 pub enum NmxcMetricOperationStatus {
     Completed,
     Failed,
@@ -95,6 +94,110 @@ pub struct AppliedChange {
     pub operation: NmxcMetricOperation,
     /// Whether the operation succeeded or failed
     pub status: NmxcMetricOperationStatus,
+}
+
+/// The NMX-C call that failed inside one partition operation. This stays in
+/// log context rather than becoming another latency label; its only other job
+/// is selecting the diagnostic operators already see for that call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NmxcOperationFailureStage {
+    None,
+    CreatePartitionRetry,
+    CreatePartition,
+    DeletePartition,
+    DeleteDefaultPartition,
+    GetPartitionInfo,
+    RemoveGpus,
+    AddGpus,
+}
+
+pub(crate) const DELETE_DEFAULT_PARTITION_FAILED_MESSAGE: &str =
+    "Failed to delete default partition";
+
+impl Display for NmxcOperationFailureStage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::None => "",
+            Self::CreatePartitionRetry => "create_partition_retry",
+            Self::CreatePartition => "create_partition",
+            Self::DeletePartition => "delete_partition",
+            Self::DeleteDefaultPartition => "delete_default_partition",
+            Self::GetPartitionInfo => "get_partition_info",
+            Self::RemoveGpus => "remove_gpus",
+            Self::AddGpus => "add_gpus",
+        })
+    }
+}
+
+/// `NmxcOperationFinished` closes one NMX-C partition operation. The Event
+/// owns the live latency sample; successful operations keep this Event
+/// log-silent, while a terminal failure keeps the diagnostic from the exact
+/// RPC stage that failed.
+#[derive(Event)]
+#[event(
+    event_name = "nvlink_nmxc_operation_finished",
+    metric_name = "carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds",
+    component = "nvlink-manager",
+    log = dynamic,
+    metric = histogram,
+    message = dynamic,
+    describe = "Time consumed for one NMX-C operation"
+)]
+pub(crate) struct NmxcOperationFinished {
+    #[label]
+    pub operation: NmxcMetricOperation,
+    #[label]
+    pub status: NmxcMetricOperationStatus,
+    #[observation]
+    pub latency: Duration,
+    #[context]
+    pub failure_stage: NmxcOperationFailureStage,
+    #[context]
+    pub nvlink_logical_partition_id: String,
+    #[context]
+    pub nmx_c_partition_id: String,
+    #[context]
+    pub create_partition_request: String,
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for NmxcOperationFinished {
+    fn log_at(&self) -> LogAt {
+        match self.status {
+            NmxcMetricOperationStatus::Completed => LogAt::Off,
+            NmxcMetricOperationStatus::Failed
+            | NmxcMetricOperationStatus::Timedout
+            | NmxcMetricOperationStatus::Cancelled => LogAt::Level(tracing::Level::WARN),
+        }
+    }
+}
+
+impl DynamicMessage for NmxcOperationFinished {
+    fn message(&self) -> &'static str {
+        match self.failure_stage {
+            NmxcOperationFailureStage::None => "NMX-C operation failed",
+            NmxcOperationFailureStage::CreatePartitionRetry => {
+                "Failed to retry create partition on NMX-C with multicast_groups_limit=0"
+            }
+            NmxcOperationFailureStage::CreatePartition => {
+                "Failed to issue create partition to NMX-C, continuing with other operations"
+            }
+            NmxcOperationFailureStage::DeletePartition => {
+                "Failed to issue delete partition to NMX-C, continuing with other operations"
+            }
+            NmxcOperationFailureStage::DeleteDefaultPartition => {
+                DELETE_DEFAULT_PARTITION_FAILED_MESSAGE
+            }
+            NmxcOperationFailureStage::GetPartitionInfo => {
+                "Failed to get partition info from NMX-C before update"
+            }
+            NmxcOperationFailureStage::RemoveGpus => {
+                "Failed to remove GPUs from partition on NMX-C"
+            }
+            NmxcOperationFailureStage::AddGpus => "Failed to add GPUs to partition on NMX-C",
+        }
+    }
 }
 
 /// Metrics collected for NMX-C data
@@ -128,7 +231,6 @@ impl NvlPartitionMonitorMetrics {
             num_nvlink_info_mismatches: 0,
             num_stale_partitions_deleted: 0,
             applied_changes: HashMap::new(),
-            operation_latencies: HashMap::new(),
             nvlink_config_apply_durations_ms: Vec::new(),
             num_nmx_c_unreachable_chassis: HashMap::new(),
             nmxc: NmxcMetrics {
@@ -201,7 +303,6 @@ impl DynamicLog for NvlPartitionMonitorIterationFinished {
 /// Instruments that are used by pub struct NvlPartitionMonitor
 pub struct NvlPartitionMonitorInstruments {
     pub nmxc_changes_applied: Counter<u64>,
-    pub operations_latency: Histogram<f64>,
     pub nvlink_config_apply_latency: Histogram<f64>,
 }
 
@@ -210,12 +311,6 @@ impl NvlPartitionMonitorInstruments {
         meter: Meter,
         shared_metrics: SharedMetricsHolder<NvlPartitionMonitorMetrics>,
     ) -> Self {
-        let operations_latency = meter
-            .f64_histogram("carbide_nvlink_partition_monitor_nmxc_op_latency")
-            .with_description("Time consumed for one NMX-C operation")
-            .with_unit("ms")
-            .build();
-
         let nvlink_config_apply_latency = meter
             .f64_histogram("carbide_nvlink_partition_monitor_nvlink_config_apply_latency")
             .with_description("Time since nvlink config was requested for this instance")
@@ -428,7 +523,6 @@ impl NvlPartitionMonitorInstruments {
 
         Self {
             nmxc_changes_applied,
-            operations_latency,
             nvlink_config_apply_latency,
         }
     }
@@ -442,18 +536,6 @@ impl NvlPartitionMonitorInstruments {
                     KeyValue::new("status", change.status),
                 ],
             );
-        }
-
-        for (change, latencies) in metrics.operation_latencies.iter() {
-            for latency in latencies {
-                self.operations_latency.record(
-                    1000.0 * latency.as_secs_f64(), // latency in milliseconds
-                    &[
-                        KeyValue::new("operation", change.operation),
-                        KeyValue::new("status", change.status),
-                    ],
-                );
-            }
         }
 
         for &duration_ms in &metrics.nvlink_config_apply_durations_ms {
@@ -507,14 +589,7 @@ impl From<ChassisNmxCUnreachableReason> for opentelemetry::Value {
 
 impl From<NmxcMetricOperation> for opentelemetry::Value {
     fn from(value: NmxcMetricOperation) -> Self {
-        let str_value = match value {
-            NmxcMetricOperation::Create => "create",
-            NmxcMetricOperation::Update => "update",
-            NmxcMetricOperation::Remove => "remove",
-            NmxcMetricOperation::RemoveDefaultPartition => "remove_default_partition",
-        };
-
-        Self::from(str_value)
+        Self::from(value.label_value())
     }
 }
 
@@ -539,14 +614,7 @@ impl NmxcMetricOperationStatus {
 
 impl From<NmxcMetricOperationStatus> for opentelemetry::Value {
     fn from(value: NmxcMetricOperationStatus) -> Self {
-        let str_value = match value {
-            NmxcMetricOperationStatus::Completed => "completed",
-            NmxcMetricOperationStatus::Failed => "failed",
-            NmxcMetricOperationStatus::Timedout => "timedout",
-            NmxcMetricOperationStatus::Cancelled => "cancelled",
-        };
-
-        Self::from(str_value)
+        Self::from(value.label_value())
     }
 }
 
@@ -687,6 +755,269 @@ mod tests {
                     histogram_sum_delta: metrics.histogram_sum_delta(METRIC_NAME, &[]),
                 }
             },
+        );
+    }
+
+    #[test]
+    fn nmxc_operation_records_latency_and_keeps_each_failure_message() {
+        const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds";
+
+        struct OperationCase {
+            scenario: &'static str,
+            operation: NmxcMetricOperation,
+            operation_label: &'static str,
+            status: NmxcMetricOperationStatus,
+            status_label: &'static str,
+            failure_stage: NmxcOperationFailureStage,
+            failure_stage_label: &'static str,
+            nmx_c_partition_id: &'static str,
+            create_partition_request: &'static str,
+            message: Option<&'static str>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct OperationLog {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            operation: Option<String>,
+            status: Option<String>,
+            failure_stage: Option<String>,
+            nvlink_logical_partition_id: Option<String>,
+            nmx_c_partition_id: Option<String>,
+            create_partition_request: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct OperationObservation {
+            log: Option<OperationLog>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        fn expected_log(case: &OperationCase) -> Option<OperationLog> {
+            case.message.map(|message| OperationLog {
+                level: tracing::Level::WARN,
+                metadata_name: "nvlink_nmxc_operation_finished".to_string(),
+                message: message.to_string(),
+                event_name: Some("nvlink_nmxc_operation_finished".to_string()),
+                metric_name: Some(METRIC_NAME.to_string()),
+                operation: Some(case.operation_label.to_string()),
+                status: Some(case.status_label.to_string()),
+                failure_stage: Some(case.failure_stage_label.to_string()),
+                nvlink_logical_partition_id: Some("logical-partition-1".to_string()),
+                nmx_c_partition_id: Some(case.nmx_c_partition_id.to_string()),
+                create_partition_request: Some(case.create_partition_request.to_string()),
+                error: Some("rpc failed".to_string()),
+            })
+        }
+
+        let cases = [
+            OperationCase {
+                scenario: "completed create",
+                operation: NmxcMetricOperation::Create,
+                operation_label: "create",
+                status: NmxcMetricOperationStatus::Completed,
+                status_label: "completed",
+                failure_stage: NmxcOperationFailureStage::None,
+                failure_stage_label: "",
+                nmx_c_partition_id: "",
+                create_partition_request: "",
+                message: None,
+            },
+            OperationCase {
+                scenario: "create retry failed",
+                operation: NmxcMetricOperation::Create,
+                operation_label: "create",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::CreatePartitionRetry,
+                failure_stage_label: "create_partition_retry",
+                nmx_c_partition_id: "",
+                create_partition_request: "retry request",
+                message: Some(
+                    "Failed to retry create partition on NMX-C with multicast_groups_limit=0",
+                ),
+            },
+            OperationCase {
+                scenario: "create failed",
+                operation: NmxcMetricOperation::Create,
+                operation_label: "create",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::CreatePartition,
+                failure_stage_label: "create_partition",
+                nmx_c_partition_id: "",
+                create_partition_request: "create request",
+                message: Some(
+                    "Failed to issue create partition to NMX-C, continuing with other operations",
+                ),
+            },
+            OperationCase {
+                scenario: "delete failed",
+                operation: NmxcMetricOperation::Remove,
+                operation_label: "remove",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::DeletePartition,
+                failure_stage_label: "delete_partition",
+                nmx_c_partition_id: "42",
+                create_partition_request: "",
+                message: Some(
+                    "Failed to issue delete partition to NMX-C, continuing with other operations",
+                ),
+            },
+            OperationCase {
+                scenario: "default partition delete failed",
+                operation: NmxcMetricOperation::RemoveDefaultPartition,
+                operation_label: "remove_default_partition",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::DeleteDefaultPartition,
+                failure_stage_label: "delete_default_partition",
+                nmx_c_partition_id: "42",
+                create_partition_request: "",
+                message: Some("Failed to delete default partition"),
+            },
+            OperationCase {
+                scenario: "partition lookup failed",
+                operation: NmxcMetricOperation::Update,
+                operation_label: "update",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::GetPartitionInfo,
+                failure_stage_label: "get_partition_info",
+                nmx_c_partition_id: "42",
+                create_partition_request: "",
+                message: Some("Failed to get partition info from NMX-C before update"),
+            },
+            OperationCase {
+                scenario: "GPU removal failed",
+                operation: NmxcMetricOperation::Update,
+                operation_label: "update",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::RemoveGpus,
+                failure_stage_label: "remove_gpus",
+                nmx_c_partition_id: "42",
+                create_partition_request: "",
+                message: Some("Failed to remove GPUs from partition on NMX-C"),
+            },
+            OperationCase {
+                scenario: "GPU addition failed",
+                operation: NmxcMetricOperation::Update,
+                operation_label: "update",
+                status: NmxcMetricOperationStatus::Failed,
+                status_label: "failed",
+                failure_stage: NmxcOperationFailureStage::AddGpus,
+                failure_stage_label: "add_gpus",
+                nmx_c_partition_id: "42",
+                create_partition_request: "",
+                message: Some("Failed to add GPUs to partition on NMX-C"),
+            },
+        ];
+
+        let checks = cases.into_iter().map(|case| {
+            let expect = OperationObservation {
+                log: expected_log(&case),
+                histogram_count_delta: 1,
+                histogram_sum_delta: 1.25,
+            };
+            Check {
+                scenario: case.scenario,
+                input: case,
+                expect,
+            }
+        });
+
+        check_values(checks, |case| {
+            let metrics = MetricsCapture::start();
+            let logs = capture_logs(|| {
+                emit(NmxcOperationFinished {
+                    operation: case.operation,
+                    status: case.status,
+                    latency: Duration::from_micros(1_250),
+                    failure_stage: case.failure_stage,
+                    nvlink_logical_partition_id: "logical-partition-1".to_string(),
+                    nmx_c_partition_id: case.nmx_c_partition_id.to_string(),
+                    create_partition_request: case.create_partition_request.to_string(),
+                    error: "rpc failed".to_string(),
+                });
+            });
+            let log = logs.first().map(|log| OperationLog {
+                level: log.level,
+                metadata_name: log.metadata_name.clone(),
+                message: log.message.clone(),
+                event_name: log.field("event_name").map(str::to_string),
+                metric_name: log.field("metric_name").map(str::to_string),
+                operation: log.field("operation").map(str::to_string),
+                status: log.field("status").map(str::to_string),
+                failure_stage: log.field("failure_stage").map(str::to_string),
+                nvlink_logical_partition_id: log
+                    .field("nvlink_logical_partition_id")
+                    .map(str::to_string),
+                nmx_c_partition_id: log.field("nmx_c_partition_id").map(str::to_string),
+                create_partition_request: log.field("create_partition_request").map(str::to_string),
+                error: log.field("error").map(str::to_string),
+            });
+
+            OperationObservation {
+                log,
+                histogram_count_delta: metrics.histogram_count_delta(
+                    METRIC_NAME,
+                    &[
+                        ("operation", case.operation_label),
+                        ("status", case.status_label),
+                    ],
+                ),
+                histogram_sum_delta: metrics.histogram_sum_delta(
+                    METRIC_NAME,
+                    &[
+                        ("operation", case.operation_label),
+                        ("status", case.status_label),
+                    ],
+                ),
+            }
+        });
+    }
+
+    #[test]
+    fn nmxc_operation_histogram_exposition_stays_stable() {
+        const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds";
+
+        let metrics = MetricsCapture::start();
+        emit(NmxcOperationFinished {
+            operation: NmxcMetricOperation::Update,
+            status: NmxcMetricOperationStatus::Completed,
+            latency: Duration::from_millis(125),
+            failure_stage: NmxcOperationFailureStage::None,
+            nvlink_logical_partition_id: String::new(),
+            nmx_c_partition_id: String::new(),
+            create_partition_request: String::new(),
+            error: String::new(),
+        });
+
+        let encoded = metrics.render();
+        assert!(
+            encoded.contains(&format!(
+                "# HELP {METRIC_NAME} Time consumed for one NMX-C operation\n"
+            )),
+            "description or exposed family changed:\n{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!("# TYPE {METRIC_NAME} histogram\n")),
+            "expected the millisecond family to remain a histogram:\n{encoded}"
+        );
+        assert!(
+            encoded.contains("operation=\"update\",status=\"completed\""),
+            "expected the historical operation/status labels:\n{encoded}"
+        );
+        assert!(
+            !encoded.contains("_milliseconds_milliseconds"),
+            "the unit suffix must be applied exactly once:\n{encoded}"
         );
     }
 

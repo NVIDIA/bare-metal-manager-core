@@ -49,6 +49,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dns_request_duration_milliseconds</td><td>histogram</td><td>Time to process a DNS query, by query type and response code</td></tr>
 <tr><td>carbide_dns_responses_total</td><td>counter</td><td>Number of DNS responses sent, by response code</td></tr>
 <tr><td>carbide_dpa_monitor_iteration_latency_milliseconds</td><td>histogram</td><td>Time consumed for one monitor iteration</td></tr>
+<tr><td>carbide_dpa_monitor_operations_latency_milliseconds</td><td>histogram</td><td>Time consumed for one operation</td></tr>
 <tr><td>carbide_dpu_agent_report_total</td><td>counter</td><td>Number of DPU-agent report-loop iterations, by loop and outcome</td></tr>
 <tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>Number of DPU agents which have reported a certain version.</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>Number of DPUs which have reported a certain firmware version.</td></tr>
@@ -98,6 +99,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_ib_monitor_machines_with_missing_pkeys_count</td><td>gauge</td><td>Number of machines where at least one port is not assigned to the expected pkey on UFM</td></tr>
 <tr><td>carbide_ib_monitor_machines_with_unexpected_pkeys_count</td><td>gauge</td><td>Number of machines where at least one port is assigned to an unexpected pkey on UFM</td></tr>
 <tr><td>carbide_ib_monitor_machines_with_unknown_pkeys_count</td><td>gauge</td><td>Number of machines where at least one port is assigned to a pkey value not associated with any partition ID</td></tr>
+<tr><td>carbide_ib_monitor_ufm_changes_applied_total</td><td>counter</td><td>Number of changes performed at UFM</td></tr>
 <tr><td>carbide_ib_partitions_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_ib_partitions in the system</td></tr>
 <tr><td>carbide_ib_partitions_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_object_tasks_enqueued_total</td><td>counter</td><td>Number of object handling tasks freshly enqueued for objects of type carbide_ib_partitions</td></tr>
@@ -158,6 +160,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_nvlink_partition_monitor_iteration_latency_milliseconds</td><td>histogram</td><td>Time consumed for one monitor iteration</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_machine_status_updates_count</td><td>gauge</td><td>Number of machines whose NVLink status observation was updated</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_nmxc_changes_applied_total</td><td>counter</td><td>Number of changes requested to NMX-C</td></tr>
+<tr><td>carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds</td><td>histogram</td><td>Time consumed for one NMX-C operation</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_num_logical_partitions</td><td>gauge</td><td>Number of monitored logical partitions</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_num_physical_partitions</td><td>gauge</td><td>Number of monitored physical partitions</td></tr>
 <tr><td>carbide_nvlink_partition_monitor_nvlink_info_mismatches</td><td>gauge</td><td>Number of NVLink GPU partition ID mismatches between DB and NMX-C</td></tr>

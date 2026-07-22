@@ -158,6 +158,8 @@ navigation:
           path: operations/firmware-updates.md
         - page: Monitoring and Health
           path: operations/monitoring-health.md
+        - page: NICo MCP Server
+          path: operations/nico-mcp.md
         - page: Tenant Lifecycle Cleanup
           path: operations/tenant-lifecycle-cleanup.md
         - page: Network Isolation

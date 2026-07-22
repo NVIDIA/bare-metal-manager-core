@@ -9,8 +9,6 @@ nico-api:
     requests:
       cpu: "1"
       memory: "1Gi"
-  legacyAlias:
-    enabled: false
   webAuth:
     mode: "none"
   siteConfig:
