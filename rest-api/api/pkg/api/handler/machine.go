@@ -19,6 +19,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	temporalClient "go.temporal.io/sdk/client"
+	tsdkConverter "go.temporal.io/sdk/converter"
 	tp "go.temporal.io/sdk/temporal"
 
 	"github.com/google/uuid"
@@ -2125,6 +2126,13 @@ func (gadmh GetAllDpuMachineHandler) Handle(c echo.Context) error {
 	// Block until the workflow has completed and returned success/error.
 	var controllerDpuMachines corev1.DpuMachineList
 	wferr := we.Get(wfCtx, &controllerDpuMachines)
+	if errors.Is(wferr, tsdkConverter.ErrUnableToDecode) {
+		var legacyDpuMachines []*corev1.DpuMachine
+		wferr = we.Get(wfCtx, &legacyDpuMachines)
+		if wferr == nil {
+			controllerDpuMachines.Machines = legacyDpuMachines
+		}
+	}
 	if wferr != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
