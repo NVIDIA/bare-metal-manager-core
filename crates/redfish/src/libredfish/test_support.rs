@@ -263,12 +263,7 @@ impl RedfishSim {
     }
 
     pub fn user_password(&self, account_id: &str) -> Option<String> {
-        self.state
-            .lock()
-            .unwrap()
-            .users
-            .get(account_id)
-            .cloned()
+        self.state.lock().unwrap().users.get(account_id).cloned()
     }
 
     /// Make `change_password` (the by-username path) fail with

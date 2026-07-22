@@ -279,11 +279,7 @@ impl BmcEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         let new_password = self.get_sitewide_bf4_dpu_service_password(true).await?;
         self.redfish_client
-            .set_bf4_dpu_service_password(
-                bmc_ip_address,
-                root_credentials.clone(),
-                new_password,
-            )
+            .set_bf4_dpu_service_password(bmc_ip_address, root_credentials.clone(), new_password)
             .await
     }
 
@@ -828,8 +824,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .redfish_client
                     .get_redfish_product(bmc_ip_address)
                     .await?;
-                let is_bf4_dpu =
-                    bmc_explorer::is_bf4_product(product.as_deref().map(Product::new));
+                let is_bf4_dpu = bmc_explorer::is_bf4_product(product.as_deref().map(Product::new));
 
                 let bmc_cred_data = match expected {
                     Some(v) => {

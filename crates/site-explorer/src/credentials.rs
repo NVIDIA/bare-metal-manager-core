@@ -221,7 +221,9 @@ impl CredentialClient {
 mod tests {
     use std::sync::Arc;
 
-    use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+    use carbide_secrets::credentials::{
+        BmcCredentialType, CredentialKey, CredentialWriter, Credentials,
+    };
     use carbide_secrets::test_support::credentials::TestCredentialManager;
     use model::site_explorer::EndpointExplorationError;
 

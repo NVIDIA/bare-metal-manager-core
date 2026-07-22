@@ -655,9 +655,7 @@ impl CredentialKey {
                 BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
-                BmcCredentialType::SiteWideBf4Service => {
-                    Cow::from("machines/bmc/site/bf4_service")
-                }
+                BmcCredentialType::SiteWideBf4Service => Cow::from("machines/bmc/site/bf4_service"),
             },
             CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
                 NicLockdownIkm::SiteWide { version } => {
