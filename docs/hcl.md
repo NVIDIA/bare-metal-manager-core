@@ -4,7 +4,11 @@ This Hardware Compatibility List (HCL) is provided for reference purposes only. 
 Inclusion in this list does not imply qualification, certification, or support, and does not represent a commitment to ongoing compatibility. For specific hardware support
 inquiries or technical specifications, please contact the original hardware vendor.
 
-## Hosts
+The sections below distinguish platforms maintained by NVIDIA from platforms contributed and maintained by the community.
+
+## NVIDIA-Maintained Platforms
+
+### Hosts
 
 **Last Updated: 2/20/2026**
 
@@ -47,7 +51,7 @@ inquiries or technical specifications, please contact the original hardware vend
 
 \* OVX may not show up as an option; check the Server Serial Number to confirm.
 
-### Hosts -- Under Development
+#### Hosts -- Under Development
 
 This list outlines platforms that are under development and have not undergone full unit testing.
 
@@ -55,10 +59,16 @@ This list outlines platforms that are under development and have not undergone f
 |-------------------------------------|-------------------------------------|---------------------|--------------------------------------------|
 | Lenovo GB300 Compute Tray           | 3.0.0                               | 1.0.0GA             | 1.0.0GA                                    |
 
-## DPUs
+### DPUs
 
 | DPU          | Firmware / Software Version                       |
 |--------------|---------------------------------------------------|
 | BlueField 2  | DOCA 3.2.0                                        |
 | BlueField 3  | DOCA 3.2.0                                        |
+
+## Coming Soon: Community-Added Platforms
+
+Community-added platforms will be listed here separately from NVIDIA-maintained platforms. Each entry will identify a contact for questions and issues and link to the corresponding GitHub issue or discussion for implementation history and ongoing coordination.
+
+No community-added platforms are currently listed.
 
