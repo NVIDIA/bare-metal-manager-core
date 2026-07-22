@@ -36,7 +36,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-// templatedProxyFixture wires up a tenant-owned Global Templated iPXE OS test
+// templatedProxyFixture wires up a tenant-owned Templated iPXE OS test
 // environment with one registered site and a Public template available there.
 type templatedProxyFixture struct {
 	ctx       context.Context
@@ -220,16 +220,16 @@ func (f *templatedProxyFixture) osStatus(t *testing.T, osID uuid.UUID) string {
 }
 
 // TestOperatingSystemHandler_TemplatedIPXE_Proxy exercises the full create /
-// update / delete lifecycle of a Global-scope Templated iPXE Operating System,
-// which is synchronized to its associated Sites through the generic NICo Core
-// gRPC proxy (coreproxy.WorkflowName) rather than the dedicated OsImage
-// workflows used by Image based Operating Systems.
+// update / delete lifecycle of a Templated iPXE Operating System, which is
+// synchronized to its associated Sites through the generic NICo Core gRPC proxy
+// (coreproxy.WorkflowName) rather than the dedicated OsImage workflows used by
+// Image based Operating Systems.
 func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 	f := buildTemplatedProxyFixture(t)
 
 	var osID string
 
-	t.Run("create Global Templated iPXE syncs to sites via proxy", func(t *testing.T) {
+	t.Run("create Templated iPXE syncs to sites via proxy", func(t *testing.T) {
 		psc := newProxySiteClient(t, createOperatingSystemMethod, nil, nil)
 		f.bindProxyClient(psc)
 

@@ -98,12 +98,11 @@ func NewCreateInstanceHandler(dbSession *cdb.Session, tc temporalClient.Client, 
 // (a Synced OperatingSystemSiteAssociation) so the Site can render the template
 // at provisioning time.
 //
-// This is intentionally scope-agnostic. osScope constrains OS *creation* and
-// definition sync direction, not Instance selection: a Local OS (created in
-// nico-core) is a legitimate, usable definition once it is present at its Site,
-// and Global/Limited OSes are usable once their rest -> core push has completed.
-// In every case a Synced association is the signal that the definition is
-// actually available at the Site, so we gate on that alone.
+// This is intentionally independent of how the OS was created or which side owns
+// its definition: single-site OSes sync bidirectionally with nico-core, while
+// multi-site OSes are REST-owned and pushed out to their Sites. In every case a
+// Synced association is the signal that the definition is actually available at
+// the Site, so we gate on that alone.
 func validateTemplatedIpxeOsForSite(ctx context.Context, dbSession *cdb.Session, logger *zerolog.Logger, os *cdbm.OperatingSystem, siteID uuid.UUID) *cutil.APIError {
 	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
 	_, ossaCount, err := ossaDAO.GetAll(

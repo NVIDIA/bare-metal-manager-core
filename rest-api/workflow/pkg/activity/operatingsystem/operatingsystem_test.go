@@ -531,13 +531,13 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 
 // TestManageOsImage_UpdateOperatingSystemsInDB exercises the Operating System
 // inventory reconciliation performed for iPXE / Templated iPXE Operating Systems
-// pushed from nico-core: creation of provider-owned Local records, skipping of
-// Templated iPXE records whose template is not available at the Site, and
-// deletion-by-absence of Local records no longer reported by the Site.
+// pushed from nico-core: creation of provider-owned single-site records, skipping
+// of Templated iPXE records whose template is not available at the Site, and
+// deletion-by-absence of single-site records no longer reported by the Site.
 //
 // The suite uses a distinct Infrastructure Provider (and Site) per scenario so
-// the provider-scoped deletion reconciliation of one scenario cannot affect the
-// records created by another.
+// the per-Site deletion reconciliation of one scenario cannot affect the records
+// created by another.
 func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 	dbSession := util.TestInitDB(t)
 	defer dbSession.Close()
@@ -559,7 +559,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		return ManageOsImage{dbSession: dbSession, siteClientPool: util.TestTemporalSiteClientPool(t)}
 	}
 
-	t.Run("creates provider-owned Local Templated iPXE OS reported by Site", func(t *testing.T) {
+	t.Run("creates provider-owned single-site Templated iPXE OS reported by Site", func(t *testing.T) {
 		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-create", "provider-create-org", ipu)
 		st := util.TestBuildSite(t, dbSession, ip, "site-create", cdbm.SiteStatusRegistered, nil, ipu)
 
