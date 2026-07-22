@@ -42,7 +42,7 @@ require_bin base64
 mkdir -p "${WORK_DIR}"
 
 kubectl rollout status deployment/nico-api -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
-kubectl rollout status deployment/machine-a-tron -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
+kubectl rollout status deployment/nico-machine-a-tron -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-api -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-cert-manager -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-cloud-worker -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
@@ -128,7 +128,7 @@ inventory_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
   curl --fail --insecure --silent --max-time 5 \
-  https://machine-a-tron-bmc-mock:1266/machines/status 2>/dev/null || true)"
+  https://nico-machine-a-tron-bmc-mock:1266/machines/status 2>/dev/null || true)"
 expected_host_count="$(jq -r \
   'if (.machines | type) == "array" then .machines | length else 0 end' \
   <<<"${machine_status}" 2>/dev/null || printf '0')"
