@@ -52,7 +52,6 @@ use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
 use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
@@ -110,7 +109,7 @@ use crate::mqtt_state_change_hook::republisher::{
     ManagedHostStateRepublisher, ManagedHostStateRepublisherParams,
 };
 use crate::scout_stream::ConnectionRegistry;
-use crate::{attestation, db_init, ethernet_virtualization, listener};
+use crate::{CarbideError, attestation, db_init, ethernet_virtualization, listener};
 
 pub fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
@@ -132,17 +131,70 @@ pub fn create_ipmi_tool(
         }
     }
 }
+
+fn create_redfish_pool(
+    carbide_config: &CarbideConfig,
+    credential_manager: Arc<dyn CredentialManager>,
+) -> eyre::Result<Arc<dyn RedfishClientPool>> {
+    let pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()
+        .map_err(CarbideError::from)?;
+
+    // Support deprecated configuration for site_explorer.override_target_ip and
+    // override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
+    match (
+        &carbide_config.site_explorer.override_target_ip,
+        carbide_config.site_explorer.override_target_port,
+        carbide_config.site_explorer.bmc_proxy.load().as_ref(),
+    ) {
+        (Some(_), _, Some(_)) => tracing::warn!(
+            "Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config."
+        ),
+        (Some(ip), port, None) => {
+            tracing::warn!(
+                "Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+            );
+            let proxy = port.map_or_else(
+                || HostPortPair::HostOnly(ip.to_string()),
+                |port| HostPortPair::HostAndPort(ip.to_string(), port),
+            );
+            carbide_config
+                .site_explorer
+                .bmc_proxy
+                .store(Arc::new(Some(proxy)));
+        }
+        (None, Some(port), None) => {
+            tracing::warn!(
+                "Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+            );
+            carbide_config
+                .site_explorer
+                .bmc_proxy
+                .store(Arc::new(Some(HostPortPair::PortOnly(port))));
+        }
+        (None, Some(_), Some(_)) => tracing::warn!(
+            "Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config."
+        ),
+        (None, None, _) => {} // leave bmc_proxy untouched
+    }
+
+    Ok(carbide_redfish::libredfish::new_pool(
+        credential_manager,
+        pool,
+        carbide_config.site_explorer.bmc_proxy.clone(),
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
-pub async fn start_api(
+pub(crate) async fn start_runtime(
     join_set: &mut JoinSet<()>,
     carbide_config: Arc<CarbideConfig>,
     initial_objects: Option<InitialObjectsConfig>,
     meter: Meter,
     per_object_prometheus_registry: Option<prometheus::Registry>,
     dynamic_settings: DynamicSettings,
-    shared_redfish_pool: Arc<dyn RedfishClientPool>,
-    shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
     db_pool: PgPool,
@@ -151,6 +203,10 @@ pub async fn start_api(
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
+    let shared_redfish_pool = create_redfish_pool(&carbide_config, credential_manager.clone())?;
+    let shared_nv_redfish_pool =
+        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
+
     let ipmi_tool = create_ipmi_tool(
         credential_manager.clone(),
         &carbide_config,

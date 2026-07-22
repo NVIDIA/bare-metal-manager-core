@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 use carbide_api_core::AdminUiRoutesBuilder;
-use carbide_api_core::bootstrap::{CoreRunInputs, Logging, run_core, start_core_runtime};
+use carbide_api_core::bootstrap::{Logging, RuntimeInputs, start_runtime, start_runtime_prelude};
 use carbide_secrets::CredentialConfig;
 use eyre::WrapErr;
 use tokio::sync::oneshot::Sender;
@@ -48,7 +48,7 @@ pub async fn run(
     )?;
 
     // If `CarbideConfig.initial_objects_file` is set, load it into an
-    // `InitialObjectsConfig` so that `start_api` can reconcile its contents
+    // `InitialObjectsConfig` so that the core runtime can reconcile its contents
     // against the database on first startup.
     let initial_objects = if let Some(path) = carbide_config.initial_objects_file.as_deref() {
         Some(carbide_api_core::cfg::load::parse_initial_objects_config(
@@ -97,8 +97,8 @@ pub async fn run(
     let per_object_metrics =
         start_per_object_metrics_endpoint(&mut join_set, &carbide_config, cancel_token.clone())?;
 
-    let dynamic_settings =
-        start_core_runtime(&carbide_config, logging, &mut join_set, &cancel_token);
+    let runtime_prelude =
+        start_runtime_prelude(&carbide_config, logging, &mut join_set, &cancel_token);
 
     let RuntimeResources {
         credential_manager,
@@ -114,13 +114,13 @@ pub async fn run(
     )
     .await?;
 
-    run_core(CoreRunInputs {
+    start_runtime(RuntimeInputs {
         carbide_config,
         initial_objects,
         meter,
         per_object_metrics,
         join_set: &mut join_set,
-        dynamic_settings,
+        runtime_prelude,
         credential_manager,
         certificate_provider,
         db_pool,

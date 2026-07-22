@@ -21,20 +21,38 @@
 //! types that must cross the crate boundary while service implementation stays
 //! in `carbide-api-core`.
 
+use std::sync::Arc;
+
+use carbide_secrets::certificates::CertificateProvider;
+use carbide_secrets::credentials::CredentialManager;
+use sqlx::PgPool;
+use tokio::sync::oneshot::Sender;
+use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
+
 pub use crate::api::metrics::ApiMetricsEmitter;
-pub use crate::dynamic_settings::DynamicSettings;
+use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+use crate::dynamic_settings::DynamicSettings;
+use crate::listener::AdminUiRoutesBuilder;
 pub use crate::logging::level_filter::{ActiveLevel, ReloadableFilter};
 pub use crate::logging::setup::{Logging, dep_log_filter};
 pub use crate::logging::stream::LogStreamLayer;
-pub use crate::run::{CoreRunInputs, run_core};
+use crate::secrets::SecretsContext;
+
+/// Opaque core runtime state initialized before external resources.
+#[doc(hidden)]
+pub struct RuntimePrelude {
+    dynamic_settings: DynamicSettings,
+}
 
 /// Start the core runtime work that must precede external resource initialization.
-pub fn start_core_runtime(
-    carbide_config: &crate::cfg::file::CarbideConfig,
+#[doc(hidden)]
+pub fn start_runtime_prelude(
+    carbide_config: &CarbideConfig,
     logging: Logging,
-    join_set: &mut tokio::task::JoinSet<()>,
-    cancel_token: &tokio_util::sync::CancellationToken,
-) -> DynamicSettings {
+    join_set: &mut JoinSet<()>,
+    cancel_token: &CancellationToken,
+) -> RuntimePrelude {
     // Redact credentials before printing the config
     let print_config = carbide_config.redacted();
 
@@ -71,7 +89,76 @@ pub fn start_core_runtime(
         "Start carbide-api",
     );
 
-    dynamic_settings
+    RuntimePrelude { dynamic_settings }
+}
+
+/// Prepared resources passed through the cross-crate runtime boundary.
+#[doc(hidden)]
+pub struct RuntimeInputs<'a> {
+    pub carbide_config: Arc<CarbideConfig>,
+    pub initial_objects: Option<InitialObjectsConfig>,
+    pub meter: opentelemetry::metrics::Meter,
+    pub per_object_metrics: Option<prometheus::Registry>,
+    pub join_set: &'a mut JoinSet<()>,
+    pub runtime_prelude: RuntimePrelude,
+    pub credential_manager: Arc<dyn CredentialManager>,
+    pub certificate_provider: Arc<dyn CertificateProvider>,
+    pub db_pool: PgPool,
+    pub secrets_context: Option<SecretsContext>,
+    pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
+    pub cancel_token: CancellationToken,
+    pub ready_channel: Sender<()>,
+}
+
+/// Enter api-core's private service runtime with fully prepared resources.
+///
+/// `admin_ui_routes_builder` is how the admin web UI's pages (everything under
+/// `/admin`) get plugged in: pass `Some(Box::new(carbide_api_web::routes))` to
+/// serve them, or `None` to skip the web UI entirely (e.g. in-process test
+/// servers, which only hit the gRPC API). It's passed in rather than called
+/// directly to avoid a dependency cycle — see [`AdminUiRoutesBuilder`] for why.
+///
+/// Note: even when `Some` is passed, the admin UI is only mounted if the
+/// `enable_admin_ui` config flag is true (the default). When it's false, the
+/// core runtime drops the builder and serves gRPC only — so `Some` here means
+/// "offer the UI", not "force it on". The flag also gates the log-stream
+/// layer feeding the UI's live log viewer: with the UI off, no per-event
+/// work is spent collecting lines nothing can read.
+#[doc(hidden)]
+pub async fn start_runtime(inputs: RuntimeInputs<'_>) -> eyre::Result<()> {
+    let RuntimeInputs {
+        carbide_config,
+        initial_objects,
+        meter,
+        per_object_metrics,
+        join_set,
+        runtime_prelude,
+        credential_manager,
+        certificate_provider,
+        db_pool,
+        secrets_context,
+        admin_ui_routes_builder,
+        cancel_token,
+        ready_channel,
+    } = inputs;
+    let RuntimePrelude { dynamic_settings } = runtime_prelude;
+
+    crate::setup::start_runtime(
+        join_set,
+        carbide_config,
+        initial_objects,
+        meter,
+        per_object_metrics,
+        dynamic_settings,
+        credential_manager,
+        certificate_provider,
+        db_pool,
+        secrets_context,
+        admin_ui_routes_builder,
+        cancel_token,
+        ready_channel,
+    )
+    .await
 }
 
 /// Acquire the session-level lock that serializes the one-time Vault import.

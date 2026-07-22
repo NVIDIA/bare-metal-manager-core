@@ -62,7 +62,6 @@ carbide-rack = { path = "../rack" }
 carbide-rack-controller = { path = "../rack-controller" }
 carbide-redfish = { path = "../redfish" }
 carbide-rpc = { path = "../rpc", features = ["sqlx", "model"] }
-carbide-rpc-utils = { path = "../rpc-utils" }
 carbide-secrets = { path = "../secrets" }
 carbide-site-explorer = { path = "../site-explorer" }
 carbide-spdm-controller = { path = "../spdm-controller" }
@@ -90,12 +89,10 @@ async-trait = { workspace = true }
 axum = { workspace = true, features = ["http2"] }
 base64 = { workspace = true }
 byteorder = { workspace = true }
-bytes = { workspace = true }
 casbin = { workspace = true, features = ["glob"] }
 chrono = { workspace = true }
 clap = { workspace = true }
 dashmap = { workspace = true }
-data-encoding = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }
 figment = { workspace = true, features = ["env", "toml"] }
@@ -105,7 +102,6 @@ hex = { workspace = true }
 hkdf = { workspace = true }
 hostname = { workspace = true }
 http = { workspace = true }
-http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["full"] }
 hyper-util = { workspace = true }
 ipnetwork = { workspace = true, features = ["serde"] }
@@ -156,10 +152,8 @@ sqlx = { workspace = true, features = [
   "macros",
   "json",
 ] }
-strum = { workspace = true }
 temp-dir = { workspace = true }
 thiserror = { workspace = true }
-time = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-stream = { workspace = true }
@@ -244,10 +238,11 @@ state-controller = { path = "../state-controller", features = ["test-support"] }
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 const_format = { workspace = true }
 ctor = { workspace = true }
+data-encoding = { workspace = true }
 figment = { workspace = true, features = ["env", "test", "toml"] }
 mockito = { workspace = true }
-prost = { workspace = true }
 rcgen = { workspace = true }
+strum = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]
