@@ -9,100 +9,111 @@ The preferred operator workflow uses the REST API and `nicocli`. Follow [Ingesti
 Ensure you have the following prerequisites met before ingesting machines:
 
 1. You have `nicocli` installed and configured for the target REST API. See the [Quick Start Guide](../getting-started/quick-start.md).
-2. For the remaining REST parity gaps, you have `nico-admin-cli` and direct access to the NICo site. See the next section for details.
-3. The NICo API service is running at IP address `NICo_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
-4. DHCP requests from all managed host IPMI networks have been forwarded to the NICo service running at IP address `NICo_DHCP_EXTERNAL`.
-5. You have the following information for all hosts that need to be ingested:
+1. For the remaining REST parity gaps, you have `nico-admin-cli` and direct access to the NICo site. See the next section for details.
+1. The NICo API service is running at IP address `NICo_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
+1. DHCP requests from all managed host IPMI networks have been forwarded to the NICo service running at IP address `NICo_DHCP_EXTERNAL`.
+1. You have the following information for all hosts that need to be ingested:
 
-    - The MAC address of the host BMC
-    - The chassis serial number 
-    - The host BMC username (typically this is the factory default username)
-    - The host BMC password (typically this is the factory default password)
+   - The MAC address of the host BMC
+   - The chassis serial number
+   - The host BMC username (typically this is the factory default username)
+   - The host BMC password (typically this is the factory default password)
+
+<Steps toc={true}>
 
 ## Get client key and certificate needed for nico-admin-cli
+
 These can be generated from site vault. Follow these steps to generate them.NICO_LB_IP
+
 ### Prerequisites
 
-1. Check `additional_issuer_cns` (one-time per cluster)
-```
-kubectl  get configmap -n nico-system nico-api-config-files -o yaml |  grep -i "additional_issuer_cns"
-```
-Expected: `additional_issuer_cns = ["site-root"]`
+1. Check `additional_issuer_cns` (one-time per cluster).
 
-If it's empty, edit the configmap and set it, then restart:
+   ```bash
+   kubectl get configmap -n nico-system nico-api-config-files -o yaml | grep -i "additional_issuer_cns"
+   ```
 
-```bash
-kubectl -n nico-system edit configmap nico-api-config-files
-# under [auth.trust]: additional_issuer_cns = ["site-root"]
+   Expected: `additional_issuer_cns = ["site-root"]`
 
-kubectl rollout restart deployment/nico-api -n nico-system
-```
+   If it's empty, edit the configmap and set it, then restart:
 
-2. Get the CLI binary - You can skip this step you already have nico-admin-cli binary.
-```bash
-POD=$(kubectl -n nico-system get pods -l app.kubernetes.io/name=nico-api -o jsonpath='{.items[0].metadata.name}')
-kubectl -n nico-system cp   "${POD}:/opt/carbide/nico-admin-cli"   /usr/local/bin/nico-admin-cli
-chmod +x /usr/local/bin/nico-admin-cli
-# verify that it is working 
-nico-admin-cli
-```
+   ```bash
+   kubectl -n nico-system edit configmap nico-api-config-files
+   # under [auth.trust]: additional_issuer_cns = ["site-root"]
 
-3. Issue a client cert from Vault
-```bash
-VAULT_TOKEN=$(kubectl -n vault get secret vaultroottoken -o jsonpath='{.data.token}' | base64 -d)
-kubectl -n vault exec vault-0 -- env VAULT_SKIP_VERIFY=true VAULT_TOKEN="$VAULT_TOKEN" \
-  vault write -format=json nicoca/issue/nico-cluster \
-  common_name="<FQDN for nico-api-endpoint>" \
-  ttl=720h > /tmp/issued.json
-```
+   kubectl rollout restart deployment/nico-api -n nico-system
+   ```
 
-Replace `<FQDN for nico-api-endpoint>` appropriately which usually is `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`
+1. Get the CLI binary - You can skip this step if you already have the `nico-admin-cli` binary.
 
-4. Extract PEM files
-```bash
-cat /tmp/issued.json | jq -r '.data.private_key' > /path/to/client.key
-cat /tmp/issued.json | jq -r '.data.certificate' > /path/to/client.crt
-cat /tmp/issued.json | jq -r '.data.issuing_ca' >  /path/to/ca.crt
-```
+   ```bash
+   POD=$(kubectl -n nico-system get pods -l app.kubernetes.io/name=nico-api -o jsonpath='{.items[0].metadata.name}')
+   kubectl -n nico-system cp   "${POD}:/opt/carbide/nico-admin-cli"   /usr/local/bin/nico-admin-cli
+   chmod +x /usr/local/bin/nico-admin-cli
+   # verify that it is working
+   nico-admin-cli
+   ```
 
-Set the variables below to the target API and certificate paths. You can then
-run admin CLI commands as follows:
-```bash
-NICO_API_URL='https://api.example.com'
-NICO_ROOT_CA_PATH='/path/to/ca.crt'
-NICO_CLIENT_CERT_PATH='/path/to/client.crt'
-NICO_CLIENT_KEY_PATH='/path/to/client.key'
+1. Issue a client cert from Vault.
 
-nico-admin-cli \
-  -a "$NICO_API_URL" \
-  --root-ca-path "$NICO_ROOT_CA_PATH" \
-  --client-cert-path "$NICO_CLIENT_CERT_PATH" \
-  --client-key-path "$NICO_CLIENT_KEY_PATH" \
-  --help
-```
-Alternatively to shorten the command line you can create a file named `nico_api_cli.json` in folder `$HOME/.config` and add the following content:
-```json
-{
-  "api_url": "https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>:443",
-  "root_ca_path": "/path/to/ca.crt",
-  "client_cert_path": "/path/to/client.crt",
-  "client_key_path": "/path/to/client.key"
-}
+   ```bash
+   VAULT_TOKEN=$(kubectl -n vault get secret vaultroottoken -o jsonpath='{.data.token}' | base64 -d)
+   kubectl -n vault exec vault-0 -- env VAULT_SKIP_VERIFY=true VAULT_TOKEN="$VAULT_TOKEN" \
+     vault write -format=json nicoca/issue/nico-cluster \
+     common_name="<FQDN for nico-api-endpoint>" \
+     ttl=720h > /tmp/issued.json
+   ```
 
-```
-5. Add `/etc/hosts` entry
+   Replace `<FQDN for nico-api-endpoint>` appropriately which usually is `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`
 
-If you have trouble resolving `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>` you have to map it to the LoadBalancer IP:
+1. Extract PEM files.
 
-```bash
-NICO_LB_IP=$(kubectl -n nico-system get svc nico-api-external \
-  -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+    ```bash
+    cat /tmp/issued.json | jq -r '.data.private_key' > /path/to/client.key
+    cat /tmp/issued.json | jq -r '.data.certificate' > /path/to/client.crt
+    cat /tmp/issued.json | jq -r '.data.issuing_ca' >  /path/to/ca.crt
+    ```
 
-grep -q "api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>" /etc/hosts || \
-  echo "$NICO_LB_IP api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>" | sudo tee -a /etc/hosts
-```
+   Set the variables below to the target API and certificate paths. You can then run admin CLI commands as follows:
 
-## Update Site 
+   ```bash
+   NICO_API_URL='https://api.example.com'
+   NICO_ROOT_CA_PATH='/path/to/ca.crt'
+   NICO_CLIENT_CERT_PATH='/path/to/client.crt'
+   NICO_CLIENT_KEY_PATH='/path/to/client.key'
+
+   nico-admin-cli \
+     -a "$NICO_API_URL" \
+     --root-ca-path "$NICO_ROOT_CA_PATH" \
+     --client-cert-path "$NICO_CLIENT_CERT_PATH" \
+     --client-key-path "$NICO_CLIENT_KEY_PATH" \
+     --help
+   ```
+
+   Alternatively, to shorten the command line, you can create a file named `nico_api_cli.json` in folder `$HOME/.config` and add the following content:
+
+   ```json
+   {
+     "api_url": "https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>:443",
+     "root_ca_path": "/path/to/ca.crt",
+     "client_cert_path": "/path/to/client.crt",
+     "client_key_path": "/path/to/client.key"
+   }
+   ```
+
+1. Add an `/etc/hosts` entry.
+
+   If you have trouble resolving `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>` you have to map it to the LoadBalancer IP:
+
+   ```bash
+   NICO_LB_IP=$(kubectl -n nico-system get svc nico-api-external \
+     -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+   grep -q "api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>" /etc/hosts || \
+     echo "$NICO_LB_IP api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>" | sudo tee -a /etc/hosts
+   ```
+
+## Update Site
 
 NICo requires knowledge of the current and desired BMC and UEFI credentials for hosts and DPUs. NICo will reset current crendtials to the desired credentials on the BMC and UEFI when ingesting a host. You can use these credentials when accessing the host or DPU BMC yourself, and NICo will use these credentials for its automated processes.
 
@@ -113,12 +124,17 @@ The required credentials include the following:
 - Host UEFI password
 - DPU UEFI password
 
-> **Note**:
-> The following commands use the `<api-url>` placeholder, which is typically the following:
+<Note>
+The following commands use the `<api-url>` placeholder, which is typically the following:
 
 ```bash
-https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --nico-root-ca-path <NICO_ROOT_CA_PATH> --client-cert-path <CLIENT_CERT_PATH>  --client-key-path <CLIENT_KEY_PATH>
+https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> \
+  --nico-root-ca-path <NICO_ROOT_CA_PATH> \
+  --client-cert-path <CLIENT_CERT_PATH> \
+  --client-key-path <CLIENT_KEY_PATH>
 ```
+
+</Note>
 
 ### Store Host and DPU BMC Password
 
@@ -162,7 +178,7 @@ unset NICO_PASSWORD
 
 ## Add Expected Machines Table
 
-NICo needs to know the factory default credentials for each BMC, which is expressed as a JSON table of "Expected Machines".  The serial number is used to verify the BMC MAC matches the actual serial number of the chassis.
+NICo needs to know the factory default credentials for each BMC, which is expressed as a JSON table of "Expected Machines". The serial number is used to verify the BMC MAC matches the actual serial number of the chassis.
 
 Register a single Expected Machine with `nicocli`:
 
@@ -198,12 +214,13 @@ For optional REST fields and batch JSON examples, use [Ingesting Hosts (REST API
 
 ## Approve all Machines for Ingestion
 
-NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to enforce cryptographic identity of the host hardware and firmware.
-The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
+NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to enforce cryptographic identity of the host hardware and firmware. The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6:
 
 ```bash
 nico-admin-cli -a <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
+
+</Steps>
 
 ## What Happens After Approval: Ingestion to Ready
 
@@ -212,12 +229,12 @@ Once machines are approved, NICo's Site Explorer begins automatically ingesting 
 The high-level flow is:
 
 1. **DHCP discovery**: the host BMC sends a DHCP request; NICo assigns an IP and Site Explorer probes the BMC over Redfish to collect a full inventory. Site Explorer authenticates using the factory default credentials from the expected machines table, then rotates the BMC password to the site-wide credential. See [Redfish Workflow](../architecture/redfish_workflow.md) for details.
-2. **Preingestion**: before pairing, NICo runs a preingestion state machine against each discovered BMC endpoint (both host and DPU). It checks that the BMC clock is within an acceptable drift of the site time, resetting the BMC if not. For host endpoints, firmware components are upgraded if they are below the minimum version required for ingestion.
-3. **DPU-host pairing**: Site Explorer correlates host and DPU serial numbers to form matched pairs. Once all DPUs are validated and matched, the `ManagedHost` object is created and the state machine starts.
-4. **`DpuDiscoveringState` / `DPUInit`**: NICo configures Secure Boot on the DPU, installs the DPU OS (BFB image), and power-cycles the host to apply the new DPU configuration.
-5. **`HostInit`**: NICo configures BIOS, sets the host boot order, optionally collects TPM attestation measurements, waits for hardware discovery via the `scout` agent, and applies UEFI lockdown. When the `scout` agent reports back, NICo replaces the temporary predicted host ID (prefix `fm100p`) with a stable host ID (prefix `fm100h`) derived from the host's own DMI serial data or TPM certificate.
-6. **`BomValidating` / `Validation`**: NICo validates the discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
-7. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned to it.
+1. **Preingestion**: before pairing, NICo runs a preingestion state machine against each discovered BMC endpoint (both host and DPU). It checks that the BMC clock is within an acceptable drift of the site time, resetting the BMC if not. For host endpoints, firmware components are upgraded if they are below the minimum version required for ingestion.
+1. **DPU-host pairing**: Site Explorer correlates host and DPU serial numbers to form matched pairs. Once all DPUs are validated and matched, the `ManagedHost` object is created and the state machine starts.
+1. **`DpuDiscoveringState` / `DPUInit`**: NICo configures Secure Boot on the DPU, installs the DPU OS (BFB image), and power-cycles the host to apply the new DPU configuration.
+1. **`HostInit`**: NICo configures BIOS, sets the host boot order, optionally collects TPM attestation measurements, waits for hardware discovery via the `scout` agent, and applies UEFI lockdown. When the `scout` agent reports back, NICo replaces the temporary predicted host ID (prefix `fm100p`) with a stable host ID (prefix `fm100h`) derived from the host's own DMI serial data or TPM certificate.
+1. **`BomValidating` / `Validation`**: NICo validates the discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
+1. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned to it.
 
 For the full DPU lifecycle — OS installation, firmware upgrades, health monitoring, and reprovisioning — see [DPU Lifecycle Management](../dpu-management/dpu-lifecycle-management.md). For the complete state transitions, including substates, retry logic, and reprovision paths, see the [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
 
@@ -278,7 +295,9 @@ nico-admin-cli -a <api-url> site-explorer copy-bfb-to-dpu-rshim \
 
 This command copies the NICo BFB image directly to the DPU via rshim (SSH to the DPU BMC) and triggers a DPU reboot to complete the installation. After the BFB is installed, NICo power-cycles the host automatically to apply the new DPU image.
 
-> **Note:** The `--host-bmc-ip` flag is required. NICo uses it to power-cycle the host after the BFB copy completes. Use `--pre-copy-powercycle` if the host needs to release rshim control to the DPU BMC before the copy can start.
+<Note>
+The `--host-bmc-ip` flag is required. NICo uses it to power-cycle the host after the BFB copy completes. Use `--pre-copy-powercycle` if the host needs to release rshim control to the DPU BMC before the copy can start.
+</Note>
 
 For additional DPU-specific troubleshooting including Secure Boot configuration, BMC password resets, and firmware version checks, see [Adding New Machines to an Existing Site](../playbooks/stuck_objects/adding_new_machines.md).
 
@@ -287,6 +306,7 @@ For additional DPU-specific troubleshooting including Secure Boot configuration,
 ## Managing the Expected Machines Table
 
 The expected machines table in the nico-api database holds the following fields per host:
+
 - Chassis Serial Number
 - BMC MAC Address
 - BMC manufacturer's set login
