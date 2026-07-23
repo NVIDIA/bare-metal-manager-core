@@ -60,6 +60,9 @@ Every resource-specific decommissioning workflow preserves these invariants:
    repeating already verified device work.
 8. A switch or power shelf cannot begin decommissioning while any managed host
    on its rack is in use.
+9. Hardware cleanup does not begin until Site Explorer has finished all
+   queued or in-flight work for every BMC and acknowledged that each BMC is
+   suppressed.
 
 ## Common lifecycle
 
@@ -78,7 +81,7 @@ stateDiagram-v2
     state "Fresh ingestion" as FreshIngestion
 
     Ready --> Preparing : start accepted
-    Preparing --> Cleanup : preflight complete and discovery suppressed
+    Preparing --> Cleanup : preflight complete and Site Explorer quiesced
     Cleanup --> RemovingCredentials : resource cleanup verified
     RemovingCredentials --> VerifyingDhcpRelease : neutral reset credential retained
     VerifyingDhcpRelease --> Decommissioned : controller restart and DHCP handoff verified
@@ -147,9 +150,19 @@ unsupported required cleanup operation.
 ### Discovery suppression
 
 After preflight succeeds, NICo adds each BMC MAC address to
-the ignore table and sets `suppress_site_explorer` to `true`. One already queued
-or in-flight Site Explorer pass may finish, but Site Explorer starts no new
-exploration for that controller.
+the ignore table, atomically sets `suppress_site_explorer` to `true`, and clears
+`site_explorer_suppressed_at` when suppression changes from `false` to `true`.
+Site Explorer starts no new exploration for that controller. After it has
+observed the suppression and all queued or in-flight exploration work for that
+BMC has finished, Site Explorer atomically records
+`site_explorer_suppressed_at`.
+
+The decommissioning workflow waits for a non-null
+`site_explorer_suppressed_at` for every BMC before leaving `Preparing` or
+changing hardware. The timestamp is therefore an acknowledgement from Site
+Explorer, not merely the time at which the decommissioning controller requested
+suppression. It proves that Site Explorer is ignoring the BMC and that no
+earlier exploration pass can race with hardware cleanup.
 
 The ignore record remains through decommissioning and terminal retention. This
 prevents discovery from recreating or mutating a resource while NICo is
@@ -262,6 +275,7 @@ CREATE TABLE ignored_bmc_macs (
     bmc_mac_address MACADDR PRIMARY KEY,
     reason TEXT NOT NULL,
     suppress_site_explorer BOOLEAN NOT NULL DEFAULT FALSE,
+    site_explorer_suppressed_at TIMESTAMPTZ,
     suppress_dhcp BOOLEAN NOT NULL DEFAULT FALSE,
     dhcp_discover_suppressed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -271,7 +285,16 @@ CREATE TABLE ignored_bmc_macs (
 
 Site Explorer loads this table on each iteration and filters an endpoint as
 soon as its MAC is known, before authentication, credential rotation, inventory
-persistence, power control, or managed-resource creation.
+persistence, power control, or managed-resource creation. When it observes
+`suppress_site_explorer`, it prevents new work for the MAC, waits for all
+previously queued or in-flight work for that MAC to finish, and then atomically
+sets `site_explorer_suppressed_at`. Site Explorer is the only writer of this
+timestamp.
+
+Setting `suppress_site_explorer` from `false` to `true` atomically clears
+`site_explorer_suppressed_at`. A retry that finds suppression already enabled
+preserves a non-null timestamp. If the timestamp is null, the resource remains
+in `Preparing` and no hardware cleanup begins.
 
 
 For a MAC with `suppress_dhcp` set, NICo handles the message as follows:
@@ -316,6 +339,11 @@ power shelves;
 before hardware mutation;
 - every substate resumes correctly after a controller restart;
 - credentials remain until dependent hardware operations finish;
+- every required BMC has a non-null `site_explorer_suppressed_at` before
+  hardware cleanup begins;
+- `site_explorer_suppressed_at` is recorded only after Site Explorer has
+  observed suppression and all queued or in-flight exploration for the BMC has
+  finished;
 - ignored BMCs are neither explored nor served by DHCP;
 - each BMC is restarted with a verified credential after DHCP
   suppression is committed;

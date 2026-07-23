@@ -77,7 +77,7 @@ stateDiagram-v2
     state "Fresh ingestion" as FreshIngestion
 
     Ready --> Preparing : DecommissionPowerShelf accepted
-    Preparing --> RemovingCredentials : preflight and rack gate pass
+    Preparing --> RemovingCredentials : preflight passes and Site Explorer quiesced
     RemovingCredentials --> VerifyingDhcpRelease : neutral PMC credential verified
     VerifyingDhcpRelease --> Decommissioned : PMC restart and DHCP handoff verified
     Decommissioned --> Deleted : DeleteDecommissionedPowerShelf
@@ -89,7 +89,7 @@ stateDiagram-v2
 | From | To | Required criteria |
 | --- | --- | --- |
 | `Ready` | `Decommissioning/Preparing` | The request is authorized; the power shelf is exactly `Ready`; its rack is known; no managed host on the rack is in use; and no maintenance, firmware, rack, or other exclusive operation is active. |
-| `Preparing` | `RemovingManagedCredentials` | The PMC MAC and `expected_power_shelves` record exist; Site Explorer is suppressed for the PMC; and the current and neutral PMC credentials are available. |
+| `Preparing` | `RemovingManagedCredentials` | The PMC MAC and `expected_power_shelves` record exist; `site_explorer_suppressed_at` is non-null for the PMC; and the current and neutral PMC credentials are available. |
 | `RemovingManagedCredentials` | `VerifyingDhcpRelease` | The PMC credential reset is verified; the neutral credential needed for the final PMC reset remains available; other NICo-held PMC credential material, sessions, and rotation markers are absent. |
 | `VerifyingDhcpRelease` | `Decommissioned` | The PMC restart is issued after DHCP suppression; `dhcp_discover_suppressed_at` is non-null; the old lease and address allocation are released; any remaining per-shelf credential state is absent. |
 | `Decommissioned` | deleted | `DeleteDecommissionedPowerShelf` is authorized; associated power-shelf state is removed; the PMC ignore row is removed unless retention is requested; `expected_power_shelves` remains. |
@@ -104,7 +104,10 @@ It then resolves the expected-power-shelf record, PMC identity, current PMC
 credential, and defined neutral credential before changing hardware.
 
 After preflight succeeds, NICo adds the PMC MAC to `ignored_bmc_macs` and sets
-`suppress_site_explorer` to `true`. Pending maintenance, firmware, and other
+`suppress_site_explorer` to `true`. It waits for Site Explorer to set
+`site_explorer_suppressed_at`, proving that all queued or in-flight exploration
+has finished and that the PMC is now ignored, before advancing to
+`RemovingManagedCredentials`. Pending maintenance, firmware, and other
 power-shelf requests are cleared so another controller cannot act on the shelf
 during decommissioning.
 
@@ -209,6 +212,8 @@ unit, integration, and hardware qualification must cover:
 - rejection when the rack is unknown or any managed host on it is in use;
 - rejection while power-shelf maintenance, firmware, rack, or other exclusive
   work is active;
+- credential cleanup waits for `site_explorer_suppressed_at`, including when
+  Site Explorer work for the PMC was already in flight;
 - PMC password reset and verification, including an already-neutral PMC;
 - retry after the password write succeeds but verification or stored cleanup
   fails;

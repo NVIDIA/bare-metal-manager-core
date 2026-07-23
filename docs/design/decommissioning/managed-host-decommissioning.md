@@ -20,8 +20,9 @@ a vanilla BFB on every managed DPU, and then ends in the terminal
 `Decommissioned` state.
 
 During decommissioning, NICo applies the shared BMC ignore
-behavior to every host and DPU BMC MAC. Site Explorer is suppressed before
-hardware cleanup. Before terminal completion, DHCP is suppressed and every BMC
+behavior to every host and DPU BMC MAC. Site Explorer acknowledges that it has
+finished all in-flight work and is suppressing every BMC before hardware
+cleanup. Before terminal completion, DHCP is suppressed and every BMC
 must return to `DHCPDISCOVER`; only then are its old lease and address allocation
 released.
 
@@ -99,7 +100,7 @@ stateDiagram-v2
     state "Fresh ingestion" as FreshIngestion
 
     Ready --> Preparing : DecommissionMachine accepted
-    Preparing --> DeconfiguringHost : preconditions
+    Preparing --> DeconfiguringHost : preconditions and Site Explorer quiesced
     DeconfiguringHost --> DeconfiguringDPUs : host cleanup verified
     DeconfiguringDPUs --> InstallingVanillaBFB : DPU pre-install cleanup verified
     InstallingVanillaBFB --> RemovingCredentials : vanilla BFB verified on every DPU
@@ -114,7 +115,7 @@ stateDiagram-v2
 | From                         | To                           | Required criteria                                                                                                                                                                                                                                                         |
 | ---------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Ready`                      | `Decommissioning/Preparing`  | The request is authorized; the managed host is exactly `Ready`; no instance references the host; no decommission operation exists; the host is not participating in rack maintenance or another exclusive operation.                                                      |
-| `Preparing`                  | `DeconfiguringHost`          | The BMC MACs and `expected_machines` row exist; suppress site explorer in the ignore table; the correct vanilla artifact and installation method resolve for every DPU; all credentials needed for cleanup are readable; pending update/reprovision requests are cleared. |
+| `Preparing`                  | `DeconfiguringHost`          | The BMC MACs and `expected_machines` row exist; every ignore row has a non-null `site_explorer_suppressed_at`; the correct vanilla artifact and installation method resolve for every DPU; all credentials needed for cleanup are readable; pending update/reprovision requests are cleared. |
 | `DeconfiguringHost`          | `DeconfiguringDPUs`          | lockdown is disabled; UEFI password is cleared; BIOS reset; in-band BMC/IPMI policy restored; NIC/SuperNIC lockdown cleared; The host is rebooted when required by the vendor operation.                                                                                  |
 | `DeconfiguringDPUs`          | `InstallingVanillaBFB`       | NIC/SuperNIC lockdown is removed, DPU UEFI settings are reset, one-time boot overrides are cleared, and any DPF or extension-service resources that would reconfigure the DPU are removed for every DPU. No DPU agent changes are needed after this point.                |
 | `InstallingVanillaBFB`       | `RemovingManagedCredentials` | Every managed DPU has completed vanilla BFB installation; Redfish/DPF reports success. For a zero-DPU or NIC-mode host this is a no-op.                                                                                                                                   |
@@ -130,7 +131,10 @@ The API changes `Ready` to `Preparing`. The step fails if the host BMC MAC, expe
 
 All BMC MAC addresses are added to the
 [shared ignore table](/docs/design/decommissioning/decommissioning-workflow.md#bmc-ignore-table),
-and `suppress_site_explorer` is set to `true`.
+and `suppress_site_explorer` is set to `true`. The state waits for Site Explorer
+to set `site_explorer_suppressed_at` for every host and DPU BMC, proving that
+all queued or in-flight exploration has finished and that the BMCs are now
+ignored, before advancing to `DeconfiguringHost`.
 
 ### `Decommissioning/DeconfiguringHost`
 
@@ -327,6 +331,8 @@ unit and integration tests should cover:
 
 - a missing vanilla artifact or unsupported installation method fails before
   hardware mutation;
+- hardware cleanup waits for `site_explorer_suppressed_at` for every host and
+  DPU BMC, including when Site Explorer work was already in flight;
 - zero-, one-, and multi-DPU transitions, including one DPU retrying after a
   sibling completes;
 - vanilla BFB completion is verified without a DPU-agent heartbeat;

@@ -80,7 +80,7 @@ stateDiagram-v2
     state "Fresh ingestion" as FreshIngestion
 
     Ready --> Preparing : DecommissionSwitch accepted
-    Preparing --> ResettingNVOS : preflight and rack gate pass
+    Preparing --> ResettingNVOS : preflight passes and Site Explorer quiesced
     ResettingNVOS --> RemovingCredentials : NVOS reset verified
     RemovingCredentials --> VerifyingDhcpRelease : neutral BMC credential verified
     VerifyingDhcpRelease --> Decommissioned : BMC restart and DHCP handoff verified
@@ -93,7 +93,7 @@ stateDiagram-v2
 | From | To | Required criteria |
 | --- | --- | --- |
 | `Ready` | `Decommissioning/Preparing` | The request is authorized; the switch is exactly `Ready`; its rack is known; no managed host on the rack is in use; and no maintenance, reprovisioning, rack firmware, or other exclusive operation is active. |
-| `Preparing` | `ResettingNVOS` | The BMC MAC and `expected_switches` record exist; Site Explorer is suppressed for the BMC; BMC and NVOS credentials are readable; and pending switch operations are cleared. |
+| `Preparing` | `ResettingNVOS` | The BMC MAC and `expected_switches` record exist; `site_explorer_suppressed_at` is non-null for the BMC; BMC and NVOS credentials are readable; and pending switch operations are cleared. |
 | `ResettingNVOS` | `RemovingManagedCredentials` | NICo-managed NVOS configuration is removed, the NVOS password is reset to its neutral value, and both outcomes are verified. |
 | `RemovingManagedCredentials` | `VerifyingDhcpRelease` | The BMC credential reset is verified; the neutral credential needed for the final BMC reset remains available; other NICo-held BMC and NVOS credential material and rotation markers are absent. |
 | `VerifyingDhcpRelease` | `Decommissioned` | The BMC restart is issued after DHCP suppression; `dhcp_discover_suppressed_at` is non-null; the old lease and address allocation are released; any remaining per-switch credential state is absent. |
@@ -109,9 +109,12 @@ It then resolves the expected-switch record, BMC identity, BMC credential, and
 NVOS credential before changing hardware.
 
 After preflight succeeds, NICo adds the BMC MAC to `ignored_bmc_macs` and sets
-`suppress_site_explorer` to `true`. Pending maintenance, reprovisioning,
-firmware, and configuration requests are cleared so another controller cannot
-reconfigure the switch during decommissioning.
+`suppress_site_explorer` to `true`. It waits for Site Explorer to set
+`site_explorer_suppressed_at`, proving that all queued or in-flight exploration
+has finished and that the BMC is now ignored, before advancing to
+`ResettingNVOS`. Pending maintenance, reprovisioning, firmware, and
+configuration requests are cleared so another controller cannot reconfigure
+the switch during decommissioning.
 
 ### `Decommissioning/ResettingNVOS`
 
@@ -220,6 +223,8 @@ unit, integration, and hardware qualification must cover:
 - rejection when the rack is unknown or any managed host on it is in use;
 - rejection while switch maintenance, reprovisioning, rack firmware, or
   configuration work is active;
+- NVOS cleanup waits for `site_explorer_suppressed_at`, including when Site
+  Explorer work for the BMC was already in flight;
 - NVOS configuration and password reset, including an already-neutral switch;
 - retry after the NVOS reset succeeds but its verification or BMC reset fails;
 - retention of NVOS and BMC credentials until their last dependent operations;
