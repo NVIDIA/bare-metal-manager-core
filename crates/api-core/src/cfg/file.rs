@@ -1337,7 +1337,7 @@ impl DpfConfig {
 }
 
 fn default_dpf_bfb_url() -> String {
-    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb".to_string()
+    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.1-12_26.04_ubuntu-24.04_64k_prod.bfb".to_string()
 }
 
 fn default_dpf_deployment_name() -> String {
@@ -4586,6 +4586,10 @@ mod tests {
             jail.set_env("CARBIDE_API_ASN", 777);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
+                "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
+                r#"{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}"#,
+            );
+            jail.set_env(
                 "CARBIDE_API_TLS",
                 "{identity_pemfile_path=/patched/path/to/cert}",
             );
@@ -4615,6 +4619,15 @@ mod tests {
             );
             assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
             assert!(config.auth.as_ref().unwrap().permissive_mode);
+            let dsx_exchange = config.dsx_exchange_event_bus.as_ref().unwrap();
+            assert!(dsx_exchange.enabled);
+            assert_eq!(dsx_exchange.mqtt_endpoint, "dsx-exchange");
+            assert_eq!(dsx_exchange.mqtt_broker_port, 1883);
+            assert_eq!(dsx_exchange.auth.auth_mode, MqttAuthMode::None);
+            assert_eq!(
+                dsx_exchange.periodic_state_republish.interval,
+                std::time::Duration::from_secs(10)
+            );
             assert_eq!(
                 config
                     .auth

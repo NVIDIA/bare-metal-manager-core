@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -30,6 +30,7 @@ pub struct TestCredentialManager {
     credentials: Mutex<HashMap<String, Credentials>>,
     fallback_credentials: Option<Credentials>,
     pub set_credentials_sleep_time_ms: AtomicU32,
+    delete_credentials_failure: AtomicBool,
 }
 
 impl TestCredentialManager {
@@ -40,7 +41,15 @@ impl TestCredentialManager {
             credentials: Mutex::new(HashMap::new()),
             fallback_credentials: Some(fallback_credentials),
             set_credentials_sleep_time_ms: Default::default(),
+            delete_credentials_failure: Default::default(),
         }
+    }
+
+    /// Makes `delete_credentials` return an error without removing the stored
+    /// credential.
+    pub fn set_delete_credentials_failure(&self, fail: bool) {
+        self.delete_credentials_failure
+            .store(fail, atomic::Ordering::Release);
     }
 }
 
@@ -101,6 +110,15 @@ impl CredentialWriter for TestCredentialManager {
     }
 
     async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
+        if self
+            .delete_credentials_failure
+            .load(atomic::Ordering::Acquire)
+        {
+            return Err(SecretsError::GenericError(eyre::eyre!(
+                "test credential delete failure"
+            )));
+        }
+
         let mut data = self.credentials.lock().await;
         let _ = data.remove(key.to_key_str().as_ref());
 

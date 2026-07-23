@@ -334,8 +334,6 @@ impl NetworkStatusRpcFailed {
 
 pub struct AgentMetricsState {
     meter: Meter,
-    http_counter: Counter<u64>,
-    http_req_latency_histogram: Histogram<f64>,
 }
 
 impl AgentMetricsState {
@@ -388,21 +386,7 @@ impl AgentMetricsState {
 }
 
 pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
-    let http_counter = meter
-        .u64_counter("http_requests")
-        .with_description("Number of HTTP requests made.")
-        .build();
-    let http_req_latency_histogram: Histogram<f64> = meter
-        .f64_histogram("request_latency")
-        .with_description("HTTP request latency")
-        .with_unit("ms")
-        .build();
-
-    Arc::new(AgentMetricsState {
-        meter,
-        http_counter,
-        http_req_latency_histogram,
-    })
+    Arc::new(AgentMetricsState { meter })
 }
 
 pub struct NetworkMonitorMetricsState {
@@ -556,33 +540,76 @@ impl NetworkMonitorMetricsState {
     }
 }
 
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_http_request_started",
+    metric_name = "http_requests_total",
+    metric_name_unchecked,
+    component = "forge-dpu-agent",
+    log = info,
+    metric = counter,
+    message = "HTTP request started",
+    describe = "Number of HTTP requests made."
+)]
+struct DpuAgentHttpRequestStarted {
+    #[context]
+    method: String,
+    #[context]
+    request_path: String,
+}
+
+impl DpuAgentHttpRequestStarted {
+    fn new(request: &Request<AxumBody>) -> Self {
+        Self {
+            method: request.method().to_string(),
+            request_path: request.uri().path().to_string(),
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_http_response_generated",
+    metric_name = "request_latency_milliseconds",
+    metric_name_unchecked,
+    component = "forge-dpu-agent",
+    log = info,
+    metric = histogram,
+    message = "HTTP response generated",
+    describe = "HTTP request latency"
+)]
+struct DpuAgentHttpResponseGenerated {
+    #[context(value)]
+    latency_milliseconds: f64,
+    #[observation]
+    latency: Duration,
+}
+
+impl DpuAgentHttpResponseGenerated {
+    fn new(latency: Duration) -> Self {
+        Self {
+            latency_milliseconds: latency.as_secs_f64() * 1000.0,
+            latency,
+        }
+    }
+}
+
+/// `WithTracingLayer` keeps `AgentMetricsState` in its public API for existing
+/// callers. The HTTP Events resolve their instruments through the global meter
+/// provider, so the implementation does not need to read the handle.
 pub trait WithTracingLayer {
     fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router;
 }
 
 impl WithTracingLayer for Router {
-    fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router {
-        let metrics_copy = metrics.clone();
+    fn with_tracing_layer(self, _metrics: Arc<AgentMetricsState>) -> Router {
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<AxumBody>, _span: &Span| {
-                metrics.http_counter.add(1, &[]);
-                tracing::info!(
-                    method = %request.method(),
-                    request_path = %request.uri().path(),
-                    "HTTP request started"
-                )
+                carbide_instrument::emit(DpuAgentHttpRequestStarted::new(request));
             })
             .on_response(
                 move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
-                    // TODO revisit time units
-                    metrics_copy
-                        .http_req_latency_histogram
-                        .record(latency.as_secs_f64() * 1000.0, &[]);
-
-                    tracing::info!(
-                        latency_milliseconds = latency.as_secs_f64() * 1000.0,
-                        "HTTP response generated"
-                    )
+                    carbide_instrument::emit(DpuAgentHttpResponseGenerated::new(latency));
                 },
             );
 
@@ -876,6 +903,176 @@ mod report_loop_tests {
                 },
             ],
             observe_event,
+        );
+    }
+}
+
+#[cfg(test)]
+mod http_request_tests {
+    use axum::body::Body;
+    use axum::http::{Request as HttpRequest, StatusCode};
+    use axum::routing::get;
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+    use tower::ServiceExt;
+
+    use super::*;
+
+    const REQUEST_METRIC: &str = "http_requests_total";
+    const LATENCY_METRIC: &str = "request_latency_milliseconds";
+
+    enum EventCase {
+        Request,
+        Response,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EventObservation {
+        request_delta: f64,
+        latency_count_delta: u64,
+        latency_sum_delta: f64,
+        logs: Vec<LogObservation>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct LogObservation {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        fields: Vec<(String, String)>,
+        method_kind: Option<CapturedFieldKind>,
+        request_path_kind: Option<CapturedFieldKind>,
+        latency_kind: Option<CapturedFieldKind>,
+    }
+
+    fn observe_event(case: EventCase) -> EventObservation {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| match case {
+            EventCase::Request => emit(DpuAgentHttpRequestStarted {
+                method: "GET".to_string(),
+                request_path: "/latest/meta-data".to_string(),
+            }),
+            EventCase::Response => emit(DpuAgentHttpResponseGenerated::new(Duration::from_micros(
+                12_500,
+            ))),
+        })
+        .into_iter()
+        .map(|log| LogObservation {
+            method_kind: log.field_kind("method"),
+            request_path_kind: log.field_kind("request_path"),
+            latency_kind: log.field_kind("latency_milliseconds"),
+            metadata_name: log.metadata_name,
+            level: log.level,
+            message: log.message,
+            fields: log.fields,
+        })
+        .collect();
+
+        EventObservation {
+            request_delta: metrics.counter_delta(REQUEST_METRIC, &[]),
+            latency_count_delta: metrics.histogram_count_delta(LATENCY_METRIC, &[]),
+            latency_sum_delta: metrics.histogram_sum_delta(LATENCY_METRIC, &[]),
+            logs,
+        }
+    }
+
+    #[test]
+    fn http_events_preserve_metrics_and_structured_logs() {
+        check_values(
+            [
+                Check {
+                    scenario: "request start increments the legacy counter and logs request context",
+                    input: EventCase::Request,
+                    expect: EventObservation {
+                        request_delta: 1.0,
+                        latency_count_delta: 0,
+                        latency_sum_delta: 0.0,
+                        logs: vec![LogObservation {
+                            metadata_name: "dpu_agent_http_request_started".to_string(),
+                            level: tracing::Level::INFO,
+                            message: "HTTP request started".to_string(),
+                            fields: vec![
+                                (
+                                    "event_name".to_string(),
+                                    "dpu_agent_http_request_started".to_string(),
+                                ),
+                                ("metric_name".to_string(), REQUEST_METRIC.to_string()),
+                                ("method".to_string(), "GET".to_string()),
+                                ("request_path".to_string(), "/latest/meta-data".to_string()),
+                            ],
+                            method_kind: Some(CapturedFieldKind::Debug),
+                            request_path_kind: Some(CapturedFieldKind::Debug),
+                            latency_kind: None,
+                        }],
+                    },
+                },
+                Check {
+                    scenario: "response completion records milliseconds and logs native latency",
+                    input: EventCase::Response,
+                    expect: EventObservation {
+                        request_delta: 0.0,
+                        latency_count_delta: 1,
+                        latency_sum_delta: 12.5,
+                        logs: vec![LogObservation {
+                            metadata_name: "dpu_agent_http_response_generated".to_string(),
+                            level: tracing::Level::INFO,
+                            message: "HTTP response generated".to_string(),
+                            fields: vec![
+                                (
+                                    "event_name".to_string(),
+                                    "dpu_agent_http_response_generated".to_string(),
+                                ),
+                                ("metric_name".to_string(), LATENCY_METRIC.to_string()),
+                                ("latency_milliseconds".to_string(), "12.5".to_string()),
+                            ],
+                            method_kind: None,
+                            request_path_kind: None,
+                            latency_kind: Some(CapturedFieldKind::F64),
+                        }],
+                    },
+                },
+            ],
+            observe_event,
+        );
+    }
+
+    #[test]
+    fn tracing_layer_emits_one_start_and_completion_event_per_request() {
+        let metrics = MetricsCapture::start();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        let logs = capture_logs(|| {
+            runtime.block_on(async {
+                let metrics_state = create_metrics(opentelemetry::global::meter("test"));
+                let router = Router::new()
+                    .route("/health", get(|| async { StatusCode::NO_CONTENT }))
+                    .with_tracing_layer(metrics_state);
+                let response = router
+                    .oneshot(
+                        HttpRequest::builder()
+                            .uri("/health")
+                            .body(Body::empty())
+                            .expect("test request should build"),
+                    )
+                    .await
+                    .expect("test request should complete");
+                assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            });
+        });
+
+        assert_eq!(metrics.counter_delta(REQUEST_METRIC, &[]), 1.0);
+        assert_eq!(metrics.histogram_count_delta(LATENCY_METRIC, &[]), 1);
+        assert_eq!(
+            logs.iter()
+                .map(|log| log.metadata_name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "dpu_agent_http_request_started",
+                "dpu_agent_http_response_generated",
+            ]
         );
     }
 }

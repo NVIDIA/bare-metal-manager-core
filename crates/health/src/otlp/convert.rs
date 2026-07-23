@@ -400,9 +400,11 @@ mod tests {
             },
             collector_type: "test",
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                    .parse()
-                    .expect("valid machine id"),
+                machine_id: Some(
+                    "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                        .parse()
+                        .expect("valid machine id"),
+                ),
                 machine_serial: Some("MN-001".to_string()),
                 slot_number: Some(15),
                 tray_index: Some(5),
@@ -438,9 +440,7 @@ mod tests {
             },
             collector_type: "test",
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                    .parse()
-                    .expect("valid machine id"),
+                machine_id: None,
                 machine_serial: None,
                 slot_number: None,
                 tray_index: None,
@@ -452,10 +452,8 @@ mod tests {
 
         let attrs = resource_attributes(&context);
 
-        assert_eq!(
-            attr_value(&attrs, "machine.id"),
-            Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
-        );
+        assert_eq!(attr_value(&attrs, "machine.id"), None);
+        assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
         assert_eq!(attr_value(&attrs, "machine.serial"), None);
         assert_eq!(attr_value(&attrs, "driver.version"), None);
         assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);

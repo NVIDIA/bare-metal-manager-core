@@ -1309,7 +1309,6 @@ pub async fn create_with_type(
     Ok(snapshot)
 }
 
-#[allow(txn_held_across_await)]
 async fn create_fast_path(
     txn: &mut PgConnection,
     segments: &[NetworkSegment],
@@ -1373,7 +1372,6 @@ async fn create_fast_path(
             };
 
             fast_txn.rollback().await?;
-            tokio::task::yield_now().await;
 
             // If this segment is exhausted, go to the next segment.
             if segment_exhausted {
@@ -1467,7 +1465,6 @@ async fn create_static_path(
 /// - Locking the machine_interfaces_lock table
 /// - Reading all used IP's from the database for the given segment
 /// - Selecting a batch of IP's according to the selection strategy
-#[allow(txn_held_across_await)]
 pub async fn create_slow_path(
     txn: &mut PgConnection,
     segment: &NetworkSegment,
@@ -2316,20 +2313,10 @@ pub async fn create_host_machine_dpu_interface_proactively(
 ///
 /// Returns `true` only when the externally visible active admin config changed. Dormant-interface
 /// cleanup is persisted but intentionally returns `false` by itself.
-#[allow(txn_held_across_await)]
 pub async fn reconcile_admin_addresses_for_host(
     txn: &mut PgConnection,
     host_machine_id: &MachineId,
 ) -> DatabaseResult<bool> {
-    // This allow is for a limitation in the custom `txn_held_across_await` lint, not for unrelated
-    // async work. The input `&mut PgConnection` is immediately wrapped in an inner transaction
-    // savepoint, and every await before commit is database work performed through that savepoint
-    // (`txn.as_pgconn()`, `&mut txn`, or helpers that receive it). The lint still reports the outer
-    // connection parameter as held across those awaits because it does not track that
-    // `Transaction::begin_inner(txn)` transfers subsequent DB work onto the wrapper.
-    // Treat reconciliation as one savepoint inside the caller's transaction. All row locks,
-    // advisory segment locks, address moves, and cleanup either commit together or roll back
-    // together.
     let mut txn = Transaction::begin_inner(txn).await?;
 
     // Lock all admin segments up front instead of doing a precise pre-read of
@@ -3022,7 +3009,6 @@ async fn reconcile_interface_segment(
 /// allocation logic that we use for allocating initial addresses, and
 /// only allocates from prefixes matching the requested family (IPv4
 /// or IPv6).
-#[allow(txn_held_across_await)]
 pub async fn allocate_address_for_family(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,

@@ -307,19 +307,17 @@ struct DnsResponseSent {
     rcode: Rcode,
 }
 
-/// A request ran to completion: its duration records as a distribution by
-/// query type and response code. Metric-only: the historical "Request
-/// completed" info line stays exactly as it has always been -- this server
-/// logs JSON, where field types are part of the schema, and the derive
-/// renders context fields as strings -- so the histogram fires beside the
-/// untouched log line rather than replacing it.
+/// `DnsRequestCompleted` records the duration and the matching INFO diagnostic
+/// from one emission. The response details stay off the histogram labels, but
+/// remain native JSON values on the log record.
 #[derive(Event)]
 #[event(
     event_name = "dns_request_completed",
     metric_name = "carbide_dns_request_duration_milliseconds",
     component = "carbide-dns",
-    log = off,
+    log = info,
     metric = histogram,
+    message = "Request completed",
     describe = "Time to process a DNS query, by query type and response code"
 )]
 struct DnsRequestCompleted {
@@ -327,6 +325,12 @@ struct DnsRequestCompleted {
     qtype: Qtype,
     #[label]
     rcode: Rcode,
+    #[context(value)]
+    response_code: String,
+    #[context(value)]
+    record_count: i64,
+    #[context(value)]
+    duration_milliseconds: f64,
     #[observation]
     took: Duration,
 }
@@ -474,15 +478,12 @@ impl RequestHandler for DnsServer {
             };
 
             let duration = start.elapsed();
-            tracing::info!(
-                response_code = ?response_code,
-                record_count = records.len(),
-                duration_milliseconds = duration.as_millis(),
-                "Request completed"
-            );
             emit(DnsRequestCompleted {
                 qtype: qtype_label,
                 rcode: Rcode::from(response_code),
+                response_code: format!("{response_code:?}"),
+                record_count: i64::try_from(records.len()).unwrap_or(i64::MAX),
+                duration_milliseconds: duration.as_millis() as f64,
                 took: duration,
             });
 
@@ -955,11 +956,10 @@ mod tests {
         );
     }
 
-    /// The per-request events are metric-only: one emit moves the declared
-    /// instrument under the derive's snake_case label values, and no log line
-    /// is built.
+    /// The query and response events only move their counters; neither builds
+    /// a per-request log record.
     #[test]
-    fn dns_request_events_move_their_metrics_without_logging() {
+    fn dns_query_and_response_events_move_their_metrics_without_logging() {
         use carbide_instrument::testing::{MetricsCapture, capture_logs};
 
         let metrics = MetricsCapture::start();
@@ -974,16 +974,8 @@ mod tests {
             emit(DnsResponseSent {
                 rcode: Rcode::NotImp,
             });
-            emit(DnsRequestCompleted {
-                qtype: Qtype::A,
-                rcode: Rcode::NoError,
-                took: Duration::from_millis(250),
-            });
         });
 
-        // All three events are metric-only: the historical "Request
-        // completed" info line is ordinary production code beside the
-        // histogram emit, not part of the event.
         assert!(
             logs.is_empty(),
             "request-rate events are metric-only: {logs:?}"
@@ -1005,20 +997,172 @@ mod tests {
             metrics.counter_delta("carbide_dns_responses_total", &[("rcode", "not_imp")]),
             1.0
         );
-        assert_eq!(
-            metrics.histogram_count_delta(
-                "carbide_dns_request_duration_milliseconds",
-                &[("qtype", "a"), ("rcode", "no_error")],
-            ),
-            1
-        );
-        let sum = metrics.histogram_sum_delta(
-            "carbide_dns_request_duration_milliseconds",
-            &[("qtype", "a"), ("rcode", "no_error")],
-        );
-        assert!(
-            (sum - 250.0).abs() < 1e-9,
-            "a 250ms request records 250 in the milliseconds histogram, got {sum}"
+    }
+
+    /// `DnsRequestCompleted` replaces the separate histogram and INFO calls:
+    /// one `emit()` records one duration and one diagnostic with the response
+    /// details kept as native structured values.
+    #[test]
+    fn dns_request_completed_pairs_its_histogram_and_log() {
+        use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+        use carbide_test_support::{Check, check_values};
+
+        struct RequestCompletedCase {
+            qtype: Qtype,
+            qtype_label: &'static str,
+            rcode: Rcode,
+            rcode_label: &'static str,
+            response_code: &'static str,
+            record_count: i64,
+            duration: Duration,
+            duration_milliseconds: f64,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            metadata_name: Option<String>,
+            level: Option<tracing::Level>,
+            message: Option<String>,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            qtype: Option<String>,
+            rcode: Option<String>,
+            response_code: Option<String>,
+            record_count: Option<String>,
+            duration_milliseconds: Option<String>,
+            response_code_kind: Option<CapturedFieldKind>,
+            record_count_kind: Option<CapturedFieldKind>,
+            duration_milliseconds_kind: Option<CapturedFieldKind>,
+            histogram_count: u64,
+            histogram_sum: f64,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "successful A request",
+                    input: RequestCompletedCase {
+                        qtype: Qtype::A,
+                        qtype_label: "a",
+                        rcode: Rcode::NoError,
+                        rcode_label: "no_error",
+                        response_code: "NoError",
+                        record_count: 3,
+                        duration: Duration::from_millis(250),
+                        duration_milliseconds: 250.0,
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        metadata_name: Some("dns_request_completed".to_string()),
+                        level: Some(tracing::Level::INFO),
+                        message: Some("Request completed".to_string()),
+                        event_name: Some("dns_request_completed".to_string()),
+                        metric_name: Some("carbide_dns_request_duration_milliseconds".to_string()),
+                        qtype: Some("a".to_string()),
+                        rcode: Some("no_error".to_string()),
+                        response_code: Some("NoError".to_string()),
+                        record_count: Some("3".to_string()),
+                        duration_milliseconds: Some("250".to_string()),
+                        response_code_kind: Some(CapturedFieldKind::String),
+                        record_count_kind: Some(CapturedFieldKind::I64),
+                        duration_milliseconds_kind: Some(CapturedFieldKind::F64),
+                        histogram_count: 1,
+                        histogram_sum: 250.0,
+                    },
+                },
+                Check {
+                    scenario: "event-level NotImp completion",
+                    input: RequestCompletedCase {
+                        qtype: Qtype::Other,
+                        qtype_label: "other",
+                        rcode: Rcode::NotImp,
+                        rcode_label: "not_imp",
+                        response_code: "NotImp",
+                        record_count: 0,
+                        duration: Duration::from_millis(1_500),
+                        duration_milliseconds: 1_500.0,
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        metadata_name: Some("dns_request_completed".to_string()),
+                        level: Some(tracing::Level::INFO),
+                        message: Some("Request completed".to_string()),
+                        event_name: Some("dns_request_completed".to_string()),
+                        metric_name: Some("carbide_dns_request_duration_milliseconds".to_string()),
+                        qtype: Some("other".to_string()),
+                        rcode: Some("not_imp".to_string()),
+                        response_code: Some("NotImp".to_string()),
+                        record_count: Some("0".to_string()),
+                        duration_milliseconds: Some("1500".to_string()),
+                        response_code_kind: Some(CapturedFieldKind::String),
+                        record_count_kind: Some(CapturedFieldKind::I64),
+                        duration_milliseconds_kind: Some(CapturedFieldKind::F64),
+                        histogram_count: 1,
+                        histogram_sum: 1_500.0,
+                    },
+                },
+            ],
+            |case| {
+                let RequestCompletedCase {
+                    qtype,
+                    qtype_label,
+                    rcode,
+                    rcode_label,
+                    response_code,
+                    record_count,
+                    duration,
+                    duration_milliseconds,
+                } = case;
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(DnsRequestCompleted {
+                        qtype,
+                        rcode,
+                        response_code: response_code.to_string(),
+                        record_count,
+                        duration_milliseconds,
+                        took: duration,
+                    });
+                });
+                let log = logs.first();
+
+                Observation {
+                    log_count: logs.len(),
+                    metadata_name: log.map(|log| log.metadata_name.clone()),
+                    level: log.map(|log| log.level),
+                    message: log.map(|log| log.message.clone()),
+                    event_name: log
+                        .and_then(|log| log.field("event_name"))
+                        .map(str::to_string),
+                    metric_name: log
+                        .and_then(|log| log.field("metric_name"))
+                        .map(str::to_string),
+                    qtype: log.and_then(|log| log.field("qtype")).map(str::to_string),
+                    rcode: log.and_then(|log| log.field("rcode")).map(str::to_string),
+                    response_code: log
+                        .and_then(|log| log.field("response_code"))
+                        .map(str::to_string),
+                    record_count: log
+                        .and_then(|log| log.field("record_count"))
+                        .map(str::to_string),
+                    duration_milliseconds: log
+                        .and_then(|log| log.field("duration_milliseconds"))
+                        .map(str::to_string),
+                    response_code_kind: log.and_then(|log| log.field_kind("response_code")),
+                    record_count_kind: log.and_then(|log| log.field_kind("record_count")),
+                    duration_milliseconds_kind: log
+                        .and_then(|log| log.field_kind("duration_milliseconds")),
+                    histogram_count: metrics.histogram_count_delta(
+                        "carbide_dns_request_duration_milliseconds",
+                        &[("qtype", qtype_label), ("rcode", rcode_label)],
+                    ),
+                    histogram_sum: metrics.histogram_sum_delta(
+                        "carbide_dns_request_duration_milliseconds",
+                        &[("qtype", qtype_label), ("rcode", rcode_label)],
+                    ),
+                }
+            },
         );
     }
 }

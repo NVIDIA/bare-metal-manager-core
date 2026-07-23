@@ -55,6 +55,45 @@ func assertDeletionAcceptedResponse(t *testing.T, body []byte) {
 	assert.Equal(t, model.DeletionRequestAcceptedMessage, resp.Message)
 }
 
+type phoneHomeLocation string
+
+const (
+	phoneHomeAbsent                 phoneHomeLocation = "absent"
+	phoneHomeAtRoot                 phoneHomeLocation = "root"
+	phoneHomeInAutoinstallUserData  phoneHomeLocation = "autoinstall.user-data"
+	phoneHomeAtRootAndInAutoinstall phoneHomeLocation = "root and autoinstall.user-data"
+)
+
+func phoneHomeLocationIn(userData map[string]interface{}) phoneHomeLocation {
+	_, atRoot := userData[util.SitePhoneHomeName]
+	inAutoinstall := false
+	autoinstall, ok := userData["autoinstall"].(map[string]interface{})
+	if ok {
+		targetUserData, ok := autoinstall["user-data"].(map[string]interface{})
+		if ok {
+			_, inAutoinstall = targetUserData[util.SitePhoneHomeName]
+		}
+	}
+
+	switch {
+	case atRoot && inAutoinstall:
+		return phoneHomeAtRootAndInAutoinstall
+	case atRoot:
+		return phoneHomeAtRoot
+	case inAutoinstall:
+		return phoneHomeInAutoinstallUserData
+	default:
+		return phoneHomeAbsent
+	}
+}
+
+func expectedPhoneHomeLocation(userData map[string]interface{}) phoneHomeLocation {
+	if _, ok := userData["autoinstall"]; ok {
+		return phoneHomeInAutoinstallUserData
+	}
+	return phoneHomeAtRoot
+}
+
 func testInstanceInitDB(t *testing.T) *cdb.Session {
 	dbSession := cdbu.GetTestDBSession(t, false)
 	dbSession.DB.AddQueryHook(bundebug.NewQueryHook(
@@ -3878,7 +3917,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				err := yaml.Unmarshal([]byte(*rst.UserData), &instUserData)
 				assert.Equal(t, err, nil)
 				if *tt.args.reqData.PhoneHomeEnabled {
-					assert.Contains(t, instUserData, util.SitePhoneHomeName)
+					assert.Equal(t, expectedPhoneHomeLocation(instUserData), phoneHomeLocationIn(instUserData))
 					if tt.args.reqData.OperatingSystemID != nil {
 						lines := strings.Split(*rst.UserData, "\n")
 						// ensure first line is always #cloud-config
@@ -3886,7 +3925,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						assert.NotEqual(t, util.SiteCloudConfig, lines[1])
 					}
 				} else {
-					assert.NotContains(t, instUserData, util.SitePhoneHomeName)
+					assert.Equal(t, phoneHomeAbsent, phoneHomeLocationIn(instUserData))
 				}
 			} else {
 				if tt.args.reqData.OperatingSystemID != nil {
@@ -3899,7 +3938,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						// Verify Phone home
 						err := yaml.Unmarshal([]byte(*rst.UserData), &instUserData)
 						assert.Equal(t, err, nil)
-						assert.Contains(t, instUserData, util.SitePhoneHomeName)
+						assert.Equal(t, expectedPhoneHomeLocation(instUserData), phoneHomeLocationIn(instUserData))
 					}
 				}
 			}

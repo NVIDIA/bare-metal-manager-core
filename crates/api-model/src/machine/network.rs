@@ -205,10 +205,15 @@ mod tests {
 
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Check, scenarios, value_scenarios};
+    use carbide_uuid::extension_service::ExtensionServiceId;
     use chrono::TimeZone;
     use config_version::ConfigVersion;
 
     use super::*;
+    use crate::extension_service::ExtensionServiceType;
+    use crate::instance::status::extension_service::{
+        ExtensionServiceDeploymentStatus, ExtensionServiceStatusObservation,
+    };
     use crate::test_support::machine_snapshot::config_version;
 
     // A stable MachineId for status observations; `any_observed_version_changed`
@@ -255,13 +260,23 @@ mod tests {
     }
 
     fn extension_observation(
-        config_version: ConfigVersion,
+        observation_config_version: ConfigVersion,
         instance_config_version: Option<ConfigVersion>,
     ) -> InstanceExtensionServiceStatusObservation {
         InstanceExtensionServiceStatusObservation {
-            config_version,
+            config_version: observation_config_version,
             instance_config_version,
-            extension_service_statuses: Vec::new(),
+            extension_service_statuses: vec![ExtensionServiceStatusObservation {
+                service_id: ExtensionServiceId::from_str("00000000-0000-0000-0000-000000000000")
+                    .unwrap(),
+                service_type: ExtensionServiceType::KubernetesPod,
+                service_name: "test-service".to_string(),
+                version: config_version(1),
+                removed: None,
+                overall_state: ExtensionServiceDeploymentStatus::Running,
+                components: vec![],
+                message: String::new(),
+            }],
             observed_at: observed_at(),
         }
     }
@@ -570,6 +585,21 @@ mod tests {
                 (
                     network_status(Some(v1), None, Some(extension_observation(v1, Some(v1)))),
                     network_status(Some(v1), None, Some(extension_observation(v1, Some(v2)))),
+                ) => true,
+            }
+
+            "extension observation service version differs -> changed" {
+                (
+                    network_status(Some(v1), None, Some(extension_observation(v1, None))),
+                    network_status(
+                        Some(v1),
+                        None,
+                        Some({
+                            let mut observation = extension_observation(v1, None);
+                            observation.extension_service_statuses[0].version = v2;
+                            observation
+                        }),
+                    ),
                 ) => true,
             }
         );

@@ -54,7 +54,10 @@ use tokio_util::sync::CancellationToken;
 use tower_http::add_extension::AddExtensionLayer;
 
 use crate::config::{AuthConfig, TlsConfig};
-use crate::metrics::{MethodLabel, UpstreamRequestCompleted, UpstreamStatus};
+use crate::metrics::{
+    MethodLabel, PrincipalAllowListAuthContextMissing, PrincipalAllowListDenied,
+    RequestAclAuthContextMissing, RequestAclDenied, UpstreamRequestCompleted, UpstreamStatus,
+};
 
 const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const MAX_BODY_SIZE: usize = 8 * 1024 * 1024; // 8MiB body size limit (matches nginx ingress controller defaults)
@@ -110,7 +113,7 @@ enum ForwardedHeaderParseError {
 impl BmcProxyState {
     fn allows(&self, request: &Request<Body>) -> bool {
         let Some(auth_context) = request.extensions().get::<AuthContext<()>>() else {
-            tracing::error!("BUG: No AuthContext middleware found, all requests will be denied");
+            emit(RequestAclAuthContextMissing::new(request.method()));
             return false;
         };
 
@@ -123,12 +126,11 @@ impl BmcProxyState {
         });
 
         if !allowed {
-            tracing::info!(
-                principals = ?principal_ids,
-                path = request.uri().path(),
-                method = request.method().as_str(),
-                "Request denied by BMC proxy ACLs"
-            );
+            emit(RequestAclDenied::new(
+                request.method(),
+                format!("{principal_ids:?}"),
+                request.uri().path().to_string(),
+            ));
         }
 
         allowed
@@ -748,13 +750,19 @@ async fn authorize_proxy_request(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response<Body>, StatusCode> {
+    authorize_principal_allow_list(&state, &request)?;
+    Ok(next.run(request).await)
+}
+
+fn authorize_principal_allow_list(
+    state: &BmcProxyState,
+    request: &Request<Body>,
+) -> Result<(), StatusCode> {
     let auth_context = request
         .extensions()
         .get::<AuthContext<()>>()
         .ok_or_else(|| {
-            tracing::warn!(
-                "authorize_proxy_request found a request with no AuthContext in its extensions"
-            );
+            emit(PrincipalAllowListAuthContextMissing::new(request.method()));
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -765,14 +773,14 @@ async fn authorize_proxy_request(
         .any(|principal| state.config.allowed_principals.contains(principal));
 
     if allowed {
-        Ok(next.run(request).await)
+        Ok(())
     } else {
-        tracing::info!(
-            allowed_principals = ?state.config.allowed_principals,
-            present_principals = ?present_principals,
-            path = request.uri().path(),
-            "Request denied by BMC proxy principal allow-list"
-        );
+        emit(PrincipalAllowListDenied::new(
+            request.method(),
+            format!("{:?}", state.config.allowed_principals),
+            format!("{present_principals:?}"),
+            request.uri().path().to_string(),
+        ));
         Err(StatusCode::FORBIDDEN)
     }
 }
@@ -1116,9 +1124,10 @@ mod tests {
     use std::sync::Arc;
 
     use axum::body::Body;
-    use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
+    use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, Request, StatusCode};
     use bytes::Bytes;
     use carbide_authn::middleware::{AuthContext, ExternalUserInfo, Principal};
+    use carbide_instrument::LabelValue;
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::Outcome::{Fails, Yields};
     use carbide_test_support::{
@@ -1136,11 +1145,41 @@ mod tests {
 
     use super::{
         BmcCredentials, BmcProxyState, ConnectionFailReason, CredentialCache, ForwardedTarget,
-        TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed, build_authority,
-        build_response, copy_request_headers, create_client, evict_cached_credentials,
-        forwarded_header_value, get_http_client, ip_for_forwarded_target, is_hop_by_hop_header,
-        method_supports_body, parse_forwarded_host_value, request_principal_ids,
+        TcpAcceptFailed, TlsCertificateReloadFailed, TlsConnectionFailed,
+        authorize_principal_allow_list, build_authority, build_response, copy_request_headers,
+        create_client, evict_cached_credentials, forwarded_header_value, get_http_client,
+        ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
+        parse_forwarded_host_value, request_principal_ids,
     };
+    use crate::metrics::MethodLabel;
+
+    const TEST_CONFIG: &str = r#"
+        [tls]
+        identity_pemfile_path = ""
+        identity_keyfile_path = ""
+        root_cafile_path = ""
+        admin_root_cafile_path = ""
+
+        [auth]
+    "#;
+
+    const AUTHORIZATION_TEST_CONFIG: &str = r#"
+        allowed_principals = ["spiffe-service-id/forge-system/carbide-api"]
+
+        [tls]
+        identity_pemfile_path = ""
+        identity_keyfile_path = ""
+        root_cafile_path = ""
+        admin_root_cafile_path = ""
+
+        [auth]
+
+        [auth.acls]
+        "spiffe-service-id/forge-system/carbide-api" = ["GET /redfish/v1/**"]
+    "#;
+
+    const AUTHORIZATION_DENIED_METRIC: &str = "carbide_bmc_proxy_authorization_denied_total";
+    const AUTHORIZATION_ERROR_METRIC: &str = "carbide_bmc_proxy_authorization_errors_total";
 
     #[derive(Clone, Copy)]
     enum ForwardedHeaderCase {
@@ -1197,29 +1236,99 @@ mod tests {
         credentials: CredentialSummary,
     }
 
-    fn test_state_with_ip_cache(ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
+    fn test_state_with_config(config: &str, ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
         let client_config = ForgeClientConfig::default();
         let api_config = ApiConfig::new("https://example.com", &client_config);
 
         BmcProxyState {
-            config: Arc::new(
-                crate::Config::parse(
-                    r#"
-                        [tls]
-                        identity_pemfile_path = ""
-                        identity_keyfile_path = ""
-                        root_cafile_path = ""
-                        admin_root_cafile_path = ""
-
-                        [auth]
-                    "#,
-                )
-                .expect("test config should parse"),
-            ),
+            config: Arc::new(crate::Config::parse(config).expect("test config should parse")),
             api_client: ForgeApiClient::new(&api_config),
             credential_cache: Default::default(),
             client_cache: Default::default(),
             ip_cache: Arc::new(Mutex::new(ip_cache)),
+        }
+    }
+
+    fn test_state_with_ip_cache(ip_cache: HashMap<LookupBy, IpAddr>) -> BmcProxyState {
+        test_state_with_config(TEST_CONFIG, ip_cache)
+    }
+
+    struct AuthorizationRequestCase {
+        method: Method,
+        path: &'static str,
+        principals: Option<Vec<Principal>>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AuthorizationObservation<T> {
+        result: T,
+        denial_delta: f64,
+        error_delta: f64,
+        event_names: Vec<String>,
+    }
+
+    fn authorization_request(input: AuthorizationRequestCase) -> Request<Body> {
+        let mut request = Request::builder()
+            .method(input.method)
+            .uri(input.path)
+            .body(Body::empty())
+            .expect("authorization test request should build");
+        if let Some(principals) = input.principals {
+            request.extensions_mut().insert(AuthContext::<()> {
+                principals,
+                authorization: None,
+            });
+        }
+        request
+    }
+
+    fn authorization_event_names(logs: &[carbide_instrument::testing::CapturedLog]) -> Vec<String> {
+        logs.iter()
+            .filter_map(|log| log.field("event_name").map(str::to_owned))
+            .collect()
+    }
+
+    fn observe_request_acl(
+        state: &BmcProxyState,
+        input: AuthorizationRequestCase,
+    ) -> AuthorizationObservation<bool> {
+        let method_label = MethodLabel::from(&input.method).label_value().to_string();
+        let request = authorization_request(input);
+        let labels = [
+            ("authorization_layer", "request_acl"),
+            ("method", method_label.as_str()),
+        ];
+        let metrics = MetricsCapture::start();
+        let mut result = false;
+        let logs = capture_logs(|| result = state.allows(&request));
+
+        AuthorizationObservation {
+            result,
+            denial_delta: metrics.counter_delta(AUTHORIZATION_DENIED_METRIC, &labels),
+            error_delta: metrics.counter_delta(AUTHORIZATION_ERROR_METRIC, &labels),
+            event_names: authorization_event_names(&logs),
+        }
+    }
+
+    fn observe_principal_allow_list(
+        state: &BmcProxyState,
+        input: AuthorizationRequestCase,
+    ) -> AuthorizationObservation<Result<(), StatusCode>> {
+        let method_label = MethodLabel::from(&input.method).label_value().to_string();
+        let request = authorization_request(input);
+        let labels = [
+            ("authorization_layer", "principal_allow_list"),
+            ("method", method_label.as_str()),
+        ];
+        let metrics = MetricsCapture::start();
+        let mut result = Ok(());
+        let logs = capture_logs(|| result = authorize_principal_allow_list(state, &request));
+
+        AuthorizationObservation {
+            result,
+            denial_delta: metrics.counter_delta(AUTHORIZATION_DENIED_METRIC, &labels),
+            error_delta: metrics.counter_delta(AUTHORIZATION_ERROR_METRIC, &labels),
+            event_names: authorization_event_names(&logs),
         }
     }
 
@@ -1719,6 +1828,124 @@ mod tests {
                     "anonymous".to_string(),
                 ],
             }
+        );
+    }
+
+    /// `BmcProxyState::allows` owns the per-principal ACL boundary. An ordinary
+    /// policy rejection moves the denial counter, while a missing `AuthContext`
+    /// still rejects the request but moves only the middleware-error counter.
+    #[test]
+    fn request_acl_authorization_emits_the_matching_event() {
+        let state = test_state_with_config(AUTHORIZATION_TEST_CONFIG, HashMap::new());
+        let service_principal =
+            || Principal::SpiffeServiceIdentifier("forge-system/carbide-api".to_string());
+
+        check_values(
+            [
+                Check {
+                    scenario: "configured principal and path are allowed",
+                    input: AuthorizationRequestCase {
+                        method: Method::GET,
+                        path: "/redfish/v1/Systems/1",
+                        principals: Some(vec![service_principal()]),
+                    },
+                    expect: AuthorizationObservation {
+                        result: true,
+                        denial_delta: 0.0,
+                        error_delta: 0.0,
+                        event_names: vec![],
+                    },
+                },
+                Check {
+                    scenario: "configured principal with denied method",
+                    input: AuthorizationRequestCase {
+                        method: Method::POST,
+                        path: "/redfish/v1/Systems/1",
+                        principals: Some(vec![service_principal()]),
+                    },
+                    expect: AuthorizationObservation {
+                        result: false,
+                        denial_delta: 1.0,
+                        error_delta: 0.0,
+                        event_names: vec!["bmc_proxy_request_acl_denied".to_string()],
+                    },
+                },
+                Check {
+                    scenario: "authentication context is missing",
+                    input: AuthorizationRequestCase {
+                        method: Method::DELETE,
+                        path: "/redfish/v1/Systems/1",
+                        principals: None,
+                    },
+                    expect: AuthorizationObservation {
+                        result: false,
+                        denial_delta: 0.0,
+                        error_delta: 1.0,
+                        event_names: vec!["bmc_proxy_request_acl_auth_context_missing".to_string()],
+                    },
+                },
+            ],
+            |input| observe_request_acl(&state, input),
+        );
+    }
+
+    /// The outer allow-list returns 403 only for a real policy rejection. A
+    /// request that never passed through authentication keeps its existing 500
+    /// response and is counted as an authorization wiring error instead.
+    #[test]
+    fn principal_allow_list_authorization_emits_the_matching_event() {
+        let state = test_state_with_config(AUTHORIZATION_TEST_CONFIG, HashMap::new());
+        let service_principal =
+            || Principal::SpiffeServiceIdentifier("forge-system/carbide-api".to_string());
+
+        check_values(
+            [
+                Check {
+                    scenario: "configured principal is allowed",
+                    input: AuthorizationRequestCase {
+                        method: Method::GET,
+                        path: "/redfish/v1",
+                        principals: Some(vec![service_principal()]),
+                    },
+                    expect: AuthorizationObservation {
+                        result: Ok(()),
+                        denial_delta: 0.0,
+                        error_delta: 0.0,
+                        event_names: vec![],
+                    },
+                },
+                Check {
+                    scenario: "principal is not on the allow-list",
+                    input: AuthorizationRequestCase {
+                        method: Method::PATCH,
+                        path: "/redfish/v1",
+                        principals: Some(vec![Principal::TrustedCertificate]),
+                    },
+                    expect: AuthorizationObservation {
+                        result: Err(StatusCode::FORBIDDEN),
+                        denial_delta: 1.0,
+                        error_delta: 0.0,
+                        event_names: vec!["bmc_proxy_principal_allow_list_denied".to_string()],
+                    },
+                },
+                Check {
+                    scenario: "authentication context is missing",
+                    input: AuthorizationRequestCase {
+                        method: Method::OPTIONS,
+                        path: "/redfish/v1",
+                        principals: None,
+                    },
+                    expect: AuthorizationObservation {
+                        result: Err(StatusCode::INTERNAL_SERVER_ERROR),
+                        denial_delta: 0.0,
+                        error_delta: 1.0,
+                        event_names: vec![
+                            "bmc_proxy_principal_allow_list_auth_context_missing".to_string(),
+                        ],
+                    },
+                },
+            ],
+            |input| observe_principal_allow_list(&state, input),
         );
     }
 

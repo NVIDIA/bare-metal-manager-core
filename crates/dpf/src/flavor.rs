@@ -42,17 +42,27 @@ impl DPUFlavor {
 fn get_default_ovs_defaults() -> String {
     concat!(
         "_ovs-vsctl() {\n",
-        "   ovs-vsctl --no-wait --timeout 15 \"$@\"\n",
-        " }\n",
+            "ovs-vsctl --timeout 15 \"$@\"\n",
+        "}\n",
+
+        "# Remove default OVS configuration on the DPU and ensure no leftovers on the OVS kernel side\n",
+        "_ovs-vsctl --if-exists del-br ovsbr1\n",
+        "_ovs-vsctl --if-exists del-br ovsbr2\n",
+        "ovs-appctl --timeout 15 dpctl/del-dp system@ovs-system || true\n",
+
         "_ovs-vsctl set Open_vSwitch . other_config:doca-init=true\n",
         "_ovs-vsctl set Open_vSwitch . other_config:dpdk-max-memzones=50000\n",
         "_ovs-vsctl set Open_vSwitch . other_config:hw-offload=true\n",
         "_ovs-vsctl set Open_vSwitch . other_config:pmd-quiet-idle=true\n",
         "_ovs-vsctl set Open_vSwitch . other_config:max-idle=20000\n",
         "_ovs-vsctl set Open_vSwitch . other_config:max-revalidator=5000\n",
-        "_ovs-vsctl set Open_vSwitch . other_config:ctl-pipe-size=1024\n",
-        "_ovs-vsctl --if-exists del-br ovsbr1\n",
-        "_ovs-vsctl --if-exists del-br ovsbr2\n",
+        "_ovs-vsctl remove Open_vSwitch . other_config default-datapath-type || true\n",
+
+        "if systemctl list-unit-files openvswitch-switch.service &>/dev/null; then\n",
+            "systemctl restart openvswitch-switch\n",
+        "elif systemctl list-unit-files openvswitch.service &>/dev/null; then\n",
+            "systemctl restart openvswitch\n",
+        "fi\n",
         "_ovs-vsctl --may-exist add-br br-sfc\n",
         "_ovs-vsctl set bridge br-sfc datapath_type=netdev\n",
         "_ovs-vsctl set bridge br-sfc fail_mode=secure\n",
@@ -60,6 +70,9 @@ fn get_default_ovs_defaults() -> String {
         "_ovs-vsctl set Interface p0 type=dpdk\n",
         "_ovs-vsctl set Interface p0 mtu_request=9216\n",
         "_ovs-vsctl set Port p0 external_ids:dpf-type=physical\n",
+        "_ovs-vsctl --may-exist add-br br-hbn\n",
+        "_ovs-vsctl set bridge br-hbn datapath_type=netdev\n",
+        "_ovs-vsctl set bridge br-hbn fail_mode=secure\n",
     )
     .to_string()
 }
@@ -239,7 +252,7 @@ pub fn default_flavor(
             bfcfg_parameters: Some(bfcfg_parameters),
             config_files: Some(get_config_files(proxy)?),
             containerd_config: None,
-            grub: None,
+            grub: Some(get_default_grub()),
             host_network_interface_configs: None,
             nvconfig: Some(vec![get_default_nvconfig()]),
             ovs: Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
@@ -252,6 +265,28 @@ pub fn default_flavor(
             systemd_services: None,
         },
     })
+}
+
+fn get_default_grub() -> DpuFlavorGrub {
+    DpuFlavorGrub {
+        kernel_parameters: Some(
+            vec![
+                "console=hvc0",
+                "console=ttyAMA0",
+                "earlycon=pl011,0x13010000",
+                "fixrttc",
+                "net.ifnames=0",
+                "biosdevname=0",
+                "iommu.passthrough=1",
+                "cgroup_no_v1=net_prio,net_cls",
+                "hugepagesz=2048kB",
+                "hugepages=3072",
+            ]
+            .into_iter()
+            .map(|x| x.to_string())
+            .collect(),
+        ),
+    }
 }
 
 /// Returns the base set of config files, plus an optional containerd proxy drop-in if `proxy` is set.
@@ -412,8 +447,8 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
         "NUM_OF_VFS=16".to_string(),
         "HIDE_PORT2_PF=True".to_string(),
         "NUM_OF_PF=1".to_string(),
-        "LINK_TYPE_P1=2".to_string(),
-        "LINK_TYPE_P2=2".to_string(),
+        "LINK_TYPE_P1=ETH".to_string(),
+        "LINK_TYPE_P2=ETH".to_string(),
     ];
 
     DpuFlavorNvconfig {

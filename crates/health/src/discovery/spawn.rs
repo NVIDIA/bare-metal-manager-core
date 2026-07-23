@@ -782,9 +782,11 @@ mod tests {
 
     fn machine_metadata() -> EndpointMetadata {
         EndpointMetadata::Machine(MachineData {
-            machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                .parse()
-                .expect("valid machine id"),
+            machine_id: Some(
+                "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+            ),
             machine_serial: None,
             slot_number: None,
             tray_index: None,

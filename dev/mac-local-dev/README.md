@@ -67,21 +67,23 @@ grpcurl -insecure localhost:1079 list
 open https://localhost:1079/admin
 ```
 
-### RMS node type resolution
+### RMS node descriptors
 
-When testing RMS component-manager backends, configure the local rack profile so
-`product_family` is set to `gb200` or `gb300`. This field is required for
-RMS-backed operations and must exactly match the lowercase value; it is not
-normalized. The component-manager backend fields default to `rms`, so set any
-role you are not testing to a non-RMS backend. When a backend is set to `rms`,
-the matching vendor field in each configured profile is required for startup
-validation.
+When testing RMS component-manager backends, configure a non-empty
+`product_family` in each local rack profile and a non-empty vendor for each role
+using RMS. NICo trims outer whitespace and preserves the remaining identifier.
+It sends `role`, `vendor`, and `product_family` in an RMS `NodeDescriptor`
+on every request. For exact combinations represented by the current RMS
+`NodeType` enum, NICo also sends that enum and legacy firmware-filter entries
+for compatibility with older RMS servers. Other combinations, including
+VRNVL72 power shelves, remain descriptor-only. Legacy mapping is best effort
+and never rejects startup; RMS evaluates descriptor support when an operation
+runs.
 
-Recommended vendor values are `NVIDIA` or `Lenovo` for compute, `NVIDIA` for
-switches, and `LiteOn` or `Delta` for power shelves. Vendor matching is
-case-insensitive and ignores spaces, hyphens, and underscores, so values like
-`nvidia`, `Lite-On`, and `lite_on` are accepted. The rack's `rack_profile_id`
-must match a key in `[rack_profiles]`.
+The component-manager backend fields default to `rms`, so set any role you are
+not testing to a non-RMS backend. The rack's `rack_profile_id` must match a key
+in `[rack_profiles]`. Descriptor-based requests require an RMS version that
+supports `NodeDescriptor`.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure local `[rms]` settings separately when NICo needs to call RMS.

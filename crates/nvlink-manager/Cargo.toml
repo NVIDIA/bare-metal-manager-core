@@ -56,7 +56,6 @@ carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 rcgen = { workspace = true }
-tempfile = { workspace = true }
 
 [lints]
 workspace = true

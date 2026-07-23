@@ -196,7 +196,6 @@ pub async fn insert(
 /// - `Static`: the old static address is replaced.
 /// - `Dhcp` or `Slaac`: the managed allocation is removed and
 ///   replaced with the static assignment.
-#[allow(txn_held_across_await)]
 pub async fn assign_static(
     txn: &mut PgConnection,
     interface_id: MachineInterfaceId,

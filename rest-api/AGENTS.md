@@ -349,6 +349,11 @@ Endpoint tests should follow the changed surface, not just compile it:
 - Site/Core/Flow handlers should assert the workflow or proxy request arguments,
   workflow ID inputs, secret field names, timeout behavior where relevant, and
   that secrets are absent from responses and logs.
+- Operator examples must keep credentials out of command arguments; use a
+  supported prompt, stdin, or protected secret file. For asynchronous HTTP 202
+  operations, document the real completion signal and terminal states. Do not
+  present a resource read or poll as completion unless the API contract exposes
+  that transition.
 - Route tests and OpenAPI checks are part of the endpoint change; generated SDK
   updates belong in the same change only when the repo workflow requires them.
 

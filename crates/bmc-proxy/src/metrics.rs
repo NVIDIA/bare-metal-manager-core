@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-//! The bmc-proxy metrics endpoint, and the proxy's instrumentation events:
-//! the outbound forward to a BMC records a duration histogram whose
-//! `_count` series, split by status class, is the request and outcome rate.
+//! The bmc-proxy metrics endpoint and the proxy's instrumentation events.
+//! Authorization events keep policy denials separate from missing middleware
+//! context, while each outbound BMC request records its duration and status.
 
 use std::io;
 use std::net::SocketAddr;
@@ -87,6 +87,154 @@ impl From<&Method> for MethodLabel {
             Method::PATCH => Self::Patch,
             Method::DELETE => Self::Delete,
             _ => Self::Other,
+        }
+    }
+}
+
+/// The authorization boundary that rejected a request or could not evaluate
+/// it. The outer allow-list decides which principals may use the proxy at all;
+/// the request ACL then decides which Redfish method and path they may use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum AuthorizationLayer {
+    PrincipalAllowList,
+    RequestAcl,
+}
+
+/// The request reached the per-principal ACL, but no configured rule allowed
+/// its method and path. `method_label` bounds the metric while `method` keeps
+/// the existing uppercase log field operators already search.
+#[derive(Event)]
+#[event(
+    event_name = "bmc_proxy_request_acl_denied",
+    metric_name = "carbide_bmc_proxy_authorization_denied_total",
+    component = "nico-bmc-proxy",
+    log = info,
+    metric = counter,
+    message = "Request denied by BMC proxy ACLs",
+    describe = "Number of BMC proxy requests denied by authorization layer and HTTP method"
+)]
+pub(crate) struct RequestAclDenied {
+    #[label]
+    authorization_layer: AuthorizationLayer,
+    #[label(name = "method")]
+    method_label: MethodLabel,
+    #[context]
+    principals: String,
+    #[context]
+    path: String,
+    #[context]
+    method: String,
+}
+
+impl RequestAclDenied {
+    pub(crate) fn new(method: &Method, principals: String, path: String) -> Self {
+        Self {
+            authorization_layer: AuthorizationLayer::RequestAcl,
+            method_label: method.into(),
+            principals,
+            path,
+            method: method.as_str().to_string(),
+        }
+    }
+}
+
+/// The outer principal allow-list rejected a request before it reached the
+/// per-principal ACL. Principal identities and configured policy stay on the
+/// log line; neither can create a metric series.
+#[derive(Event)]
+#[event(
+    event_name = "bmc_proxy_principal_allow_list_denied",
+    metric_name = "carbide_bmc_proxy_authorization_denied_total",
+    component = "nico-bmc-proxy",
+    log = info,
+    metric = counter,
+    message = "Request denied by BMC proxy principal allow-list",
+    describe = "Number of BMC proxy requests denied by authorization layer and HTTP method"
+)]
+pub(crate) struct PrincipalAllowListDenied {
+    #[label]
+    authorization_layer: AuthorizationLayer,
+    #[label(name = "method")]
+    method_label: MethodLabel,
+    #[context]
+    allowed_principals: String,
+    #[context]
+    present_principals: String,
+    #[context]
+    path: String,
+}
+
+impl PrincipalAllowListDenied {
+    pub(crate) fn new(
+        method: &Method,
+        allowed_principals: String,
+        present_principals: String,
+        path: String,
+    ) -> Self {
+        Self {
+            authorization_layer: AuthorizationLayer::PrincipalAllowList,
+            method_label: method.into(),
+            allowed_principals,
+            present_principals,
+            path,
+        }
+    }
+}
+
+/// The per-principal ACL could not run because authentication middleware did
+/// not attach an `AuthContext`. This is a wiring error, not a policy denial,
+/// so it has a separate metric and keeps the existing ERROR diagnostic.
+#[derive(Event)]
+#[event(
+    event_name = "bmc_proxy_request_acl_auth_context_missing",
+    metric_name = "carbide_bmc_proxy_authorization_errors_total",
+    component = "nico-bmc-proxy",
+    log = error,
+    metric = counter,
+    message = "BUG: No AuthContext middleware found, all requests will be denied",
+    describe = "Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method"
+)]
+pub(crate) struct RequestAclAuthContextMissing {
+    #[label]
+    authorization_layer: AuthorizationLayer,
+    #[label(name = "method")]
+    method_label: MethodLabel,
+}
+
+impl RequestAclAuthContextMissing {
+    pub(crate) fn new(method: &Method) -> Self {
+        Self {
+            authorization_layer: AuthorizationLayer::RequestAcl,
+            method_label: method.into(),
+        }
+    }
+}
+
+/// The outer allow-list could not run because authentication middleware did
+/// not attach an `AuthContext`. The request remains a 500 and the diagnostic
+/// remains WARN, but the error is counted separately from a normal 403.
+#[derive(Event)]
+#[event(
+    event_name = "bmc_proxy_principal_allow_list_auth_context_missing",
+    metric_name = "carbide_bmc_proxy_authorization_errors_total",
+    component = "nico-bmc-proxy",
+    log = warn,
+    metric = counter,
+    message = "authorize_proxy_request found a request with no AuthContext in its extensions",
+    describe = "Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method"
+)]
+pub(crate) struct PrincipalAllowListAuthContextMissing {
+    #[label]
+    authorization_layer: AuthorizationLayer,
+    #[label(name = "method")]
+    method_label: MethodLabel,
+}
+
+impl PrincipalAllowListAuthContextMissing {
+    pub(crate) fn new(method: &Method) -> Self {
+        Self {
+            authorization_layer: AuthorizationLayer::PrincipalAllowList,
+            method_label: method.into(),
         }
     }
 }
@@ -163,6 +311,132 @@ mod tests {
     use tokio::time::timeout;
 
     use super::*;
+
+    const AUTHORIZATION_DENIED_METRIC: &str = "carbide_bmc_proxy_authorization_denied_total";
+    const AUTHORIZATION_ERROR_METRIC: &str = "carbide_bmc_proxy_authorization_errors_total";
+
+    struct AuthorizationEventInput {
+        authorization_layer: &'static str,
+        method: &'static str,
+        emit: fn(),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AuthorizationEventObservation {
+        denied_delta: f64,
+        error_delta: f64,
+        log: AuthorizationEventLog,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AuthorizationEventLog {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        authorization_layer: Option<String>,
+        method_label: Option<String>,
+        principals: Option<String>,
+        path: Option<String>,
+        method: Option<String>,
+        allowed_principals: Option<String>,
+        present_principals: Option<String>,
+    }
+
+    fn emit_request_acl_denied() {
+        emit(RequestAclDenied::new(
+            &Method::PATCH,
+            r#"["spiffe-service-id/nico-api", "anonymous"]"#.to_string(),
+            "/redfish/v1/Systems/1".to_string(),
+        ));
+    }
+
+    fn emit_principal_allow_list_denied() {
+        emit(PrincipalAllowListDenied::new(
+            &Method::GET,
+            r#"{"spiffe-service-id/nico-api"}"#.to_string(),
+            r#"["trusted-certificate", "anonymous"]"#.to_string(),
+            "/redfish/v1".to_string(),
+        ));
+    }
+
+    fn emit_request_acl_auth_context_missing() {
+        emit(RequestAclAuthContextMissing::new(&Method::DELETE));
+    }
+
+    fn emit_principal_allow_list_auth_context_missing() {
+        emit(PrincipalAllowListAuthContextMissing::new(&Method::OPTIONS));
+    }
+
+    fn observe_authorization_event(
+        input: AuthorizationEventInput,
+    ) -> AuthorizationEventObservation {
+        let metrics = MetricsCapture::start();
+        let mut logs = capture_logs(input.emit);
+        assert_eq!(logs.len(), 1, "an authorization Event logs exactly once");
+        let log = logs.pop().expect("the authorization Event log");
+        let field = |name: &str| log.field(name).map(str::to_owned);
+        let labels = [
+            ("authorization_layer", input.authorization_layer),
+            ("method", input.method),
+        ];
+
+        AuthorizationEventObservation {
+            denied_delta: metrics.counter_delta(AUTHORIZATION_DENIED_METRIC, &labels),
+            error_delta: metrics.counter_delta(AUTHORIZATION_ERROR_METRIC, &labels),
+            log: AuthorizationEventLog {
+                level: log.level,
+                metadata_name: log.metadata_name.clone(),
+                message: log.message.clone(),
+                event_name: field("event_name"),
+                metric_name: field("metric_name"),
+                authorization_layer: field("authorization_layer"),
+                method_label: field("method_label"),
+                principals: field("principals"),
+                path: field("path"),
+                method: field("method"),
+                allowed_principals: field("allowed_principals"),
+                present_principals: field("present_principals"),
+            },
+        }
+    }
+
+    fn expected_authorization_event(
+        level: tracing::Level,
+        event_name: &str,
+        metric_name: &str,
+        message: &str,
+        authorization_layer: &str,
+        method_label: &str,
+    ) -> AuthorizationEventObservation {
+        AuthorizationEventObservation {
+            denied_delta: if metric_name == AUTHORIZATION_DENIED_METRIC {
+                1.0
+            } else {
+                0.0
+            },
+            error_delta: if metric_name == AUTHORIZATION_ERROR_METRIC {
+                1.0
+            } else {
+                0.0
+            },
+            log: AuthorizationEventLog {
+                level,
+                metadata_name: event_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(event_name.to_string()),
+                metric_name: Some(metric_name.to_string()),
+                authorization_layer: Some(authorization_layer.to_string()),
+                method_label: Some(method_label.to_string()),
+                principals: None,
+                path: None,
+                method: None,
+                allowed_principals: None,
+                present_principals: None,
+            },
+        }
+    }
 
     #[tokio::test]
     async fn start_binds_listener_and_spawns_endpoint_task() {
@@ -325,6 +599,16 @@ mod tests {
         check_values(
             [
                 Check {
+                    scenario: "principal allow-list authorization layer",
+                    input: AuthorizationLayer::PrincipalAllowList.label_value(),
+                    expect: "principal_allow_list".to_string(),
+                },
+                Check {
+                    scenario: "request ACL authorization layer",
+                    input: AuthorizationLayer::RequestAcl.label_value(),
+                    expect: "request_acl".to_string(),
+                },
+                Check {
                     scenario: "get",
                     input: MethodLabel::Get.label_value(),
                     expect: "get".to_string(),
@@ -386,6 +670,96 @@ mod tests {
                 },
             ],
             |value| value.to_string(),
+        );
+    }
+
+    /// Policy denials and missing middleware context both keep their historical
+    /// diagnostics, but they move different metric families. The shared labels
+    /// let an operator identify the boundary and method without putting any
+    /// principal or path into a time series.
+    #[test]
+    fn authorization_events_preserve_logs_and_separate_denials_from_errors() {
+        let mut request_acl_denied = expected_authorization_event(
+            tracing::Level::INFO,
+            "bmc_proxy_request_acl_denied",
+            AUTHORIZATION_DENIED_METRIC,
+            "Request denied by BMC proxy ACLs",
+            "request_acl",
+            "patch",
+        );
+        request_acl_denied.log.principals =
+            Some(r#"["spiffe-service-id/nico-api", "anonymous"]"#.to_string());
+        request_acl_denied.log.path = Some("/redfish/v1/Systems/1".to_string());
+        request_acl_denied.log.method = Some("PATCH".to_string());
+
+        let mut principal_allow_list_denied = expected_authorization_event(
+            tracing::Level::INFO,
+            "bmc_proxy_principal_allow_list_denied",
+            AUTHORIZATION_DENIED_METRIC,
+            "Request denied by BMC proxy principal allow-list",
+            "principal_allow_list",
+            "get",
+        );
+        principal_allow_list_denied.log.allowed_principals =
+            Some(r#"{"spiffe-service-id/nico-api"}"#.to_string());
+        principal_allow_list_denied.log.present_principals =
+            Some(r#"["trusted-certificate", "anonymous"]"#.to_string());
+        principal_allow_list_denied.log.path = Some("/redfish/v1".to_string());
+
+        check_values(
+            [
+                Check {
+                    scenario: "request ACL denial",
+                    input: AuthorizationEventInput {
+                        authorization_layer: "request_acl",
+                        method: "patch",
+                        emit: emit_request_acl_denied,
+                    },
+                    expect: request_acl_denied,
+                },
+                Check {
+                    scenario: "principal allow-list denial",
+                    input: AuthorizationEventInput {
+                        authorization_layer: "principal_allow_list",
+                        method: "get",
+                        emit: emit_principal_allow_list_denied,
+                    },
+                    expect: principal_allow_list_denied,
+                },
+                Check {
+                    scenario: "request ACL missing authentication context",
+                    input: AuthorizationEventInput {
+                        authorization_layer: "request_acl",
+                        method: "delete",
+                        emit: emit_request_acl_auth_context_missing,
+                    },
+                    expect: expected_authorization_event(
+                        tracing::Level::ERROR,
+                        "bmc_proxy_request_acl_auth_context_missing",
+                        AUTHORIZATION_ERROR_METRIC,
+                        "BUG: No AuthContext middleware found, all requests will be denied",
+                        "request_acl",
+                        "delete",
+                    ),
+                },
+                Check {
+                    scenario: "principal allow-list missing authentication context",
+                    input: AuthorizationEventInput {
+                        authorization_layer: "principal_allow_list",
+                        method: "other",
+                        emit: emit_principal_allow_list_auth_context_missing,
+                    },
+                    expect: expected_authorization_event(
+                        tracing::Level::WARN,
+                        "bmc_proxy_principal_allow_list_auth_context_missing",
+                        AUTHORIZATION_ERROR_METRIC,
+                        "authorize_proxy_request found a request with no AuthContext in its extensions",
+                        "principal_allow_list",
+                        "other",
+                    ),
+                },
+            ],
+            observe_authorization_event,
         );
     }
 

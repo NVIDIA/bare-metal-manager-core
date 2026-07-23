@@ -310,9 +310,9 @@ async fn handle_dpf_provisioning(
 /// explicit per-step state rather than timestamp heuristics.
 ///
 /// Transitions:
-/// - `Off`: wait for `power_state == Off` + 30 s → issue On →
-///   `HandleReboot { On, now }`
-/// - `On`:  wait for `power_state == On`  + 30 s → `reboot_complete` →
+/// - `Off`: wait for `power_state == Off` + delay → persist
+///   `HandleReboot { On, 0 }`
+/// - `On`: wait for `power_state == On`  + delay → `reboot_complete` →
 ///   `WaitingForReady`
 async fn handle_dpf_handle_reboot(
     state: &ManagedHostStateSnapshot,
@@ -325,6 +325,8 @@ async fn handle_dpf_handle_reboot(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     const MAX_RETRIES: u32 = 3;
 
+    // Due to enqueue based event handling, On is triggered immedietely after Off while chassis is
+    // not able to process Off completely. So this time delay is needed.
     if super::wait(
         &state.host_snapshot.state.version.timestamp(),
         power_down_wait,
@@ -345,7 +347,6 @@ async fn handle_dpf_handle_reboot(
     match op {
         PerformPowerOperation::Off => {
             if power_state == libredfish::PowerState::Off {
-                handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
                 let next = transition_all_dpus_to_dpf_state(
                     DpfState::HandleReboot {
                         op: PerformPowerOperation::On,
@@ -391,12 +392,16 @@ async fn handle_dpf_handle_reboot(
                     state,
                 )?;
                 Ok(StateHandlerOutcome::transition(next))
-            } else if retry_count < MAX_RETRIES {
-                tracing::warn!(
-                    host = %state.host_snapshot.id,
-                    retry_count,
-                    "Host did not power on; retrying On"
-                );
+            } else if retry_count <= MAX_RETRIES {
+                // Zero means the On intent is durable but its initial command
+                // has not yet been issued. Later attempts are retries.
+                if retry_count > 0 {
+                    tracing::warn!(
+                        host = %state.host_snapshot.id,
+                        retry_count,
+                        "Host did not power on; retrying On"
+                    );
+                }
                 handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
                 let next = transition_all_dpus_to_dpf_state(
                     DpfState::HandleReboot {

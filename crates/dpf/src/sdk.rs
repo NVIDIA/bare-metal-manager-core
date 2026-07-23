@@ -2020,6 +2020,9 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
     ///   otherwise `url` is `helmChart.source.repoURL` and `name` is
     ///   `helmChart.source.chart`. If no name can be derived, the DPUDeployment
     ///   service name is used.
+    ///
+    /// Returns an error when any referenced DPUServiceTemplate is absent so
+    /// callers cannot persist a partial inventory snapshot.
     pub async fn get_service_versions_for_dpu(
         &self,
         dpu_name: &str,
@@ -2057,12 +2060,15 @@ impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, 
             let Some(template_name) = &service.service_template else {
                 continue;
             };
-            let Some(template) =
+            let template =
                 DpuServiceTemplateRepository::get(&*self.repo, template_name, &self.namespace)
                     .await?
-            else {
-                continue;
-            };
+                    .ok_or_else(|| {
+                        DpfError::InvalidState(format!(
+                            "DPUServiceTemplate {template_name} not found for service \
+                             {service_name} in DPUDeployment {deployment_name}"
+                        ))
+                    })?;
 
             let image_values = template
                 .spec

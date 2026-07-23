@@ -229,7 +229,7 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 
 	dpuMachineIDs := []string{"dpu-machine-1", "dpu-machine-2", "dpu-machine-3"}
 
-	expectedResult := []*corev1.DpuMachine{
+	expectedResult := &corev1.DpuMachineList{Machines: []*corev1.DpuMachine{
 		{
 			Machine: &corev1.Machine{
 				Id: &corev1.MachineId{Id: "dpu-machine-1"},
@@ -237,6 +237,14 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 			DpuNetworkConfig: &corev1.ManagedHostNetworkConfigResponse{
 				VniDevice:    "vxlan48",
 				IsPrimaryDpu: true,
+				NetworkSecurityPolicyOverrides: []*corev1.ResolvedNetworkSecurityGroupRule{
+					{
+						Rule: &corev1.NetworkSecurityGroupRuleAttributes{
+							SourceNet:      &corev1.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "10.0.0.0/24"},
+							DestinationNet: &corev1.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "10.1.0.0/24"},
+						},
+					},
+				},
 			},
 		},
 		{
@@ -257,7 +265,7 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 				IsPrimaryDpu: false,
 			},
 		},
-	}
+	}}
 
 	// Mock GetDpuMachinesByIDs activity success
 	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDs)
@@ -268,15 +276,17 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result []*corev1.DpuMachine
+	var result corev1.DpuMachineList
 	s.env.GetWorkflowResult(&result)
 
-	s.Equal(len(expectedResult), len(result))
-	for i, dpuMachine := range result {
-		s.Equal(expectedResult[i].Machine.Id.Id, dpuMachine.Machine.Id.Id)
-		s.Equal(expectedResult[i].DpuNetworkConfig.VniDevice, dpuMachine.DpuNetworkConfig.VniDevice)
-		s.Equal(expectedResult[i].DpuNetworkConfig.IsPrimaryDpu, dpuMachine.DpuNetworkConfig.IsPrimaryDpu)
+	s.Equal(len(expectedResult.Machines), len(result.Machines))
+	for i, dpuMachine := range result.Machines {
+		s.Equal(expectedResult.Machines[i].Machine.Id.Id, dpuMachine.Machine.Id.Id)
+		s.Equal(expectedResult.Machines[i].DpuNetworkConfig.VniDevice, dpuMachine.DpuNetworkConfig.VniDevice)
+		s.Equal(expectedResult.Machines[i].DpuNetworkConfig.IsPrimaryDpu, dpuMachine.DpuNetworkConfig.IsPrimaryDpu)
 	}
+	s.Equal("10.0.0.0/24", result.Machines[0].DpuNetworkConfig.NetworkSecurityPolicyOverrides[0].Rule.GetSrcPrefix())
+	s.Equal("10.1.0.0/24", result.Machines[0].DpuNetworkConfig.NetworkSecurityPolicyOverrides[0].Rule.GetDstPrefix())
 }
 
 func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_ActivityFails() {

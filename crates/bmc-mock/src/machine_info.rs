@@ -22,10 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use crate::redfish::update_service::UpdateServiceConfig;
-use crate::{
-    DUMMY_FACTORY_DPU_PASSWORD, DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HostHardwareType,
-    hw, redfish,
-};
+use crate::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, HostHardwareType, hw, redfish};
 
 /// Represents static information we know ahead of time about a host or DPU (independent of any
 /// state we get from carbide like IP addresses or machine ID's.) Intended to be immutable and
@@ -201,6 +198,16 @@ impl DpuMachineInfo {
             HostHardwareType::DellPowerEdgeR760Bf4 | HostHardwareType::NvidiaDgxVr => {
                 DpuType::Bluefield4
             }
+        }
+    }
+
+    /// The [`bmc_vendor::DpuModel`] this DPU emulates, so the mock can share
+    /// per-model logic (e.g. factory-default credentials) with the rest of the
+    /// stack rather than duplicating it against the local [`DpuType`].
+    fn dpu_model(&self) -> bmc_vendor::DpuModel {
+        match self.dpu_type() {
+            DpuType::Bluefield3 => bmc_vendor::DpuModel::BlueField3,
+            DpuType::Bluefield4 => bmc_vendor::DpuModel::BlueField4,
         }
     }
 
@@ -1032,11 +1039,12 @@ impl MachineInfo {
     pub fn factory_default_account(&self) -> redfish::account_service::Account {
         match self {
             MachineInfo::Host(h) => h.factory_default_account(),
-            MachineInfo::Dpu(_) => redfish::account_service::Account::administrator(
-                "root",
-                DUMMY_FACTORY_USERNAME,
-                DUMMY_FACTORY_DPU_PASSWORD,
-            ),
+            MachineInfo::Dpu(d) => {
+                // Read the per-model default from the shared source of truth so the
+                // mock and site-explorer's fallback cannot drift.
+                let (username, password) = d.dpu_model().default_factory_credentials();
+                redfish::account_service::Account::administrator(username, username, password)
+            }
         }
     }
 }

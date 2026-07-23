@@ -199,10 +199,30 @@ pub(crate) async fn create_credential(
             let Some(username) = req.username else {
                 return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
+            // Reuse the proto `vendor` field to carry the DPU model. Absent/empty
+            // means the catch-all default (backward compatible). `DpuModel::from`
+            // maps anything unrecognized to `Unknown`, so only accept that when the
+            // caller explicitly asked for the catch-all -- otherwise it's a typo and
+            // we reject it rather than silently writing to the legacy `root` path.
+            let model: bmc_vendor::DpuModel = match req.vendor.as_deref() {
+                None | Some("") => bmc_vendor::DpuModel::Unknown,
+                Some(vendor) => {
+                    let model = bmc_vendor::DpuModel::from(vendor);
+                    if model == bmc_vendor::DpuModel::Unknown
+                        && !vendor.eq_ignore_ascii_case("unknown")
+                    {
+                        return Err(CarbideError::InvalidArgument(format!(
+                            "unrecognized DPU model {vendor:?}; expected one of bf2, bf3, bf4, unknown"
+                        ))
+                        .into());
+                    }
+                    model
+                }
+            };
             api.credential_manager
                 .set_credentials(
                     &CredentialKey::DpuRedfish {
-                        credential_type: CredentialType::DpuHardwareDefault,
+                        credential_type: CredentialType::DpuHardwareDefault { model },
                     },
                     &Credentials::UsernamePassword { username, password },
                 )

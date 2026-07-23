@@ -15,13 +15,11 @@
  * limitations under the License.
  */
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
-use carbide_site_explorer::enrich_endpoint_exploration_report;
 use config_version::ConfigVersion;
-use model::expected_entity::ExpectedEntity;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -331,145 +329,13 @@ pub(crate) async fn refresh_endpoint_report(
     let req = request.into_inner();
 
     let bmc_ip = IpAddr::from_str(&req.ip_address).map_err(CarbideError::from)?;
-    let bmc_addr = SocketAddr::new(bmc_ip, 443);
+    let endpoint = api
+        .endpoint_exploration_service
+        .refresh_endpoint_report(bmc_ip)
+        .await
+        .map_err(CarbideError::from)?;
 
-    let mut txn = api.txn_begin().await?;
-
-    let existing = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
-    let existing_ep = existing
-        .into_iter()
-        .next()
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "explored_endpoint",
-            id: bmc_ip.to_string(),
-        })?;
-
-    let boot_interface_mac = existing_ep.boot_interface_mac;
-    let existing_report = existing_ep.report.clone();
-
-    let bmc_interface = db::machine_interface::find_by_ip(&mut txn, bmc_ip)
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine_interface",
-            id: bmc_ip.to_string(),
-        })?;
-
-    txn.commit().await?;
-
-    let expected = if let Some(expected_machine) =
-        crate::handlers::expected_machine::query(api, bmc_interface.mac_address).await?
-    {
-        Some(ExpectedEntity::Machine(expected_machine))
-    } else if let Some(expected_switch) =
-        crate::handlers::expected_switch::query(api, bmc_interface.mac_address).await?
-    {
-        Some(ExpectedEntity::Switch(expected_switch))
-    } else {
-        crate::handlers::expected_power_shelf::query(api, bmc_interface.mac_address)
-            .await?
-            .map(ExpectedEntity::PowerShelf)
-    };
-
-    // Claim the per-endpoint exploration lock before probing. If the periodic site-explorer loop or
-    // another concurrent refresh is already probing this endpoint, return immediately rather than
-    // running a redundant Redfish call.
-    let endpoint_guard = match api.endpoint_exploration_locks.try_claim(bmc_ip) {
-        Some(guard) => guard,
-        None => {
-            return Err(CarbideError::AlreadyInProgress(format!(
-                "endpoint refresh already in progress for {bmc_ip}"
-            ))
-            .into());
-        }
-    };
-
-    // Run the probe + persist on a detached tokio task that owns the endpoint guard. Awaiting the
-    // JoinHandle preserves the synchronous UX. Even if the caller navigates away mid-fetch, the
-    // probe will still run to completion.
-    let endpoint_explorer = api.endpoint_explorer.clone();
-    let database_connection = api.database_connection.clone();
-    let runtime_config = api.runtime_config.clone();
-
-    let join_handle = tokio::spawn(async move {
-        let _endpoint_guard = endpoint_guard;
-
-        let start = std::time::Instant::now();
-        let result = endpoint_explorer
-            .explore_endpoint(
-                bmc_addr,
-                &bmc_interface,
-                expected.as_ref(),
-                existing_report.last_exploration_error.as_ref(),
-                boot_interface_mac,
-            )
-            .await;
-
-        let report = match result {
-            Ok(mut report) => {
-                report.last_exploration_latency = Some(start.elapsed());
-                let host_firmware_configs =
-                    db::host_firmware_config::list_configs(&database_connection).await?;
-                let fw_config_snapshot = runtime_config
-                    .get_firmware_config()
-                    .create_snapshot_with_overrides(host_firmware_configs);
-                enrich_endpoint_exploration_report(&mut report, &fw_config_snapshot);
-                report
-            }
-            Err(e) => {
-                let mut report = existing_report.clone();
-                report.last_exploration_error = Some(e);
-                report.last_exploration_latency = Some(start.elapsed());
-                report
-            }
-        };
-
-        let mut txn = db::Transaction::begin(&database_connection).await?;
-
-        let current = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
-        let current_version = current
-            .first()
-            .ok_or_else(|| {
-                tonic::Status::from(CarbideError::NotFoundError {
-                    kind: "explored_endpoint",
-                    id: bmc_ip.to_string(),
-                })
-            })?
-            .report_version;
-
-        let updated =
-            db::explored_endpoints::try_update(bmc_ip, current_version, &report, false, &mut txn)
-                .await?;
-
-        if !updated {
-            return Err(tonic::Status::from(
-                CarbideError::ConcurrentModificationError(
-                    "explored_endpoint",
-                    current_version.to_string(),
-                ),
-            ));
-        }
-
-        let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
-
-        txn.commit().await?;
-
-        let ep = endpoints.into_iter().next().ok_or_else(|| {
-            tonic::Status::from(CarbideError::internal(format!(
-                "endpoint {bmc_ip} not found after update"
-            )))
-        })?;
-
-        Ok::<_, tonic::Status>(ep)
-    });
-
-    match join_handle.await {
-        Ok(Ok(ep)) => Ok(Response::new(ep.into())),
-        Ok(Err(status)) => Err(status),
-        Err(join_err) => Err(CarbideError::internal(format!(
-            "refresh_endpoint_report background task failed for {bmc_ip}: {join_err}"
-        ))
-        .into()),
-    }
+    Ok(Response::new(endpoint.into()))
 }
 
 pub(crate) async fn pause_explored_endpoint_remediation(

@@ -169,6 +169,12 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
+### Operator documentation
+
+When documenting Helm-backed settings, identify chart values as defaults when
+the templates allow overrides. State actual precedence when Helm-provided flags
+override binary environment-variable fallbacks.
+
 ### Instrumentation: logs and metrics
 
 The decision rule:

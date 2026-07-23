@@ -155,6 +155,10 @@ spec:
               value: {{ .Values.env.RUST_BACKTRACE | quote }}
             - name: RUST_LIB_BACKTRACE
               value: {{ .Values.env.RUST_LIB_BACKTRACE | quote }}
+            {{- with .Values.dsxExchangeEventBusConfig }}
+            - name: CARBIDE_API_DSX_EXCHANGE_EVENT_BUS
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

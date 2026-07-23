@@ -70,7 +70,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
         },
         collector_type: "sensor_collector",
         metadata: Some(EndpointMetadata::Machine(MachineData {
-            machine_id: machine_id.parse().expect("valid machine id"),
+            machine_id: Some(machine_id.parse().expect("valid machine id")),
             machine_serial: None,
             slot_number: None,
             tray_index: None,

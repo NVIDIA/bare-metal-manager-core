@@ -3037,6 +3037,189 @@ async fn test_set_boot_order_sets_order_without_reasserting_when_device_configur
     );
 }
 
+const TEST_BOOT_ORDER_JOB_ID: &str = "JID_BOOT_ORDER_SCHEDULING";
+
+/// Runs one job state through the persisted boot-order scheduling phase and
+/// returns the resulting boot-order state.
+async fn run_wait_for_set_boot_order_job_scheduled(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    job_state: libredfish::JobState,
+    retry_count: u32,
+) -> SetBootOrderInfo {
+    env.redfish_sim.set_job_state_sequence(vec![job_state]);
+    set_host_controller_state_stuck_in(
+        env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::SetBootOrder {
+                set_boot_order_info: Some(SetBootOrderInfo {
+                    set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+                    set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                    retry_count,
+                }),
+            },
+        },
+        0,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostInit {
+        machine_state:
+            MachineState::SetBootOrder {
+                set_boot_order_info: Some(set_boot_order_info),
+            },
+    } = host.current_state()
+    else {
+        panic!(
+            "expected HostInit/SetBootOrder, got: {:?}",
+            host.current_state()
+        );
+    };
+    set_boot_order_info.clone()
+}
+
+/// A scheduled job still advances to the reboot phase with its job and retry
+/// context intact.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_advances_to_reboot(pool: sqlx::PgPool) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Scheduled,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::RebootHost,
+            retry_count: RETRY_COUNT,
+        }
+    );
+}
+
+/// A job that is still running remains in the scheduling wait without losing
+/// its job or retry context.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_keeps_waiting_for_running_job(
+    pool: sqlx::PgPool,
+) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Running,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+            retry_count: RETRY_COUNT,
+        }
+    );
+}
+
+/// Terminal job states observed before the boot-order reboot enter the existing
+/// job-failure recovery without losing the retry budget or diagnostic context.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_routes_terminal_errors_to_recovery(
+    pool: sqlx::PgPool,
+) {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, check_cases_async};
+
+    const RETRY_COUNT: u32 = 2;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct FailureTransition {
+        power_state: PowerState,
+        job_id_cleared: bool,
+        retry_count: u32,
+        diagnostic_has_job_id: bool,
+        diagnostic_has_job_state: bool,
+    }
+
+    let expected = || FailureTransition {
+        power_state: PowerState::Off,
+        job_id_cleared: true,
+        retry_count: RETRY_COUNT,
+        diagnostic_has_job_id: true,
+        diagnostic_has_job_state: true,
+    };
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "scheduled with errors",
+                input: libredfish::JobState::ScheduledWithErrors,
+                expect: Yields(expected()),
+            },
+            Case {
+                scenario: "completed with errors",
+                input: libredfish::JobState::CompletedWithErrors,
+                expect: Yields(expected()),
+            },
+            Case {
+                scenario: "failed",
+                input: libredfish::JobState::Failed,
+                expect: Yields(expected()),
+            },
+        ],
+        |job_state| {
+            let env = &env;
+            let mh = &mh;
+            async move {
+                let job_state_diagnostic = format!("{job_state:?}");
+                let set_boot_order_info =
+                    run_wait_for_set_boot_order_job_scheduled(env, mh, job_state, RETRY_COUNT)
+                        .await;
+                let SetBootOrderState::HandleJobFailure {
+                    failure,
+                    power_state,
+                } = &set_boot_order_info.set_boot_order_state
+                else {
+                    return Err(format!(
+                        "expected HandleJobFailure, got: {:?}",
+                        set_boot_order_info.set_boot_order_state
+                    ));
+                };
+
+                Ok(FailureTransition {
+                    power_state: *power_state,
+                    job_id_cleared: set_boot_order_info.set_boot_order_jid.is_none(),
+                    retry_count: set_boot_order_info.retry_count,
+                    diagnostic_has_job_id: failure.contains(TEST_BOOT_ORDER_JOB_ID),
+                    diagnostic_has_job_state: failure.contains(&job_state_diagnostic),
+                })
+            }
+        },
+    )
+    .await;
+}
+
 /// The reboot that applies a boot-order job can independently revert a managed
 /// BIOS setting. Final verification checks BIOS before order, routes back to
 /// the shared job-aware stages, and carries the existing convergence budget.

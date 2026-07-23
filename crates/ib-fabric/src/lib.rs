@@ -33,8 +33,8 @@ use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::HealthReportApplyMode;
 use metrics::{
-    AppliedChange, FabricMetrics, IbFabricMonitorMetrics, IbMonitorIterationFinished, UfmOperation,
-    UfmOperationStatus,
+    FabricMetrics, IbFabricMonitorMetrics, IbMonitorIterationFinished, UfmGuidPkeyChangeFinished,
+    UfmOperation,
 };
 use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
 use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
@@ -336,7 +336,6 @@ impl IbFabricMonitor {
             &tenant_partitions,
             &partition_ids_by_pkey,
             reports,
-            metrics,
         )
         .await?;
 
@@ -659,9 +658,9 @@ async fn client_for_fabric(
 }
 
 /// Applies the GUID<->pkey binding changes that the per-machine status
-/// evaluations found to be required, and records the outcome of every
-/// operation in `metrics`. Each fabric is served by a single client from
-/// `fabric_clients` for the whole batch.
+/// evaluations found to be required. Each fabric is served by a single client
+/// from `fabric_clients` for the whole batch, and every UFM call emits its
+/// counter-backed Event at the call boundary.
 ///
 /// Returns the number of successfully applied changes.
 async fn apply_guid_pkey_changes(
@@ -671,7 +670,6 @@ async fn apply_guid_pkey_changes(
     tenant_partitions: &HashMap<IBPartitionId, IBPartition>,
     partition_ids_by_pkey: &HashMap<PartitionKey, IBPartitionId>,
     reports: Vec<MachineIbStatusEvaluation>,
-    metrics: &mut IbFabricMonitorMetrics,
 ) -> IbResult<usize> {
     let mut num_changes = 0;
 
@@ -687,28 +685,19 @@ async fn apply_guid_pkey_changes(
             };
 
             let conn = client_for_fabric(fabric_manager, fabric_clients, &fabric).await?;
-            let status = match conn
+            let result = conn
                 .bind_ib_ports(partition.into(), vec![guid.clone()])
-                .await
-            {
-                Ok(()) => {
-                    num_changes += 1;
-                    UfmOperationStatus::Ok
-                }
-                Err(e) => {
-                    tracing::error!(%guid, %pkey, %fabric, error = %e, "Failed to bind GUID to pkey");
-                    UfmOperationStatus::Error
-                }
-            };
-
-            *metrics
-                .applied_changes
-                .entry(AppliedChange {
-                    fabric,
-                    operation: UfmOperation::BindGuidToPkey,
-                    status,
-                })
-                .or_default() += 1;
+                .await;
+            UfmGuidPkeyChangeFinished::emit(
+                &fabric,
+                UfmOperation::BindGuidToPkey,
+                &guid,
+                pkey,
+                &result,
+            );
+            if result.is_ok() {
+                num_changes += 1;
+            }
         }
 
         for (fabric, guid, pkey) in report.unexpected_guid_pkeys {
@@ -732,25 +721,17 @@ async fn apply_guid_pkey_changes(
             }
 
             let conn = client_for_fabric(fabric_manager, fabric_clients, &fabric).await?;
-            let status = match conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await {
-                Ok(()) => {
-                    num_changes += 1;
-                    UfmOperationStatus::Ok
-                }
-                Err(e) => {
-                    tracing::error!(%guid, %pkey, %fabric, error = %e, "Failed to unbind GUID from pkey");
-                    UfmOperationStatus::Error
-                }
-            };
-
-            *metrics
-                .applied_changes
-                .entry(AppliedChange {
-                    fabric,
-                    operation: UfmOperation::UnbindGuidFromPkey,
-                    status,
-                })
-                .or_default() += 1;
+            let result = conn.unbind_ib_ports(pkey.into(), vec![guid.clone()]).await;
+            UfmGuidPkeyChangeFinished::emit(
+                &fabric,
+                UfmOperation::UnbindGuidFromPkey,
+                &guid,
+                pkey,
+                &result,
+            );
+            if result.is_ok() {
+                num_changes += 1;
+            }
         }
     }
 
@@ -1746,21 +1727,26 @@ mod tests {
     // ============================================================
 
     mod client_reuse {
+        use carbide_instrument::testing::MetricsCapture;
+
         use super::*;
         use crate::ib::fakes::{CountingFabricManager, make_partition};
 
         /// One fabric's worth of pending changes: three binds + two unbinds
-        /// against pkey 0x101 on "fab1".
-        fn five_pending_changes(pkey: PartitionKey) -> Vec<MachineIbStatusEvaluation> {
+        /// against pkey 0x101 on `fabric`.
+        fn five_pending_changes(
+            fabric: &str,
+            pkey: PartitionKey,
+        ) -> Vec<MachineIbStatusEvaluation> {
             vec![MachineIbStatusEvaluation {
                 missing_guid_pkeys: vec![
-                    ("fab1".to_string(), "guid-1".to_string(), pkey),
-                    ("fab1".to_string(), "guid-2".to_string(), pkey),
-                    ("fab1".to_string(), "guid-3".to_string(), pkey),
+                    (fabric.to_string(), "guid-1".to_string(), pkey),
+                    (fabric.to_string(), "guid-2".to_string(), pkey),
+                    (fabric.to_string(), "guid-3".to_string(), pkey),
                 ],
                 unexpected_guid_pkeys: vec![
-                    ("fab1".to_string(), "guid-4".to_string(), pkey),
-                    ("fab1".to_string(), "guid-5".to_string(), pkey),
+                    (fabric.to_string(), "guid-4".to_string(), pkey),
+                    (fabric.to_string(), "guid-5".to_string(), pkey),
                 ],
                 unknown_guid_pkeys: vec![],
                 down_port_guids: vec![],
@@ -1774,6 +1760,8 @@ mod tests {
         /// (one per GUID change); now the whole batch shares one.
         #[tokio::test]
         async fn applying_guid_pkey_changes_builds_one_client_per_fabric() {
+            const FABRIC: &str = "batched-change-fabric";
+
             let manager = CountingFabricManager::new();
             let pkey = PartitionKey::try_from(0x101).expect("valid pkey");
             let partition = make_partition(Some(0x101), false);
@@ -1781,11 +1769,11 @@ mod tests {
             let tenant_partitions = HashMap::from([(partition_id, partition)]);
             let partition_ids_by_pkey = HashMap::from([(pkey, partition_id)]);
             let fabrics = HashMap::from([(
-                "fab1".to_string(),
+                FABRIC.to_string(),
                 make_fabric_definition(vec![("0x100", "0x8FF")]),
             )]);
             let mut fabric_clients = HashMap::new();
-            let mut metrics = IbFabricMonitorMetrics::new();
+            let event_metrics = MetricsCapture::start();
 
             let num_changes = apply_guid_pkey_changes(
                 &manager,
@@ -1793,28 +1781,33 @@ mod tests {
                 &fabrics,
                 &tenant_partitions,
                 &partition_ids_by_pkey,
-                five_pending_changes(pkey),
-                &mut metrics,
+                five_pending_changes(FABRIC, pkey),
             )
             .await
             .expect("applying changes against stub fabric");
 
             assert_eq!(num_changes, 5, "all five changes applied");
             assert_eq!(
-                metrics.applied_changes.get(&AppliedChange {
-                    fabric: "fab1".to_string(),
-                    operation: UfmOperation::BindGuidToPkey,
-                    status: UfmOperationStatus::Ok,
-                }),
-                Some(&3),
+                event_metrics.counter_delta(
+                    "carbide_ib_monitor_ufm_changes_applied_total",
+                    &[
+                        ("fabric", FABRIC),
+                        ("operation", "bind_guid_to_pkey"),
+                        ("status", "ok"),
+                    ],
+                ),
+                3.0,
             );
             assert_eq!(
-                metrics.applied_changes.get(&AppliedChange {
-                    fabric: "fab1".to_string(),
-                    operation: UfmOperation::UnbindGuidFromPkey,
-                    status: UfmOperationStatus::Ok,
-                }),
-                Some(&2),
+                event_metrics.counter_delta(
+                    "carbide_ib_monitor_ufm_changes_applied_total",
+                    &[
+                        ("fabric", FABRIC),
+                        ("operation", "unbind_guid_from_pkey"),
+                        ("status", "ok"),
+                    ],
+                ),
+                2.0,
             );
             assert_eq!(
                 manager.build_count(),
@@ -1828,6 +1821,8 @@ mod tests {
         /// one client.
         #[tokio::test]
         async fn monitor_iteration_builds_one_client_per_fabric() {
+            const FABRIC: &str = "reused-client-fabric";
+
             let manager = CountingFabricManager::new();
             let definition = make_fabric_definition(vec![("0x100", "0x8FF")]);
             let pkey = PartitionKey::try_from(0x101).expect("valid pkey");
@@ -1835,7 +1830,7 @@ mod tests {
             let partition_id = partition.id;
             let tenant_partitions = HashMap::from([(partition_id, partition)]);
             let partition_ids_by_pkey = HashMap::from([(pkey, partition_id)]);
-            let fabrics = HashMap::from([("fab1".to_string(), definition.clone())]);
+            let fabrics = HashMap::from([(FABRIC.to_string(), definition.clone())]);
             let mut fabric_data = FabricData::default();
             let mut fabric_metrics = FabricMetrics::default();
             let mut fabric_clients = HashMap::new();
@@ -1843,14 +1838,14 @@ mod tests {
             // Data-loading phase.
             let conn = load_single_fabric_data(
                 &manager,
-                "fab1",
+                FABRIC,
                 &definition,
                 &mut fabric_data,
                 &mut fabric_metrics,
             )
             .await
             .expect("client for reachable stub fabric");
-            fabric_clients.insert("fab1".to_string(), conn);
+            fabric_clients.insert(FABRIC.to_string(), conn);
 
             assert!(fabric_data.ports_by_guid.is_some());
             assert!(fabric_data.partitions.is_some());
@@ -1861,15 +1856,13 @@ mod tests {
             );
 
             // Change-application phase reuses the data-loading client.
-            let mut metrics = IbFabricMonitorMetrics::new();
             let num_changes = apply_guid_pkey_changes(
                 &manager,
                 &mut fabric_clients,
                 &fabrics,
                 &tenant_partitions,
                 &partition_ids_by_pkey,
-                five_pending_changes(pkey),
-                &mut metrics,
+                five_pending_changes(FABRIC, pkey),
             )
             .await
             .expect("applying changes against stub fabric");

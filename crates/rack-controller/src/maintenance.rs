@@ -27,7 +27,10 @@ use carbide_rack::firmware_update::{
 };
 use carbide_rack::rack_manager_error;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
-use carbide_rack::rms_node_type::{compute_node_type_for_profile, switch_node_type_for_profile};
+use carbide_rack::rms_node_type::{
+    RmsNodeIdentity, compute_node_identity_for_profile,
+    firmware_object_component_filters_for_node_identities, switch_node_identity_for_profile,
+};
 use carbide_rack_controller::config::RmsConfig;
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
@@ -512,13 +515,14 @@ async fn handle_configure_nmx_cluster_certificates(
                 return transition_to_rack_error(
                     id,
                     state,
-                    "rack profile is missing or unknown; cannot resolve RMS switch node type for ConfigureCertificates",
+                    "rack profile is missing or unknown; cannot build RMS switch node descriptor for ConfigureCertificates",
                     ctx,
                 )
                 .await;
             };
-            let switch_node_type = match switch_node_type_for_profile(profile) {
-                Ok(node_type) => node_type,
+
+            let switch_node_identity = match switch_node_identity_for_profile(profile) {
+                Ok(identity) => identity,
                 Err(error) => {
                     return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                 }
@@ -527,7 +531,7 @@ async fn handle_configure_nmx_cluster_certificates(
                 .batch_get_node_device_info(build_switch_device_info_request(
                     id,
                     &switch_inventory.switches,
-                    switch_node_type,
+                    &switch_node_identity,
                 ))
                 .await
             {
@@ -615,13 +619,13 @@ async fn handle_configure_nmx_cluster_certificates(
 fn build_switch_device_info_request(
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-    node_type: rms::NodeType,
+    node_identity: &RmsNodeIdentity,
 ) -> rms::BatchGetNodeDeviceInfoRequest {
     rms::BatchGetNodeDeviceInfoRequest {
         nodes: Some(rms::NodeSet {
             nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, node_type))
+                .map(|switch| build_new_node_info(rack_id, switch, node_identity))
                 .collect(),
         }),
     }
@@ -640,35 +644,6 @@ fn build_nmx_configure_rms_client(rms_config: &RmsConfig) -> Option<librms::Rack
     rms_client_config.connect_timeout = Some(NMX_CONFIGURE_RMS_CONNECT_TIMEOUT);
     let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
     Some(librms::RackManagerApi::new(&rms_api_config))
-}
-
-fn rms_component_filters_from_components(
-    components: &[String],
-    compute_node_type: Option<rms::NodeType>,
-    switch_node_type: Option<rms::NodeType>,
-) -> std::collections::HashMap<i32, rms::FirmwareObjectComponentFilter> {
-    if components.is_empty() {
-        return std::collections::HashMap::new();
-    }
-
-    let mut filters = std::collections::HashMap::new();
-    if let Some(compute_node_type) = compute_node_type {
-        filters.insert(
-            compute_node_type as i32,
-            rms::FirmwareObjectComponentFilter {
-                components: components.to_vec(),
-            },
-        );
-    }
-    if let Some(switch_node_type) = switch_node_type {
-        filters.insert(
-            switch_node_type as i32,
-            rms::FirmwareObjectComponentFilter {
-                components: components.to_vec(),
-            },
-        );
-    }
-    filters
 }
 
 fn firmware_device_status(
@@ -727,25 +702,13 @@ async fn rms_start_firmware_upgrade_from_json(
     let switch_count = request.switches.len();
     let mut nodes = Vec::with_capacity(machine_count + switch_count);
 
-    // Resolve all required node types before constructing the RMS request so a
-    // mixed-device update fails before any partial firmware submission.
-    let compute_node_type = if machine_count > 0 {
+    // Resolve all required RMS identities before constructing the RMS request
+    // so a mixed-device update fails before any partial firmware submission.
+    let compute_node_identity = if machine_count > 0 {
         Some(
-            compute_node_type_for_profile(request.profile).map_err(|error| {
+            compute_node_identity_for_profile(request.profile).map_err(|error| {
                 StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to resolve RMS compute node type: {}",
-                    error
-                ))
-            })?,
-        )
-    } else {
-        None
-    };
-    let switch_node_type = if switch_count > 0 {
-        Some(
-            switch_node_type_for_profile(request.profile).map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to resolve RMS switch node type: {}",
+                    "failed to resolve RMS compute descriptor: {}",
                     error
                 ))
             })?,
@@ -754,23 +717,44 @@ async fn rms_start_firmware_upgrade_from_json(
         None
     };
 
-    if let Some(node_type) = compute_node_type {
+    let switch_node_identity = if switch_count > 0 {
+        Some(
+            switch_node_identity_for_profile(request.profile).map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to resolve RMS switch descriptor: {}",
+                    error
+                ))
+            })?,
+        )
+    } else {
+        None
+    };
+
+    if let Some(node_identity) = &compute_node_identity {
         nodes.extend(
             request
                 .machines
                 .iter()
-                .map(|device| build_new_node_info(request.rack_id, device, node_type)),
+                .map(|device| build_new_node_info(request.rack_id, device, node_identity)),
         );
     }
 
-    if let Some(node_type) = switch_node_type {
+    if let Some(node_identity) = &switch_node_identity {
         nodes.extend(
             request
                 .switches
                 .iter()
-                .map(|device| build_new_node_info(request.rack_id, device, node_type)),
+                .map(|device| build_new_node_info(request.rack_id, device, node_identity)),
         );
     }
+
+    let (component_filters, node_descriptor_component_filters) =
+        firmware_object_component_filters_for_node_identities(
+            request.components,
+            compute_node_identity
+                .iter()
+                .chain(switch_node_identity.iter()),
+        );
 
     let response = rms_client
         .apply_firmware_object(rms::ApplyFirmwareObjectRequest {
@@ -781,11 +765,8 @@ async fn rms_start_firmware_upgrade_from_json(
             hardware_type: request.hardware_type.to_string(),
             nodes: Some(rms::NodeSet { nodes }),
             force_update: request.force_update,
-            component_filters: rms_component_filters_from_components(
-                request.components,
-                compute_node_type,
-                switch_node_type,
-            ),
+            component_filters,
+            node_descriptor_component_filters,
         })
         .await
         .map_err(|error| {
@@ -1057,13 +1038,13 @@ async fn rms_start_nvos_update(
     source: NvosUpdateSource<'_>,
     software_type: &str,
     hardware_type: &str,
-    switch_node_type: rms::NodeType,
+    switch_node_identity: &RmsNodeIdentity,
     switches: Vec<FirmwareUpgradeDeviceInfo>,
 ) -> Result<NvosUpdateJob, StateHandlerError> {
     let started_at = chrono::Utc::now();
     let nodes: Vec<_> = switches
         .iter()
-        .map(|switch| build_new_node_info(rack_id, switch, switch_node_type))
+        .map(|switch| build_new_node_info(rack_id, switch, switch_node_identity))
         .collect();
     let nodes = Some(rms::NodeSet { nodes });
     let NvosUpdateSource {
@@ -1426,7 +1407,7 @@ pub async fn handle_maintenance(
                     return transition_to_rack_error(
                         id,
                         state,
-                        "rack profile is missing or unknown; cannot resolve RMS node types",
+                        "rack profile is missing or unknown; cannot build RMS node descriptors",
                         ctx,
                     )
                     .await;
@@ -1770,13 +1751,14 @@ pub async fn handle_maintenance(
                     return transition_to_rack_error(
                         id,
                         state,
-                        "rack profile is missing or unknown; cannot resolve RMS switch node type",
+                        "rack profile is missing or unknown; cannot build RMS switch node descriptor",
                         ctx,
                     )
                     .await;
                 };
-                let switch_node_type = match switch_node_type_for_profile(profile) {
-                    Ok(node_type) => node_type,
+
+                let switch_node_identity = match switch_node_identity_for_profile(profile) {
+                    Ok(identity) => identity,
                     Err(error) => {
                         delete_rack_maintenance_access_token(
                             ctx.services.credential_manager.as_ref(),
@@ -1826,7 +1808,7 @@ pub async fn handle_maintenance(
                     source,
                     software_type,
                     &rack_hardware_type,
-                    switch_node_type,
+                    &switch_node_identity,
                     switch_inventory.switches,
                 )
                 .await;
@@ -2064,13 +2046,14 @@ pub async fn handle_maintenance(
                     return transition_to_rack_error(
                         id,
                         state,
-                        "rack profile is missing or unknown; cannot resolve RMS switch node type",
+                        "rack profile is missing or unknown; cannot build RMS switch node descriptor",
                         ctx,
                     )
                     .await;
                 };
-                let switch_node_type = match switch_node_type_for_profile(profile) {
-                    Ok(node_type) => node_type,
+
+                let switch_node_identity = match switch_node_identity_for_profile(profile) {
+                    Ok(identity) => identity,
                     Err(error) => {
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
@@ -2087,7 +2070,9 @@ pub async fn handle_maintenance(
                             nodes: switch_inventory
                                 .switches
                                 .iter()
-                                .map(|switch| build_new_node_info(id, switch, switch_node_type))
+                                .map(|switch| {
+                                    build_new_node_info(id, switch, &switch_node_identity)
+                                })
                                 .collect(),
                         }),
                         enabled: false,
@@ -2232,8 +2217,9 @@ pub async fn handle_maintenance(
                     )
                     .await;
                 };
-                let switch_node_type = match switch_node_type_for_profile(profile) {
-                    Ok(node_type) => node_type,
+
+                let switch_node_identity = match switch_node_identity_for_profile(profile) {
+                    Ok(identity) => identity,
                     Err(error) => {
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
@@ -2243,7 +2229,7 @@ pub async fn handle_maintenance(
                     .batch_get_node_device_info(build_switch_device_info_request(
                         id,
                         &switch_inventory.switches,
-                        switch_node_type,
+                        &switch_node_identity,
                     ))
                     .await
                 {
@@ -2286,7 +2272,7 @@ pub async fn handle_maintenance(
                         node: Some(build_new_node_info(
                             id,
                             &primary_switch.device,
-                            switch_node_type,
+                            &switch_node_identity,
                         )),
                         topology_type: topology_type.clone(),
                     })
@@ -2376,13 +2362,14 @@ pub async fn handle_maintenance(
                     return transition_to_rack_error(
                         id,
                         state,
-                        "rack profile is missing or unknown; cannot resolve RMS switch node type",
+                        "rack profile is missing or unknown; cannot build RMS switch node descriptor",
                         ctx,
                     )
                     .await;
                 };
-                let switch_node_type = match switch_node_type_for_profile(profile) {
-                    Ok(node_type) => node_type,
+
+                let switch_node_identity = match switch_node_identity_for_profile(profile) {
+                    Ok(identity) => identity,
                     Err(error) => {
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
@@ -2392,7 +2379,7 @@ pub async fn handle_maintenance(
                     &ctx.services.site_config.rms,
                     id,
                     &switch_inventory.switches,
-                    switch_node_type,
+                    &switch_node_identity,
                 )
                 .await
                 {
@@ -2480,20 +2467,22 @@ pub async fn handle_maintenance(
 #[cfg(test)]
 mod tests {
     use carbide_rack::firmware_update::RackFirmwareInventory;
+    use carbide_rack::rms_node_type::switch_node_identity_for_profile;
     use carbide_test_support::{Check, check_values};
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+    use carbide_uuid::rack::RackId;
     use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
     use model::rack::{
         ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeState,
         MaintenanceActivity, MaintenanceScope, NvosUpdateState, RackMaintenanceState,
         RackPowerState,
     };
-    use model::rack_type::{RackHardwareType, RackProfile};
+    use model::rack_type::{RackHardwareType, RackProductFamily, RackProfile};
 
     use super::{
-        filter_inventory_by_scope, firmware_device_status, first_maintenance_state,
-        next_state_after_configure, next_state_after_firmware, next_state_after_nvos,
-        profile_hardware_type_or_any,
+        build_switch_device_info_request, filter_inventory_by_scope, firmware_device_status,
+        first_maintenance_state, next_state_after_configure, next_state_after_firmware,
+        next_state_after_nvos, profile_hardware_type_or_any,
     };
 
     fn test_machine_id(seed: u8) -> MachineId {
@@ -2535,6 +2524,42 @@ mod tests {
             switch_ids: vec![switch_a, switch_b],
             switches: vec![test_device_info(switch_a), test_device_info(switch_b)],
         }
+    }
+
+    #[test]
+    fn switch_device_info_request_uses_descriptor_without_node_type() {
+        let mut profile = RackProfile {
+            product_family: Some(RackProductFamily::Gb200),
+            ..Default::default()
+        };
+
+        profile.rack_capabilities.switch.vendor = Some("test-switch-vendor".to_string());
+
+        let node_identity = switch_node_identity_for_profile(&profile).unwrap();
+        let rack_id = RackId::from("rack-1");
+        let switches = [test_device_info("switch-1")];
+
+        let request = build_switch_device_info_request(&rack_id, &switches, &node_identity);
+
+        let [node] = request
+            .nodes
+            .expect("request nodes")
+            .nodes
+            .try_into()
+            .unwrap();
+
+        let descriptor = node.node_descriptor.expect("node descriptor");
+
+        assert_eq!(node.r#type, None);
+
+        assert_eq!(
+            descriptor.attributes,
+            std::collections::HashMap::from([
+                ("role".to_string(), "switch".to_string()),
+                ("vendor".to_string(), "test-switch-vendor".to_string()),
+                ("product_family".to_string(), "gb200".to_string()),
+            ])
+        );
     }
 
     #[test]

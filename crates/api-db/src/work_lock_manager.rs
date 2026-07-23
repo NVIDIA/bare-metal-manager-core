@@ -16,6 +16,7 @@
  */
 use std::time::Duration;
 
+use carbide_instrument::{Event, LabelValue, emit};
 use sqlx::pool::PoolConnection;
 use sqlx::{PgConnection, PgPool, Postgres};
 use tokio::sync::{mpsc, oneshot};
@@ -27,6 +28,168 @@ use crate::{DatabaseError, DatabaseResult};
 
 pub type WorkKey = String;
 pub type WorkerId = uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum WorkLockOperation {
+    Release,
+    KeepAlive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum WorkLockFailure {
+    Database,
+    CommandDispatch,
+    CommandReply,
+    LockLost,
+}
+
+// These Events share one counter. Keep its kind, description, and label keys
+// identical while each boundary retains its existing diagnostic message and
+// context.
+#[derive(Event)]
+#[event(
+    event_name = "work_lock_release_failed",
+    metric_name = "carbide_work_lock_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Could not release work lock",
+    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
+)]
+struct WorkLockReleaseFailed {
+    #[label]
+    operation: WorkLockOperation,
+    #[label]
+    failure: WorkLockFailure,
+    #[context]
+    work_key: WorkKey,
+    #[context]
+    error: String,
+}
+
+impl WorkLockReleaseFailed {
+    fn new(work_key: WorkKey, error: &DatabaseError) -> Self {
+        Self {
+            operation: WorkLockOperation::Release,
+            failure: match error {
+                DatabaseError::FailedPrecondition(_) => WorkLockFailure::LockLost,
+                _ => WorkLockFailure::Database,
+            },
+            work_key,
+            error: error.to_string(),
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "work_lock_release_dispatch_failed",
+    metric_name = "carbide_work_lock_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Could not release work lock: WorkLockManager queue is full; database is likely overloaded",
+    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
+)]
+struct WorkLockReleaseDispatchFailed {
+    #[label]
+    operation: WorkLockOperation,
+    #[label]
+    failure: WorkLockFailure,
+    #[context]
+    work_key: WorkKey,
+    #[context]
+    worker_id: WorkerId,
+    #[context]
+    error: String,
+}
+
+impl WorkLockReleaseDispatchFailed {
+    fn new(work_key: WorkKey, worker_id: WorkerId, error: String) -> Self {
+        Self {
+            operation: WorkLockOperation::Release,
+            failure: WorkLockFailure::CommandDispatch,
+            work_key,
+            worker_id,
+            error,
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "work_lock_lost",
+    metric_name = "carbide_work_lock_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "worker lost lock",
+    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
+)]
+struct WorkLockLost {
+    #[label]
+    operation: WorkLockOperation,
+    #[label]
+    failure: WorkLockFailure,
+    #[context]
+    work_key: WorkKey,
+    #[context]
+    worker_id: WorkerId,
+    #[context]
+    error: String,
+}
+
+impl WorkLockLost {
+    fn new(work_key: WorkKey, worker_id: WorkerId, error: String) -> Self {
+        Self {
+            operation: WorkLockOperation::KeepAlive,
+            failure: WorkLockFailure::LockLost,
+            work_key,
+            worker_id,
+            error,
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "work_lock_keepalive_failed",
+    metric_name = "carbide_work_lock_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Failed to send work-lock keepalive; retrying",
+    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
+)]
+struct WorkLockKeepaliveFailed {
+    #[label]
+    operation: WorkLockOperation,
+    #[label]
+    failure: WorkLockFailure,
+    #[context]
+    work_key: WorkKey,
+    #[context]
+    worker_id: WorkerId,
+    #[context]
+    error: String,
+}
+
+impl WorkLockKeepaliveFailed {
+    fn new(
+        failure: WorkLockFailure,
+        work_key: WorkKey,
+        worker_id: WorkerId,
+        error: String,
+    ) -> Self {
+        Self {
+            operation: WorkLockOperation::KeepAlive,
+            failure,
+            work_key,
+            worker_id,
+            error,
+        }
+    }
+}
 
 /// A WorkLockManager buffers this many messages sent to it: This would only be exceeded if something
 /// goes very wrong with the database.
@@ -174,11 +337,7 @@ async fn run_loop(
                 release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
-                        tracing::error!(
-                            %work_key,
-                            error = %e,
-                            "Could not release work lock",
-                        );
+                        emit(WorkLockReleaseFailed::new(work_key.clone(), e));
                     })
                     .ok();
                 tracing::debug!(%work_key, "Released work lock");
@@ -300,12 +459,11 @@ impl Drop for WorkLock {
                 worker_id: self.worker_id,
             })
             .inspect_err(|e| {
-                tracing::error!(
-                    work_key = %self.work_key,
-                    worker_id = %self.worker_id,
-                    error = %e,
-                    "Could not release work lock: WorkLockManager queue is full; database is likely overloaded",
-                );
+                emit(WorkLockReleaseDispatchFailed::new(
+                    self.work_key.clone(),
+                    self.worker_id,
+                    e.to_string(),
+                ));
             })
             .ok();
     }
@@ -333,21 +491,20 @@ impl WorkLock {
                                 match manager.keep_lock_alive(work_key.clone(), worker_id).await {
                                     Ok(_) => {}
                                     Err(KeepAliveError::LockLost(msg)) => {
-                                        tracing::error!(
-                                            work_key = %work_key,
-                                            worker_id = %worker_id,
-                                            error = %msg,
-                                            "worker lost lock",
-                                        );
+                                        emit(WorkLockLost::new(
+                                            work_key,
+                                            worker_id,
+                                            msg,
+                                        ));
                                         return;
                                     }
                                     Err(e) => {
-                                        tracing::error!(
-                                            work_key = %work_key,
-                                            worker_id = %worker_id,
-                                            error = %e,
-                                            "Failed to send work-lock keepalive; retrying",
-                                        );
+                                        emit(WorkLockKeepaliveFailed::new(
+                                            e.failure(),
+                                            work_key.clone(),
+                                            worker_id,
+                                            e.to_string(),
+                                        ));
                                     }
                                 }
                             }
@@ -567,13 +724,336 @@ pub enum KeepAliveError {
     WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
 }
 
+impl KeepAliveError {
+    fn failure(&self) -> WorkLockFailure {
+        match self {
+            Self::LockLost(_) => WorkLockFailure::LockLost,
+            Self::Database(_) => WorkLockFailure::Database,
+            Self::WorkLockManagerSend(_) => WorkLockFailure::CommandDispatch,
+            Self::WorkLockManagerReply(_) => WorkLockFailure::CommandReply,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Instant;
 
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use sqlx::postgres::PgPoolOptions;
 
     use super::*;
+
+    const WORK_LOCK_FAILURES_METRIC: &str = "carbide_work_lock_failures_total";
+
+    #[derive(Clone, Copy)]
+    enum FailureEvent {
+        ReleaseDatabase,
+        ReleaseLockLost,
+        ReleaseDispatch,
+        KeepaliveLockLost,
+        KeepaliveDatabase,
+        KeepaliveDispatch,
+        KeepaliveReply,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FailureRecord {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        operation: Option<String>,
+        failure: Option<String>,
+        work_key: Option<String>,
+        worker_id: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn work_lock_failures_log_and_count_by_boundary() {
+        let worker_id = WorkerId::nil();
+
+        check_values(
+            [
+                Check {
+                    scenario: "release database failure",
+                    input: FailureEvent::ReleaseDatabase,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_release_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "Could not release work lock".to_string(),
+                        event_name: Some("work_lock_release_failed".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("release".to_string()),
+                        failure: Some("database".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: None,
+                        error: Some("internal error: database unavailable".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "release after lock loss",
+                    input: FailureEvent::ReleaseLockLost,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_release_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "Could not release work lock".to_string(),
+                        event_name: Some("work_lock_release_failed".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("release".to_string()),
+                        failure: Some("lock_lost".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: None,
+                        error: Some("lock expired".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "release command dispatch failure",
+                    input: FailureEvent::ReleaseDispatch,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_release_dispatch_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "Could not release work lock: WorkLockManager queue is full; database is likely overloaded".to_string(),
+                        event_name: Some("work_lock_release_dispatch_failed".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("release".to_string()),
+                        failure: Some("command_dispatch".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: Some(worker_id.to_string()),
+                        error: Some("no available capacity".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "keepalive lock lost",
+                    input: FailureEvent::KeepaliveLockLost,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_lost".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "worker lost lock".to_string(),
+                        event_name: Some("work_lock_lost".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("keep_alive".to_string()),
+                        failure: Some("lock_lost".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: Some(worker_id.to_string()),
+                        error: Some("lock expired".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "keepalive database failure",
+                    input: FailureEvent::KeepaliveDatabase,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_keepalive_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "Failed to send work-lock keepalive; retrying".to_string(),
+                        event_name: Some("work_lock_keepalive_failed".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("keep_alive".to_string()),
+                        failure: Some("database".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: Some(worker_id.to_string()),
+                        error: Some("database unavailable".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "keepalive command dispatch failure",
+                    input: FailureEvent::KeepaliveDispatch,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_keepalive_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "Failed to send work-lock keepalive; retrying".to_string(),
+                        event_name: Some("work_lock_keepalive_failed".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("keep_alive".to_string()),
+                        failure: Some("command_dispatch".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: Some(worker_id.to_string()),
+                        error: Some("no available capacity".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "keepalive command reply failure",
+                    input: FailureEvent::KeepaliveReply,
+                    expect: FailureRecord {
+                        metadata_name: "work_lock_keepalive_failed".to_string(),
+                        level: tracing::Level::ERROR,
+                        message: "Failed to send work-lock keepalive; retrying".to_string(),
+                        event_name: Some("work_lock_keepalive_failed".to_string()),
+                        metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
+                        operation: Some("keep_alive".to_string()),
+                        failure: Some("command_reply".to_string()),
+                        work_key: Some("work-key".to_string()),
+                        worker_id: Some(worker_id.to_string()),
+                        error: Some("reply channel closed".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |event| {
+                let metrics = MetricsCapture::start();
+                let (operation, failure, logs) = match event {
+                    FailureEvent::ReleaseDatabase => {
+                        let operation = WorkLockOperation::Release;
+                        let failure = WorkLockFailure::Database;
+                        let error = DatabaseError::Internal {
+                            message: "database unavailable".to_string(),
+                        };
+                        let logs = capture_logs(|| {
+                            emit(WorkLockReleaseFailed::new(
+                                "work-key".to_string(),
+                                &error,
+                            ));
+                        });
+                        (operation, failure, logs)
+                    }
+                    FailureEvent::ReleaseLockLost => {
+                        let operation = WorkLockOperation::Release;
+                        let failure = WorkLockFailure::LockLost;
+                        let error = DatabaseError::FailedPrecondition("lock expired".to_string());
+                        let logs = capture_logs(|| {
+                            emit(WorkLockReleaseFailed::new("work-key".to_string(), &error));
+                        });
+                        (operation, failure, logs)
+                    }
+                    FailureEvent::ReleaseDispatch => {
+                        let operation = WorkLockOperation::Release;
+                        let failure = WorkLockFailure::CommandDispatch;
+                        let logs = capture_logs(|| {
+                            emit(WorkLockReleaseDispatchFailed::new(
+                                "work-key".to_string(),
+                                worker_id,
+                                "no available capacity".to_string(),
+                            ));
+                        });
+                        (operation, failure, logs)
+                    }
+                    FailureEvent::KeepaliveLockLost => {
+                        let operation = WorkLockOperation::KeepAlive;
+                        let failure = WorkLockFailure::LockLost;
+                        let logs = capture_logs(|| {
+                            emit(WorkLockLost::new(
+                                "work-key".to_string(),
+                                worker_id,
+                                "lock expired".to_string(),
+                            ));
+                        });
+                        (operation, failure, logs)
+                    }
+                    FailureEvent::KeepaliveDatabase => {
+                        let operation = WorkLockOperation::KeepAlive;
+                        let failure = WorkLockFailure::Database;
+                        let logs = capture_logs(|| {
+                            emit(WorkLockKeepaliveFailed::new(
+                                failure,
+                                "work-key".to_string(),
+                                worker_id,
+                                "database unavailable".to_string(),
+                            ));
+                        });
+                        (operation, failure, logs)
+                    }
+                    FailureEvent::KeepaliveDispatch => {
+                        let operation = WorkLockOperation::KeepAlive;
+                        let failure = WorkLockFailure::CommandDispatch;
+                        let logs = capture_logs(|| {
+                            emit(WorkLockKeepaliveFailed::new(
+                                failure,
+                                "work-key".to_string(),
+                                worker_id,
+                                "no available capacity".to_string(),
+                            ));
+                        });
+                        (operation, failure, logs)
+                    }
+                    FailureEvent::KeepaliveReply => {
+                        let operation = WorkLockOperation::KeepAlive;
+                        let failure = WorkLockFailure::CommandReply;
+                        let logs = capture_logs(|| {
+                            emit(WorkLockKeepaliveFailed::new(
+                                failure,
+                                "work-key".to_string(),
+                                worker_id,
+                                "reply channel closed".to_string(),
+                            ));
+                        });
+                        (operation, failure, logs)
+                    }
+                };
+
+                assert_eq!(logs.len(), 1, "one emit must produce one log record");
+                let log = &logs[0];
+                let operation = operation.label_value();
+                let failure = failure.label_value();
+
+                FailureRecord {
+                    metadata_name: log.metadata_name.clone(),
+                    level: log.level,
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    operation: log.field("operation").map(str::to_string),
+                    failure: log.field("failure").map(str::to_string),
+                    work_key: log.field("work_key").map(str::to_string),
+                    worker_id: log.field("worker_id").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    counter_delta: metrics.counter_delta(
+                        WORK_LOCK_FAILURES_METRIC,
+                        &[
+                            ("operation", operation.as_str()),
+                            ("failure", failure.as_str()),
+                        ],
+                    ),
+                }
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn keepalive_errors_map_to_bounded_failures() {
+        let (reply_tx, reply_rx) = oneshot::channel::<()>();
+        drop(reply_tx);
+        let reply_error = reply_rx
+            .await
+            .expect_err("closed reply channel should fail");
+
+        check_values(
+            [
+                Check {
+                    scenario: "database failure",
+                    input: KeepAliveError::Database(DatabaseError::Internal {
+                        message: "database unavailable".to_string(),
+                    }),
+                    expect: WorkLockFailure::Database,
+                },
+                Check {
+                    scenario: "command dispatch failure",
+                    input: KeepAliveError::WorkLockManagerSend("no available capacity".to_string()),
+                    expect: WorkLockFailure::CommandDispatch,
+                },
+                Check {
+                    scenario: "command reply failure",
+                    input: KeepAliveError::WorkLockManagerReply(reply_error),
+                    expect: WorkLockFailure::CommandReply,
+                },
+                Check {
+                    scenario: "lock lost",
+                    input: KeepAliveError::LockLost("lock expired".to_string()),
+                    expect: WorkLockFailure::LockLost,
+                },
+            ],
+            |error| error.failure(),
+        );
+    }
 
     #[crate::sqlx_test]
     async fn test_exclusivity(pool: PgPool) {
@@ -621,6 +1101,9 @@ mod tests {
 
     #[crate::sqlx_test]
     async fn test_db_failure(pool: PgPool) {
+        // Tests that can emit WorkLock failures hold this guard through teardown
+        // so process-global counter deltas stay isolated.
+        let _metrics_guard = MetricsCapture::start();
         let mut join_set = JoinSet::new();
         let manager = start(
             &mut join_set,
@@ -696,6 +1179,7 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
 
     #[crate::sqlx_test]
     async fn test_expiry(pool: PgPool) {
+        let metrics = MetricsCapture::start();
         let mut join_set = JoinSet::new();
         let manager = start(
             &mut join_set,
@@ -731,5 +1215,13 @@ WHERE datname = $1 AND pid <> pg_backend_pid()"#,
             "Old lock should be dead, since the new lock has taken its place."
         );
         assert!(new_lock.is_alive(), "New lock should be alive still");
+        assert_eq!(
+            metrics.counter_delta(
+                WORK_LOCK_FAILURES_METRIC,
+                &[("operation", "keep_alive"), ("failure", "lock_lost")],
+            ),
+            1.0,
+            "the expired worker should report one keepalive lock loss",
+        );
     }
 }
