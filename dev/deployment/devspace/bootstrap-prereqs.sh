@@ -544,9 +544,29 @@ EOF
 }
 
 install_temporal() {
+  local current_context
+  local temporal_image
+
   if [[ "${INSTALL_REST_PREREQS}" != "1" || "${INSTALL_TEMPORAL}" != "1" ]]; then
     return
   fi
+
+  current_context="$(kubectl config current-context 2>/dev/null || true)"
+  case "${current_context}" in
+    kind-*)
+      require_bin docker
+      require_bin kind
+      temporal_image="localhost:5000/nico-temporal-server:latest"
+
+      log "Building ${temporal_image}"
+      docker build -t "${temporal_image}" \
+        -f "${REPO_ROOT}/rest-api/docker/local/Dockerfile.nico-temporal-server" \
+        "${REPO_ROOT}/rest-api"
+
+      log "Loading ${temporal_image} into ${current_context}"
+      kind load docker-image --name "${current_context#kind-}" "${temporal_image}"
+      ;;
+  esac
 
   log "Installing Temporal"
   kubectl create namespace "${TEMPORAL_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
