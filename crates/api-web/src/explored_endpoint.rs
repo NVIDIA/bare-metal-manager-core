@@ -1234,9 +1234,8 @@ pub async fn set_dpu_first_boot_order(
 /// interface the same way every other flow does -- the owning machine's
 /// designated interface (`primary_interface` + its captured Redfish interface
 /// id) once a machine owns this endpoint, or site-explorer's automatic default
-/// for a not-yet-managed endpoint -- and set it boot-first via the usual
-/// MAC-first / interface-id fallback. One click to put the BMC's boot order
-/// back in line with what Carbide would target.
+/// for a not-yet-managed endpoint. One click puts the BMC's boot order back in
+/// line with what Carbide would target.
 pub async fn restore_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,

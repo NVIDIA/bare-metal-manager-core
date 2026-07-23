@@ -255,9 +255,9 @@ async fn set_primary_interface_core(
 
     txn.rollback().await?;
 
-    // Set the boot device. The new primary interface row already stores its
-    // Redfish interface id, so send the complete (MAC + id) pair when present,
-    // allowing for interface ID fallback (and target the MAC alone otherwise).
+    // The new primary row already stores `boot_interface_id`, so give
+    // `libredfish` both identifiers as one target. Rows without an ID still
+    // target the MAC alone.
     let boot_target = match boot_interface_id {
         Some(interface_id) => BootInterfaceTarget::Pair(MachineBootInterface {
             mac_address: primary_interface_mac_address,

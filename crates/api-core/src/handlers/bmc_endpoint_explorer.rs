@@ -46,8 +46,8 @@ use crate::handlers::utils::resolve_bmc_address;
 /// `pick_boot_interface` selects the machine's primary interface -- the same
 /// row the machine-controller configures boot from -- and the row's own
 /// captured id completes the [`MachineBootInterface`], or the action targets
-/// the MAC alone ([`BootInterfaceTarget::MacOnly`], no id fallback), exactly
-/// like the controller's `boot_interface_target`.
+/// only the MAC ([`BootInterfaceTarget::MacOnly`]), exactly like the
+/// controller's `boot_interface_target`.
 ///
 /// A machine with no `machine_interfaces` rows yet (a zero-DPU/NIC-mode
 /// machine awaiting its first DHCP lease) resolves from its
@@ -94,8 +94,8 @@ fn resolve_admin_boot_interface_target(
                     .and_then(PredictedMachineInterface::boot_interface)
             })
     };
-    // Resolution chose `mac`; its `MachineBootInterface` is the target, or the
-    // MAC alone when no interface id has been captured (no id fallback).
+    // Resolution chose `mac`; use its `MachineBootInterface` when known, or
+    // `BootInterfaceTarget::MacOnly` when no `interface_id` has been captured.
     let target_for = |mac: MacAddress, pair: Option<MachineBootInterface>| -> BootInterfaceTarget {
         pair.map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
     };
