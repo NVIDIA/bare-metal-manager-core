@@ -17,20 +17,14 @@ import (
 	"encoding/json"
 )
 
-// checks if the SkuStorage type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &SkuStorage{}
+// checks if the SkuStorageMutation type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &SkuStorageMutation{}
 
-// SkuStorage Storage component in a SKU
-type SkuStorage struct {
-	// Deprecated legacy field retained for response compatibility. Core returns an empty string and does not use this field for storage matching.
-	// Deprecated
-	Vendor *string `json:"vendor,omitempty"`
+// SkuStorageMutation Writable storage constraints for a SKU. Legacy vendor and capacityMb fields are not accepted.
+type SkuStorageMutation struct {
 	// Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
 	Model *string `json:"model,omitempty"`
-	// Deprecated legacy field retained for response compatibility. Core returns zero; use minSizeMb and maxSizeMb for storage size constraints.
-	// Deprecated
-	CapacityMb *int32 `json:"capacityMb,omitempty"`
-	// Number of storage devices present
+	// Number of storage devices required
 	Count *int32 `json:"count,omitempty"`
 	// Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
 	MinSizeMb NullableInt32 `json:"minSizeMb,omitempty"`
@@ -40,60 +34,25 @@ type SkuStorage struct {
 	PciPatterns []string `json:"pciPatterns,omitempty"`
 }
 
-// NewSkuStorage instantiates a new SkuStorage object
+// NewSkuStorageMutation instantiates a new SkuStorageMutation object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSkuStorage() *SkuStorage {
-	this := SkuStorage{}
+func NewSkuStorageMutation() *SkuStorageMutation {
+	this := SkuStorageMutation{}
 	return &this
 }
 
-// NewSkuStorageWithDefaults instantiates a new SkuStorage object
+// NewSkuStorageMutationWithDefaults instantiates a new SkuStorageMutation object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewSkuStorageWithDefaults() *SkuStorage {
-	this := SkuStorage{}
+func NewSkuStorageMutationWithDefaults() *SkuStorageMutation {
+	this := SkuStorageMutation{}
 	return &this
-}
-
-// GetVendor returns the Vendor field value if set, zero value otherwise.
-// Deprecated
-func (o *SkuStorage) GetVendor() string {
-	if o == nil || IsNil(o.Vendor) {
-		var ret string
-		return ret
-	}
-	return *o.Vendor
-}
-
-// GetVendorOk returns a tuple with the Vendor field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-// Deprecated
-func (o *SkuStorage) GetVendorOk() (*string, bool) {
-	if o == nil || IsNil(o.Vendor) {
-		return nil, false
-	}
-	return o.Vendor, true
-}
-
-// HasVendor returns a boolean if a field has been set.
-func (o *SkuStorage) HasVendor() bool {
-	if o != nil && !IsNil(o.Vendor) {
-		return true
-	}
-
-	return false
-}
-
-// SetVendor gets a reference to the given string and assigns it to the Vendor field.
-// Deprecated
-func (o *SkuStorage) SetVendor(v string) {
-	o.Vendor = &v
 }
 
 // GetModel returns the Model field value if set, zero value otherwise.
-func (o *SkuStorage) GetModel() string {
+func (o *SkuStorageMutation) GetModel() string {
 	if o == nil || IsNil(o.Model) {
 		var ret string
 		return ret
@@ -103,7 +62,7 @@ func (o *SkuStorage) GetModel() string {
 
 // GetModelOk returns a tuple with the Model field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuStorage) GetModelOk() (*string, bool) {
+func (o *SkuStorageMutation) GetModelOk() (*string, bool) {
 	if o == nil || IsNil(o.Model) {
 		return nil, false
 	}
@@ -111,7 +70,7 @@ func (o *SkuStorage) GetModelOk() (*string, bool) {
 }
 
 // HasModel returns a boolean if a field has been set.
-func (o *SkuStorage) HasModel() bool {
+func (o *SkuStorageMutation) HasModel() bool {
 	if o != nil && !IsNil(o.Model) {
 		return true
 	}
@@ -120,47 +79,12 @@ func (o *SkuStorage) HasModel() bool {
 }
 
 // SetModel gets a reference to the given string and assigns it to the Model field.
-func (o *SkuStorage) SetModel(v string) {
+func (o *SkuStorageMutation) SetModel(v string) {
 	o.Model = &v
 }
 
-// GetCapacityMb returns the CapacityMb field value if set, zero value otherwise.
-// Deprecated
-func (o *SkuStorage) GetCapacityMb() int32 {
-	if o == nil || IsNil(o.CapacityMb) {
-		var ret int32
-		return ret
-	}
-	return *o.CapacityMb
-}
-
-// GetCapacityMbOk returns a tuple with the CapacityMb field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-// Deprecated
-func (o *SkuStorage) GetCapacityMbOk() (*int32, bool) {
-	if o == nil || IsNil(o.CapacityMb) {
-		return nil, false
-	}
-	return o.CapacityMb, true
-}
-
-// HasCapacityMb returns a boolean if a field has been set.
-func (o *SkuStorage) HasCapacityMb() bool {
-	if o != nil && !IsNil(o.CapacityMb) {
-		return true
-	}
-
-	return false
-}
-
-// SetCapacityMb gets a reference to the given int32 and assigns it to the CapacityMb field.
-// Deprecated
-func (o *SkuStorage) SetCapacityMb(v int32) {
-	o.CapacityMb = &v
-}
-
 // GetCount returns the Count field value if set, zero value otherwise.
-func (o *SkuStorage) GetCount() int32 {
+func (o *SkuStorageMutation) GetCount() int32 {
 	if o == nil || IsNil(o.Count) {
 		var ret int32
 		return ret
@@ -170,7 +94,7 @@ func (o *SkuStorage) GetCount() int32 {
 
 // GetCountOk returns a tuple with the Count field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuStorage) GetCountOk() (*int32, bool) {
+func (o *SkuStorageMutation) GetCountOk() (*int32, bool) {
 	if o == nil || IsNil(o.Count) {
 		return nil, false
 	}
@@ -178,7 +102,7 @@ func (o *SkuStorage) GetCountOk() (*int32, bool) {
 }
 
 // HasCount returns a boolean if a field has been set.
-func (o *SkuStorage) HasCount() bool {
+func (o *SkuStorageMutation) HasCount() bool {
 	if o != nil && !IsNil(o.Count) {
 		return true
 	}
@@ -187,12 +111,12 @@ func (o *SkuStorage) HasCount() bool {
 }
 
 // SetCount gets a reference to the given int32 and assigns it to the Count field.
-func (o *SkuStorage) SetCount(v int32) {
+func (o *SkuStorageMutation) SetCount(v int32) {
 	o.Count = &v
 }
 
 // GetMinSizeMb returns the MinSizeMb field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SkuStorage) GetMinSizeMb() int32 {
+func (o *SkuStorageMutation) GetMinSizeMb() int32 {
 	if o == nil || IsNil(o.MinSizeMb.Get()) {
 		var ret int32
 		return ret
@@ -203,7 +127,7 @@ func (o *SkuStorage) GetMinSizeMb() int32 {
 // GetMinSizeMbOk returns a tuple with the MinSizeMb field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SkuStorage) GetMinSizeMbOk() (*int32, bool) {
+func (o *SkuStorageMutation) GetMinSizeMbOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -211,7 +135,7 @@ func (o *SkuStorage) GetMinSizeMbOk() (*int32, bool) {
 }
 
 // HasMinSizeMb returns a boolean if a field has been set.
-func (o *SkuStorage) HasMinSizeMb() bool {
+func (o *SkuStorageMutation) HasMinSizeMb() bool {
 	if o != nil && o.MinSizeMb.IsSet() {
 		return true
 	}
@@ -220,22 +144,22 @@ func (o *SkuStorage) HasMinSizeMb() bool {
 }
 
 // SetMinSizeMb gets a reference to the given NullableInt32 and assigns it to the MinSizeMb field.
-func (o *SkuStorage) SetMinSizeMb(v int32) {
+func (o *SkuStorageMutation) SetMinSizeMb(v int32) {
 	o.MinSizeMb.Set(&v)
 }
 
 // SetMinSizeMbNil sets the value for MinSizeMb to be an explicit nil
-func (o *SkuStorage) SetMinSizeMbNil() {
+func (o *SkuStorageMutation) SetMinSizeMbNil() {
 	o.MinSizeMb.Set(nil)
 }
 
 // UnsetMinSizeMb ensures that no value is present for MinSizeMb, not even an explicit nil
-func (o *SkuStorage) UnsetMinSizeMb() {
+func (o *SkuStorageMutation) UnsetMinSizeMb() {
 	o.MinSizeMb.Unset()
 }
 
 // GetMaxSizeMb returns the MaxSizeMb field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SkuStorage) GetMaxSizeMb() int32 {
+func (o *SkuStorageMutation) GetMaxSizeMb() int32 {
 	if o == nil || IsNil(o.MaxSizeMb.Get()) {
 		var ret int32
 		return ret
@@ -246,7 +170,7 @@ func (o *SkuStorage) GetMaxSizeMb() int32 {
 // GetMaxSizeMbOk returns a tuple with the MaxSizeMb field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SkuStorage) GetMaxSizeMbOk() (*int32, bool) {
+func (o *SkuStorageMutation) GetMaxSizeMbOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -254,7 +178,7 @@ func (o *SkuStorage) GetMaxSizeMbOk() (*int32, bool) {
 }
 
 // HasMaxSizeMb returns a boolean if a field has been set.
-func (o *SkuStorage) HasMaxSizeMb() bool {
+func (o *SkuStorageMutation) HasMaxSizeMb() bool {
 	if o != nil && o.MaxSizeMb.IsSet() {
 		return true
 	}
@@ -263,22 +187,22 @@ func (o *SkuStorage) HasMaxSizeMb() bool {
 }
 
 // SetMaxSizeMb gets a reference to the given NullableInt32 and assigns it to the MaxSizeMb field.
-func (o *SkuStorage) SetMaxSizeMb(v int32) {
+func (o *SkuStorageMutation) SetMaxSizeMb(v int32) {
 	o.MaxSizeMb.Set(&v)
 }
 
 // SetMaxSizeMbNil sets the value for MaxSizeMb to be an explicit nil
-func (o *SkuStorage) SetMaxSizeMbNil() {
+func (o *SkuStorageMutation) SetMaxSizeMbNil() {
 	o.MaxSizeMb.Set(nil)
 }
 
 // UnsetMaxSizeMb ensures that no value is present for MaxSizeMb, not even an explicit nil
-func (o *SkuStorage) UnsetMaxSizeMb() {
+func (o *SkuStorageMutation) UnsetMaxSizeMb() {
 	o.MaxSizeMb.Unset()
 }
 
 // GetPciPatterns returns the PciPatterns field value if set, zero value otherwise.
-func (o *SkuStorage) GetPciPatterns() []string {
+func (o *SkuStorageMutation) GetPciPatterns() []string {
 	if o == nil || IsNil(o.PciPatterns) {
 		var ret []string
 		return ret
@@ -288,7 +212,7 @@ func (o *SkuStorage) GetPciPatterns() []string {
 
 // GetPciPatternsOk returns a tuple with the PciPatterns field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuStorage) GetPciPatternsOk() ([]string, bool) {
+func (o *SkuStorageMutation) GetPciPatternsOk() ([]string, bool) {
 	if o == nil || IsNil(o.PciPatterns) {
 		return nil, false
 	}
@@ -296,7 +220,7 @@ func (o *SkuStorage) GetPciPatternsOk() ([]string, bool) {
 }
 
 // HasPciPatterns returns a boolean if a field has been set.
-func (o *SkuStorage) HasPciPatterns() bool {
+func (o *SkuStorageMutation) HasPciPatterns() bool {
 	if o != nil && !IsNil(o.PciPatterns) {
 		return true
 	}
@@ -305,11 +229,11 @@ func (o *SkuStorage) HasPciPatterns() bool {
 }
 
 // SetPciPatterns gets a reference to the given []string and assigns it to the PciPatterns field.
-func (o *SkuStorage) SetPciPatterns(v []string) {
+func (o *SkuStorageMutation) SetPciPatterns(v []string) {
 	o.PciPatterns = v
 }
 
-func (o SkuStorage) MarshalJSON() ([]byte, error) {
+func (o SkuStorageMutation) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -317,16 +241,10 @@ func (o SkuStorage) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o SkuStorage) ToMap() (map[string]interface{}, error) {
+func (o SkuStorageMutation) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	if !IsNil(o.Vendor) {
-		toSerialize["vendor"] = o.Vendor
-	}
 	if !IsNil(o.Model) {
 		toSerialize["model"] = o.Model
-	}
-	if !IsNil(o.CapacityMb) {
-		toSerialize["capacityMb"] = o.CapacityMb
 	}
 	if !IsNil(o.Count) {
 		toSerialize["count"] = o.Count
@@ -343,38 +261,38 @@ func (o SkuStorage) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableSkuStorage struct {
-	value *SkuStorage
+type NullableSkuStorageMutation struct {
+	value *SkuStorageMutation
 	isSet bool
 }
 
-func (v NullableSkuStorage) Get() *SkuStorage {
+func (v NullableSkuStorageMutation) Get() *SkuStorageMutation {
 	return v.value
 }
 
-func (v *NullableSkuStorage) Set(val *SkuStorage) {
+func (v *NullableSkuStorageMutation) Set(val *SkuStorageMutation) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableSkuStorage) IsSet() bool {
+func (v NullableSkuStorageMutation) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableSkuStorage) Unset() {
+func (v *NullableSkuStorageMutation) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableSkuStorage(val *SkuStorage) *NullableSkuStorage {
-	return &NullableSkuStorage{value: val, isSet: true}
+func NewNullableSkuStorageMutation(val *SkuStorageMutation) *NullableSkuStorageMutation {
+	return &NullableSkuStorageMutation{value: val, isSet: true}
 }
 
-func (v NullableSkuStorage) MarshalJSON() ([]byte, error) {
+func (v NullableSkuStorageMutation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableSkuStorage) UnmarshalJSON(src []byte) error {
+func (v *NullableSkuStorageMutation) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
