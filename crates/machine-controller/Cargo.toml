@@ -70,6 +70,8 @@ version-compare = { workspace = true }
 
 [dev-dependencies]
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
+carbide-test-harness = { path = "../test-harness" }
+carbide-test-support = { path = "../test-support" }
 
 figment = { workspace = true, features = ["env", "test", "toml"] }
 regex = { workspace = true }

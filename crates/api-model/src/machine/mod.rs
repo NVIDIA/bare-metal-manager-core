@@ -1284,6 +1284,42 @@ pub enum MachineValidatingState {
         #[serde(default = "default_true")]
         is_enabled: bool,
     },
+    /// Machine validation ensures the host's boot device config is in place.
+    /// When it reads reverted -- however it drifted (changed externally, a
+    /// BIOS quirk, or the boot NIC dropping off the BMC's inventory during a
+    /// reboot's POST) -- these states correct it, mirroring host boot repair:
+    /// unlock the BMC, drive the boot-order flow, re-lock, resume validation.
+    PrepareBootRepair {
+        validation_id: MachineValidationId,
+    },
+    UnlockForBootRepair {
+        validation_id: MachineValidationId,
+        unlock_host_state: UnlockHostState,
+    },
+    CheckBootConfigForRepair {
+        validation_id: MachineValidationId,
+    },
+    ConfigureBootBios {
+        validation_id: MachineValidationId,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    WaitingForBootBiosJob {
+        validation_id: MachineValidationId,
+        bios_config_info: BiosConfigInfo,
+    },
+    PollingBootBiosSetup {
+        validation_id: MachineValidationId,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    RepairBootConfig {
+        validation_id: MachineValidationId,
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    LockAfterBootRepair {
+        validation_id: MachineValidationId,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "validation_type", rename_all = "lowercase")]
@@ -1868,7 +1904,8 @@ pub struct BiosConfigInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bios_job_id: Option<String>,
     pub bios_config_state: BiosConfigState,
-    /// Full configure_host_bios retry count across HandleBiosJobFailure recovery cycles.
+    /// Shared host boot-configuration convergence retry count, including BIOS
+    /// job-failure recovery cycles.
     #[serde(default)]
     pub retry_count: u32,
 }
@@ -1894,7 +1931,8 @@ pub struct SetBootOrderInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set_boot_order_jid: Option<String>,
     pub set_boot_order_state: SetBootOrderState,
-    /// Retry counter for SetBootOrder state machine. Defaults to 0 for backwards compatibility.
+    /// Shared host boot-configuration convergence retry count. Defaults to 0
+    /// for backwards compatibility.
     #[serde(default)]
     pub retry_count: u32,
 }
@@ -1904,6 +1942,10 @@ pub struct SetBootOrderInfo {
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum SetBootOrderState {
     SetBootOrder,
+    /// Legacy persisted state from the former inline HTTP-device repair flow.
+    /// It polls the device across the already-started reboot, then either
+    /// resumes `SetBootOrder` or migrates to the shared BIOS repair stages.
+    WaitForHttpBootDeviceApplied,
     WaitForSetBootOrderJobScheduled,
     RebootHost,
     WaitForSetBootOrderJobCompletion,
@@ -2648,6 +2690,16 @@ pub fn state_sla(
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
                 MachineValidatingState::RebootHost { .. } => {
+                    StateSla::with_sla(slas::VALIDATION, time_in_state)
+                }
+                MachineValidatingState::PrepareBootRepair { .. }
+                | MachineValidatingState::UnlockForBootRepair { .. }
+                | MachineValidatingState::CheckBootConfigForRepair { .. }
+                | MachineValidatingState::ConfigureBootBios { .. }
+                | MachineValidatingState::WaitingForBootBiosJob { .. }
+                | MachineValidatingState::PollingBootBiosSetup { .. }
+                | MachineValidatingState::RepairBootConfig { .. }
+                | MachineValidatingState::LockAfterBootRepair { .. } => {
                     StateSla::with_sla(slas::VALIDATION, time_in_state)
                 }
             },
