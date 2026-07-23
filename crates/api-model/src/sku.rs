@@ -617,7 +617,12 @@ fn diff_storage_by_location(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Ve
                 "Expected {} storage drive(s) ({es}) but found {} matching the size range",
                 es.count, assigned_per_group[g],
             ));
-        } else {
+        } else if !eligibility[g].is_empty() {
+            // Only report the count shortfall when at least one drive matched a
+            // pattern. When none did, every pattern already emitted its own
+            // "Expected storage drive at PCI location /.../ not found" diff
+            // above, so a group-level "matched 0" diff would double-report the
+            // same root cause.
             diffs.push(format!(
                 "Expected {} storage drive(s) ({es}) but matched {} at those PCI locations",
                 es.count, assigned_per_group[g],
@@ -740,6 +745,49 @@ mod tests {
         assert!(
             diffs.iter().any(|d| d.contains("unexpected storage drive")),
             "got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_missing_location_reported_once() {
+        // A constrained group whose only pattern matches no drive reports the
+        // missing location once (the per-pattern "not found"), not also a
+        // redundant group-level "at those PCI locations" count diff.
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000)],
+            vec![expected(1, None, None, &[r"0000:09:00\.0"])],
+        );
+        assert!(
+            diffs.iter().any(|d| d.contains("not found")),
+            "got {diffs:?}"
+        );
+        assert!(
+            !diffs.iter().any(|d| d.contains("at those PCI locations")),
+            "missing location should not be double-reported, got {diffs:?}"
+        );
+    }
+
+    #[test]
+    fn v5_partial_location_match_reports_count() {
+        // When at least one pattern matches a drive but the group is still
+        // short, the group-level count diff is not redundant with a per-pattern
+        // "not found", so both are reported.
+        let diffs = v5_storage_diffs(
+            vec![drive(PATH_A, 3_840_000)],
+            vec![expected(
+                2,
+                None,
+                None,
+                &[r"0000:04:00\.0", r"0000:09:00\.0"],
+            )],
+        );
+        assert!(
+            diffs.iter().any(|d| d.contains("at those PCI locations")),
+            "expected count-shortfall diff, got {diffs:?}"
+        );
+        assert!(
+            diffs.iter().any(|d| d.contains("not found")),
+            "expected missing-location diff, got {diffs:?}"
         );
     }
 
