@@ -40,5 +40,8 @@ eyre = { optional = true, workspace = true }
 serde = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

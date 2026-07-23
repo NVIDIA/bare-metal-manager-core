@@ -2509,6 +2509,7 @@ dependencies = [
 name = "carbide-measured-boot"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "clap",
