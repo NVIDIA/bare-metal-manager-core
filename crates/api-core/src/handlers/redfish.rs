@@ -19,6 +19,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use arc_swap::ArcSwap;
+use carbide_instrument::emit;
 use carbide_secrets::credentials::CredentialReader;
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::{format_forwarded_host_parameter, parse_uri_host_ip};
@@ -42,6 +43,28 @@ use crate::auth::external_user_info;
 
 // TODO: put this in carbide config?
 pub const NUM_REQUIRED_APPROVALS: usize = 2;
+
+/// A detached Redfish action finished, but its result never made it into the
+/// database. The `request_id` and `result_index` let an operator find the
+/// missing slot without turning either unbounded value into a metric label.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "redfish_action_result_persistence_failed",
+    metric_name = "carbide_redfish_action_result_persistence_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error applying redfish action",
+    describe = "Number of detached Redfish action results that failed to persist"
+)]
+struct RedfishActionResultPersistenceFailed {
+    #[context]
+    request_id: i64,
+    #[context]
+    result_index: usize,
+    #[context]
+    error: String,
+}
 
 pub async fn redfish_browse(
     api: &crate::api::Api,
@@ -268,10 +291,11 @@ pub async fn redfish_apply_action(
                 update_response_in_tx(&pool, request, index, response)
                     .await
                     .inspect_err(|e| {
-                        tracing::error!(
-                            error = %e,
-                            "Error applying redfish action",
-                        )
+                        emit(RedfishActionResultPersistenceFailed {
+                            request_id: request.request_id,
+                            result_index: index,
+                            error: e.to_string(),
+                        });
                     })
                     .ok();
             }
@@ -641,10 +665,53 @@ impl From<reqwest_middleware::Error> for RequestErrorInfo {
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::value_scenarios;
     use carbide_utils::HostPortPair;
 
-    use super::{client_authority, metadata_host, redfish_action_uri};
+    use super::{
+        RedfishActionResultPersistenceFailed, client_authority, metadata_host, redfish_action_uri,
+    };
+
+    #[test]
+    fn redfish_action_result_persistence_failure_logs_and_counts() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            emit(RedfishActionResultPersistenceFailed {
+                request_id: 42,
+                result_index: 3,
+                error: "database unavailable".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(
+            logs[0].metadata_name,
+            "redfish_action_result_persistence_failed"
+        );
+        assert_eq!(logs[0].level, tracing::Level::ERROR);
+        assert_eq!(logs[0].message, "Error applying redfish action");
+        assert_eq!(
+            logs[0].field("event_name"),
+            Some("redfish_action_result_persistence_failed")
+        );
+        assert_eq!(
+            logs[0].field("metric_name"),
+            Some("carbide_redfish_action_result_persistence_failures_total")
+        );
+        assert_eq!(logs[0].field("request_id"), Some("42"));
+        assert_eq!(logs[0].field("result_index"), Some("3"));
+        assert_eq!(logs[0].field("error"), Some("database unavailable"));
+
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_redfish_action_result_persistence_failures_total",
+                &[],
+            ),
+            1.0
+        );
+    }
 
     #[test]
     fn metadata_host_is_bare_for_ip_literals() {

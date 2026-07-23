@@ -194,6 +194,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_racks_object_tasks_enqueued_total</td><td>counter</td><td>Number of object handling tasks freshly enqueued for objects of type carbide_racks</td></tr>
 <tr><td>carbide_racks_total</td><td>gauge</td><td>Number of carbide_racks in the system</td></tr>
 <tr><td>carbide_reboot_attempts_in_booting_with_discovery_image</td><td>histogram</td><td>Reboot attempts per machine in BootingWithDiscoveryImage, recorded when a machine is rebooted again after no response from the host.</td></tr>
+<tr><td>carbide_redfish_action_result_persistence_failures_total</td><td>counter</td><td>Number of detached Redfish action results that failed to persist</td></tr>
 <tr><td>carbide_reserved_ips_count</td><td>gauge</td><td>Number of reserved IPs per network segment</td></tr>
 <tr><td>carbide_resourcepool_free_count</td><td>gauge</td><td>Number of values in the resource pool currently available for allocation</td></tr>
 <tr><td>carbide_resourcepool_used_count</td><td>gauge</td><td>Number of currently allocated values in the resource pool</td></tr>
