@@ -757,6 +757,7 @@ impl NvueRestCollector {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
     use std::io::{Read, Write};
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
@@ -765,6 +766,8 @@ mod tests {
     use std::thread::JoinHandle;
     use std::time::Duration;
 
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, check_cases_async, value_scenarios};
     use mac_address::MacAddress;
 
     use super::*;
@@ -848,516 +851,168 @@ mod tests {
 
     #[test]
     fn test_system_health_mapping() {
-        assert_eq!(system_health_to_state(Some("OK")), "ok");
-        assert_eq!(system_health_to_state(Some("Not OK")), "not_ok");
-        assert_eq!(system_health_to_state(None), "unknown");
-        assert_eq!(system_health_to_state(Some("unknown_value")), "unknown");
+        value_scenarios!(system_health_to_state:
+            "known states" {
+                Some("OK") => "ok",
+                Some("Not OK") => "not_ok",
+            }
+
+            "unknown states" {
+                None => "unknown",
+                Some("unknown_value") => "unknown",
+            }
+        );
     }
 
     #[test]
     fn test_partition_health_mapping() {
-        assert_eq!(partition_health_to_state(Some("unknown")), "unknown");
-        assert_eq!(partition_health_to_state(Some("healthy")), "healthy");
-        assert_eq!(
-            partition_health_to_state(Some("degraded_bandwidth")),
-            "degraded_bandwidth"
+        value_scenarios!(partition_health_to_state:
+            "known states" {
+                Some("healthy") => "healthy",
+                Some("degraded_bandwidth") => "degraded_bandwidth",
+                Some("degraded") => "degraded",
+                Some("unhealthy") => "unhealthy",
+            }
+
+            "unknown states" {
+                Some("unknown") => "unknown",
+                None => "unknown",
+            }
         );
-        assert_eq!(partition_health_to_state(Some("degraded")), "degraded");
-        assert_eq!(partition_health_to_state(Some("unhealthy")), "unhealthy");
-        assert_eq!(partition_health_to_state(None), "unknown");
     }
 
     #[test]
     fn test_app_status_mapping() {
-        assert_eq!(app_status_to_state(Some("ok")), "ok");
-        assert_eq!(app_status_to_state(Some("not ok")), "not_ok");
-        assert_eq!(app_status_to_state(None), "unknown");
-        assert_eq!(app_status_to_state(Some("other")), "unknown");
+        value_scenarios!(app_status_to_state:
+            "known states" {
+                Some("ok") => "ok",
+                Some("not ok") => "not_ok",
+            }
+
+            "unknown states" {
+                None => "unknown",
+                Some("other") => "unknown",
+            }
+        );
     }
 
     #[test]
     fn test_diagnostic_opcode_mapping() {
-        assert_eq!(diagnostic_opcode_to_f64("0"), 0.0);
-        assert_eq!(diagnostic_opcode_to_f64("2"), 1.0);
-        assert_eq!(diagnostic_opcode_to_f64("1024"), 1.0);
-        assert_eq!(diagnostic_opcode_to_f64("57"), 1.0);
+        value_scenarios!(diagnostic_opcode_to_f64:
+            "no issue" {
+                "0" => 0.0,
+            }
+
+            "diagnostic issue" {
+                "2" => 1.0,
+                "1024" => 1.0,
+                "57" => 1.0,
+            }
+        );
     }
 
     #[test]
     fn test_fan_max_speed_parsing() {
-        assert_eq!(fan_max_speed_to_f64(Some("33000")), Some(33000.0));
-        assert_eq!(fan_max_speed_to_f64(Some(" 33000 ")), Some(33000.0));
-        assert_eq!(fan_max_speed_to_f64(Some("6000")), Some(6000.0));
-        assert_eq!(fan_max_speed_to_f64(Some("NaN")), None);
-        assert_eq!(fan_max_speed_to_f64(Some("inf")), None);
-        assert_eq!(fan_max_speed_to_f64(Some("-1")), None);
-        assert_eq!(fan_max_speed_to_f64(Some("not-a-number")), None);
-        assert_eq!(fan_max_speed_to_f64(Some("")), None);
-        assert_eq!(fan_max_speed_to_f64(None), None);
+        value_scenarios!(fan_max_speed_to_f64:
+            "valid speed" {
+                Some("33000") => Some(33000.0),
+                Some(" 33000 ") => Some(33000.0),
+                Some("6000") => Some(6000.0),
+            }
+
+            "invalid speed" {
+                Some("NaN") => None,
+                Some("inf") => None,
+                Some("-1") => None,
+                Some("not-a-number") => None,
+                Some("") => None,
+                None => None,
+            }
+        );
     }
 
     #[test]
     fn test_temp_to_f64_parsing() {
-        assert_eq!(temp_to_f64(Some("105.00")), Some(105.0));
-        assert_eq!(temp_to_f64(Some(" 43 ")), Some(43.0));
-        assert_eq!(temp_to_f64(Some("120.00")), Some(120.0));
-        assert_eq!(temp_to_f64(Some("x")), None);
-        assert_eq!(temp_to_f64(Some("")), None);
-        assert_eq!(temp_to_f64(None), None);
+        value_scenarios!(temp_to_f64:
+            "valid temperature" {
+                Some("105.00") => Some(105.0),
+                Some(" 43 ") => Some(43.0),
+                Some("120.00") => Some(120.0),
+            }
+
+            "invalid temperature" {
+                Some("x") => None,
+                Some("") => None,
+                None => None,
+            }
+        );
     }
 
     #[test]
     fn test_leakage_state_mapping() {
-        assert_eq!(leakage_state_to_state(Some("ok")), "ok");
-        assert_eq!(leakage_state_to_state(Some("OK")), "ok");
-        assert_eq!(leakage_state_to_state(Some(" ok ")), "ok");
-        assert_eq!(leakage_state_to_state(Some("leak")), "leak");
-        assert_eq!(leakage_state_to_state(Some("LEAK")), "leak");
-        assert_eq!(leakage_state_to_state(Some(" leak ")), "leak");
-        assert_eq!(leakage_state_to_state(Some("missing")), "unknown");
-        assert_eq!(leakage_state_to_state(Some("   ")), "unknown");
-        assert_eq!(leakage_state_to_state(None), "unknown");
+        value_scenarios!(leakage_state_to_state:
+            "no leak" {
+                Some("ok") => "ok",
+                Some("OK") => "ok",
+                Some(" ok ") => "ok",
+            }
+
+            "leak detected" {
+                Some("leak") => "leak",
+                Some("LEAK") => "leak",
+                Some(" leak ") => "leak",
+            }
+
+            "unknown state" {
+                Some("missing") => "unknown",
+                Some("   ") => "unknown",
+                None => "unknown",
+            }
+        );
     }
 
     #[test]
     fn test_temp_state_to_state_mapping() {
-        assert_eq!(temp_state_to_state(Some("ok")), Some("ok"));
-        assert_eq!(temp_state_to_state(Some("OK")), Some("ok"));
-        assert_eq!(temp_state_to_state(Some(" ok ")), Some("ok"));
-        assert_eq!(temp_state_to_state(Some("warning")), Some("not_ok"));
-        assert_eq!(temp_state_to_state(Some("")), Some("not_ok"));
-        // absent => None (emit nothing, never fabricate)
-        assert_eq!(temp_state_to_state(None), None);
+        value_scenarios!(temp_state_to_state:
+            "healthy state" {
+                Some("ok") => Some("ok"),
+                Some("OK") => Some("ok"),
+                Some(" ok ") => Some("ok"),
+            }
+
+            "unhealthy state" {
+                Some("warning") => Some("not_ok"),
+                Some("") => Some("not_ok"),
+            }
+
+            "absent state" {
+                None => None,
+            }
+        );
     }
 
     #[test]
     fn test_fan_led_to_state_mapping() {
-        // green/ok (case-insensitive) => "ok"
-        assert_eq!(fan_led_to_state(Some("green")), Some("ok"));
-        assert_eq!(fan_led_to_state(Some("GREEN")), Some("ok"));
-        assert_eq!(fan_led_to_state(Some(" green ")), Some("ok"));
-        assert_eq!(fan_led_to_state(Some("ok")), Some("ok"));
-        assert_eq!(fan_led_to_state(Some("OK")), Some("ok"));
-        // any other non-empty value => "not_ok"
-        assert_eq!(fan_led_to_state(Some("amber")), Some("not_ok"));
-        assert_eq!(fan_led_to_state(Some("red")), Some("not_ok"));
-        // absent/empty => None (emit nothing)
-        assert_eq!(fan_led_to_state(Some("")), None);
-        assert_eq!(fan_led_to_state(Some("   ")), None);
-        assert_eq!(fan_led_to_state(None), None);
-    }
-
-    /// Drives run_iteration's fan parse + emit logic against a captured sink,
-    /// asserting max-speed sample shape. Table-driven.
-    #[test]
-    fn test_fan_max_speed_emit() {
-        use crate::collectors::nvue::rest::client::FanEnvironmentResponse;
-
-        struct CapturingSink {
-            samples: StdMutex<Vec<MetricSample>>,
-        }
-
-        impl DataSink for CapturingSink {
-            fn sink_type(&self) -> &'static str {
-                "capturing_sink"
+        value_scenarios!(fan_led_to_state:
+            "healthy state" {
+                Some("green") => Some("ok"),
+                Some("GREEN") => Some("ok"),
+                Some(" green ") => Some("ok"),
+                Some("ok") => Some("ok"),
+                Some("OK") => Some("ok"),
             }
 
-            fn try_handle_event(
-                &self,
-                _context: &EventContext,
-                event: &CollectorEvent,
-            ) -> Result<(), crate::HealthError> {
-                if let CollectorEvent::Metric(sample) = event {
-                    self.samples.lock().unwrap().push((**sample).clone());
-                }
-                Ok(())
-            }
-        }
-
-        struct Case {
-            name: &'static str,
-            json: &'static str,
-            // (fan_name, expected_value) pairs that MUST be emitted.
-            expected: &'static [(&'static str, f64)],
-            // Fan names that MUST NOT produce a sample.
-            absent: &'static [&'static str],
-        }
-
-        let cases = [
-            Case {
-                name: "two healthy fans emit max-speed",
-                json: r#"{
-                    "FAN1/1": {"current-speed": "10096", "direction": "F2B", "max-speed": "33000", "min-speed": "6000", "state": "ok"},
-                    "FAN1/2": {"current-speed": "9800", "direction": "F2B", "max-speed": "33000", "min-speed": "6000", "state": "ok"}
-                }"#,
-                expected: &[("FAN1/1", 33000.0), ("FAN1/2", 33000.0)],
-                absent: &[],
-            },
-            Case {
-                name: "missing max-speed emits nothing",
-                json: r#"{
-                    "FAN1/1": {"current-speed": "10096", "min-speed": "6000", "state": "ok"}
-                }"#,
-                expected: &[],
-                absent: &["FAN1/1"],
-            },
-            Case {
-                name: "garbage max-speed emits nothing",
-                json: r#"{
-                    "FAN1/1": {"max-speed": "bogus", "state": "ok"}
-                }"#,
-                expected: &[],
-                absent: &["FAN1/1"],
-            },
-        ];
-
-        for case in cases {
-            let sink = Arc::new(CapturingSink {
-                samples: StdMutex::new(Vec::new()),
-            });
-            let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
-            collector.data_sink = Some(sink.clone());
-
-            let fans: FanEnvironmentResponse =
-                serde_json::from_str(case.json).expect("fan json parses");
-            // Mirror run_iteration's emit loop exactly.
-            for (fan_name, fan) in &fans {
-                if let Some(value) = fan_max_speed_to_f64(fan.max_speed.as_deref()) {
-                    collector.emit_metric(
-                        "fan_max_speed",
-                        Some(fan_name),
-                        value,
-                        "rpm",
-                        vec![(Cow::Borrowed("fan_name"), fan_name.clone())],
-                    );
-                }
+            "unhealthy state" {
+                Some("amber") => Some("not_ok"),
+                Some("red") => Some("not_ok"),
             }
 
-            let samples = sink.samples.lock().unwrap();
-            assert_eq!(
-                samples.len(),
-                case.expected.len(),
-                "case '{}': unexpected emitted sample count",
-                case.name
-            );
-
-            for (fan_name, expected_value) in case.expected {
-                let sample = samples
-                    .iter()
-                    .find(|s| {
-                        s.labels
-                            .iter()
-                            .any(|(k, v)| k == "fan_name" && v == fan_name)
-                    })
-                    .unwrap_or_else(|| {
-                        panic!("case '{}': no sample for fan {fan_name}", case.name)
-                    });
-
-                assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
-                assert_eq!(sample.metric_type, "fan_max_speed", "case '{}'", case.name);
-                assert_eq!(sample.unit, "rpm", "case '{}'", case.name);
-                assert_eq!(sample.value, *expected_value, "case '{}'", case.name);
-                assert_eq!(
-                    sample.key,
-                    format!("fan_max_speed:{fan_name}"),
-                    "case '{}'",
-                    case.name
-                );
-                assert_eq!(sample.labels.len(), 1, "case '{}'", case.name);
-                assert_eq!(sample.labels[0].0, "fan_name", "case '{}'", case.name);
-                assert_eq!(sample.labels[0].1, *fan_name, "case '{}'", case.name);
+            "absent state" {
+                Some("") => None,
+                Some("   ") => None,
+                None => None,
             }
-
-            for fan_name in case.absent {
-                assert!(
-                    !samples.iter().any(|s| s
-                        .labels
-                        .iter()
-                        .any(|(k, v)| k == "fan_name" && v == fan_name)),
-                    "case '{}': fan {fan_name} should not emit a sample",
-                    case.name
-                );
-            }
-        }
-    }
-
-    /// Drives run_iteration's temperature parse + emit logic against a captured
-    /// sink. A full sensor (ASIC1) emits all four series. A sparse sensor
-    /// (current + state only) emits two and must NOT fabricate absent max/crit.
-    #[test]
-    fn test_platform_temperature_emit() {
-        use crate::collectors::nvue::rest::client::TemperatureEnvironmentResponse;
-
-        struct CapturingSink {
-            samples: StdMutex<Vec<MetricSample>>,
-        }
-
-        impl DataSink for CapturingSink {
-            fn sink_type(&self) -> &'static str {
-                "capturing_sink"
-            }
-
-            fn try_handle_event(
-                &self,
-                _context: &EventContext,
-                event: &CollectorEvent,
-            ) -> Result<(), crate::HealthError> {
-                if let CollectorEvent::Metric(sample) = event {
-                    self.samples.lock().unwrap().push((**sample).clone());
-                }
-                Ok(())
-            }
-        }
-
-        let json = r#"{
-            "ASIC1": {"crit": "120.00", "current": "43.00", "max": "105.00", "state": "ok"},
-            "Ambient-MNG-Temp": {"current": "27.00", "state": "ok"}
-        }"#;
-
-        let sink = Arc::new(CapturingSink {
-            samples: StdMutex::new(Vec::new()),
-        });
-        let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
-        collector.data_sink = Some(sink.clone());
-
-        let temps: TemperatureEnvironmentResponse =
-            serde_json::from_str(json).expect("temperature json parses");
-        // Mirror run_iteration's emit loop exactly.
-        for (sensor_name, temp) in &temps {
-            let sensor_label = || vec![(Cow::Borrowed("sensor"), sensor_name.clone())];
-            if let Some(value) = temp_to_f64(temp.current.as_deref()) {
-                collector.emit_metric(
-                    "platform_temperature",
-                    Some(sensor_name),
-                    value,
-                    "celsius",
-                    sensor_label(),
-                );
-            }
-            if let Some(value) = temp_to_f64(temp.max.as_deref()) {
-                collector.emit_metric(
-                    "platform_temperature_max",
-                    Some(sensor_name),
-                    value,
-                    "celsius",
-                    sensor_label(),
-                );
-            }
-            if let Some(value) = temp_to_f64(temp.crit.as_deref()) {
-                collector.emit_metric(
-                    "platform_temperature_critical",
-                    Some(sensor_name),
-                    value,
-                    "celsius",
-                    sensor_label(),
-                );
-            }
-            if let Some(current) = temp_state_to_state(temp.state.as_deref()) {
-                collector.emit_state_set(
-                    "platform_temperature_state",
-                    Some(sensor_name),
-                    current,
-                    TEMP_STATE_STATES,
-                    sensor_label(),
-                );
-            }
-        }
-
-        let samples = sink.samples.lock().unwrap();
-        // ASIC1: current + max + crit (3) + state StateSet (2) = 5.
-        // Ambient-MNG-Temp: current (1) + state StateSet (2) = 3. Total 8.
-        assert_eq!(samples.len(), 8, "unexpected emitted sample count");
-
-        // Helper: find a sample by metric_type + sensor label.
-        let find = |metric_type: &str, sensor: &str| {
-            samples.iter().find(|s| {
-                s.metric_type == metric_type
-                    && s.labels.iter().any(|(k, v)| k == "sensor" && v == sensor)
-            })
-        };
-
-        // ASIC1: the three scalar temperature series present with correct
-        // name/unit/value/label/key.
-        let expected_asic1: &[(&str, &str, f64)] = &[
-            ("platform_temperature", "celsius", 43.0),
-            ("platform_temperature_max", "celsius", 105.0),
-            ("platform_temperature_critical", "celsius", 120.0),
-        ];
-        for (metric_type, unit, value) in expected_asic1 {
-            let sample = find(metric_type, "ASIC1")
-                .unwrap_or_else(|| panic!("no ASIC1 sample for {metric_type}"));
-            assert_eq!(sample.name, COLLECTOR_NAME);
-            assert_eq!(&sample.metric_type, metric_type);
-            assert_eq!(&sample.unit, unit);
-            assert_eq!(sample.value, *value, "value for {metric_type}");
-            assert_eq!(sample.key, format!("{metric_type}:ASIC1"));
-            assert_eq!(sample.labels.len(), 1);
-            assert_eq!(sample.labels[0].0, "sensor");
-            assert_eq!(sample.labels[0].1, "ASIC1");
-        }
-
-        // ASIC1 state="ok" => StateSet: ok=1, not_ok=0. Sensor label preserved.
-        let asic1_state: Vec<MetricSample> = samples
-            .iter()
-            .filter(|s| {
-                s.metric_type == "platform_temperature_state"
-                    && s.labels.iter().any(|(k, v)| k == "sensor" && v == "ASIC1")
-            })
-            .cloned()
-            .collect();
-        assert_state_set(
-            &asic1_state,
-            "platform_temperature_state",
-            Some(("sensor", "ASIC1")),
-            TEMP_STATE_STATES,
-            "ok",
         );
-
-        // Ambient-MNG-Temp: only current + state StateSet emitted.
-        let ambient_current =
-            find("platform_temperature", "Ambient-MNG-Temp").expect("ambient current sample");
-        assert_eq!(ambient_current.value, 27.0);
-        assert_eq!(ambient_current.unit, "celsius");
-        let ambient_state: Vec<MetricSample> = samples
-            .iter()
-            .filter(|s| {
-                s.metric_type == "platform_temperature_state"
-                    && s.labels
-                        .iter()
-                        .any(|(k, v)| k == "sensor" && v == "Ambient-MNG-Temp")
-            })
-            .cloned()
-            .collect();
-        assert_state_set(
-            &ambient_state,
-            "platform_temperature_state",
-            Some(("sensor", "Ambient-MNG-Temp")),
-            TEMP_STATE_STATES,
-            "ok",
-        );
-
-        // A sensor missing max/crit must NOT emit those series.
-        assert!(
-            find("platform_temperature_max", "Ambient-MNG-Temp").is_none(),
-            "ambient sensor without max must not emit platform_temperature_max"
-        );
-        assert!(
-            find("platform_temperature_critical", "Ambient-MNG-Temp").is_none(),
-            "ambient sensor without crit must not emit platform_temperature_critical"
-        );
-    }
-
-    /// Drives run_iteration's fan_led parse + emit logic against a captured sink.
-    /// "green"/"ok" => 1.0, "amber" => 0.0, absent FAN_STATUS emits nothing.
-    #[test]
-    fn test_fan_led_emit() {
-        use crate::collectors::nvue::rest::client::PlatformEnvironmentResponse;
-
-        struct CapturingSink {
-            samples: StdMutex<Vec<MetricSample>>,
-        }
-
-        impl DataSink for CapturingSink {
-            fn sink_type(&self) -> &'static str {
-                "capturing_sink"
-            }
-
-            fn try_handle_event(
-                &self,
-                _context: &EventContext,
-                event: &CollectorEvent,
-            ) -> Result<(), crate::HealthError> {
-                if let CollectorEvent::Metric(sample) = event {
-                    self.samples.lock().unwrap().push((**sample).clone());
-                }
-                Ok(())
-            }
-        }
-
-        struct Case {
-            name: &'static str,
-            json: &'static str,
-            // expected current StateSet state, or None when nothing must emit.
-            expected: Option<&'static str>,
-        }
-
-        let cases = [
-            Case {
-                name: "green LED => ok",
-                json: r#"{"FAN_STATUS": {"state": "green", "type": "led"}}"#,
-                expected: Some("ok"),
-            },
-            Case {
-                name: "ok LED => ok",
-                json: r#"{"FAN_STATUS": {"state": "ok", "type": "led"}}"#,
-                expected: Some("ok"),
-            },
-            Case {
-                name: "amber LED => not_ok",
-                json: r#"{"FAN_STATUS": {"state": "amber", "type": "led"}}"#,
-                expected: Some("not_ok"),
-            },
-            Case {
-                name: "absent FAN_STATUS emits nothing",
-                json: r#"{"PSU_STATUS": {"state": "green", "type": "led"}}"#,
-                expected: None,
-            },
-        ];
-
-        for case in cases {
-            let sink = Arc::new(CapturingSink {
-                samples: StdMutex::new(Vec::new()),
-            });
-            let mut collector = collector_with_provider(ScriptedProvider::new(vec![]));
-            collector.data_sink = Some(sink.clone());
-
-            let env: PlatformEnvironmentResponse =
-                serde_json::from_str(case.json).expect("env json parses");
-            // Mirror run_iteration's emit logic exactly.
-            if let Some(current) = env
-                .get("FAN_STATUS")
-                .and_then(|s| fan_led_to_state(s.state.as_deref()))
-            {
-                collector.emit_state_set("fan_led", None, current, FAN_LED_STATES, vec![]);
-            }
-
-            let samples = sink.samples.lock().unwrap();
-            match case.expected {
-                Some(current) => {
-                    // switch-level StateSet: no per-entity label, but a `state`
-                    // label per series. Series keys are unique per state.
-                    assert_state_set(&samples, "fan_led", None, FAN_LED_STATES, current);
-                    for sample in samples.iter() {
-                        assert_eq!(sample.name, COLLECTOR_NAME, "case '{}'", case.name);
-                        let state = sample
-                            .labels
-                            .iter()
-                            .find(|(k, _)| k == "state")
-                            .map(|(_, v)| v.clone())
-                            .expect("state label present");
-                        assert_eq!(
-                            sample.key,
-                            format!("fan_led:{state}"),
-                            "case '{}'",
-                            case.name
-                        );
-                        // switch-level: the only label is `state`.
-                        assert_eq!(
-                            sample.labels.len(),
-                            1,
-                            "case '{}': fan_led is switch-level (only the state label)",
-                            case.name
-                        );
-                    }
-                }
-                None => assert_eq!(
-                    samples.len(),
-                    0,
-                    "case '{}': absent FAN_STATUS must not emit a sample",
-                    case.name
-                ),
-            }
-        }
     }
 
     #[test]
@@ -1618,7 +1273,56 @@ mod tests {
         }
     }
 
-    fn spawn_json_response_server(body: &'static str) -> (url::Url, JoinHandle<()>) {
+    #[derive(Clone, Copy)]
+    enum IterationEndpoint {
+        SystemHealth,
+        RebootReason,
+        ClusterApps,
+        SdnPartitions,
+        Interfaces,
+        Fans,
+        Temperatures,
+        Leakage,
+        Environment,
+    }
+
+    impl IterationEndpoint {
+        fn paths(self) -> NvueRestPaths {
+            let mut paths = paths_all_disabled();
+            match self {
+                Self::SystemHealth => paths.system_health_enabled = true,
+                Self::RebootReason => paths.system_reboot_reason_enabled = true,
+                Self::ClusterApps => paths.cluster_apps_enabled = true,
+                Self::SdnPartitions => paths.sdn_partitions_enabled = true,
+                Self::Interfaces => paths.interfaces_enabled = true,
+                Self::Fans => paths.platform_environment_fan_enabled = true,
+                Self::Temperatures => paths.platform_environment_temperature_enabled = true,
+                Self::Leakage => paths.platform_environment_leakage_enabled = true,
+                Self::Environment => paths.platform_environment_status_enabled = true,
+            }
+            paths
+        }
+
+        fn request_path(self) -> &'static str {
+            match self {
+                Self::SystemHealth => "/nvue_v1/system/health",
+                Self::RebootReason => "/nvue_v1/system/reboot/reason",
+                Self::ClusterApps => "/nvue_v1/cluster/apps",
+                Self::SdnPartitions => "/nvue_v1/sdn/partition",
+                Self::Interfaces => "/nvue_v1/interface",
+                Self::Fans => "/nvue_v1/platform/environment/fan",
+                Self::Temperatures => "/nvue_v1/platform/environment/temperature",
+                Self::Leakage => "/nvue_v1/platform/environment/leakage",
+                Self::Environment => "/nvue_v1/platform/environment",
+            }
+        }
+    }
+
+    fn spawn_json_response_server(
+        endpoint: IterationEndpoint,
+        status: u16,
+        body: &'static str,
+    ) -> (url::Url, JoinHandle<()>) {
         let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .expect("test server binds local port");
 
@@ -1627,10 +1331,24 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("test server accepts request");
             let mut buffer = [0_u8; 2048];
-            let _bytes_read = stream.read(&mut buffer).expect("test server reads request");
+            let bytes_read = stream.read(&mut buffer).expect("test server reads request");
+            let request = String::from_utf8_lossy(&buffer[..bytes_read]);
+            let request_line = request.lines().next().expect("request has a request line");
+            assert!(
+                request_line.starts_with(&format!("GET {}?", endpoint.request_path())),
+                "expected request for {}, got {request_line}",
+                endpoint.request_path(),
+            );
+
+            let reason = match status {
+                200 => "OK",
+                401 => "Unauthorized",
+                500 => "Internal Server Error",
+                _ => panic!("unsupported test response status {status}"),
+            };
 
             let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                 body.len(),
                 body
             );
@@ -1644,16 +1362,17 @@ mod tests {
     }
 
     fn collector_with_json_response(
-        paths: NvueRestPaths,
+        endpoint: IterationEndpoint,
+        status: u16,
         body: &'static str,
     ) -> (NvueRestCollector, Arc<CapturingSink>, JoinHandle<()>) {
-        let (base_url, server) = spawn_json_response_server(body);
+        let (base_url, server) = spawn_json_response_server(endpoint, status, body);
 
         let client = RestClient::new_with_base_url_for_test(
             "test-switch".to_string(),
             base_url,
             Duration::from_secs(1),
-            paths,
+            endpoint.paths(),
         )
         .expect("test rest client builds");
 
@@ -1671,10 +1390,11 @@ mod tests {
     }
 
     async fn collect_response(
-        paths: NvueRestPaths,
+        endpoint: IterationEndpoint,
+        status: u16,
         body: &'static str,
-    ) -> (IterationResult, Vec<MetricSample>, Vec<HealthReport>) {
-        let (mut collector, sink, server) = collector_with_json_response(paths, body);
+    ) -> (IterationResult, bool, Vec<MetricSample>, Vec<HealthReport>) {
+        let (mut collector, sink, server) = collector_with_json_response(endpoint, status, body);
 
         let result = collector
             .run_iteration()
@@ -1685,14 +1405,666 @@ mod tests {
 
         let samples = sink.samples.lock().unwrap().clone();
         let reports = sink.reports.lock().unwrap().clone();
+        let has_credentials = collector.client.has_credentials();
 
-        (result, samples, reports)
+        (result, has_credentials, samples, reports)
     }
 
     async fn collect_null_response(
-        paths: NvueRestPaths,
-    ) -> (IterationResult, Vec<MetricSample>, Vec<HealthReport>) {
-        collect_response(paths, "null").await
+        endpoint: IterationEndpoint,
+    ) -> (IterationResult, bool, Vec<MetricSample>, Vec<HealthReport>) {
+        collect_response(endpoint, 200, "null").await
+    }
+
+    #[derive(Clone, Copy)]
+    enum NullResponsePath {
+        RebootReason,
+        ClusterApps,
+        Leakage,
+    }
+
+    impl NullResponsePath {
+        fn endpoint(self) -> IterationEndpoint {
+            match self {
+                Self::RebootReason => IterationEndpoint::RebootReason,
+                Self::ClusterApps => IterationEndpoint::ClusterApps,
+                Self::Leakage => IterationEndpoint::Leakage,
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct NullResponseSummary {
+        fetch_failures: usize,
+        entity_count: Option<usize>,
+        sample_count: usize,
+        reports: Vec<ReportSummary>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct ReportSummary {
+        source: ReportSource,
+        target: Option<HealthReportTarget>,
+        successes: Vec<(Probe, Option<String>)>,
+        alerts: Vec<AlertSummary>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AlertSummary {
+        probe_id: Probe,
+        target: Option<String>,
+        classifications: Vec<Classification>,
+        message: String,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct SampleSummary {
+        key: String,
+        name: String,
+        metric_type: String,
+        unit: String,
+        value: f64,
+        labels: Vec<(String, String)>,
+        has_context: bool,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct IterationSummary {
+        refresh_triggered: bool,
+        entity_count: Option<usize>,
+        fetch_failures: usize,
+        has_credentials: bool,
+        samples: Vec<SampleSummary>,
+        reports: Vec<ReportSummary>,
+    }
+
+    #[derive(Clone, Copy)]
+    struct IterationResponse {
+        endpoint: IterationEndpoint,
+        status: u16,
+        body: &'static str,
+    }
+
+    fn sample_summary(
+        metric_type: &str,
+        qualifier: Option<&str>,
+        value: f64,
+        unit: &str,
+        labels: &[(&str, &str)],
+    ) -> SampleSummary {
+        let key = qualifier
+            .map(|qualifier| format!("{metric_type}:{qualifier}"))
+            .unwrap_or_else(|| metric_type.to_string());
+        let mut labels = labels
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect::<Vec<_>>();
+        labels.sort();
+
+        SampleSummary {
+            key,
+            name: COLLECTOR_NAME.to_string(),
+            metric_type: metric_type.to_string(),
+            unit: unit.to_string(),
+            value,
+            labels,
+            has_context: false,
+        }
+    }
+
+    fn state_set_summaries(
+        metric_type: &str,
+        key_base: Option<&str>,
+        current: &str,
+        states: &[&str],
+        labels: &[(&str, &str)],
+    ) -> Vec<SampleSummary> {
+        states
+            .iter()
+            .map(|state| {
+                let qualifier = key_base
+                    .map(|base| format!("{base}:{state}"))
+                    .unwrap_or_else(|| (*state).to_string());
+                let mut labels = labels.to_vec();
+                labels.push(("state", *state));
+
+                sample_summary(
+                    metric_type,
+                    Some(&qualifier),
+                    if *state == current { 1.0 } else { 0.0 },
+                    "state",
+                    &labels,
+                )
+            })
+            .collect()
+    }
+
+    fn summarize_samples(samples: Vec<MetricSample>) -> Vec<SampleSummary> {
+        let mut summaries = samples
+            .into_iter()
+            .map(|sample| {
+                let mut labels = sample
+                    .labels
+                    .into_iter()
+                    .map(|(key, value)| (key.into_owned(), value))
+                    .collect::<Vec<_>>();
+                labels.sort();
+
+                SampleSummary {
+                    key: sample.key,
+                    name: sample.name,
+                    metric_type: sample.metric_type,
+                    unit: sample.unit,
+                    value: sample.value,
+                    labels,
+                    has_context: sample.context.is_some(),
+                }
+            })
+            .collect::<Vec<_>>();
+        summaries.sort_by(|left, right| left.key.cmp(&right.key));
+        summaries
+    }
+
+    fn summarize_reports(reports: Vec<HealthReport>) -> Vec<ReportSummary> {
+        reports
+            .into_iter()
+            .map(|report| ReportSummary {
+                source: report.source,
+                target: report.target,
+                successes: report
+                    .successes
+                    .into_iter()
+                    .map(|success| (success.probe_id, success.target))
+                    .collect(),
+                alerts: report
+                    .alerts
+                    .into_iter()
+                    .map(|alert| AlertSummary {
+                        probe_id: alert.probe_id,
+                        target: alert.target,
+                        classifications: alert.classifications,
+                        message: alert.message,
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    async fn summarize_iteration_response(
+        response: IterationResponse,
+    ) -> Result<IterationSummary, Infallible> {
+        let (result, has_credentials, samples, reports) =
+            collect_response(response.endpoint, response.status, response.body).await;
+
+        Ok(IterationSummary {
+            refresh_triggered: result.refresh_triggered,
+            entity_count: result.entity_count,
+            fetch_failures: result.fetch_failures,
+            has_credentials,
+            samples: summarize_samples(samples),
+            reports: summarize_reports(reports),
+        })
+    }
+
+    fn populated_iteration_summary(endpoint: IterationEndpoint) -> IterationSummary {
+        let (entity_count, mut samples, reports) = match endpoint {
+            IterationEndpoint::SystemHealth => (
+                1,
+                state_set_summaries("system_health", None, "not_ok", SYSTEM_HEALTH_STATES, &[]),
+                vec![],
+            ),
+            IterationEndpoint::RebootReason => (
+                1,
+                vec![sample_summary(
+                    "reboot_reason_info",
+                    None,
+                    1.0,
+                    "info",
+                    &[("reason", "package upgrade")],
+                )],
+                vec![],
+            ),
+            IterationEndpoint::ClusterApps => {
+                let mut samples = state_set_summaries(
+                    "cluster_app",
+                    Some("nmx-controller"),
+                    "ok",
+                    APP_STATUS_STATES,
+                    &[("app_name", "nmx-controller")],
+                );
+                samples.extend(state_set_summaries(
+                    "cluster_app",
+                    Some("nmx-telemetry"),
+                    "not_ok",
+                    APP_STATUS_STATES,
+                    &[("app_name", "nmx-telemetry")],
+                ));
+                samples.extend(state_set_summaries(
+                    "cluster_app",
+                    Some("unknown-app"),
+                    "unknown",
+                    APP_STATUS_STATES,
+                    &[("app_name", "unknown-app")],
+                ));
+                (3, samples, vec![])
+            }
+            IterationEndpoint::SdnPartitions => {
+                let mut samples = state_set_summaries(
+                    "partition_health",
+                    Some("1"),
+                    "healthy",
+                    PARTITION_HEALTH_STATES,
+                    &[("partition_id", "1"), ("partition_name", "Partition 1")],
+                );
+                samples.push(sample_summary(
+                    "partition_gpu",
+                    Some("1"),
+                    8.0,
+                    "count",
+                    &[("partition_id", "1"), ("partition_name", "Partition 1")],
+                ));
+                samples.extend(state_set_summaries(
+                    "partition_health",
+                    Some("2"),
+                    "degraded",
+                    PARTITION_HEALTH_STATES,
+                    &[("partition_id", "2"), ("partition_name", "2")],
+                ));
+                samples.push(sample_summary(
+                    "partition_gpu",
+                    Some("2"),
+                    0.0,
+                    "count",
+                    &[("partition_id", "2"), ("partition_name", "2")],
+                ));
+                (2, samples, vec![])
+            }
+            IterationEndpoint::Interfaces => (
+                2,
+                vec![
+                    sample_summary(
+                        "link_diagnostic",
+                        Some("swp1:0"),
+                        0.0,
+                        "state",
+                        &[
+                            ("interface_name", "swp1"),
+                            ("opcode", "0"),
+                            ("diagnostic_status", "ok"),
+                        ],
+                    ),
+                    sample_summary(
+                        "link_diagnostic",
+                        Some("swp1:2"),
+                        1.0,
+                        "state",
+                        &[
+                            ("interface_name", "swp1"),
+                            ("opcode", "2"),
+                            ("diagnostic_status", "fault"),
+                        ],
+                    ),
+                ],
+                vec![],
+            ),
+            IterationEndpoint::Fans => (
+                1,
+                vec![sample_summary(
+                    "fan_max_speed",
+                    Some("FAN1/1"),
+                    33000.0,
+                    "rpm",
+                    &[("fan_name", "FAN1/1")],
+                )],
+                vec![],
+            ),
+            IterationEndpoint::Temperatures => {
+                let mut samples = vec![
+                    sample_summary(
+                        "platform_temperature",
+                        Some("ASIC1"),
+                        43.0,
+                        "celsius",
+                        &[("sensor", "ASIC1")],
+                    ),
+                    sample_summary(
+                        "platform_temperature_max",
+                        Some("ASIC1"),
+                        105.0,
+                        "celsius",
+                        &[("sensor", "ASIC1")],
+                    ),
+                    sample_summary(
+                        "platform_temperature_critical",
+                        Some("ASIC1"),
+                        120.0,
+                        "celsius",
+                        &[("sensor", "ASIC1")],
+                    ),
+                ];
+                samples.extend(state_set_summaries(
+                    "platform_temperature_state",
+                    Some("ASIC1"),
+                    "ok",
+                    TEMP_STATE_STATES,
+                    &[("sensor", "ASIC1")],
+                ));
+                samples.push(sample_summary(
+                    "platform_temperature",
+                    Some("Ambient-MNG-Temp"),
+                    27.0,
+                    "celsius",
+                    &[("sensor", "Ambient-MNG-Temp")],
+                ));
+                samples.extend(state_set_summaries(
+                    "platform_temperature_state",
+                    Some("Ambient-MNG-Temp"),
+                    "not_ok",
+                    TEMP_STATE_STATES,
+                    &[("sensor", "Ambient-MNG-Temp")],
+                ));
+                (6, samples, vec![])
+            }
+            IterationEndpoint::Leakage => (
+                1,
+                state_set_summaries(
+                    "leakage_state",
+                    Some("LEAK1"),
+                    "ok",
+                    LEAKAGE_STATES,
+                    &[("sensor", "LEAK1")],
+                ),
+                vec![ReportSummary {
+                    source: ReportSource::NvueLeakage,
+                    target: Some(HealthReportTarget::Switch),
+                    successes: vec![(Probe::NvueLeakage, Some("LEAK1".to_string()))],
+                    alerts: vec![],
+                }],
+            ),
+            IterationEndpoint::Environment => (
+                1,
+                state_set_summaries("fan_led", None, "not_ok", FAN_LED_STATES, &[]),
+                vec![],
+            ),
+        };
+        samples.sort_by(|left, right| left.key.cmp(&right.key));
+
+        IterationSummary {
+            refresh_triggered: true,
+            entity_count: Some(entity_count),
+            fetch_failures: 0,
+            has_credentials: true,
+            samples,
+            reports,
+        }
+    }
+
+    fn failed_iteration_summary(has_credentials: bool) -> IterationSummary {
+        IterationSummary {
+            refresh_triggered: true,
+            entity_count: Some(0),
+            fetch_failures: 1,
+            has_credentials,
+            samples: vec![],
+            reports: vec![],
+        }
+    }
+
+    fn empty_iteration_summary() -> IterationSummary {
+        IterationSummary {
+            refresh_triggered: true,
+            entity_count: Some(0),
+            fetch_failures: 0,
+            has_credentials: true,
+            samples: vec![],
+            reports: vec![],
+        }
+    }
+
+    async fn summarize_null_response(
+        path: NullResponsePath,
+    ) -> Result<NullResponseSummary, Infallible> {
+        let (result, _has_credentials, samples, reports) =
+            collect_null_response(path.endpoint()).await;
+
+        Ok(NullResponseSummary {
+            fetch_failures: result.fetch_failures,
+            entity_count: result.entity_count,
+            sample_count: samples.len(),
+            reports: summarize_reports(reports),
+        })
+    }
+
+    #[tokio::test]
+    async fn iteration_responses_follow_endpoint_semantics() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "system health response emits its state set",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::SystemHealth,
+                        status: 200,
+                        body: r#"{"status":"Not OK"}"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::SystemHealth)),
+                },
+                Case {
+                    scenario: "reboot response emits reason metadata",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::RebootReason,
+                        status: 200,
+                        body: r#"{
+                            "reason":"package upgrade",
+                            "gentime":"2026-07-05 12:34:56",
+                            "user":"admin"
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::RebootReason)),
+                },
+                Case {
+                    scenario: "application response emits every application state",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::ClusterApps,
+                        status: 200,
+                        body: r#"{
+                            "nmx-controller":{"status":"ok"},
+                            "nmx-telemetry":{"status":"not ok"},
+                            "unknown-app":{}
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::ClusterApps)),
+                },
+                Case {
+                    scenario: "partition response emits health and GPU count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::SdnPartitions,
+                        status: 200,
+                        body: r#"{
+                            "1":{
+                                "name":"Partition 1",
+                                "health":"healthy",
+                                "num-gpus":"8"
+                            },
+                            "2":{"health":"degraded"}
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(
+                        IterationEndpoint::SdnPartitions,
+                    )),
+                },
+                Case {
+                    scenario: "interface response emits each link diagnostic",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Interfaces,
+                        status: 200,
+                        body: r#"{
+                            "swp1":{
+                                "type":"nvl",
+                                "link":{
+                                    "diagnostics":{
+                                        "0":{"status":"ok"},
+                                        "2":{"status":"fault"}
+                                    }
+                                }
+                            },
+                            "swp2":{"type":"nvl","link":{}}
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::Interfaces)),
+                },
+                Case {
+                    scenario: "fan response emits only parseable maximum speed",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Fans,
+                        status: 200,
+                        body: r#"{
+                            "FAN1/1":{"max-speed":"33000"},
+                            "FAN1/2":{"max-speed":"bogus"},
+                            "FAN1/3":{}
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::Fans)),
+                },
+                Case {
+                    scenario: "temperature response emits complete and sparse sensors",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Temperatures,
+                        status: 200,
+                        body: r#"{
+                            "ASIC1":{
+                                "crit":"120.00",
+                                "current":"43.00",
+                                "max":"105.00",
+                                "state":"ok"
+                            },
+                            "Ambient-MNG-Temp":{
+                                "current":"27.00",
+                                "state":"warning"
+                            },
+                            "Invalid":{
+                                "crit":"bad",
+                                "current":"bad",
+                                "max":"bad"
+                            }
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::Temperatures)),
+                },
+                Case {
+                    scenario: "leakage response emits sensor state and report",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Leakage,
+                        status: 200,
+                        body: r#"{"LEAK1":{"state":"ok"}}"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::Leakage)),
+                },
+                Case {
+                    scenario: "environment response emits FAN_STATUS",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Environment,
+                        status: 200,
+                        body: r#"{
+                            "FAN_STATUS":{"state":"amber","type":"led"},
+                            "PSU_STATUS":{"state":"green","type":"led"}
+                        }"#,
+                    },
+                    expect: Yields(populated_iteration_summary(IterationEndpoint::Environment)),
+                },
+                Case {
+                    scenario: "environment without FAN_STATUS emits nothing",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Environment,
+                        status: 200,
+                        body: r#"{"PSU_STATUS":{"state":"green","type":"led"}}"#,
+                    },
+                    expect: Yields(empty_iteration_summary()),
+                },
+                Case {
+                    scenario: "system health auth error clears credentials",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::SystemHealth,
+                        status: 401,
+                        body: r#"{"error":"unauthorized"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(false)),
+                },
+                Case {
+                    scenario: "reboot fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::RebootReason,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "application fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::ClusterApps,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "partition fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::SdnPartitions,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "interface fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Interfaces,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "fan fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Fans,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "temperature fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Temperatures,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "leakage fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Leakage,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+                Case {
+                    scenario: "environment fetch error increments the failure count",
+                    input: IterationResponse {
+                        endpoint: IterationEndpoint::Environment,
+                        status: 500,
+                        body: r#"{"error":"unavailable"}"#,
+                    },
+                    expect: Yields(failed_iteration_summary(true)),
+                },
+            ],
+            summarize_iteration_response,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -1783,59 +2155,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run_iteration_reboot_reason_null_is_unavailable_metadata() {
-        let mut paths = paths_all_disabled();
-        paths.system_reboot_reason_enabled = true;
-
-        let (result, samples, reports) = collect_null_response(paths).await;
-
-        assert_eq!(result.fetch_failures, 0);
-        assert_eq!(result.entity_count, Some(0));
-        assert!(samples.is_empty());
-        assert!(reports.is_empty());
-    }
-
-    #[tokio::test]
-    async fn run_iteration_metric_path_null_counts_fetch_failure() {
-        let mut paths = paths_all_disabled();
-        paths.cluster_apps_enabled = true;
-
-        let (result, samples, reports) = collect_null_response(paths).await;
-
-        assert_eq!(result.fetch_failures, 1);
-        assert_eq!(result.entity_count, Some(0));
-        assert!(samples.is_empty());
-        assert!(reports.is_empty());
-    }
-
-    #[tokio::test]
-    async fn run_iteration_leakage_null_emits_unavailable_alert_report() {
-        let mut paths = paths_all_disabled();
-        paths.platform_environment_leakage_enabled = true;
-
-        let (result, samples, reports) = collect_null_response(paths).await;
-
-        assert_eq!(result.fetch_failures, 0);
-        assert_eq!(result.entity_count, Some(0));
-        assert!(samples.is_empty());
-
-        assert_eq!(reports.len(), 1);
-        assert_eq!(reports[0].source, ReportSource::NvueLeakage);
-        assert_eq!(reports[0].target, Some(HealthReportTarget::Switch));
-        assert!(reports[0].successes.is_empty());
-        assert_eq!(reports[0].alerts.len(), 1);
-        assert_eq!(reports[0].alerts[0].probe_id, Probe::NvueLeakage);
-        assert_eq!(reports[0].alerts[0].target, None);
-
-        assert_eq!(
-            reports[0].alerts[0].classifications,
-            vec![Classification::SensorFailure]
-        );
-
-        assert_eq!(
-            reports[0].alerts[0].message,
-            "NVUE leakage data is unavailable"
-        );
+    async fn null_responses_follow_endpoint_semantics() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "reboot reason null is unavailable metadata",
+                    input: NullResponsePath::RebootReason,
+                    expect: Yields(NullResponseSummary {
+                        fetch_failures: 0,
+                        entity_count: Some(0),
+                        sample_count: 0,
+                        reports: vec![],
+                    }),
+                },
+                Case {
+                    scenario: "metric path null counts fetch failure",
+                    input: NullResponsePath::ClusterApps,
+                    expect: Yields(NullResponseSummary {
+                        fetch_failures: 1,
+                        entity_count: Some(0),
+                        sample_count: 0,
+                        reports: vec![],
+                    }),
+                },
+                Case {
+                    scenario: "leakage null emits unavailable alert report",
+                    input: NullResponsePath::Leakage,
+                    expect: Yields(NullResponseSummary {
+                        fetch_failures: 0,
+                        entity_count: Some(0),
+                        sample_count: 0,
+                        reports: vec![ReportSummary {
+                            source: ReportSource::NvueLeakage,
+                            target: Some(HealthReportTarget::Switch),
+                            successes: vec![],
+                            alerts: vec![AlertSummary {
+                                probe_id: Probe::NvueLeakage,
+                                target: None,
+                                classifications: vec![Classification::SensorFailure],
+                                message: "NVUE leakage data is unavailable".to_string(),
+                            }],
+                        }],
+                    }),
+                },
+            ],
+            summarize_null_response,
+        )
+        .await;
     }
 
     #[tokio::test(start_paused = true)]
