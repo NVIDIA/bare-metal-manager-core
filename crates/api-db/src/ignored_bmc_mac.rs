@@ -26,9 +26,9 @@ use crate::{DatabaseError, DatabaseResult};
 
 /// Inserts or replaces the desired suppression state for a BMC MAC.
 ///
-/// A DHCP-discovery observation remains valid across idempotent writes that
-/// leave DHCP suppression enabled. Changing DHCP suppression in either
-/// direction clears the observation so a later enable must be observed again.
+/// A subsystem acknowledgement remains valid across idempotent writes. Enabling
+/// suppression after it was disabled clears the corresponding acknowledgement
+/// so the subsystem must observe the new suppression request.
 pub async fn upsert(
     txn: &mut PgConnection,
     input: &NewIgnoredBmcMac,
@@ -41,18 +41,25 @@ pub async fn upsert(
     ) VALUES ($1, $2, $3, $4)
     ON CONFLICT (bmc_mac_address) DO UPDATE SET
         reason = EXCLUDED.reason,
-        suppress_site_explorer = EXCLUDED.suppress_site_explorer,
-        suppress_dhcp = EXCLUDED.suppress_dhcp,
-        dhcp_discover_suppressed_at = CASE
-            WHEN EXCLUDED.suppress_dhcp AND ignored_bmc_macs.suppress_dhcp
-                THEN ignored_bmc_macs.dhcp_discover_suppressed_at
-            ELSE NULL
+        site_explorer_suppressed_at = CASE
+            WHEN EXCLUDED.suppress_site_explorer
+                AND NOT ignored_bmc_macs.suppress_site_explorer
+                THEN NULL
+            ELSE ignored_bmc_macs.site_explorer_suppressed_at
         END,
+        suppress_site_explorer = EXCLUDED.suppress_site_explorer,
+        dhcp_discover_suppressed_at = CASE
+            WHEN EXCLUDED.suppress_dhcp AND NOT ignored_bmc_macs.suppress_dhcp
+                THEN NULL
+            ELSE ignored_bmc_macs.dhcp_discover_suppressed_at
+        END,
+        suppress_dhcp = EXCLUDED.suppress_dhcp,
         updated_at = NOW()
     RETURNING
         bmc_mac_address,
         reason,
         suppress_site_explorer,
+        site_explorer_suppressed_at,
         suppress_dhcp,
         dhcp_discover_suppressed_at,
         created_at,
@@ -77,6 +84,7 @@ pub async fn find(
         bmc_mac_address,
         reason,
         suppress_site_explorer,
+        site_explorer_suppressed_at,
         suppress_dhcp,
         dhcp_discover_suppressed_at,
         created_at,
@@ -103,6 +111,32 @@ pub async fn find_site_explorer_suppressed(
     sqlx::query_scalar(QUERY)
         .fetch_all(db)
         .await
+        .map_err(|e| DatabaseError::query(QUERY, e))
+}
+
+/// Records that Site Explorer has observed suppression for a BMC and drained
+/// all queued or in-flight exploration for it.
+///
+/// The lookup and timestamp write are atomic. The return value is `true` when
+/// Site Explorer suppression is active; it is `false` when no matching
+/// suppression exists. Repeated acknowledgements preserve the first timestamp.
+pub async fn record_site_explorer_suppressed(
+    txn: &mut PgConnection,
+    bmc_mac_address: MacAddress,
+) -> DatabaseResult<bool> {
+    const QUERY: &str = "UPDATE ignored_bmc_macs SET
+        updated_at = CASE
+            WHEN site_explorer_suppressed_at IS NULL THEN NOW()
+            ELSE updated_at
+        END,
+        site_explorer_suppressed_at = COALESCE(site_explorer_suppressed_at, NOW())
+    WHERE bmc_mac_address = $1 AND suppress_site_explorer";
+
+    sqlx::query(QUERY)
+        .bind(bmc_mac_address)
+        .execute(txn)
+        .await
+        .map(|result| result.rows_affected() > 0)
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
@@ -187,7 +221,7 @@ mod tests {
 
     use super::{
         delete, delete_many, find, find_site_explorer_suppressed, is_dhcp_suppressed,
-        record_dhcp_discover_suppressed, upsert,
+        record_dhcp_discover_suppressed, record_site_explorer_suppressed, upsert,
     };
 
     fn mac(last: u8) -> MacAddress {
@@ -242,6 +276,48 @@ mod tests {
     }
 
     #[crate::sqlx_test]
+    async fn site_explorer_acknowledgement_is_recorded_only_while_suppressed(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+
+        upsert(txn.as_mut(), &upsert_input(1, "dhcp only", false, true))
+            .await
+            .unwrap();
+        assert!(
+            !record_site_explorer_suppressed(txn.as_mut(), mac(1))
+                .await
+                .unwrap()
+        );
+        assert!(
+            find(txn.as_mut(), mac(1))
+                .await
+                .unwrap()
+                .unwrap()
+                .site_explorer_suppressed_at
+                .is_none()
+        );
+
+        upsert(
+            txn.as_mut(),
+            &upsert_input(1, "decommissioning", true, true),
+        )
+        .await
+        .unwrap();
+        assert!(
+            record_site_explorer_suppressed(txn.as_mut(), mac(1))
+                .await
+                .unwrap()
+        );
+        assert!(
+            find(txn.as_mut(), mac(1))
+                .await
+                .unwrap()
+                .unwrap()
+                .site_explorer_suppressed_at
+                .is_some()
+        );
+    }
+
+    #[crate::sqlx_test]
     async fn dhcp_discovery_is_recorded_only_while_suppressed(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();
 
@@ -284,37 +360,51 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn idempotent_upsert_preserves_dhcp_observation(pool: sqlx::PgPool) {
+    async fn idempotent_upsert_preserves_acknowledgements(pool: sqlx::PgPool) {
         let mut txn = pool.begin().await.unwrap();
 
         upsert(txn.as_mut(), &upsert_input(1, "dhcp handoff", true, true))
             .await
             .unwrap();
+        record_site_explorer_suppressed(txn.as_mut(), mac(1))
+            .await
+            .unwrap();
         record_dhcp_discover_suppressed(txn.as_mut(), mac(1))
             .await
             .unwrap();
-        let observed_at = find(txn.as_mut(), mac(1))
-            .await
-            .unwrap()
-            .unwrap()
-            .dhcp_discover_suppressed_at;
+        let initial = find(txn.as_mut(), mac(1)).await.unwrap().unwrap();
 
         let record = upsert(txn.as_mut(), &upsert_input(1, "retry", true, true))
             .await
             .unwrap();
-        assert_eq!(record.dhcp_discover_suppressed_at, observed_at);
+        assert_eq!(
+            record.site_explorer_suppressed_at,
+            initial.site_explorer_suppressed_at
+        );
+        assert_eq!(
+            record.dhcp_discover_suppressed_at,
+            initial.dhcp_discover_suppressed_at
+        );
 
-        let record = upsert(txn.as_mut(), &upsert_input(1, "release DHCP", true, false))
-            .await
-            .unwrap();
-        assert!(record.dhcp_discover_suppressed_at.is_none());
-
-        let record = upsert(
+        let disabled = upsert(
             txn.as_mut(),
-            &upsert_input(1, "suppress DHCP again", true, true),
+            &upsert_input(1, "release suppression", false, false),
         )
         .await
         .unwrap();
+        assert_eq!(
+            disabled.site_explorer_suppressed_at,
+            initial.site_explorer_suppressed_at
+        );
+        assert_eq!(
+            disabled.dhcp_discover_suppressed_at,
+            initial.dhcp_discover_suppressed_at
+        );
+
+        let record = upsert(txn.as_mut(), &upsert_input(1, "suppress again", true, true))
+            .await
+            .unwrap();
+        assert!(record.site_explorer_suppressed_at.is_none());
         assert!(record.dhcp_discover_suppressed_at.is_none());
     }
 

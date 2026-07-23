@@ -24,6 +24,7 @@ pub struct IgnoredBmcMac {
     pub bmc_mac_address: MacAddress,
     pub reason: String,
     pub suppress_site_explorer: bool,
+    pub site_explorer_suppressed_at: Option<DateTime<Utc>>,
     pub suppress_dhcp: bool,
     pub dhcp_discover_suppressed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
