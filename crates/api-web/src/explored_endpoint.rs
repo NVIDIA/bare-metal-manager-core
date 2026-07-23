@@ -28,8 +28,8 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
 use rpc::site_explorer::{
-    EndpointExplorationReport, ExploredEndpoint, InternalLockdownStatus, LockdownStatus,
-    MachineSetupStatus, SecureBootStatus, SiteExplorationReport,
+    ExploredEndpoint, InternalLockdownStatus, LockdownStatus, MachineSetupStatus, SecureBootStatus,
+    SiteExplorationReport,
 };
 use serde::Deserialize;
 
@@ -164,13 +164,13 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
                 .map(|report| report.endpoint_type.clone())
                 .unwrap_or_default(),
             last_exploration_error: report_ref
-                .map(last_exploration_error_display)
+                .map(|report| report.last_exploration_error_display())
                 .unwrap_or_default(),
             last_exploration_latency: report_ref
                 .and_then(|report| report.last_exploration_latency.as_ref())
                 .map(|latency| latency.seconds),
             has_exploration_error: report_ref
-                .map(has_last_exploration_error)
+                .map(|report| report.has_last_exploration_error())
                 .unwrap_or_default(),
             bmc_mac_addrs: report_ref
                 .map(|report| {
@@ -212,23 +212,6 @@ impl From<&ExploredEndpoint> for ExploredEndpointDisplay {
                 .unwrap_or_default(),
         }
     }
-}
-
-fn last_exploration_error_display(report: &EndpointExplorationReport) -> String {
-    report
-        .last_exploration_error_schema
-        .as_ref()
-        .map(|schema| serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.text.clone()))
-        .or_else(|| report.last_exploration_error.clone())
-        .unwrap_or_default()
-}
-
-fn has_last_exploration_error(report: &EndpointExplorationReport) -> bool {
-    report.last_exploration_error_schema.is_some()
-        || report
-            .last_exploration_error
-            .as_deref()
-            .is_some_and(|error| !error.is_empty())
 }
 
 /// List explored endpoints
@@ -494,10 +477,10 @@ impl From<ExploredEndpointInfo> for ExploredEndpointDetail<'_> {
 
         Self {
             last_exploration_error: report_ref
-                .map(last_exploration_error_display)
+                .map(|report| report.last_exploration_error_display())
                 .unwrap_or_default(),
             has_exploration_error: report_ref
-                .map(has_last_exploration_error)
+                .map(|report| report.has_last_exploration_error())
                 .unwrap_or_default(),
             machine_setup_status: machine_setup_status_to_string(
                 report_ref.and_then(|report| report.machine_setup_status.as_ref()),
@@ -702,7 +685,7 @@ pub async fn refresh_endpoint(
             let has_error = ep
                 .report
                 .as_ref()
-                .map(has_last_exploration_error)
+                .map(|report| report.has_last_exploration_error())
                 .unwrap_or_default();
             (
                 StatusCode::OK,
@@ -786,7 +769,7 @@ fn query_filter_for(
         .and_then(|v| v.parse::<bool>().ok())
         .unwrap_or(false)
     {
-        Box::new(|ep: &ExploredEndpointDisplay| !ep.last_exploration_error.is_empty())
+        Box::new(|ep: &ExploredEndpointDisplay| ep.has_exploration_error)
     } else {
         Box::new(|_| true)
     };
@@ -1361,64 +1344,62 @@ impl<'a> super::Base for ExploredEndpointDetail<'a> {}
 
 #[cfg(test)]
 mod tests {
-    use carbide_test_support::{Check, check_values};
-    use rpc::site_explorer::{EndpointExplorationReport, OperatorErrorSchema};
+    use std::collections::HashMap;
 
-    use super::{has_last_exploration_error, last_exploration_error_display};
+    use askama::Template;
+    use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, OperatorErrorSchema};
 
-    fn operator_error_schema() -> OperatorErrorSchema {
-        OperatorErrorSchema {
-            error_code: "NICO-SITEEXPLORER-122".to_string(),
-            mitigation: Some("Check the HCL".to_string()),
-            text: "BMC vendor missing".to_string(),
-        }
-    }
+    use super::{ExploredEndpointDisplay, ExploredEndpointsShow, query_filter_for};
+    use crate::pagination::PageContext;
 
-    fn report(
-        schema: Option<OperatorErrorSchema>,
-        legacy: Option<&str>,
-    ) -> EndpointExplorationReport {
-        EndpointExplorationReport {
-            last_exploration_error: legacy.map(str::to_string),
-            last_exploration_error_schema: schema,
+    fn endpoint(address: &str, schema: Option<OperatorErrorSchema>) -> ExploredEndpoint {
+        ExploredEndpoint {
+            address: address.to_string(),
+            report: Some(EndpointExplorationReport {
+                last_exploration_error_schema: schema,
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }
 
     #[test]
-    fn last_exploration_error_display_and_presence_are_schema_aware() {
-        let schema_display =
-            serde_json::to_string_pretty(&operator_error_schema()).expect("schema serializes");
-
-        check_values(
-            [
-                Check {
-                    scenario: "schema takes precedence over legacy error",
-                    input: report(Some(operator_error_schema()), Some("legacy error")),
-                    expect: (schema_display.clone(), true),
-                },
-                Check {
-                    scenario: "legacy error remains a fallback",
-                    input: report(None, Some("legacy error")),
-                    expect: ("legacy error".to_string(), true),
-                },
-                Check {
-                    scenario: "schema-only report is an error",
-                    input: report(Some(operator_error_schema()), None),
-                    expect: (schema_display, true),
-                },
-                Check {
-                    scenario: "report without either field has no error",
-                    input: report(None, None),
-                    expect: (String::new(), false),
-                },
-            ],
-            |report| {
-                (
-                    last_exploration_error_display(&report),
-                    has_last_exploration_error(&report),
-                )
-            },
+    fn endpoint_error_html_and_filter_render_structured_and_clear_reports() {
+        let error = endpoint(
+            "192.0.2.20",
+            Some(OperatorErrorSchema {
+                error_code: "NICO-SITEEXPLORER-122".to_string(),
+                mitigation: Some("Check the HCL".to_string()),
+                text: "BMC vendor missing".to_string(),
+            }),
         );
+        let clear = endpoint("192.0.2.21", None);
+        let error = ExploredEndpointDisplay::from(&error);
+        let clear = ExploredEndpointDisplay::from(&clear);
+
+        let errors_only = query_filter_for(HashMap::from([(
+            "errors-only".to_string(),
+            "true".to_string(),
+        )]));
+        assert!(errors_only(&error));
+        assert!(!errors_only(&clear));
+
+        let rendered = ExploredEndpointsShow {
+            last_run: None,
+            vendors: Vec::new(),
+            endpoints: vec![error, clear],
+            filter_name: "All",
+            active_vendor_filter: "all".to_string(),
+            is_errors_only: false,
+            page: PageContext::all(2, "/admin/explored-endpoint"),
+            missing_default_credentials: Vec::new(),
+        }
+        .render()
+        .expect("template renders");
+
+        assert!(rendered.contains("NICO-SITEEXPLORER-122"));
+        assert!(rendered.contains("192.0.2.20"));
+        assert!(rendered.contains("192.0.2.21"));
+        assert_eq!(rendered.matches("clearlasterror_action").count(), 1);
     }
 }
