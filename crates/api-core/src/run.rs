@@ -517,12 +517,8 @@ fn build_kms_backend(
 /// where they are stranded. Site-explorer credential rotation is the writer
 /// to worry about; keep it disabled until the whole fleet runs a consistent
 /// config.
-// Custom-lint exception for #2665 (@chet): this function intentionally keeps a
-// dedicated detached connection alive across awaits because the Vault import
-// lock is session-scoped and releases when that connection closes. The custom
-// lint also classifies bare `PgConnection`s as transactions, but no transaction
-// is open here: Vault reads and Postgres writes use separate pool connections so
-// the importer cannot block itself on pool capacity.
+/// TODO(@chet): Migrate this to using WorkLockManager to do scoped locks of
+/// work without holding open a database connection or transaction.
 #[allow(txn_held_across_await)]
 async fn import_vault_secrets_once(
     db_pool: &PgPool,

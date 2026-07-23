@@ -80,7 +80,6 @@ pub async fn find_matching_with_exclusion(
     Ok(None)
 }
 
-#[allow(txn_held_across_await)]
 pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseError> {
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(
@@ -210,7 +209,6 @@ pub async fn update_metadata(
     Ok(())
 }
 
-#[allow(txn_held_across_await)]
 pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseError> {
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(
