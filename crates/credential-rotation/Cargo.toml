@@ -26,6 +26,7 @@ name = "carbide_credential_rotation"
 
 [dependencies]
 carbide-api-db = { path = "../api-db", default-features = false }
+carbide-instrument = { path = "../instrument" }
 carbide-redfish = { path = "../redfish", default-features = false }
 carbide-secrets = { path = "../secrets" }
 
@@ -35,16 +36,18 @@ libredfish = { workspace = true }
 mac_address = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing" }
+carbide-test-support = { path = "../test-support" }
 
 serde_json = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 [lints]
 workspace = true

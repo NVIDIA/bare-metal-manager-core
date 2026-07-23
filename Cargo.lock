@@ -1637,10 +1637,12 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "carbide-api-db",
+ "carbide-instrument",
  "carbide-macros",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "chrono",
  "libredfish",
  "mac_address",

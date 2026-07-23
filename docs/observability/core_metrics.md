@@ -31,6 +31,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_authn_client_cert_rejected_total</td><td>counter</td><td>Number of client certificates rejected during authentication</td></tr>
 <tr><td>carbide_authn_connection_attributes_missing_total</td><td>counter</td><td>Number of requests authentication could not inspect because connection attributes were missing</td></tr>
 <tr><td>carbide_available_ips_count</td><td>gauge</td><td>Number of available IPs per network segment</td></tr>
+<tr><td>carbide_bmc_credential_rotation_results_total</td><td>counter</td><td>Number of persisted BMC credential rotation results, by result</td></tr>
 <tr><td>carbide_bmc_proxy_authorization_denied_total</td><td>counter</td><td>Number of BMC proxy requests denied by authorization layer and HTTP method</td></tr>
 <tr><td>carbide_bmc_proxy_authorization_errors_total</td><td>counter</td><td>Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_attempted_total</td><td>counter</td><td>Number of inbound TLS connection attempts</td></tr>
