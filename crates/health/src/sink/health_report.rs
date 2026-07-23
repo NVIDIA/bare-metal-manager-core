@@ -281,7 +281,7 @@ mod tests {
             },
             collector_type: "test",
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: id,
+                machine_id: Some(id),
                 machine_serial: None,
                 slot_number: None,
                 tray_index: None,

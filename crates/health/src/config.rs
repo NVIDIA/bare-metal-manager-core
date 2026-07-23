@@ -206,8 +206,8 @@ pub struct StaticBmcEndpoint {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticMachineEndpoint {
-    /// Stable NICo machine ID for this BMC endpoint.
-    pub id: String,
+    /// Stable NICo machine ID for this BMC endpoint. Optional when running without NICo.
+    pub id: Option<String>,
 
     /// Optional chassis serial to emit as machine telemetry metadata.
     pub serial: Option<String>,
@@ -3295,7 +3295,7 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
             config.endpoint_sources.static_bmc_endpoints[1]
                 .machine
                 .as_ref()
-                .map(|machine| machine.id.as_ref()),
+                .and_then(|machine| machine.id.as_deref()),
             Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
         );
         assert_eq!(

@@ -297,9 +297,11 @@ mod tests {
     fn machine_context() -> EventContext {
         EventContext {
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                    .parse()
-                    .expect("valid machine id"),
+                machine_id: Some(
+                    "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                        .parse()
+                        .expect("valid machine id"),
+                ),
                 machine_serial: Some("MN-001".to_string()),
                 slot_number: None,
                 tray_index: None,
