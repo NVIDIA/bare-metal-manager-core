@@ -311,10 +311,11 @@ pub enum BmcCredentialType {
     BmcForgeAdmin {
         bmc_mac_address: MacAddress,
     },
-    /// Site-wide BF4 DPU BMC `service` account password
-    /// (`machines/bmc/site/bf4_service`). Written on first BF4 DPU ingestion;
-    /// distinct from the site-wide BMC root password.
-    SiteWideBf4Service,
+    /// Site-wide DPU BMC `service` account password
+    /// (`machines/bmc/site/dpu_service`). Written on first ingestion of a DPU
+    /// BMC that exposes a factory `service` account (currently BF4 only; BF3
+    /// has none). Distinct from the site-wide BMC root password.
+    SiteWideDpuBmcService,
 }
 
 impl BmcCredentialType {
@@ -655,7 +656,9 @@ impl CredentialKey {
                 BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
-                BmcCredentialType::SiteWideBf4Service => Cow::from("machines/bmc/site/bf4_service"),
+                BmcCredentialType::SiteWideDpuBmcService => {
+                    Cow::from("machines/bmc/site/dpu_service")
+                }
             },
             CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
                 NicLockdownIkm::SiteWide { version } => {
@@ -804,11 +807,11 @@ mod tests {
     }
 
     #[test]
-    fn bf4_service_site_wide_path() {
+    fn dpu_bmc_service_site_wide_path() {
         let key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::SiteWideBf4Service,
+            credential_type: BmcCredentialType::SiteWideDpuBmcService,
         };
-        assert_eq!(key.to_key_str(), "machines/bmc/site/bf4_service");
+        assert_eq!(key.to_key_str(), "machines/bmc/site/dpu_service");
         assert_eq!(key.prefix(), CredentialPrefix::BmcCredentials);
     }
 
@@ -1101,10 +1104,10 @@ mod tests {
                     expect: PathChecks::all_hold(),
                 },
                 Check {
-                    scenario: "bmc site wide bf4 service",
+                    scenario: "bmc site wide dpu service",
                     input: Row {
                         key: CredentialKey::BmcCredentials {
-                            credential_type: BmcCredentialType::SiteWideBf4Service,
+                            credential_type: BmcCredentialType::SiteWideDpuBmcService,
                         },
                         expected_prefix: "machines/bmc/",
                     },

@@ -145,12 +145,12 @@ impl CredentialClient {
         self.get_credentials(&key).await
     }
 
-    pub async fn get_sitewide_bf4_dpu_service_password(
+    pub async fn get_sitewide_dpu_bmc_service_password(
         &self,
         create_if_missing: bool,
     ) -> Result<String, EndpointExplorationError> {
         let key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::SiteWideBf4Service,
+            credential_type: BmcCredentialType::SiteWideDpuBmcService,
         };
 
         match self.get_credentials(&key).await {
@@ -250,12 +250,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_sitewide_bf4_dpu_service_password_returns_existing() {
+    async fn get_sitewide_dpu_bmc_service_password_returns_existing() {
         let manager = Arc::new(TestCredentialManager::default());
         manager
             .set_credentials(
                 &CredentialKey::BmcCredentials {
-                    credential_type: BmcCredentialType::SiteWideBf4Service,
+                    credential_type: BmcCredentialType::SiteWideDpuBmcService,
                 },
                 &Credentials::UsernamePassword {
                     username: "service".to_string(),
@@ -263,35 +263,35 @@ mod tests {
                 },
             )
             .await
-            .expect("preset bf4 service password");
+            .expect("preset dpu bmc service password");
 
         let client = CredentialClient::new(manager);
         let password = client
-            .get_sitewide_bf4_dpu_service_password(false)
+            .get_sitewide_dpu_bmc_service_password(false)
             .await
-            .expect("existing bf4 service password");
+            .expect("existing dpu bmc service password");
 
         assert_eq!(password, "stored-service-pass");
     }
 
     #[tokio::test]
-    async fn get_sitewide_bf4_dpu_service_password_creates_when_missing() {
+    async fn get_sitewide_dpu_bmc_service_password_creates_when_missing() {
         let client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
         let password = client
-            .get_sitewide_bf4_dpu_service_password(true)
+            .get_sitewide_dpu_bmc_service_password(true)
             .await
-            .expect("generated bf4 service password");
+            .expect("generated dpu bmc service password");
 
         assert!(!password.is_empty());
     }
 
     #[tokio::test]
-    async fn get_sitewide_bf4_dpu_service_password_errors_when_missing_and_not_create() {
+    async fn get_sitewide_dpu_bmc_service_password_errors_when_missing_and_not_create() {
         let client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
         let error = client
-            .get_sitewide_bf4_dpu_service_password(false)
+            .get_sitewide_dpu_bmc_service_password(false)
             .await
-            .expect_err("missing bf4 service password should fail");
+            .expect_err("missing dpu bmc service password should fail");
 
         assert!(matches!(
             error,
@@ -300,16 +300,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_sitewide_bf4_dpu_service_password_is_stable_once_created() {
+    async fn get_sitewide_dpu_bmc_service_password_is_stable_once_created() {
         let client = CredentialClient::new(Arc::new(TestCredentialManager::default()));
         let first = client
-            .get_sitewide_bf4_dpu_service_password(true)
+            .get_sitewide_dpu_bmc_service_password(true)
             .await
-            .expect("first read creates site-wide BF4 service password");
+            .expect("first read creates site-wide DPU BMC service password");
         let second = client
-            .get_sitewide_bf4_dpu_service_password(true)
+            .get_sitewide_dpu_bmc_service_password(true)
             .await
-            .expect("second read returns same site-wide BF4 service password");
+            .expect("second read returns same site-wide DPU BMC service password");
 
         assert_eq!(first, second);
     }
