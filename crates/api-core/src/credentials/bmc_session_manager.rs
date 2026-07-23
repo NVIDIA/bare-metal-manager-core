@@ -170,6 +170,80 @@ impl fmt::Debug for BmcAuthMaterial {
     }
 }
 
+/// The actual lockout-avoidance state change, as the bounded `transition`
+/// label shared by the trip and clear Events below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum BmcSessionLockoutBreakerTransition {
+    Tripped,
+    Cleared,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "bmc_session_lockout_breaker_tripped",
+    metric_name = "carbide_bmc_session_lockout_breaker_transitions_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "BmcSessionManager: lockout-avoidance breaker tripped",
+    describe = "Number of BMC session lockout-avoidance breaker transitions."
+)]
+struct BmcSessionLockoutBreakerTripped {
+    #[label]
+    transition: BmcSessionLockoutBreakerTransition,
+    #[context]
+    bmc_mac_address: MacAddress,
+    #[context(value)]
+    http_status: i64,
+    #[context(value)]
+    consecutive_unauthorized_count: i64,
+    #[context(value)]
+    lockout_threshold_count: i64,
+}
+
+impl BmcSessionLockoutBreakerTripped {
+    fn new(
+        bmc_mac_address: MacAddress,
+        http_status: u16,
+        consecutive_unauthorized_count: u32,
+        lockout_threshold_count: u32,
+    ) -> Self {
+        Self {
+            transition: BmcSessionLockoutBreakerTransition::Tripped,
+            bmc_mac_address,
+            http_status: i64::from(http_status),
+            consecutive_unauthorized_count: i64::from(consecutive_unauthorized_count),
+            lockout_threshold_count: i64::from(lockout_threshold_count),
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "bmc_session_lockout_breaker_cleared",
+    metric_name = "carbide_bmc_session_lockout_breaker_transitions_total",
+    component = "nico-api",
+    log = info,
+    metric = counter,
+    message = "BmcSessionManager: lockout-avoidance breaker cleared",
+    describe = "Number of BMC session lockout-avoidance breaker transitions."
+)]
+struct BmcSessionLockoutBreakerCleared {
+    #[label]
+    transition: BmcSessionLockoutBreakerTransition,
+    #[context]
+    bmc_mac_address: MacAddress,
+}
+
+impl BmcSessionLockoutBreakerCleared {
+    fn new(bmc_mac_address: MacAddress) -> Self {
+        Self {
+            transition: BmcSessionLockoutBreakerTransition::Cleared,
+            bmc_mac_address,
+        }
+    }
+}
+
 /// Per-BMC lockout-avoidance state.
 #[derive(Debug, Clone)]
 struct LockoutState {
@@ -537,13 +611,12 @@ impl BmcSessionManager {
         entry.last_status = status;
         if entry.consecutive_unauthorized >= self.lockout_threshold && entry.tripped_at.is_none() {
             entry.tripped_at = Some(Instant::now());
-            tracing::warn!(
-                bmc_mac_address = %bmc_mac,
-                http_status = status,
-                consecutive_unauthorized_count = entry.consecutive_unauthorized,
-                lockout_threshold_count = self.lockout_threshold,
-                "BmcSessionManager: lockout-avoidance breaker tripped"
-            );
+            carbide_instrument::emit(BmcSessionLockoutBreakerTripped::new(
+                bmc_mac,
+                status,
+                entry.consecutive_unauthorized,
+                self.lockout_threshold,
+            ));
             return Some(BmcSessionError::AvoidLockout {
                 bmc_mac,
                 consecutive_unauthorized: entry.consecutive_unauthorized,
@@ -555,10 +628,7 @@ impl BmcSessionManager {
 
     async fn clear_lockout(&self, bmc_mac: MacAddress) {
         if self.lockouts.lock().await.remove(&bmc_mac).is_some() {
-            tracing::info!(
-                bmc_mac_address = %bmc_mac,
-                "BmcSessionManager: lockout-avoidance breaker cleared"
-            );
+            carbide_instrument::emit(BmcSessionLockoutBreakerCleared::new(bmc_mac));
         }
     }
 
@@ -622,12 +692,14 @@ mod tests {
 
     use arc_swap::ArcSwap;
     use async_trait::async_trait;
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
     use carbide_secrets::SecretsError;
     use carbide_secrets::credentials::{
         BmcCredentialType, CredentialKey, CredentialManager, CredentialReader, CredentialWriter,
         Credentials,
     };
     use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_test_support::{Check, check_values};
     use mac_address::MacAddress;
     use sqlx::types::chrono::Utc;
     use tokio::sync::Mutex;
@@ -744,6 +816,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_mac_deletes_store_rows_and_clears_lockout() {
+        let _metrics = MetricsCapture::start();
         let (manager, store) = manager_with_creds();
         let mac_a = mac(0xAA);
         let mac_b = mac(0xBB);
@@ -766,6 +839,7 @@ mod tests {
 
     #[tokio::test]
     async fn note_credentials_updated_retains_store_rows() {
+        let _metrics = MetricsCapture::start();
         let (manager, store) = manager_with_creds();
         let bmc_mac = mac(0xCC);
         seed_row(&store, "svc-1", bmc_mac, "/sessions/keep-me").await;
@@ -1054,6 +1128,7 @@ mod tests {
 
     #[tokio::test]
     async fn record_unauthorized_trips_at_threshold() {
+        let _metrics = MetricsCapture::start();
         let (manager, _store) = manager_with_creds_and_threshold(3);
         let bmc_mac = mac(0xDE);
         assert!(manager.record_unauthorized(bmc_mac, 401).await.is_none());
@@ -1083,6 +1158,7 @@ mod tests {
 
     #[tokio::test]
     async fn record_unauthorized_only_emits_avoid_lockout_on_the_tripping_request() {
+        let _metrics = MetricsCapture::start();
         let (manager, _store) = manager_with_creds_and_threshold(2);
         let bmc_mac = mac(0xDE);
         assert!(manager.record_unauthorized(bmc_mac, 401).await.is_none());
@@ -1098,8 +1174,224 @@ mod tests {
         );
     }
 
+    const BREAKER_TRANSITION_METRIC: &str = "carbide_bmc_session_lockout_breaker_transitions_total";
+
+    #[derive(Clone, Copy)]
+    enum BreakerTransitionCase {
+        Trip,
+        ClearExisting,
+        ClearMissing,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct BreakerTransitionObservation {
+        tripped_delta: f64,
+        cleared_delta: f64,
+        unauthorized_results: Vec<bool>,
+        remains_locked_out: bool,
+        logs: Vec<BreakerTransitionLog>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct BreakerTransitionLog {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        transition: Option<String>,
+        bmc_mac_address: Option<String>,
+        http_status: Option<String>,
+        consecutive_unauthorized_count: Option<String>,
+        lockout_threshold_count: Option<String>,
+        transition_kind: Option<CapturedFieldKind>,
+        bmc_mac_address_kind: Option<CapturedFieldKind>,
+        http_status_kind: Option<CapturedFieldKind>,
+        consecutive_unauthorized_count_kind: Option<CapturedFieldKind>,
+        lockout_threshold_count_kind: Option<CapturedFieldKind>,
+    }
+
+    fn observe_breaker_transition(case: BreakerTransitionCase) -> BreakerTransitionObservation {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("test runtime");
+        let (manager, _store) = manager_with_creds_and_threshold(2);
+        let bmc_mac = mac(0xDE);
+        let metrics = MetricsCapture::start();
+        let mut unauthorized_results = Vec::new();
+
+        let logs = capture_logs(|| {
+            runtime.block_on(async {
+                match case {
+                    BreakerTransitionCase::Trip => {
+                        unauthorized_results
+                            .push(manager.record_unauthorized(bmc_mac, 401).await.is_some());
+                        unauthorized_results
+                            .push(manager.record_unauthorized(bmc_mac, 403).await.is_some());
+                        unauthorized_results
+                            .push(manager.record_unauthorized(bmc_mac, 401).await.is_some());
+                    }
+                    BreakerTransitionCase::ClearExisting => {
+                        manager.force_trip_for_test(bmc_mac, 4, 403).await;
+                        manager.clear_lockout(bmc_mac).await;
+                    }
+                    BreakerTransitionCase::ClearMissing => {
+                        manager.clear_lockout(bmc_mac).await;
+                    }
+                }
+            });
+        })
+        .into_iter()
+        .filter(|log| log.field("metric_name") == Some(BREAKER_TRANSITION_METRIC))
+        .map(|log| {
+            let event_name = log.field("event_name").map(str::to_string);
+            let metric_name = log.field("metric_name").map(str::to_string);
+            let transition = log.field("transition").map(str::to_string);
+            let bmc_mac_address = log.field("bmc_mac_address").map(str::to_string);
+            let http_status = log.field("http_status").map(str::to_string);
+            let consecutive_unauthorized_count = log
+                .field("consecutive_unauthorized_count")
+                .map(str::to_string);
+            let lockout_threshold_count = log.field("lockout_threshold_count").map(str::to_string);
+            let transition_kind = log.field_kind("transition");
+            let bmc_mac_address_kind = log.field_kind("bmc_mac_address");
+            let http_status_kind = log.field_kind("http_status");
+            let consecutive_unauthorized_count_kind =
+                log.field_kind("consecutive_unauthorized_count");
+            let lockout_threshold_count_kind = log.field_kind("lockout_threshold_count");
+
+            BreakerTransitionLog {
+                metadata_name: log.metadata_name,
+                level: log.level,
+                message: log.message,
+                event_name,
+                metric_name,
+                transition,
+                bmc_mac_address,
+                http_status,
+                consecutive_unauthorized_count,
+                lockout_threshold_count,
+                transition_kind,
+                bmc_mac_address_kind,
+                http_status_kind,
+                consecutive_unauthorized_count_kind,
+                lockout_threshold_count_kind,
+            }
+        })
+        .collect();
+
+        let remains_locked_out = runtime
+            .block_on(manager.check_not_locked_out(bmc_mac))
+            .is_some();
+        BreakerTransitionObservation {
+            tripped_delta: metrics
+                .counter_delta(BREAKER_TRANSITION_METRIC, &[("transition", "tripped")]),
+            cleared_delta: metrics
+                .counter_delta(BREAKER_TRANSITION_METRIC, &[("transition", "cleared")]),
+            unauthorized_results,
+            remains_locked_out,
+            logs,
+        }
+    }
+
+    fn expected_breaker_transition_log(
+        event_name: &str,
+        level: tracing::Level,
+        message: &str,
+        transition: &str,
+        bmc_mac: MacAddress,
+        trip_context: Option<(u16, u32, u32)>,
+    ) -> BreakerTransitionLog {
+        let (http_status, consecutive_unauthorized_count, lockout_threshold_count) = trip_context
+            .map(|(status, consecutive, threshold)| {
+                (
+                    Some(status.to_string()),
+                    Some(consecutive.to_string()),
+                    Some(threshold.to_string()),
+                )
+            })
+            .unwrap_or_default();
+        let native_number_kind = trip_context.map(|_| CapturedFieldKind::I64);
+
+        BreakerTransitionLog {
+            metadata_name: event_name.to_string(),
+            level,
+            message: message.to_string(),
+            event_name: Some(event_name.to_string()),
+            metric_name: Some(BREAKER_TRANSITION_METRIC.to_string()),
+            transition: Some(transition.to_string()),
+            bmc_mac_address: Some(bmc_mac.to_string()),
+            http_status,
+            consecutive_unauthorized_count,
+            lockout_threshold_count,
+            transition_kind: Some(CapturedFieldKind::String),
+            bmc_mac_address_kind: Some(CapturedFieldKind::Debug),
+            http_status_kind: native_number_kind,
+            consecutive_unauthorized_count_kind: native_number_kind,
+            lockout_threshold_count_kind: native_number_kind,
+        }
+    }
+
+    #[test]
+    fn breaker_transitions_log_and_count_once() {
+        let bmc_mac = mac(0xDE);
+        check_values(
+            [
+                Check {
+                    scenario: "the first threshold crossing trips once",
+                    input: BreakerTransitionCase::Trip,
+                    expect: BreakerTransitionObservation {
+                        tripped_delta: 1.0,
+                        cleared_delta: 0.0,
+                        unauthorized_results: vec![false, true, false],
+                        remains_locked_out: true,
+                        logs: vec![expected_breaker_transition_log(
+                            "bmc_session_lockout_breaker_tripped",
+                            tracing::Level::WARN,
+                            "BmcSessionManager: lockout-avoidance breaker tripped",
+                            "tripped",
+                            bmc_mac,
+                            Some((403, 2, 2)),
+                        )],
+                    },
+                },
+                Check {
+                    scenario: "removing existing breaker state clears once",
+                    input: BreakerTransitionCase::ClearExisting,
+                    expect: BreakerTransitionObservation {
+                        tripped_delta: 0.0,
+                        cleared_delta: 1.0,
+                        unauthorized_results: Vec::new(),
+                        remains_locked_out: false,
+                        logs: vec![expected_breaker_transition_log(
+                            "bmc_session_lockout_breaker_cleared",
+                            tracing::Level::INFO,
+                            "BmcSessionManager: lockout-avoidance breaker cleared",
+                            "cleared",
+                            bmc_mac,
+                            None,
+                        )],
+                    },
+                },
+                Check {
+                    scenario: "clearing a missing breaker is a no-op",
+                    input: BreakerTransitionCase::ClearMissing,
+                    expect: BreakerTransitionObservation {
+                        tripped_delta: 0.0,
+                        cleared_delta: 0.0,
+                        unauthorized_results: Vec::new(),
+                        remains_locked_out: false,
+                        logs: Vec::new(),
+                    },
+                },
+            ],
+            observe_breaker_transition,
+        );
+    }
+
     #[tokio::test]
     async fn clear_lockout_removes_tripped_state() {
+        let _metrics = MetricsCapture::start();
         let (manager, _store) = manager_with_creds_and_threshold(1);
         let bmc_mac = mac(0xEE);
         manager.force_trip_for_test(bmc_mac, 1, 401).await;
@@ -1136,6 +1428,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_unauthorized_records_trip_exactly_once() {
+        let _metrics = MetricsCapture::start();
         let (manager, _store) = manager_with_creds_and_threshold(3);
         let bmc_mac = mac(0xF2);
 
