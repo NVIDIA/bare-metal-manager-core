@@ -45,6 +45,7 @@ mac_address = { features = ["serde"], workspace = true }
 nv-redfish = { workspace = true, features = ["bmc-http"] }
 rand = { workspace = true }
 regex = { workspace = true }
+quick-xml = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
@@ -61,3 +62,6 @@ url = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

@@ -150,7 +150,8 @@ mod tests {
     use crate::test_support::axum_http_client::AxumRouterHttpClient;
     use crate::test_support::{NoopCallbacks, TEST_MAC_POOL};
     use crate::{
-        DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo, machine_router,
+        DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo,
+        MachineRouterOptions, machine_router,
     };
 
     fn test_host_mock() -> Router {
@@ -172,6 +173,7 @@ mod tests {
             Arc::new(NoopCallbacks),
             "test-host-id".to_string(),
             false,
+            MachineRouterOptions::default(),
         )
         .0
     }
