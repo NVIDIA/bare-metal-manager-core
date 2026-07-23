@@ -17,6 +17,7 @@
 
 pub mod auto_update;
 pub mod common;
+pub mod erase_metadata;
 pub mod force_delete;
 pub mod hardware_info;
 pub mod health_report;
@@ -66,6 +67,10 @@ pub enum Cmd {
     Reboot(reboot::Args),
     #[clap(about = "Force delete a machine")]
     ForceDelete(force_delete::Args),
+    #[clap(
+        about = "Erase all NICo-owned site records for a server BMC MAC address (does not touch expected machines)"
+    )]
+    EraseMetadata(erase_metadata::Args),
     #[clap(about = "Set individual machine firmware autoupdate (host only)")]
     AutoUpdate(auto_update::Args),
     #[clap(subcommand, about = "Edit Metadata associated with a Machine")]

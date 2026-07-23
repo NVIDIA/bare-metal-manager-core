@@ -360,3 +360,51 @@ fn health_override_templates_value_enum() {
         }
     );
 }
+
+// erase-metadata routes to the EraseMetadata variant. Each row yields
+// (bmc_mac, dry_run, confirm); the required --bmc-mac is missing in the failing row.
+#[test]
+fn parse_erase_metadata_routes_to_erase_metadata() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::EraseMetadata(args) => (args.bmc_mac, args.dry_run, args.confirm),
+                    _ => panic!("expected EraseMetadata variant"),
+                })
+                .map_err(drop)
+        };
+        "with bmc mac" {
+            &[
+                "machine",
+                "erase-metadata",
+                "--bmc-mac",
+                "00:11:22:33:44:55",
+            ][..] => Yields(("00:11:22:33:44:55".to_string(), false, false)),
+        }
+
+        "with bmc mac and dry-run" {
+            &[
+                "machine",
+                "erase-metadata",
+                "--bmc-mac",
+                "00:11:22:33:44:55",
+                "--dry-run",
+            ][..] => Yields(("00:11:22:33:44:55".to_string(), true, false)),
+        }
+
+        "with bmc mac and confirm" {
+            &[
+                "machine",
+                "erase-metadata",
+                "--bmc-mac",
+                "00:11:22:33:44:55",
+                "--confirm",
+            ][..] => Yields(("00:11:22:33:44:55".to_string(), false, true)),
+        }
+
+        "missing required bmc mac" {
+            &["machine", "erase-metadata"][..] => Fails,
+        }
+    );
+}

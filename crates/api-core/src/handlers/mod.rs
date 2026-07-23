@@ -33,6 +33,7 @@ pub mod dpa;
 pub mod dpf;
 pub mod dpu;
 pub mod dpu_remediation;
+pub mod erase_host_metadata;
 pub mod expected_machine;
 pub mod expected_power_shelf;
 pub mod expected_rack;

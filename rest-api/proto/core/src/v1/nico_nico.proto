@@ -340,6 +340,27 @@ service Forge {
   // appropriate customer-facing workflow available or where those workflows fail.
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
 
+  // EraseHostMetadataByBmcMac removes all NICo-owned site records tied to a
+  // server BMC MAC address -- machine interfaces (and their addresses/DHCP
+  // entries/boot overrides), retained boot rows, site-explorer exploration
+  // reports, explored managed hosts and the BMC credentials in vault -- so an
+  // operator has a clean slate to re-ingest a replacement host. Deletion is
+  // MAC-driven from cached state (no live BMC call), so an off/relocated host is
+  // still cleaned. It intentionally does NOT touch expected machines, which NICo
+  // does not own.
+  //
+  // Refusals and protections:
+  //   * Refuses when any interface for the MAC is still owned by a live device
+  //     (machine, DPU, switch or power shelf), or when a candidate BMC IP still
+  //     belongs to an ingested machine -- use AdminForceDeleteMachine for those.
+  //   * Preserves an exploration endpoint or explored-managed-host row whose BMC
+  //     (Redfish Manager) advertises a *different* MAC, so a reused IP now owned by
+  //     another host is never taken down.
+  //
+  // Set dry_run to report which records (and whether BMC credentials) would be
+  // erased without deleting anything.
+  rpc EraseHostMetadataByBmcMac(EraseHostMetadataByBmcMacRequest) returns (EraseHostMetadataByBmcMacResponse);
+
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
 
@@ -9528,4 +9549,34 @@ message SitePrefixIdList {
 
 message SitePrefixList {
   repeated SitePrefix site_prefixes = 1;
+}
+
+// Request to erase all NICo-owned site records for a server BMC MAC address.
+message EraseHostMetadataByBmcMacRequest {
+  // The server BMC MAC address whose lingering records should be erased.
+  string bmc_mac = 1;
+
+  // When true, report the records that would be erased without deleting them.
+  bool dry_run = 2;
+}
+
+// Response describing the records that were erased (or, in dry-run mode, that
+// would be erased) for the requested BMC MAC address.
+message EraseHostMetadataByBmcMacResponse {
+  // Echoes the request: true when nothing was actually deleted.
+  bool dry_run = 1;
+
+  // IDs of the machine interfaces erased for this MAC.
+  repeated string machine_interface_ids = 2;
+
+  // BMC IP addresses of the site-explorer exploration reports erased.
+  repeated string explored_endpoint_ips = 3;
+
+  // Host BMC IP addresses of the explored managed host records erased.
+  repeated string explored_managed_host_ips = 4;
+
+  // In a real run, true when the BMC credentials in vault (and the convergence
+  // markers keyed by this MAC) were cleared. In dry-run mode, true when such BMC
+  // credentials exist and would be cleared.
+  bool bmc_credentials_cleared = 5;
 }

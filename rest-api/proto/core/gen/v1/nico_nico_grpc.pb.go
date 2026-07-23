@@ -178,6 +178,7 @@ const (
 	Forge_FindExploredMlxDevicesByIds_FullMethodName                        = "/forge.Forge/FindExploredMlxDevicesByIds"
 	Forge_UpdateMachineHardwareInfo_FullMethodName                          = "/forge.Forge/UpdateMachineHardwareInfo"
 	Forge_AdminForceDeleteMachine_FullMethodName                            = "/forge.Forge/AdminForceDeleteMachine"
+	Forge_EraseHostMetadataByBmcMac_FullMethodName                          = "/forge.Forge/EraseHostMetadataByBmcMac"
 	Forge_AdminListResourcePools_FullMethodName                             = "/forge.Forge/AdminListResourcePools"
 	Forge_AdminGrowResourcePool_FullMethodName                              = "/forge.Forge/AdminGrowResourcePool"
 	Forge_UpdateMachineMetadata_FullMethodName                              = "/forge.Forge/UpdateMachineMetadata"
@@ -764,6 +765,26 @@ type ForgeClient interface {
 	// AdminForceDeleteMachine is a lower level admin tool for cases where there is no
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(ctx context.Context, in *AdminForceDeleteMachineRequest, opts ...grpc.CallOption) (*AdminForceDeleteMachineResponse, error)
+	// EraseHostMetadataByBmcMac removes all NICo-owned site records tied to a
+	// server BMC MAC address -- machine interfaces (and their addresses/DHCP
+	// entries/boot overrides), retained boot rows, site-explorer exploration
+	// reports, explored managed hosts and the BMC credentials in vault -- so an
+	// operator has a clean slate to re-ingest a replacement host. Deletion is
+	// MAC-driven from cached state (no live BMC call), so an off/relocated host is
+	// still cleaned. It intentionally does NOT touch expected machines, which NICo
+	// does not own.
+	//
+	// Refusals and protections:
+	//   - Refuses when any interface for the MAC is still owned by a live device
+	//     (machine, DPU, switch or power shelf), or when a candidate BMC IP still
+	//     belongs to an ingested machine -- use AdminForceDeleteMachine for those.
+	//   - Preserves an exploration endpoint or explored-managed-host row whose BMC
+	//     (Redfish Manager) advertises a *different* MAC, so a reused IP now owned by
+	//     another host is never taken down.
+	//
+	// Set dry_run to report which records (and whether BMC credentials) would be
+	// erased without deleting anything.
+	EraseHostMetadataByBmcMac(ctx context.Context, in *EraseHostMetadataByBmcMacRequest, opts ...grpc.CallOption) (*EraseHostMetadataByBmcMacResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(ctx context.Context, in *ListResourcePoolsRequest, opts ...grpc.CallOption) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -2863,6 +2884,16 @@ func (c *forgeClient) AdminForceDeleteMachine(ctx context.Context, in *AdminForc
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AdminForceDeleteMachineResponse)
 	err := c.cc.Invoke(ctx, Forge_AdminForceDeleteMachine_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) EraseHostMetadataByBmcMac(ctx context.Context, in *EraseHostMetadataByBmcMacRequest, opts ...grpc.CallOption) (*EraseHostMetadataByBmcMacResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EraseHostMetadataByBmcMacResponse)
+	err := c.cc.Invoke(ctx, Forge_EraseHostMetadataByBmcMac_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6264,6 +6295,26 @@ type ForgeServer interface {
 	// AdminForceDeleteMachine is a lower level admin tool for cases where there is no
 	// appropriate customer-facing workflow available or where those workflows fail.
 	AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error)
+	// EraseHostMetadataByBmcMac removes all NICo-owned site records tied to a
+	// server BMC MAC address -- machine interfaces (and their addresses/DHCP
+	// entries/boot overrides), retained boot rows, site-explorer exploration
+	// reports, explored managed hosts and the BMC credentials in vault -- so an
+	// operator has a clean slate to re-ingest a replacement host. Deletion is
+	// MAC-driven from cached state (no live BMC call), so an off/relocated host is
+	// still cleaned. It intentionally does NOT touch expected machines, which NICo
+	// does not own.
+	//
+	// Refusals and protections:
+	//   - Refuses when any interface for the MAC is still owned by a live device
+	//     (machine, DPU, switch or power shelf), or when a candidate BMC IP still
+	//     belongs to an ingested machine -- use AdminForceDeleteMachine for those.
+	//   - Preserves an exploration endpoint or explored-managed-host row whose BMC
+	//     (Redfish Manager) advertises a *different* MAC, so a reused IP now owned by
+	//     another host is never taken down.
+	//
+	// Set dry_run to report which records (and whether BMC credentials) would be
+	// erased without deleting anything.
+	EraseHostMetadataByBmcMac(context.Context, *EraseHostMetadataByBmcMacRequest) (*EraseHostMetadataByBmcMacResponse, error)
 	// List existing resource pools and their stats
 	AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error)
 	// Add capacity to a resource pool
@@ -7275,6 +7326,9 @@ func (UnimplementedForgeServer) UpdateMachineHardwareInfo(context.Context, *Upda
 }
 func (UnimplementedForgeServer) AdminForceDeleteMachine(context.Context, *AdminForceDeleteMachineRequest) (*AdminForceDeleteMachineResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminForceDeleteMachine not implemented")
+}
+func (UnimplementedForgeServer) EraseHostMetadataByBmcMac(context.Context, *EraseHostMetadataByBmcMacRequest) (*EraseHostMetadataByBmcMacResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EraseHostMetadataByBmcMac not implemented")
 }
 func (UnimplementedForgeServer) AdminListResourcePools(context.Context, *ListResourcePoolsRequest) (*ResourcePools, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminListResourcePools not implemented")
@@ -11018,6 +11072,24 @@ func _Forge_AdminForceDeleteMachine_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).AdminForceDeleteMachine(ctx, req.(*AdminForceDeleteMachineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_EraseHostMetadataByBmcMac_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EraseHostMetadataByBmcMacRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).EraseHostMetadataByBmcMac(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_EraseHostMetadataByBmcMac_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).EraseHostMetadataByBmcMac(ctx, req.(*EraseHostMetadataByBmcMacRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17253,6 +17325,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminForceDeleteMachine",
 			Handler:    _Forge_AdminForceDeleteMachine_Handler,
+		},
+		{
+			MethodName: "EraseHostMetadataByBmcMac",
+			Handler:    _Forge_EraseHostMetadataByBmcMac_Handler,
 		},
 		{
 			MethodName: "AdminListResourcePools",

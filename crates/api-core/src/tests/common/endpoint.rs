@@ -23,7 +23,7 @@ use db::{self, DatabaseError};
 use model::firmware::FirmwareComponentType;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-    Inventory, PowerState, Service,
+    EthernetInterface, Inventory, Manager, PowerState, Service,
 };
 use sqlx::PgConnection;
 
@@ -62,6 +62,56 @@ pub async fn insert_endpoint_with_firmware_versions(
         txn,
     )
     .await
+}
+
+fn ethernet_interface(id: &str, mac: mac_address::MacAddress) -> EthernetInterface {
+    EthernetInterface {
+        description: None,
+        id: Some(id.to_string()),
+        interface_enabled: Some(true),
+        mac_address: Some(mac),
+        link_status: None,
+        uefi_device_path: None,
+    }
+}
+
+/// Seed an explored endpoint whose BMC (Redfish Manager) advertises `mac`, so it is
+/// discoverable by `find_by_mac_address`. No live machine is created, modelling the
+/// leftover-record state that `erase-metadata` cleans up.
+pub async fn insert_endpoint_with_bmc_mac(
+    txn: &mut PgConnection,
+    addr: &str,
+    mac: mac_address::MacAddress,
+) -> Result<(), DatabaseError> {
+    let mut report = build_exploration_report("Dell", "R750", "1.0", "");
+    report.managers.push(Manager {
+        ethernet_interfaces: vec![ethernet_interface("BMC.1", mac)],
+        id: "BMC".to_string(),
+        ipmi_port: None,
+    });
+    db::explored_endpoints::insert(IpAddr::from_str(addr).unwrap(), &report, false, txn).await
+}
+
+/// Seed an explored endpoint whose BMC (Manager) advertises `bmc_mac` but whose host
+/// *system* NIC advertises `system_mac`. `find_by_mac_address(system_mac)` matches it,
+/// yet the endpoint belongs to `bmc_mac` -- used to prove `erase-metadata` protects an
+/// endpoint owned by a different BMC.
+pub async fn insert_endpoint_system_mac_other_bmc(
+    txn: &mut PgConnection,
+    addr: &str,
+    system_mac: mac_address::MacAddress,
+    bmc_mac: mac_address::MacAddress,
+) -> Result<(), DatabaseError> {
+    let mut report = build_exploration_report("Dell", "R750", "1.0", "");
+    report.systems[0]
+        .ethernet_interfaces
+        .push(ethernet_interface("NIC.1", system_mac));
+    report.managers.push(Manager {
+        ethernet_interfaces: vec![ethernet_interface("BMC.1", bmc_mac)],
+        id: "BMC".to_string(),
+        ipmi_port: None,
+    });
+    db::explored_endpoints::insert(IpAddr::from_str(addr).unwrap(), &report, false, txn).await
 }
 
 async fn insert_endpoint(

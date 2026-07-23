@@ -1174,6 +1174,13 @@ impl Forge for Api {
         crate::handlers::machine::admin_force_delete_machine(self, request).await
     }
 
+    async fn erase_host_metadata_by_bmc_mac(
+        &self,
+        request: Request<rpc::EraseHostMetadataByBmcMacRequest>,
+    ) -> Result<Response<rpc::EraseHostMetadataByBmcMacResponse>, Status> {
+        crate::handlers::erase_host_metadata::erase_host_metadata_by_bmc_mac(self, request).await
+    }
+
     /// Example TOML data in request.text:
     ///
     /// [lo-ip]

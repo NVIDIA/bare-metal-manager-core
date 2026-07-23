@@ -119,6 +119,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.AdminForceDeleteMachineResponse",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.EraseHostMetadataByBmcMacRequest",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.EraseHostMetadataByBmcMacResponse",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
