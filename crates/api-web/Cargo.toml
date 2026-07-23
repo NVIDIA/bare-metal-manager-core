@@ -69,7 +69,7 @@ reqwest = { workspace = true, default-features = false, features = [
   "stream",
 ] }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 sqlx = { workspace = true, features = [
   "runtime-tokio",
   "tls-rustls",
