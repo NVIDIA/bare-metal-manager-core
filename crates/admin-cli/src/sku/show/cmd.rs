@@ -148,12 +148,14 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
     let table_format = table.get_format();
     table_format.indent(10);
 
-    // Size (MB) and PCI Patterns carry the per-drive constraints introduced in
+    // Size (MiB) and PCI Patterns carry the per-drive constraints introduced in
     // schema version 5; they render empty for older SKUs that don't set them.
+    // The size field is labeled MB in the API but is computed as MiB (1 unit =
+    // 2048 * 512-byte sectors); label the column MiB so the value reads true.
     table.set_titles(Row::from(vec![
         "Model",
         "Count",
-        "Size (MB)",
+        "Size (MiB)",
         "PCI Patterns",
     ]));
     for s in storage {
