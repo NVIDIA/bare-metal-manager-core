@@ -437,6 +437,21 @@ pub struct DpuSummary {
     pub status_bfb_file: Option<String>,
 }
 
+/// Service version resolved from a DPUDeployment's services and their DPUServiceTemplate CRs.
+/// Used by [`crate::DpfSdk::get_service_versions_for_dpu`] to populate the DPU inventory.
+#[derive(Debug, Clone)]
+pub struct DpuServiceVersion {
+    /// Image case: basename after the final `/` of `helmChart.values.image.repository`.
+    /// Helm fallback: `helmChart.source.chart`.
+    pub name: String,
+    /// Image case: `helmChart.values.image.tag`.
+    /// Helm fallback: `helmChart.source.version`.
+    pub version: String,
+    /// Image case: `helmChart.values.image.repository` up to (not including) the final `/`.
+    /// Helm fallback: `helmChart.source.repoURL`.
+    pub url: String,
+}
+
 /// Helm-chart version observed on a live `DPUServiceTemplate` CR. Used by
 /// [`crate::DpfSdk::list_service_template_versions`] so callers (e.g. the
 /// admin CLI) can compare configured vs deployed versions.
