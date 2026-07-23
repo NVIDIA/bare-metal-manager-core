@@ -101,6 +101,7 @@ use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{
+    BmcResetFinished, BmcResetMethod, BmcResetStatus, BmcResetTimestampPersistenceFailed,
     DpuMigrationSignal, PairingBlockerReason, SiteExplorerIterationFinished,
     exploration_error_to_metric_label,
 };
@@ -352,23 +353,6 @@ pub struct SiteExplorer {
     /// so a reset whose timestamp write failed still throttles the next reset.
     recent_bmc_resets: RecentBmcResets,
     // rms_client: Option<Arc<dyn RmsApi>>,
-}
-
-/// Which transport a BMC reset was issued through, rendered as the `method` log
-/// field on [`SiteExplorer::record_bmc_reset_outcome`].
-#[derive(Debug, Clone, Copy)]
-enum BmcResetMethod {
-    Ipmitool,
-    Redfish,
-}
-
-impl std::fmt::Display for BmcResetMethod {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            BmcResetMethod::Ipmitool => "ipmitool",
-            BmcResetMethod::Redfish => "redfish",
-        })
-    }
 }
 
 impl SiteExplorer {
@@ -2661,25 +2645,31 @@ impl SiteExplorer {
         Ok(index)
     }
 
-    /// Record the outcome of a BMC-reset attempt: count only a reset that
-    /// actually happened (so `bmc_reset_count` tracks successes, not attempts)
-    /// and log the failure otherwise. Returns whether the reset succeeded.
+    /// Records one terminal BMC-reset attempt. `bmc_reset_count` remains the
+    /// latest run's successful-reset gauge, while `BmcResetFinished` counts
+    /// every attempt and owns its terminal log record. Returns whether the
+    /// reset succeeded so Redfish success can stop the IPMI fallback.
     fn record_bmc_reset_outcome(
-        outcome: SiteExplorerResult<()>,
-        via: BmcResetMethod,
+        result: SiteExplorerResult<()>,
+        method: BmcResetMethod,
         address: IpAddr,
         metrics: &mut SiteExplorationMetrics,
     ) -> bool {
-        match outcome {
+        let (status, error, succeeded) = match result {
             Ok(()) => {
                 metrics.bmc_reset_count += 1;
-                true
+                (BmcResetStatus::Succeeded, String::new(), true)
             }
-            Err(err) => {
-                tracing::error!(%address, method = %via, error = %err, "Site Explorer failed to reset BMC");
-                false
-            }
-        }
+            Err(err) => (BmcResetStatus::Failed, err.to_string(), false),
+        };
+
+        carbide_instrument::emit(BmcResetFinished {
+            method,
+            status,
+            address,
+            error,
+        });
+        succeeded
     }
 
     pub async fn handle_redfish_error(
@@ -2922,11 +2912,11 @@ impl SiteExplorer {
                 self.recent_bmc_resets
                     .record_ipmitool(endpoint.address, Utc::now());
                 if let Err(e) = self.persist_last_ipmitool_bmc_reset(endpoint.address).await {
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %e,
-                        "BMC reset succeeded but recording its rate-limit timestamp failed"
-                    );
+                    carbide_instrument::emit(BmcResetTimestampPersistenceFailed {
+                        method: BmcResetMethod::Ipmitool,
+                        bmc_ip_address: endpoint.address,
+                        error: e.to_string(),
+                    });
                 }
                 Ok(())
             }
@@ -2972,11 +2962,11 @@ impl SiteExplorer {
                 self.recent_bmc_resets
                     .record_redfish(endpoint.address, Utc::now());
                 if let Err(e) = self.persist_last_redfish_bmc_reset(endpoint.address).await {
-                    tracing::warn!(
-                        bmc_ip_address = %endpoint.address,
-                        error = %e,
-                        "BMC reset succeeded but recording its rate-limit timestamp failed"
-                    );
+                    carbide_instrument::emit(BmcResetTimestampPersistenceFailed {
+                        method: BmcResetMethod::Redfish,
+                        bmc_ip_address: endpoint.address,
+                        error: e.to_string(),
+                    });
                 }
                 Ok(())
             }
@@ -4168,7 +4158,7 @@ fn health_reports_equal_ignoring_observed_at(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, check_cases, value_scenarios};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
@@ -4241,111 +4231,262 @@ mod tests {
         assert_eq!(u64_to_mac(mac_to_u64(mac)), mac);
     }
 
-    /// The BMC-reset counter tracks resets that happened: a successful reset
-    /// moves `bmc_reset_count`, a failed reset leaves it and logs the failure
-    /// instead. This pins that semantics -- the one the ipmitool path used to
-    /// get wrong, counting every attempt -- across both transports, and checks
-    /// the failure log carries the transport, address, and error.
+    /// Each BMC reset result updates the cumulative Event counter and writes a
+    /// terminal record. The existing `bmc_reset_count` gauge backing remains
+    /// success-only, so a failed attempt cannot change the latest-run value.
     #[test]
-    fn bmc_reset_counter_counts_successes_not_attempts() {
-        use carbide_instrument::testing::{CapturedLog, capture_logs};
+    fn bmc_reset_results_update_legacy_gauge_event_and_log() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
 
-        /// One reset outcome to record. A success moves `bmc_reset_count` and
-        /// logs nothing; a failure leaves the counter and emits the ERROR line,
-        /// whose `error` field is `expect_error` (`None` on the success rows).
-        struct Case {
-            name: &'static str,
+        struct ResetCase {
             method: BmcResetMethod,
-            outcome: SiteExplorerResult<()>,
-            expect_succeeded: bool,
-            expect_count: usize,
-            expect_error: Option<&'static str>,
+            error: Option<&'static str>,
         }
 
-        let addr: IpAddr = "127.0.0.1".parse().unwrap();
-
-        let cases = [
-            Case {
-                name: "ipmitool success counts, logs nothing",
-                method: BmcResetMethod::Ipmitool,
-                outcome: Ok(()),
-                expect_succeeded: true,
-                expect_count: 1,
-                expect_error: None,
-            },
-            Case {
-                name: "ipmitool failure logs, does not count",
-                method: BmcResetMethod::Ipmitool,
-                outcome: Err(SiteExplorerError::internal(
-                    "simulated ipmitool failure".to_string(),
-                )),
-                expect_succeeded: false,
-                expect_count: 0,
-                expect_error: Some("internal error: simulated ipmitool failure"),
-            },
-            Case {
-                name: "redfish success counts, logs nothing",
-                method: BmcResetMethod::Redfish,
-                outcome: Ok(()),
-                expect_succeeded: true,
-                expect_count: 1,
-                expect_error: None,
-            },
-            Case {
-                name: "redfish failure logs, does not count",
-                method: BmcResetMethod::Redfish,
-                outcome: Err(SiteExplorerError::internal(
-                    "simulated redfish failure".to_string(),
-                )),
-                expect_succeeded: false,
-                expect_count: 0,
-                expect_error: Some("internal error: simulated redfish failure"),
-            },
-        ];
-
-        fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
-            log.fields
-                .iter()
-                .find(|(key, _)| key == name)
-                .map(|(_, value)| value.as_str())
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            method: Option<String>,
+            status: Option<String>,
+            address: Option<String>,
+            error: Option<String>,
         }
 
-        for case in cases {
-            let Case {
-                name,
-                method,
-                outcome,
-                expect_succeeded,
-                expect_count,
-                expect_error,
-            } = case;
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            succeeded: bool,
+            latest_run_success_count: usize,
+            attempt_count_delta: f64,
+            log_count: usize,
+            log: Option<LogObservation>,
+        }
 
-            // Fresh metrics per case so the counter reads as this outcome alone.
-            let mut metrics = SiteExplorationMetrics::new();
-            let mut succeeded = false;
-            let logs = capture_logs(|| {
-                succeeded =
-                    SiteExplorer::record_bmc_reset_outcome(outcome, method, addr, &mut metrics);
-            });
+        const METRIC_NAME: &str = "carbide_site_explorer_bmc_reset_attempts_total";
+        let address: IpAddr = "127.0.0.1".parse().unwrap();
 
-            assert_eq!(succeeded, expect_succeeded, "{name}");
-            assert_eq!(metrics.bmc_reset_count, expect_count, "{name}");
+        value_scenarios!(
+            run = |ResetCase { method, error }| {
+                let method_label = method.to_string();
+                let status_label = if error.is_some() { "failed" } else { "succeeded" };
+                let result = error.map_or(Ok(()), |error| {
+                    Err(SiteExplorerError::internal(error.to_string()))
+                });
+                let event_metrics = MetricsCapture::start();
+                let mut run_metrics = SiteExplorationMetrics::new();
+                let mut succeeded = false;
+                let logs = capture_logs(|| {
+                    succeeded = SiteExplorer::record_bmc_reset_outcome(
+                        result,
+                        method,
+                        address,
+                        &mut run_metrics,
+                    );
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    method: log.field("method").map(str::to_string),
+                    status: log.field("status").map(str::to_string),
+                    address: log.field("address").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
 
-            match expect_error {
-                None => assert!(logs.is_empty(), "{name}: a success must not log: {logs:?}"),
-                Some(expect_error) => {
-                    assert_eq!(logs.len(), 1, "{name}");
-                    let log = &logs[0];
-                    let method = method.to_string();
-                    let address = addr.to_string();
-                    assert_eq!(log.level, tracing::Level::ERROR, "{name}");
-                    assert_eq!(log.message, "Site Explorer failed to reset BMC", "{name}");
-                    assert_eq!(field(log, "method"), Some(method.as_str()), "{name}");
-                    assert_eq!(field(log, "address"), Some(address.as_str()), "{name}");
-                    assert_eq!(field(log, "error"), Some(expect_error), "{name}");
+                Observation {
+                    succeeded,
+                    latest_run_success_count: run_metrics.bmc_reset_count,
+                    attempt_count_delta: event_metrics.counter_delta(
+                        METRIC_NAME,
+                        &[("method", method_label.as_str()), ("status", status_label)],
+                    ),
+                    log_count: logs.len(),
+                    log,
                 }
+            };
+            "IPMI reset" {
+                ResetCase {
+                    method: BmcResetMethod::Ipmitool,
+                    error: None,
+                } => Observation {
+                    succeeded: true,
+                    latest_run_success_count: 1,
+                    attempt_count_delta: 1.0,
+                    log_count: 1,
+                    log: Some(LogObservation {
+                        level: tracing::Level::INFO,
+                        metadata_name: "site_explorer_bmc_reset_finished".to_string(),
+                        message: "Site Explorer reset BMC".to_string(),
+                        event_name: Some("site_explorer_bmc_reset_finished".to_string()),
+                        metric_name: Some(METRIC_NAME.to_string()),
+                        method: Some("ipmitool".to_string()),
+                        status: Some("succeeded".to_string()),
+                        address: Some("127.0.0.1".to_string()),
+                        error: Some(String::new()),
+                    }),
+                },
+                ResetCase {
+                    method: BmcResetMethod::Ipmitool,
+                    error: Some("simulated ipmitool failure"),
+                } => Observation {
+                    succeeded: false,
+                    latest_run_success_count: 0,
+                    attempt_count_delta: 1.0,
+                    log_count: 1,
+                    log: Some(LogObservation {
+                        level: tracing::Level::ERROR,
+                        metadata_name: "site_explorer_bmc_reset_finished".to_string(),
+                        message: "Site Explorer failed to reset BMC".to_string(),
+                        event_name: Some("site_explorer_bmc_reset_finished".to_string()),
+                        metric_name: Some(METRIC_NAME.to_string()),
+                        method: Some("ipmitool".to_string()),
+                        status: Some("failed".to_string()),
+                        address: Some("127.0.0.1".to_string()),
+                        error: Some("internal error: simulated ipmitool failure".to_string()),
+                    }),
+                },
             }
+            "Redfish reset" {
+                ResetCase {
+                    method: BmcResetMethod::Redfish,
+                    error: None,
+                } => Observation {
+                    succeeded: true,
+                    latest_run_success_count: 1,
+                    attempt_count_delta: 1.0,
+                    log_count: 1,
+                    log: Some(LogObservation {
+                        level: tracing::Level::INFO,
+                        metadata_name: "site_explorer_bmc_reset_finished".to_string(),
+                        message: "Site Explorer reset BMC".to_string(),
+                        event_name: Some("site_explorer_bmc_reset_finished".to_string()),
+                        metric_name: Some(METRIC_NAME.to_string()),
+                        method: Some("redfish".to_string()),
+                        status: Some("succeeded".to_string()),
+                        address: Some("127.0.0.1".to_string()),
+                        error: Some(String::new()),
+                    }),
+                },
+                ResetCase {
+                    method: BmcResetMethod::Redfish,
+                    error: Some("simulated redfish failure"),
+                } => Observation {
+                    succeeded: false,
+                    latest_run_success_count: 0,
+                    attempt_count_delta: 1.0,
+                    log_count: 1,
+                    log: Some(LogObservation {
+                        level: tracing::Level::ERROR,
+                        metadata_name: "site_explorer_bmc_reset_finished".to_string(),
+                        message: "Site Explorer failed to reset BMC".to_string(),
+                        event_name: Some("site_explorer_bmc_reset_finished".to_string()),
+                        metric_name: Some(METRIC_NAME.to_string()),
+                        method: Some("redfish".to_string()),
+                        status: Some("failed".to_string()),
+                        address: Some("127.0.0.1".to_string()),
+                        error: Some("internal error: simulated redfish failure".to_string()),
+                    }),
+                },
+            }
+        );
+    }
+
+    /// A timestamp write failure gets its own warning and method-only counter.
+    /// The terminal reset Event remains successful because the physical reset
+    /// finished before this bookkeeping operation ran.
+    #[test]
+    fn bmc_reset_timestamp_persistence_failures_are_instrumented_separately() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            counter_delta: f64,
+            log_count: usize,
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            method: Option<String>,
+            bmc_ip_address: Option<String>,
+            error: Option<String>,
         }
+
+        const METRIC_NAME: &str =
+            "carbide_site_explorer_bmc_reset_timestamp_persistence_failures_total";
+        let bmc_ip_address: IpAddr = "127.0.0.1".parse().unwrap();
+
+        value_scenarios!(
+            run = |method: BmcResetMethod| {
+                let method_label = method.to_string();
+                let event_metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    carbide_instrument::emit(BmcResetTimestampPersistenceFailed {
+                        method,
+                        bmc_ip_address,
+                        error: "simulated timestamp write failure".to_string(),
+                    });
+                });
+                let log = logs.first().expect("the persistence Event must log");
+
+                Observation {
+                    counter_delta: event_metrics.counter_delta(
+                        METRIC_NAME,
+                        &[("method", method_label.as_str())],
+                    ),
+                    log_count: logs.len(),
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    method: log.field("method").map(str::to_string),
+                    bmc_ip_address: log.field("bmc_ip_address").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                }
+            };
+            "timestamp persistence warning" {
+                BmcResetMethod::Ipmitool => Observation {
+                    counter_delta: 1.0,
+                    log_count: 1,
+                    level: tracing::Level::WARN,
+                    metadata_name:
+                        "site_explorer_bmc_reset_timestamp_persistence_failed".to_string(),
+                    message:
+                        "BMC reset succeeded but recording its rate-limit timestamp failed"
+                            .to_string(),
+                    event_name: Some(
+                        "site_explorer_bmc_reset_timestamp_persistence_failed".to_string(),
+                    ),
+                    metric_name: Some(METRIC_NAME.to_string()),
+                    method: Some("ipmitool".to_string()),
+                    bmc_ip_address: Some("127.0.0.1".to_string()),
+                    error: Some("simulated timestamp write failure".to_string()),
+                },
+                BmcResetMethod::Redfish => Observation {
+                    counter_delta: 1.0,
+                    log_count: 1,
+                    level: tracing::Level::WARN,
+                    metadata_name:
+                        "site_explorer_bmc_reset_timestamp_persistence_failed".to_string(),
+                    message:
+                        "BMC reset succeeded but recording its rate-limit timestamp failed"
+                            .to_string(),
+                    event_name: Some(
+                        "site_explorer_bmc_reset_timestamp_persistence_failed".to_string(),
+                    ),
+                    metric_name: Some(METRIC_NAME.to_string()),
+                    method: Some("redfish".to_string()),
+                    bmc_ip_address: Some("127.0.0.1".to_string()),
+                    error: Some("simulated timestamp write failure".to_string()),
+                },
+            }
+        );
     }
 
     #[test]

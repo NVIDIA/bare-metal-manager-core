@@ -17,10 +17,11 @@
 
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, Event, LogAt};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt};
 use carbide_metrics_utils::OtelView;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
@@ -386,6 +387,95 @@ impl DynamicLog for SiteExplorerIterationFinished {
             LogAt::Level(tracing::Level::ERROR)
         }
     }
+}
+
+/// The transport used for a BMC reset. Keeping this as an enum bounds the
+/// `method` label to the two reset paths Site Explorer can dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum BmcResetMethod {
+    Ipmitool,
+    Redfish,
+}
+
+impl Display for BmcResetMethod {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Ipmitool => "ipmitool",
+            Self::Redfish => "redfish",
+        })
+    }
+}
+
+/// Whether a dispatched BMC reset finished successfully.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum BmcResetStatus {
+    Succeeded,
+    Failed,
+}
+
+/// One Site Explorer BMC reset attempt finished. The cumulative counter tracks
+/// every terminal attempt by method and status, while `bmc_reset_count` keeps
+/// its existing latest-run success-only semantics.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_bmc_reset_finished",
+    metric_name = "carbide_site_explorer_bmc_reset_attempts_total",
+    component = "site-explorer",
+    log = dynamic,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Site Explorer BMC reset attempts, by method and status."
+)]
+pub(crate) struct BmcResetFinished {
+    #[label]
+    pub method: BmcResetMethod,
+    #[label]
+    pub status: BmcResetStatus,
+    #[context]
+    pub address: IpAddr,
+    /// The reset failure; empty when the physical reset succeeded.
+    #[context]
+    pub error: String,
+}
+
+impl DynamicLog for BmcResetFinished {
+    fn log_at(&self) -> LogAt {
+        match self.status {
+            BmcResetStatus::Succeeded => LogAt::Level(tracing::Level::INFO),
+            BmcResetStatus::Failed => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for BmcResetFinished {
+    fn message(&self) -> &'static str {
+        match self.status {
+            BmcResetStatus::Succeeded => "Site Explorer reset BMC",
+            BmcResetStatus::Failed => "Site Explorer failed to reset BMC",
+        }
+    }
+}
+
+/// A physical BMC reset succeeded, but its rate-limit timestamp could not be
+/// persisted. This is a separate Event because the bookkeeping failure must
+/// not turn the completed reset into a failed attempt.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_bmc_reset_timestamp_persistence_failed",
+    metric_name = "carbide_site_explorer_bmc_reset_timestamp_persistence_failures_total",
+    component = "site-explorer",
+    log = warn,
+    metric = counter,
+    message = "BMC reset succeeded but recording its rate-limit timestamp failed",
+    describe = "Number of Site Explorer BMC reset timestamp persistence failures, by method."
+)]
+pub(crate) struct BmcResetTimestampPersistenceFailed {
+    #[label]
+    pub method: BmcResetMethod,
+    #[context]
+    pub bmc_ip_address: IpAddr,
+    #[context]
+    pub error: String,
 }
 
 /// Instruments that are used by the Site Explorer
