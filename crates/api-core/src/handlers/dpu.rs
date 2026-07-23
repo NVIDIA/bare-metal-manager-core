@@ -793,7 +793,7 @@ pub(crate) async fn update_agent_reported_inventory(
     txn.commit().await?;
 
     if let Some(snapshot) = host_snapshot
-        && snapshot.host_snapshot.config.dpf.used_for_ingestion
+        && snapshot.host_snapshot.dpf.used_for_ingestion
     {
         let machine = snapshot
             .dpu_snapshots
