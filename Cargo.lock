@@ -1905,7 +1905,9 @@ name = "carbide-dpu-remediation"
 version = "0.0.0"
 dependencies = [
  "carbide-dpu-agent-utils",
+ "carbide-instrument",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
