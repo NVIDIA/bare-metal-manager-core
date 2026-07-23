@@ -312,8 +312,8 @@ async fn handle_dpf_provisioning(
 /// Transitions:
 /// - `Off`: wait for `power_state == Off` + delay → persist
 ///   `HandleReboot { On, 0 }`
-/// - `On`: issue or retry On while the host is Off; once the host is On after
-///   the delay, call `reboot_complete` and transition to `WaitingForReady`
+/// - `On`: wait for `power_state == On`  + delay → `reboot_complete` →
+///   `WaitingForReady`
 async fn handle_dpf_handle_reboot(
     state: &ManagedHostStateSnapshot,
     op: &PerformPowerOperation,
@@ -325,14 +325,12 @@ async fn handle_dpf_handle_reboot(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     const MAX_RETRIES: u32 = 3;
 
-    // On with zero attempts is durable intent before the initial command, so
-    // the transition delay applies only after a power command was issued.
-    if !(matches!(op, PerformPowerOperation::On) && retry_count == 0)
-        && super::wait(
-            &state.host_snapshot.state.version.timestamp(),
-            power_down_wait,
-        )
-    {
+    // Due to enqueue based event handling, On is triggered immedietely after Off while chassis is
+    // not able to process Off completely. So this time delay is needed.
+    if super::wait(
+        &state.host_snapshot.state.version.timestamp(),
+        power_down_wait,
+    ) {
         return Ok(StateHandlerOutcome::wait(
             "waiting for power transition delay".into(),
         ));
