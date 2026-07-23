@@ -112,8 +112,9 @@ The tables below summarize the keys that must be set per site.
 |-----|---------|-------------|-------------|
 | `siteName` | `"TMP_SITE"` | **Yes** | Site identifier, injected into postgres pods as `TMP_SITE` |
 | `imagePullSecrets.ngcNicoPull` | `""` | No (auto) | Pull secret for NICo Core images. Set automatically by `setup.sh` from `REGISTRY_PULL_SECRET` when provided. |
-| `vault.nicoCliClientRole.enabled` | `false` | No | Create an optional Vault PKI role for short-lived NICo CLI client certificates. This only defines the certificate profile; issuance access must be granted separately. |
-| `vault.nicoCliClientRole.name` | `"nico-cli-client"` | No | Vault role name and certificate `SubjectOU` used to identify NICo CLI client certificates. |
+| `vault.nicoCliClientRole.enabled` | `true` | No | Create the Vault PKI role for short-lived NICo CLI client certificates. This only defines the certificate profile; issuance access must be granted separately. |
+| `vault.nicoCliClientRole.name` | `"nico-cli-client"` | No | Vault role name, and the certificate `SubjectOU` when `ou` is empty. |
+| `vault.nicoCliClientRole.ou` | `""` | No | Certificate `SubjectOU` stamped on issued CLI client certs; empty means use `name`. nico-api maps the OU to the ExternalUser group, but admin-CLI authorization is gated by the issuer CN (`auth.additionalIssuerCns`), not the OU value. Do not set `"Invalid"`. |
 | `vault.nicoCliClientRole.organization` | `""` | No | Optional certificate `SubjectO` value for deployments that want an additional identity marker. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
