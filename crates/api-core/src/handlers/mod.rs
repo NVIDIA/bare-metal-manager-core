@@ -78,6 +78,7 @@ pub mod route_server;
 pub mod scout_stream;
 pub mod secrets;
 pub mod site_explorer;
+pub mod site_prefix;
 pub mod sku;
 pub mod spx_partition;
 pub mod svpc;

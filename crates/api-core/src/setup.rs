@@ -262,10 +262,12 @@ pub async fn start_api(
     };
 
     // Note: Normally we want initialize_and_start_controllers to be responsible for populating
-    // information into the database, but resource pools and route servers need to be defined first,
-    // since the controllers rely on a fully-hydrated Api object, which relies on route_servers and
-    // common_pools being populated. So if we're configured for listen_only, strictly read them from
-    // the database (assuming another instance has populated them), otherwise, populate them now.
+    // information into the database, but resource pools, route servers, and configured site
+    // prefixes need to be defined first. The controllers rely on a fully-hydrated Api object, which
+    // relies on route_servers and common_pools being populated, while site-prefix inventory must
+    // reflect the complete configured set before the API starts serving it. So if we're configured
+    // for listen_only, strictly read them from the database (assuming another instance has populated
+    // them), otherwise, populate them now.
     //
     // Pool reconciliation specifically must happen before `create_common_pools` runs below, because
     // that call queries `resource_pool` and bails if any mandatory pool is missing or empty.
@@ -289,6 +291,9 @@ pub async fn start_api(
             RouteServerSourceType::ConfigFile,
         )
         .await?;
+
+        db::site_prefix::reconcile_configured(&mut txn, &carbide_config.site_fabric_prefixes)
+            .await?;
 
         txn.commit().await?;
 
