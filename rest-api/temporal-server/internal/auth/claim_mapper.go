@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/google/uuid"
 	"go.temporal.io/server/common/authorization"
 )
 
@@ -85,8 +84,7 @@ func mapIdentity(certificate *x509.Certificate) identity {
 
 	commonName := strings.ToLower(certificate.Subject.CommonName)
 	namespace, ok := strings.CutSuffix(commonName, siteClientDNSSuffix)
-	parsedNamespace, err := uuid.Parse(namespace)
-	if !ok || err != nil || parsedNamespace.String() != namespace || !containsDNSName(certificate, commonName) {
+	if !ok || !isSiteNamespace(namespace) || !containsDNSName(certificate, commonName) {
 		return identity{kind: identityUnknown}
 	}
 	return identity{kind: identitySite, siteNamespace: namespace}

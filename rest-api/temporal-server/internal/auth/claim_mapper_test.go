@@ -9,6 +9,8 @@ import (
 	"crypto/x509/pkix"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.temporal.io/server/common/authorization"
 	"google.golang.org/grpc/credentials"
 )
@@ -74,19 +76,11 @@ func TestClaimMapperMapsVerifiedCertificates(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			claims, err := mapper.GetClaims(authInfo(test.certificate, test.verified))
-			if err != nil {
-				t.Fatalf("GetClaims() error = %v", err)
-			}
+			require.NoError(t, err)
 			mappedIdentity, ok := claims.Extensions.(identity)
-			if !ok {
-				t.Fatalf("GetClaims() extension type = %T", claims.Extensions)
-			}
-			if mappedIdentity.kind != test.wantKind {
-				t.Errorf("identity kind = %v, want %v", mappedIdentity.kind, test.wantKind)
-			}
-			if mappedIdentity.siteNamespace != test.wantNamespace {
-				t.Errorf("site namespace = %q, want %q", mappedIdentity.siteNamespace, test.wantNamespace)
-			}
+			require.True(t, ok, "GetClaims() extension type = %T", claims.Extensions)
+			assert.Equal(t, test.wantKind, mappedIdentity.kind)
+			assert.Equal(t, test.wantNamespace, mappedIdentity.siteNamespace)
 		})
 	}
 }

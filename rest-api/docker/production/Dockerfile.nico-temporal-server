@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-FROM --platform=$BUILDPLATFORM golang:1.26.4 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.4@sha256:f96cc555eb8db430159a3aa6797cd5bae561945b7b0fe7d0e284c63a3b291609 AS builder
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -18,6 +18,6 @@ RUN go mod download
 COPY temporal-server/ ./
 RUN go build -trimpath -ldflags "-w -s" -o /out/temporal-server ./cmd/server
 
-FROM temporalio/server:1.26.2
+FROM temporalio/server:1.26.2@sha256:1e2626efcbc14cf80a6ce62b2a14d78848b9043d521c17f0a1368f7660d6abd3
 
 COPY --from=builder /out/temporal-server /usr/local/bin/temporal-server

@@ -97,6 +97,13 @@ jobs:
           args: --timeout=10m --issues-exit-code=0 ./...
           working-directory: rest-api
 
+      - name: Run golangci-lint for Temporal server
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --timeout=10m --issues-exit-code=0 ./...
+          working-directory: rest-api/temporal-server
+
   lint-openapi:
     name: Lint OpenAPI
     runs-on: linux-amd64-cpu4
@@ -267,7 +274,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: rest-api/go.sum
+          cache-dependency-path: |
+            rest-api/go.sum
+            rest-api/temporal-server/go.sum
 
       - name: Run unit tests for ${{ matrix.module }}
         working-directory: .

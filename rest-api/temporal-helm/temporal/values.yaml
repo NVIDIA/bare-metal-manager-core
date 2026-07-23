@@ -37,10 +37,9 @@ server:
   # If you have sidecar containers:
   sidecarContainers: {}
 
-  # Use the new upstream server image version, preserving your local choice of "1.22.x" (here 1.22.6)
   image:
-    repository: temporalio/server
-    tag: 1.22.6
+    repository: nvcr.io/0837451325059433/carbide-dev/nico-temporal-server
+    tag: latest
     pullPolicy: IfNotPresent
 
   # Global default settings (can be overridden per service)

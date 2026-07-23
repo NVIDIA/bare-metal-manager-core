@@ -8,6 +8,8 @@ import (
 	"crypto/x509"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	workflowservice "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/server/common/authorization"
 )
@@ -155,12 +157,8 @@ func TestAuthorizationPolicy(t *testing.T) {
 				APIName:   test.apiName,
 				Namespace: test.namespace,
 			})
-			if err != nil {
-				t.Fatalf("Authorize() error = %v", err)
-			}
-			if result.Decision != test.wantDecision {
-				t.Errorf("Authorize() decision = %v, want %v", result.Decision, test.wantDecision)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantDecision, result.Decision)
 		})
 	}
 }
@@ -201,19 +199,13 @@ func TestMappedCertificatePolicy(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			claims, err := mapper.GetClaims(authInfo(test.certificate, true))
-			if err != nil {
-				t.Fatalf("GetClaims() error = %v", err)
-			}
+			require.NoError(t, err)
 			result, err := policy.Authorize(context.Background(), claims, &authorization.CallTarget{
 				APIName:   workflowservice.WorkflowService_StartWorkflowExecution_FullMethodName,
 				Namespace: test.namespace,
 			})
-			if err != nil {
-				t.Fatalf("Authorize() error = %v", err)
-			}
-			if result.Decision != test.wantDecision {
-				t.Errorf("Authorize() decision = %v, want %v", result.Decision, test.wantDecision)
-			}
+			require.NoError(t, err)
+			assert.Equal(t, test.wantDecision, result.Decision)
 		})
 	}
 }
