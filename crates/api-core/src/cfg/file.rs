@@ -176,20 +176,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub enable_route_servers: bool,
 
-    /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
-    //
-    // TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
-    // that process deny prefixes are IPv4-only (and I'll do it in another PR):
-    // - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
-    //   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
-    // - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
-    //   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
-    //
-    // Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
-    // rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
-    // handle the `ipv6: bool` split.
+    /// List of IP prefixes (in CIDR notation) that tenant instances are not allowed to reach.
+    ///
+    /// FNN supports IPv4 and IPv6 prefixes. All non-FNN virtualizers apply only IPv4 prefixes.
     #[serde(default)]
-    pub deny_prefixes: Vec<Ipv4Network>,
+    pub deny_prefixes: Vec<IpNetwork>,
 
     /// List of IP prefixes (in CIDR notation) that are assigned for tenant
     /// use within this site. Supports both IPv4 and IPv6 prefixes.
@@ -3351,6 +3342,53 @@ mod tests {
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
+
+    #[test]
+    fn deny_prefixes_accept_both_address_families() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                    deny_prefixes = ["192.0.2.0/24", "2001:db8::/32"]
+                    anycast_site_prefixes = ["198.51.100.0/24"]
+                "#,
+            ))
+            .extract()
+            .expect("dual-stack deny prefixes must parse");
+
+        assert_eq!(
+            config.deny_prefixes,
+            vec![
+                "192.0.2.0/24".parse::<IpNetwork>().unwrap(),
+                "2001:db8::/32".parse::<IpNetwork>().unwrap(),
+            ]
+        );
+        assert_eq!(
+            config.anycast_site_prefixes,
+            vec!["198.51.100.0/24".parse::<Ipv4Network>().unwrap()]
+        );
+    }
+
+    #[test]
+    fn anycast_site_prefixes_reject_ipv6() {
+        let result = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                    anycast_site_prefixes = ["2001:db8::/32"]
+                "#,
+            ))
+            .extract::<CarbideConfig>();
+
+        assert!(
+            result.is_err(),
+            "IPv6 anycast site prefixes must be rejected"
+        );
+    }
 
     /// Exercises the real `[certificates]` / `[certificates.dedicated_vault]`
     /// TOML contract through Figment (the production config path), rather than

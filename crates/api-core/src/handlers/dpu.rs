@@ -33,6 +33,7 @@ use db::{
     network_segment,
 };
 use futures_util::future::join_all;
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
 use model::hardware_info::{MachineInventory, MachineInventorySoftwareComponent};
@@ -67,6 +68,42 @@ fn build_consolidated_network_config(
     rpc::ManagedHostNetworkConfig {
         loopback_ip: dpu_loopback_ip.to_string(),
         quarantine_state: host_network_config.quarantine_state.clone().map(Into::into),
+    }
+}
+
+/// FNN renders family-specific deny policies, while ETV exposes only its IPv4 policy. Filter at
+/// this per-DPU boundary so a mixed site can send IPv6 to FNN without changing the IPv4-only wire
+/// contract for ETV, Flat, and older agents.
+fn deny_prefixes_for_agent(
+    prefixes: &[IpNetwork],
+    network_virtualization_type: VpcVirtualizationType,
+) -> Vec<String> {
+    let supports_ipv6 = network_virtualization_type == VpcVirtualizationType::Fnn;
+
+    prefixes
+        .iter()
+        .filter(|prefix| supports_ipv6 || prefix.is_ipv4())
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Builds the deprecated deny field with the same address-family contract as `deny_prefixes`.
+///
+/// Mutual isolation folds site-fabric prefixes into this field, so those prefixes must pass
+/// through the per-DPU filter as well.
+fn deprecated_deny_prefixes_for_agent(
+    deny_prefixes: &[String],
+    site_fabric_prefixes: &[IpNetwork],
+    isolation_behavior: VpcIsolationBehaviorType,
+    network_virtualization_type: VpcVirtualizationType,
+) -> Vec<String> {
+    match isolation_behavior {
+        VpcIsolationBehaviorType::MutualIsolation => {
+            let site_fabric_prefixes =
+                deny_prefixes_for_agent(site_fabric_prefixes, network_virtualization_type);
+            [site_fabric_prefixes.as_slice(), deny_prefixes].concat()
+        }
+        VpcIsolationBehaviorType::Open => deny_prefixes.to_vec(),
     }
 }
 
@@ -492,29 +529,26 @@ pub(crate) async fn get_managed_host_network_config_inner(
         api.eth_data.asn
     };
 
-    let deny_prefixes: Vec<String> = api
-        .eth_data
-        .deny_prefixes
-        .iter()
-        .map(|net| net.to_string())
-        .collect();
+    let deny_prefixes =
+        deny_prefixes_for_agent(&api.eth_data.deny_prefixes, network_virtualization_type);
 
-    let site_fabric_prefixes: Vec<String> = api
+    let site_fabric_networks = api
         .eth_data
         .site_fabric_prefixes
         .as_ref()
         .map(|s| s.as_ip_slice())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let site_fabric_prefixes: Vec<String> = site_fabric_networks
         .iter()
         .map(|net| net.to_string())
         .collect();
 
-    let deprecated_deny_prefixes = match api.runtime_config.vpc_isolation_behavior {
-        VpcIsolationBehaviorType::MutualIsolation => {
-            [site_fabric_prefixes.as_slice(), deny_prefixes.as_slice()].concat()
-        }
-        VpcIsolationBehaviorType::Open => deny_prefixes.clone(),
-    };
+    let deprecated_deny_prefixes = deprecated_deny_prefixes_for_agent(
+        &deny_prefixes,
+        site_fabric_networks,
+        api.runtime_config.vpc_isolation_behavior,
+        network_virtualization_type,
+    );
 
     // Strip the source_type for the route servers that we feed back to the DPUs -- they just care
     // about the IP address. Although, maybe in the future, we might be interested in sending the
@@ -1457,6 +1491,68 @@ pub(crate) async fn get_bgp_password(
             });
         }
     })
+}
+
+#[cfg(test)]
+mod deny_prefix_tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[test]
+    fn prefixes_follow_the_effective_virtualizer() {
+        let prefixes = ["192.0.2.0/24", "2001:db8::/32"].map(|prefix| prefix.parse().unwrap());
+        let ipv4_only = vec!["192.0.2.0/24".to_string()];
+
+        value_scenarios!(
+            run = |virtualization_type| {
+                deny_prefixes_for_agent(&prefixes, virtualization_type)
+            };
+            "dual-stack agent policy" {
+                VpcVirtualizationType::Fnn => vec![
+                    "192.0.2.0/24".to_string(),
+                    "2001:db8::/32".to_string(),
+                ],
+            }
+
+            "non-FNN wire compatibility" {
+                VpcVirtualizationType::EthernetVirtualizer => ipv4_only.clone(),
+                VpcVirtualizationType::EthernetVirtualizerWithNvue => ipv4_only.clone(),
+                VpcVirtualizationType::Flat => ipv4_only,
+            }
+        );
+    }
+
+    #[test]
+    fn deprecated_field_filters_dual_stack_site_fabric() {
+        let deny_prefixes = vec!["198.51.100.0/24".to_string()];
+        let site_fabric_prefixes =
+            ["192.0.2.0/24", "2001:db8::/32"].map(|prefix| prefix.parse().unwrap());
+        let fnn_prefixes = vec![
+            "192.0.2.0/24".to_string(),
+            "2001:db8::/32".to_string(),
+            "198.51.100.0/24".to_string(),
+        ];
+        let ipv4_only = vec!["192.0.2.0/24".to_string(), "198.51.100.0/24".to_string()];
+
+        value_scenarios!(
+            run = |virtualization_type| deprecated_deny_prefixes_for_agent(
+                &deny_prefixes,
+                &site_fabric_prefixes,
+                VpcIsolationBehaviorType::MutualIsolation,
+                virtualization_type,
+            );
+            "dual-stack FNN compatibility field" {
+                VpcVirtualizationType::Fnn => fnn_prefixes,
+            }
+
+            "IPv4-only compatibility field" {
+                VpcVirtualizationType::EthernetVirtualizer => ipv4_only.clone(),
+                VpcVirtualizationType::EthernetVirtualizerWithNvue => ipv4_only.clone(),
+                VpcVirtualizationType::Flat => ipv4_only,
+            }
+        );
+    }
 }
 
 #[cfg(test)]
