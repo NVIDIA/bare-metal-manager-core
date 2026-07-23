@@ -197,6 +197,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_resourcepool_used_count</td><td>gauge</td><td>Number of currently allocated values in the resource pool</td></tr>
 <tr><td>carbide_running_dpu_updates_count</td><td>gauge</td><td>Number of machines in the system that are currently running a DPU/NIC firmware update</td></tr>
 <tr><td>carbide_scout_actions_total</td><td>counter</td><td>Number of scout control-loop actions handled, by action and outcome.</td></tr>
+<tr><td>carbide_scout_storage_device_cleanup_duration_seconds</td><td>histogram</td><td>Duration of per-device scout storage cleanup operations, by device type and outcome.</td></tr>
 <tr><td>carbide_scout_stream_connections_total</td><td>counter</td><td>Number of scout stream connection attempts, by outcome.</td></tr>
 <tr><td>carbide_scout_stream_reconnects_total</td><td>counter</td><td>Number of scout stream reconnect cycles after a stream closed or errored.</td></tr>
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>Number of expected machines by SKU ID and device type</td></tr>

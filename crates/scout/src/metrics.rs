@@ -21,8 +21,12 @@
 //! the records operators use to diagnose those outcomes.
 //! `ScoutStreamConnection` remains metric-only because the surrounding stream
 //! lifecycle logs already carry the endpoint and machine context.
+//! The storage cleanup Event keeps each device's terminal record together with
+//! the duration histogram operators use to compare NVMe and HDD/SAS cleanup.
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue, Outcome};
+use std::time::Duration;
+
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome};
 use carbide_uuid::machine::MachineId;
 use rpc::forge_agent_control_response as fac;
 
@@ -133,12 +137,90 @@ pub struct ScoutStreamReconnect {
     pub machine_id: MachineId,
 }
 
+/// Which storage cleanup path scout ran for a device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum StorageDeviceType {
+    Nvme,
+    HddSas,
+}
+
+/// `ScoutStorageDeviceCleanup` records one device's terminal result. The
+/// enclosing cleanup span keeps the device path on the record, while this
+/// Event adds the bounded labels and duration sample.
+#[derive(Event)]
+#[event(
+    event_name = "scout_storage_device_cleanup",
+    metric_name = "carbide_scout_storage_device_cleanup_duration_seconds",
+    component = "nico-scout",
+    log = dynamic,
+    metric = histogram,
+    message = dynamic,
+    describe = "Duration of per-device scout storage cleanup operations, by device type and outcome."
+)]
+pub(crate) struct ScoutStorageDeviceCleanup {
+    #[label]
+    device_type: StorageDeviceType,
+    #[label]
+    outcome: Outcome,
+    #[observation]
+    took: Duration,
+    /// `duration` retains the existing Debug-formatted log field; `took`
+    /// records the same value in seconds.
+    #[context]
+    duration: String,
+    /// Failure detail; successful cleanup uses `""` because an Event keeps one
+    /// stable set of context fields.
+    #[context]
+    error: String,
+}
+
+impl ScoutStorageDeviceCleanup {
+    pub(crate) fn new<E>(
+        device_type: StorageDeviceType,
+        duration: Duration,
+        result: &Result<(), E>,
+    ) -> Self
+    where
+        E: std::fmt::Display,
+    {
+        Self {
+            device_type,
+            outcome: Outcome::from(result),
+            took: duration,
+            duration: format!("{duration:?}"),
+            error: result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+        }
+    }
+}
+
+impl DynamicLog for ScoutStorageDeviceCleanup {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
+            Outcome::Error => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for ScoutStorageDeviceCleanup {
+    fn message(&self) -> &'static str {
+        match self.outcome {
+            Outcome::Ok => "Cleanup completed successfully",
+            Outcome::Error => "Cleanup failed",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr as _;
 
     use carbide_instrument::emit;
-    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
 
     use super::*;
@@ -426,6 +508,205 @@ mod tests {
         assert_eq!(
             metrics.counter_delta("carbide_scout_stream_reconnects_total", &[]),
             1.0
+        );
+    }
+
+    #[test]
+    fn storage_device_cleanup_logs_and_records_duration() {
+        const METRIC_NAME: &str = "carbide_scout_storage_device_cleanup_duration_seconds";
+
+        enum CleanupCase {
+            Succeeded {
+                device_type: StorageDeviceType,
+                duration: Duration,
+            },
+            Failed {
+                device_type: StorageDeviceType,
+                duration: Duration,
+                error: &'static str,
+            },
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            metadata_name: String,
+            level: tracing::Level,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            device_type: Option<String>,
+            outcome: Option<String>,
+            duration: Option<String>,
+            duration_kind: Option<CapturedFieldKind>,
+            error: Option<String>,
+            error_kind: Option<CapturedFieldKind>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            histogram_count_delta: u64,
+            histogram_sum_delta: f64,
+        }
+
+        fn observe(case: CleanupCase) -> Observation {
+            let metrics = MetricsCapture::start();
+            let (device_type, duration, result) = match case {
+                CleanupCase::Succeeded {
+                    device_type,
+                    duration,
+                } => (device_type, duration, Ok(())),
+                CleanupCase::Failed {
+                    device_type,
+                    duration,
+                    error,
+                } => (device_type, duration, Err(error)),
+            };
+            let device_type_label = device_type.label_value().to_string();
+            let outcome_label = match result {
+                Ok(()) => "ok",
+                Err(_) => "error",
+            };
+            let labels = [
+                ("device_type", device_type_label.as_str()),
+                ("outcome", outcome_label),
+            ];
+            let logs = capture_logs(|| {
+                emit(ScoutStorageDeviceCleanup::new(
+                    device_type,
+                    duration,
+                    &result,
+                ));
+            });
+            let log = logs.first().map(|log| LogObservation {
+                metadata_name: log.metadata_name.clone(),
+                level: log.level,
+                message: log.message.clone(),
+                event_name: log.field("event_name").map(str::to_string),
+                metric_name: log.field("metric_name").map(str::to_string),
+                device_type: log.field("device_type").map(str::to_string),
+                outcome: log.field("outcome").map(str::to_string),
+                duration: log.field("duration").map(str::to_string),
+                duration_kind: log.field_kind("duration"),
+                error: log.field("error").map(str::to_string),
+                error_kind: log.field_kind("error"),
+            });
+
+            Observation {
+                log_count: logs.len(),
+                log,
+                histogram_count_delta: metrics.histogram_count_delta(METRIC_NAME, &labels),
+                histogram_sum_delta: metrics.histogram_sum_delta(METRIC_NAME, &labels),
+            }
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "NVMe cleanup succeeded",
+                    input: CleanupCase::Succeeded {
+                        device_type: StorageDeviceType::Nvme,
+                        duration: Duration::from_millis(250),
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            metadata_name: "scout_storage_device_cleanup".to_string(),
+                            level: tracing::Level::INFO,
+                            message: "Cleanup completed successfully".to_string(),
+                            event_name: Some("scout_storage_device_cleanup".to_string()),
+                            metric_name: Some(METRIC_NAME.to_string()),
+                            device_type: Some("nvme".to_string()),
+                            outcome: Some("ok".to_string()),
+                            duration: Some("250ms".to_string()),
+                            duration_kind: Some(CapturedFieldKind::Debug),
+                            error: Some(String::new()),
+                            error_kind: Some(CapturedFieldKind::Debug),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 0.25,
+                    },
+                },
+                Check {
+                    scenario: "NVMe cleanup failed",
+                    input: CleanupCase::Failed {
+                        device_type: StorageDeviceType::Nvme,
+                        duration: Duration::from_millis(500),
+                        error: "NVMe sanitize command failed",
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            metadata_name: "scout_storage_device_cleanup".to_string(),
+                            level: tracing::Level::ERROR,
+                            message: "Cleanup failed".to_string(),
+                            event_name: Some("scout_storage_device_cleanup".to_string()),
+                            metric_name: Some(METRIC_NAME.to_string()),
+                            device_type: Some("nvme".to_string()),
+                            outcome: Some("error".to_string()),
+                            duration: Some("500ms".to_string()),
+                            duration_kind: Some(CapturedFieldKind::Debug),
+                            error: Some("NVMe sanitize command failed".to_string()),
+                            error_kind: Some(CapturedFieldKind::Debug),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 0.5,
+                    },
+                },
+                Check {
+                    scenario: "HDD/SAS cleanup succeeded",
+                    input: CleanupCase::Succeeded {
+                        device_type: StorageDeviceType::HddSas,
+                        duration: Duration::from_millis(750),
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            metadata_name: "scout_storage_device_cleanup".to_string(),
+                            level: tracing::Level::INFO,
+                            message: "Cleanup completed successfully".to_string(),
+                            event_name: Some("scout_storage_device_cleanup".to_string()),
+                            metric_name: Some(METRIC_NAME.to_string()),
+                            device_type: Some("hdd_sas".to_string()),
+                            outcome: Some("ok".to_string()),
+                            duration: Some("750ms".to_string()),
+                            duration_kind: Some(CapturedFieldKind::Debug),
+                            error: Some(String::new()),
+                            error_kind: Some(CapturedFieldKind::Debug),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 0.75,
+                    },
+                },
+                Check {
+                    scenario: "HDD/SAS cleanup failed",
+                    input: CleanupCase::Failed {
+                        device_type: StorageDeviceType::HddSas,
+                        duration: Duration::from_secs(1),
+                        error: "HDD security erase failed",
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: Some(LogObservation {
+                            metadata_name: "scout_storage_device_cleanup".to_string(),
+                            level: tracing::Level::ERROR,
+                            message: "Cleanup failed".to_string(),
+                            event_name: Some("scout_storage_device_cleanup".to_string()),
+                            metric_name: Some(METRIC_NAME.to_string()),
+                            device_type: Some("hdd_sas".to_string()),
+                            outcome: Some("error".to_string()),
+                            duration: Some("1s".to_string()),
+                            duration_kind: Some(CapturedFieldKind::Debug),
+                            error: Some("HDD security erase failed".to_string()),
+                            error_kind: Some(CapturedFieldKind::Debug),
+                        }),
+                        histogram_count_delta: 1,
+                        histogram_sum_delta: 1.0,
+                    },
+                },
+            ],
+            observe,
         );
     }
 }
