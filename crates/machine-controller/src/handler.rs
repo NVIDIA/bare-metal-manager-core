@@ -9921,7 +9921,7 @@ fn handler_restart_dpu(
         tracing::info!(
             dpu_machine_id = %machine.id,
             %trigger_location,
-            "Attempting DPU restart"
+            "attempting DPU restart"
         );
 
         if let Err(error) = restart_dpu(machine, ctx.services, dpf_used_for_ingestion).await {
