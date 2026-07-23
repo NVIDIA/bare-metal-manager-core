@@ -29,7 +29,7 @@
 
 use carbide_uuid::secret::SecretId;
 use model::secrets::SecretRow;
-use sqlx::{PgConnection, PgTransaction};
+use sqlx::{PgConnection, PgPool, PgTransaction};
 
 use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
@@ -155,6 +155,59 @@ pub async fn unlock_path_session(conn: &mut PgConnection, path: &str) -> Databas
         .await
         .map_err(|e| DatabaseError::query(sql, e))?;
     Ok(())
+}
+
+/// A Postgres *session* advisory lock held on its own dedicated connection.
+///
+/// The lock lives as long as this guard: it is taken on a dedicated connection
+/// detached from the pool, and Postgres releases it when that connection is
+/// torn down. Dropping the guard drops the connection and starts that teardown,
+/// so the release follows the drop closely but is not synchronous with it --
+/// fine for the single-flight callers here, where a racing re-run just waits on
+/// `acquire` or sees the lock still held via `try_acquire`. Because the
+/// connection is detached, holding it never counts against pool capacity, so a
+/// caller can guard a long operation (awaiting Vault/KMS, opening a transaction
+/// per batch) without keeping a *transaction* open across those awaits.
+///
+/// That last point is why this type exists rather than a bare `PgConnection`:
+/// the value a caller holds across its awaits is a `SessionLock` -- a lock
+/// holder, not a transaction -- so `txn_held_across_await` is not tripped, and
+/// no connection is held open as a transaction here.
+#[must_use = "dropping a SessionLock releases the session advisory lock"]
+pub struct SessionLock {
+    // Held only for its lifetime: dropping it closes the connection, which
+    // releases the lock. Nothing reads it back, hence the leading underscore.
+    _conn: PgConnection,
+}
+
+impl SessionLock {
+    /// Take `path`'s session advisory lock on a dedicated connection, waiting
+    /// until it is free (see [`lock_path_session`]).
+    pub async fn acquire(pool: &PgPool, path: &str) -> DatabaseResult<Self> {
+        let mut conn = pool
+            .acquire()
+            .await
+            .map_err(DatabaseError::acquire)?
+            .detach();
+        lock_path_session(&mut conn, path).await?;
+        Ok(Self { _conn: conn })
+    }
+
+    /// Try to take `path`'s session advisory lock on a dedicated connection
+    /// without waiting. `Ok(None)` means another session already holds it (see
+    /// [`try_lock_path_session`]).
+    pub async fn try_acquire(pool: &PgPool, path: &str) -> DatabaseResult<Option<Self>> {
+        let mut conn = pool
+            .acquire()
+            .await
+            .map_err(DatabaseError::acquire)?
+            .detach();
+        if try_lock_path_session(&mut conn, path).await? {
+            Ok(Some(Self { _conn: conn }))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Whether any entries exist for the path.

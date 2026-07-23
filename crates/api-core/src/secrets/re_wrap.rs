@@ -60,13 +60,6 @@ struct PendingReWrap {
 /// Historical journal entries are re-wrapped too: they must stay
 /// decryptable, and re-wrapping them is what lets an old KEK be retired
 /// completely.
-// Custom-lint exception for #2665 (@chet): this function intentionally keeps a
-// dedicated detached connection alive across awaits because the re-wrap lock is
-// session-scoped and releases when that connection closes. The custom lint
-// classifies bare `PgConnection`s as transactions, but no transaction is open on
-// this connection; batch reads, KMS work, and batch-write transactions use
-// separate pool connections.
-#[allow(txn_held_across_await)]
 pub async fn re_wrap_stale(
     pool: &PgPool,
     kms: &dyn KmsBackend,
@@ -74,20 +67,15 @@ pub async fn re_wrap_stale(
     batch_size: i64,
 ) -> Result<ReWrapStaleResult, PgSecretsError> {
     // One re-wrap at a time: a second concurrent run would double every
-    // KMS round-trip for no benefit. The guard is a session advisory lock
-    // held on a dedicated connection, not a transaction -- the walk awaits
-    // Vault/KMS and opens a transaction per batch, and a lock transaction
-    // held across all of that would trip `txn_held_across_await` and could
-    // starve the pool. Detaching the connection guarantees the lock
-    // releases when it drops, including on an early error return.
-    let mut lock_conn = pool
-        .acquire()
-        .await
-        .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?
-        .detach();
-    if !db::secrets::try_lock_path_session(&mut lock_conn, RE_WRAP_LOCK_PATH).await? {
-        return Err(PgSecretsError::ReWrapInProgress);
-    }
+    // KMS round-trip for no benefit. `SessionLock` holds a session advisory
+    // lock on its own detached connection -- not a transaction -- so the walk
+    // can await Vault/KMS and open a transaction per batch without holding
+    // anything across those awaits. `_lock` releases when it drops at the end
+    // of the function, including on an early `?` return.
+    let _lock = match db::secrets::SessionLock::try_acquire(pool, RE_WRAP_LOCK_PATH).await? {
+        Some(lock) => lock,
+        None => return Err(PgSecretsError::ReWrapInProgress),
+    };
 
     let mut result = ReWrapStaleResult {
         re_wrapped: 0,

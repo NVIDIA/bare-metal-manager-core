@@ -517,13 +517,6 @@ fn build_kms_backend(
 /// where they are stranded. Site-explorer credential rotation is the writer
 /// to worry about; keep it disabled until the whole fleet runs a consistent
 /// config.
-// Custom-lint exception for #2665 (@chet): this function intentionally keeps a
-// dedicated detached connection alive across awaits because the Vault import
-// lock is session-scoped and releases when that connection closes. The custom
-// lint also classifies bare `PgConnection`s as transactions, but no transaction
-// is open here: Vault reads and Postgres writes use separate pool connections so
-// the importer cannot block itself on pool capacity.
-#[allow(txn_held_across_await)]
 async fn import_vault_secrets_once(
     db_pool: &PgPool,
     secrets_config: &SecretsConfig,
@@ -538,22 +531,18 @@ async fn import_vault_secrets_once(
 
     // Several replicas can boot against the same empty database at once.
     // The marker path's advisory lock lets one of them import while the
-    // rest wait here, re-check the marker, and move on. It is a session
-    // lock on a dedicated connection rather than a transaction-scoped one:
-    // the import awaits Vault enumeration and pool-backed writes, and
-    // holding a transaction across those would trip `txn_held_across_await`
-    // and, under concurrent startup, risk waiters starving the pool the
-    // importer itself needs. Detaching the connection guarantees the lock
-    // releases when it drops, including on an early error return.
-    let mut lock_conn = db_pool
-        .acquire()
-        .await
-        .wrap_err("acquire vault import lock connection")?
-        .detach();
-    db::secrets::lock_path_session(&mut lock_conn, crate::secrets::VAULT_IMPORT_MARKER_PATH)
-        .await
-        .map_err(eyre::Report::new)
-        .wrap_err("acquire vault import lock")?;
+    // rest wait here, re-check the marker, and move on. `SessionLock` holds
+    // it on a dedicated detached connection rather than in a transaction: the
+    // import awaits Vault enumeration and pool-backed writes, and holding a
+    // transaction across those would trip `txn_held_across_await` and, under
+    // concurrent startup, risk waiters starving the pool the importer itself
+    // needs. `_import_lock` releases when it drops at the end of the function,
+    // including on an early error return.
+    let _import_lock =
+        db::secrets::SessionLock::acquire(db_pool, crate::secrets::VAULT_IMPORT_MARKER_PATH)
+            .await
+            .map_err(eyre::Report::new)
+            .wrap_err("acquire vault import lock")?;
 
     if is_import_complete(db_pool).await? {
         tracing::info!("Vault import completed by another replica");
@@ -606,7 +595,7 @@ async fn import_vault_secrets_once(
         .wrap_err("mark vault import complete")?;
     tracing::info!("Vault import marked complete");
 
-    // lock_conn drops here, closing the connection and releasing the
+    // `_import_lock` drops here, closing the connection and releasing the
     // session advisory lock.
     Ok(())
 }
