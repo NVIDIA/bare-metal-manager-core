@@ -685,7 +685,10 @@ fn nvme_size_mb(model: &str) -> u32 {
 /// needs a unique PCI path so v5 SKU generation records one storage entry per
 /// drive.
 fn nvme_pci_path(index: usize) -> String {
-    format!("/devices/pci0000:00/0000:64:00.0/0000:{:02x}:00.0/nvme/nvme{index}/nvme{index}n1", 0x65 + index)
+    format!(
+        "/devices/pci0000:00/0000:64:00.0/0000:{:02x}:00.0/nvme/nvme{index}/nvme{index}n1",
+        0x65 + index
+    )
 }
 
 fn gb200_gpus() -> Vec<Gpu> {
