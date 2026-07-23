@@ -137,6 +137,28 @@ pub struct ScoutStreamReconnect {
     pub machine_id: MachineId,
 }
 
+/// `ScoutStreamResponseDropped` records a response scout could not return
+/// after the outbound request stream closed. The stream loop still breaks and
+/// reconnects, while this Event identifies the response that was lost.
+#[derive(Event)]
+#[event(
+    event_name = "scout_stream_response_dropped",
+    metric_name = "carbide_scout_stream_responses_dropped_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "scout stream failed to send response",
+    describe = "Number of scout stream responses dropped after the outbound request stream closed."
+)]
+pub(crate) struct ScoutStreamResponseDropped {
+    #[context]
+    pub api_endpoint: String,
+    #[context]
+    pub machine_id: MachineId,
+    #[context]
+    pub error: String,
+}
+
 /// Which storage cleanup path scout ran for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
 pub(crate) enum StorageDeviceType {
@@ -507,6 +529,43 @@ mod tests {
 
         assert_eq!(
             metrics.counter_delta("carbide_scout_stream_reconnects_total", &[]),
+            1.0
+        );
+    }
+
+    #[test]
+    fn scout_stream_response_drop_logs_and_counts() {
+        let metrics = MetricsCapture::start();
+        let machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")
+                .expect("valid machine id");
+        let logs = capture_logs(|| {
+            emit(ScoutStreamResponseDropped {
+                api_endpoint: "https://[::1]:1079".to_string(),
+                machine_id,
+                error: "request stream closed".to_string(),
+            });
+        });
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].metadata_name, "scout_stream_response_dropped");
+        assert_eq!(logs[0].level, tracing::Level::ERROR);
+        assert_eq!(logs[0].message, "scout stream failed to send response");
+        assert_eq!(
+            logs[0].field("event_name"),
+            Some("scout_stream_response_dropped")
+        );
+        assert_eq!(
+            logs[0].field("metric_name"),
+            Some("carbide_scout_stream_responses_dropped_total")
+        );
+        assert_eq!(logs[0].field("api_endpoint"), Some("https://[::1]:1079"));
+        let machine_id = machine_id.to_string();
+        assert_eq!(logs[0].field("machine_id"), Some(machine_id.as_str()));
+        assert_eq!(logs[0].field("error"), Some("request stream closed"));
+
+        assert_eq!(
+            metrics.counter_delta("carbide_scout_stream_responses_dropped_total", &[]),
             1.0
         );
     }

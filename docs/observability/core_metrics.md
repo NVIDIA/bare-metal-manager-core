@@ -202,6 +202,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_scout_storage_device_cleanup_duration_seconds</td><td>histogram</td><td>Duration of per-device scout storage cleanup operations, by device type and outcome.</td></tr>
 <tr><td>carbide_scout_stream_connections_total</td><td>counter</td><td>Number of scout stream connection attempts, by outcome.</td></tr>
 <tr><td>carbide_scout_stream_reconnects_total</td><td>counter</td><td>Number of scout stream reconnect cycles after a stream closed or errored.</td></tr>
+<tr><td>carbide_scout_stream_responses_dropped_total</td><td>counter</td><td>Number of scout stream responses dropped after the outbound request stream closed.</td></tr>
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>Number of expected machines by SKU ID and device type</td></tr>
 <tr><td>carbide_site_exploration_identified_managed_hosts_count</td><td>gauge</td><td>Number of Host+DPU pairs identified in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_password_rotations_total</td><td>counter</td><td>Number of BMC root password rotations onto the site-wide credential, by outcome</td></tr>
