@@ -278,38 +278,53 @@ mod tests {
     }
 
     #[test]
-    fn formatters_render_unavailable_domain_name_for_domainless_interface() {
-        let interface = forgerpc::MachineInterface {
-            domain_id: None,
-            ..Default::default()
-        };
+    fn formatters_render_unavailable_domain_name_for_missing_domains() {
+        check_values(
+            [
+                Check {
+                    scenario: "domainless interface",
+                    input: None,
+                    expect: (true, true),
+                },
+                Check {
+                    scenario: "unknown domain",
+                    input: Some(domain_id(3)),
+                    expect: (true, true),
+                },
+            ],
+            |domain_id| {
+                let interface = forgerpc::MachineInterface {
+                    domain_id,
+                    ..Default::default()
+                };
 
-        let detail = convert_machine_to_nice_format(
-            interface.clone(),
-            ::rpc::protos::dns::DomainList::default(),
-        )
-        .expect("domainless interface detail should render");
-        assert!(
-            detail
-                .lines()
-                .any(|line| line.trim() == "Domain Name  : NA"),
-            "domainless interface detail should show NA: {detail}"
-        );
+                let detail = convert_machine_to_nice_format(
+                    interface.clone(),
+                    ::rpc::protos::dns::DomainList::default(),
+                )
+                .expect("interface detail should render");
+                let detail_contains_unavailable_domain = detail
+                    .lines()
+                    .any(|line| line.trim() == "Domain Name  : NA");
 
-        let table = convert_machines_to_nice_table(
-            true,
-            forgerpc::InterfaceList {
-                interfaces: vec![interface],
+                let table = convert_machines_to_nice_table(
+                    true,
+                    forgerpc::InterfaceList {
+                        interfaces: vec![interface],
+                    },
+                    ::rpc::protos::dns::DomainList::default(),
+                )
+                .to_string();
+                let table_contains_unavailable_domain = table
+                    .lines()
+                    .flat_map(|line| line.split('|'))
+                    .any(|cell| cell.trim() == UNAVAILABLE_DOMAIN_NAME);
+
+                (
+                    detail_contains_unavailable_domain,
+                    table_contains_unavailable_domain,
+                )
             },
-            ::rpc::protos::dns::DomainList::default(),
-        )
-        .to_string();
-        assert!(
-            table
-                .lines()
-                .flat_map(|line| line.split('|'))
-                .any(|cell| cell.trim() == UNAVAILABLE_DOMAIN_NAME),
-            "domainless interface table should show NA: {table}"
         );
     }
 }
