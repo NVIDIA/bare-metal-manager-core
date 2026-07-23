@@ -2761,6 +2761,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-health-report",
+ "carbide-instrument",
  "carbide-mqtt-common",
  "carbide-secrets",
  "carbide-test-support",
