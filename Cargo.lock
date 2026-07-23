@@ -1319,6 +1319,7 @@ dependencies = [
  "base64",
  "carbide-api-model",
  "carbide-health-report",
+ "carbide-instrument",
  "carbide-ipxe-renderer",
  "carbide-libmlx-model",
  "carbide-macros",
