@@ -42,6 +42,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dhcp_dropped_requests_total</td><td>counter</td><td>Number of DHCP packets dropped without a reply, by drop reason.</td></tr>
 <tr><td>carbide_dhcp_replies_sent_total</td><td>counter</td><td>Number of DHCP replies sent, by reply message type.</td></tr>
 <tr><td>carbide_dhcp_requests_total</td><td>counter</td><td>Number of DHCP packets received and decoded, by DHCP message type.</td></tr>
+<tr><td>carbide_dhcp_timestamp_file_failures_total</td><td>counter</td><td>Number of DHCP timestamp file failures, by operation</td></tr>
 <tr><td>carbide_dhcp_v6_replies_sent_total</td><td>counter</td><td>Number of DHCPv6 replies sent, by response message type.</td></tr>
 <tr><td>carbide_dns_negative_cache_hit_count_total</td><td>counter</td><td>Number of negative DNS cache hits, by response code</td></tr>
 <tr><td>carbide_dns_negative_cache_miss_count_total</td><td>counter</td><td>Number of negative DNS cache misses, by response code</td></tr>
