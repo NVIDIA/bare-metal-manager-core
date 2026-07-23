@@ -738,9 +738,10 @@ impl MachineCreator {
     // configures it appropriately, returning the new `Machine`.
     // If the DPU already exists in the machines table, this is a no-op and returns `None`.
     //
-    // The DPU's `network_config` is intentionally NOT written here -- the caller writes it after
-    // `attach_dpu_to_host` has wired the host link in `machine_interfaces`, so that
-    // `try_update_network_config`'s group sync observes both rows as siblings and keeps their
+    // `db::machine::create` can persist pool-backed defaults on the new row.
+    // The full `network_config` reconciliation and version bump wait until
+    // `attach_dpu_to_host` wires the host link in `machine_interfaces`; only
+    // then can `try_update_network_config` observe both siblings and keep their
     // versions equal.
     async fn create_dpu(
         &self,
@@ -973,6 +974,15 @@ impl MachineCreator {
             network_config.loopback_ip = Some(loopback_ip);
         }
 
+        if network_config.loopback_ip_v6.is_none() {
+            network_config.loopback_ip_v6 = db::machine::allocate_loopback_ip_v6(
+                &self.common_pools,
+                txn,
+                &dpu_machine.id.to_string(),
+            )
+            .await?;
+        }
+
         if self.config.allocate_secondary_vtep_ip
             && network_config.secondary_overlay_vtep_ip.is_none()
         {
@@ -985,8 +995,17 @@ impl MachineCreator {
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
         }
 
-        db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
-            .await?;
+        // A stale version must fail the whole transaction so any addresses
+        // allocated above return to their pools.
+        if !db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
+            .await?
+        {
+            return Err(db::DatabaseError::ConcurrentModificationError(
+                "machine",
+                version.to_string(),
+            )
+            .into());
+        }
 
         Ok(())
     }

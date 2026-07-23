@@ -754,6 +754,26 @@ pub(crate) async fn admin_force_delete_machine(
             .await?
         }
 
+        // The machine snapshot predates `ForceDeletion`, so a concurrent
+        // backfill can make its IPv6 field stale. The pool owner remains the
+        // authoritative reservation source during deletion.
+        if let Some(loopback_ip_v6) = db::resource_pool::find_owned_allocation(
+            &api.common_pools.ethernet.pool_loopback_ip_v6,
+            &mut txn,
+            model::resource_pool::OwnerType::Machine,
+            &dpu_machine.id.to_string(),
+        )
+        .await
+        .map_err(CarbideError::from)?
+        {
+            db::resource_pool::release(
+                &api.common_pools.ethernet.pool_loopback_ip_v6,
+                &mut txn,
+                loopback_ip_v6,
+            )
+            .await?
+        }
+
         if let Some(secondary_overlay_vtep_ip) =
             dpu_machine.network_config.secondary_overlay_vtep_ip
         {

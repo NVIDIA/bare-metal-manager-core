@@ -44,6 +44,7 @@ use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{InstanceState, ManagedHostState};
+use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
 use model::site_explorer::ExploredManagedHost;
 use sqlx::{PgConnection, Row};
 use tonic::Request;
@@ -70,6 +71,30 @@ async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPa
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    db::resource_pool::define(
+        &mut txn,
+        model::resource_pool::common::LOOPBACK_IP_V6,
+        &ResourcePoolDef {
+            pool_type: ResourcePoolType::Ipv6,
+            prefix: Some("2001:db8::/125".to_string()),
+            ranges: vec![],
+            delegate_prefix_len: None,
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let initial_loopback_v6_pool_stats = db::resource_pool::stats(
+        txn.as_mut(),
+        env.common_pools.ethernet.pool_loopback_ip_v6.name(),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
     let host_config = env.managed_host_config();
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
@@ -82,6 +107,17 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
+    assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
+    let allocated_loopback_v6_pool_stats = db::resource_pool::stats(
+        txn.as_mut(),
+        env.common_pools.ethernet.pool_loopback_ip_v6.name(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        allocated_loopback_v6_pool_stats.used,
+        initial_loopback_v6_pool_stats.used + 1
+    );
     assert!(
         !db::state_history::find_by_object_ids(
             &mut txn,
@@ -99,12 +135,32 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
             .is_empty()
     );
 
+    // Model the stale snapshot race directly: the reservation still belongs
+    // to this DPU even when its persisted network config no longer names it.
+    sqlx::query(
+        "UPDATE machines
+         SET network_config = jsonb_set(
+             network_config,
+             '{loopback_ip_v6}',
+             'null'::jsonb
+         )
+         WHERE id = $1",
+    )
+    .bind(dpu_machine_id)
+    .execute(txn.as_mut())
+    .await
+    .unwrap();
+    let network_config = db::machine::get_network_config(txn.as_mut(), &dpu_machine_id)
+        .await
+        .unwrap();
+    assert_eq!(network_config.value.loopback_ip_v6, None);
+
     let host = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
 
-    txn.rollback().await.unwrap();
+    txn.commit().await.unwrap();
 
     let response = force_delete(&env, &dpu_machine_id).await;
     validate_delete_response(&response, Some(&host.id), &dpu_machine_id);
@@ -117,6 +173,18 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
     // Validate that the DPU is gone
     validate_machine_deletion(&env, &dpu_machine_id, None).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let released_loopback_v6_pool_stats = db::resource_pool::stats(
+        txn.as_mut(),
+        env.common_pools.ethernet.pool_loopback_ip_v6.name(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        released_loopback_v6_pool_stats,
+        initial_loopback_v6_pool_stats
+    );
 }
 
 #[crate::sqlx_test]

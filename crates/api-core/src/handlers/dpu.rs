@@ -1512,6 +1512,7 @@ mod consolidated_network_config_tests {
             // be served to the DPU agent -- the DPU's own loopback_ip
             // (passed separately) is what matters.
             loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99))),
+            loopback_ip_v6: None,
             secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100))),
             // The host-level use_admin_network is reported in a separate
             // top-level response field, not in this consolidated struct.

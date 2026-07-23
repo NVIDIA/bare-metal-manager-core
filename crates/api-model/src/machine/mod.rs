@@ -17,7 +17,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -980,6 +980,12 @@ impl Machine {
 
     pub fn loopback_ip(&self) -> Option<IpAddr> {
         self.network_config.loopback_ip
+    }
+
+    /// Returns the DPU's reserved FNN IPv6 loopback when its optional pool is
+    /// configured.
+    pub fn loopback_ip_v6(&self) -> Option<Ipv6Addr> {
+        self.network_config.loopback_ip_v6
     }
 
     /// Returns all associated DPU Machine IDs if this is Host Machine

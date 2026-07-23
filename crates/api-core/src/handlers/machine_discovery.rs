@@ -307,23 +307,26 @@ pub(crate) async fn discover_machine(
             })?
         };
 
-        if db_machine.network_config.loopback_ip.is_none() {
-            let loopback_ip = db::machine::allocate_loopback_ip(
-                &api.common_pools,
-                &mut txn,
-                &stable_machine_id.to_string(),
-            )
-            .await?;
+        // Collect every missing address into one `network_config` write. Each
+        // write bumps the whole machine group, so writing one field at a time
+        // leaves the later call with a stale `network_config_version`.
+        let (mut network_config, network_config_version) = db_machine.network_config.clone().take();
+        let owner_id = stable_machine_id.to_string();
+        let mut network_config_changed = false;
 
-            let mut network_config = db_machine.network_config.value.clone();
+        if network_config.loopback_ip.is_none() {
+            let loopback_ip =
+                db::machine::allocate_loopback_ip(&api.common_pools, &mut txn, &owner_id).await?;
             network_config.loopback_ip = Some(loopback_ip);
-            db::machine::try_update_network_config(
-                &mut txn,
-                &stable_machine_id,
-                db_machine.network_config.version,
-                &network_config,
-            )
-            .await?;
+            network_config_changed = true;
+        }
+
+        if network_config.loopback_ip_v6.is_none()
+            && let Some(loopback_ip_v6) =
+                db::machine::allocate_loopback_ip_v6(&api.common_pools, &mut txn, &owner_id).await?
+        {
+            network_config.loopback_ip_v6 = Some(loopback_ip_v6);
+            network_config_changed = true;
         }
 
         if api
@@ -332,27 +335,30 @@ pub(crate) async fn discover_machine(
             .as_ref()
             .map(|vc| vc.secondary_overlay_support)
             .unwrap_or_default()
-            && db_machine
-                .network_config
-                .secondary_overlay_vtep_ip
-                .is_none()
+            && network_config.secondary_overlay_vtep_ip.is_none()
         {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
-                &api.common_pools,
-                &mut txn,
-                &stable_machine_id.to_string(),
-            )
-            .await?;
-
-            let mut network_config = db_machine.network_config.value.clone();
+            let secondary_vtep_ip =
+                db::machine::allocate_secondary_vtep_ip(&api.common_pools, &mut txn, &owner_id)
+                    .await?;
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-            db::machine::try_update_network_config(
+            network_config_changed = true;
+        }
+
+        if network_config_changed
+            && !db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
-                db_machine.network_config.version,
+                network_config_version,
                 &network_config,
             )
-            .await?;
+            .await?
+        {
+            // The version error also rolls back the allocations above.
+            return Err(CarbideError::ConcurrentModificationError(
+                "machine",
+                network_config_version.to_string(),
+            )
+            .into());
         }
 
         db_machine.id

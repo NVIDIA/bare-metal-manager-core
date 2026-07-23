@@ -18,7 +18,7 @@
 //! Machine - represents a database-backed Machine object
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::ops::Deref;
 use std::str::FromStr;
 
@@ -57,7 +57,7 @@ use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
 use model::resource_pool;
 use model::resource_pool::ResourcePoolError;
-use model::resource_pool::common::CommonPools;
+use model::resource_pool::common::{CommonPools, LOOPBACK_IP_V6};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
@@ -1333,6 +1333,39 @@ pub async fn try_update_network_config(
     expected_version: ConfigVersion,
     new_state: &ManagedHostNetworkConfig,
 ) -> Result<bool, DatabaseError> {
+    try_update_network_config_inner(txn, machine_id, expected_version, new_state, false).await
+}
+
+async fn try_update_network_config_unless_force_deleting(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    expected_version: ConfigVersion,
+    new_state: &ManagedHostNetworkConfig,
+) -> Result<bool, DatabaseError> {
+    try_update_network_config_inner(txn, machine_id, expected_version, new_state, true).await
+}
+
+async fn is_force_deleting_or_deleted(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT controller_state = $2::jsonb FROM machines WHERE id = $1";
+    let is_force_deleting: Option<bool> = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .bind(sqlx::types::Json(&ManagedHostState::ForceDeletion))
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    Ok(is_force_deleting.unwrap_or(true))
+}
+
+async fn try_update_network_config_inner(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    expected_version: ConfigVersion,
+    new_state: &ManagedHostNetworkConfig,
+    reject_force_deletion: bool,
+) -> Result<bool, DatabaseError> {
     let next_version = expected_version.increment();
 
     // First, do our usual "optimistic" lock update on the target row, which
@@ -1340,12 +1373,15 @@ pub async fn try_update_network_config(
     // the row currently being at `expected_version`).
     let target_query = "UPDATE machines SET network_config_version=$1, network_config=$2::json
             WHERE id=$3 AND network_config_version=$4
+              AND (NOT $5 OR controller_state != $6::jsonb)
             RETURNING id";
     let target_result: Result<MachineId, _> = sqlx::query_as(target_query)
         .bind(next_version)
         .bind(sqlx::types::Json(new_state))
         .bind(machine_id)
         .bind(expected_version)
+        .bind(reject_force_deletion)
+        .bind(sqlx::types::Json(&ManagedHostState::ForceDeletion))
         .fetch_one(&mut *txn)
         .await;
 
@@ -1563,7 +1599,20 @@ pub async fn create(
     let version = ConfigVersion::initial();
 
     let network_config_version = ConfigVersion::initial();
-    let network_config = ManagedHostNetworkConfig::default();
+    let loopback_ip_v6 = if stable_machine_id.machine_type() == MachineType::Dpu {
+        match common_pools {
+            Some(common_pools) => {
+                allocate_loopback_ip_v6(common_pools, txn, &stable_machine_id_string).await?
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+    let network_config = ManagedHostNetworkConfig {
+        loopback_ip_v6,
+        ..Default::default()
+    };
     let asn: Option<i64> = if stable_machine_id.machine_type() == MachineType::Dpu {
         if let Some(common_pools) = common_pools {
             match crate::resource_pool::allocate(
@@ -2321,6 +2370,70 @@ pub async fn allocate_loopback_ip(
     }
 }
 
+/// Allocates one IPv6 underlay loopback when `lo-ip-v6` is configured.
+/// `None` preserves IPv4-only sites where the optional pool is absent;
+/// exhaustion remains an error so a configured site cannot silently leave a
+/// DPU without its reserved address.
+pub async fn allocate_loopback_ip_v6(
+    common_pools: &CommonPools,
+    txn: &mut PgConnection,
+    owner_id: &str,
+) -> Result<Option<Ipv6Addr>, DatabaseError> {
+    let pool = &common_pools.ethernet.pool_loopback_ip_v6;
+    if !crate::resource_pool::pool_has_rows(txn, pool.name()).await? {
+        return Ok(None);
+    }
+
+    if let Some(value) = crate::resource_pool::find_owned_allocation(
+        pool,
+        txn,
+        resource_pool::OwnerType::Machine,
+        owner_id,
+    )
+    .await?
+    {
+        return Ok(Some(value));
+    }
+
+    match crate::resource_pool::allocate(
+        pool,
+        txn,
+        resource_pool::OwnerType::Machine,
+        owner_id,
+        None,
+    )
+    .await
+    {
+        Ok(value) => Ok(Some(value)),
+        Err(
+            error @ crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+                ResourcePoolError::Empty,
+            ),
+        ) => {
+            crate::resource_pool::emit_allocation_failure(
+                pool.value_type,
+                owner_id,
+                false,
+                LOOPBACK_IP_V6,
+                &error,
+            );
+            Err(DatabaseError::ResourceExhausted(format!(
+                "pool {LOOPBACK_IP_V6}"
+            )))
+        }
+        Err(error) => {
+            crate::resource_pool::emit_allocation_failure(
+                pool.value_type,
+                owner_id,
+                false,
+                LOOPBACK_IP_V6,
+                &error,
+            );
+            Err(error.into())
+        }
+    }
+}
+
 /// Allocate a value from the loopback IP resource pool.
 ///
 /// If the pool exists but is empty or has en error, return that.
@@ -2569,6 +2682,120 @@ pub async fn update_dpu_asns(
     }
 
     txn.commit().await?;
+
+    Ok(())
+}
+
+/// Fills the optional IPv6 loopback for DPUs created before `lo-ip-v6` was
+/// configured. Each DPU is reloaded immediately before its write because an
+/// update to one member bumps every sibling's `network_config_version` and
+/// invalidates versions loaded earlier in the pass.
+pub async fn update_dpu_loopback_ips_v6(
+    db_pool: &Pool<Postgres>,
+    common_pools: &CommonPools,
+) -> Result<(), DatabaseError> {
+    const MAX_CAS_ATTEMPTS: usize = 3;
+
+    let mut txn = Transaction::begin(db_pool).await?;
+    let pool = &common_pools.ethernet.pool_loopback_ip_v6;
+    if !crate::resource_pool::pool_has_rows(txn.as_pgconn(), pool.name()).await? {
+        txn.commit().await?;
+        return Ok(());
+    }
+
+    let query = "SELECT id FROM machines
+        WHERE starts_with(id, $1)
+          AND network_config->>'loopback_ip_v6' IS NULL
+        ORDER BY id";
+    let dpu_machine_ids: Vec<MachineId> = sqlx::query_as(query)
+        .bind(MachineType::Dpu.id_prefix())
+        .fetch_all(txn.as_pgconn())
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    txn.commit().await?;
+
+    if !dpu_machine_ids.is_empty() {
+        tracing::info!(
+            dpu_count = dpu_machine_ids.len(),
+            "Updating missing IPv6 loopback IPs for DPUs"
+        );
+    }
+
+    let mut first_conflicting_version = None;
+
+    for dpu_machine_id in dpu_machine_ids {
+        let mut last_conflicting_version = None;
+
+        for _ in 0..MAX_CAS_ATTEMPTS {
+            let mut txn = Transaction::begin(db_pool).await?;
+            let (mut network_config, network_config_version) =
+                match get_network_config(txn.as_pgconn(), &dpu_machine_id).await {
+                    Ok(network_config) => network_config.take(),
+                    Err(error) if error.is_not_found() => {
+                        // Force deletion can remove a DPU after the initial ID
+                        // scan. It no longer needs a reservation.
+                        txn.commit().await?;
+                        last_conflicting_version = None;
+                        break;
+                    }
+                    Err(error) => return Err(error),
+                };
+            if network_config.loopback_ip_v6.is_some() {
+                txn.commit().await?;
+                last_conflicting_version = None;
+                break;
+            }
+
+            let loopback_ip_v6 = allocate_loopback_ip_v6(
+                common_pools,
+                txn.as_pgconn(),
+                &dpu_machine_id.to_string(),
+            )
+            .await?
+            .ok_or_else(|| {
+                DatabaseError::FailedPrecondition(format!(
+                    "resource pool {LOOPBACK_IP_V6} disappeared during DPU IPv6 loopback backfill"
+                ))
+            })?;
+            network_config.loopback_ip_v6 = Some(loopback_ip_v6);
+
+            if try_update_network_config_unless_force_deleting(
+                txn.as_pgconn(),
+                &dpu_machine_id,
+                network_config_version,
+                &network_config,
+            )
+            .await?
+            {
+                txn.commit().await?;
+                last_conflicting_version = None;
+                break;
+            }
+
+            let force_deleting_or_deleted =
+                is_force_deleting_or_deleted(txn.as_pgconn(), &dpu_machine_id).await?;
+            txn.rollback().await?;
+            if force_deleting_or_deleted {
+                last_conflicting_version = None;
+                break;
+            }
+            last_conflicting_version = Some(network_config_version);
+        }
+
+        if let Some(version) = last_conflicting_version {
+            // One busy DPU should not postpone every row after it in the scan.
+            // Remember the first conflict, continue the pass, and report it
+            // once the remaining DPUs have had their own chance to reconcile.
+            first_conflicting_version.get_or_insert(version);
+        }
+    }
+
+    if let Some(version) = first_conflicting_version {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "machine",
+            version.to_string(),
+        ));
+    }
 
     Ok(())
 }
@@ -2902,8 +3129,8 @@ pub fn count_healthy_unhealthy_host_machines(
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use std::net::IpAddr;
+    use std::collections::{HashMap, HashSet};
+    use std::net::{IpAddr, Ipv6Addr};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
@@ -2918,8 +3145,9 @@ mod test {
     use model::machine::topology::{DiscoveryData, TopologyData};
     use model::resource_pool::common::{
         CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-        SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+        LOOPBACK_IP_V6, SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
     };
+    use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
     use model::resource_pool::{ResourcePool, ValueType};
     use tokio::sync::oneshot;
 
@@ -2930,6 +3158,10 @@ mod test {
                 pool_loopback_ip: Arc::new(ResourcePool::new(
                     LOOPBACK_IP.to_string(),
                     ValueType::Ipv4,
+                )),
+                pool_loopback_ip_v6: Arc::new(ResourcePool::new(
+                    LOOPBACK_IP_V6.to_string(),
+                    ValueType::Ipv6,
                 )),
                 pool_vlan_id: Arc::new(ResourcePool::new(VLANID.to_string(), ValueType::Integer)),
                 pool_vni: Arc::new(ResourcePool::new(VNI.to_string(), ValueType::Integer)),
@@ -3013,6 +3245,75 @@ mod test {
         );
 
         Ok(())
+    }
+
+    fn integer_pool() -> ResourcePoolDef {
+        ResourcePoolDef {
+            ranges: vec![Range {
+                start: "1".to_string(),
+                end: "16".to_string(),
+                auto_assign: true,
+            }],
+            prefix: None,
+            pool_type: ResourcePoolType::Integer,
+            delegate_prefix_len: None,
+        }
+    }
+
+    fn address_pool(pool_type: ResourcePoolType, prefix: &str) -> ResourcePoolDef {
+        ResourcePoolDef {
+            ranges: Vec::new(),
+            prefix: Some(prefix.to_string()),
+            pool_type,
+            delegate_prefix_len: None,
+        }
+    }
+
+    async fn common_pools(
+        pool: &sqlx::PgPool,
+        loopback_ip_v6_prefix: Option<&str>,
+    ) -> Result<Arc<CommonPools>, Box<dyn std::error::Error>> {
+        let mut definitions = HashMap::from([
+            (
+                LOOPBACK_IP.to_string(),
+                address_pool(ResourcePoolType::Ipv4, "192.0.2.0/29"),
+            ),
+            (VLANID.to_string(), integer_pool()),
+            (VNI.to_string(), integer_pool()),
+            (VPC_VNI.to_string(), integer_pool()),
+        ]);
+        if let Some(prefix) = loopback_ip_v6_prefix {
+            definitions.insert(
+                LOOPBACK_IP_V6.to_string(),
+                address_pool(ResourcePoolType::Ipv6, prefix),
+            );
+        }
+
+        let mut txn = pool.begin().await?;
+        crate::resource_pool::define_all_from(txn.as_mut(), &definitions).await?;
+        txn.commit().await?;
+
+        Ok(crate::resource_pool::create_common_pools(pool.clone(), HashSet::new()).await?)
+    }
+
+    async fn wait_until_blocked_on(pool: &sqlx::PgPool, relation: &str) {
+        for _ in 0..600 {
+            let waiting: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_stat_activity
+                 WHERE datname = current_database()
+                   AND wait_event_type = 'Lock'
+                   AND query ILIKE '%' || $1 || '%'",
+            )
+            .bind(relation)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            if waiting > 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        panic!("query never blocked on {relation}");
     }
 
     /// The machine snapshot reports the BMC IP from the *live* `machine_interface_addresses`
@@ -3147,6 +3448,470 @@ mod test {
             .unwrap()
             .unwrap();
         assert!(host.config.firmware_autoupdate.is_none());
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn ipv6_loopback_pool_absence_preserves_ipv4_only_creation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, None).await?;
+        let dpu_machine_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+
+        let mut txn = pool.begin().await?;
+        assert_eq!(
+            super::allocate_loopback_ip_v6(
+                &common_pools,
+                txn.as_mut(),
+                &dpu_machine_id.to_string(),
+            )
+            .await?,
+            None
+        );
+
+        let dpu = super::create(
+            txn.as_mut(),
+            Some(&common_pools),
+            &dpu_machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        assert_eq!(dpu.network_config.loopback_ip_v6, None);
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn configured_ipv6_loopback_reservation_is_reused_and_exhausts_for_another_owner(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, Some("2001:db8:1::1/128")).await?;
+        let first_dpu_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+        let second_dpu_id =
+            MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")?;
+
+        let mut txn = pool.begin().await?;
+        let first_dpu = super::create(
+            txn.as_mut(),
+            Some(&common_pools),
+            &first_dpu_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        assert_eq!(
+            first_dpu.network_config.loopback_ip_v6,
+            Some("2001:db8:1::1".parse::<Ipv6Addr>()?)
+        );
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let reused =
+            super::allocate_loopback_ip_v6(&common_pools, txn.as_mut(), &first_dpu_id.to_string())
+                .await?;
+        assert_eq!(reused, first_dpu.network_config.loopback_ip_v6);
+        let stats_after_reuse = crate::resource_pool::stats(txn.as_mut(), LOOPBACK_IP_V6).await?;
+        assert_eq!(stats_after_reuse.used, 1);
+        assert_eq!(stats_after_reuse.free, 0);
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let error = super::create(
+            txn.as_mut(),
+            Some(&common_pools),
+            &second_dpu_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await
+        .expect_err("a configured but exhausted IPv6 loopback pool must fail DPU creation");
+        assert!(matches!(error, crate::DatabaseError::ResourceExhausted(_)));
+        txn.rollback().await?;
+
+        let stats = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
+        assert_eq!(stats.used, 1);
+        assert_eq!(stats.free, 0);
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn ipv6_loopback_survives_legacy_updates_and_reuses_its_reservation(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, Some("2001:db8:4::1/128")).await?;
+        let dpu_machine_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+
+        let mut txn = pool.begin().await?;
+        let dpu = super::create(
+            txn.as_mut(),
+            Some(&common_pools),
+            &dpu_machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        let allocated = dpu
+            .network_config
+            .loopback_ip_v6
+            .expect("the configured pool should reserve an IPv6 loopback");
+        txn.commit().await?;
+
+        // An older API replaces the complete document without the field it
+        // does not know. The trigger restores that field while retaining its
+        // changes to fields it does know.
+        let legacy_network_config = serde_json::json!({
+            "loopback_ip": null,
+            "secondary_overlay_vtep_ip": null,
+            "use_admin_network": false,
+            "quarantine_state": null,
+            "use_admin_network_changed": null
+        });
+        let update_query = "UPDATE machines SET network_config = $1 WHERE id = $2";
+        let mut txn = pool.begin().await?;
+        sqlx::query(update_query)
+            .bind(sqlx::types::Json(&legacy_network_config))
+            .bind(dpu_machine_id)
+            .execute(txn.as_mut())
+            .await?;
+        let after_legacy_update = super::get_network_config(txn.as_mut(), &dpu_machine_id).await?;
+        assert_eq!(after_legacy_update.value.loopback_ip_v6, Some(allocated));
+        assert_eq!(after_legacy_update.value.use_admin_network, Some(false));
+        let stats_after_legacy_update =
+            crate::resource_pool::stats(txn.as_mut(), LOOPBACK_IP_V6).await?;
+        assert_eq!(stats_after_legacy_update.used, 1);
+        assert_eq!(stats_after_legacy_update.free, 0);
+        txn.commit().await?;
+
+        let current_network_config = serde_json::json!({
+            "loopback_ip": null,
+            "loopback_ip_v6": null,
+            "secondary_overlay_vtep_ip": null,
+            "use_admin_network": false,
+            "quarantine_state": null,
+            "use_admin_network_changed": null
+        });
+        let mut txn = pool.begin().await?;
+        sqlx::query(update_query)
+            .bind(sqlx::types::Json(&current_network_config))
+            .bind(dpu_machine_id)
+            .execute(txn.as_mut())
+            .await?;
+        let after_explicit_clear = super::get_network_config(txn.as_mut(), &dpu_machine_id).await?;
+        assert_eq!(after_explicit_clear.value.loopback_ip_v6, None);
+
+        let reused = super::allocate_loopback_ip_v6(
+            &common_pools,
+            txn.as_mut(),
+            &dpu_machine_id.to_string(),
+        )
+        .await?;
+        assert_eq!(reused, Some(allocated));
+        let stats_after_reuse = crate::resource_pool::stats(txn.as_mut(), LOOPBACK_IP_V6).await?;
+        assert_eq!(stats_after_reuse.used, 1);
+        assert_eq!(stats_after_reuse.free, 0);
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn ipv6_loopback_backfill_reloads_each_dpu_and_is_idempotent(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, Some("2001:db8:2::/125")).await?;
+        let host_machine_id =
+            MachineId::from_str("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30")?;
+        let dpu_machine_ids = [
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?,
+            MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")?,
+        ];
+
+        // These rows model DPUs that predate `loopback_ip_v6`, so create them
+        // without common pools and then connect both to the same host group.
+        let mut txn = pool.begin().await?;
+        super::create(
+            txn.as_mut(),
+            None,
+            &host_machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        for dpu_machine_id in &dpu_machine_ids {
+            super::create(
+                txn.as_mut(),
+                None,
+                dpu_machine_id,
+                ManagedHostState::Ready,
+                None,
+                2,
+            )
+            .await?;
+        }
+
+        let network_segment_id: NetworkSegmentId = sqlx::query_scalar(
+            "INSERT INTO network_segments (name, version)
+             VALUES ('ipv6-loopback-backfill', 'V1-T0') RETURNING id",
+        )
+        .fetch_one(txn.as_mut())
+        .await?;
+        for (index, dpu_machine_id) in dpu_machine_ids.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO machine_interfaces
+                    (machine_id, attached_dpu_machine_id, association_type,
+                     segment_id, mac_address, primary_interface, hostname)
+                 VALUES ($1, $2, 'Machine', $3, $4::macaddr, $5, $6)",
+            )
+            .bind(host_machine_id)
+            .bind(dpu_machine_id)
+            .bind(network_segment_id)
+            .bind(format!("02:00:00:00:10:{index:02x}"))
+            .bind(index == 0)
+            .bind(format!("backfill-dpu-{index}"))
+            .execute(txn.as_mut())
+            .await?;
+        }
+        txn.commit().await?;
+
+        super::update_dpu_loopback_ips_v6(&pool, &common_pools).await?;
+
+        let mut txn = pool.begin().await?;
+        let host_config = super::get_network_config(txn.as_mut(), &host_machine_id).await?;
+        let first_dpu_config = super::get_network_config(txn.as_mut(), &dpu_machine_ids[0]).await?;
+        let second_dpu_config =
+            super::get_network_config(txn.as_mut(), &dpu_machine_ids[1]).await?;
+        let allocated = [
+            first_dpu_config
+                .value
+                .loopback_ip_v6
+                .expect("first DPU should be backfilled"),
+            second_dpu_config
+                .value
+                .loopback_ip_v6
+                .expect("second DPU should be backfilled"),
+        ];
+        assert_ne!(allocated[0], allocated[1]);
+        assert_eq!(host_config.value.loopback_ip_v6, None);
+        assert_eq!(host_config.version, first_dpu_config.version);
+        assert_eq!(first_dpu_config.version, second_dpu_config.version);
+        let version_after_backfill = host_config.version;
+        txn.commit().await?;
+
+        let stats_after_backfill = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
+        assert_eq!(stats_after_backfill.used, 2);
+
+        // A second startup pass must preserve both reservations and avoid a
+        // version bump: `None` is the only row state the backfill owns.
+        super::update_dpu_loopback_ips_v6(&pool, &common_pools).await?;
+        let stats_after_rerun = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
+        assert_eq!(stats_after_rerun, stats_after_backfill);
+
+        let mut txn = pool.begin().await?;
+        let host_config = super::get_network_config(txn.as_mut(), &host_machine_id).await?;
+        let first_dpu_config = super::get_network_config(txn.as_mut(), &dpu_machine_ids[0]).await?;
+        let second_dpu_config =
+            super::get_network_config(txn.as_mut(), &dpu_machine_ids[1]).await?;
+        assert_eq!(host_config.version, version_after_backfill);
+        assert_eq!(
+            [
+                first_dpu_config.value.loopback_ip_v6.unwrap(),
+                second_dpu_config.value.loopback_ip_v6.unwrap(),
+            ],
+            allocated
+        );
+        txn.rollback().await?;
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn ipv6_loopback_backfill_skips_force_deleting_dpus(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, Some("2001:db8:5::/125")).await?;
+        let dpu_machine_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+
+        let mut txn = pool.begin().await?;
+        super::create(
+            txn.as_mut(),
+            None,
+            &dpu_machine_id,
+            ManagedHostState::ForceDeletion,
+            None,
+            2,
+        )
+        .await?;
+        txn.commit().await?;
+
+        super::update_dpu_loopback_ips_v6(&pool, &common_pools).await?;
+
+        let network_config = super::get_network_config(&pool, &dpu_machine_id).await?;
+        assert_eq!(network_config.value.loopback_ip_v6, None);
+        let stats = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
+        assert_eq!(stats.used, 0);
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    #[allow(txn_held_across_await)] // Intentional: this test holds a row lock to force a CAS retry.
+    async fn ipv6_loopback_backfill_retries_after_network_config_conflict(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, Some("2001:db8:6::1/128")).await?;
+        let dpu_machine_id =
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?;
+
+        let mut txn = pool.begin().await?;
+        super::create(
+            txn.as_mut(),
+            None,
+            &dpu_machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+        let reserved = super::allocate_loopback_ip_v6(
+            &common_pools,
+            txn.as_mut(),
+            &dpu_machine_id.to_string(),
+        )
+        .await?
+        .expect("configured pool should reserve an IPv6 loopback");
+        txn.commit().await?;
+
+        // Hold the existing reservation after the backfill reads its machine
+        // version. This gives another writer a deterministic window to bump
+        // that version before the first compare-and-swap reaches the row.
+        let mut reservation_lock = pool.begin().await?;
+        sqlx::query(
+            "SELECT value FROM resource_pool
+             WHERE name = $1 AND value = $2
+             FOR UPDATE",
+        )
+        .bind(LOOPBACK_IP_V6)
+        .bind(reserved.to_string())
+        .fetch_one(reservation_lock.as_mut())
+        .await?;
+
+        let backfill_pool = pool.clone();
+        let backfill_common_pools = Arc::clone(&common_pools);
+        let backfill = tokio::spawn(async move {
+            super::update_dpu_loopback_ips_v6(&backfill_pool, &backfill_common_pools).await
+        });
+        wait_until_blocked_on(&pool, "resource_pool").await;
+
+        let mut txn = pool.begin().await?;
+        let (mut network_config, version) =
+            super::get_network_config(txn.as_mut(), &dpu_machine_id)
+                .await?
+                .take();
+        network_config.use_admin_network = Some(false);
+        assert!(
+            super::try_update_network_config(
+                txn.as_mut(),
+                &dpu_machine_id,
+                version,
+                &network_config,
+            )
+            .await?
+        );
+        txn.commit().await?;
+        reservation_lock.commit().await?;
+
+        tokio::time::timeout(std::time::Duration::from_secs(10), backfill)
+            .await??
+            .map_err(|error| Box::new(error) as Box<dyn std::error::Error>)?;
+
+        let network_config = super::get_network_config(&pool, &dpu_machine_id).await?;
+        assert_eq!(network_config.value.loopback_ip_v6, Some(reserved));
+        let stats = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
+        assert_eq!(stats.used, 1);
+        assert_eq!(stats.free, 0);
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn ipv6_loopback_backfill_preserves_completed_rows_when_pool_exhausts(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let common_pools = common_pools(&pool, Some("2001:db8:3::1/128")).await?;
+        let dpu_machine_ids = [
+            MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?,
+            MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")?,
+        ];
+
+        // Passing no common pools recreates rows from before the IPv6 pool was
+        // configured without consuming its only address during insertion.
+        let mut txn = pool.begin().await?;
+        for dpu_machine_id in &dpu_machine_ids {
+            super::create(
+                txn.as_mut(),
+                None,
+                dpu_machine_id,
+                ManagedHostState::Ready,
+                None,
+                2,
+            )
+            .await?;
+        }
+        txn.commit().await?;
+
+        let error = super::update_dpu_loopback_ips_v6(&pool, &common_pools)
+            .await
+            .expect_err("one address cannot backfill two DPUs");
+        assert!(matches!(error, crate::DatabaseError::ResourceExhausted(_)));
+
+        let mut txn = pool.begin().await?;
+        let configs_after_first_pass = [
+            super::get_network_config(txn.as_mut(), &dpu_machine_ids[0])
+                .await?
+                .value,
+            super::get_network_config(txn.as_mut(), &dpu_machine_ids[1])
+                .await?
+                .value,
+        ];
+        assert_eq!(
+            configs_after_first_pass
+                .iter()
+                .filter(|config| config.loopback_ip_v6.is_some())
+                .count(),
+            1
+        );
+        txn.commit().await?;
+        let stats_after_first_pass = crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?;
+        assert_eq!(stats_after_first_pass.used, 1);
+        assert_eq!(stats_after_first_pass.free, 0);
+
+        let error = super::update_dpu_loopback_ips_v6(&pool, &common_pools)
+            .await
+            .expect_err("the remaining DPU must continue to report exhaustion");
+        assert!(matches!(error, crate::DatabaseError::ResourceExhausted(_)));
+
+        let mut txn = pool.begin().await?;
+        let configs_after_second_pass = [
+            super::get_network_config(txn.as_mut(), &dpu_machine_ids[0])
+                .await?
+                .value,
+            super::get_network_config(txn.as_mut(), &dpu_machine_ids[1])
+                .await?
+                .value,
+        ];
+        txn.commit().await?;
+        assert_eq!(configs_after_second_pass, configs_after_first_pass);
+        assert_eq!(
+            crate::resource_pool::stats(&pool, LOOPBACK_IP_V6).await?,
+            stats_after_first_pass
+        );
         Ok(())
     }
 }

@@ -66,7 +66,7 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
 use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
 use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
-use db::machine::update_dpu_asns;
+use db::machine::{update_dpu_asns, update_dpu_loopback_ips_v6};
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
@@ -1030,6 +1030,13 @@ async fn initialize_and_start_controllers<'a>(
         carbide_config.initial_dpu_agent_upgrade_policy,
     )
     .await?;
+
+    if let Err(error) = update_dpu_loopback_ips_v6(db_pool, common_pools).await {
+        tracing::error!(
+            error = %error,
+            "Failed to update IPv6 loopback IPs for DPUs",
+        );
+    }
 
     if let Err(e) = update_dpu_asns(db_pool, common_pools).await {
         tracing::warn!(
