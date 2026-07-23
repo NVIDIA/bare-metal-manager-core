@@ -660,6 +660,13 @@ mod tests {
             )
             .unwrap();
 
+        // Verify unavailable representors do not abort the remaining cloud-init work.
+        assert!(rendered.contains(
+            r#"set interface "${host_representor}" type=dpdk mtu_request=9216 external_ids='{}' || true"#
+        ));
+        assert!(rendered.contains(
+            r#"ofport_request=$(ovs-vsctl get interface "${host_representor}" ofport) || true"#
+        ));
         assert!(rendered.contains("ovs-vsctl get bridge br-sfc external_ids"));
         assert!(rendered.contains("ovs-vsctl --may-exist add-port br-sfc"));
         assert!(rendered.contains(
