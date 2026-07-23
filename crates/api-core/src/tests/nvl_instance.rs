@@ -47,7 +47,6 @@ use model::switch::{
     SwitchConfig, SwitchControllerState,
 };
 use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
-use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
@@ -2833,8 +2832,8 @@ async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx
 
 async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     pool: sqlx::PgPool,
-    desired_server_cert_path: &std::path::Path,
-    expected_fingerprint_mismatches: usize,
+    rotate_before_expiry: std::time::Duration,
+    expected_certificates_needing_rotation: usize,
 ) {
     let mut config = common::api_fixtures::get_config_with_rack_profiles();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
@@ -2845,8 +2844,9 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
         nvlink_config.nmx_c_tls_client_key_path = Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
         nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
         nvlink_config.nmx_c_certificate_rotation.enabled = true;
-        nvlink_config.nmx_c_certificate_rotation.server_cert_path =
-            Some(desired_server_cert_path.to_string_lossy().into_owned());
+        nvlink_config
+            .nmx_c_certificate_rotation
+            .rotate_before_expiry = rotate_before_expiry;
     }
 
     let mut overrides = TestEnvOverrides::with_config(config);
@@ -2886,13 +2886,15 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     assert_eq!(result.observed_endpoints, 1);
     assert_eq!(result.successful_probes, 1);
     assert_eq!(
-        result.fingerprint_mismatches,
-        expected_fingerprint_mismatches
+        result.certificates_needing_rotation,
+        expected_certificates_needing_rotation
     );
-    assert_eq!(result.desired_cert_errors, 0);
     assert_eq!(result.probe_errors, 0);
     assert_eq!(result.applied_updates, 0);
-    assert_eq!(result.pending_updates, expected_fingerprint_mismatches);
+    assert_eq!(
+        result.pending_updates,
+        expected_certificates_needing_rotation
+    );
     assert_eq!(result.apply_errors, 0);
 
     let mut txn = pool.begin().await.expect("begin txn");
@@ -2910,7 +2912,7 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     .expect("rack");
     txn.commit().await.expect("commit txn");
 
-    if expected_fingerprint_mismatches > 0 {
+    if expected_certificates_needing_rotation > 0 {
         assert!(
             switch.switch_maintenance_requested.is_none(),
             "certificate rotation should not request per-switch maintenance"
@@ -2928,11 +2930,11 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     } else {
         assert!(
             switch.switch_maintenance_requested.is_none(),
-            "matching certificate should not request switch certificate maintenance"
+            "certificate outside the rotation window should not request switch maintenance"
         );
         assert!(
             rack.config.maintenance_requested.is_none(),
-            "matching certificate should not request rack maintenance"
+            "certificate outside the rotation window should not request rack maintenance"
         );
     }
 
@@ -2948,40 +2950,36 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
 }
 
 #[crate::sqlx_test]
-async fn test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch(pool: sqlx::PgPool) {
+async fn test_switch_cert_monitor_rotates_nmxc_simulator_cert_inside_rotation_window(
+    pool: sqlx::PgPool,
+) {
     if !nmxc_simulator_tests_enabled() {
         println!(
-            "skipping test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch as nmxc simulator tests are not enabled"
-        );
-        return;
-    }
-
-    let CertifiedKey {
-        cert: desired_cert, ..
-    } = generate_simple_self_signed(vec!["desired-nmxc-cert.example.test".to_string()]).unwrap();
-    let desired_cert_file = tempfile::NamedTempFile::new().unwrap();
-    tokio::fs::write(desired_cert_file.path(), desired_cert.pem())
-        .await
-        .unwrap();
-
-    assert_switch_cert_monitor_nmxc_simulator_probe(pool, desired_cert_file.path(), 1).await;
-}
-
-#[crate::sqlx_test]
-async fn test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert(pool: sqlx::PgPool) {
-    if !nmxc_simulator_tests_enabled() {
-        println!(
-            "skipping test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert as nmxc simulator tests are not enabled"
+            "skipping test_switch_cert_monitor_rotates_nmxc_simulator_cert_inside_rotation_window as nmxc simulator tests are not enabled"
         );
         return;
     }
 
     assert_switch_cert_monitor_nmxc_simulator_probe(
         pool,
-        std::path::Path::new(NMXC_SIMULATOR_TLS_CERT),
-        0,
+        std::time::Duration::from_secs(100 * 365 * 24 * 60 * 60),
+        1,
     )
     .await;
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_skips_nmxc_simulator_cert_outside_rotation_window(
+    pool: sqlx::PgPool,
+) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_skips_nmxc_simulator_cert_outside_rotation_window as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(pool, std::time::Duration::ZERO, 0).await;
 }
 
 // This test creates two instances in the same logical partition but on different domains.

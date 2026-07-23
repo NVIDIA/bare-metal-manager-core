@@ -287,7 +287,19 @@ flows.
 | `nmx_c_tls_authority` | `Option<String>` | — | TLS server name used for SNI and certificate verification. |
 | `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-C. |
 | `nmx_c_endpoint_port` | `Option<u16>` | — | TCP port for NMX-C endpoints derived from switch NVOS IP. Unset uses the production NMX-C port. |
-| `nmx_c_certificate_rotation` | `NmxCCertificateRotationConfig` | *(default)* | Optional monitoring for NMX-C server certificate propagation. |
+| `nmx_c_certificate_rotation` | `NmxCCertificateRotationConfig` | *(default)* | Optional expiry-driven rotation for NMX-C server certificates. |
+
+### `NmxCCertificateRotationConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Enables NMX-C server certificate expiry checks and rotation. |
+| `run_interval` | `Duration` | `1h` | Interval between checks of the certificate served by NMX-C. |
+| `rotate_before_expiry` | `Duration` | `1w` | Requests rotation when the served certificate expires within this duration. Must leave enough time for the replacement certificate to be issued first. |
+| `probe_timeout` | `Duration` | `10s` | Timeout for each NMX-C certificate probe operation. |
+
+`expiry_warning_window` remains accepted as a deprecated alias for
+`rotate_before_expiry`; its value now controls rotation rather than warning only.
 
 ### `SiteExplorerConfig`
 
