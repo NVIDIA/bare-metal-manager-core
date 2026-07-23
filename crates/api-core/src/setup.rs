@@ -1296,6 +1296,11 @@ async fn initialize_and_start_controllers<'a>(
                         .machine_state_controller
                         .scout_reporting_timeout,
                 )
+                .waiting_for_measurements_timeout(
+                    carbide_config
+                        .machine_state_controller
+                        .waiting_for_measurements_timeout,
+                )
                 .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
                 .hardware_models(carbide_config.get_firmware_config())
                 .firmware_downloader(&downloader)

@@ -1651,6 +1651,12 @@ pub enum FailureCause {
 
     MeasurementsCAValidationFailed { err: String },
 
+    // MeasurementsNotReceived is returned when the host has been in
+    // WaitingForMeasurements longer than the configured timeout without
+    // Scout ever submitting a report. This typically means the host is
+    // not network-booting at all.
+    MeasurementsNotReceived { err: String },
+
     DpfProvisioning { err: String },
 
     SpdmAttestationFailed { err: String },
@@ -2261,6 +2267,9 @@ impl Display for FailureCause {
             FailureCause::MachineValidation { .. } => write!(f, "MachineValidation"),
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 write!(f, "MeasurementsCAValidationFailed")
+            }
+            FailureCause::MeasurementsNotReceived { .. } => {
+                write!(f, "MeasurementsNotReceived")
             }
             FailureCause::DpfProvisioning { err } => write!(f, "DpfProvisioning {err}"),
             FailureCause::SpdmAttestationFailed { .. } => {
