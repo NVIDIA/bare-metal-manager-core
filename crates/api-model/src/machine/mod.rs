@@ -1465,13 +1465,10 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
 }
 
 fn bfb_install_support(dpu_snapshots: &[Machine]) -> bool {
-    let bfb_install_support_ = |dpu_snapshots: &[Machine]| -> bool {
-        dpu_snapshots
+    !dpu_snapshots.is_empty()
+        && dpu_snapshots
             .iter()
             .all(|m| m.status.bmc_info.supports_bfb_install())
-    };
-
-    bfb_install_support_(dpu_snapshots)
 }
 
 /// MeasuringState contains states used for host attestion (or
@@ -2980,6 +2977,14 @@ pub fn dpf_based_dpu_provisioning_possible(
         return false;
     }
 
+    if state.dpu_snapshots.is_empty() {
+        tracing::info!(
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU provisioning is not possible because the host has no DPUs.",
+        );
+        return false;
+    }
+
     // if it is reprovisioning case, initial ingestion should be done with dpf
     // to continue or we should be trying to reprovision all the dpus (switching
     // to DPF). Reprovisioning only a subset of DPUs cannot flip the host to DPF.
@@ -3051,9 +3056,347 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{Check, check_values, scenarios};
 
     use super::*;
+    use crate::test_support::machine_snapshot::{dpu_machine, managed_host_state_snapshot};
+
+    #[derive(Clone, Copy)]
+    struct DpuProvisioningInput {
+        part_number: &'static str,
+        firmware_version: Option<&'static str>,
+        reprovision_requested: bool,
+    }
+
+    const BF2_SUPPORTED: DpuProvisioningInput = DpuProvisioningInput {
+        part_number: "MBF2M516C",
+        firmware_version: Some("BF-24.10"),
+        reprovision_requested: false,
+    };
+    const BF3_SUPPORTED: DpuProvisioningInput = DpuProvisioningInput {
+        part_number: "900-9D3B6",
+        firmware_version: Some("BF-24.10"),
+        reprovision_requested: false,
+    };
+    const BF3_REQUESTED: DpuProvisioningInput = DpuProvisioningInput {
+        reprovision_requested: true,
+        ..BF3_SUPPORTED
+    };
+    const BF3_UNSUPPORTED_BFB: DpuProvisioningInput = DpuProvisioningInput {
+        firmware_version: Some("BF-24.04"),
+        ..BF3_SUPPORTED
+    };
+    const BF4_SUPPORTED: DpuProvisioningInput = DpuProvisioningInput {
+        part_number: "900-9D4B4",
+        firmware_version: Some("BF4-26.04"),
+        reprovision_requested: false,
+    };
+
+    #[derive(Clone, Copy)]
+    struct DpfProvisioningInput {
+        dpf_enabled_at_site: bool,
+        dpf_enabled_for_host: bool,
+        used_for_ingestion: bool,
+        reprovisioning_case: bool,
+        dpus: &'static [DpuProvisioningInput],
+    }
+
+    fn dpf_input(dpus: &'static [DpuProvisioningInput]) -> DpfProvisioningInput {
+        DpfProvisioningInput {
+            dpf_enabled_at_site: true,
+            dpf_enabled_for_host: true,
+            used_for_ingestion: false,
+            reprovisioning_case: false,
+            dpus,
+        }
+    }
+
+    fn provisioning_state(input: DpfProvisioningInput) -> ManagedHostStateSnapshot {
+        let mut state = managed_host_state_snapshot();
+        state.host_snapshot.config.dpf = Dpf {
+            enabled: input.dpf_enabled_for_host,
+            used_for_ingestion: input.used_for_ingestion,
+        };
+        state.dpu_snapshots = input
+            .dpus
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let mut dpu = dpu_machine(index as u8);
+                dpu.status.bmc_info.firmware_version = input.firmware_version.map(str::to_string);
+                dpu.status
+                    .hardware_info
+                    .as_mut()
+                    .expect("fixture DPU has hardware info")
+                    .dpu_info
+                    .as_mut()
+                    .expect("fixture DPU has DPU info")
+                    .part_number = input.part_number.to_string();
+                dpu.reprovision_requested =
+                    input.reprovision_requested.then(|| ReprovisionRequest {
+                        requested_at: DateTime::<Utc>::UNIX_EPOCH,
+                        initiator: "test".to_string(),
+                        update_firmware: false,
+                        started_at: None,
+                        user_approval_received: false,
+                        restart_reprovision_requested_at: DateTime::<Utc>::UNIX_EPOCH,
+                    });
+                dpu
+            })
+            .collect();
+        state
+    }
+
+    #[test]
+    fn dpf_provisioning_policy_matrix() {
+        check_values(
+            [
+                Check {
+                    scenario: "site flag disables DPF provisioning",
+                    input: DpfProvisioningInput {
+                        dpf_enabled_at_site: false,
+                        ..dpf_input(&[BF3_SUPPORTED])
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "host flag disables DPF provisioning",
+                    input: DpfProvisioningInput {
+                        dpf_enabled_for_host: false,
+                        ..dpf_input(&[BF3_SUPPORTED])
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "initial BF3 provisioning is eligible",
+                    input: dpf_input(&[BF3_SUPPORTED]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "legacy ingestion can switch when every DPU is requested",
+                    input: DpfProvisioningInput {
+                        reprovisioning_case: true,
+                        dpus: &[BF3_REQUESTED, BF3_REQUESTED],
+                        ..dpf_input(&[])
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "legacy ingestion cannot switch a requested subset",
+                    input: DpfProvisioningInput {
+                        reprovisioning_case: true,
+                        dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
+                        ..dpf_input(&[])
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "DPF ingestion permits a requested subset",
+                    input: DpfProvisioningInput {
+                        used_for_ingestion: true,
+                        reprovisioning_case: true,
+                        dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
+                        ..dpf_input(&[])
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "a BF2 DPU prevents DPF provisioning",
+                    input: dpf_input(&[BF3_SUPPORTED, BF2_SUPPORTED]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "BF4 provisioning is eligible",
+                    input: dpf_input(&[BF4_SUPPORTED]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "unsupported BFB firmware prevents DPF provisioning",
+                    input: dpf_input(&[BF3_UNSUPPORTED_BFB]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "mixed BFB support prevents DPF provisioning",
+                    input: dpf_input(&[BF3_SUPPORTED, BF3_UNSUPPORTED_BFB]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "a host without DPUs is ineligible",
+                    input: dpf_input(&[]),
+                    expect: false,
+                },
+            ],
+            |input| {
+                let state = provisioning_state(input);
+                dpf_based_dpu_provisioning_possible(
+                    &state,
+                    input.dpf_enabled_at_site,
+                    input.reprovisioning_case,
+                )
+            },
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    struct DpuProvisioningRouteInput {
+        dpf: DpfProvisioningInput,
+        enable_secure_boot: bool,
+    }
+
+    #[test]
+    fn dpu_provisioning_route_matrix() {
+        check_values(
+            [
+                Check {
+                    scenario: "DPF takes priority over secure boot",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            used_for_ingestion: true,
+                            ..dpf_input(&[BF3_SUPPORTED])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::DpfStates {
+                            substate: DpfState::Reprovisioning,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "Redfish BFB is selected when site DPF is disabled",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpf_enabled_at_site: false,
+                            ..dpf_input(&[BF3_SUPPORTED])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::EnableSecureBoot {
+                            count: 0,
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "secure boot disabled bypasses Redfish BFB",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpf_enabled_at_site: false,
+                            ..dpf_input(&[BF3_SUPPORTED])
+                        },
+                        enable_secure_boot: false,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::WaitingForNetworkInstall,
+                    ),
+                },
+                Check {
+                    scenario: "mixed BFB support uses network installation",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpf_enabled_at_site: false,
+                            dpus: &[BF3_SUPPORTED, BF3_UNSUPPORTED_BFB],
+                            ..dpf_input(&[])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::WaitingForNetworkInstall,
+                    ),
+                },
+                Check {
+                    scenario: "legacy subset only blocks the reprovision DPF route",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
+                            ..dpf_input(&[])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "BF2 falls back to Redfish BFB installation",
+                    input: DpuProvisioningRouteInput {
+                        dpf: dpf_input(&[BF2_SUPPORTED]),
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::EnableSecureBoot {
+                            count: 0,
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "an empty DPU set cannot select aggregate routes",
+                    input: DpuProvisioningRouteInput {
+                        dpf: dpf_input(&[]),
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::WaitingForNetworkInstall,
+                    ),
+                },
+            ],
+            |input| {
+                let state = provisioning_state(input.dpf);
+                (
+                    DpuDiscoveringState::next_substate_based_on_bfb_support(
+                        input.enable_secure_boot,
+                        &state,
+                        input.dpf.dpf_enabled_at_site,
+                    ),
+                    ReprovisionState::next_substate_based_on_bfb_support(
+                        input.enable_secure_boot,
+                        &state,
+                        input.dpf.dpf_enabled_at_site,
+                    ),
+                )
+            },
+        );
+    }
 
     // Deserializing a `FailureDetails` JSON blob: the parsed value must match the
     // expected struct (cause + failed_at + source). The type is PartialEq, so we
