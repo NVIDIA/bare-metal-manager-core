@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 
 use crate::crds::dpuflavors_generated::{
     DPUFlavor, DpuFlavorConfigFiles, DpuFlavorConfigFilesOperation, DpuFlavorDpuMode,
-    DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
+    DpuFlavorGrub, DpuFlavorNvconfig, DpuFlavorNvconfigDevice, DpuFlavorSpec,
 };
 use crate::types::DpfProxyDetails;
 
