@@ -3051,7 +3051,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{Check, check_values, scenarios};
 
     use super::*;
 
@@ -3308,192 +3308,388 @@ mod tests {
         }
     }
 
-    /// State with a non-zero SLA returns no_sla when ExcludeFromStateMachineSla
-    /// classification is present on the single alert.
     #[test]
-    fn test_state_sla_exclude_classification_overrides_sla() {
+    fn state_sla_maps_machine_states_and_health_to_limits() {
+        struct Inputs {
+            state: ManagedHostState,
+            state_version: ConfigVersion,
+            aggregate_health: health_report::HealthReport,
+        }
+
         let machine_id =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
                 .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
-        ])]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(sla.sla.is_none(), "SLA should be absent when excluded");
-        assert!(
-            !sla.time_in_state_above_sla,
-            "time_in_state_above_sla should be false when excluded"
-        );
-    }
-
-    /// When there are multiple alerts and only one carries the
-    /// ExcludeFromStateMachineSla classification, the SLA is still suppressed.
-    #[test]
-    fn test_state_sla_exclude_classification_on_one_of_multiple_alerts_suppresses_sla() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+        let other_dpu_id =
+            MachineId::from_str("fm100dtjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
                 .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![
-            // Alert without the exclusion classification
-            alert_with_classifications(vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-            ]),
-            // Alert with the exclusion classification
+        let validation_id = MachineValidationId::nil();
+        let sla_config = slas::MachineSlaConfig::new(chrono::Duration::minutes(10));
+        let failed = || ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
+        let excluded = || {
             alert_with_classifications(vec![
                 health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
-            ]),
-        ]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_none(),
-            "SLA should be absent even if only one alert carries the exclusion classification"
-        );
-        assert!(!sla.time_in_state_above_sla);
-    }
-
-    /// Without the ExcludeFromStateMachineSla classification, the normal SLA
-    /// applies to states that have one defined.
-    #[test]
-    fn test_state_sla_without_exclude_classification_normal_sla_applies() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::prevent_allocations(),
-        ])]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_some(),
-            "SLA should be present when exclusion classification is absent"
-        );
-    }
-
-    /// An empty health report (no alerts) does not trigger the exclusion —
-    /// normal SLA logic applies.
-    #[test]
-    fn test_state_sla_empty_health_report_normal_sla_applies() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_some(),
-            "SLA should be present when there are no alerts"
-        );
-    }
-
-    /// The ExcludeFromStateMachineSla classification suppresses the SLA even
-    /// for the Failed state, which ordinarily has an always-violated SLA (duration 0).
-    #[test]
-    fn test_state_sla_exclude_classification_overrides_failed_state_sla() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::NoError,
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::NoError,
-            },
-            machine_id,
-            retry_count: 1,
+            ])
         };
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
-        ])]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_none(),
-            "SLA should be suppressed for Failed state when excluded"
-        );
-        assert!(!sla.time_in_state_above_sla);
-    }
-
-    /// Without the exclusion classification on a Failed machine, the SLA is
-    /// immediately violated (duration 0).
-    #[test]
-    fn test_state_sla_failed_state_without_exclude_classification_is_above_sla() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::NoError,
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::NoError,
-            },
-            machine_id,
-            retry_count: 1,
+        let unrelated = || {
+            alert_with_classifications(vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+            ])
         };
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![]);
+        let seconds = |value| Some(std::time::Duration::from_secs(value));
+        // ConfigVersion::invalid() makes breached rows deterministic; the sole
+        // ConfigVersion::initial() row is the below-SLA countercheck.
+        let stale = |state| Inputs {
+            state,
+            state_version: ConfigVersion::invalid(),
+            aggregate_health: health_report_with_alerts(vec![]),
+        };
 
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert_eq!(
-            sla.sla,
-            Some(std::time::Duration::ZERO),
-            "Failed state should have a zero-duration SLA"
-        );
-        assert!(
-            sla.time_in_state_above_sla,
-            "Failed state should always be above SLA"
+        check_values(
+            [
+                Check {
+                    scenario: "one exclusion among several alerts suppresses a failed-state SLA",
+                    input: Inputs {
+                        state: failed(),
+                        state_version: ConfigVersion::invalid(),
+                        aggregate_health: health_report_with_alerts(vec![unrelated(), excluded()]),
+                    },
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "a sole exclusion suppresses a positive SLA",
+                    input: Inputs {
+                        state: ManagedHostState::Created,
+                        state_version: ConfigVersion::invalid(),
+                        aggregate_health: health_report_with_alerts(vec![excluded()]),
+                    },
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "an unrelated alert leaves the positive SLA in effect",
+                    input: Inputs {
+                        state: ManagedHostState::Created,
+                        state_version: ConfigVersion::initial(),
+                        aggregate_health: health_report_with_alerts(vec![unrelated()]),
+                    },
+                    expect: (seconds(1_800), false),
+                },
+                Check {
+                    scenario: "DPU discovery without a DPU has no SLA",
+                    input: stale(ManagedHostState::DpuDiscoveringState {
+                        dpu_states: DpuDiscoveringStates {
+                            states: HashMap::new(),
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "nonempty DPU discovery uses the discovery SLA",
+                    input: stale(ManagedHostState::DpuDiscoveringState {
+                        dpu_states: DpuDiscoveringStates {
+                            states: HashMap::from([
+                                (machine_id, DpuDiscoveringState::EnableRshim),
+                                (other_dpu_id, DpuDiscoveringState::Initializing),
+                            ]),
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "DPU initialization without a DPU has no SLA",
+                    input: stale(ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::new(),
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "DPU initialization at Init has no SLA",
+                    input: stale(ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::from([
+                                (machine_id, DpuInitState::WaitingForPlatformConfiguration),
+                                (other_dpu_id, DpuInitState::Init),
+                            ]),
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "a pre-Init DPU sets the initialization SLA",
+                    input: stale(ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::from([
+                                (machine_id, DpuInitState::Init),
+                                (
+                                    other_dpu_id,
+                                    DpuInitState::InstallDpuOs {
+                                        substate: InstallDpuOsState::InstallingBFB,
+                                    },
+                                ),
+                            ]),
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "host initialization at Init has no SLA",
+                    input: stale(ManagedHostState::HostInit {
+                        machine_state: MachineState::Init,
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "host initialization waiting for discovery uses the host SLA",
+                    input: stale(ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForDiscovery,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "Ready has no SLA",
+                    input: stale(ManagedHostState::Ready),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "maintenance uses the maintenance SLA",
+                    input: stale(ManagedHostState::Maintenance {
+                        operation: MachineMaintenanceOperation::PowerOn,
+                    }),
+                    expect: (seconds(300), true),
+                },
+                Check {
+                    scenario: "an assigned Ready machine has no SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "the first discovery-image retry uses the configured SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::BootingWithDiscoveryImage {
+                            retry: RetryInfo { count: 1 },
+                        },
+                    }),
+                    expect: (seconds(660), true),
+                },
+                Check {
+                    scenario: "the second discovery-image retry has a zero SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::BootingWithDiscoveryImage {
+                            retry: RetryInfo { count: 2 },
+                        },
+                    }),
+                    expect: (seconds(0), true),
+                },
+                Check {
+                    scenario: "host platform configuration uses its extended SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::HostPlatformConfiguration {
+                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
+                        },
+                    }),
+                    expect: (seconds(5_400), true),
+                },
+                Check {
+                    scenario: "other assigned substates use the assigned SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::Init,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "cleanup uses the cleanup SLA",
+                    input: stale(ManagedHostState::WaitingForCleanup {
+                        cleanup_state: CleanupState::Init,
+                        cleanup_context: CleanupContext::Deprovision,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "force deletion uses the force-deletion SLA",
+                    input: stale(ManagedHostState::ForceDeletion),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "a failed state immediately exceeds its zero SLA",
+                    input: stale(failed()),
+                    expect: (seconds(0), true),
+                },
+                Check {
+                    scenario: "DPU reprovisioning uses the DPU reprovision SLA",
+                    input: stale(ManagedHostState::DPUReprovision {
+                        dpu_states: DpuReprovisionStates {
+                            states: HashMap::new(),
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "host reprovisioning uses the host reprovision SLA",
+                    input: stale(ManagedHostState::HostReprovision {
+                        reprovision_state: HostReprovisionState::CheckingFirmware,
+                        retry_count: 0,
+                    }),
+                    expect: (seconds(2_400), true),
+                },
+                Check {
+                    scenario: "pre-assignment measurement collection uses the measurement SLA",
+                    input: stale(ManagedHostState::Measuring {
+                        measuring_state: MeasuringState::WaitingForMeasurements,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "pre-assignment pending bundles have no SLA",
+                    input: stale(ManagedHostState::Measuring {
+                        measuring_state: MeasuringState::PendingBundle,
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "post-assignment measured boot collection uses the measurement SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::MeasuredBoot {
+                            measuring_state: MeasuringState::WaitingForMeasurements,
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "post-assignment measured boot pending bundles have no SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::MeasuredBoot {
+                            measuring_state: MeasuringState::PendingBundle,
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "post-assignment SPDM polling uses the poll SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::SpdmAttestation {
+                            spdm_measuring_state: SpdmMeasuringState::PollResult,
+                        },
+                    }),
+                    expect: (seconds(600), true),
+                },
+                Check {
+                    scenario: "post-assignment SPDM collection uses the trigger SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::SpdmAttestation {
+                            spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                        },
+                    }),
+                    expect: (seconds(30), true),
+                },
+                Check {
+                    scenario: "pre-assignment SPDM polling uses the poll SLA",
+                    input: stale(ManagedHostState::PreAssignedMeasuring {
+                        spdm_measuring_state: SpdmMeasuringState::PollResult,
+                    }),
+                    expect: (seconds(600), true),
+                },
+                Check {
+                    scenario: "pre-assignment SPDM collection uses the trigger SLA",
+                    input: stale(ManagedHostState::PreAssignedMeasuring {
+                        spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                    }),
+                    expect: (seconds(30), true),
+                },
+                Check {
+                    scenario: "assignment-cycle startup uses the assignment SLA",
+                    input: stale(ManagedHostState::StartAssignmentCycle),
+                    expect: (seconds(60), true),
+                },
+                Check {
+                    scenario: "SKU verification failure has no SLA",
+                    input: stale(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::SkuVerificationFailed(
+                            BomValidatingContext::default(),
+                        ),
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "waiting for SKU assignment has no SLA",
+                    input: stale(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                            BomValidatingContext::default(),
+                        ),
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "active BOM validation uses the BOM SLA",
+                    input: stale(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::MatchingSku(
+                            BomValidatingContext::default(),
+                        ),
+                    }),
+                    expect: (seconds(300), true),
+                },
+                Check {
+                    scenario: "machine validation uses the validation SLA",
+                    input: stale(ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::MachineValidating {
+                                context: "Discovery".to_string(),
+                                id: validation_id,
+                                completed: 0,
+                                total: 1,
+                                is_enabled: true,
+                            },
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "validation reboot uses the validation SLA",
+                    input: stale(ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::RebootHost {
+                                validation_id,
+                            },
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "boot repair validation uses the validation SLA",
+                    input: stale(ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::PrepareBootRepair {
+                                validation_id,
+                            },
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+            ],
+            |Inputs {
+                 state,
+                 state_version,
+                 aggregate_health,
+             }| {
+                let state_sla = state_sla(
+                    &machine_id,
+                    &state,
+                    &state_version,
+                    &aggregate_health,
+                    &sla_config,
+                );
+                (state_sla.sla, state_sla.time_in_state_above_sla)
+            },
         );
     }
 
