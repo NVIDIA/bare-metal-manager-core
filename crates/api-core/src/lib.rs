@@ -24,11 +24,10 @@
 //! UI lives in the separate `carbide-api-web` crate.
 
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
-// The `test_support` module also compiles when a dependent enables the `test-support` feature, so
-// the allow must cover that build too; otherwise the custom txn lints fire on shared test helpers
-// under `--all-features`.
-#![cfg_attr(any(test, feature = "test-support"), allow(txn_held_across_await))]
-#![cfg_attr(any(test, feature = "test-support"), allow(txn_without_commit))]
+// Keep this exemption limited to test builds so enabling `test-support` under `--all-features`
+// does not hide violations in production modules.
+#![cfg_attr(test, allow(txn_held_across_await))]
+#![cfg_attr(test, allow(txn_without_commit))]
 
 // NOTE on pub vs non-pub mods:
 //
@@ -75,6 +74,9 @@ mod setup;
 mod storage;
 
 #[cfg(any(test, feature = "test-support"))]
+// Dependents compile these fixtures through the `test-support` feature, outside a `cfg(test)`
+// build, so scope their custom-lint exemption to this module.
+#[allow(txn_held_across_await, txn_without_commit)]
 pub mod test_support;
 
 #[cfg(test)]

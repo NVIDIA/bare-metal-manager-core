@@ -20,6 +20,8 @@
 //! while the per-packet log lines stay reachable at DEBUG for forensics. A
 //! drop is the operational error, so its event also writes the ERROR line --
 //! one declaration moves the counter and logs the reason together.
+//! Timestamp-file failures share a counter by operation while their paths,
+//! host interface, and errors remain log-only diagnostics.
 
 use carbide_instrument::{Event, LabelValue};
 use dhcproto::v4::MessageType;
@@ -116,6 +118,15 @@ impl From<&DhcpError> for DropReason {
     }
 }
 
+/// The timestamp-file operation that failed. These are the only three file
+/// operations performed by the DHCP server, so the metric remains bounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum TimestampFileOperation {
+    Initialize,
+    Write,
+    Read,
+}
+
 /// A DHCP packet was decoded from the wire, whatever becomes of it next.
 #[derive(Event)]
 #[event(
@@ -169,6 +180,106 @@ pub struct DhcpReplySent {
     pub message_type: MessageTypeLabel,
 }
 
+/// The startup write could not initialize the timestamp file. This server
+/// generation does not start after the failure.
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_timestamp_file_initialization_failed",
+    metric_name = "carbide_dhcp_timestamp_file_failures_total",
+    component = "nico-dhcp",
+    log = error,
+    metric = counter,
+    message = "Failed to init DHCP timestamps file",
+    describe = "Number of DHCP timestamp file failures, by operation"
+)]
+pub(crate) struct DhcpTimestampFileInitializationFailed {
+    #[label]
+    operation: TimestampFileOperation,
+    #[context]
+    dhcp_timestamps_path: String,
+    #[context]
+    error: String,
+}
+
+impl DhcpTimestampFileInitializationFailed {
+    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
+        Self {
+            operation: TimestampFileOperation::Initialize,
+            dhcp_timestamps_path,
+            error,
+        }
+    }
+}
+
+/// Updating the in-memory timestamp succeeded, but persisting the file failed.
+/// Packet processing continues because the timestamp write is best effort.
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_timestamp_file_write_failed",
+    metric_name = "carbide_dhcp_timestamp_file_failures_total",
+    component = "nico-dhcp",
+    log = error,
+    metric = counter,
+    message = "Failed to write DHCP timestamps file",
+    describe = "Number of DHCP timestamp file failures, by operation"
+)]
+pub(crate) struct DhcpTimestampFileWriteFailed {
+    #[label]
+    operation: TimestampFileOperation,
+    #[context]
+    dhcp_timestamps_path: String,
+    #[context]
+    host_interface_id: String,
+    #[context]
+    error: String,
+}
+
+impl DhcpTimestampFileWriteFailed {
+    pub(crate) fn new(
+        dhcp_timestamps_path: String,
+        host_interface_id: String,
+        error: String,
+    ) -> Self {
+        Self {
+            operation: TimestampFileOperation::Write,
+            dhcp_timestamps_path,
+            host_interface_id,
+            error,
+        }
+    }
+}
+
+/// The control RPC could not read the timestamp file. It still returns an
+/// empty list so callers keep treating an unreadable file as no requests yet.
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_timestamp_file_read_failed",
+    metric_name = "carbide_dhcp_timestamp_file_failures_total",
+    component = "nico-dhcp",
+    log = warn,
+    metric = counter,
+    message = "Failed to read DHCP timestamps file",
+    describe = "Number of DHCP timestamp file failures, by operation"
+)]
+pub(crate) struct DhcpTimestampFileReadFailed {
+    #[label]
+    operation: TimestampFileOperation,
+    #[context]
+    dhcp_timestamps_path: String,
+    #[context]
+    error: String,
+}
+
+impl DhcpTimestampFileReadFailed {
+    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
+        Self {
+            operation: TimestampFileOperation::Read,
+            dhcp_timestamps_path,
+            error,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
@@ -180,6 +291,173 @@ mod tests {
     use dhcproto::v4::relay::RelayCode;
 
     use super::*;
+
+    const TIMESTAMP_FILE_FAILURE_METRIC: &str = "carbide_dhcp_timestamp_file_failures_total";
+
+    struct TimestampFileFailureInput {
+        emit: fn(),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TimestampFileFailureObservation {
+        initialize_delta: f64,
+        write_delta: f64,
+        read_delta: f64,
+        log: TimestampFileFailureLog,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TimestampFileFailureLog {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        operation: Option<String>,
+        dhcp_timestamps_path: Option<String>,
+        host_interface_id: Option<String>,
+        error: Option<String>,
+    }
+
+    fn emit_timestamp_initialization_failure() {
+        emit(DhcpTimestampFileInitializationFailed::new(
+            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
+            "permission denied".to_string(),
+        ));
+    }
+
+    fn emit_timestamp_write_failure() {
+        emit(DhcpTimestampFileWriteFailed::new(
+            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
+            "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
+            "read-only file system".to_string(),
+        ));
+    }
+
+    fn emit_timestamp_read_failure() {
+        emit(DhcpTimestampFileReadFailed::new(
+            "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
+            "file not found".to_string(),
+        ));
+    }
+
+    fn observe_timestamp_file_failure(
+        input: TimestampFileFailureInput,
+    ) -> TimestampFileFailureObservation {
+        let metrics = MetricsCapture::start();
+        let mut logs = capture_logs(input.emit);
+        assert_eq!(logs.len(), 1, "a timestamp-file failure logs once");
+        let log = logs.pop().expect("the timestamp-file failure log");
+        let field = |name: &str| log.field(name).map(str::to_owned);
+
+        TimestampFileFailureObservation {
+            initialize_delta: metrics.counter_delta(
+                TIMESTAMP_FILE_FAILURE_METRIC,
+                &[("operation", "initialize")],
+            ),
+            write_delta: metrics
+                .counter_delta(TIMESTAMP_FILE_FAILURE_METRIC, &[("operation", "write")]),
+            read_delta: metrics
+                .counter_delta(TIMESTAMP_FILE_FAILURE_METRIC, &[("operation", "read")]),
+            log: TimestampFileFailureLog {
+                level: log.level,
+                metadata_name: log.metadata_name.clone(),
+                message: log.message.clone(),
+                event_name: field("event_name"),
+                metric_name: field("metric_name"),
+                operation: field("operation"),
+                dhcp_timestamps_path: field("dhcp_timestamps_path"),
+                host_interface_id: field("host_interface_id"),
+                error: field("error"),
+            },
+        }
+    }
+
+    fn expected_timestamp_file_failure(
+        operation: &str,
+        level: tracing::Level,
+        event_name: &str,
+        message: &str,
+        dhcp_timestamps_path: &str,
+        host_interface_id: Option<&str>,
+        error: &str,
+    ) -> TimestampFileFailureObservation {
+        TimestampFileFailureObservation {
+            initialize_delta: if operation == "initialize" { 1.0 } else { 0.0 },
+            write_delta: if operation == "write" { 1.0 } else { 0.0 },
+            read_delta: if operation == "read" { 1.0 } else { 0.0 },
+            log: TimestampFileFailureLog {
+                level,
+                metadata_name: event_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(event_name.to_string()),
+                metric_name: Some(TIMESTAMP_FILE_FAILURE_METRIC.to_string()),
+                operation: Some(operation.to_string()),
+                dhcp_timestamps_path: Some(dhcp_timestamps_path.to_string()),
+                host_interface_id: host_interface_id.map(str::to_owned),
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    /// Every timestamp-file failure keeps its historical diagnostic while the
+    /// operation label selects exactly one series in the shared counter.
+    #[test]
+    fn timestamp_file_failures_log_and_count_by_operation() {
+        // No other test in this binary triggers a timestamp-file failure. The
+        // exact process-global counter deltas below rely on that isolation;
+        // keep any future call-site failure test under the same log capture.
+        check_values(
+            [
+                Check {
+                    scenario: "initialization failure",
+                    input: TimestampFileFailureInput {
+                        emit: emit_timestamp_initialization_failure,
+                    },
+                    expect: expected_timestamp_file_failure(
+                        "initialize",
+                        tracing::Level::ERROR,
+                        "dhcp_timestamp_file_initialization_failed",
+                        "Failed to init DHCP timestamps file",
+                        "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
+                        None,
+                        "permission denied",
+                    ),
+                },
+                Check {
+                    scenario: "post-reply write failure",
+                    input: TimestampFileFailureInput {
+                        emit: emit_timestamp_write_failure,
+                    },
+                    expect: expected_timestamp_file_failure(
+                        "write",
+                        tracing::Level::ERROR,
+                        "dhcp_timestamp_file_write_failed",
+                        "Failed to write DHCP timestamps file",
+                        "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
+                        Some("60cef902-9779-4666-8362-c9bb4b37185f"),
+                        "read-only file system",
+                    ),
+                },
+                Check {
+                    scenario: "read failure",
+                    input: TimestampFileFailureInput {
+                        emit: emit_timestamp_read_failure,
+                    },
+                    expect: expected_timestamp_file_failure(
+                        "read",
+                        tracing::Level::WARN,
+                        "dhcp_timestamp_file_read_failed",
+                        "Failed to read DHCP timestamps file",
+                        "/var/support/forge-dhcp/logs/dhcp_timestamps.json",
+                        None,
+                        "file not found",
+                    ),
+                },
+            ],
+            observe_timestamp_file_failure,
+        );
+    }
 
     #[test]
     fn message_type_label_maps_the_rfc2131_set_and_buckets_the_rest() {

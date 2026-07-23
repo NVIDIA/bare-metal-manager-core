@@ -2,6 +2,59 @@
 
 This document contains release notes for the NVIDIA Infra Controller (NICo) project.
 
+## Infra Controller v2.0
+
+### New Features
+
+#### NTP Service (`nico-ntp`)
+
+NICo now ships a built-in NTP service. The `nico-ntp` subchart deploys a 3-replica [chrony](https://chrony-project.org/) StatefulSet, each replica exposed on its own MetalLB LoadBalancer VIP so DPUs have a stable, site-local clock source. The Kea DHCP hook advertises these VIPs to DPUs as DHCP option 42 NTP servers.
+
+To enable, configure three VIPs in `helm-prereqs/values/nico-core.yaml`:
+
+```yaml
+nico-ntp:
+  externalService:
+    enabled: true
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "<ntp-vip-0>"
+      - metallb.universe.tf/loadBalancerIPs: "<ntp-vip-1>"
+      - metallb.universe.tf/loadBalancerIPs: "<ntp-vip-2>"
+```
+
+Set `nico-dhcp.config.kea.hookParameters.ntpServer` to the same three VIPs (comma-separated). If you previously configured enterprise NTP servers in `siteConfig.ntp_servers`, those continue to be used for BMC pre-ingestion time sync and can coexist with `nico-ntp`.
+
+Upstream NTP peers default to `time{1-4}.google.com`. Override via `nico-ntp.ntp.upstreamServers` for air-gapped or enterprise-NTP environments.
+
+#### NVSwitch Credential Rotation
+
+The Vault policy for the `nico-vault-policy` role now includes full access to the `switch_nvos` credential path, enabling automated NVSwitch NVOS credential rotation. The following Vault paths are now granted:
+
+- `secret/data/switch_nvos/*` — create, read, patch, list, update, delete
+- `secret/metadata/switch_nvos/*` — list, read, delete
+- `secret/destroy/switch_nvos/*` — update (KV v2 destroys secret versions via update)
+
+No operator action is required; the policy is applied automatically by `setup.sh` on install or upgrade.
+
+### Upgrade Notes
+
+#### REST Database Consolidation (`v0.x` → `v2.0`)
+
+The NICo REST API database has been moved from its own standalone PostgreSQL instance to the shared Zalando-managed `nico-pg-cluster`. The standalone REST database is no longer deployed.
+
+**What changes:**
+
+- A new `nico_rest` database and `nico-rest.nico` user are provisioned on `nico-pg-cluster` (gated on `rest.enabled: true`, which is the default).
+- Database credentials are now synced via External Secrets Operator (ESO) as the `nico-rest-pg-creds` Secret in the `nico-rest` namespace (previously `db-creds`).
+- The `nico-rest-db` Helm chart's `waitForPostgres` init container now connects to `nico-pg-cluster` instead of a separate postgres instance.
+
+**Upgrade path from v0.x:**
+
+1. Back up the REST database from the old standalone PostgreSQL pod before upgrading.
+2. Run `setup.sh` as normal — it will provision the `nico_rest` database on `nico-pg-cluster` and apply the ESO secret sync automatically.
+3. Migrate data from the backup into the new `nico_rest` database on `nico-pg-cluster` if preserving existing REST state is required.
+4. Confirm the `nico-rest-pg-creds` Secret exists in the `nico-rest` namespace before starting the `nico-rest-db` migration job.
+
 ## Infra Controller v0.8
 
 ### Highlights

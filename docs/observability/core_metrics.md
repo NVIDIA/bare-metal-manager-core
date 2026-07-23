@@ -28,6 +28,8 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_auth_denied_total</td><td>counter</td><td>Number of Forge calls denied by the authorizer</td></tr>
 <tr><td>carbide_authn_client_cert_rejected_total</td><td>counter</td><td>Number of client certificates rejected during authentication</td></tr>
 <tr><td>carbide_available_ips_count</td><td>gauge</td><td>Number of available IPs per network segment</td></tr>
+<tr><td>carbide_bmc_proxy_authorization_denied_total</td><td>counter</td><td>Number of BMC proxy requests denied by authorization layer and HTTP method</td></tr>
+<tr><td>carbide_bmc_proxy_authorization_errors_total</td><td>counter</td><td>Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_attempted_total</td><td>counter</td><td>Number of inbound TLS connection attempts</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_fail_total</td><td>counter</td><td>Number of failed inbound connections, by failure reason</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_success_total</td><td>counter</td><td>Number of successful TLS connections</td></tr>
@@ -42,6 +44,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dhcp_dropped_requests_total</td><td>counter</td><td>Number of DHCP packets dropped without a reply, by drop reason.</td></tr>
 <tr><td>carbide_dhcp_replies_sent_total</td><td>counter</td><td>Number of DHCP replies sent, by reply message type.</td></tr>
 <tr><td>carbide_dhcp_requests_total</td><td>counter</td><td>Number of DHCP packets received and decoded, by DHCP message type.</td></tr>
+<tr><td>carbide_dhcp_timestamp_file_failures_total</td><td>counter</td><td>Number of DHCP timestamp file failures, by operation</td></tr>
 <tr><td>carbide_dhcp_v6_replies_sent_total</td><td>counter</td><td>Number of DHCPv6 replies sent, by response message type.</td></tr>
 <tr><td>carbide_dns_negative_cache_hit_count_total</td><td>counter</td><td>Number of negative DNS cache hits, by response code</td></tr>
 <tr><td>carbide_dns_negative_cache_miss_count_total</td><td>counter</td><td>Number of negative DNS cache misses, by response code</td></tr>
@@ -107,6 +110,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_ipmi_commands_total</td><td>counter</td><td>Number of IPMI command executions, by command and outcome.</td></tr>
 <tr><td>carbide_log_events_total</td><td>counter</td><td>Number of log events emitted, by level and component. The always-on log-volume and error-rate signal for every binary.</td></tr>
 <tr><td>carbide_machine_dpu_info</td><td>gauge</td><td>Association between a host machine and one of its DPUs. Exposed only on the opt-in per-object endpoint.</td></tr>
+<tr><td>carbide_machine_identity_token_exchange_failures_total</td><td>counter</td><td>Number of machine identity token exchange failures, by failure stage</td></tr>
 <tr><td>carbide_machine_instance_info</td><td>gauge</td><td>Association between a host machine and its tenant instance. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_machine_reboot_duration_seconds</td><td>histogram</td><td>Time taken for machine/host to reboot in seconds</td></tr>
 <tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>Number of machines in the system in the process of updating</td></tr>
@@ -141,6 +145,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_measured_boot_machines_total</td><td>gauge</td><td>Number of machines reporting measurements.</td></tr>
 <tr><td>carbide_measured_boot_profiles_total</td><td>gauge</td><td>Number of measured boot profiles.</td></tr>
 <tr><td>carbide_measured_boot_verification_failures_total</td><td>counter</td><td>Number of measured boot verification failures, across quote verification and attestation handling, by cause</td></tr>
+<tr><td>carbide_metrics_scrape_failures_total</td><td>counter</td><td>Number of /metrics scrape failures, by outcome.</td></tr>
 <tr><td>carbide_mqtt_dispatch_dropped_total</td><td>counter</td><td>Number of received MQTT messages dropped because the handler concurrency semaphore could not be acquired</td></tr>
 <tr><td>carbide_mqtt_reconnects_total</td><td>counter</td><td>Number of times an MQTT client re-established its broker connection after the initial connect</td></tr>
 <tr><td>carbide_network_segments_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_network_segments in the system</td></tr>
@@ -203,7 +208,9 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>Number of expected machines by SKU ID and device type</td></tr>
 <tr><td>carbide_site_exploration_identified_managed_hosts_count</td><td>gauge</td><td>Number of Host+DPU pairs identified in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_password_rotations_total</td><td>counter</td><td>Number of BMC root password rotations onto the site-wide credential, by outcome</td></tr>
+<tr><td>carbide_site_explorer_bmc_reset_attempts_total</td><td>counter</td><td>Number of Site Explorer BMC reset attempts, by method and status.</td></tr>
 <tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>Number of successful BMC resets in the last SiteExplorer run</td></tr>
+<tr><td>carbide_site_explorer_bmc_reset_timestamp_persistence_failures_total</td><td>counter</td><td>Number of Site Explorer BMC reset timestamp persistence failures, by method.</td></tr>
 <tr><td>carbide_site_explorer_create_machines</td><td>gauge</td><td>Whether site-explorer machine creation is enabled (1) or disabled (0)</td></tr>
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it took to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>Number of machine pairs created by Site Explorer after identification</td></tr>

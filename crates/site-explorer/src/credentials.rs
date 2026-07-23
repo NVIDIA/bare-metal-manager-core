@@ -18,11 +18,10 @@
 use std::sync::Arc;
 
 use carbide_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
+    BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
     REQUIRED_SITE_DEFAULT_CREDENTIAL_KEYS,
 };
 use mac_address::MacAddress;
-use model::expected_entity::BmcCredentialsData;
 use model::site_explorer::EndpointExplorationError;
 
 use super::metrics::SiteExplorationMetrics;
@@ -145,11 +144,41 @@ impl CredentialClient {
         self.get_credentials(&key).await
     }
 
-    pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
-        BmcCredentialsData {
-            username: "root",
-            password: "0penBmc",
-            retain_credentials: false,
+    /// Returns the factory-default BMC credentials for a DPU of the given model.
+    ///
+    /// Lookup order:
+    /// 1. Model-specific vault entry (`machines/all_dpus/factory_default/bmc-metadata-items/{model}`)
+    /// 2. Catch-all vault entry (`machines/all_dpus/factory_default/bmc-metadata-items/root`,
+    ///    i.e. `DpuModel::Unknown`) — skipped when `model` is already `Unknown`
+    /// 3. Model's publicly-documented factory default (`DpuModel::default_factory_credentials`)
+    ///
+    /// Never fails: vault misses are silently swallowed and the hardcoded fallback is returned.
+    pub async fn get_dpu_factory_default_credentials(
+        &self,
+        model: bmc_vendor::DpuModel,
+    ) -> Credentials {
+        let model_key = CredentialKey::DpuRedfish {
+            credential_type: CredentialType::DpuHardwareDefault { model },
+        };
+        if let Ok(creds) = self.get_credentials(&model_key).await {
+            return creds;
+        }
+
+        if model != bmc_vendor::DpuModel::Unknown {
+            let unknown_key = CredentialKey::DpuRedfish {
+                credential_type: CredentialType::DpuHardwareDefault {
+                    model: bmc_vendor::DpuModel::Unknown,
+                },
+            };
+            if let Ok(creds) = self.get_credentials(&unknown_key).await {
+                return creds;
+            }
+        }
+
+        let (username, password) = model.default_factory_credentials();
+        Credentials::UsernamePassword {
+            username: username.to_string(),
+            password: password.to_string(),
         }
     }
 

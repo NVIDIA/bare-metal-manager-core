@@ -261,7 +261,7 @@ spec:
                 capabilities = ["read", "list", "delete"]
               }
               path "{{ .Values.vault.kvMount }}/destroy/switch_nvos/*" {
-                capabilities = ["delete"]
+                capabilities = ["update"]
               }
               POLICY
 

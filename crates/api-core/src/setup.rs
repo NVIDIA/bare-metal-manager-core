@@ -1946,8 +1946,9 @@ mod tests {
         let error = format!("{error:?}");
 
         assert!(
-            error.contains("rack_capabilities.switch.vendor"),
-            "error message should name the missing vendor field: {error}"
+            error.contains("rack profile NVL72 cannot build RMS switch node descriptor")
+                && error.contains("rack profile does not identify an RMS switch vendor"),
+            "error message should identify the rack profile and missing role vendor: {error}"
         );
 
         Ok(())

@@ -42,7 +42,7 @@ require_bin base64
 mkdir -p "${WORK_DIR}"
 
 kubectl rollout status deployment/nico-api -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
-kubectl rollout status deployment/machine-a-tron -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
+kubectl rollout status deployment/nico-machine-a-tron -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-api -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-cert-manager -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-cloud-worker -n "${REST_NAMESPACE}" --timeout=300s >/dev/null

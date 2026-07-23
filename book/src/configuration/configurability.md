@@ -190,19 +190,31 @@ explicitly enabled in the TOML.
 | `[machine_identity]` | SPIFFE JWT-SVID issuance for machine (host) identity | Per-org JWT signing. See [Day 0 Machine Identity](../../../docs/getting-started/installation-options/day0-machine-identity.md) and [Machine Identity (Day 1)](../../../docs/configuration/machine_identity.md). |
 | `[measured_boot_collector]` | TPM-based attestation metrics | |
 | `[machine_validation_config]` | Pre-ingestion validation tests | |
-| `[component_manager]` | Compute tray, NvLink switch, and power shelf management | RMS backends require rack profile data for node type resolution. |
+| `[component_manager]` | Compute tray, NvLink switch, and power shelf management | RMS backends require rack profile data for node descriptors. |
 | `[vmaas_config]` | VM system integration / VM-aware traffic intercept | Requires `public_prefixes`. |
 | `[rms]` | Rack Manager Service (mTLS connectivity to external RMS) | |
 | `[dpf]` | DPU Platform Framework — Kubernetes DPU workload deployment | Requires the DPF operator deployed in-cluster. |
 | `rack_management_enabled` | Standalone infrastructure manager mode (GB200/GB300/VR144) | Top-level boolean, not a sub-section. |
 
-For RMS component-manager backends, NICo resolves the RMS node type from the
-rack profile. The rack profile provides two facts:
+For RMS component-manager backends, NICo builds RMS node descriptors from rack
+profiles. Each descriptor contains three attributes:
 
-- Product family from `product_family`, which is required for RMS-backed
-  operations and currently accepts `gb200` or `gb300`.
+- Role from the component-manager operation: `compute`, `switch`, or
+  `power_shelf`.
+- Product family from `product_family`, which must be non-empty for RMS-backed
+  operations. NICo passes other non-empty product-family identifiers to RMS
+  without a local hardware mapping.
 - Vendor from `rack_capabilities.<role>.vendor` for each role using an RMS
   backend.
+
+NICo always sends these attributes in descriptor-based RMS requests. For exact
+role, vendor, and product-family combinations represented by the current RMS
+`NodeType` enum, NICo also sends that enum and legacy firmware-filter entries
+for compatibility with older RMS servers. Other combinations leave `NodeType`
+unset and require RMS support for `NodeDescriptor`. This best-effort legacy
+mapping does not participate in startup validation. In particular, VRNVL72
+power shelves use their configured VRNVL72 descriptor because no matching
+legacy `NodeType` exists.
 
 NICo validates configured rack profiles at startup when any component-manager
 backend is set to `rms`. The component-manager backend fields default to `rms`,
@@ -213,22 +225,16 @@ the vendor fields for enabled RMS roles. For example, if only
 values, then only `rack_capabilities.power_shelf.vendor` is required as a vendor
 field.
 
-Use these canonical vendor names in config:
+NICo trims outer whitespace from `product_family` and vendor values and requires
+both to be non-empty. It does not validate either value against a fixed list.
+RMS determines whether each role/vendor/product-family combination is supported
+when a request is made. See
+[Supported RMS descriptor combinations](../../../docs/configuration/component-manager-rms.md#supported-rms-descriptor-combinations),
+including VRNVL72.
 
-| Role | Canonical values |
-| --- | --- |
-| Compute, when `compute_tray_backend = "rms"` | `NVIDIA`, `Lenovo` |
-| Switch, when `nv_switch_backend = "rms"` | `NVIDIA` |
-| Power shelf, when `power_shelf_backend = "rms"` | `LiteOn`, `Delta` |
-
-The `product_family` value is not normalized. It must exactly match one of the
-accepted lowercase values, such as `gb200` or `gb300`; values like `GB200` are
-rejected. Vendor matching is more forgiving. Vendor values are trimmed,
-case-insensitive, and ignore spaces, hyphens, and underscores, so `NVIDIA`,
-`nvidia`, `LiteOn`, `liteon`, `Lite-On`, and `lite_on` all work. Common company
-suffix text also works when the normalized value starts with the canonical
-vendor, but the canonical values above are preferred for operator-supplied
-config.
+For product families other than `gb200` and `gb300`, the `GetRackProfile`
+`product_family` enum is `UNSPECIFIED`. The configured string remains available
+to descriptor-based RMS operations.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
@@ -306,16 +312,16 @@ still checked when an RMS operation runs.
 
 | Field | Accepted values |
 | --- | --- |
-| `product_family`, when an RMS-backed operation uses the profile | Exact match: `gb200`, `gb300` |
-| `rack_hardware_topology` | `gb200_nvl36r1_c2g4_topology`, `gb200_nvl72r1_c2g4_topology`, `gb300_nvl36r1_c2g4_topology`, `gb300_nvl72r1_c2g4_topology` |
-| Compute profile vendor, when `compute_tray_backend = "rms"` | `nvidia`, `lenovo` after normalization |
-| Switch profile vendor, when `nv_switch_backend = "rms"` | `nvidia` after normalization |
-| Power shelf profile vendor, when `power_shelf_backend = "rms"` | `liteon`, `delta` after normalization |
+| `product_family`, when an RMS-backed operation uses the profile | Non-empty string; RMS validates support at request time |
+| `rack_hardware_topology` | `gb200_nvl36r1_c2g4_topology`, `gb200_nvl72r1_c2g4_topology`, `gb300_nvl36r1_c2g4_topology`, `gb300_nvl72r1_c2g4_topology`, `vr_nvl8r1_c2g4_rtf_topology`, `vr_nvl72r1_c2g4_topology` |
+| Compute profile vendor, when `compute_tray_backend = "rms"` | Non-empty string; RMS validates support at request time |
+| Switch profile vendor, when `nv_switch_backend = "rms"` | Non-empty string; RMS validates support at request time |
+| Power shelf profile vendor, when `power_shelf_backend = "rms"` | Non-empty string; RMS validates support at request time |
 
 The separate site-explorer machine-ingestion RMS slot/tray lookup also uses the
-rack profile for RMS node type resolution. If that path is enabled for machines
-with rack IDs, the profile also needs compute product-family and vendor data even
-when `compute_tray_backend` is not `rms`.
+rack profile to build a compute node descriptor. If that path is enabled for
+machines with rack IDs, the profile also needs compute product-family and vendor
+data even when `compute_tray_backend` is not `rms`.
 
 ### State-controller timing
 
@@ -1226,7 +1232,7 @@ on or off.
 | Site Explorer machine auto-creation | siteConfig | `[site_explorer].create_machines` | on | Disable for manual-onboarding environments. |
 | Site Explorer switch / power shelf auto-creation | siteConfig | `[site_explorer].create_switches` / `[site_explorer].create_power_shelves` | on | Ingests only declared hardware (`expected_switches` / `expected_power_shelves` records). Disable to pause switch or power shelf ingestion site-wide. |
 | Firmware autoupdate | siteConfig | `[firmware_global].autoupdate` | off | Enable once the fleet's firmware baseline is stable. |
-| Component Manager (compute trays / NvLink switches / power shelves) | siteConfig | `[component_manager]` present | off | GB200/GB300 sites with managed compute, power, and switch fabric. RMS backends require rack profile data for node type resolution. |
+| Component Manager (compute trays / NvLink switches / power shelves) | siteConfig | `[component_manager]` present | off | GB200/GB300 sites with managed compute, power, and switch fabric. RMS backends require rack profile data for node descriptors. |
 | Auto-repair plugin | siteConfig | `[auto_machine_repair_plugin]` | off | Enable per fault class as fleet maturity grows. |
 | BOM / SKU validation | siteConfig | `[bom_validation]` present | off | Validate ingested hardware against expected BOM before `Ready`. |
 | Network Security Groups | siteConfig | `[network_security_group]` | default | Touch only for non-default direction policy or scale-out limits. |

@@ -122,15 +122,27 @@ applicable.
 
 ---
 
-### Component Manager RMS Node Type Resolution
+### Component Manager RMS Node Descriptors
 
-When `[component_manager]` uses RMS backends, NICo resolves RMS node types from
-rack profiles. The rack profile provides two facts:
+When `[component_manager]` uses RMS backends, NICo builds RMS node descriptors
+from rack profiles. Each descriptor contains three attributes:
 
-- Product family from `product_family`, which is required for RMS-backed
-  operations and currently accepts `gb200` or `gb300`.
+- Role from the component-manager operation: `compute`, `switch`, or
+  `power_shelf`.
+- Product family from `product_family`, which must be non-empty for RMS-backed
+  operations. NICo passes other non-empty product-family identifiers to RMS
+  without a local hardware mapping.
 - Vendor from `rack_capabilities.<role>.vendor` for each role using an RMS
   backend.
+
+NICo always sends these attributes in descriptor-based RMS requests. For exact
+role, vendor, and product-family combinations represented by the current RMS
+`NodeType` enum, NICo also sends that enum and legacy firmware-filter entries
+for compatibility with older RMS servers. Other combinations leave `NodeType`
+unset and require RMS support for `NodeDescriptor`. This best-effort legacy
+mapping does not participate in startup validation. In particular, VRNVL72
+power shelves use their configured VRNVL72 descriptor because no matching
+legacy `NodeType` exists.
 
 NICo validates configured rack profiles at startup when any component-manager
 backend is set to `rms`. The component-manager backend fields default to `rms`,
@@ -141,22 +153,16 @@ the vendor fields for enabled RMS roles. For example, if only
 values, then only `rack_capabilities.power_shelf.vendor` is required as a vendor
 field.
 
-Use these canonical vendor names in config:
+NICo trims outer whitespace from `product_family` and vendor values and requires
+both to be non-empty. It does not validate either value against a fixed list.
+RMS determines whether each role/vendor/product-family combination is supported
+when a request is made. See
+[Supported RMS descriptor combinations](../../../../docs/configuration/component-manager-rms.md#supported-rms-descriptor-combinations),
+including VRNVL72.
 
-| Role | Canonical values |
-|------|------------------|
-| Compute, when `compute_tray_backend = "rms"` | `NVIDIA`, `Lenovo` |
-| Switch, when `nv_switch_backend = "rms"` | `NVIDIA` |
-| Power shelf, when `power_shelf_backend = "rms"` | `LiteOn`, `Delta` |
-
-The `product_family` value is not normalized. It must exactly match one of the
-accepted lowercase values, such as `gb200` or `gb300`; values like `GB200` are
-rejected. Vendor matching is more forgiving. Vendor values are trimmed,
-case-insensitive, and ignore spaces, hyphens, and underscores, so `NVIDIA`,
-`nvidia`, `LiteOn`, `liteon`, `Lite-On`, and `lite_on` all work. Common company
-suffix text also works when the normalized value starts with the canonical
-vendor, but the canonical values above are preferred for operator-supplied
-config.
+For product families other than `gb200` and `gb300`, the `GetRackProfile`
+`product_family` enum is `UNSPECIFIED`. The configured string remains available
+to descriptor-based RMS operations.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
@@ -206,9 +212,8 @@ vendor = "delta"
 ```
 
 Example: only the component-manager power shelf backend uses RMS. The compute
-and switch component-manager backends are explicitly set to real non-RMS values
-so component-manager startup validation only requires the power shelf vendor
-field:
+and switch component-manager backends are explicitly set to non-RMS values, so
+component-manager startup validation only requires the power shelf vendor field:
 
 ```toml
 [component_manager]
@@ -233,13 +238,13 @@ existing rack database rows, so missing or unknown per-rack profile IDs are
 still checked when an RMS operation runs.
 
 The separate site-explorer machine-ingestion RMS slot/tray lookup also uses the
-rack profile for RMS node type resolution. If that path is enabled for machines
-with rack IDs, the profile also needs compute product-family and vendor data even
-when `compute_tray_backend` is not `rms`.
+rack profile to build a compute node descriptor. If that path is enabled for
+machines with rack IDs, the profile also needs compute product-family and vendor
+data even when `compute_tray_backend` is not `rms`.
 
-Supported RMS product-family values are exact-match `gb200` and `gb300`. The
-optional `rack_hardware_topology` field remains available for topology-specific
-flows.
+NICo accepts non-empty product-family strings. RMS evaluates descriptor support
+when an operation runs. The optional `rack_hardware_topology` field remains
+available for topology-specific flows.
 
 ---
 
