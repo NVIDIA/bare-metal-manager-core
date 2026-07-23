@@ -114,8 +114,8 @@ pub struct StaticBmcEndpoint {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct StaticMachineEndpoint {
-    /// Stable NICo machine ID for this BMC endpoint.
-    pub id: String,
+    /// Stable NICo machine ID for this BMC endpoint. Optional when running without NICo.
+    pub id: Option<String>,
 
     /// Optional chassis serial to emit as machine telemetry metadata.
     pub serial: Option<String>,
@@ -2063,7 +2063,7 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
             config.endpoint_sources.static_bmc_endpoints[1]
                 .machine
                 .as_ref()
-                .map(|machine| machine.id.as_ref()),
+                .and_then(|machine| machine.id.as_deref()),
             Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
         );
         assert_eq!(
@@ -2115,6 +2115,38 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
                 .and_then(|power_shelf| power_shelf.serial.as_deref()),
             Some("SN-PS-001")
         );
+    }
+
+    #[test]
+    fn test_static_machine_endpoint_without_id() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+machine = { serial = "MN-001" }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static machine endpoint config without id");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata should be present");
+        assert_eq!(machine.id, None);
+        assert_eq!(machine.serial.as_deref(), Some("MN-001"));
     }
 
     #[test]
