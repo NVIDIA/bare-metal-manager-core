@@ -3350,6 +3350,38 @@ power_shelf = { id = "fps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1
     }
 
     #[test]
+    fn test_static_machine_endpoint_without_id() {
+        let toml_content = r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[sinks.health_report]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+machine = { serial = "MN-001" }
+"#;
+
+        let config: Config = Figment::new()
+            .merge(Serialized::defaults(Config::default()))
+            .merge(Toml::string(toml_content))
+            .extract()
+            .expect("failed to parse static machine endpoint config without id");
+
+        assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
+        let machine = config.endpoint_sources.static_bmc_endpoints[0]
+            .machine
+            .as_ref()
+            .expect("machine metadata should be present");
+        assert_eq!(machine.id, None);
+        assert_eq!(machine.serial.as_deref(), Some("MN-001"));
+    }
+
+    #[test]
     fn test_static_switch_host_accepts_primary_without_nmxt_override() {
         let toml_content = r#"
 [endpoint_sources.carbide_api]
