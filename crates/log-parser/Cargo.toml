@@ -45,5 +45,9 @@ carbide-tls = { path = "../tls" }
 
 [build-dependencies]
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+tempfile = { workspace = true }
+
 [lints]
 workspace = true
