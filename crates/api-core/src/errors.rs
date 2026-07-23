@@ -14,12 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::backtrace::{Backtrace, BacktraceStatus};
+use std::fmt::{Display, Formatter};
+use std::panic::Location;
+use std::sync::Arc;
 
 use ::rpc::errors::RpcDataConversionError;
 use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
+use carbide_site_explorer::EndpointExplorationServiceError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
@@ -28,7 +31,7 @@ use db::resource_pool::ResourcePoolDatabaseError;
 use db::{AnnotatedSqlxError, DatabaseError};
 use librms::RackManagerError;
 use mac_address::MacAddress;
-use model::errors::{ErrorCode, ErrorSubsystem, ModelError, OperatorError, OperatorErrorSchema};
+use model::errors::{ErrorCode, ErrorSubsystem, ModelError, OperatorError};
 use model::hardware_info::HardwareInfoError;
 use model::network_devices::LldpError;
 use model::site_explorer::EndpointExplorationError;
@@ -46,22 +49,22 @@ use tonic::metadata::MetadataValue;
 /// It uses `thiserror` to adapt lower-level errors to this type.
 #[derive(thiserror::Error, Debug)]
 pub enum CarbideError {
-    #[error("Generic error from report: {0}")]
+    #[error("generic error from report: {0}")]
     GenericErrorFromReport(#[from] eyre::ErrReport),
 
-    #[error("Unable to parse string into IP Network: {0}")]
+    #[error("unable to parse string into IP network: {0}")]
     NetworkParseError(#[from] ipnetwork::IpNetworkError),
 
-    #[error("Unable to parse string into IP Address: {0}")]
+    #[error("unable to parse string into IP address: {0}")]
     AddressParseError(#[from] std::net::AddrParseError),
 
-    #[error("Unable to parse string into Mac Address: {0}")]
+    #[error("unable to parse string into mac address: {0}")]
     MacAddressParseError(#[from] mac_address::MacParseError),
 
-    #[error("Uuid type conversion error: {0}")]
+    #[error("uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
 
-    #[error("RPC Uuid type conversion error: {0}")]
+    #[error("RPC uuid type conversion error: {0}")]
     RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
 
     #[error("{kind} already exists: {id}")]
@@ -80,13 +83,13 @@ pub enum CarbideError {
         id: String,
     },
 
-    #[error("Argument is missing in input: {0}")]
+    #[error("argument is missing in input: {0}")]
     MissingArgument(&'static str),
 
-    #[error("Argument is invalid: {0}")]
+    #[error("argument is invalid: {0}")]
     InvalidArgument(String),
 
-    #[error("Argument is invalid: {0}")]
+    #[error("argument is invalid: {0}")]
     VpcCapability(#[from] VpcCapabilityError),
 
     #[error(transparent)]
@@ -95,123 +98,123 @@ pub enum CarbideError {
     #[error("{0}")]
     DBError(#[from] AnnotatedSqlxError),
 
-    #[error("Database type conversion error")]
+    #[error("database type conversion error")]
     DatabaseTypeConversionError(String),
 
-    #[error("Database migration error: {0}")]
+    #[error("database migration error: {0}")]
     DatabaseMigrationError(#[from] sqlx::migrate::MigrateError),
 
-    #[error("Duplicate MAC address for network: {0}")]
+    #[error("duplicate MAC address for network: {0}")]
     NetworkSegmentDuplicateMacAddress(MacAddress),
 
-    #[error("Duplicate MAC address for expected host BMC interface: {0}")]
+    #[error("duplicate MAC address for expected host BMC interface: {0}")]
     ExpectedHostDuplicateMacAddress(MacAddress),
 
     #[error("NVOS MAC address is already claimed by another expected switch: {0}")]
     ExpectedSwitchDuplicateNvosMacAddress(MacAddress),
 
-    #[error("Admin network is not configured.")]
+    #[error("admin network is not configured")]
     AdminNetworkNotConfigured,
 
-    #[error("All Network Segments are not allocated yet.")]
+    #[error("all network segments are not allocated yet")]
     NetworkSegmentNotAllocated,
 
-    #[error("Network has attached VPC or Subdomain : {0}")]
+    #[error("network has attached VPC or subdomain : {0}")]
     NetworkSegmentDelete(String),
 
     #[error(
-        "A unique identifier was specified for a new object.  When creating a new object of type {0}, do not specify an identifier"
+        "A unique identifier was specified for a new object.  when creating a new object of type {0}, do not specify an identifier"
     )]
     IdentifierSpecifiedForNewObject(String),
 
-    #[error("Internal error: {message}")]
+    #[error("internal error: {message}")]
     Internal { message: String },
 
-    #[error("Only one interface per machine can be marked as primary")]
+    #[error("only one interface per machine can be marked as primary")]
     OnePrimaryInterface,
 
-    #[error("Find one returned no results but should return one for uuid - {0}")]
+    #[error("find one returned no results but should return one for uuid - {0}")]
     FindOneReturnedNoResultsError(uuid::Uuid),
 
-    #[error("Find one returned many results but should return one for uuid - {0}")]
+    #[error("find one returned many results but should return one for uuid - {0}")]
     FindOneReturnedManyResultsError(uuid::Uuid),
 
-    #[error("JSON Parse failure - {0}")]
+    #[error("JSON parse failure - {0}")]
     JSONParseError(#[from] serde_json::Error),
 
-    #[error("Tokio Task Join Error {0}")]
+    #[error("tokio task join error {0}")]
     TokioJoinError(#[from] tokio::task::JoinError),
 
-    #[error("Can not convert between RPC data model and internal data model - {0}")]
+    #[error("can not convert between RPC data model and internal data model - {0}")]
     RpcDataConversionError(#[from] RpcDataConversionError),
 
-    #[error("Invalid configuration version - {0}")]
+    #[error("invalid configuration version - {0}")]
     InvalidConfigurationVersion(#[from] ConfigVersionParseError),
 
     // TODO: Or VersionMismatchError? Or ObjectNotFoundOrModifiedError?
     #[error(
-        "An object of type {0} was intended to be modified did not have the expected version {1}"
+        "an object of type {0} was intended to be modified did not have the expected version {1}"
     )]
     ConcurrentModificationError(&'static str, String),
 
-    #[error("The function is not implemented")]
+    #[error("the function is not implemented")]
     NotImplemented,
 
-    #[error("Invalid configuration: {0}")]
+    #[error("invalid configuration: {0}")]
     InvalidConfiguration(#[from] ConfigValidationError),
 
-    #[error("Error in DHCP allocation/handling: {0}")]
+    #[error("error in DHCP allocation/handling: {0}")]
     DhcpError(#[from] DhcpError),
 
-    #[error("Error in libredfish: {0}")]
+    #[error("error in libredfish: {0}")]
     RedfishError(#[from] libredfish::RedfishError),
 
-    #[error("Could not create connection to Redfish API to {machine_id}, check logs")]
+    #[error("could not create connection to redfish API to {machine_id}, check logs")]
     RedfishClientCreation {
         inner: Box<RedfishClientCreationError>,
         machine_id: MachineId,
     },
 
-    #[error("Resource pool error: {0}")]
+    #[error("resource pool error: {0}")]
     ResourcePoolError(#[from] resource_pool::ResourcePoolError),
 
-    #[error("Resource pool database error: {0}")]
+    #[error("resource pool database error: {0}")]
     ResourcePoolDatabaseError(#[from] ResourcePoolDatabaseError),
 
-    #[error("Hardware info error: {0}")]
+    #[error("hardware info error: {0}")]
     HardwareInfoError(#[from] HardwareInfoError),
 
-    #[error("Failed to call IBFabricManager: {0}")]
+    #[error("failed to call IBFabricManager: {0}")]
     IBFabricError(String),
 
-    #[error("Failed to generate client certificate: {0}")]
+    #[error("failed to generate client certificate: {0}")]
     ClientCertificateError(String),
 
     #[error("DPU reprovisioning is already started: {0}")]
     DpuReprovisioningInProgress(String),
 
-    #[error("Tenant handling error: {0}")]
+    #[error("tenant handling error: {0}")]
     TenantError(#[from] TenantError),
 
-    #[error("Machine is in maintenance mode. Cannot allocate instance on it.")]
+    #[error("machine is in maintenance mode. cannot allocate instance on it")]
     MaintenanceMode,
 
-    #[error("Resource {0} is empty")]
+    #[error("resource {0} is empty")]
     ResourceExhausted(String),
 
-    #[error("Host is not available for allocation due to health probe alert")]
+    #[error("host is not available for allocation due to health probe alert")]
     UnhealthyHost,
 
-    #[error("Lldp handling error: {0}")]
+    #[error("lldp handling error: {0}")]
     LldpError(#[from] LldpError),
 
     #[error("DPU {0} is missing from host snapshot")]
     MissingDpu(MachineId),
 
-    #[error("Attest Quote Error: {0}")]
+    #[error("attest quote error: {0}")]
     AttestQuoteError(String),
 
-    #[error("Attest Bind Key Error: {0}")]
+    #[error("attest bind key error: {0}")]
     AttestBindKeyError(String),
 
     #[error("{requested_ip} resolves to {found_mac} not {requested_mac}")]
@@ -227,31 +230,31 @@ pub enum CarbideError {
     #[error("{0}")]
     FailedPrecondition(String),
 
-    #[error("Failed to map device to dpu: {0}")]
+    #[error("failed to map device to dpu: {0}")]
     DpuMappingError(String),
 
-    #[error("Client certificate presented has missing information: {0}.")]
+    #[error("client certificate presented has missing information: {0}")]
     ClientCertificateMissingInformation(String),
 
-    #[error("Rack Manager Service error: {0}")]
+    #[error("rack manager service error: {0}")]
     RackManagerError(#[from] RackManagerError),
 
-    #[error("Maximum one association per interface")]
+    #[error("maximum one association per interface")]
     MaxOneInterfaceAssociation,
 
     #[error("DPF error: {0}")]
     DpfError(#[from] carbide_dpf::DpfError),
 
-    #[error("Service unavailable: {0}")]
+    #[error("service unavailable: {0}")]
     UnavailableError(String),
 
-    #[error("Permission denied: {0}")]
+    #[error("permission denied: {0}")]
     PermissionDeniedError(String),
 
     #[error("{0}")]
     AlreadyInProgress(String),
 
-    #[error("Attestation Error: {0}")]
+    #[error("attestation error: {0}")]
     AttestationError(String),
 }
 
@@ -328,6 +331,28 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::TryAgain => Internal {
                 message: DatabaseError::TryAgain.to_string(),
             },
+        }
+    }
+}
+
+impl From<EndpointExplorationServiceError> for CarbideError {
+    fn from(error: EndpointExplorationServiceError) -> Self {
+        match error {
+            EndpointExplorationServiceError::Database(error) => error.into(),
+            EndpointExplorationServiceError::NotFound { kind, id } => {
+                CarbideError::NotFoundError { kind, id }
+            }
+            EndpointExplorationServiceError::AlreadyInProgress(bmc_ip) => {
+                CarbideError::AlreadyInProgress(format!(
+                    "endpoint exploration already in progress for {bmc_ip}"
+                ))
+            }
+            EndpointExplorationServiceError::ConcurrentModification { kind, version } => {
+                CarbideError::ConcurrentModificationError(kind, version)
+            }
+            background_error @ EndpointExplorationServiceError::BackgroundTaskFailed { .. } => {
+                CarbideError::internal(background_error.to_string())
+            }
         }
     }
 }
@@ -416,7 +441,7 @@ fn test_carbide_error() {
     let error = crate::CarbideError::internal(String::from("unable to yeet foo into the sun"));
     assert_eq!(
         error.to_string(),
-        "Internal error: unable to yeet foo into the sun"
+        "internal error: unable to yeet foo into the sun"
     );
 }
 
@@ -427,141 +452,89 @@ impl From<::measured_boot::Error> for CarbideError {
 }
 
 impl From<CarbideError> for tonic::Status {
-    fn from(from: CarbideError) -> Self {
-        let schema = from.operator_error_schema();
-        log_carbide_error(&from, &schema);
+    #[track_caller] // get the source Location from the caller, not this function
+    fn from(error: CarbideError) -> Self {
+        let schema = error.operator_error_schema();
 
-        let status = status_from_carbide_error(&from);
-        status_with_operator_error_schema(status, &schema)
-    }
-}
-
-fn log_carbide_error(error: &CarbideError, schema: &OperatorErrorSchema) {
-    if matches!(error, CarbideError::NotImplemented) {
-        return;
-    }
-
-    if let Some((handler, location)) = carbide_backtrace_location() {
-        tracing::error!(
-            error = %error,
-            error_code = %schema.error_code,
-            mitigation = %schema.mitigation_for_log(),
-            text = %schema.text,
-            error_location = %location,
-            handler = %handler,
-            "Request failed"
-        );
-    } else {
-        tracing::error!(
-            error = %error,
-            error_code = %schema.error_code,
-            mitigation = %schema.mitigation_for_log(),
-            text = %schema.text,
-            "Request failed"
-        );
-    }
-}
-
-fn carbide_backtrace_location() -> Option<(String, String)> {
-    // If env RUST_BACKTRACE is set extract handler and err location.
-    // If it's not set, `Backtrace::capture()` is very cheap to call.
-    let backtrace = Backtrace::capture();
-    if backtrace.status() != BacktraceStatus::Captured {
-        return None;
-    }
-
-    let rendered = backtrace.to_string();
-    parse_carbide_backtrace_location(&rendered)
-        .map(|(handler, location)| (handler.to_owned(), location.to_owned()))
-}
-
-fn parse_carbide_backtrace_location(backtrace: &str) -> Option<(&str, &str)> {
-    const ERROR_MODULE_PATH: &str = "crates/api-core/src/errors.rs:";
-    const ERROR_MODULE_SYMBOL: &str = "carbide_api_core::errors";
-
-    let mut lines = backtrace.lines().peekable();
-    while let Some(handler) = lines.next() {
-        let handler = handler.trim();
-        let Some(location) = lines
-            .peek()
-            .and_then(|line| line.trim().strip_prefix("at "))
-        else {
-            continue;
+        // TODO: There's many more mapped to `Status::internal` which are likely
+        // user errors instead
+        let mut status = match &error {
+            e @ CarbideError::Internal { .. } => Status::internal(e.to_string()),
+            CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
+            error @ CarbideError::VpcCapability(_) => Status::invalid_argument(error.to_string()),
+            CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
+            CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
+            e @ CarbideError::DhcpError(_) => Status::resource_exhausted(e.to_string()),
+            CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
+            CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
+            CarbideError::NotFoundError { kind, id } => {
+                Status::not_found(format!("{kind} not found: {id}"))
+            }
+            CarbideError::AlreadyFoundError { kind, id } => {
+                Status::already_exists(format!("{kind} already exists: {id}"))
+            }
+            CarbideError::MaintenanceMode => {
+                Status::failed_precondition("MaintenanceMode".to_string())
+            }
+            e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
+            CarbideError::UnhealthyHost => Status::failed_precondition(error.to_string()),
+            CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
+            error @ CarbideError::ConcurrentModificationError(_, _) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ CarbideError::FailedPrecondition(_) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ CarbideError::ExpectedSwitchDuplicateNvosMacAddress(_) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ CarbideError::AddressAlreadyInUse(_) => {
+                Status::failed_precondition(error.to_string())
+            }
+            error @ CarbideError::ClientCertificateMissingInformation(_) => {
+                Status::unauthenticated(error.to_string())
+            }
+            CarbideError::UnavailableError(msg) => Status::unavailable(msg),
+            CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
+            CarbideError::AlreadyInProgress(msg) => Status::already_exists(msg),
+            other => Status::internal(other.to_string()),
         };
-        lines.next();
 
-        // Conversion frames can be sourced from this module or from core while
-        // still naming CarbideError in the symbol. Neither identifies the RPC handler.
-        if !handler.contains("carbide")
-            || handler.contains(ERROR_MODULE_SYMBOL)
-            || location.contains(ERROR_MODULE_PATH)
-        {
-            continue;
+        insert_ascii_metadata(
+            &mut status,
+            "nico-error-code",
+            &schema.error_code.to_string(),
+        );
+        insert_ascii_metadata(&mut status, "nico-error-text", &schema.text);
+        if let Some(mitigation) = &schema.mitigation {
+            insert_ascii_metadata(&mut status, "nico-error-mitigation", mitigation);
         }
 
-        return Some((handler, location));
-    }
+        let error_with_location = CarbideErrorWithLocation {
+            error,
+            location: Location::caller().to_string(),
+        };
 
-    None
-}
-
-fn status_from_carbide_error(error: &CarbideError) -> Status {
-    // TODO: There's many more mapped to `Status::internal` which are likely
-    // user errors instead
-    match error {
-        e @ CarbideError::Internal { .. } => Status::internal(e.to_string()),
-        CarbideError::InvalidArgument(msg) => Status::invalid_argument(msg),
-        error @ CarbideError::VpcCapability(_) => Status::invalid_argument(error.to_string()),
-        CarbideError::InvalidConfiguration(e) => Status::invalid_argument(e.to_string()),
-        CarbideError::RpcDataConversionError(e) => Status::invalid_argument(e.to_string()),
-        e @ CarbideError::DhcpError(_) => Status::resource_exhausted(e.to_string()),
-        CarbideError::MissingArgument(msg) => Status::invalid_argument(*msg),
-        CarbideError::NetworkSegmentDelete(msg) => Status::invalid_argument(msg),
-        CarbideError::NotFoundError { kind, id } => {
-            Status::not_found(format!("{kind} not found: {id}"))
-        }
-        CarbideError::AlreadyFoundError { kind, id } => {
-            Status::already_exists(format!("{kind} already exists: {id}"))
-        }
-        CarbideError::MaintenanceMode => Status::failed_precondition("MaintenanceMode".to_string()),
-        e @ CarbideError::BmcMacIpMismatch { .. } => Status::invalid_argument(e.to_string()),
-        CarbideError::UnhealthyHost => Status::failed_precondition(error.to_string()),
-        CarbideError::ResourceExhausted(kind) => Status::resource_exhausted(kind),
-        error @ CarbideError::ConcurrentModificationError(_, _) => {
-            Status::failed_precondition(error.to_string())
-        }
-        error @ CarbideError::FailedPrecondition(_) => {
-            Status::failed_precondition(error.to_string())
-        }
-        error @ CarbideError::ExpectedSwitchDuplicateNvosMacAddress(_) => {
-            Status::failed_precondition(error.to_string())
-        }
-        error @ CarbideError::AddressAlreadyInUse(_) => {
-            Status::failed_precondition(error.to_string())
-        }
-        error @ CarbideError::ClientCertificateMissingInformation(_) => {
-            Status::unauthenticated(error.to_string())
-        }
-        CarbideError::UnavailableError(msg) => Status::unavailable(msg),
-        CarbideError::PermissionDeniedError(msg) => Status::permission_denied(msg),
-        CarbideError::AlreadyInProgress(msg) => Status::already_exists(msg),
-        other => Status::internal(other.to_string()),
+        // Set the inner error to the CarbideError, which can be inspected by our LogService layer
+        status.set_source(Arc::new(error_with_location));
+        status
     }
 }
 
-fn status_with_operator_error_schema(mut status: Status, schema: &OperatorErrorSchema) -> Status {
-    insert_ascii_metadata(
-        &mut status,
-        "nico-error-code",
-        &schema.error_code.to_string(),
-    );
-    insert_ascii_metadata(&mut status, "nico-error-text", &schema.text);
-    if let Some(mitigation) = &schema.mitigation {
-        insert_ascii_metadata(&mut status, "nico-error-mitigation", mitigation);
-    }
-
-    status
+/// A CarbideError with the corresponding source location where it was converted to a tonic::Status
+#[derive(Debug)]
+pub struct CarbideErrorWithLocation {
+    pub error: CarbideError,
+    pub location: String,
 }
+
+impl Display for CarbideErrorWithLocation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.error, f)
+    }
+}
+
+impl std::error::Error for CarbideErrorWithLocation {}
 
 fn insert_ascii_metadata(status: &mut Status, key: &'static str, value: &str) {
     match MetadataValue::try_from(value) {
@@ -619,43 +592,6 @@ fn unavailable_error_schema_describes_who_should_retry() {
 }
 
 #[test]
-fn backtrace_location_skips_error_conversion_frames() {
-    use carbide_test_support::value_scenarios;
-
-    const WITH_OUTER_HANDLER: &str = r#"
-   3: carbide_api_core::errors::carbide_backtrace_location
-             at ./crates/api-core/src/errors.rs:461:13
-   4: carbide_api_core::errors::log_carbide_error
-             at /workspace/infra-controller/crates/api-core/src/errors.rs:437:9
-   5: <tonic::status::Status as core::convert::From<carbide_api_core::errors::CarbideError>>::from
-             at ./crates/api-core/src/errors.rs:425:9
-   6: <carbide_api_core::errors::CarbideError as core::convert::Into<tonic::status::Status>>::into
-             at /rustc/library/core/src/convert/mod.rs:761:9
-   7: carbide_api_core::handlers::machine::create_machine
-             at ./crates/api-core/src/handlers/machine.rs:412:24
-"#;
-    const ERROR_FRAMES_ONLY: &str = r#"
-   3: carbide_api_core::errors::carbide_backtrace_location
-             at ./crates/api-core/src/errors.rs:461:13
-   4: carbide_api_core::errors::log_carbide_error
-             at ./crates/api-core/src/errors.rs:437:9
-   5: <tonic::status::Status as core::convert::From<carbide_api_core::errors::CarbideError>>::from
-             at ./crates/api-core/src/errors.rs:425:9
-"#;
-
-    value_scenarios!(
-        run = parse_carbide_backtrace_location;
-        "frame selection" {
-            WITH_OUTER_HANDLER => Some((
-                "7: carbide_api_core::handlers::machine::create_machine",
-                "./crates/api-core/src/handlers/machine.rs:412:24",
-            )),
-            ERROR_FRAMES_ONLY => None,
-        }
-    );
-}
-
-#[test]
 fn invalid_argument_status_includes_operator_schema_metadata() {
     let err = CarbideError::InvalidArgument("bad input".into());
     let status: tonic::Status = err.into();
@@ -677,7 +613,7 @@ fn invalid_argument_status_includes_operator_schema_metadata() {
             .expect("metadata should include operator error text")
             .to_str()
             .expect("operator error text should be ASCII"),
-        "Argument is invalid: bad input"
+        "argument is invalid: bad input"
     );
 }
 

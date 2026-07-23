@@ -202,6 +202,8 @@ const (
 	Forge_DeleteCredential_FullMethodName                                   = "/forge.Forge/DeleteCredential"
 	Forge_RotateCredential_FullMethodName                                   = "/forge.Forge/RotateCredential"
 	Forge_GetCredentialRotationStatus_FullMethodName                        = "/forge.Forge/GetCredentialRotationStatus"
+	Forge_GetContainerRegistryCredential_FullMethodName                     = "/forge.Forge/GetContainerRegistryCredential"
+	Forge_SetContainerRegistryCredential_FullMethodName                     = "/forge.Forge/SetContainerRegistryCredential"
 	Forge_GetRouteServers_FullMethodName                                    = "/forge.Forge/GetRouteServers"
 	Forge_AddRouteServers_FullMethodName                                    = "/forge.Forge/AddRouteServers"
 	Forge_RemoveRouteServers_FullMethodName                                 = "/forge.Forge/RemoveRouteServers"
@@ -584,11 +586,9 @@ type ForgeClient interface {
 	// rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
 	// Updates the Operating System on a running instance
 	UpdateInstanceOperatingSystem(ctx context.Context, in *InstanceOperatingSystemUpdateRequest, opts ...grpc.CallOption) (*Instance, error)
-	// Updates the configuration of a running instance.
-	// Only the following configurations of an instance can be changed:
-	// - Keyset IDs
-	// - Metadata (Name, Description, Labels)
-	// - Operating System Details
+	// Updates the mutable desired configuration and metadata of a running instance.
+	// `config` and `metadata` are complete values, not patches. Callers must
+	// preserve fields and selector variants they do not intend to change.
 	// The update will take effect asynchronously. Users should monitor `Instance.status.synced`
 	// to determine whether all updates have been applied.
 	UpdateInstanceConfig(ctx context.Context, in *InstanceConfigUpdateRequest, opts ...grpc.CallOption) (*Instance, error)
@@ -813,6 +813,9 @@ type ForgeClient interface {
 	RotateCredential(ctx context.Context, in *RotateCredentialRequest, opts ...grpc.CallOption) (*RotateCredentialResult, error)
 	// Report convergence of an in-flight (or completed) site-wide rotation.
 	GetCredentialRotationStatus(ctx context.Context, in *CredentialRotationStatusRequest, opts ...grpc.CallOption) (*CredentialRotationStatusResult, error)
+	// Get Container registry credentials
+	GetContainerRegistryCredential(ctx context.Context, in *GetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*GetContainerRegistryCredentialResponse, error)
+	SetContainerRegistryCredential(ctx context.Context, in *SetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Route Server Management
 	GetRouteServers(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*RouteServerEntries, error)
 	AddRouteServers(ctx context.Context, in *RouteServers, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -3095,6 +3098,26 @@ func (c *forgeClient) GetCredentialRotationStatus(ctx context.Context, in *Crede
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CredentialRotationStatusResult)
 	err := c.cc.Invoke(ctx, Forge_GetCredentialRotationStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetContainerRegistryCredential(ctx context.Context, in *GetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*GetContainerRegistryCredentialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContainerRegistryCredentialResponse)
+	err := c.cc.Invoke(ctx, Forge_GetContainerRegistryCredential_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) SetContainerRegistryCredential(ctx context.Context, in *SetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_SetContainerRegistryCredential_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6040,11 +6063,9 @@ type ForgeServer interface {
 	// rpc UpdateInstanceNetworkConfig(InstanceNetworkConfigUpdateRequest) returns (Instance);
 	// Updates the Operating System on a running instance
 	UpdateInstanceOperatingSystem(context.Context, *InstanceOperatingSystemUpdateRequest) (*Instance, error)
-	// Updates the configuration of a running instance.
-	// Only the following configurations of an instance can be changed:
-	// - Keyset IDs
-	// - Metadata (Name, Description, Labels)
-	// - Operating System Details
+	// Updates the mutable desired configuration and metadata of a running instance.
+	// `config` and `metadata` are complete values, not patches. Callers must
+	// preserve fields and selector variants they do not intend to change.
 	// The update will take effect asynchronously. Users should monitor `Instance.status.synced`
 	// to determine whether all updates have been applied.
 	UpdateInstanceConfig(context.Context, *InstanceConfigUpdateRequest) (*Instance, error)
@@ -6269,6 +6290,9 @@ type ForgeServer interface {
 	RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResult, error)
 	// Report convergence of an in-flight (or completed) site-wide rotation.
 	GetCredentialRotationStatus(context.Context, *CredentialRotationStatusRequest) (*CredentialRotationStatusResult, error)
+	// Get Container registry credentials
+	GetContainerRegistryCredential(context.Context, *GetContainerRegistryCredentialRequest) (*GetContainerRegistryCredentialResponse, error)
+	SetContainerRegistryCredential(context.Context, *SetContainerRegistryCredentialRequest) (*emptypb.Empty, error)
 	// Route Server Management
 	GetRouteServers(context.Context, *emptypb.Empty) (*RouteServerEntries, error)
 	AddRouteServers(context.Context, *RouteServers) (*emptypb.Empty, error)
@@ -7295,6 +7319,12 @@ func (UnimplementedForgeServer) RotateCredential(context.Context, *RotateCredent
 }
 func (UnimplementedForgeServer) GetCredentialRotationStatus(context.Context, *CredentialRotationStatusRequest) (*CredentialRotationStatusResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetCredentialRotationStatus not implemented")
+}
+func (UnimplementedForgeServer) GetContainerRegistryCredential(context.Context, *GetContainerRegistryCredentialRequest) (*GetContainerRegistryCredentialResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContainerRegistryCredential not implemented")
+}
+func (UnimplementedForgeServer) SetContainerRegistryCredential(context.Context, *SetContainerRegistryCredentialRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetContainerRegistryCredential not implemented")
 }
 func (UnimplementedForgeServer) GetRouteServers(context.Context, *emptypb.Empty) (*RouteServerEntries, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRouteServers not implemented")
@@ -11386,6 +11416,42 @@ func _Forge_GetCredentialRotationStatus_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).GetCredentialRotationStatus(ctx, req.(*CredentialRotationStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetContainerRegistryCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContainerRegistryCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetContainerRegistryCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetContainerRegistryCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetContainerRegistryCredential(ctx, req.(*GetContainerRegistryCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_SetContainerRegistryCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetContainerRegistryCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetContainerRegistryCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetContainerRegistryCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetContainerRegistryCredential(ctx, req.(*SetContainerRegistryCredentialRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17213,6 +17279,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCredentialRotationStatus",
 			Handler:    _Forge_GetCredentialRotationStatus_Handler,
+		},
+		{
+			MethodName: "GetContainerRegistryCredential",
+			Handler:    _Forge_GetContainerRegistryCredential_Handler,
+		},
+		{
+			MethodName: "SetContainerRegistryCredential",
+			Handler:    _Forge_SetContainerRegistryCredential_Handler,
 		},
 		{
 			MethodName: "GetRouteServers",

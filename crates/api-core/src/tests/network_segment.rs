@@ -279,6 +279,8 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
             reserve_first: 1,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: None,
@@ -286,10 +288,10 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
     };
     match env.api.create_network_segment(Request::new(request)).await {
         Ok(_) => Err(eyre::eyre!(
-            "Overlapping network prefix was allowed. DB should prevent this."
+            "overlapping network prefix was allowed. DB should prevent this"
         )),
         Err(status) if status.code() == tonic::Code::Internal => Err(eyre::eyre!(
-            "Overlapping network prefix was caught by DB constraint. Should be checked earlier."
+            "overlapping network prefix was caught by DB constraint. should be checked earlier"
         )),
         Err(status) if status.code() == tonic::Code::InvalidArgument => Ok(()),
         Err(err) => Err(err.into()), // unexpected error
@@ -844,6 +846,8 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
             reserve_first: 1,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: None,
@@ -856,7 +860,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         match env.api.create_network_segment(Request::new(request)).await {
             Ok(_) => {
                 return Err(eyre::format_err!(
-                    "{prefix} prefix is not allowed, but still code created segment."
+                    "{prefix} prefix is not allowed, but still code created segment"
                 ));
             }
             Err(status) if status.code() == tonic::Code::InvalidArgument => {}
@@ -890,7 +894,7 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             match status_code {
                 tonic::Code::InvalidArgument => Ok(()),
                 _ => Err(eyre::format_err!(
-                    "Unexpected gRPC error code from API: {status_code}"
+                    "unexpected gRPC error code from API: {status_code}"
                 )),
             }
         }
@@ -898,7 +902,7 @@ async fn test_segment_prefix_in_unconfigured_address_space(
             let prefixes = segment.prefixes.iter().map(|p| p.prefix.as_str());
             let prefixes = itertools::join(prefixes, ", ");
             Err(eyre::format_err!(
-                "The API did not reject our request to create a segment using \
+                "the API did not reject our request to create a segment using \
                 prefixes that fall outside of the site's address space: {prefixes}"
             ))
         }
@@ -1547,6 +1551,8 @@ async fn test_create_network_segment_with_ipv6_prefix(
             reserve_first: 0,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: None,
@@ -1611,6 +1617,8 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
                 reserve_first: 3,
                 free_ip_count: 0,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             },
             rpc::forge::NetworkPrefix {
                 id: None,
@@ -1619,6 +1627,8 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
                 reserve_first: 0,
                 free_ip_count: 0,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             },
         ],
         subdomain_id: None,
@@ -1697,6 +1707,8 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
             reserve_first: 0,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: vpc.id,
@@ -1868,6 +1880,8 @@ async fn flat_vpc_accepts_host_inband_segment(
             reserve_first: 3,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: vpc.id,
@@ -1909,6 +1923,8 @@ async fn flat_vpc_rejects_tenant_segment(
             reserve_first: 3,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: vpc.id,
@@ -1961,6 +1977,8 @@ async fn etv_vpc_rejects_host_inband_segment(
             reserve_first: 3,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id: None,
         vpc_id: vpc.id,
@@ -2151,6 +2169,8 @@ async fn create_unattached_segment(
                 reserve_first: 3,
                 free_ip_count: 0,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             subdomain_id: None,
             vpc_id: None,

@@ -72,7 +72,7 @@ async fn test_machine_validation_complete_with_error(
     }
 
     let machine = mh.host().rpc_machine().await;
-    let health = machine.health.as_ref().unwrap();
+    let health = machine.status.as_ref().unwrap().health.as_ref().unwrap();
     assert_eq!(health.alerts.len(), 1);
     let mut alert = health.alerts[0].clone();
     assert!(alert.in_alert_since.is_some());
@@ -145,7 +145,7 @@ async fn test_machine_validation_with_error(
     }
 
     let machine = mh.host().rpc_machine().await;
-    let health = machine.health.as_ref().unwrap();
+    let health = machine.status.as_ref().unwrap().health.as_ref().unwrap();
     assert_eq!(health.alerts.len(), 1);
     let mut alert = health.alerts[0].clone();
     assert!(alert.in_alert_since.is_some());
@@ -201,7 +201,7 @@ async fn test_machine_validation_with_error(
     .await;
 
     let machine = mh.host().rpc_machine().await;
-    let health = machine.health.as_ref().unwrap();
+    let health = machine.status.as_ref().unwrap().health.as_ref().unwrap();
     assert_eq!(health.alerts.len(), 0);
     Ok(())
 }
@@ -242,7 +242,17 @@ async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     }
 
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
 
     let _ = on_demand_machine_validation(
         &env,
@@ -346,7 +356,17 @@ async fn test_machine_validation_get_results(
     assert_eq!(results.results[0].name, "instance".to_owned());
 
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
 
     Ok(())
 }
@@ -491,7 +511,17 @@ async fn test_machine_validation_test_on_demand_filter(
     }
 
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
     let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
     let on_demand_response = on_demand_machine_validation(
         &env,
@@ -604,11 +634,22 @@ async fn test_machine_validation_disabled(
     );
 
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
     let reboot_before = {
         let mut txn = env.pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
         let reboot = machine
+            .status
             .last_reboot_requested
             .map(|last_reboot| (last_reboot.time, last_reboot.mode));
         txn.commit().await?;
@@ -638,6 +679,7 @@ async fn test_machine_validation_disabled(
         let mut txn = env.pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
         let reboot = machine
+            .status
             .last_reboot_requested
             .map(|last_reboot| (last_reboot.time, last_reboot.mode));
         txn.commit().await?;
@@ -698,7 +740,17 @@ async fn test_machine_validation_disabled_waits_for_in_flight_reboot(
 
     let mh = create_host_with_machine_validation(&env, None, None).await;
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
 
     let on_demand_response = on_demand_machine_validation(
         &env,
@@ -743,6 +795,7 @@ async fn test_machine_validation_disabled_waits_for_in_flight_reboot(
         let mut txn = env.pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
         let reboot = machine
+            .status
             .last_reboot_requested
             .map(|last_reboot| (last_reboot.time, last_reboot.mode));
         txn.commit().await?;
@@ -790,6 +843,7 @@ async fn test_machine_validation_disabled_waits_for_in_flight_reboot(
         let mut txn = env.pool.begin().await?;
         let machine = mh.host().db_machine(&mut txn).await;
         let reboot = machine
+            .status
             .last_reboot_requested
             .map(|last_reboot| (last_reboot.time, last_reboot.mode));
         txn.commit().await?;
@@ -1217,7 +1271,17 @@ async fn test_on_demant_un_verified_machine_validation(
     }
 
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
     let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
     let on_demand_response = on_demand_machine_validation(
         &env,
@@ -1374,7 +1438,17 @@ async fn test_on_demant_machine_validation_all_contexts(
     }
 
     let machine = mh.host().rpc_machine().await;
-    assert!(machine.health.as_ref().unwrap().alerts.is_empty());
+    assert!(
+        machine
+            .status
+            .as_ref()
+            .unwrap()
+            .health
+            .as_ref()
+            .unwrap()
+            .alerts
+            .is_empty()
+    );
     let allowed_tests = vec!["test1".to_string(), "test2".to_string()];
     let contexts = vec![
         "Discovery".to_string(),

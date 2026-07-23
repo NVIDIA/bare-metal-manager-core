@@ -16,7 +16,7 @@
  */
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -37,6 +37,7 @@ use carbide_machine_controller::dpf::{
 };
 use carbide_machine_controller::handler::MachineStateHandlerBuilder;
 use carbide_machine_controller::io::MachineStateControllerIO;
+use carbide_machine_controller::per_object::MachinePerObjectInfo;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
@@ -54,7 +55,7 @@ use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
-use carbide_site_explorer::{EndpointExplorationLocks, SiteExplorer};
+use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
 use carbide_spdm_controller::context::SpdmStateHandlerServices;
 use carbide_spdm_controller::handler::SpdmAttestationStateHandler;
 use carbide_spdm_controller::io::SpdmStateControllerIO;
@@ -70,8 +71,6 @@ use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
-use figment::Figment;
-use figment::providers::{Env, Format, Toml};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
 use model::attestation::spdm::VerifierImpl;
@@ -87,6 +86,7 @@ use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
 use sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use state_controller::controller::{Enqueuer, StateController};
+use state_controller::per_object::{PerObjectStateMetrics, PerObjectStateRecorder};
 use state_controller::state_change_emitter::StateChangeEmitterBuilder;
 use tokio::sync::Semaphore;
 use tokio::sync::oneshot::Sender;
@@ -97,6 +97,7 @@ use tracing_log::AsLog as _;
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
+use crate::cfg::load::all_configuration_files;
 use crate::dpa::handler::start_dpa_handler;
 use crate::dynamic_settings::DynamicSettings;
 use crate::handlers::machine_validation::apply_config_on_startup;
@@ -113,146 +114,6 @@ use crate::mqtt_state_change_hook::republisher::{
 };
 use crate::scout_stream::ConnectionRegistry;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
-
-/// Parse an `InitialObjectsConfig` file (the file pointed at by
-pub fn parse_initial_objects_config(path: &Path) -> eyre::Result<InitialObjectsConfig> {
-    Figment::new()
-        .merge(Toml::file(path))
-        .extract()
-        .wrap_err_with(|| format!("while parsing InitialObjectsConfig at {}", path.display()))
-}
-
-/// Return a list of all configuration files that were merged to create the
-/// effective configuration, for logging purposes. This is used in error messages
-/// when there is a problem with the configuration, to help the operator
-/// understand which files to look at to fix the problem.
-fn all_configuration_files(carbide_config: &CarbideConfig) -> Vec<&Path> {
-    carbide_config
-        .config_ctx
-        .as_ref()
-        .into_iter()
-        .flat_map(|f| f.metadata())
-        .filter_map(|m| m.source.as_ref()?.file_path())
-        .collect::<Vec<&Path>>()
-}
-
-pub fn parse_carbide_config(
-    config_str: &Path,
-    site_config_str: Option<&Path>,
-) -> eyre::Result<Arc<CarbideConfig>> {
-    let mut figment = Figment::new().merge(Toml::file(config_str));
-    if let Some(site_config_str) = site_config_str {
-        figment = figment.merge(Toml::file(site_config_str));
-    }
-
-    let merged_config = figment.merge(Env::prefixed("CARBIDE_API_"));
-    let mut config: CarbideConfig = merged_config
-        .extract()
-        .wrap_err("Failed to load configuration files")?;
-
-    config.config_ctx = Some(merged_config);
-
-    for (label, _) in config
-        .host_models
-        .iter()
-        .filter(|(_, host)| host.vendor == bmc_vendor::BMCVendor::Unknown)
-    {
-        tracing::error!(
-            label = %label,
-            "Host firmware configuration has invalid vendor",
-        )
-    }
-
-    // If the carbide config does not say whether to allow dynamically changing the bmc_proxy or
-    // not, the API handler for changing the bmc_proxy setting will reject changes to it for safety
-    // reasons (it can be dangerous in production environments.) But if the config already sets
-    // bmc_proxy, default to allow_changing_bmc_proxy=true, as we only should be setting bmc_proxy
-    // in dev environments in the first place.
-    if config.site_explorer.allow_changing_bmc_proxy.is_none()
-        && (config.site_explorer.bmc_proxy.load().is_some()
-            || config.site_explorer.override_target_port.is_some()
-            || config.site_explorer.override_target_ip.is_some())
-    {
-        tracing::debug!(
-            "Carbide config contains override for bmc_proxy, allowing dynamic bmc_proxy configuration"
-        );
-        config.site_explorer.allow_changing_bmc_proxy = Some(true);
-    }
-
-    if let Some(old_update_limit) = config.max_concurrent_machine_updates {
-        if let Some(new_update_limit) = config
-            .machine_updater
-            .max_concurrent_machine_updates_absolute
-        {
-            // Both specified, use the smaller
-            config
-                .machine_updater
-                .max_concurrent_machine_updates_absolute =
-                Some(std::cmp::min(old_update_limit, new_update_limit));
-        } else {
-            config
-                .machine_updater
-                .max_concurrent_machine_updates_absolute = config.max_concurrent_machine_updates
-        }
-    }
-
-    // Validate that admin-UI tool entries have unique names.
-    config.validate_web_ui_sidebar_tools()?;
-
-    if let Some(config) = &config.dsx_exchange_event_bus {
-        config.periodic_state_republish.validate()?;
-    }
-
-    // Publish the configured tool list so the admin-UI sidebar and per-machine
-    // "Logs" deep link can read it back via `crate::configured_tools`. The list
-    // is owned here (not in `carbide-api-web`) because it is derived from the
-    // parsed config, before the web layer exists.
-    crate::init_tools(config.web_ui_sidebar_tools.clone());
-
-    // Publish the site name the same way, for the admin-UI sidebar header.
-    crate::init_site_name(config.sitename.clone());
-
-    // Publish the deployment-wide host naming policy so the DB layer can read it
-    // wherever an interface is [re]named (same way we do it w/ `init_tools` above).
-    db::host_naming::configure(config.host_naming_strategy);
-
-    // Validate that the firmware profile config keys match their inner
-    // part_number and psid values. Mismatches are logged as warnings.
-    config.validate_supernic_firmware_profiles();
-
-    if let Some(manager_config) = &config.component_manager {
-        component_manager::rms::validate_rms_backend_rack_profiles(
-            manager_config,
-            &config.rack_profiles,
-        )
-        .map_err(|error| eyre::eyre!(error).wrap_err("Invalid configuration"))?;
-    }
-
-    model::tenant::validate_trust_domain_allowlist_patterns(
-        &config.machine_identity.trust_domain_allowlist,
-    )
-    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
-
-    model::tenant::validate_token_endpoint_domain_allowlist_patterns(
-        &config.machine_identity.token_endpoint_domain_allowlist,
-    )
-    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
-
-    if config.machine_identity.enabled
-        && config.machine_identity.current_encryption_key_id.is_none()
-    {
-        return Err(eyre::eyre!(
-            "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
-        )
-        .wrap_err("Invalid configuration"));
-    }
-
-    tracing::trace!(
-        config = ?config.redacted(),
-        "Carbide config",
-    );
-    Ok(Arc::new(config))
-}
 
 pub fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
@@ -334,6 +195,7 @@ pub async fn start_api(
     carbide_config: Arc<CarbideConfig>,
     initial_objects: Option<InitialObjectsConfig>,
     meter: Meter,
+    per_object_prometheus_registry: Option<prometheus::Registry>,
     dynamic_settings: DynamicSettings,
     shared_redfish_pool: Arc<dyn RedfishClientPool>,
     shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
@@ -520,9 +382,11 @@ pub async fn start_api(
         carbide_config.site_explorer.explore_mode,
         db_pool.clone(),
     );
-    // Shared between the API's `RefreshEndpointReport` handler and the site-explorer loop so they
-    // never probe the same endpoint at once. In-process only; see `EndpointExplorationLocks`.
-    let endpoint_exploration_locks = EndpointExplorationLocks::default();
+    let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
+        db_pool.clone(),
+        bmc_explorer.clone(),
+        Arc::new(carbide_config.get_firmware_config()),
+    ));
 
     let nvlink_config = carbide_config.nvlink_config.clone().unwrap_or_default();
 
@@ -532,7 +396,7 @@ pub async fn start_api(
     }
     let nmxc_client_pool = nmxc_builder
         .build()
-        .map_err(|e| eyre::eyre!("Failed to build NMX-C client pool: {e}"))?;
+        .map_err(|e| eyre::eyre!("failed to build NMX-C client pool: {e}"))?;
     let shared_nmxc_pool: Arc<dyn libnmxc::NmxcPool> = Arc::new(nmxc_client_pool);
 
     let dpf_sdk = initialize_dpf_sdk(
@@ -598,6 +462,7 @@ pub async fn start_api(
         dpu_health_log_limiter: LogLimiter::default(),
         dynamic_settings,
         endpoint_explorer: bmc_explorer,
+        endpoint_exploration_service: endpoint_exploration_service.clone(),
         eth_data,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
@@ -607,7 +472,6 @@ pub async fn start_api(
         rms_client: rms_client.clone(),
         nmxc_client_pool: shared_nmxc_pool.clone(),
         work_lock_manager_handle,
-        endpoint_exploration_locks: endpoint_exploration_locks.clone(),
         dpf_sdk: dpf_sdk.clone(),
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
@@ -623,6 +487,7 @@ pub async fn start_api(
             join_set,
             api_service.clone(),
             meter.clone(),
+            per_object_prometheus_registry,
             ipmi_tool.clone(),
             seed_data,
             cancel_token.clone(),
@@ -687,9 +552,15 @@ async fn initialize_dpf_sdk(
 
     tracing::info!("Initializing DPF SDK");
 
+    carbide_config
+        .dpf
+        .dpu_agent_bootstrap_ca
+        .validate()
+        .map_err(|err| eyre::eyre!("invalid DPF bootstrap CA configuration: {err}"))?;
+
     let repo = carbide_dpf::KubeRepository::new()
         .await
-        .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
+        .map_err(|e| eyre::eyre!("failed to create DPF repository: {e}"))?;
 
     let provider = CarbideBmcPasswordProvider::new(credential_manager, db_pool.clone());
 
@@ -697,13 +568,13 @@ async fn initialize_dpf_sdk(
         .dpf
         .deployments
         .validate_unique_identifiers()
-        .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
+        .map_err(|err| eyre::eyre!("invalid DPF deployment configuration: {err}"))?;
 
     carbide_config
         .dpf
         .deployments
         .validate_provisioning_sources()
-        .map_err(|err| eyre::eyre!("Invalid DPF deployment configuration: {err}"))?;
+        .map_err(|err| eyre::eyre!("invalid DPF deployment configuration: {err}"))?;
 
     // This is just temporary code until we make v2 only option. (just 2 weeks)
     // Soon v2 flag will be removed and will become only mode for dpf handling.
@@ -718,7 +589,7 @@ async fn initialize_dpf_sdk(
         .with_join_set(join_set)
         .build_without_resources()
         .await
-        .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
+        .map_err(|err| eyre::eyre!("failed to initialize DPF SDK: {err}"))?;
 
     // Builds the SDK init config for one DPUDeployment. BF4 uses a single
     // `BlueFieldSoftware` source (the CR itself carries the PSID→PLDM mapping);
@@ -733,7 +604,10 @@ async fn initialize_dpf_sdk(
                 bluefield_software,
                 flavor_name: deployment.flavor_name.clone(),
                 deployment_name: deployment.deployment_name.clone(),
-                services: crate::dpf_services::mandatory_services(&services),
+                services: crate::dpf_services::mandatory_services(
+                    &services,
+                    &carbide_config.dpf.dpu_agent_bootstrap_ca,
+                ),
                 proxy: carbide_config.dpf.proxy.clone(),
                 deployment_type,
             }
@@ -742,7 +616,7 @@ async fn initialize_dpf_sdk(
     let bf3 = &carbide_config.dpf.deployments.bf3;
     sdk.create_initialization_objects(&make_init_config(bf3, DpuDeploymentType::Bf3, None))
         .await
-        .map_err(|err| eyre::eyre!("Failed to initialize bf3 DPF deployment: {err}"))?;
+        .map_err(|err| eyre::eyre!("failed to initialize bf3 DPF deployment: {err}"))?;
 
     if let Some(bf4) = &carbide_config.dpf.deployments.bf4_generic {
         // Validation guarantees `bluefield_software` is set with exactly one PSID
@@ -764,7 +638,7 @@ async fn initialize_dpf_sdk(
             Some(params),
         ))
         .await
-        .map_err(|err| eyre::eyre!("Failed to initialize bf4_generic DPF deployment: {err}"))?;
+        .map_err(|err| eyre::eyre!("failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
 
     Ok(Some(Arc::new(DpfSdkOps::new(
@@ -878,6 +752,11 @@ impl<'a> SeedData<'a> {
             carbide_config,
             false,
         )?;
+
+        for (name, defn) in initial_networks.iter() {
+            defn.validate(name).map_err(eyre::Report::from)?;
+        }
+
         let initial_vpcs = Self::merge_objects(
             initial_objects.and_then(|io| io.vpcs.as_ref()),
             carbide_config.vpcs.as_ref(),
@@ -957,7 +836,7 @@ impl<'a> SeedData<'a> {
                         .collect();
                     return Err(eyre::eyre!(
                         "{kind} has conflicting definitions {conflict_details:?}. \
-                         Reconcile each object by removing it from one source.",
+                         reconcile each object by removing it from one source",
                     ));
                 }
 
@@ -995,19 +874,19 @@ async fn initialize_and_start_controllers<'a>(
     join_set: &mut JoinSet<()>,
     api_service: Arc<Api>,
     meter: Meter,
+    per_object_prometheus_registry: Option<prometheus::Registry>,
     ipmi_tool: Arc<dyn IPMITool>,
     seed_data: Option<SeedData<'a>>,
     cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let Api {
         runtime_config: carbide_config,
-        endpoint_explorer: bmc_explorer,
+        endpoint_exploration_service,
         common_pools,
         database_connection: db_pool,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
         work_lock_manager_handle,
-        endpoint_exploration_locks,
         rms_client,
         component_manager,
         dpf_sdk,
@@ -1052,7 +931,7 @@ async fn initialize_and_start_controllers<'a>(
         tracing::debug!(path = path_used, "Loading expected_machines.json");
         let file_str = tokio::fs::read_to_string(path_used)
             .await
-            .wrap_err_with(|| format!("Failed to read {path_used}"))?;
+            .wrap_err_with(|| format!("failed to read {path_used}"))?;
         let expected_machines = serde_json::from_str::<Vec<ExpectedMachine>>(file_str.as_str()).inspect_err(|err| {
                 tracing::error!(
                     error = %err,
@@ -1081,7 +960,7 @@ async fn initialize_and_start_controllers<'a>(
         // Right now there is only one fabric supported, and it needs to be called `default`
         if carbide_config.ib_fabrics.len() > 1 {
             return Err(eyre::eyre!(
-                "Only a single IB fabric definition is allowed at the moment"
+                "only a single IB fabric definition is allowed at the moment"
             ));
         }
 
@@ -1200,11 +1079,11 @@ async fn initialize_and_start_controllers<'a>(
                 &client_id,
                 Some(options),
             )
-            .map_err(|e| eyre::eyre!("Failed to create DSX Exchange Event Bus MQTT client: {e}"))
+            .map_err(|e| eyre::eyre!("failed to create DSX exchange event bus MQTT client: {e}"))
             .await?;
 
             client.connect().await.map_err(|e| {
-                eyre::eyre!("Failed to connect DSX Exchange Event Bus MQTT client: {e}")
+                eyre::eyre!("failed to connect DSX exchange event bus MQTT client: {e}")
             })?;
             client.register_metrics(&meter, "dsx_event_bus");
 
@@ -1228,7 +1107,7 @@ async fn initialize_and_start_controllers<'a>(
             api_service
                 .bms_client
                 .set(bms_client)
-                .map_err(|_| eyre::eyre!("BMS DSX Exchange handle already initialized"))?;
+                .map_err(|_| eyre::eyre!("BMS DSX exchange handle already initialized"))?;
 
             // Periodically re-publish current managed host state so consumers
             // that miss change events can reconcile. A no-op unless enabled.
@@ -1286,26 +1165,97 @@ async fn initialize_and_start_controllers<'a>(
         .to_string_lossy()
         .to_string();
 
-    // Cross-controller registry feeding the per-object health metrics; shared by
-    // every state controller and registered once.
-    let per_object_metric_hold_time = [
+    // Every controller that records per-object series, in one place so the
+    // two hold-period computations below cannot drift apart. The first four
+    // also feed the per-object health classification metric.
+    let per_object_feeding_controllers = [
         &carbide_config.machine_state_controller.controller,
         &carbide_config.switch_state_controller.controller,
         &carbide_config.rack_state_controller.controller,
         &carbide_config.power_shelf_state_controller.controller,
-    ]
-    .into_iter()
-    .map(|controller| controller.metric_hold_time)
-    .max()
-    .unwrap_or_default();
+        &carbide_config.network_segment_state_controller.controller,
+        &carbide_config.vpc_prefix_state_controller.controller,
+        &carbide_config.spdm_state_controller.controller,
+        &carbide_config.ib_partition_state_controller.controller,
+    ];
+
+    // Cross-controller registry feeding the per-object health and state
+    // metrics; shared by every state controller and registered once. The
+    // classification gauge keeps its own hold derived only from the four
+    // controllers that record it, so tuning an unrelated controller's cadence
+    // cannot inflate eviction of the pre-existing main-endpoint metric.
+    let classification_hold_time = per_object_feeding_controllers[..4]
+        .iter()
+        .map(|controller| controller.metric_hold_time)
+        .max()
+        .unwrap_or_default();
     let per_object_metrics_registry = PerObjectMetricsRegistry::new(
         carbide_config
             .observability
             .per_object_metrics_for_classifications
             .clone(),
-        per_object_metric_hold_time.saturating_add(std::time::Duration::from_secs(60)),
+        classification_hold_time.saturating_add(std::time::Duration::from_secs(60)),
     );
     per_object_metrics_registry.register(&meter);
+
+    // Hold period for the per-object state/info gauges, which are fed by all
+    // eight controllers. An object's series is only refreshed after its
+    // handler finishes, so the worst-case refresh gap is roughly an iteration
+    // interval (with slack) PLUS the longest allowed handler runtime. Note:
+    // under fleet backlog the wall-clock iteration can exceed iteration_time;
+    // the hold cannot bound that statically.
+    let per_object_state_hold_time = per_object_feeding_controllers
+        .iter()
+        .map(|controller| {
+            controller.metric_hold_time.max(
+                controller.iteration_time
+                    + controller.iteration_time / 3
+                    + controller.max_object_handling_time,
+            )
+        })
+        .max()
+        .unwrap_or_default()
+        .saturating_add(std::time::Duration::from_secs(60));
+
+    // Per-object state progress metrics (opt-in): the state gauges are fed by
+    // the generic processors as native collectors on the dedicated per-object
+    // Prometheus registry, so they are served from their own endpoint. Object
+    // types are filtered via `observability.per_object_state_metrics
+    // .object_types` (a config enum, so unknown tokens fail deserialization).
+    let per_object_state_metrics = per_object_prometheus_registry
+        .as_ref()
+        .map(|prometheus_registry| {
+            PerObjectStateMetrics::new(
+                &per_object_metrics_registry,
+                prometheus_registry,
+                per_object_state_hold_time,
+            )
+        })
+        .transpose()?;
+    let per_object_state_recorder = |object_type: &'static str| -> Option<PerObjectStateRecorder> {
+        let metrics = per_object_state_metrics.clone()?;
+        carbide_config
+            .observability
+            .per_object_state_metrics
+            .object_types
+            .iter()
+            .any(|t| t.as_str() == object_type)
+            .then_some(PerObjectStateRecorder::new(object_type, metrics))
+    };
+    // Machine trait/association info series accompany the machine state
+    // series, so both are gated by the same recorder.
+    let machine_state_recorder = per_object_state_recorder("machine");
+    let machine_per_object_info = per_object_prometheus_registry
+        .as_ref()
+        .filter(|_| machine_state_recorder.is_some())
+        .map(|prometheus_registry| {
+            MachinePerObjectInfo::new(
+                &per_object_metrics_registry,
+                prometheus_registry,
+                per_object_state_hold_time,
+            )
+        })
+        .transpose()?;
 
     // handles need to be stored in a variable
     // If they are assigned to _ then the destructor will be immediately called
@@ -1320,10 +1270,14 @@ async fn initialize_and_start_controllers<'a>(
                 redfish_client_pool: shared_redfish_pool.clone(),
                 ipmi_tool: ipmi_tool.clone(),
                 site_config: carbide_config.machine_state_handler_site_config().into(),
+                component_manager: component_manager.clone().map(Arc::new),
+                credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                per_object_info: machine_per_object_info,
             }
             .into(),
         )
+        .per_object_state_metrics(machine_state_recorder)
         .iteration_config((&carbide_config.machine_state_controller.controller).into())
         .state_handler(Arc::new(
             MachineStateHandlerBuilder::builder()
@@ -1400,6 +1354,7 @@ async fn initialize_and_start_controllers<'a>(
             .into(),
         );
     ns_builder
+        .per_object_state_metrics(per_object_state_recorder("network_segment"))
         .iteration_config((&carbide_config.network_segment_state_controller.controller).into())
         .state_handler(Arc::new(NetworkSegmentStateHandler::new(
             carbide_config
@@ -1421,6 +1376,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("vpc_prefix"))
         .iteration_config((&carbide_config.vpc_prefix_state_controller.controller).into())
         .state_handler(Arc::new(VpcPrefixStateHandler::new(
             carbide_config
@@ -1433,7 +1389,7 @@ async fn initialize_and_start_controllers<'a>(
     if carbide_config.spdm.enabled {
         let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
             return Err(eyre::eyre!(
-                "SPDM attestation is enabled but NRAS Config is missing!!"
+                "SPDM attestation is enabled but NRAS config is missing!!"
             ));
         };
 
@@ -1450,6 +1406,7 @@ async fn initialize_and_start_controllers<'a>(
                 }
                 .into(),
             )
+            .per_object_state_metrics(per_object_state_recorder("spdm_attestation"))
             .iteration_config((&carbide_config.spdm_state_controller.controller).into())
             .state_handler(Arc::new(SpdmAttestationStateHandler::new(
                 verifier,
@@ -1471,6 +1428,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("ib_partition"))
         .iteration_config((&carbide_config.ib_partition_state_controller.controller).into())
         .state_handler(Arc::new(IBPartitionStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1489,6 +1447,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("power_shelf"))
         .iteration_config((&carbide_config.power_shelf_state_controller.controller).into())
         .state_handler(Arc::new(PowerShelfStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1518,6 +1477,8 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("rack"))
+        .iteration_config((&carbide_config.rack_state_controller.controller).into())
         .state_handler(Arc::new(RackStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build RackStateController");
@@ -1538,6 +1499,7 @@ async fn initialize_and_start_controllers<'a>(
             }
             .into(),
         )
+        .per_object_state_metrics(per_object_state_recorder("switch"))
         .iteration_config((&carbide_config.switch_state_controller.controller).into())
         .state_handler(Arc::new(SwitchStateHandler::default()))
         .build_and_spawn(join_set, cancel_token.clone())
@@ -1563,9 +1525,7 @@ async fn initialize_and_start_controllers<'a>(
         meter: meter.clone(),
         config: carbide_config.nvlink_config.clone().unwrap_or_default(),
         host_health: carbide_config.host_health,
-        rms_client: api_service.rms_client.clone(),
-        credential_manager: api_service.credential_manager.clone(),
-        rack_profiles: carbide_config.rack_profiles.clone(),
+        component_manager: api_service.component_manager.clone().map(Arc::new),
         work_lock_manager_handle: work_lock_manager_handle.clone(),
     })
     .start(join_set, cancel_token.clone())?;
@@ -1622,11 +1582,9 @@ async fn initialize_and_start_controllers<'a>(
         db_pool.clone(),
         site_explorer_config,
         meter.clone(),
-        bmc_explorer.clone(),
-        Arc::new(carbide_config.get_firmware_config()),
+        endpoint_exploration_service.clone(),
         common_pools.clone(),
         work_lock_manager_handle.clone(),
-        endpoint_exploration_locks.clone(),
         carbide_config.rack_profiles.clone(),
         rms_client.clone(),
         credential_manager.clone(),
@@ -1707,17 +1665,107 @@ fn nmxc_tls_config_from_nvlink(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::path::Path;
 
     use carbide_network::virtualization::VpcVirtualizationType;
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::scenarios;
     use figment::Figment;
     use figment::providers::{Format, Toml};
+    use model::expected_machine::HostDpuPolicy;
     use model::network_segment::{NetworkDefinition, NetworkDefinitionSegmentType};
     use model::resource_pool::ResourcePoolType;
     use model::resource_pool::define::ResourcePoolDef;
 
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
+    use crate::cfg::load::{merged_carbide_config_figment, parse_carbide_config};
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
+
+    #[derive(Clone, Copy)]
+    struct PolicyLayers {
+        global_setting: &'static str,
+        site_setting: &'static str,
+        environment_value: Option<&'static str>,
+    }
+
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
+    fn load_layered_dpu_policy(
+        layers: PolicyLayers,
+    ) -> Result<Option<HostDpuPolicy>, figment::Error> {
+        let mut policy = None;
+        figment::Jail::try_with(|jail| {
+            jail.clear_env();
+            if let Some(environment_value) = layers.environment_value {
+                jail.set_env("CARBIDE_API_SITE_EXPLORER", environment_value);
+            }
+
+            let global_config = format!(
+                "{}\n[site_explorer]\n{}\n",
+                include_str!("cfg/test_data/min_config.toml"),
+                layers.global_setting,
+            );
+            let site_config = format!("[site_explorer]\n{}\n", layers.site_setting);
+            jail.create_file("global.toml", &global_config)?;
+            jail.create_file("site.toml", &site_config)?;
+
+            policy = Some(
+                merged_carbide_config_figment(
+                    Path::new("global.toml"),
+                    Some(Path::new("site.toml")),
+                )
+                .extract::<CarbideConfig>()?
+                .site_explorer
+                .dpu_policy,
+            );
+            Ok(())
+        })?;
+
+        Ok(policy.expect("Jail must run the configuration extraction"))
+    }
+
+    #[test]
+    fn site_explorer_dpu_policy_respects_provider_precedence_across_legacy_key() {
+        scenarios!(
+            run = load_layered_dpu_policy;
+            "site config overrides global config regardless of key spelling" {
+                PolicyLayers {
+                    global_setting: "dpu_policy = \"nic\"",
+                    site_setting: "dpu_mode = \"no_dpu\"",
+                    environment_value: None,
+                } => Yields(Some(HostDpuPolicy::Ignore)),
+                PolicyLayers {
+                    global_setting: "dpu_mode = \"no_dpu\"",
+                    site_setting: "dpu_policy = \"manage\"",
+                    environment_value: None,
+                } => Yields(Some(HostDpuPolicy::Manage)),
+            }
+
+            "environment overrides site config regardless of key spelling" {
+                PolicyLayers {
+                    global_setting: "",
+                    site_setting: "dpu_policy = \"nic\"",
+                    environment_value: Some("{dpu_mode=no_dpu}"),
+                } => Yields(Some(HostDpuPolicy::Ignore)),
+                PolicyLayers {
+                    global_setting: "",
+                    site_setting: "dpu_mode = \"no_dpu\"",
+                    environment_value: Some("{dpu_policy=manage}"),
+                } => Yields(Some(HostDpuPolicy::Manage)),
+            }
+
+            "canonical key wins within one provider" {
+                PolicyLayers {
+                    global_setting: concat!(
+                        "dpu_policy = \"nic\"\n",
+                        "dpu_mode = \"no_dpu\"",
+                    ),
+                    site_setting: "",
+                    environment_value: None,
+                } => Yields(Some(HostDpuPolicy::Nic)),
+            }
+        );
+    }
 
     fn carbide_with_networks(
         networks: Option<HashMap<String, NetworkDefinition>>,
@@ -1783,7 +1831,7 @@ mod tests {
             // Test helper placeholder; callers under test do not use this as a routable gateway.
             gateway: prefix.network(),
             dhcpv6_link_address: None,
-            mtu: 0,
+            mtu: 1500,
             reserve_first: 0,
             allocation_strategy: Default::default(),
             vpc_name: None,
@@ -1897,8 +1945,9 @@ mod tests {
         let error = format!("{error:?}");
 
         assert!(
-            error.contains("rack_capabilities.switch.vendor"),
-            "error message should name the missing vendor field: {error}"
+            error.contains("rack profile NVL72 cannot build RMS switch node descriptor")
+                && error.contains("rack profile does not identify an RMS switch vendor"),
+            "error message should identify the rack profile and missing role vendor: {error}"
         );
 
         Ok(())

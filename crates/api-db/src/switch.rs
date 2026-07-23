@@ -156,7 +156,7 @@ pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> DatabaseResult<
         Err(DatabaseError::new(
             "Switch::find_by_name",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for Switch {} returned multiple results", name).into(),
+                eyre::eyre!("searching for switch {} returned multiple results", name).into(),
             ),
         ))
     }
@@ -173,7 +173,7 @@ pub async fn find_by_id(txn: &mut PgConnection, id: &SwitchId) -> DatabaseResult
         Err(DatabaseError::new(
             "Switch::find_by_id",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for Switch {} returned multiple results", id).into(),
+                eyre::eyre!("searching for switch {} returned multiple results", id).into(),
             ),
         ))
     }
@@ -784,8 +784,8 @@ pub async fn find_ids_by_bmc_macs(
         .map_err(|err| DatabaseError::new("switch::find_ids_by_bmc_macs", err))
 }
 
-/// RMS identity for a switch, including rack profile context for node type
-/// resolution.
+/// RMS identity for a switch, including rack profile context for node descriptor
+/// construction.
 #[derive(Debug, sqlx::FromRow)]
 pub struct SwitchRmsIdentity {
     pub id: String,

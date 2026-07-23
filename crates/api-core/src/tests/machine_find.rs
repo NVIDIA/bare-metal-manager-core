@@ -85,14 +85,14 @@ async fn test_find_machine_by_ip(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
-    let ip = &dpu_machine.interfaces[0].addresses[0];
+    let ip = &dpu_machine.status.interfaces[0].addresses[0];
 
     let machine = db::machine::find_by_query(&mut txn, &ip.to_string())
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert_eq!(machine.id, dpu_machine_id);
-    assert_eq!(&machine.interfaces[0].addresses[0], ip);
+    assert_eq!(&machine.status.interfaces[0].addresses[0], ip);
 
     // We shouldn't find a machine that doesn't exist
     let ip2: IpAddr = "254.254.254.254".parse().unwrap();
@@ -123,7 +123,7 @@ async fn test_find_machine_by_ipv6(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
-    let interface_id = dpu_machine.interfaces[0].id;
+    let interface_id = dpu_machine.status.interfaces[0].id;
 
     // Add an IPv6 address to the interface.
     let ipv6: IpAddr = "fd00::100".parse().unwrap();
@@ -152,7 +152,7 @@ async fn test_find_machine_without_sku(pool: sqlx::PgPool) {
 
     let machine = mh.host().db_machine(&mut txn).await;
 
-    assert_eq!(machine.hw_sku, None);
+    assert_eq!(machine.config.hw_sku, None);
 }
 
 #[crate::sqlx_test]
@@ -175,7 +175,18 @@ async fn test_find_machine_with_sku(pool: sqlx::PgPool) {
     let mh = create_managed_host_with_config(&env, host_config).await;
 
     let machine = mh.host().rpc_machine().await;
-    assert_eq!(machine.hw_sku.as_ref(), Some(&sku_id));
+    assert_eq!(
+        machine.config.as_ref().and_then(|c| c.hw_sku.as_ref()),
+        Some(&sku_id)
+    );
+    #[allow(deprecated)]
+    {
+        assert_eq!(
+            machine.hw_sku.as_ref(),
+            Some(&sku_id),
+            "deprecated flat field must mirror config.hw_sku"
+        );
+    }
 }
 
 #[crate::sqlx_test]
@@ -256,15 +267,15 @@ async fn test_find_machine_by_mac(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
-    let mac = &dpu_machine.interfaces[0].mac_address;
+    let mac = &dpu_machine.status.interfaces[0].mac_address;
 
     let machine = db::machine::find_by_query(&mut txn, &mac.to_string())
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert_eq!(machine.id, dpu_machine_id);
-    assert_eq!(&machine.interfaces[0].mac_address, mac);
-    assert!(DPU_OOB_MAC_ADDRESS_POOL.contains(machine.interfaces[0].mac_address));
+    assert_eq!(&machine.status.interfaces[0].mac_address, mac);
+    assert!(DPU_OOB_MAC_ADDRESS_POOL.contains(machine.status.interfaces[0].mac_address));
 
     // We shouldn't find a machine that doesn't exist
     let mut mac2 = mac.bytes();
@@ -297,14 +308,14 @@ async fn test_find_machine_by_hostname(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
-    let hostname = &dpu_machine.interfaces[0].hostname.clone();
+    let hostname = &dpu_machine.status.interfaces[0].hostname.clone();
 
     let machine = db::machine::find_by_query(&mut txn, hostname)
         .await
         .unwrap()
         .expect("expect DPU to be found");
     assert_eq!(machine.id, dpu_machine_id);
-    assert_eq!(&machine.interfaces[0].hostname, hostname);
+    assert_eq!(&machine.status.interfaces[0].hostname, hostname);
 
     // We shouldn't find a machine that doesn't exist
     let hostname2 = format!("a{hostname}");
@@ -560,7 +571,7 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
 
     // Now host1 should have two DPUs.
     let host_machine = mh.host().rpc_machine().await;
-    let dpu_ids = host_machine.associated_dpu_machine_ids;
+    let dpu_ids = host_machine.status.unwrap().associated_dpu_machine_ids;
     assert_eq!(
         dpu_ids.len(),
         2,
@@ -617,7 +628,7 @@ async fn test_machine_capabilities_response(
         .pop()
         .unwrap();
 
-    let caps_from_rpc_call = machine.capabilities.unwrap();
+    let caps_from_rpc_call = machine.status.unwrap().capabilities.unwrap();
 
     // Check the gRPC response and the original machine agree
     assert_eq!(caps_from_rpc_call, caps_from_machine);

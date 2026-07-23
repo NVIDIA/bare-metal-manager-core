@@ -33,9 +33,10 @@ use forge_tls::client_config::{
 };
 use mac_address::MacAddress;
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, MachineATron, MachineATronArgs,
-    MachineATronConfig, MachineATronContext, MachineStatusConfig, MockSshServerHandle,
-    PromptBehavior, Tui, TuiHostLogs, api_throttler, append_control_routes, spawn_mock_ssh_server,
+    AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, DhcpClient, MachineATron,
+    MachineATronArgs, MachineATronConfig, MachineATronContext, MachineStatusConfig,
+    MockSshServerHandle, PromptBehavior, Tui, TuiHostLogs, api_throttler, append_control_routes,
+    spawn_mock_ssh_server,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -128,6 +129,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let api_config = ApiConfig::new(&app_config.carbide_api_url, &forge_client_config);
 
     let forge_api_client = ForgeApiClient::new(&api_config);
+    let (dhcp_client, dhcp_service) =
+        DhcpClient::start(&app_config, forge_api_client.clone().into()).await?;
 
     let api_throttler = api_throttler::run(
         tokio::time::interval(Duration::from_secs(2)),
@@ -184,6 +187,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         api_throttler,
         desired_firmware_versions,
         forge_api_client,
+        dhcp_client,
         mac_address_pool: Mutex::new(mac_address_pool).into(),
     });
 
@@ -312,8 +316,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         (None, None, None)
     };
 
-    mat.run(machine_handles, tui_event_tx.clone(), app_rx)
-        .await?;
+    let mat_result = mat.run(machine_handles, tui_event_tx.clone(), app_rx).await;
 
     if let Some(tui_handle) = tui_handle {
         if let Some(tui_quit_tx) = tui_quit_tx.as_ref() {
@@ -337,6 +340,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (mut server_handle, _mock_ssh_server_handle) = server_handles;
     server_handle.stop().await?;
+    if let Some(dhcp_service) = dhcp_service {
+        dhcp_service.shutdown().await?;
+    }
+    mat_result?;
     Ok(())
 }
 

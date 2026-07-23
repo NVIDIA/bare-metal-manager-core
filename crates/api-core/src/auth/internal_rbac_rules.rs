@@ -322,7 +322,10 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
-        x.perm("AddExpectedMachine", vec![ForgeAdminCLI, SiteAgent, Flow]);
+        x.perm(
+            "AddExpectedMachine",
+            vec![ForgeAdminCLI, SiteAgent, Flow, Machineatron],
+        );
         x.perm("DeleteExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("UpdateExpectedMachine", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateExpectedMachines", vec![ForgeAdminCLI, SiteAgent]);
@@ -485,6 +488,8 @@ impl InternalRBACRules {
             "GetMachineValidationExternalConfig",
             vec![ForgeAdminCLI, Scout],
         );
+        x.perm("GetContainerRegistryCredential", vec![ForgeAdminCLI, Scout]);
+        x.perm("SetContainerRegistryCredential", vec![ForgeAdminCLI]);
         x.perm(
             "AddUpdateMachineValidationExternalConfig",
             vec![ForgeAdminCLI, SiteAgent],

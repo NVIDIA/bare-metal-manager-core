@@ -136,6 +136,7 @@ fi
 # -----------------------------------------------------------------------------
 # Environment
 # -----------------------------------------------------------------------------
+# Local development explicitly disables auth; production/Helm defaults to Basic.
 # api-web currently reads CARBIDE_WEB_AUTH_TYPE; keep both vars in sync during rename.
 WEB_AUTH_TYPE="${CARBIDE_WEB_AUTH_TYPE:-${NICO_WEB_AUTH_TYPE:-none}}"
 export NICO_WEB_AUTH_TYPE="$WEB_AUTH_TYPE"

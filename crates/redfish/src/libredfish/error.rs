@@ -21,15 +21,15 @@ use state_controller::state_handler::{ExternalServiceError, StateHandlerError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RedfishClientCreationError {
-    #[error("Missing credential {key}")]
+    #[error("missing credential {key}")]
     MissingCredentials { key: String },
-    #[error("Missing credential: {cause}")]
+    #[error("missing credential: {cause}")]
     SecretEngineError { cause: SecretsError },
-    #[error("Failed redfish request {0}")]
+    #[error("failed redfish request {0}")]
     RedfishError(RedfishError),
-    #[error("Invalid Header {0}")]
+    #[error("invalid header {0}")]
     InvalidHeader(String),
-    #[error("Missing Arguments: {0}")]
+    #[error("missing arguments: {0}")]
     MissingArgument(String),
 }
 

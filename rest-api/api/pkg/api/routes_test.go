@@ -62,6 +62,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-instance-type":     3,
 		"user":                      1,
 		"operating-system":          5,
+		"ipxe-template":             2,
 		"sshkey":                    5,
 		"sshkeygroup":               5,
 		"machine-capability":        1,
@@ -127,6 +128,10 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPost, expectedMachineBatchPath)
 			assertRouteExists(t, got, http.MethodPatch, expectedMachineBatchPath)
 			assertRouteBefore(t, got, http.MethodPatch, expectedMachineBatchPath, http.MethodPatch, "/org/:orgName/"+cfg.GetAPIName()+"/expected-machine/:id")
+
+			ipxeTemplatePath := "/org/:orgName/" + cfg.GetAPIName() + "/ipxe-template"
+			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath)
+			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath+"/:id")
 		})
 	}
 }

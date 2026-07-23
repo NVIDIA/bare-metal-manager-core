@@ -70,7 +70,7 @@ impl StateControllerIO for RackStateControllerIO {
             return Err(DatabaseError::new(
                 "Rack::find()",
                 sqlx::Error::Decode(
-                    eyre::eyre!("Searching for Rack {} returned multiple results", rack_id).into(),
+                    eyre::eyre!("searching for rack {} returned multiple results", rack_id).into(),
                 ),
             ));
         }
@@ -151,6 +151,11 @@ impl StateControllerIO for RackStateControllerIO {
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
         }
+    }
+
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        // The stored cause is free text, so the reason is a fixed token.
+        matches!(state, RackState::Error { .. }).then_some("error")
     }
 
     fn state_sla(

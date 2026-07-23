@@ -27,8 +27,8 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::slas::MachineSlaConfig;
 use model::machine::{
     self, AttestationMode, DpuDiscoveringState, DpuInitState, HostHealthConfig,
-    MachineValidatingState, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
-    SpdmMeasuringState, ValidationState,
+    MachineMaintenanceOperation, MachineValidatingState, ManagedHostState,
+    ManagedHostStateSnapshot, MeasuringState, SpdmMeasuringState, ValidationState,
 };
 use sqlx::PgConnection;
 use state_controller::io::StateControllerIO;
@@ -299,6 +299,14 @@ impl StateControllerIO for MachineStateControllerIO {
                 ("hostnotready", machine_state_name(machine_state))
             }
             ManagedHostState::Ready => ("ready", ""),
+            ManagedHostState::Maintenance { operation } => {
+                let op = match operation {
+                    MachineMaintenanceOperation::PowerOn => "power_on",
+                    MachineMaintenanceOperation::PowerOff => "power_off",
+                    MachineMaintenanceOperation::Reset => "reset",
+                };
+                ("maintenance", op)
+            }
             ManagedHostState::Assigned { instance_state } => {
                 ("assigned", instance_state_name(instance_state))
             }
@@ -356,6 +364,18 @@ impl StateControllerIO for MachineStateControllerIO {
                     machine_validation_state_name(machine_validation),
                 ),
             },
+        }
+    }
+
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        match state {
+            // A Failed state carrying NoError is not actionable by an operator.
+            ManagedHostState::Failed { details, .. }
+                if details.cause != model::machine::FailureCause::NoError =>
+            {
+                Some(details.cause.metric_label())
+            }
+            _ => None,
         }
     }
 

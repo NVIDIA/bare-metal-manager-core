@@ -50,8 +50,8 @@ use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
     Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
     FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineValidationContext, ManagedHostState, ReprovisionRequest,
-    UpgradeDecision,
+    MachineLastRebootRequestedMode, MachineMaintenanceOperation, MachineValidationContext,
+    ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -811,14 +811,14 @@ pub async fn find_host_by_dpu_machine_id(
 pub async fn lookup_host_machine_ids_by_dpu_ids(
     conn: impl DbReader<'_>,
     dpu_machine_ids: &[MachineId],
-) -> Result<Vec<MachineId>, DatabaseError> {
-    let query = r#"SELECT mi.machine_id
+) -> Result<HashMap<MachineId, MachineId>, DatabaseError> {
+    let query = r#"SELECT mi.attached_dpu_machine_id, mi.machine_id
         FROM machine_interfaces mi
         WHERE mi.attached_dpu_machine_id != mi.machine_id
         AND mi.interface_type != 'Bmc'
         AND mi.attached_dpu_machine_id = ANY($1)"#;
 
-    sqlx::query_as(query)
+    let dpu_id_host_id_pairs: Vec<(MachineId, MachineId)> = sqlx::query_as(query)
         .bind(
             dpu_machine_ids
                 .iter()
@@ -827,7 +827,9 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         )
         .fetch_all(conn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(dpu_id_host_id_pairs.into_iter().collect())
 }
 
 /// Return the [`ManagedHostState`] for a machine given its id without returning the whole snapshot.
@@ -2448,6 +2450,41 @@ pub async fn set_machine_validation_request(
     Ok(())
 }
 
+pub async fn set_machine_maintenance_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    initiator: &str,
+    operation: MachineMaintenanceOperation,
+) -> DatabaseResult<()> {
+    let req = model::machine::MachineMaintenanceRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+        operation,
+    };
+    let query = "UPDATE machines SET machine_maintenance_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_machine_maintenance_requested", e))?;
+    Ok(())
+}
+
+pub async fn clear_machine_maintenance_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET machine_maintenance_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_machine_maintenance_requested", e))?;
+    Ok(())
+}
+
 pub async fn update_dpu_asns(
     db_pool: &Pool<Postgres>,
     common_pools: &CommonPools,
@@ -2758,7 +2795,7 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
 }
 
 /// RMS identity for a compute tray machine, including rack profile context for
-/// node type resolution.
+/// node descriptor construction.
 #[derive(Debug, sqlx::FromRow)]
 pub struct MachineRmsIdentity {
     pub id: String,
@@ -2919,7 +2956,7 @@ mod test {
         let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
             .await?
             .expect("machine snapshot should load");
-        assert_eq!(machine.bmc_info.ip, Some(live_bmc_ip));
+        assert_eq!(machine.status.bmc_info.ip, Some(live_bmc_ip));
 
         // Release the lease: drop the live address but keep the interface and the topology
         // row (with its stale bmc_info.ip) intact.
@@ -2930,7 +2967,7 @@ mod test {
         let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
             .await?
             .expect("machine snapshot should load");
-        assert_eq!(machine.bmc_info.ip, None);
+        assert_eq!(machine.status.bmc_info.ip, None);
 
         // Now drop the BMC interface row entirely; the topology row (with its stale
         // bmc_info.ip) stays. Even with no live BMC interface at all, the snapshot must
@@ -2942,7 +2979,7 @@ mod test {
         let machine = super::find_one(txn.as_mut(), &machine_id, MachineSearchConfig::default())
             .await?
             .expect("machine snapshot should load");
-        assert_eq!(machine.bmc_info.ip, None);
+        assert_eq!(machine.status.bmc_info.ip, None);
 
         txn.rollback().await?;
         Ok(())
@@ -2965,7 +3002,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
-        assert!(host.firmware_autoupdate.is_some());
+        assert_eq!(host.config.firmware_autoupdate, Some(true));
 
         txn.commit().await?;
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = pool.begin().await.unwrap();
@@ -2974,7 +3011,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
-        assert!(host.firmware_autoupdate.is_none());
+        assert!(host.config.firmware_autoupdate.is_none());
         Ok(())
     }
 }

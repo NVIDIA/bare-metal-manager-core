@@ -18,6 +18,7 @@
 use std::collections::{HashMap, HashSet};
 
 use carbide_rack::firmware_update::build_new_node_info;
+use carbide_rack::rms_node_type::RmsNodeIdentity;
 use carbide_rack_controller::config::RmsConfig;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::RackId;
@@ -57,13 +58,13 @@ pub(super) fn validate_switch_inventory_for_nmx_cluster(
 fn build_scale_up_fabric_services_status_request(
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-    node_type: rms::NodeType,
+    node_identity: &RmsNodeIdentity,
 ) -> rms::BatchGetScaleUpFabricServiceStatusRequest {
     rms::BatchGetScaleUpFabricServiceStatusRequest {
         nodes: Some(rms::NodeSet {
             nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, node_type))
+                .map(|switch| build_new_node_info(rack_id, switch, node_identity))
                 .collect(),
         }),
     }
@@ -73,7 +74,7 @@ pub(super) async fn batch_get_scale_up_fabric_service_status(
     rms_config: &RmsConfig,
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-    node_type: rms::NodeType,
+    node_identity: &RmsNodeIdentity,
 ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, String> {
     let Some(url) = rms_config.api_url.as_deref().none_if_empty() else {
         return Err("RMS client not configured".to_string());
@@ -91,7 +92,9 @@ pub(super) async fn batch_get_scale_up_fabric_service_status(
     rms_client
         .client
         .batch_get_scale_up_fabric_service_status(build_scale_up_fabric_services_status_request(
-            rack_id, switches, node_type,
+            rack_id,
+            switches,
+            node_identity,
         ))
         .await
         .map_err(|error| format!("RMS BatchGetScaleUpFabricServiceStatus failed: {}", error))
@@ -328,7 +331,9 @@ pub(super) async fn persist_primary_switch(
 
 #[cfg(test)]
 mod tests {
+    use carbide_rack::rms_node_type::switch_node_identity_for_profile;
     use carbide_test_support::{Check, check_values};
+    use model::rack_type::{RackProductFamily, RackProfile};
 
     use super::*;
 
@@ -345,6 +350,39 @@ mod tests {
             os_password: Some("password".to_string()),
             os_hostname: None,
         }
+    }
+
+    #[test]
+    fn fabric_status_request_uses_descriptor_without_node_type() {
+        let mut profile = RackProfile {
+            product_family: Some(RackProductFamily::Gb300),
+            ..Default::default()
+        };
+
+        profile.rack_capabilities.switch.vendor = Some("test-switch-vendor".to_string());
+
+        let node_identity = switch_node_identity_for_profile(&profile).unwrap();
+        let rack_id = RackId::from("rack-1");
+        let switches = [switch("switch-1")];
+
+        let request =
+            build_scale_up_fabric_services_status_request(&rack_id, &switches, &node_identity);
+
+        let [node] = request
+            .nodes
+            .expect("request nodes")
+            .nodes
+            .try_into()
+            .unwrap();
+
+        let descriptor = node.node_descriptor.expect("node descriptor");
+
+        assert_eq!(node.r#type, None);
+
+        assert_eq!(
+            descriptor.attributes.get("role").map(String::as_str),
+            Some("switch")
+        );
     }
 
     fn node_device_details(

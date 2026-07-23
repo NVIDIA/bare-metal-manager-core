@@ -21,7 +21,7 @@ use carbide_utils::test_support::certs::create_random_self_signed_cert;
 use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::ManagedHostState;
-use model::site_explorer::NicMode;
+use model::site_explorer::BlueFieldOperatingMode;
 use model::test_support::managed_host::REQUIRED_IB_GUIDS;
 use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
 
@@ -53,7 +53,7 @@ impl FixtureDefault for DpuConfig {
             last_exploration_error: None,
             override_hosts_uefi_device_path: None,
             hardware_info_template: HardwareInfoTemplate::Default,
-            nic_mode: Some(NicMode::Dpu),
+            nic_mode: Some(BlueFieldOperatingMode::Dpu),
         }
     }
 }

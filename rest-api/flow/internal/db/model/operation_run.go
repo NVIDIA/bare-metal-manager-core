@@ -25,6 +25,7 @@ type OperationRun struct {
 	Status            operationrun.OperationRunStatus       `bun:"status,type:varchar(32),notnull"`        //nolint:lll
 	StatusReason      operationrun.OperationRunStatusReason `bun:"status_reason,type:varchar(64),notnull"` //nolint:lll
 	StatusMessage     string                                `bun:"status_message,nullzero"`
+	CurrentPhaseIndex int32                                 `bun:"current_phase_index,notnull"`
 	Selector          json.RawMessage                       `bun:"selector,type:jsonb,notnull"`
 	Options           json.RawMessage                       `bun:"options,type:jsonb,notnull"`
 	OperationTemplate json.RawMessage                       `bun:"operation_template,type:jsonb,notnull"`

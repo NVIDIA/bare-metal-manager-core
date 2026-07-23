@@ -186,6 +186,20 @@ func (bcih BatchCreateInstanceHandler) buildBatchInstanceCreateRequestOsConfig(c
 			},
 			UserData: apiRequest.UserData,
 		}, osID, nil
+	} else if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+		if apiErr := validateTemplatedIpxeOsForSite(ctx, bcih.dbSession, logger, os, site.ID); apiErr != nil {
+			return nil, nil, apiErr
+		}
+		return &corev1.InstanceOperatingSystemConfig{
+			RunProvisioningInstructionsOnEveryBoot: *apiRequest.AlwaysBootWithCustomIpxe,
+			PhoneHomeEnabled:                       *apiRequest.PhoneHomeEnabled,
+			Variant: &corev1.InstanceOperatingSystemConfig_OperatingSystemId{
+				OperatingSystemId: &corev1.OperatingSystemId{
+					Value: os.ID.String(),
+				},
+			},
+			UserData: apiRequest.UserData,
+		}, osID, nil
 	} else {
 		return &corev1.InstanceOperatingSystemConfig{
 			PhoneHomeEnabled: *apiRequest.PhoneHomeEnabled,

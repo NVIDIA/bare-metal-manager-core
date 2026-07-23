@@ -48,11 +48,12 @@ func TestSubnet_ToProto(t *testing.T) {
 	gateway := "10.0.0.1"
 	mtu := 9000
 
-	t.Run("emits id/vpcId/name/subdomain/mtu/prefixes from entity", func(t *testing.T) {
+	t.Run("emits config and metadata from entity", func(t *testing.T) {
 		s := &Subnet{
 			ID:           subID,
 			VpcID:        vpcID,
 			Name:         "subnet-a",
+			Description:  cutil.GetPtr("primary"),
 			DomainID:     &domainID,
 			IPv4Prefix:   &prefix,
 			IPv4Gateway:  &gateway,
@@ -63,20 +64,33 @@ func TestSubnet_ToProto(t *testing.T) {
 		require.NotNil(t, proto)
 		require.NotNil(t, proto.Id)
 		assert.Equal(t, subID.String(), proto.Id.Value)
-		require.NotNil(t, proto.VpcId)
-		assert.Equal(t, vpcID.String(), proto.VpcId.Value)
-		assert.Equal(t, "subnet-a", proto.Name)
-		require.NotNil(t, proto.SubdomainId)
-		assert.Equal(t, domainID.String(), proto.SubdomainId.Value)
-		require.NotNil(t, proto.Mtu)
-		assert.Equal(t, int32(9000), *proto.Mtu)
-		require.Len(t, proto.Prefixes, 1)
-		assert.Equal(t, "10.0.0.0/16", proto.Prefixes[0].Prefix)
-		require.NotNil(t, proto.Prefixes[0].Gateway)
-		assert.Equal(t, gateway, *proto.Prefixes[0].Gateway)
+
+		require.NotNil(t, proto.Metadata)
+		assert.Equal(t, "subnet-a", proto.Metadata.Name)
+		assert.Equal(t, "primary", proto.Metadata.Description)
+
+		require.NotNil(t, proto.Config)
+		require.NotNil(t, proto.Config.VpcId)
+		assert.Equal(t, vpcID.String(), proto.Config.VpcId.Value)
+		require.NotNil(t, proto.Config.SubdomainId)
+		assert.Equal(t, domainID.String(), proto.Config.SubdomainId.Value)
+		require.NotNil(t, proto.Config.Mtu)
+		assert.Equal(t, int32(9000), *proto.Config.Mtu)
+		assert.Equal(t, corev1.NetworkSegmentType_TENANT, proto.Config.SegmentType)
+		require.Len(t, proto.Config.Prefixes, 1)
+		assert.Equal(t, "10.0.0.0/16", proto.Config.Prefixes[0].Prefix)
+		require.NotNil(t, proto.Config.Prefixes[0].Gateway)
+		assert.Equal(t, gateway, *proto.Config.Prefixes[0].Gateway)
 		// ReserveFirst is a deployment-policy value overlaid by the
 		// request-shape ToProto; the entity emits zero.
-		assert.Equal(t, int32(0), proto.Prefixes[0].ReserveFirst)
+		assert.Equal(t, int32(0), proto.Config.Prefixes[0].ReserveFirst)
+
+		// Deprecated flat mirrors are no longer populated.
+		assert.Empty(t, proto.Name)
+		assert.Nil(t, proto.VpcId)
+		assert.Nil(t, proto.SubdomainId)
+		assert.Nil(t, proto.Mtu)
+		assert.Nil(t, proto.Prefixes)
 	})
 
 	t.Run("prefers ControllerNetworkSegmentID for the Site-facing ID", func(t *testing.T) {
@@ -91,9 +105,12 @@ func TestSubnet_ToProto(t *testing.T) {
 		s := &Subnet{ID: subID, VpcID: vpcID, Name: "subnet-a"}
 		proto := s.ToProto()
 		require.NotNil(t, proto)
-		assert.Nil(t, proto.SubdomainId)
-		assert.Nil(t, proto.Mtu)
-		assert.Nil(t, proto.Prefixes)
+		require.NotNil(t, proto.Metadata)
+		assert.Equal(t, "", proto.Metadata.Description)
+		require.NotNil(t, proto.Config)
+		assert.Nil(t, proto.Config.SubdomainId)
+		assert.Nil(t, proto.Config.Mtu)
+		assert.Nil(t, proto.Config.Prefixes)
 	})
 }
 
@@ -104,23 +121,30 @@ func TestSubnet_FromProto(t *testing.T) {
 	gateway := "10.0.0.1"
 
 	t.Run("nil proto leaves the receiver untouched", func(t *testing.T) {
-		s := &Subnet{ID: subID, Name: "existing", VpcID: vpcID}
+		s := &Subnet{ID: subID, Name: "existing", Description: cutil.GetPtr("kept"), VpcID: vpcID}
 		s.FromProto(nil)
 		assert.Equal(t, subID, s.ID)
 		assert.Equal(t, "existing", s.Name)
+		require.NotNil(t, s.Description)
+		assert.Equal(t, "kept", *s.Description)
 		assert.Equal(t, vpcID, s.VpcID)
 	})
 
-	t.Run("populates fields from a full proto", func(t *testing.T) {
+	t.Run("populates fields from structured config and status", func(t *testing.T) {
 		mtu := int32(9000)
 		proto := &corev1.NetworkSegment{
-			Id:          &corev1.NetworkSegmentId{Value: subID.String()},
-			VpcId:       &corev1.VpcId{Value: vpcID.String()},
-			Name:        "subnet-a",
-			SubdomainId: &corev1.DomainId{Value: domainID.String()},
-			Mtu:         &mtu,
-			Prefixes: []*corev1.NetworkPrefix{
-				{Prefix: "10.0.0.0/16", Gateway: &gateway},
+			Id: &corev1.NetworkSegmentId{Value: subID.String()},
+			Metadata: &corev1.Metadata{
+				Name:        "subnet-a",
+				Description: "primary",
+			},
+			Config: &corev1.NetworkSegmentConfig{
+				VpcId:       &corev1.VpcId{Value: vpcID.String()},
+				SubdomainId: &corev1.DomainId{Value: domainID.String()},
+				Mtu:         &mtu,
+				Prefixes: []*corev1.NetworkPrefix{
+					{Prefix: "10.0.0.0/16", Gateway: &gateway},
+				},
 			},
 		}
 		s := &Subnet{}
@@ -128,6 +152,8 @@ func TestSubnet_FromProto(t *testing.T) {
 		assert.Equal(t, subID, s.ID)
 		assert.Equal(t, vpcID, s.VpcID)
 		assert.Equal(t, "subnet-a", s.Name)
+		require.NotNil(t, s.Description)
+		assert.Equal(t, "primary", *s.Description)
 		require.NotNil(t, s.DomainID)
 		assert.Equal(t, domainID, *s.DomainID)
 		require.NotNil(t, s.MTU)
@@ -139,6 +165,34 @@ func TestSubnet_FromProto(t *testing.T) {
 		assert.Equal(t, gateway, *s.IPv4Gateway)
 	})
 
+	t.Run("clears optionals and preserves VpcID when config is absent", func(t *testing.T) {
+		s := &Subnet{
+			ID:           subID,
+			VpcID:        vpcID,
+			Name:         "stale-name",
+			Description:  cutil.GetPtr("stale"),
+			DomainID:     &domainID,
+			MTU:          cutil.GetPtr(1500),
+			IPv4Prefix:   cutil.GetPtr("192.168.0.0"),
+			IPv4Gateway:  cutil.GetPtr("192.168.0.1"),
+			PrefixLength: 24,
+		}
+		proto := &corev1.NetworkSegment{
+			Id:       &corev1.NetworkSegmentId{Value: subID.String()},
+			Metadata: &corev1.Metadata{Name: "subnet-a"},
+		}
+		s.FromProto(proto)
+		assert.Equal(t, "subnet-a", s.Name)
+		assert.Nil(t, s.Description)
+		// VpcID is a required ID field; with config absent it is preserved.
+		assert.Equal(t, vpcID, s.VpcID)
+		assert.Nil(t, s.DomainID)
+		assert.Nil(t, s.MTU)
+		assert.Nil(t, s.IPv4Prefix)
+		assert.Nil(t, s.IPv4Gateway)
+		assert.Zero(t, s.PrefixLength)
+	})
+
 	t.Run("clears optional fields when proto omits them", func(t *testing.T) {
 		existing := "stale"
 		existingGW := "stale-gw"
@@ -146,6 +200,7 @@ func TestSubnet_FromProto(t *testing.T) {
 		s := &Subnet{
 			ID:           subID,
 			Name:         "stale-name",
+			Description:  cutil.GetPtr("stale"),
 			DomainID:     &domainID,
 			MTU:          &mtu,
 			IPv4Prefix:   &existing,
@@ -153,28 +208,99 @@ func TestSubnet_FromProto(t *testing.T) {
 			PrefixLength: 24,
 		}
 		proto := &corev1.NetworkSegment{
-			Id:    &corev1.NetworkSegmentId{Value: subID.String()},
-			VpcId: &corev1.VpcId{Value: vpcID.String()},
-			Name:  "fresh-name",
+			Id: &corev1.NetworkSegmentId{Value: subID.String()},
+			Metadata: &corev1.Metadata{
+				Name: "fresh-name",
+			},
+			Config: &corev1.NetworkSegmentConfig{
+				VpcId: &corev1.VpcId{Value: vpcID.String()},
+			},
 		}
 		s.FromProto(proto)
 		assert.Equal(t, "fresh-name", s.Name)
+		assert.Nil(t, s.Description)
+		assert.Nil(t, s.DomainID)
+		assert.Nil(t, s.MTU)
+		assert.Nil(t, s.IPv4Prefix)
+		assert.Nil(t, s.IPv4Gateway)
+		assert.Zero(t, s.PrefixLength)
+	})
+
+	t.Run("clears stale fields and ignores deprecated flat mirrors", func(t *testing.T) {
+		stale := "stale"
+		staleGW := "stale-gw"
+		staleDomain := uuid.New()
+		staleVpc := uuid.New()
+		flatMtu := int32(9000)
+		flatGateway := "10.0.0.1"
+		flatDomain := uuid.New()
+		flatVpc := uuid.New()
+
+		s := &Subnet{
+			ID:           subID,
+			VpcID:        staleVpc,
+			Name:         "stale-name",
+			Description:  cutil.GetPtr("stale"),
+			DomainID:     &staleDomain,
+			MTU:          cutil.GetPtr(1500),
+			IPv4Prefix:   &stale,
+			IPv4Gateway:  &staleGW,
+			PrefixLength: 24,
+		}
+		proto := &corev1.NetworkSegment{
+			Id: &corev1.NetworkSegmentId{Value: subID.String()},
+			Metadata: &corev1.Metadata{
+				Name: "fresh-name",
+			},
+			Config: &corev1.NetworkSegmentConfig{
+				VpcId: &corev1.VpcId{Value: vpcID.String()},
+			},
+			// Deprecated flat mirrors must not leak into the entity.
+			VpcId:       &corev1.VpcId{Value: flatVpc.String()},
+			Name:        "flat-name",
+			SubdomainId: &corev1.DomainId{Value: flatDomain.String()},
+			Mtu:         &flatMtu,
+			Prefixes: []*corev1.NetworkPrefix{
+				{Prefix: "10.0.0.0/16", Gateway: &flatGateway},
+			},
+		}
+		s.FromProto(proto)
+		assert.Equal(t, "fresh-name", s.Name)
+		assert.Nil(t, s.Description)
+		assert.Equal(t, vpcID, s.VpcID)
 		assert.Nil(t, s.DomainID)
 		assert.Nil(t, s.MTU)
 		assert.Nil(t, s.IPv4Prefix)
 		assert.Nil(t, s.IPv4Gateway)
 	})
 
+	t.Run("clears Description when proto omits it", func(t *testing.T) {
+		desc := "existing"
+		s := &Subnet{ID: subID, Name: "subnet-a", Description: &desc}
+		s.FromProto(&corev1.NetworkSegment{
+			Metadata: &corev1.Metadata{Name: "subnet-a"},
+		})
+		assert.Nil(t, s.Description)
+	})
+
 	t.Run("preserves entity ID when proto Id is unparseable", func(t *testing.T) {
 		s := &Subnet{ID: subID, Name: "x"}
-		proto := &corev1.NetworkSegment{Id: &corev1.NetworkSegmentId{Value: "not-a-uuid"}, Name: "x"}
+		proto := &corev1.NetworkSegment{
+			Id:       &corev1.NetworkSegmentId{Value: "not-a-uuid"},
+			Metadata: &corev1.Metadata{Name: "x"},
+		}
 		s.FromProto(proto)
 		assert.Equal(t, subID, s.ID)
 	})
 
 	t.Run("clears DomainID when proto subdomain is unparseable", func(t *testing.T) {
 		s := &Subnet{ID: subID, DomainID: &domainID, Name: "x"}
-		proto := &corev1.NetworkSegment{Name: "x", SubdomainId: &corev1.DomainId{Value: "not-a-uuid"}}
+		proto := &corev1.NetworkSegment{
+			Metadata: &corev1.Metadata{Name: "x"},
+			Config: &corev1.NetworkSegmentConfig{
+				SubdomainId: &corev1.DomainId{Value: "not-a-uuid"},
+			},
+		}
 		s.FromProto(proto)
 		assert.Nil(t, s.DomainID)
 	})
@@ -184,12 +310,15 @@ func TestSubnet_FromProto(t *testing.T) {
 		gw := "192.168.0.1"
 		s := &Subnet{ID: subID, IPv4Prefix: &existing, PrefixLength: 24, Name: "x"}
 		proto := &corev1.NetworkSegment{
-			Name:     "x",
-			Prefixes: []*corev1.NetworkPrefix{{Prefix: "garbage", Gateway: &gw}},
+			Metadata: &corev1.Metadata{Name: "x"},
+			Config: &corev1.NetworkSegmentConfig{
+				Prefixes: []*corev1.NetworkPrefix{{Prefix: "garbage", Gateway: &gw}},
+			},
 		}
 		s.FromProto(proto)
 		assert.Nil(t, s.IPv4Prefix)
 		assert.Nil(t, s.IPv4Gateway)
+		assert.Zero(t, s.PrefixLength)
 	})
 }
 

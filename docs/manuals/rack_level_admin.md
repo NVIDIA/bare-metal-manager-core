@@ -16,7 +16,18 @@ NICo provides APIs and automated workflows to manage these components for the fo
 
 ## Dependencies
 
-In order to use rack-level administration features today, NICo deployment needs to include NICo Flow, NSM, and PSM, properly configured with the REST API, site agent, temporal workflow, and NICo Core. The following diagram shows the control and data flows within NICo services and dependencies.
+Rack-level administration does not require one fixed backend stack. NICo Core
+must be configured with a component-manager backend for each role being managed:
+
+- [RMS](../configuration/component-manager-rms.md) can provide compute, switch,
+  and power-shelf management.
+- NSM is required only when the switch backend is set to `nsm`.
+- PSM is required only when the power-shelf backend is set to `psm`.
+
+NICo Flow is required for deployments using the HW Lifecycle REST API and its
+workflow orchestration. Clients using NICo Core APIs directly do not require
+NICo Flow. The following diagram shows the Flow-based REST deployment and its
+control and data paths.
 
 ![Dependencies](../static/rack-level-admin-dependencies.svg)
 
@@ -38,9 +49,13 @@ NICo Flow contains software-defined states for managing a site, such as those fo
 
 * **Backend**: Previously, NICo Core accessed machines directly via BMC. With rack-scale systems, we now have more types of component HW (compute, switch, and powershelf), as well as more ways to access these components (BMC and NVUE). The complexity of these HW access and management operations are now moved out of NICo Core into the backend for NICo. NICo backend is an extensible interface for different types of hardware to be plugged into and managed by NICo.
 
-Today there is a NVSwitch Manager (NSM) backend and a Powershelf Manager (PSM) backend, providing access to switch and powershelf trays in racks, called from NICo Core.
-
-In the near future, NVIDIA Rack Manager Service (RMS) will be shipped as a backend for NICo to provide unified compute, switch, and powershelf trays access and management, as well as optimized default HW sequencing for rack power control and firmware update.
+NICo Core supports NVSwitch Manager (NSM) and PowerShelf Manager (PSM)
+backends for switch and power-shelf access. NVIDIA Rack Manager Service (RMS)
+can serve compute, switch, and power-shelf roles and provides rack-level power
+and firmware operations. See
+[Component Manager RMS Backends](../configuration/component-manager-rms.md)
+for RMS configuration requirements and the documented GB200, GB300, and VRNVL72
+role/vendor support matrix.
 
 ## Rack-Level Operations
 
@@ -148,5 +163,3 @@ Currently, NICo only supports GB200 NVL72 racks, where a rack and a NVL domain o
 - [PATCH /v2/org/{org}/carbide/tray/{id}/power](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/power-control-tray): Control the power of the specified tray. Supported power states are `on`, `off`, `cycle`, `forceoff`, `forcecycle`.  
 - [PATCH /v2/org/{org}/carbide/tray/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-trays): Update the firmware on all or selected trays in the site.  
 - [PATCH /v2/org/{org}/carbide/tray/{id}/firmware](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tray/firmware-update-tray): Update the firmware on the specified tray.
-
-

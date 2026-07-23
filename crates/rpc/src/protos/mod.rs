@@ -65,6 +65,12 @@ pub mod mlx_device {
 #[rustfmt::skip]
 pub mod site_explorer {
     include!(concat!(env!("OUT_DIR"), "/site_explorer.rs"));
+
+    /// Observed-state Rust name for the legacy protobuf `NicMode` boundary.
+    ///
+    /// The protobuf descriptor retains `NicMode` for compatibility with
+    /// existing generated clients. New Rust callers should use this alias.
+    pub type BlueFieldOperatingMode = NicMode;
 }
 
 #[allow(non_snake_case, unknown_lints, clippy::all)]

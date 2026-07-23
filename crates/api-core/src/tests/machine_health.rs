@@ -123,7 +123,7 @@ async fn test_machine_health_reporting(
 
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_sources,
+        m.status.as_ref().unwrap().health_sources,
         vec![HealthSourceOrigin {
             mode: HealthReportApplyMode::Merge as i32,
             source: format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")
@@ -323,7 +323,7 @@ async fn test_machine_health_aggregation(
 
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_sources,
+        m.status.as_ref().unwrap().health_sources,
         vec![
             HealthSourceOrigin {
                 mode: HealthReportApplyMode::Merge as i32,
@@ -379,7 +379,7 @@ async fn test_machine_health_aggregation(
 
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_sources,
+        m.status.as_ref().unwrap().health_sources,
         vec![
             HealthSourceOrigin {
                 mode: HealthReportApplyMode::Merge as i32,
@@ -649,9 +649,17 @@ async fn test_can_manage_dpu_merge_health_report(
     .await;
 
     let dpu = find_machine(&env, &dpu_machine_id).await;
-    assert!(dpu.health_sources.iter().any(|source| {
-        source.mode == HealthReportApplyMode::Merge as i32 && source.source == "manual-dpu-alert"
-    }));
+    assert!(
+        dpu.status
+            .as_ref()
+            .unwrap()
+            .health_sources
+            .iter()
+            .any(|source| {
+                source.mode == HealthReportApplyMode::Merge as i32
+                    && source.source == "manual-dpu-alert"
+            })
+    );
 
     let host_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
         .await
@@ -667,7 +675,10 @@ async fn test_can_manage_dpu_merge_health_report(
 
     let dpu = find_machine(&env, &dpu_machine_id).await;
     assert!(
-        !dpu.health_sources
+        !dpu.status
+            .as_ref()
+            .unwrap()
+            .health_sources
             .iter()
             .any(|source| source.source == "manual-dpu-alert")
     );
@@ -737,7 +748,7 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .unwrap();
     let m = find_machine(&env, &host_machine_id).await;
     assert_eq!(
-        m.health_sources,
+        m.status.as_ref().unwrap().health_sources,
         vec![
             HealthSourceOrigin {
                 mode: HealthReportApplyMode::Merge as i32,
@@ -948,7 +959,9 @@ async fn load_host_health_history(
 
 /// Loads aggregate health via get_machine api
 fn aggregate(m: rpc::Machine) -> Option<health_report::HealthReport> {
-    m.health.map(|r| r.try_into().unwrap())
+    m.status
+        .and_then(|s| s.health)
+        .map(|r| r.try_into().unwrap())
 }
 
 /// Loads aggregate health via FindMachinesByIds api
@@ -966,7 +979,8 @@ async fn load_health_via_find_machines_by_ids(
         .into_inner()
         .machines
         .remove(0)
-        .health
+        .status
+        .and_then(|s| s.health)
         .map(|r| r.try_into().unwrap())
 }
 
@@ -1088,12 +1102,15 @@ async fn test_tenant_reported_issue_health_override_template(
     let machine = find_machine(&env, &host_machine_id).await;
 
     // Check that the override was stored
-    assert_eq!(machine.health_sources.len(), 2);
+    assert_eq!(machine.status.as_ref().unwrap().health_sources.len(), 2);
     assert_eq!(
-        machine.health_sources[1].mode,
+        machine.status.as_ref().unwrap().health_sources[1].mode,
         HealthReportApplyMode::Merge as i32
     );
-    assert_eq!(machine.health_sources[1].source, "tenant-reported-issue");
+    assert_eq!(
+        machine.status.as_ref().unwrap().health_sources[1].source,
+        "tenant-reported-issue"
+    );
 
     // Verify aggregate health includes the override
     let aggregate_health = aggregate(machine).unwrap();
@@ -1169,13 +1186,13 @@ async fn test_request_repair_health_override_template(
     let machine = find_machine(&env, &host_machine_id).await;
 
     // Check that the override was stored
-    assert_eq!(machine.health_sources.len(), 2);
+    assert_eq!(machine.status.as_ref().unwrap().health_sources.len(), 2);
     assert_eq!(
-        machine.health_sources[1].mode,
+        machine.status.as_ref().unwrap().health_sources[1].mode,
         HealthReportApplyMode::Merge as i32
     );
     assert_eq!(
-        machine.health_sources[1].source,
+        machine.status.as_ref().unwrap().health_sources[1].source,
         health_report::REPAIR_REQUEST_MERGE_SOURCE
     );
 
@@ -1274,8 +1291,11 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     let aggregate_health = aggregate(machine.clone()).unwrap();
 
     // Check that both overrides were stored
-    assert_eq!(machine.health_sources.len(), 3);
+    assert_eq!(machine.status.as_ref().unwrap().health_sources.len(), 3);
     let sources: Vec<String> = machine
+        .status
+        .as_ref()
+        .unwrap()
         .health_sources
         .iter()
         .map(|o| o.source.clone())
@@ -1284,7 +1304,7 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     assert!(sources.contains(&health_report::REPAIR_REQUEST_MERGE_SOURCE.to_string()));
 
     // All should be merge mode
-    for override_entry in &machine.health_sources {
+    for override_entry in &machine.status.as_ref().unwrap().health_sources {
         assert_eq!(override_entry.mode, HealthReportApplyMode::Merge as i32);
     }
     assert_eq!(aggregate_health.alerts.len(), 2);

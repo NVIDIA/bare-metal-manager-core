@@ -51,7 +51,8 @@ pub(crate) enum IpmiCommand {
 /// wire (credentials unavailable) does not count at all.
 #[derive(Event)]
 #[event(
-    name = "carbide_ipmi_commands_total",
+    event_name = "ipmi_command_completed",
+    metric_name = "carbide_ipmi_commands_total",
     component = "carbide-ipmi",
     log = off,
     metric = counter,

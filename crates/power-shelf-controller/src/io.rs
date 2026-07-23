@@ -82,7 +82,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 "PowerShelf::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for PowerShelf {} returned multiple results",
+                        "searching for PowerShelf {} returned multiple results",
                         power_shelf_id
                     )
                     .into(),
@@ -163,6 +163,11 @@ impl StateControllerIO for PowerShelfStateControllerIO {
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }
+    }
+
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        // The stored cause is free text, so the reason is a fixed token.
+        matches!(state, PowerShelfControllerState::Error { .. }).then_some("error")
     }
 
     fn state_sla(

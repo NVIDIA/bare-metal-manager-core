@@ -133,29 +133,30 @@ func TestApplyTargetPhaseScopeGeneratedSQL(t *testing.T) {
 		wantNot []string
 	}{
 		{
-			name:  "current phase uses first non-terminal phase",
+			name:  "current phase uses parent phase index",
 			scope: operationrun.TargetPhaseScopeCurrentPhase,
 			want: []string{
 				"ort.phase_index = (",
-				"SELECT MIN(phase_index)",
-				"current_phase.status NOT IN ('completed', 'failed', 'terminated', 'skipped')",
+				"SELECT current_phase_run.current_phase_index",
+				"FROM operation_run AS current_phase_run",
 			},
 			wantNot: []string{
 				"MAX(phase_index)",
 				"COALESCE(",
+				"current_phase.status NOT IN",
 			},
 		},
 		{
-			name:  "completed phases include all rows when no current phase exists",
+			name:  "completed phases compare against parent phase index",
 			scope: operationrun.TargetPhaseScopeCompletedPhases,
 			want: []string{
 				"ort.phase_index < COALESCE(",
-				"SELECT MIN(phase_index)",
-				"current_phase.status NOT IN ('completed', 'failed', 'terminated', 'skipped')",
+				"SELECT current_phase_run.current_phase_index",
 				"ort.phase_index + 1",
 			},
 			wantNot: []string{
 				"MAX(phase_index)",
+				"current_phase.status NOT IN",
 			},
 		},
 		{
@@ -163,19 +164,19 @@ func TestApplyTargetPhaseScopeGeneratedSQL(t *testing.T) {
 			scope: operationrun.TargetPhaseScopeCurrentAndCompletedPhases,
 			want: []string{
 				"ort.phase_index <= COALESCE(",
-				"SELECT MIN(phase_index)",
-				"current_phase.status NOT IN ('completed', 'failed', 'terminated', 'skipped')",
+				"SELECT current_phase_run.current_phase_index",
 				"ort.phase_index)",
 			},
 			wantNot: []string{
 				"MAX(phase_index)",
+				"current_phase.status NOT IN",
 			},
 		},
 		{
 			name:  "all materialized targets does not apply phase scope",
 			scope: operationrun.TargetPhaseScopeAllMaterializedTargets,
 			wantNot: []string{
-				"SELECT MIN(phase_index)",
+				"SELECT current_phase_run.current_phase_index",
 				"MAX(phase_index)",
 				"COALESCE(",
 				"current_phase.status NOT IN",

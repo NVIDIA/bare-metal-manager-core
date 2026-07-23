@@ -37,6 +37,7 @@ pub mod handler;
 pub mod health_report;
 pub mod io;
 pub mod metrics;
+pub mod per_object;
 pub mod redfish;
 pub(crate) mod rpc;
 pub(crate) mod scout_firmware_scripts;
@@ -129,7 +130,7 @@ where
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre!(
-                    "No EkCertVerificationStatus found for MachineId {} due to error: {}",
+                    "no EkCertVerificationStatus found for MachineId {} due to error: {}",
                     machine_id,
                     e
                 ))

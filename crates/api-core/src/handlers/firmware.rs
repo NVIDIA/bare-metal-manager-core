@@ -44,15 +44,15 @@ pub(crate) async fn set_firmware_update_time_window(
     if start != 0 || end != 0 {
         if start == 0 || end == 0 {
             return Err(CarbideError::InvalidArgument(
-                "Start and end must both be zero or nonzero".to_string(),
+                "start and end must both be zero or nonzero".to_string(),
             )
             .into());
         }
         if start >= end {
-            return Err(CarbideError::InvalidArgument("Start must precede end".to_string()).into());
+            return Err(CarbideError::InvalidArgument("start must precede end".to_string()).into());
         }
         if end < chrono::Utc::now().timestamp() {
-            return Err(CarbideError::InvalidArgument("End occurs in the past".to_string()).into());
+            return Err(CarbideError::InvalidArgument("end occurs in the past".to_string()).into());
         }
     }
 

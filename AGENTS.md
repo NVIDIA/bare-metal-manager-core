@@ -120,6 +120,7 @@ cargo make pre-commit-verify-workspace
 cargo make clippy              # Clippy linter (warnings = errors)
 cargo make carbide-lints       # Custom lints (requires nightly setup)
 cargo make check-format-nightly # Check rustfmt formatting
+cargo make check-event-names    # Validate production Event identity uniqueness
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies
@@ -168,6 +169,12 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
+### Operator documentation
+
+When documenting Helm-backed settings, identify chart values as defaults when
+the templates allow overrides. State actual precedence when Helm-provided flags
+override binary environment-variable fallbacks.
+
 ### Instrumentation: logs and metrics
 
 The decision rule:
@@ -181,7 +188,8 @@ The decision rule:
 
   ```rust
   #[derive(carbide_instrument::Event)]
-  #[event(name = "carbide_power_control_total", component = "component_manager",
+  #[event(event_name = "power_control_failed",
+          metric_name = "carbide_power_control_total", component = "component_manager",
           log = warn, metric = counter, message = "power control failed")]
   struct PowerControlFailed {
       #[label]   backend: Backend,  // bounded via LabelValue — enums, usually
@@ -200,10 +208,16 @@ The decision rule:
   existing observable-gauge / `SharedMetricsHolder` pattern — the framework models
   occurrences, not state.
 
+Every Event declares a unique, flat `lower_snake_case` `event_name`. It identifies
+the reusable event category, not one occurrence, and appears on Event-generated
+logs. A metric-backed Event also declares `metric_name`; when that Event logs,
+both names are present so operators can pivot directly between the metric and its
+diagnostic records. Plain `tracing::` calls do not invent an `event_name`.
+
 New metric names are validated at compile time (`carbide_` prefix, `_total`
-counters, unit-suffixed histograms) and the name in the attribute is the
-exposed name, verbatim. Existing metric names never change. The full standard
-lives in [`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
+counters, unit-suffixed histograms) and `metric_name` is the exposed name,
+verbatim. Existing metric names never change. The full standard lives in
+[`docs/observability/instrumentation.md`](docs/observability/instrumentation.md).
 
 ## Further Reading
 

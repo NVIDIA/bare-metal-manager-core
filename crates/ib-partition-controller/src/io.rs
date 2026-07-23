@@ -71,7 +71,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
                 "IBPartition::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for IBPartition {} returned multiple results",
+                        "searching for IBPartition {} returned multiple results",
                         partition_id
                     )
                     .into(),
@@ -143,6 +143,11 @@ impl StateControllerIO for IBPartitionStateControllerIO {
             IBPartitionControllerState::Error { .. } => ("error", ""),
             IBPartitionControllerState::Deleting => ("deleting", ""),
         }
+    }
+
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        // The stored cause is free text, so the reason is a fixed token.
+        matches!(state, IBPartitionControllerState::Error { .. }).then_some("error")
     }
 
     fn state_sla(

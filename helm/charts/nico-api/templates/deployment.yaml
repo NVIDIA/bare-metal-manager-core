@@ -31,7 +31,7 @@ spec:
       initContainers:
         {{- range .Values.bootArtifactContainers }}
         - name: {{ .name }}
-          image: {{ .image }}
+          image: {{ if and .repository .tag }}{{ .repository }}:{{ .tag }}{{ else }}{{ .image }}{{ end }}
           {{- with .command }}
           command:
             {{- toYaml . | nindent 12 }}
@@ -140,10 +140,25 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.envFrom.nicoWebHostname.configMapName }}
                   key: hostname
+            {{- if ne (include "nico-api.webAuth.hasModeOverride" .) "true" }}
+            - name: CARBIDE_WEB_AUTH_TYPE
+              value: {{ include "nico-api.webAuth.configuredMode" . | quote }}
+            {{- end }}
+            {{- if eq (include "nico-api.webAuth.renderBasicSecret" .) "true" }}
+            - name: CARBIDE_WEB_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nico-api.webAuth.basicSecretName" . }}
+                  key: {{ include "nico-api.webAuth.basicSecretKey" . }}
+            {{- end }}
             - name: RUST_BACKTRACE
               value: {{ .Values.env.RUST_BACKTRACE | quote }}
             - name: RUST_LIB_BACKTRACE
               value: {{ .Values.env.RUST_LIB_BACKTRACE | quote }}
+            {{- with .Values.dsxExchangeEventBusConfig }}
+            - name: CARBIDE_API_DSX_EXCHANGE_EVENT_BUS
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -152,6 +167,10 @@ spec:
               containerPort: {{ .Values.service.grpc.port }}
             - name: metrics
               containerPort: {{ .Values.service.metrics.port }}
+            {{- if include "nico-api.perObjectStateMetricsActive" . }}
+            - name: object-metrics
+              containerPort: {{ .Values.service.perObjectStateMetrics.port }}
+            {{- end }}
             - name: profiler
               containerPort: {{ .Values.service.profiler.port }}
           livenessProbe:

@@ -51,7 +51,8 @@ pub enum LoopManager {
 /// work.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_managed_loop_iterations_total",
+    event_name = "managed_loop_iteration",
+    metric_name = "carbide_managed_loop_iterations_total",
     component = "managed-loop",
     log = dynamic,
     metric = counter,

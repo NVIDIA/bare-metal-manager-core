@@ -85,7 +85,8 @@ impl MachineValidationFailureCause {
 /// `outcome = Skipped` variant slots in beside `Passed`/`Failed`.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_machine_validation_outcomes_total",
+    event_name = "machine_validation_completed",
+    metric_name = "carbide_machine_validation_outcomes_total",
     component = "nico-api",
     log = dynamic,
     metric = counter,
@@ -421,6 +422,20 @@ async fn reconcile_stale_attempt(
         "Machine validation attempt {} for test {} in run {} stopped heartbeating or exceeded its timeout",
         stale_attempt.attempt_id, stale_attempt.test_id, stale_attempt.validation_id
     );
+
+    // Keep the same parent-run -> run-item lock order used by result
+    // persistence and heartbeats.
+    if db::machine_validation::lock_by_id_no_key_update(txn, &stale_attempt.validation_id)
+        .await?
+        .is_none()
+    {
+        tracing::debug!(
+            validation_id = %stale_attempt.validation_id,
+            attempt_id = %stale_attempt.attempt_id,
+            "skipping stale machine validation attempt because run no longer exists"
+        );
+        return Ok(None);
+    }
 
     let Some(validation_id) = db::machine_validation_execution::mark_attempt_stale_if_active(
         txn,

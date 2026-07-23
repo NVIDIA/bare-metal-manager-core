@@ -1,3 +1,7 @@
+// The deprecated fields on `rpc::forge::Machine` must still be read here for
+// backwards-compat. See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
+
 mod io;
 use std::collections::HashMap;
 

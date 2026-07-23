@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
+use bmc_mock::injection::InjectionStore;
+use bmc_mock::ipmi_sim::{IpmiEndpoint, IpmiSimConfig, IpmiSimHandle, STANDARD_IPMI_PORT};
 use bmc_mock::{
     BmcState, Callbacks, CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo,
 };
@@ -41,6 +43,8 @@ pub struct BmcMockWrapper {
     bmc_mock_router: Router,
     bmc_mock_state: BmcState,
     hostname: Arc<dyn HostnameQuerying>,
+    supports_ipmi_console: bool,
+    stable_id: String,
 }
 
 impl BmcMockWrapper {
@@ -50,9 +54,15 @@ impl BmcMockWrapper {
         callbacks: Arc<dyn Callbacks>,
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
+        injection: Arc<InjectionStore>,
     ) -> Self {
-        let (bmc_mock_router, bmc_mock_state) =
-            bmc_mock::machine_router(machine_info, callbacks, host_id.to_string(), true);
+        let (bmc_mock_router, bmc_mock_state) = bmc_mock::machine_router_with_injection_store(
+            machine_info,
+            callbacks,
+            host_id.to_string(),
+            true,
+            injection,
+        );
 
         BmcMockWrapper {
             ssh_prompt_behavior: match machine_info {
@@ -63,9 +73,13 @@ impl BmcMockWrapper {
             bmc_mock_router,
             bmc_mock_state,
             hostname,
+            supports_ipmi_console: machine_info.supports_ipmi_console(),
+            stable_id: host_id.to_string(),
         }
     }
 
+    /// Starts the per-machine Redfish server and any enabled SSH and IPMI simulators.
+    /// When requested, the BMC address is first added as an alias on the configured interface.
     pub async fn start(
         &mut self,
         address: SocketAddr,
@@ -142,6 +156,7 @@ impl BmcMockWrapper {
         } else {
             None
         };
+        let ipmi_sim_handle = self.start_ipmi_sim(address.ip(), None).await?;
 
         tracing::info!(
             listen_address = ?address,
@@ -151,7 +166,7 @@ impl BmcMockWrapper {
         let tls_server_config = bmc_mock::tls::server_config(Some(certs_dir))?;
         let bmc_mock_router = self.bmc_mock_router.clone();
         Ok(BmcMockWrapperHandle {
-            _bmc_mock: CombinedServer::run(
+            _bmc_mock: Some(CombinedServer::run(
                 "bmc-mock",
                 Arc::new(RwLock::new(HashMap::from([(
                     "".to_string(),
@@ -159,9 +174,50 @@ impl BmcMockWrapper {
                 )]))),
                 Some(ListenerOrAddress::Address(address)),
                 tls_server_config,
-            ),
+            )),
             ssh_handle,
+            _ipmi_sim_handle: ipmi_sim_handle,
         })
+    }
+
+    /// Starts only the optional IPMI simulator when Redfish is served by a shared BMC mock.
+    /// Returns `None` when IPMI simulation is disabled or the machine does not support IPMI SOL.
+    pub async fn start_ipmi_only(
+        &self,
+        bind_ip: std::net::IpAddr,
+    ) -> Result<Option<BmcMockWrapperHandle>, MachineStateError> {
+        Ok(self
+            .start_ipmi_sim(bind_ip, Some(STANDARD_IPMI_PORT))
+            .await?
+            .map(|ipmi_sim_handle| BmcMockWrapperHandle {
+                _bmc_mock: None,
+                ssh_handle: None,
+                _ipmi_sim_handle: Some(ipmi_sim_handle),
+            }))
+    }
+
+    async fn start_ipmi_sim(
+        &self,
+        bind_ip: std::net::IpAddr,
+        reachable_port: Option<u16>,
+    ) -> Result<Option<IpmiSimHandle>, MachineStateError> {
+        if !self.app_context.app_config.enable_ipmi_simulation || !self.supports_ipmi_console {
+            return Ok(None);
+        }
+
+        let console_prompt = format!("root@{} # ", self.hostname.get_hostname());
+        bmc_mock::ipmi_sim::start(
+            &self.bmc_mock_state,
+            IpmiSimConfig {
+                bind_ip,
+                reachable_port,
+                stable_id: self.stable_id.clone(),
+                console_prompt,
+            },
+        )
+        .await
+        .map(Some)
+        .map_err(MachineStateError::IpmiSim)
     }
 
     pub fn router(&self) -> &Router {
@@ -175,8 +231,15 @@ impl BmcMockWrapper {
 
 #[derive(Debug)]
 pub struct BmcMockWrapperHandle {
-    pub _bmc_mock: CombinedServer,
+    pub _bmc_mock: Option<CombinedServer>,
     pub ssh_handle: Option<MockSshServerHandle>,
+    _ipmi_sim_handle: Option<IpmiSimHandle>,
+}
+
+impl BmcMockWrapperHandle {
+    pub fn ipmi_endpoint(&self) -> Option<IpmiEndpoint> {
+        self._ipmi_sim_handle.as_ref().map(|handle| handle.endpoint)
+    }
 }
 
 /// BmcMockRegistry is shared state that MachineATron's mock hosts can use to register their BMC

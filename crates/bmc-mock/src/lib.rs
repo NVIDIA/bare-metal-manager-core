@@ -21,6 +21,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 pub mod ipmi;
+pub mod ipmi_sim;
 
 mod auth_router;
 mod bmc_state;
@@ -46,6 +47,7 @@ pub use machine_info::{
 };
 pub use mock_machine_router::{
     BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
+    machine_router_with_injection_store,
 };
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";

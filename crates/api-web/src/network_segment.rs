@@ -220,7 +220,7 @@ async fn get_domain_name(state: Arc<Api>, domain_id: &DomainId) -> eyre::Result<
 
     if domain_list.domains.len() != 1 {
         eyre::bail!(
-            "Expected one domain matching {domain_id}, found {}",
+            "expected one domain matching {domain_id}, found {}",
             domain_list.domains.len()
         );
     }

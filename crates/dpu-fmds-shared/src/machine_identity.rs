@@ -281,7 +281,7 @@ pub async fn sign_machine_identity_with_forge(
     .await
     .map_err(|_| {
         tonic::Status::deadline_exceeded(
-            "timed out calling Forge for machine identity (machine-identity.sign-timeout-secs)",
+            "timed out calling forge for machine identity (machine-identity.sign-timeout-secs)",
         )
     })?
 }

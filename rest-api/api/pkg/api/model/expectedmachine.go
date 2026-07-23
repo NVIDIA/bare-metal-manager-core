@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -166,7 +167,7 @@ type APIExpectedMachineUpdateRequest struct {
 	// RackID is the optional rack identifier
 	RackID *string `json:"rackId"`
 	// BmcIpAddress is the optional BMC IP address of the expected machine
-	BmcIpAddress *string `json:"bmcIpAddress"`
+	BmcIpAddress *string `json:"bmcIpAddress,omitempty"`
 	// Name is the optional name of the expected machine
 	Name *string `json:"name"`
 	// Manufacturer is the optional manufacturer of the expected machine
@@ -187,6 +188,35 @@ type APIExpectedMachineUpdateRequest struct {
 	Labels map[string]string `json:"labels"`
 	// HostLifecycleProfile is the optional per-host lifecycle profile
 	HostLifecycleProfile *APIHostLifecycleProfile `json:"hostLifecycleProfile"`
+
+	bmcIpAddressSet bool
+}
+
+type apiExpectedMachineUpdateRequest APIExpectedMachineUpdateRequest
+
+// UnmarshalJSON preserves whether bmcIpAddress was omitted or explicitly set
+// to null. Both values otherwise decode to a nil *string.
+func (emur *APIExpectedMachineUpdateRequest) UnmarshalJSON(data []byte) error {
+	var decoded apiExpectedMachineUpdateRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var fields struct {
+		BmcIpAddress json.RawMessage `json:"bmcIpAddress"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+
+	*emur = APIExpectedMachineUpdateRequest(decoded)
+	emur.bmcIpAddressSet = fields.BmcIpAddress != nil
+	return nil
+}
+
+// HasBmcIpAddress reports whether bmcIpAddress was present in the request.
+func (emur *APIExpectedMachineUpdateRequest) HasBmcIpAddress() bool {
+	return emur != nil && (emur.bmcIpAddressSet || emur.BmcIpAddress != nil)
 }
 
 // Validate ensure the values passed in request are acceptable

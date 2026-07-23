@@ -27,7 +27,7 @@ use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client::ForgeClientConfig;
 
 use crate::common::{AppState, Machine, MachineInterface};
-use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome};
+use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome, PxeCustomIpxeFetchFailed};
 use crate::routes::RpcContext;
 
 pub enum PxeErrorCode {
@@ -131,17 +131,6 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
             )
             .await;
 
-            // The upstream error path still serves a script (an error
-            // template over HTTP 200), so the outcome counter is the
-            // only place the split is visible.
-            emit(PxeBootOutcome {
-                endpoint: BootEndpoint::Boot,
-                reason: match &pxe_response {
-                    Ok(_) => OutcomeReason::Ok,
-                    Err(_) => OutcomeReason::UpstreamApiError,
-                },
-            });
-
             // Use URL overrides from the API if present (for external
             // clients), falling back to global config.
             let (api_url, pxe_url, static_pxe_url) = match &pxe_response {
@@ -163,19 +152,35 @@ pub async fn boot(contents: MachineInterface, state: State<AppState>) -> impl In
                 ),
             };
 
-            let instructions = pxe_response
-                .map(|resp| resp.pxe_script)
-                .unwrap_or_else(|err| {
-                    tracing::error!(error = %err, "failed to fetch custom ipxe script");
-                    format!(
+            // Both branches return a script over HTTP 200, so the HTTP
+            // metrics cannot tell them apart. Emit at the branch that chooses
+            // the real or fallback script; that keeps each request to one
+            // `carbide_pxe_boot_outcomes_total` increment.
+            let instructions = match pxe_response {
+                Ok(resp) => {
+                    emit(PxeBootOutcome {
+                        endpoint: BootEndpoint::Boot,
+                        reason: OutcomeReason::Ok,
+                    });
+                    resp.pxe_script
+                }
+                Err(err) => {
+                    let instructions = format!(
                         r#"
 echo Failed to fetch custom_ipxe: {err} ||
 exit 101 ||
 "#
-                    )
-                })
-                .replace("[api_url]", &api_url)
-                .replace("[pxe_url]", &pxe_url);
+                    );
+                    emit(PxeCustomIpxeFetchFailed {
+                        endpoint: BootEndpoint::Boot,
+                        reason: OutcomeReason::UpstreamApiError,
+                        error: err,
+                    });
+                    instructions
+                }
+            }
+            .replace("[api_url]", &api_url)
+            .replace("[pxe_url]", &pxe_url);
 
             // Override template URLs for external clients.
             template_data.insert("pxe_url".to_string(), pxe_url);

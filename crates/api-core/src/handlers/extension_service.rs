@@ -16,6 +16,7 @@
  */
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_secrets::credentials::{CredentialKey, Credentials};
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::extension_service::ExtensionServiceId;
@@ -32,6 +33,61 @@ use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 const MAX_POD_SPEC_SIZE: usize = 2 << 15; // 64 KB
 const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
+
+/// Which API operation left an extension-service credential for cleanup.
+///
+/// `operation` is the only metric label. Service IDs, versions, and errors
+/// stay on the log record so individual credentials cannot create new series.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum ExtensionServiceCredentialCleanupOperation {
+    Create,
+    Update,
+    Delete,
+}
+
+/// A create or update stored a credential before its database transaction
+/// failed, and the follow-up cleanup could not delete it.
+#[derive(Event)]
+#[event(
+    event_name = "extension_service_credential_rollback_cleanup_failed",
+    metric_name = "carbide_extension_service_credential_cleanup_failures_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "Failed to delete extension service credential after transaction failure",
+    describe = "Number of extension-service credential cleanup failures, by operation."
+)]
+struct ExtensionServiceCredentialRollbackCleanupFailed {
+    #[label]
+    operation: ExtensionServiceCredentialCleanupOperation,
+    #[context]
+    extension_service_id: ExtensionServiceId,
+    #[context]
+    error: String,
+}
+
+/// A version was deleted in the database, but its post-commit credential
+/// cleanup failed.
+#[derive(Event)]
+#[event(
+    event_name = "extension_service_credential_delete_cleanup_failed",
+    metric_name = "carbide_extension_service_credential_cleanup_failures_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "Failed to delete extension service credential",
+    describe = "Number of extension-service credential cleanup failures, by operation."
+)]
+struct ExtensionServiceCredentialDeleteCleanupFailed {
+    #[label]
+    operation: ExtensionServiceCredentialCleanupOperation,
+    #[context]
+    extension_service_id: ExtensionServiceId,
+    #[context]
+    version: ConfigVersion,
+    #[context]
+    error: String,
+}
 
 /// Creates a new extension service with an initial version.
 pub(crate) async fn create(
@@ -66,7 +122,7 @@ pub(crate) async fn create(
     }
     let service_type: ExtensionServiceType =
         rpc::DpuExtensionServiceType::try_from(req.service_type)
-            .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?
+            .map_err(|_| CarbideError::InvalidArgument("invalid service_type".to_string()))?
             .into();
 
     let initial_version = ConfigVersion::initial();
@@ -136,16 +192,17 @@ pub(crate) async fn create(
             if req.credential.is_some() {
                 let credential_key =
                     create_extension_service_credential_key(&service_id, initial_version);
-                // Best effort deletion - log but don't fail the request if deletion fails
+                // Cleanup is best effort: keep the transaction error as the
+                // request error, but record any credential it leaves behind.
                 if let Err(delete_err) =
                     delete_extension_service_credential(&api.credential_manager, credential_key)
                         .await
                 {
-                    tracing::warn!(
-                        extension_service_id = %service_id,
-                        error = %delete_err,
-                        "Failed to delete extension service credential after transaction failure",
-                    );
+                    emit(ExtensionServiceCredentialRollbackCleanupFailed {
+                        operation: ExtensionServiceCredentialCleanupOperation::Create,
+                        extension_service_id: service_id,
+                        error: delete_err.to_string(),
+                    });
                 }
             }
             return Err(e.into());
@@ -302,7 +359,7 @@ pub(crate) async fn update(
         )?;
         if !is_spec_changed {
             return Err(CarbideError::InvalidArgument(
-                "No changes to data or credential from latest version".to_string(),
+                "no changes to data or credential from latest version".to_string(),
             )
             .into());
         }
@@ -328,7 +385,7 @@ pub(crate) async fn update(
 
         let version_change =
             ConfigVersion::new(current_service.version_ctr.try_into().map_err(|e| {
-                CarbideError::internal(format!("Invalid version for extension service: {e}"))
+                CarbideError::internal(format!("invalid version for extension service: {e}"))
             })?)
             .incremental_change();
 
@@ -388,11 +445,11 @@ pub(crate) async fn update(
                         delete_extension_service_credential(&api.credential_manager, credential_key)
                             .await
                     {
-                        tracing::warn!(
-                            extension_service_id = %service_id,
-                            error = %delete_err,
-                            "Failed to delete extension service credential after transaction failure",
-                        );
+                        emit(ExtensionServiceCredentialRollbackCleanupFailed {
+                            operation: ExtensionServiceCredentialCleanupOperation::Update,
+                            extension_service_id: service_id,
+                            error: delete_err.to_string(),
+                        });
                     }
                 }
                 return Err(e.into());
@@ -484,7 +541,7 @@ pub(crate) async fn delete(
     let is_in_use = extension_service::is_service_in_use(&mut txn, service_id, &versions).await?;
     if is_in_use {
         return Err(CarbideError::FailedPrecondition(
-            "One or more extension service version is in use by instances; detach before deleting"
+            "one or more extension service version is in use by instances; detach before deleting"
                 .into(),
         )
         .into());
@@ -518,16 +575,17 @@ pub(crate) async fn delete(
         for version in &credential_version {
             let credential_key = create_extension_service_credential_key(&service_id, *version);
 
-            // Best effort deletion - log but don't fail if deletion fails
-            if let Err(e) =
+            // The database deletion is already committed, so credential
+            // cleanup stays best effort and does not fail the API request.
+            if let Err(error) =
                 delete_extension_service_credential(&api.credential_manager, credential_key).await
             {
-                tracing::warn!(
-                    extension_service_id = %service_id,
-                    version = %version,
-                    error = %e,
-                    "Failed to delete extension service credential",
-                );
+                emit(ExtensionServiceCredentialDeleteCleanupFailed {
+                    operation: ExtensionServiceCredentialCleanupOperation::Delete,
+                    extension_service_id: service_id,
+                    version: *version,
+                    error: error.to_string(),
+                });
             }
         }
     }
@@ -564,7 +622,7 @@ pub(crate) async fn find_ids(
         None => None,
         Some(v) => {
             let service_type_rpc = rpc::DpuExtensionServiceType::try_from(v)
-                .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?;
+                .map_err(|_| CarbideError::InvalidArgument("invalid service_type".to_string()))?;
             Some(ExtensionServiceType::from(service_type_rpc))
         }
     };
@@ -776,13 +834,13 @@ pub(crate) async fn find_instances_by_extension_service(
 fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
     if data.is_empty() {
         return Err(CarbideError::InvalidArgument(
-            "Invalid empty data for KubernetesPod service, need a valid pod manifest".to_string(),
+            "invalid empty data for KubernetesPod service, need a valid pod manifest".to_string(),
         ));
     }
 
     let root = serde_yaml::from_str::<serde_yaml::Value>(data).map_err(|e| {
         CarbideError::InvalidArgument(format!(
-            "Invalid pod spec file for KubernetesPod service: {}",
+            "invalid pod spec file for KubernetesPod service: {}",
             e
         ))
     })?;
@@ -792,7 +850,7 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
             // Check for apiVersion field
             if !mapping.contains_key(serde_yaml::Value::String("apiVersion".to_string())) {
                 return Err(CarbideError::InvalidArgument(
-                    "Pod manifest missing required field: apiVersion".to_string(),
+                    "pod manifest missing required field: apiVersion".to_string(),
                 ));
             }
 
@@ -802,7 +860,8 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                 .and_then(|v| v.as_str());
             if kind != Some("Pod") {
                 return Err(CarbideError::InvalidArgument(
-                    "Pod manifest must have kind: Pod".to_string(),
+                    // xtask:allow-error-case: `Pod` is a case-sensitive Kubernetes kind
+                    "pod manifest must have kind: Pod".to_string(),
                 ));
             }
 
@@ -814,13 +873,13 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                 Some(meta_map) => {
                     if !meta_map.contains_key(serde_yaml::Value::String("name".to_string())) {
                         return Err(CarbideError::InvalidArgument(
-                            "Pod manifest missing required field: metadata.name".to_string(),
+                            "pod manifest missing required field: metadata.name".to_string(),
                         ));
                     }
                 }
                 None => {
                     return Err(CarbideError::InvalidArgument(
-                        "Pod manifest missing required field: metadata".to_string(),
+                        "pod manifest missing required field: metadata".to_string(),
                     ));
                 }
             }
@@ -839,27 +898,27 @@ fn validate_pod_spec_file(data: &str) -> Result<(), CarbideError> {
                         Some(container_list) => {
                             if container_list.is_empty() {
                                 return Err(CarbideError::InvalidArgument(
-                                    "Pod manifest must have at least one container in spec.containers".to_string(),
+                                    "pod manifest must have at least one container in spec.containers".to_string(),
                                 ));
                             }
                         }
                         None => {
                             return Err(CarbideError::InvalidArgument(
-                                "Pod manifest missing required field: spec.containers (must be an array)".to_string(),
+                                "pod manifest missing required field: spec.containers (must be an array)".to_string(),
                             ));
                         }
                     }
                 }
                 None => {
                     return Err(CarbideError::InvalidArgument(
-                        "Pod manifest missing required field: spec".to_string(),
+                        "pod manifest missing required field: spec".to_string(),
                     ));
                 }
             }
         }
         _ => {
             return Err(CarbideError::InvalidArgument(
-                "Pod manifest must be a valid mapping object that contains apiVersion, kind, metadata, and spec.containers".to_string(),
+                "pod manifest must be a valid mapping object that contains apiVersion, kind, metadata, and spec.containers".to_string(),
             ))
         }
     };
@@ -874,7 +933,7 @@ fn validate_extension_service_data(
 ) -> Result<(), CarbideError> {
     if data.len() > MAX_POD_SPEC_SIZE {
         return Err(CarbideError::InvalidArgument(format!(
-            "Extension service data exceeds the maximum size: {} bytes",
+            "extension service data exceeds the maximum size: {} bytes",
             MAX_POD_SPEC_SIZE
         )));
     }
@@ -898,18 +957,18 @@ fn validate_extension_service_credential(
             // @TODO(Felicity): Add more validation for username and password
             if up.username.is_empty() || up.username.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
-                    "Invalid username".to_string(),
+                    "invalid username".to_string(),
                 ));
             }
             if up.password.is_empty() || up.password.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
-                    "Invalid password".to_string(),
+                    "invalid password".to_string(),
                 ));
             }
         }
         _ => {
             return Err(CarbideError::InvalidArgument(
-                "Invalid credential type".to_string(),
+                "invalid credential type".to_string(),
             ));
         }
     };
@@ -921,7 +980,7 @@ fn validate_extension_service_credential(
             // kubelet will match all images under "nvcr.io/nvforge/*".
             if credential.registry_url.is_empty() || credential.registry_url.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
-                    "Invalid credential registry URL".to_string(),
+                    "invalid credential registry URL".to_string(),
                 ));
             }
         }
@@ -943,14 +1002,14 @@ fn detect_extension_service_spec_change(
             let old_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(old_data).map_err(|e| {
                     CarbideError::internal(format!(
-                        "Found corrupted data for KubernetesPod service: {}",
+                        "found corrupted data for KubernetesPod service: {}",
                         e
                     ))
                 })?;
             let new_data_yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(new_data).map_err(|e| {
                     CarbideError::InvalidArgument(format!(
-                        "Invalid pod spec file for KubernetesPod service: {}",
+                        "invalid pod spec file for KubernetesPod service: {}",
                         e
                     ))
                 })?;
@@ -1008,12 +1067,12 @@ async fn create_extension_service_credential(
                         .await
                         .map_err(|e| {
                             CarbideError::internal(format!(
-                                "Error creating credential for extension service: {e}"
+                                "error creating credential for extension service: {e}"
                             ))
                         })
                 }
                 None => Err(CarbideError::InvalidArgument(
-                    "Missing credential".to_string(),
+                    "missing credential".to_string(),
                 )),
             }
         }
@@ -1086,4 +1145,136 @@ pub(crate) async fn get_extension_service_credential(
             }),
         ),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    const CLEANUP_FAILURE_METRIC: &str =
+        "carbide_extension_service_credential_cleanup_failures_total";
+    const EXTENSION_SERVICE_ID: &str = "00000000-0000-0000-0000-000000000000";
+    const VERSION: &str = "V3-T0";
+
+    #[derive(Debug)]
+    enum CleanupFailureCase {
+        Create,
+        Update,
+        Delete,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct CleanupFailureObservation {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        operation: Option<String>,
+        extension_service_id: Option<String>,
+        version: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn credential_cleanup_failures_log_and_count_by_operation() {
+        value_scenarios!(
+            run = |case| {
+                let extension_service_id = ExtensionServiceId::nil();
+                let version = VERSION.parse::<ConfigVersion>().unwrap();
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match case {
+                    CleanupFailureCase::Create => {
+                        emit(ExtensionServiceCredentialRollbackCleanupFailed {
+                            operation: ExtensionServiceCredentialCleanupOperation::Create,
+                            extension_service_id,
+                            error: "credential delete failed".to_string(),
+                        });
+                    }
+                    CleanupFailureCase::Update => {
+                        emit(ExtensionServiceCredentialRollbackCleanupFailed {
+                            operation: ExtensionServiceCredentialCleanupOperation::Update,
+                            extension_service_id,
+                            error: "credential delete failed".to_string(),
+                        });
+                    }
+                    CleanupFailureCase::Delete => {
+                        emit(ExtensionServiceCredentialDeleteCleanupFailed {
+                            operation: ExtensionServiceCredentialCleanupOperation::Delete,
+                            extension_service_id,
+                            version,
+                            error: "credential delete failed".to_string(),
+                        });
+                    }
+                });
+                assert_eq!(logs.len(), 1, "each cleanup failure should write one record");
+                let log = logs.first().expect("cleanup failure Event did not log");
+                let operation = log.field("operation").map(str::to_string);
+
+                CleanupFailureObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    operation: operation.clone(),
+                    extension_service_id: log
+                        .field("extension_service_id")
+                        .map(str::to_string),
+                    version: log.field("version").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    counter_delta: metrics.counter_delta(
+                        CLEANUP_FAILURE_METRIC,
+                        &[("operation", operation.as_deref().unwrap())],
+                    ),
+                }
+            };
+            "create transaction cleanup fails" {
+                CleanupFailureCase::Create => CleanupFailureObservation {
+                    level: tracing::Level::WARN,
+                    metadata_name: "extension_service_credential_rollback_cleanup_failed".to_string(),
+                    message: "Failed to delete extension service credential after transaction failure".to_string(),
+                    event_name: Some("extension_service_credential_rollback_cleanup_failed".to_string()),
+                    metric_name: Some(CLEANUP_FAILURE_METRIC.to_string()),
+                    operation: Some("create".to_string()),
+                    extension_service_id: Some(EXTENSION_SERVICE_ID.to_string()),
+                    version: None,
+                    error: Some("credential delete failed".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+            "update transaction cleanup fails" {
+                CleanupFailureCase::Update => CleanupFailureObservation {
+                    level: tracing::Level::WARN,
+                    metadata_name: "extension_service_credential_rollback_cleanup_failed".to_string(),
+                    message: "Failed to delete extension service credential after transaction failure".to_string(),
+                    event_name: Some("extension_service_credential_rollback_cleanup_failed".to_string()),
+                    metric_name: Some(CLEANUP_FAILURE_METRIC.to_string()),
+                    operation: Some("update".to_string()),
+                    extension_service_id: Some(EXTENSION_SERVICE_ID.to_string()),
+                    version: None,
+                    error: Some("credential delete failed".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+            "post-commit delete cleanup fails" {
+                CleanupFailureCase::Delete => CleanupFailureObservation {
+                    level: tracing::Level::WARN,
+                    metadata_name: "extension_service_credential_delete_cleanup_failed".to_string(),
+                    message: "Failed to delete extension service credential".to_string(),
+                    event_name: Some("extension_service_credential_delete_cleanup_failed".to_string()),
+                    metric_name: Some(CLEANUP_FAILURE_METRIC.to_string()),
+                    operation: Some("delete".to_string()),
+                    extension_service_id: Some(EXTENSION_SERVICE_ID.to_string()),
+                    version: Some(VERSION.to_string()),
+                    error: Some("credential delete failed".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+        );
+    }
 }

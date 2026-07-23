@@ -29,7 +29,7 @@ use sqlx::{FromRow, Row};
 
 #[derive(thiserror::Error, Debug)]
 pub enum LldpError {
-    #[error("Missing port info: {0}")]
+    #[error("missing port info: {0}")]
     MissingPort(String),
 }
 

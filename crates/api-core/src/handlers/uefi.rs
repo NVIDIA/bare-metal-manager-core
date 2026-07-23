@@ -110,6 +110,9 @@ async fn read_uefi_credentials(
 /// Resolve the site-wide host UEFI credential to *set* on a device: the secret
 /// at the current `host_uefi` target version (table-driven; v0 = the legacy
 /// unversioned site-default).
+// TODO(#2991, @spydaNVIDIA): do not hold the database connection while the
+// credential reader may perform a remote Vault request.
+#[allow(txn_held_across_await)]
 pub(crate) async fn host_uefi_set_credentials(
     conn: &mut sqlx::PgConnection,
     reader: &dyn CredentialReader,
@@ -123,6 +126,9 @@ pub(crate) async fn host_uefi_set_credentials(
 /// Resolve the host UEFI credential a device currently carries, to authenticate
 /// a *clear* against its existing password (the device's converged version; see
 /// [`host_uefi_device_version`]).
+// TODO(#2991, @spydaNVIDIA): do not hold the database connection while the
+// credential reader may perform a remote Vault request.
+#[allow(txn_held_across_await)]
 pub(crate) async fn host_uefi_clear_credentials(
     conn: &mut sqlx::PgConnection,
     reader: &dyn CredentialReader,
@@ -170,7 +176,7 @@ pub(crate) async fn clear_host_uefi_password(
 
     if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(
-            "Carbide only supports clearing the UEFI password on discovered hosts".into(),
+            "carbide only supports clearing the UEFI password on discovered hosts".into(),
         )
         .into());
     }
@@ -208,16 +214,16 @@ pub(crate) async fn clear_host_uefi_password(
     }
 
     let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
-        CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
+        CarbideError::InvalidArgument("specified machine does not have BMC address".into())
     })?;
 
     // Clearing must authenticate with the password the device currently carries,
     // which is resolved per-device by BMC MAC. Without the MAC we cannot pick the
     // right credential, so fail rather than guess the site default and present a
     // wrong password to the BMC.
-    let bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
+    let bmc_mac = snapshot.host_snapshot.status.bmc_info.mac.ok_or_else(|| {
         CarbideError::InvalidArgument(
-            "Specified machine does not have a known BMC MAC address".into(),
+            "specified machine does not have a known BMC MAC address".into(),
         )
     })?;
 
@@ -259,7 +265,7 @@ pub(crate) async fn clear_host_uefi_password(
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to run clear_host_uefi_password call");
             CarbideError::internal(format!(
-                "Failed redfish clear_host_uefi_password subtask: {e}"
+                "failed redfish clear_host_uefi_password subtask: {e}"
             ))
         })?;
 
@@ -302,7 +308,7 @@ pub(crate) async fn set_host_uefi_password(
 
     if !machine_id.machine_type().is_host() {
         return Err(CarbideError::InvalidArgument(
-            "Carbide only supports setting the UEFI password on discovered hosts".into(),
+            "carbide only supports setting the UEFI password on discovered hosts".into(),
         )
         .into());
     }
@@ -323,16 +329,16 @@ pub(crate) async fn set_host_uefi_password(
     })?;
 
     let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
-        CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
+        CarbideError::InvalidArgument("specified machine does not have BMC address".into())
     })?;
 
     // A known BMC MAC is a hard precondition for setting the UEFI password: it
     // keys the host_uefi rotation bookkeeping recorded below, so reject the
     // request up front rather than driving the device and only then discovering
     // we cannot track its convergence.
-    let host_bmc_mac = snapshot.host_snapshot.bmc_info.mac.ok_or_else(|| {
+    let host_bmc_mac = snapshot.host_snapshot.status.bmc_info.mac.ok_or_else(|| {
         CarbideError::InvalidArgument(
-            "Specified machine does not have a known BMC MAC address".into(),
+            "specified machine does not have a known BMC MAC address".into(),
         )
     })?;
 
@@ -369,7 +375,7 @@ pub(crate) async fn set_host_uefi_password(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to run uefi_setup call");
-            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
+            CarbideError::internal(format!("failed redfish uefi_setup subtask: {e}"))
         })?;
     // uefi_setup returns a BMC job_id; the password change completes
     // asynchronously on the device and we do not poll it here. We optimistically

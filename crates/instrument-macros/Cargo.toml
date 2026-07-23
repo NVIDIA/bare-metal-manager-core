@@ -25,6 +25,7 @@ authors.workspace = true
 proc-macro = true
 
 [dependencies]
+carbide-observability-schema = { path = "../observability-schema" }
 proc-macro2 = { workspace = true, features = ["proc-macro"] }
 quote = { workspace = true, default-features = false }
 syn = { workspace = true, features = [
@@ -34,6 +35,9 @@ syn = { workspace = true, features = [
   "printing",
   "proc-macro",
 ] }
+
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
 
 [lints]
 workspace = true

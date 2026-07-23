@@ -278,7 +278,7 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialManager
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum CredentialType {
-    DpuHardwareDefault,
+    DpuHardwareDefault { model: bmc_vendor::DpuModel },
     HostHardwareDefault { vendor: bmc_vendor::BMCVendor },
     SiteDefault,
 }
@@ -412,11 +412,13 @@ pub enum CredentialKey {
     SwitchNvosAdmin {
         bmc_mac_address: MacAddress,
     },
-    /// Versioned site-wide NVOS "rotate-TO" target (`switch_nvos/site/admin/v{N}`).
-    /// Admin/rotation-written only; not a loginable per-device credential.
+
+    /// Versioned site-wide NVOS "rotate-TO" target.
+    /// Admin/rotation-written only; not a per-device login credential.
     SwitchNvosSiteAdmin {
         version: u32,
     },
+
     MqttAuth {
         credential_type: MqttCredentialType,
     },
@@ -427,6 +429,9 @@ pub enum CredentialKey {
     },
     RackMaintenanceAccessToken {
         rack_id: RackId,
+    },
+    ContainerRegistry {
+        registry: String,
     },
 }
 
@@ -470,11 +475,12 @@ pub enum CredentialPrefix {
     MqttAuth,
     MachineIdentityEncryptionKey,
     RackMaintenanceAccessToken,
+    ContainerRegistry,
 }
 
 impl CredentialPrefix {
-    /// as_str returns the Vault-style path prefix
-    /// for this credential category.
+    /// as_str returns the serialized credential-store key prefix for this
+    /// credential category.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::DpuSsh => "machines/",
@@ -493,6 +499,7 @@ impl CredentialPrefix {
             Self::MqttAuth => "mqtt/",
             Self::MachineIdentityEncryptionKey => "machine_identity/",
             Self::RackMaintenanceAccessToken => "racks/",
+            Self::ContainerRegistry => "container_registries/",
         }
     }
 
@@ -515,7 +522,19 @@ impl CredentialPrefix {
             Self::MqttAuth,
             Self::MachineIdentityEncryptionKey,
             Self::RackMaintenanceAccessToken,
+            Self::ContainerRegistry,
         ]
+    }
+}
+
+/// Returns the vault path segment for a `DpuModel`. `Unknown` maps to `"root"` to
+/// preserve backward compatibility with the pre-per-model vault entry.
+fn dpu_model_vault_segment(model: bmc_vendor::DpuModel) -> &'static str {
+    match model {
+        bmc_vendor::DpuModel::BlueField2 => "bf2",
+        bmc_vendor::DpuModel::BlueField3 => "bf3",
+        bmc_vendor::DpuModel::BlueField4 => "bf4",
+        bmc_vendor::DpuModel::Unknown => "root",
     }
 }
 
@@ -548,6 +567,14 @@ impl CredentialKey {
         }
     }
 
+    /// Returns the logical site-wide NVOS admin credential key for `version`.
+    ///
+    /// Callers should pass this key to [`CredentialManager`] rather than
+    /// depending on a concrete storage path or backend.
+    pub fn switch_nvos_site_admin(version: u32) -> Self {
+        Self::SwitchNvosSiteAdmin { version }
+    }
+
     /// prefix returns the CredentialPrefix category
     /// this key belongs to.
     pub fn prefix(&self) -> CredentialPrefix {
@@ -573,6 +600,7 @@ impl CredentialKey {
                 CredentialPrefix::MachineIdentityEncryptionKey
             }
             Self::RackMaintenanceAccessToken { .. } => CredentialPrefix::RackMaintenanceAccessToken,
+            Self::ContainerRegistry { .. } => CredentialPrefix::ContainerRegistry,
         }
     }
 
@@ -585,8 +613,11 @@ impl CredentialKey {
                 Cow::from(format!("machines/{machine_id}/dpu-hbn"))
             }
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
-                    Cow::from("machines/all_dpus/factory_default/bmc-metadata-items/root")
+                CredentialType::DpuHardwareDefault { model } => {
+                    let segment = dpu_model_vault_segment(*model);
+                    Cow::from(format!(
+                        "machines/all_dpus/factory_default/bmc-metadata-items/{segment}"
+                    ))
                 }
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_dpus/site_default/bmc-metadata-items/root")
@@ -604,7 +635,7 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_hosts/site_default/bmc-metadata-items/root")
                 }
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     unreachable!(
                         "HostRedfish / DpuHardwareDefault is an invalid credential combination"
                     );
@@ -612,7 +643,7 @@ impl CredentialKey {
             },
             CredentialKey::UfmAuth { fabric } => Cow::from(format!("ufm/{fabric}/auth")),
             CredentialKey::DpuUefi { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     Cow::from("machines/all_dpus/factory_default/uefi-metadata-items/auth")
                 }
                 CredentialType::SiteDefault => {
@@ -683,6 +714,9 @@ impl CredentialKey {
             },
             CredentialKey::RackMaintenanceAccessToken { rack_id } => {
                 Cow::from(format!("racks/{rack_id}/maintenance/access-token"))
+            }
+            CredentialKey::ContainerRegistry { registry } => {
+                Cow::from(format!("container_registries/{registry}/auth"))
             }
         }
     }
@@ -841,7 +875,8 @@ mod tests {
         );
         assert_eq!(dpu_uefi.prefix(), CredentialPrefix::DpuUefi);
 
-        let nvos = CredentialKey::SwitchNvosSiteAdmin { version: 2 };
+        let nvos = CredentialKey::switch_nvos_site_admin(2);
+
         assert_eq!(nvos.to_key_str(), "switch_nvos/site/admin/v2");
         assert_eq!(nvos.prefix(), CredentialPrefix::SwitchNvosAdmin);
     }
@@ -960,10 +995,24 @@ mod tests {
                     expect: PathChecks::all_hold(),
                 },
                 Check {
-                    scenario: "dpu redfish hardware default",
+                    scenario: "dpu redfish hardware default (unknown/root)",
                     input: Row {
                         key: CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::DpuHardwareDefault,
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::Unknown,
+                            },
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu redfish hardware default (bf3)",
+                    input: Row {
+                        key: CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::BlueField3,
+                            },
                         },
                         expected_prefix: "machines/all_dpus/",
                     },
@@ -1015,7 +1064,9 @@ mod tests {
                     scenario: "dpu uefi hardware default",
                     input: Row {
                         key: CredentialKey::DpuUefi {
-                            credential_type: CredentialType::DpuHardwareDefault,
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::Unknown,
+                            },
                         },
                         expected_prefix: "machines/all_dpus/",
                     },
@@ -1190,6 +1241,16 @@ mod tests {
                     },
                     expect: PathChecks::all_hold(),
                 },
+                Check {
+                    scenario: "container registry",
+                    input: Row {
+                        key: CredentialKey::ContainerRegistry {
+                            registry: "nvcr.io".to_string(),
+                        },
+                        expected_prefix: "container_registries/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
             ],
             |Row {
                  key,
@@ -1265,6 +1326,9 @@ mod tests {
                 key_id: "k".to_string(),
             },
             CredentialKey::RackMaintenanceAccessToken { rack_id },
+            CredentialKey::ContainerRegistry {
+                registry: "nvcr.io".to_string(),
+            },
         ];
 
         for key in &keys {
@@ -1284,6 +1348,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 17);
     }
 }

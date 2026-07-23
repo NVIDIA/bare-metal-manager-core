@@ -86,6 +86,53 @@ fn parse_add_ufm_fields() {
     );
 }
 
+// The retained NMX-M commands accept both argument-free invocations and the
+// legacy credential flags before returning their unsupported-operation error.
+#[test]
+fn parse_nmx_m_compatibility_commands() {
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::AddNmxM(args) => ("add", args.username, args.password),
+                    Cmd::DeleteNmxM(args) => ("delete", args.username, None),
+                    _ => panic!("expected an NMX-M compatibility command"),
+                })
+                .map_err(drop)
+        };
+        "add without legacy arguments" {
+            &["credential", "add-nmx-m"][..] => Yields(("add", None, None)),
+        }
+
+        "add with legacy arguments" {
+            &[
+                "credential",
+                "add-nmx-m",
+                "--username",
+                "admin",
+                "--password",
+                "mypassword",
+            ][..] => Yields((
+                "add",
+                Some("admin".to_string()),
+                Some("mypassword".to_string()),
+            )),
+        }
+
+        "delete without legacy arguments" {
+            &["credential", "delete-nmx-m"][..] => Yields(("delete", None, None)),
+        }
+
+        "delete with legacy arguments" {
+            &["credential", "delete-nmx-m", "--username", "admin"][..] => Yields((
+                "delete",
+                Some("admin".to_string()),
+                None,
+            )),
+        }
+    );
+}
+
 // parse_add_bmc_with_all_args ensures add-bmc parses
 // with all arguments.
 #[test]

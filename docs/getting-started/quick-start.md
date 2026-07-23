@@ -33,17 +33,17 @@ The cluster must have:
 
 ### Site controller node DPU requirements
 
-Site controller nodes must be equipped with fully provisioned DPUs (Bluefield-3s) which are configured **before** the Kubernetes cluster is set up. We do not support configuring site controller nodes without DPUs today. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
+DPUs are generally preferred in nodes hosting the NICo control plane components, but not strictly required. DPUs in these nodes are, however, the configuration that NICo QA regularly tests. NICo does not provision the site controller nodes' own DPUs — it only manages DPUs on downstream bare-metal hosts after ingestion.
 
-Specifically, you must complete the following before proceeding:
+If your site controller nodes are equipped with Bluefield-3 DPUs, they must be fully provisioned **before** the Kubernetes cluster is set up. Specifically, complete the following before proceeding:
 
-- Flash the DPU firmware to the latest supported version using the BlueField Firmware Bundle. Latest supported firmware versions:
+- Flash the DPU firmware to the latest tested version using the BlueField Firmware Bundle. Latest tested firmware versions:
 
   | DOCA  | HBN   |
   | ----- | ----- |
-  | 2.9.3 | 2.4.3 |
+  | 3.2.2 | 3.2.2 |
 
-- Configure the Bluefield-3 device in DPU mode (operating mode). We do not currently support NIC mode.
+- Configure the Bluefield-3 device in DPU mode (operating mode).
 - Ensure the DPU ARM OS is booted and reachable via its management interface.
 - Verify that the DPU can connect to the outside world (curl -I https://www.google.com)
 
@@ -146,6 +146,7 @@ Open `helm-prereqs/values/nico-core.yaml` and update the following values:
   | `sitename` | Short identifier matching `siteName` in `values.yaml` |
   | `initial_domain_name` | Base DNS domain for the site (e.g. `mysite.example.com`) |
   | `dhcp_servers` | List of DHCP server IPs reachable from bare-metal hosts, or `[]` |
+  | `ntp_servers` | List of enterprise NTP server IPs for BMC time setup and DHCP option 42, or `[]` to use the legacy DHCP/DNS fallback |
   | `site_fabric_prefixes` | CIDRs that are part of the site fabric (instance-to-instance traffic) |
   | `deny_prefixes` | CIDRs instances must not reach (OOB, control plane, management) |
   | `[pools.lo-ip]` ranges | Loopback IP range allocated to bare-metal hosts |
@@ -156,9 +157,11 @@ Open `helm-prereqs/values/nico-core.yaml` and update the following values:
 
 All fields are documented with inline comments in the file.
 
-- **Required fields--do not leave empty:** `[networks.admin]`, `prefix`, and `gateway` must be set to real values. `nico-api` crashes at startup with a parse error if these are empty strings. Similarly, `[pools.lo-ip]`, `[pools.vlan-id]`, and `[pools.vni]` ranges must be non-empty.
- 
-  These fields are safe to leave as empty arrays: `dhcp_servers`, `site_fabric_prefixes`, `deny_prefixes`. Do not delete any field from the TOML block; missing keys cause a different crash than empty ones.
+**Required fields--do not leave empty:** You must set `[networks.admin]`, `prefix`, and `gateway` to real values. `nico-api` crashes at startup with a parse error if these are empty strings. Similarly, `[pools.lo-ip]`, `[pools.vlan-id]`, and `[pools.vni]` ranges must be non-empty.
+
+<Tip>
+The following fields are safe to leave as empty arrays: `dhcp_servers`, `ntp_servers`, `site_fabric_prefixes`, and `deny_prefixes`. Do not delete any field from the TOML block; missing keys cause a different crash than empty ones.
+</Tip>
 
 ### 3d. NICo REST source tree
 
@@ -218,7 +221,11 @@ envConfig:
 
 MetalLB provides LoadBalancer IPs for NICo Core services (nico-api, DHCP, DNS, PXE, SSH console). Without it, those services stay in `<pending>` state and the site is unreachable.
 
-> **NTP note:** NICo does not run a standalone NTP service. Instead, NTP server addresses are provided to managed hosts via DHCP option 42--configured in the `nico-dhcp` chart Kea hook parameters (`nico-ntpserver`). Point this to your enterprise NTP servers.
+<Note>
+NICo includes a built-in NTP service (`nico-ntp`). This is a 3-replica chrony StatefulSet where each replica gets its own MetalLB VIP.
+
+To use the service, set `nico-ntp.externalService.enabled: true`, assign three VIPs from your internal pool via `nico-ntp.externalService.perPodAnnotations`, and set `nico-dhcp.config.kea.hookParameters.ntpServer` to a comma-separated list of those same VIPs so DPUs receive them over DHCP. Enterprise NTP server IPs in `siteConfig.ntp_servers` continue to be used for BMC pre-ingestion time sync independently of `nico-ntp`.
+</Note>
 
 Edit `helm-prereqs/values/metallb-config.yaml`--this file ships pre-populated with example values. Replace all values labeled `# EXAMPLE` with your site-specific configuration before running `setup.sh`.
 
@@ -498,6 +505,7 @@ This is a **one-to-one deployment**: one site per NICo installation. The site is
 To verify the site was registered correctly:
 
 ```bash
+export NICO_API_NAME=nico
 nicocli site list
 ```
 

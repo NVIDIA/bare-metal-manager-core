@@ -156,6 +156,28 @@ impl RedfishClient {
         }
     }
 
+    /// Probe the DPU model from the unauthenticated Redfish service root `Product` field.
+    ///
+    /// BlueField BMCs populate `ServiceRoot.Product` with a human-readable model string
+    /// (e.g. `"BlueField-3 DPU"`). This makes a single anonymous `/redfish/v1` call and
+    /// parses that field. Returns `DpuModel::Unknown` on any error or unrecognized string
+    /// so callers can fall back to the catch-all factory credential.
+    pub async fn get_dpu_model_hint(&self, bmc_ip_address: SocketAddr) -> ::bmc_vendor::DpuModel {
+        let client = match self.create_anon_redfish_client(bmc_ip_address).await {
+            Ok(c) => c,
+            Err(_) => return ::bmc_vendor::DpuModel::Unknown,
+        };
+        let service_root = match client.get_service_root().await {
+            Ok(s) => s,
+            Err(_) => return ::bmc_vendor::DpuModel::Unknown,
+        };
+        service_root
+            .product
+            .as_deref()
+            .map(::bmc_vendor::DpuModel::from_service_root_product)
+            .unwrap_or_default()
+    }
+
     pub async fn validate_bmc_credentials(
         &self,
         bmc_ip_address: SocketAddr,
@@ -337,7 +359,18 @@ impl RedfishClient {
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let service_root = self
             .nv_redfish_client_pool
-            .service_root(bmc_ip_address, credentials)
+            .service_root_with_cache_predicate(bmc_ip_address, credentials, |root| {
+                let complete = root.root.chassis.is_some() && root.root.managers.is_some();
+                if !complete {
+                    tracing::warn!(
+                        %bmc_ip_address,
+                        chassis = root.root.chassis.is_some(),
+                        managers = root.root.managers.is_some(),
+                        "BMC served a service root without required navigation not caching it"
+                    );
+                }
+                complete
+            })
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("Cannot Redfish service root: {err}"),
@@ -711,6 +744,7 @@ async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
     Ok(Manager {
         ethernet_interfaces,
         id: manager.id,
+        ipmi_port: None,
     })
 }
 

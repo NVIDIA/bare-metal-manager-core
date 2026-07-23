@@ -24,8 +24,9 @@
 //! use carbide_instrument::{Event, emit};
 //!
 //! #[derive(Event)]
-//! #[event(name = "carbide_doc_demo_total", component = "demo",
-//!         log = warn, metric = counter, message = "demo fired")]
+//! #[event(event_name = "doc_demo", metric_name = "carbide_doc_demo_total", component = "demo",
+//!         log = warn, metric = counter, message = "demo fired",
+//!         describe = "Number of demo events fired")]
 //! struct Demo {}
 //!
 //! let metrics = MetricsCapture::start();
@@ -42,15 +43,47 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use tracing_subscriber::layer::{Context, SubscriberExt};
 
+/// `CapturedFieldKind` identifies which `tracing::field::Visit` method
+/// received a captured structured value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapturedFieldKind {
+    String,
+    Debug,
+    Bool,
+    F64,
+    I64,
+    U64,
+}
+
 /// One captured log event: its level, message, and rendered fields.
 #[derive(Debug, Clone)]
 pub struct CapturedLog {
+    /// The event's stable `tracing` metadata name.
+    pub metadata_name: String,
     pub level: tracing::Level,
     /// The event's `tracing` target (usually the emitting module path).
     pub target: String,
     pub message: String,
     /// Field name/value pairs as strings, in emission order.
     pub fields: Vec<(String, String)>,
+    field_kinds: Vec<(String, CapturedFieldKind)>,
+}
+
+impl CapturedLog {
+    /// Returns the rendered value of the first field named `name`.
+    pub fn field(&self, name: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find_map(|(field_name, value)| (field_name == name).then_some(value.as_str()))
+    }
+
+    /// `field_kind` returns the native tracing value kind of the first field
+    /// named `name`.
+    pub fn field_kind(&self, name: &str) -> Option<CapturedFieldKind> {
+        self.field_kinds
+            .iter()
+            .find_map(|(field_name, kind)| (field_name == name).then_some(*kind))
+    }
 }
 
 /// Runs `f` under a capturing subscriber (this thread only) and returns every
@@ -80,16 +113,19 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CaptureLayer {
         let mut visitor = CaptureVisitor {
             message: String::new(),
             fields: Vec::new(),
+            field_kinds: Vec::new(),
         };
         event.record(&mut visitor);
         self.captured
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .push(CapturedLog {
+                metadata_name: event.metadata().name().to_string(),
                 level: *event.metadata().level(),
                 target: event.metadata().target().to_string(),
                 message: visitor.message,
                 fields: visitor.fields,
+                field_kinds: visitor.field_kinds,
             });
     }
 }
@@ -97,12 +133,25 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for CaptureLayer {
 struct CaptureVisitor {
     message: String,
     fields: Vec<(String, String)>,
+    field_kinds: Vec<(String, CapturedFieldKind)>,
+}
+
+impl CaptureVisitor {
+    fn push(
+        &mut self,
+        field: &tracing::field::Field,
+        value: impl ToString,
+        kind: CapturedFieldKind,
+    ) {
+        let name = field.name().to_string();
+        self.fields.push((name.clone(), value.to_string()));
+        self.field_kinds.push((name, kind));
+    }
 }
 
 impl tracing::field::Visit for CaptureVisitor {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.fields
-            .push((field.name().to_string(), value.to_string()));
+        self.push(field, value, CapturedFieldKind::String);
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
@@ -112,8 +161,24 @@ impl tracing::field::Visit for CaptureVisitor {
         if field.name() == "message" {
             self.message = rendered;
         } else {
-            self.fields.push((field.name().to_string(), rendered));
+            self.push(field, rendered, CapturedFieldKind::Debug);
         }
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+        self.push(field, value, CapturedFieldKind::Bool);
+    }
+
+    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+        self.push(field, value, CapturedFieldKind::F64);
+    }
+
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.push(field, value, CapturedFieldKind::I64);
+    }
+
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        self.push(field, value, CapturedFieldKind::U64);
     }
 }
 

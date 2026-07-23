@@ -27,6 +27,7 @@ carbide-health-report = { path = "../health-report" }
 carbide-utils = { path = "../utils", default-features = false }
 
 opentelemetry = { workspace = true }
+prometheus = { workspace = true }
 
 [lints]
 workspace = true

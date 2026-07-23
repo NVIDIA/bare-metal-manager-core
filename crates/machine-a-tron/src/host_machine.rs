@@ -19,6 +19,7 @@ use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
 use bmc_mock::{
     BmcCommand, HostMachineInfo, MachineInfo, SetSystemPowerResult, SystemPowerControl,
@@ -239,6 +240,7 @@ impl HostMachine {
         let host_info = self.host_info.clone();
         let dpus = self.dpus.clone();
         let machine_config_section = self.machine_config_section.clone();
+        let bmc_injection = self.state_machine.bmc_injection_store();
 
         if !paused {
             self.resume_dpus();
@@ -265,6 +267,7 @@ impl HostMachine {
             host_info,
             dpus,
             machine_config_section,
+            bmc_injection,
 
             join_handle: Mutex::new(Some(join_handle)),
         }))
@@ -535,12 +538,46 @@ struct HostMachineActor {
     host_info: HostMachineInfo,
     dpus: Vec<DpuMachineHandle>,
     machine_config_section: String,
+    bmc_injection: Arc<InjectionStore>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HostMachineHandle(Arc<HostMachineActor>);
 
 impl HostMachineHandle {
+    #[cfg(test)]
+    pub(crate) fn for_control_test(
+        dpus: Vec<DpuMachineHandle>,
+        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
+    ) -> Self {
+        let (message_tx, _message_rx) = mpsc::unbounded_channel();
+        let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
+        let live_state = LiveState {
+            ipmi_endpoint,
+            ..LiveState::default()
+        };
+        Self(Arc::new(HostMachineActor {
+            message_tx,
+            join_handle: Mutex::new(None),
+            live_state: Arc::new(RwLock::new(live_state)),
+            mat_id: Uuid::new_v4(),
+            host_info: HostMachineInfo {
+                hw_type: Default::default(),
+                bmc_mac_address: mac,
+                serial: "test-host".to_string(),
+                dpus: Vec::new(),
+                non_dpu_mac_address: None,
+                nvos_mac_addresses: Vec::new(),
+                switch_serial_number: None,
+                hw_mac_addr_pool: MacAddressPoolConfig::new(mac, 24).unwrap(),
+                delta_psu_power: None,
+            },
+            dpus,
+            machine_config_section: "test".to_string(),
+            bmc_injection: Arc::new(InjectionStore::new()),
+        }))
+    }
+
     pub fn mat_id(&self) -> Uuid {
         self.0.mat_id
     }
@@ -561,6 +598,10 @@ impl HostMachineHandle {
             .message_tx
             .send(HostMachineMessage::GetApiState(tx))?;
         Ok(rx.await?)
+    }
+
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.0.bmc_injection.clone()
     }
 
     pub async fn wait_until_machine_up_with_api_state(
@@ -625,6 +666,7 @@ impl HostMachineHandle {
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
+                ipmi: live_state.ipmi_endpoint.map(Into::into),
             },
             dpus: self.0.dpus.iter().map(|dpu| dpu.status(config)).collect(),
         }
@@ -703,6 +745,28 @@ impl HostMachineHandle {
         if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
             join_handle.abort();
         }
+    }
+
+    pub async fn abort_and_wait(&self) -> eyre::Result<()> {
+        let mut join_handles = self
+            .0
+            .dpus
+            .iter()
+            .filter_map(DpuMachineHandle::abort_task)
+            .collect::<Vec<_>>();
+        if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
+            join_handle.abort();
+            join_handles.push(join_handle);
+        }
+
+        for join_handle in join_handles {
+            match join_handle.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 
     pub fn bmc_ssh_host_pubkey(&self) -> Option<String> {

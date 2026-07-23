@@ -139,6 +139,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.InstanceInterfaceVpcSelection",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.InstanceIBInterfaceConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
@@ -230,6 +234,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.InstanceInterfaceResolvedVpcPrefixes",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.InstanceIBInterfaceStatus",
             "#[derive(serde::Serialize)]",
         )
@@ -266,6 +274,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.InstanceList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.Machine", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineStatus", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineCapabilitiesSet",
             "#[derive(serde::Serialize)]",
@@ -999,6 +1009,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.DeviceCredentialRotationStatus",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.GetContainerRegistryCredentialRequest",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.GetContainerRegistryCredentialResponse",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(

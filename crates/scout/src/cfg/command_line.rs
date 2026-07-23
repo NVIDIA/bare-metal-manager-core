@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::SocketAddr;
+
 use carbide_uuid::machine_validation::MachineValidationId;
 use clap::{Parser, Subcommand, ValueEnum};
 use forge_tls::default as tls_default;
@@ -108,6 +110,13 @@ pub(crate) struct Options {
     )]
     pub tpm_path: String,
 
+    #[clap(
+        long,
+        help = "HTTP listen address for the metrics/health endpoint (e.g. 127.0.0.1:9091). \
+                When omitted the endpoint is not served and no metrics are collected."
+    )]
+    pub metrics_listen_addr: Option<SocketAddr>,
+
     #[clap(subcommand)]
     pub subcmd: Option<Command>,
 }
@@ -128,6 +137,8 @@ pub(crate) enum Command {
     MachineValidation(MachineValidation),
     #[clap(about = "Local Mellanox device management.")]
     Mlx(Mlx),
+    #[clap(about = "Print LLDP neighbors visible on this host and exit")]
+    LldpNeighbors,
 }
 
 #[derive(Parser, Clone)]

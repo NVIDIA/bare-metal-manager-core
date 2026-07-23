@@ -36,6 +36,7 @@ import (
 
 	"go.temporal.io/api/enums/v1"
 	temporalClient "go.temporal.io/sdk/client"
+	tsdkConverter "go.temporal.io/sdk/converter"
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
 
@@ -3227,6 +3228,21 @@ func TestMachineHandler_Delete(t *testing.T) {
 	}
 }
 
+func TestGetDpuMachinesLegacyTemporalPayload(t *testing.T) {
+	legacyDpuMachines := []*corev1.DpuMachine{{Machine: &corev1.Machine{Id: &corev1.MachineId{Id: uuid.NewString()}}}}
+	dataConverter := tsdkConverter.GetDefaultDataConverter()
+	payloads, err := dataConverter.ToPayloads(legacyDpuMachines)
+	require.NoError(t, err)
+
+	var currentResult corev1.DpuMachineList
+	err = dataConverter.FromPayloads(payloads, &currentResult)
+	require.ErrorIs(t, err, tsdkConverter.ErrUnableToDecode)
+
+	var decodedLegacyResult []*corev1.DpuMachine
+	require.NoError(t, dataConverter.FromPayloads(payloads, &decodedLegacyResult))
+	require.Equal(t, legacyDpuMachines, decodedLegacyResult)
+}
+
 func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testMachineInitDB(t)
@@ -3317,7 +3333,7 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	cfg := common.GetTestConfig()
 
 	// Mock Temporal: success path returns two DPU machines for the workflow.
-	dpuMachineList := []*corev1.DpuMachine{
+	dpuMachineList := &corev1.DpuMachineList{Machines: []*corev1.DpuMachine{
 		{
 			Machine: &corev1.Machine{
 				Id:    &corev1.MachineId{Id: dpu1.ID},
@@ -3356,27 +3372,44 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 				DatacenterAsn:                65000,
 			},
 		},
-	}
+	}}
 
 	wrun := &tmocks.WorkflowRun{}
 	wrun.On("GetID").Return("test-workflow-id-dpu")
 	wrun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		result := args.Get(1).(*[]*corev1.DpuMachine)
-		*result = dpuMachineList
+		result := args.Get(1).(*corev1.DpuMachineList)
+		result.Machines = dpuMachineList.Machines
 	}).Return(nil)
 
 	tsc := &tmocks.Client{}
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrun, nil)
 
+	wrunLegacy := &tmocks.WorkflowRun{}
+	wrunLegacy.On("GetID").Return("test-workflow-id-dpu-legacy")
+	wrunLegacy.Mock.On("Get", mock.Anything, mock.MatchedBy(func(result any) bool {
+		_, ok := result.(*corev1.DpuMachineList)
+		return ok
+	})).Return(fmt.Errorf("payload item 0: %w: cannot unmarshal array into DpuMachineList", tsdkConverter.ErrUnableToDecode)).Once()
+	wrunLegacy.Mock.On("Get", mock.Anything, mock.MatchedBy(func(result any) bool {
+		_, ok := result.(*[]*corev1.DpuMachine)
+		return ok
+	})).Run(func(args mock.Arguments) {
+		result := args.Get(1).(*[]*corev1.DpuMachine)
+		*result = dpuMachineList.Machines
+	}).Return(nil).Once()
+
+	tscLegacy := &tmocks.Client{}
+	tscLegacy.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrunLegacy, nil)
+
 	wrunErr := &tmocks.WorkflowRun{}
 	wrunErr.On("GetID").Return("test-workflow-error-id")
-	wrunErr.Mock.On("Get", mock.Anything, mock.Anything).Return(fmt.Errorf("workflow failed"))
+	wrunErr.Mock.On("Get", mock.Anything, mock.Anything).Return(fmt.Errorf("workflow failed")).Once()
 	tscErr := &tmocks.Client{}
 	tscErr.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrunErr, nil)
 
 	wrunTimeout := &tmocks.WorkflowRun{}
 	wrunTimeout.On("GetID").Return("test-workflow-timeout-id")
-	wrunTimeout.Mock.On("Get", mock.Anything, mock.Anything).Return(tp.NewTimeoutError(enums.TIMEOUT_TYPE_UNSPECIFIED, nil, nil))
+	wrunTimeout.Mock.On("Get", mock.Anything, mock.Anything).Return(tp.NewTimeoutError(enums.TIMEOUT_TYPE_UNSPECIFIED, nil, nil)).Once()
 	tscTimeout := &tmocks.Client{}
 	tscTimeout.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "GetDpuMachines", mock.Anything).Return(wrunTimeout, nil)
 	tscTimeout.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -3389,6 +3422,9 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 
 	scpErr := sc.NewClientPool(tcfg)
 	scpErr.IDClientMap[site.ID.String()] = tscErr
+
+	scpLegacy := sc.NewClientPool(tcfg)
+	scpLegacy.IDClientMap[site.ID.String()] = tscLegacy
 
 	scpTimeout := sc.NewClientPool(tcfg)
 	scpTimeout.IDClientMap[site.ID.String()] = tscTimeout
@@ -3482,6 +3518,16 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 			verifyChildSpanner: true,
 		},
 		{
+			name:               "provider admin: legacy workflow result remains supported during rollout",
+			reqOrgName:         ipOrg1,
+			user:               ipu,
+			mID:                mWithDpu.ID,
+			scp:                scpLegacy,
+			expectedStatus:     http.StatusOK,
+			expectedDpuCount:   2,
+			verifyChildSpanner: true,
+		},
+		{
 			name:               "privileged tenant with account on provider can access",
 			reqOrgName:         tnOrgPriv,
 			user:               tnuPriv,
@@ -3555,6 +3601,8 @@ func TestMachineHandler_GetDpuMachines(t *testing.T) {
 	// regressions in timeout cleanup are caught instead of passing silently.
 	tsc.AssertExpectations(t)
 	wrun.AssertExpectations(t)
+	tscLegacy.AssertExpectations(t)
+	wrunLegacy.AssertExpectations(t)
 	tscErr.AssertExpectations(t)
 	wrunErr.AssertExpectations(t)
 	tscTimeout.AssertExpectations(t)

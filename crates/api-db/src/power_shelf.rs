@@ -153,7 +153,7 @@ pub async fn find_by_name(
             "PowerShelf::find_by_name",
             sqlx::Error::Decode(
                 eyre::eyre!(
-                    "Searching for PowerShelf {} returned multiple results",
+                    "searching for PowerShelf {} returned multiple results",
                     name
                 )
                 .into(),
@@ -176,7 +176,7 @@ pub async fn find_by_id(
         Err(DatabaseError::new(
             "PowerShelf::find_by_id",
             sqlx::Error::Decode(
-                eyre::eyre!("Searching for PowerShelf {} returned multiple results", id).into(),
+                eyre::eyre!("searching for PowerShelf {} returned multiple results", id).into(),
             ),
         ))
     }
@@ -523,8 +523,8 @@ pub async fn find_ids_by_bmc_macs(
         .map_err(|err| DatabaseError::new("power_shelf::find_ids_by_bmc_macs", err))
 }
 
-/// RMS identity for a power shelf, including rack profile context for node type
-/// resolution.
+/// RMS identity for a power shelf, including rack profile context for node
+/// descriptor construction.
 #[derive(Debug, sqlx::FromRow)]
 pub struct PowerShelfRmsIdentity {
     pub id: String,

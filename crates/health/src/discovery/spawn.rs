@@ -248,6 +248,7 @@ fn spawn_generic_redfish_collectors(
                     data_sink,
                     include_diagnostics: ctx.logs_include_diagnostics,
                     exclude_services: pcfg.exclude_services.clone(),
+                    skip_initial_history: pcfg.skip_initial_history,
                 },
                 CollectorStartContext {
                     limiter: ctx.limiter.clone(),
@@ -610,6 +611,7 @@ fn spawn_switch_host_collectors(
             NvueRestCollectorConfig {
                 rest_config: rest_cfg.clone(),
                 data_sink: data_sink.clone(),
+                log_event_sink_enabled: ctx.log_event_sink_enabled,
                 credential_provider,
                 tls_http_client_provider: ctx.tls_http_client_provider.clone(),
             },
@@ -780,9 +782,11 @@ mod tests {
 
     fn machine_metadata() -> EndpointMetadata {
         EndpointMetadata::Machine(MachineData {
-            machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                .parse()
-                .expect("valid machine id"),
+            machine_id: Some(
+                "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+            ),
             machine_serial: None,
             slot_number: None,
             tray_index: None,

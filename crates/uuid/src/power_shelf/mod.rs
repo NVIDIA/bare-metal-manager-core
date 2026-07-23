@@ -345,11 +345,11 @@ pub const POWER_SHELF_ID_LENGTH: usize =
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum PowerShelfIdParseError {
-    #[error("The Power Shelf ID has an invalid length of {0}")]
+    #[error("the power shelf ID has an invalid length of {0}")]
     Length(usize),
-    #[error("The Power Shelf ID {0} has an invalid prefix")]
+    #[error("the power shelf ID {0} has an invalid prefix")]
     Prefix(String),
-    #[error("The Power Shelf ID {0} has an invalid encoding")]
+    #[error("the power shelf ID {0} has an invalid encoding")]
     Encoding(String),
 }
 

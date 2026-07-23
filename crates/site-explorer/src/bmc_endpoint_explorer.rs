@@ -33,7 +33,7 @@ use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
+    BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
 };
 use sqlx::PgPool;
 
@@ -51,7 +51,8 @@ const BMC_AUTH_RETRY_DURATION: Duration = Duration::from_secs(3);
 /// line carries the device address plus the error when one occurred.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_site_explorer_bmc_password_rotations_total",
+    event_name = "bmc_password_rotation_finished",
+    metric_name = "carbide_site_explorer_bmc_password_rotations_total",
     component = "site-explorer",
     log = info,
     metric = counter,
@@ -175,9 +176,11 @@ impl BmcEndpointExplorer {
         })
     }
 
-    fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
+    async fn get_dpu_factory_default_credentials(&self, bmc_ip_address: SocketAddr) -> Credentials {
+        let model = self.redfish_client.get_dpu_model_hint(bmc_ip_address).await;
         self.credential_client
-            .get_default_hardware_dpu_bmc_root_credentials()
+            .get_dpu_factory_default_credentials(model)
+            .await
     }
 
     pub async fn get_bmc_root_credentials(
@@ -509,7 +512,7 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        mode: NicMode,
+        mode: BlueFieldOperatingMode,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
             .set_nic_mode(bmc_ip_address, credentials, mode.into_libredfish())
@@ -710,6 +713,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         };
 
         tracing::info!(
+            target: "carbide_diagnostics::bmc_redfish_supported",
             %bmc_ip_address,
             %vendor,
             "BMC supports Redfish"
@@ -797,6 +801,19 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     "Site explorer could not find a BMC root credential entry in vault - this is expected if the BMC has never been seen before.",
                 );
 
+                // When no expected entity is present and the vendor is a DPU, look up the
+                // per-model factory default from vault (or fall back to the hardcoded default).
+                // Declared before `bmc_cred_data` so it outlives the borrow.
+                let dpu_factory_creds = if expected.is_none() && vendor == RedfishVendor::NvidiaDpu
+                {
+                    Some(
+                        self.get_dpu_factory_default_credentials(bmc_ip_address)
+                            .await,
+                    )
+                } else {
+                    None
+                };
+
                 let bmc_cred_data = match expected {
                     Some(v) => {
                         tracing::info!(
@@ -809,14 +826,19 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     }
                     None => {
                         tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
-                        // We dont know if this machine is a DPU at this point
-                        // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
                         match vendor {
                             RedfishVendor::NvidiaDpu => {
-                                // This machine is a DPU.
-                                // Try the DPU hardware default password to handle the DPU case
-                                // This password will not work for a Viking host and we will return an error
-                                self.get_default_hardware_dpu_bmc_root_credentials()
+                                // This machine is a DPU. Use the per-model factory default credential
+                                // (looked up above from vault, with hardcoded fallback).
+                                let Credentials::UsernamePassword {
+                                    ref username,
+                                    ref password,
+                                } = *dpu_factory_creds.as_ref().unwrap();
+                                BmcCredentialsData {
+                                    username,
+                                    password,
+                                    retain_credentials: false,
+                                }
                             }
                             _ => {
                                 return Err(EndpointExplorationError::MissingCredentials {
@@ -1161,7 +1183,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        mode: NicMode,
+        mode: BlueFieldOperatingMode,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 

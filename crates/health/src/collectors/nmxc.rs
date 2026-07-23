@@ -198,7 +198,7 @@ async fn receive_initial_subscribe_notification(
         .map_err(HealthError::NmxcStatus)?
         .ok_or_else(|| {
             HealthError::NmxcStatus(tonic::Status::unavailable(
-                "NMX-C Subscribe stream ended before acknowledgement",
+                "NMX-C subscribe stream ended before acknowledgement",
             ))
         })
 }

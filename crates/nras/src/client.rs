@@ -18,6 +18,7 @@
 use std::collections as stdcol;
 
 use async_trait::async_trait;
+use carbide_instrument::red;
 use serde_json as sj;
 
 use crate::{DeviceAttestationInfo, NrasError, RawAttestationOutcome};
@@ -67,8 +68,7 @@ impl VerifierClient for NrasVerifierClient {
         device_attestation_info: &DeviceAttestationInfo,
     ) -> Result<RawAttestationOutcome, NrasError> {
         // prepare the request
-        // submit to NRAS (the http client propagates W3C trace context via middleware)
-        let att_response = self
+        let request = self
             .http_client
             .post(format!(
                 "{}{}",
@@ -77,19 +77,29 @@ impl VerifierClient for NrasVerifierClient {
             .header("Content-Type", "application/json")
             .body(serde_json::to_string(device_attestation_info).map_err(|e| {
                 NrasError::Serde(format!("Error Serializing Attestation Request: {}", e))
-            })?)
-            .send()
-            .await?;
+            })?);
 
-        let status_code = att_response.status();
-        let response_text = att_response.text().await?;
-
-        if status_code != reqwest::StatusCode::OK {
-            return Err(NrasError::Communication(format!(
-                "NRAS returned status code {} and message {}.\n Config is {:?}",
-                status_code, response_text, self.config
-            )));
-        }
+        // Submit to NRAS (the http client propagates W3C trace context via middleware).
+        // The send AND the HTTP status check run inside the RED wrapper, so a non-success
+        // status is recorded as outcome="error" (and logged WARN), not a silent "ok":
+        // carbide_external_call_duration_milliseconds{backend="nras", operation="attest_gpu",
+        // outcome}. Only the static backend/operation tags are recorded -- never the request
+        // or response body (evidence, certificate, nonce).
+        let response_text = red::instrumented("nras", "attest_gpu", async {
+            let att_response = request.send().await?;
+            let status_code = att_response.status();
+            if status_code != reqwest::StatusCode::OK {
+                // Status only: the response body and the config can carry sensitive
+                // attestation material, so neither is placed in the error or its log.
+                return Err(NrasError::Communication(format!(
+                    "NRAS returned status code {}",
+                    status_code
+                )));
+            }
+            // Read the body only after confirming success (the happy path needs it).
+            Ok(att_response.text().await?)
+        })
+        .await?;
 
         // read the response and map to the RawAttestationOutcome
         let verifier_response: RawAttestationOutcome =

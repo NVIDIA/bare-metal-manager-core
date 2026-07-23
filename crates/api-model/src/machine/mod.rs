@@ -20,7 +20,6 @@ use std::fmt::Display;
 use std::net::{IpAddr, SocketAddr};
 
 use carbide_uuid::domain::DomainId;
-use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
@@ -38,25 +37,18 @@ use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
 use strum_macros::EnumIter;
 
-use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use self::nvlink::MachineNvLinkStatusObservation;
-use self::spx::MachineSpxStatusObservation;
 use super::StateSla;
-use super::bmc_info::BmcInfo;
-use super::hardware_info::MachineInventory;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::MachineBootInterface;
 use super::metadata::Metadata;
-use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
 use crate::errors::{ModelError, ModelResult};
 use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
-use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
@@ -64,13 +56,13 @@ use crate::machine::health_override::HealthReportSources;
 use crate::machine_interface::InterfaceType;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
-use crate::power_manager::PowerOptions;
 use crate::predicted_machine_interface::PredictedMachineInterface;
 use crate::state_history::StateHistoryRecord;
 
 pub mod slas;
 
 pub mod capabilities;
+pub mod config;
 pub mod health_override;
 pub mod infiniband;
 pub mod json;
@@ -79,8 +71,12 @@ pub mod machine_search_config;
 pub mod network;
 pub mod nvlink;
 pub mod spx;
+pub mod status;
 pub mod topology;
 pub mod upgrade_policy;
+
+pub use self::config::MachineConfig;
+pub use self::status::MachineStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DpuOsOperationalState {
@@ -226,26 +222,26 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
 /// Reasons why a Machine is not allocatable
 #[derive(thiserror::Error, Clone, PartialEq, Eq, Debug)]
 pub enum NotAllocatableReason {
-    #[error("The Machine is in a state other than `Ready`: {0:?}")]
+    #[error("the machine is in a state other than `ready`: {0:?}")]
     InvalidState(Box<ManagedHostState>),
     #[error(
-        "The Machine has a pending instance creation request, that has not yet been processed by the state handler"
+        "the machine has a pending instance creation request, that has not yet been processed by the state handler"
     )]
     PendingInstanceCreation,
-    #[error("There are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
+    #[error("there are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
     NoDpuSnapshots,
-    #[error("The Machine is in Maintenance Mode")]
+    #[error("the machine is in maintenance mode")]
     MaintenanceMode,
-    #[error("A Health Alert prevents the Machine from being allocated: {0:?}")]
+    #[error("A health alert prevents the machine from being allocated: {0:?}")]
     HealthAlert(Box<health_report::HealthProbeAlert>),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagedHostStateSnapshotError {
-    #[error("Missing primary interface. Machine id: {0}")]
+    #[error("missing primary interface. machine id: {0}")]
     PrimaryInterfaceMissing(MachineId),
 
-    #[error("Missing dpu with primary dpu id. Machine id: {0}, DPU ID: {1}")]
+    #[error("missing dpu with primary dpu id. machine id: {0}, DPU ID: {1}")]
     MissingPrimaryDpu(MachineId, MachineId),
 }
 
@@ -355,11 +351,11 @@ impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host has at least one DPU snapshot
     /// attached -- i.e. a DPU we actively manage as a `Machine`.
     ///
-    /// A `false` return ("no managed DPUs") covers two cases that are intended
-    /// to be treated the same: actual zero-DPU hosts (`DpuMode::NoDpu`), and
-    /// `DpuMode::NicMode` hosts. The latter may acutally have DPUs, but
-    /// site-explorer puts them into NIC mode at ingestion, so no DPU snapshot
-    /// is ever attached.
+    /// A `false` return ("no managed DPUs") covers the two effective policies
+    /// that intentionally attach no DPU snapshots: `HostDpuPolicy::Ignore` and
+    /// `HostDpuPolicy::Nic`. A `Nic` host may have DPU hardware, but
+    /// site-explorer puts it into NIC mode at ingestion, so no DPU snapshot is
+    /// ever attached.
     ///
     /// Some callers combine this w/ `associated_dpu_machine_ids().is_empty()`
     /// to distinguish between truly no managed DPUs vs. DPU expected per
@@ -418,7 +414,7 @@ impl ManagedHostStateSnapshot {
     /// to be duplicated at every state controller callsite needing to pass a MAC
     /// into things like machine_setup, is_bios_setup, etc.
     pub fn boot_interface_mac(&self) -> Option<mac_address::MacAddress> {
-        pick_boot_interface_mac(&self.host_snapshot.interfaces)
+        pick_boot_interface_mac(&self.host_snapshot.status.interfaces)
     }
 
     /// Returns the host's boot interface as a fully-populated
@@ -431,7 +427,7 @@ impl ManagedHostStateSnapshot {
     /// alone. Because the MAC and id come from one row, the pair can never name a
     /// different interface than `boot_interface_mac`.
     pub fn boot_interface(&self) -> Option<MachineBootInterface> {
-        pick_boot_interface_pair(&self.host_snapshot.interfaces)
+        pick_boot_interface_pair(&self.host_snapshot.status.interfaces)
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
@@ -637,6 +633,7 @@ impl ManagedHostStateSnapshot {
     pub fn sort_dpu_snapshots(&mut self) -> Result<(), ManagedHostStateSnapshotError> {
         let mac_pci_map: HashMap<MacAddress, Option<&str>> = self
             .host_snapshot
+            .status
             .hardware_info
             .iter()
             .flat_map(|hi| &hi.network_interfaces)
@@ -653,6 +650,7 @@ impl ManagedHostStateSnapshot {
 
         self.dpu_snapshots.sort_by(|lhs, rhs| {
             let Some(lhs_dpu_mac) = lhs
+                .status
                 .hardware_info
                 .as_ref()
                 .and_then(|hi| hi.dpu_info.as_ref())
@@ -662,6 +660,7 @@ impl ManagedHostStateSnapshot {
             };
 
             let Some(rhs_dpu_mac) = rhs
+                .status
                 .hardware_info
                 .as_ref()
                 .and_then(|hi| hi.dpu_info.as_ref())
@@ -683,6 +682,7 @@ impl ManagedHostStateSnapshot {
 
         let primary_interface = self
             .host_snapshot
+            .status
             .interfaces
             .iter()
             .find(|interface| interface.primary_interface);
@@ -772,44 +772,34 @@ pub struct Machine {
     /// applied yet, and other useful things.
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
 
-    /// The most recent status of infiniband interfaces.
-    pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
-
-    // The most recent status of the nvlink GPUs.
-    pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
-
-    // The most recent status of the SPX attachments.
-    pub spx_status_observation: Option<MachineSpxStatusObservation>,
-
     /// A list of [StateHistoryRecord]s that this machine has experienced
     pub history: Vec<StateHistoryRecord>,
 
-    /// A list of [MachineInterfaceSnapshot]s that this machine owns
-    pub interfaces: Vec<MachineInterfaceSnapshot>,
+    /// Machine metadata
+    pub metadata: Metadata,
 
-    /// The Hardware information that was discovered for this machine
-    pub hardware_info: Option<HardwareInfo>,
+    /// Version field that tracks changes to
+    /// - Metadata
+    pub version: ConfigVersion,
+    // Columns for these exist, but are unused in rust code
+    // /// When this machine record was created
+    // pub created: DateTime<Utc>,
+    // /// When the machine record was last modified
+    // pub updated: DateTime<Utc>,
+    // /// When the machine was last deployed
+    // pub deployed: Option<DateTime<Utc>>,
+    /// The rack this machine is assigned to (sourced from the expected-machine record at
+    /// ingestion time; not operator-mutable).
+    pub rack_id: Option<RackId>,
 
-    /// The BMC info for this machine
-    pub bmc_info: BmcInfo,
+    /// Operator-set desired state.
+    pub config: MachineConfig,
 
-    /// Last time when machine came up.
-    pub last_reboot_time: Option<DateTime<Utc>>,
+    /// System-observed state.
+    pub status: MachineStatus,
 
-    /// Last time when cleanup was performed successfully.
-    pub last_cleanup_time: Option<DateTime<Utc>>,
-
-    /// Last time when discovery finished.
-    pub last_discovery_time: Option<DateTime<Utc>>,
-
-    /// Last time when scout contacted the machine.
-    pub last_scout_contact_time: Option<DateTime<Utc>>,
-
-    /// Build version of forge-scout last observed during machine discovery registration.
-    pub last_scout_observed_version: Option<String>,
-
-    /// Failure cause. If failure cause is critical, machine will move into Failed state.
-    pub failure_details: FailureDetails,
+    /// All health report sources
+    pub health_reports: HealthReportSources,
 
     /// Last time when machine reprovision requested.
     pub reprovision_requested: Option<ReprovisionRequest>,
@@ -817,19 +807,12 @@ pub struct Machine {
     /// Last time when host reprovision requested
     pub host_reprovision_requested: Option<HostReprovisionRequest>,
 
+    /// When set by an external entity, the state controller transitions the host into
+    /// [`ManagedHostState::Maintenance`] to execute the requested operation.
+    pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
-
-    /// All health report sources
-    pub health_reports: HealthReportSources,
-
-    // Inventory related to a DPU machine as reported by the agent there.
-    // Software and versions installed on the machine.
-    pub inventory: Option<MachineInventory>,
-
-    /// Last time when machine reboot was requested.
-    /// This field takes care of reboot requested from state machine only.
-    pub last_reboot_requested: Option<MachineLastRebootRequested>,
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
@@ -846,68 +829,25 @@ pub struct Machine {
     /// current cleanup validation id.
     pub cleanup_machine_validation_id: Option<MachineValidationId>,
 
-    /// Override to enable or disable firmware auto update
-    pub firmware_autoupdate: Option<bool>,
-
     /// current on demand validation id.
     pub on_demand_machine_validation_id: Option<MachineValidationId>,
 
     pub on_demand_machine_validation_request: Option<bool>,
 
-    /// The InstanceType with which a machine is associated if any
-    pub instance_type_id: Option<InstanceTypeId>,
-
     pub asn: Option<u32>,
-
-    /// Machine metadata
-    pub metadata: Metadata,
-
-    /// Version field that tracks changes to
-    /// - Metadata
-    pub version: ConfigVersion,
-    // Columns for these exist, but are unused in rust code
-    // /// When this machine record was created
-    // pub created: DateTime<Utc>,
-    // /// When the machine record was last modified
-    // pub updated: DateTime<Utc>,
-    // /// When the machine was last deployed
-    // pub deployed: Option<DateTime<Utc>>,
-    pub hw_sku: Option<String>,
-    pub hw_sku_status: Option<SkuStatus>,
-
-    /// Host's power options.
-    pub power_options: Option<PowerOptions>,
-
-    /// The hardware SKU's device type
-    pub hw_sku_device_type: Option<String>,
-
-    /// If host upgrades have been completed since the last start explicit start request or actual start
-    pub update_complete: bool,
-
-    /// The NVLink GPU info for this machine.
-    pub nvlink_info: Option<MachineNvLinkInfo>,
-
-    /// Whether the DPF is enabled for this machine
-    pub dpf: Dpf,
 
     /// Per-host profile for state-machine-affecting settings, seeded from the
     /// expected-machine record. Future per-host knobs that influence ingestion
     /// or state transitions should be added here.
     pub host_profile: HostProfile,
 
+    /// Rack-level firmware upgrade status, updated by the rack state machine.
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
+
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
-
-    /// The rack that this machine is associated with
-    pub rack_id: Option<RackId>,
-
-    /// Rack-level firmware upgrade status, updated by the rack state machine.
-    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
-
-    pub slot_number: Option<i32>,
-    pub tray_index: Option<i32>,
 }
 
 // Dpf status field.
@@ -968,7 +908,7 @@ impl Machine {
     }
 
     pub fn bmc_vendor(&self) -> bmc_vendor::BMCVendor {
-        match self.hardware_info.as_ref() {
+        match self.status.hardware_info.as_ref() {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
         }
@@ -1032,7 +972,8 @@ impl Machine {
     /// e.g. `9C:63:C0:E6:B4:3D` -> `9c-63-c0-e6-b4-3d`.
     /// Not using Machine ID because it's too long, and not using IP because it's not stable.
     pub fn dpf_id(&self) -> Option<String> {
-        self.bmc_info
+        self.status
+            .bmc_info
             .mac
             .map(|mac| mac.to_string().to_lowercase().replace(':', "-"))
     }
@@ -1047,16 +988,18 @@ impl Machine {
             return Vec::new();
         }
 
-        self.interfaces
+        self.status
+            .interfaces
             .iter()
             .filter_map(|i| i.attached_dpu_machine_id)
             .collect::<Vec<MachineId>>()
     }
 
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
-        self.bmc_info
+        self.status
+            .bmc_info
             .ip
-            .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
+            .map(|ip| SocketAddr::new(ip, self.status.bmc_info.port.unwrap_or(443)))
     }
 
     /// If this machine is a DPU, returns whether the version of the
@@ -1082,12 +1025,12 @@ impl Machine {
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
-        self.hardware_info.as_ref().map(|info| {
+        self.status.hardware_info.clone().map(|info| {
             MachineCapabilitiesSet::from_hardware_info(
-                info,
-                self.infiniband_status_observation.as_ref(),
+                &info,
+                self.status.infiniband_status_observation.as_ref(),
                 self.associated_dpu_machine_ids(),
-                &self.interfaces,
+                &self.status.interfaces,
             )
         })
     }
@@ -1114,7 +1057,8 @@ impl Machine {
     }
 
     pub fn primary_attached_dpu_machine_id(&self) -> Option<MachineId> {
-        self.interfaces
+        self.status
+            .interfaces
             .iter()
             .find(|iface| iface.primary_interface)
             .and_then(|iface| iface.attached_dpu_machine_id)
@@ -1127,22 +1071,24 @@ impl Machine {
             ));
         }
 
-        let hardware_info = self
-            .hardware_info
-            .as_ref()
-            .ok_or(ModelError::DpuMappingError(format!(
-                "Missing hardware information for machine {}",
-                self.id
-            )))?;
+        let hardware_info =
+            self.status
+                .hardware_info
+                .as_ref()
+                .ok_or(ModelError::DpuMappingError(format!(
+                    "Missing hardware information for machine {}",
+                    self.id
+                )))?;
 
         let mut id_to_device_map: HashMap<MachineId, String> = HashMap::default();
         let mut device_to_id_map: HashMap<String, Vec<MachineId>> = HashMap::default();
         // in order to ensure that the primary dpu is assigned a network config, it is configured first.
-        // hardware_interfaces has the primary dpu as the first interface, self.interfaces may not.
-        // iterate over hardware_interfaces and match it to self.interfaces using the mac address
+        // hardware_interfaces has the primary dpu as the first interface, self.status.interfaces may not.
+        // iterate over hardware_interfaces and match it to self.status.interfaces using the mac address
         for hardware_iface in &hardware_info.network_interfaces {
             if let Some(pci) = &hardware_iface.pci_properties
                 && let Some(iface) = self
+                    .status
                     .interfaces
                     .iter()
                     .find(|i| i.mac_address == hardware_iface.mac_address)
@@ -1206,6 +1152,12 @@ pub enum ManagedHostState {
     },
     /// Host is Ready for instance creation.
     Ready,
+
+    /// Host is executing an operator-requested maintenance operation.
+    Maintenance {
+        operation: MachineMaintenanceOperation,
+    },
+
     /// Host is assigned to an Instance.
     Assigned {
         instance_state: InstanceState,
@@ -1357,6 +1309,11 @@ impl std::fmt::Display for ValidationState {
 pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 
 impl ManagedHostState {
+    /// Builds the controller state for a requested maintenance operation.
+    pub fn maintenance_for_operation(operation: MachineMaintenanceOperation) -> Self {
+        Self::Maintenance { operation }
+    }
+
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
             ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
@@ -1511,7 +1468,7 @@ fn bfb_install_support(dpu_snapshots: &[Machine]) -> bool {
     let bfb_install_support_ = |dpu_snapshots: &[Machine]| -> bool {
         dpu_snapshots
             .iter()
-            .all(|m| m.bmc_info.supports_bfb_install())
+            .all(|m| m.status.bmc_info.supports_bfb_install())
     };
 
     bfb_install_support_(dpu_snapshots)
@@ -1820,6 +1777,14 @@ pub enum DpfState {
         /// Carbide should not care about non actionable DPF internal phases.
         #[serde(default)]
         phase_detail: Option<String>,
+    },
+    /// Executing a DPF-requested power cycle. `state.version.timestamp()`
+    /// records when this step started; the handler uses it to enforce the
+    /// configured power-transition delay (`reachability_params.power_down_wait`).
+    HandleReboot {
+        op: PerformPowerOperation,
+        #[serde(default)]
+        retry_count: u32,
     },
     /// DPU device reported ready by the DPF operator. Carbide
     /// waits for all DPUs to reach this state before proceeding.
@@ -2175,6 +2140,25 @@ pub struct ReprovisionRequest {
     pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
+pub enum MachineMaintenanceOperation {
+    /// Power on the host.
+    PowerOn,
+    /// Power off the host.
+    PowerOff,
+    /// Reset the host (restart / AC power cycle).
+    Reset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineMaintenanceRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub operation: MachineMaintenanceOperation,
+}
+
 /// Struct to store information if host reprovision is requested.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostReprovisionRequest {
@@ -2234,6 +2218,33 @@ impl Display for LockdownState {
 impl Display for FailureSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl FailureCause {
+    /// Stable snake_case token for use as a metric label value. Unlike
+    /// [`Display`], never interpolates the free-text `err` (metric labels must
+    /// come from a closed set).
+    pub fn metric_label(&self) -> &'static str {
+        match self {
+            FailureCause::NoError => "no_error",
+            FailureCause::NVMECleanFailed { .. } => "nvme_clean_failed",
+            FailureCause::Discovery { .. } => "discovery",
+            FailureCause::Reprovisioning { .. } => "reprovisioning",
+            FailureCause::MachineValidation { .. } => "machine_validation",
+            FailureCause::UnhandledState { .. } => "unhandled_state",
+            FailureCause::MeasurementsFailedSignatureCheck { .. } => {
+                "measurements_failed_signature_check"
+            }
+            FailureCause::MeasurementsRetired { .. } => "measurements_retired",
+            FailureCause::MeasurementsRevoked { .. } => "measurements_revoked",
+            FailureCause::MeasurementsCAValidationFailed { .. } => {
+                "measurements_ca_validation_failed"
+            }
+            FailureCause::DpfProvisioning { .. } => "dpf_provisioning",
+            FailureCause::SpdmAttestationFailed { .. } => "spdm_attestation_failed",
+            FailureCause::BiosSetupFailed { .. } => "bios_setup_failed",
+        }
     }
 }
 
@@ -2321,6 +2332,9 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::Maintenance { operation } => {
+                write!(f, "Maintenance({operation:?})")
+            }
             ManagedHostState::Assigned { instance_state, .. } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     let dpu_lowest_state = dpu_states
@@ -2413,6 +2427,9 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::Maintenance { operation } => {
+                format!("Maintenance({operation:?})")
+            }
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     format!(
@@ -2612,6 +2629,9 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::Maintenance { .. } => {
+            StateSla::with_sla(slas::MAINTENANCE, time_in_state)
+        }
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Ready => StateSla::no_sla(),
             InstanceState::BootingWithDiscoveryImage { retry } => {
@@ -2945,7 +2965,7 @@ pub fn dpf_based_dpu_provisioning_possible(
     }
 
     // DPF should be enabled for host.
-    if !state.host_snapshot.dpf.enabled {
+    if !state.host_snapshot.config.dpf.enabled {
         tracing::info!(
             machine_id = %state.host_snapshot.id,
             "DPF based DPU provisioning is not possible because DPF is not enabled for the host.",
@@ -2964,7 +2984,7 @@ pub fn dpf_based_dpu_provisioning_possible(
     // to continue or we should be trying to reprovision all the dpus (switching
     // to DPF). Reprovisioning only a subset of DPUs cannot flip the host to DPF.
     if reprovisioning_case
-        && !state.host_snapshot.dpf.used_for_ingestion
+        && !state.host_snapshot.config.dpf.used_for_ingestion
         && !state
             .dpu_snapshots
             .iter()
@@ -2985,7 +3005,8 @@ pub fn dpf_based_dpu_provisioning_possible(
 
     // All DPUs should not be Bluefield 2.
     if state.dpu_snapshots.iter().any(|dpu| {
-        dpu.hardware_info
+        dpu.status
+            .hardware_info
             .as_ref()
             .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
             .map(|dpu_data| crate::site_explorer::is_bf2_dpu_part_number(&dpu_data.part_number))
@@ -3008,7 +3029,7 @@ pub fn dpf_based_dpu_provisioning_possible(
     if !state
         .dpu_snapshots
         .iter()
-        .all(|dpu| dpu.bmc_info.supports_bfb_install())
+        .all(|dpu| dpu.status.bmc_info.supports_bfb_install())
     {
         tracing::info!(
             "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."

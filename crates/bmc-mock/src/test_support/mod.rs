@@ -308,12 +308,49 @@ pub async fn generic_ami_bmc() -> TestBmcHandle {
 mod test {
 
     use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
     use nv_redfish::bmc_http::{BmcCredentials, HttpClient};
+    use tower::ServiceExt;
     use url::Url;
 
     use super::*;
+    use crate::injection::{Action, InjectionStore, Rule, RuleId, Selector};
     use crate::test_support::axum_http_client::Error;
     use crate::test_support::host_info;
+
+    #[tokio::test]
+    async fn caller_provided_injection_store_is_active() {
+        let injection = Arc::new(InjectionStore::new());
+        injection.upsert(Rule {
+            id: RuleId::from("unavailable"),
+            selector: Selector::Path {
+                method: Some("GET".to_string()),
+                glob: "/redfish/v1".to_string(),
+            },
+            action: Action::Status(StatusCode::SERVICE_UNAVAILABLE.as_u16()),
+            remaining: None,
+        });
+        let (router, state) = crate::machine_router_with_injection_store(
+            &host_info(HostHardwareType::DellPowerEdgeR750),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+            injection.clone(),
+        );
+
+        assert!(Arc::ptr_eq(&injection, &state.injection));
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/redfish/v1")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
 
     #[tokio::test]
     async fn transport_supports_expand_query_through_mock_expander() {
@@ -370,25 +407,5 @@ mod test {
             }
             other => panic!("expected invalid response error, got: {other}"),
         }
-    }
-
-    #[test]
-    fn lenovo_gb300_discovery_includes_dpu_host_interface() {
-        let machine = host_info(HostHardwareType::LenovoGB300Nvl);
-        let expected_mac = match &machine {
-            MachineInfo::Host(host) => host.primary_dpu().unwrap().host_mac_address.to_string(),
-            MachineInfo::Dpu(_) => unreachable!("Lenovo GB300 must be a host"),
-        };
-
-        let interfaces = machine.discovery_info().network_interfaces;
-        assert_eq!(interfaces.len(), 1);
-        assert_eq!(interfaces[0].mac_address, expected_mac);
-
-        let pci = interfaces[0]
-            .pci_properties
-            .as_ref()
-            .expect("DPU host interface must include PCI properties");
-        assert!(pci.vendor.to_ascii_lowercase().contains("mellanox"));
-        assert_eq!(pci.slot.as_deref(), Some("0000:03:00.0"));
     }
 }

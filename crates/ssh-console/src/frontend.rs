@@ -621,7 +621,7 @@ impl russh::server::Handler for Handler {
 pub enum HandlerError {
     #[error("BUG: {method} called but we don't have an authenticated user")]
     MissingAuthenticatedUser { method: &'static str },
-    #[error("Could not get BMC connection for {machine}: {error}")]
+    #[error("could not get BMC connection for {machine}: {error}")]
     GettingBmcConnection {
         machine: String,
         error: GetConnectionError,
@@ -636,7 +636,7 @@ pub enum HandlerError {
     WritingToChannel { what: &'static str },
     #[error("BMC connection for {machine_id} dropped before we could subscribe to messages")]
     BmcDisconnectedBeforeSubscribe { machine_id: MachineId },
-    #[error("Error performing pubkey auth via admin authorized_keys for {machine_id}: {error}")]
+    #[error("error performing pubkey auth via admin authorized_keys for {machine_id}: {error}")]
     PubkeyAuthAdminAuthorizedKeys {
         machine_id: String,
         error: PubkeyAuthError,
@@ -652,12 +652,12 @@ pub enum HandlerError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PubkeyAuthError {
-    #[error("Error reading authorized_keys file at {path}: {error}")]
+    #[error("error reading authorized_keys file at {path}: {error}")]
     ReadingAuthorizedKeys {
         path: String,
         error: russh::keys::ssh_key::Error,
     },
-    #[error("Unexpected error calling carbide-api to validate pubkey for {user}: {tonic_status}")]
+    #[error("unexpected error calling carbide-api to validate pubkey for {user}: {tonic_status}")]
     CarbideApi {
         user: String,
         tonic_status: tonic::Status,

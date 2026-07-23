@@ -31,13 +31,13 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
 use model::machine_boot_interface::MachineBootInterface;
 use model::predicted_machine_interface::PredictedMachineInterface;
-use model::site_explorer::{NicMode, PreingestionState};
+use model::site_explorer::{BlueFieldOperatingMode, PreingestionState};
 use sqlx::PgConnection;
-use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
+use crate::handlers::utils::resolve_bmc_address;
 
 /// Resolve the boot interface an admin Redfish action should target, the same
 /// way the machine-controller resolves it.
@@ -601,6 +601,7 @@ pub(crate) async fn admin_power_control(
 
             if let Some(power_state) = snapshot
                 .host_snapshot
+                .status
                 .power_options
                 .map(|x| x.desired_power_state)
                 && power_state == model::power_manager::PowerState::On
@@ -752,13 +753,13 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
     let dpu_ip: std::net::IpAddr = ip_str
         .parse()
-        .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
+        .map_err(|_| CarbideError::InvalidArgument(format!("invalid DPU IP: {ip_str}")))?;
 
     if req.host_bmc_ip.is_empty() {
         return Err(CarbideError::MissingArgument("host_bmc_ip").into());
     }
     let host_bmc_ip: std::net::IpAddr = req.host_bmc_ip.parse().map_err(|_| {
-        CarbideError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
+        CarbideError::InvalidArgument(format!("invalid host BMC IP: {}", req.host_bmc_ip))
     })?;
 
     let pre_copy_powercycle = req.pre_copy_powercycle;
@@ -769,8 +770,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             .map_err(|e| CarbideError::internal(e.to_string()))?;
     if dpu_in_managed_host {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
-             Force-delete the managed host first.",
+            "cannot trigger BFB recovery: DPU {dpu_ip} is already ingested. \
+             force-delete the managed host first",
         ))
         .into());
     }
@@ -789,12 +790,13 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     // BFB preingestion flow will work its way through the states, and then
     // wait for the ARM OS to come up, which it never will. Waiting will
     // eventually, time out (SLA), and then the host will mark as failed.
-    if dpu_endpoint.report.nic_mode() == Some(NicMode::Nic) {
+    if dpu_endpoint.report.bluefield_operating_mode() == Some(BlueFieldOperatingMode::Nic) {
         return Err(CarbideError::InvalidArgument(format!(
-            "Cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
-             Update the host's `ExpectedMachine.dpu_mode` to `DpuMode` \
+            "cannot trigger BFB recovery: DPU {dpu_ip} is in NIC mode. \
+             ensure the host's resolved DPU policy is `manage` \
+             (update it with `--dpu-policy manage` and adjust the site policy as needed) \
              and wait for site-explorer to reconcile the DPU back to \
-             DPU mode before retrying.",
+             DPU mode before retrying",
         ))
         .into());
     }
@@ -805,8 +807,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         | PreingestionState::Failed { .. } => {}
         other => {
             return Err(CarbideError::InvalidArgument(format!(
-                "Cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
-                 Wait for it to complete or fail first.",
+                "cannot trigger BFB recovery: DPU endpoint is in state {other:?}. \
+                 wait for it to complete or fail first",
             ))
             .into());
         }
@@ -825,8 +827,8 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
             PreingestionState::Complete | PreingestionState::Failed { .. } => {}
             other => {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "Cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
-                     Retry after host preingestion completes.",
+                    "cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
+                     retry after host preingestion completes",
                 ))
                 .into());
             }
@@ -863,20 +865,7 @@ async fn resolve_bmc_interface(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), Status> {
-    let address = if request.ip_address.contains(':') {
-        request.ip_address.clone()
-    } else {
-        format!("{}:443", request.ip_address)
-    };
-
-    let mut addrs = lookup_host(address).await?;
-    let Some(bmc_addr) = addrs.next() else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "Could not resolve {}. Must be hostname[:port] or IPv4[:port]",
-            request.ip_address
-        ))
-        .into());
-    };
+    let bmc_addr = resolve_bmc_address(&request.ip_address).await?;
 
     let bmc_mac_address: MacAddress;
     if let Some(mac_str) = &request.mac_address {
@@ -1181,13 +1170,13 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
                     id: machine_id.to_string(),
                 })?;
 
-            let bmc_ip = machine.bmc_info.ip.as_ref().ok_or_else(|| {
+            let bmc_ip = machine.status.bmc_info.ip.as_ref().ok_or_else(|| {
                 CarbideError::internal(format!(
-                    "Machine found for {machine_id} but BMC IP is missing"
+                    "machine found for {machine_id} but BMC IP is missing"
                 ))
             })?;
 
-            let bmc_mac_address = machine.bmc_info.mac.ok_or_else(|| {
+            let bmc_mac_address = machine.status.bmc_info.mac.ok_or_else(|| {
                 CarbideError::internal(format!("BMC endpoint for {bmc_ip} ({machine_id}) found but does not have associated MAC"))
             })?;
 
@@ -1201,7 +1190,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
         }
 
         _ => Err(CarbideError::InvalidArgument(
-            "Provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
+            "provide either machine_id or BmcEndpointRequest with at least ip_address".to_string(),
         )),
     }
 }

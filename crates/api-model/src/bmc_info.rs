@@ -63,7 +63,7 @@ impl<'r> FromRow<'r, PgRow> for BmcInfo {
 
 impl BmcInfo {
     pub fn ip_addr(&self) -> Result<IpAddr, Report> {
-        self.ip.ok_or(eyre! {"Missing BMC address"})
+        self.ip.ok_or(eyre! {"missing BMC address"})
     }
 }
 

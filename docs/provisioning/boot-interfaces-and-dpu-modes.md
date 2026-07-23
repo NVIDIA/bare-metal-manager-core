@@ -198,6 +198,9 @@ All of these are **admin-only**; the Forge gRPC service enforces admin authoriza
 |---|---|---|
 | `managed-host set-primary-interface <host-id> <interface-id> [--reboot]` | `SetPrimaryInterface` | Designate a machine interface as the host's primary/boot interface. **The modern form.** |
 | `managed-host set-primary-dpu <host-id> <dpu-id> [--reboot]` | `SetPrimaryDpu` | Designate a DPU as primary. *Deprecated — prefer `set-primary-interface`.* |
+| `boot-interface show <machine-id>` | `GetMachineBootInterfaces` | Show a machine's boot interface across every store (managed, predicted, explored, retained), the effective interface the system would select, and any disagreement between stores. Read-only. |
+| `boot-interface candidates <machine-id>` | `GetMachineBootInterfaces` | List a machine's candidate boot NICs and the picks among them (`current`, `default`, `explored`); underlay rows are listed but ineligible. Read-only. |
+| `boot-interface set <machine-id> <interface> [--reboot]` | `SetPrimaryInterface` | Set a machine's boot interface by promoting it to the primary interface — the same operation as `set-primary-interface`. `<interface>` is a machine-interface UUID or a MAC (a MAC must match exactly one managed interface row). |
 | `boot-override set <interface-id> [--custom-pxe <f>] [--custom-user-data <f>]` | `SetMachineBootOverride` | Override the iPXE script / cloud-init user-data served at boot. |
 | `boot-override get <interface-id>` | `GetMachineBootOverride` | Show the current boot override. |
 | `boot-override clear <interface-id>` | `ClearMachineBootOverride` | Revert to the default PXE/cloud-init. |
@@ -329,6 +332,8 @@ nico-admin-cli -a <api-url> managed-host show <machine-id>
 
 The interfaces section shows each NIC's MAC, segment, and which one is `primary` (the boot interface). The web UI machine-detail page shows the same with a primary indicator.
 
+To inspect the boot interface itself — every store (managed, predicted, explored, retained) side by side, the effective interface the system would select, and a flag when the stores disagree — use `boot-interface show <machine-id>`; `boot-interface candidates <machine-id>` narrows it to the candidate NICs and the picks among them. Both are read-only ([Section 4](#4-admin-cli-and-grpc-reference)).
+
 **Common situations:**
 
 | Symptom | Likely cause / action |
@@ -336,6 +341,7 @@ The interfaces section shows each NIC's MAC, segment, and which one is `primary`
 | `boot_interface_mac_mismatch` (pairing blocker) | The host's boot MAC doesn't match any discovered DPU's pf0 MAC. Expected for an integrated-NIC host — declare the integrated NIC `primary` (see [3.4](#34-boot-an-integrated-nic-while-keeping-the-dpus-managed)); otherwise check the exploration reports. See [Ingesting Hosts → pairing blockers](ingesting-hosts.md#common-blockers-during-host--dpu-pairing). |
 | Host stuck waiting for a boot NIC | A zero-DPU/NIC-mode host whose boot NIC hasn't leased yet (`AwaitingNic`). Confirm the NIC is cabled and DHCP-reachable on its HostInband segment. |
 | Boot interface wrong after a DPU↔NIC-mode flip | Use **Restore Boot Interface** in the web UI, or re-ingest ([3.5](#35-flipping-a-dpu-to-nic-mode)). |
+| Boot interface disabled or no longer the boot device after a DPU replacement (notably on Dell) | The replacement DPU came up in InfiniBand (VPI) link type. NICo self-heals this: DPU cloud-init normalizes the ports to Ethernet and reboots before management-network setup runs, and DPU reprovision then repairs the host BIOS/boot-order configuration automatically — no manual action is needed. If it persists, confirm the DPU ran the normalization (`/var/log/forge/link-type.log` on the DPU) and re-ingest. |
 | DPU mode "unknown" (`dpu_nic_mode_unknown`) | DPU BMC firmware too old to report mode. Install a fresh DPU OS — see [Ingesting Hosts](ingesting-hosts.md#dpu-related-issues-installing-a-fresh-dpu-os). |
 
 For ingestion/pairing diagnostics generally, see [Ingesting Hosts → Troubleshooting](ingesting-hosts.md#troubleshooting-host-and-dpu-ingestion-issues).

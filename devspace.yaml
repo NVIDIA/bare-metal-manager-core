@@ -162,42 +162,24 @@ deployments:
             repository: ${runtime.images.nico-api.image}
             tag: ${runtime.images.nico-api.tag}
             pullPolicy: IfNotPresent
+          certificate:
+            issuerRef:
+              kind: ${LOCAL_DEV_CERT_ISSUER_KIND}
+              name: ${LOCAL_DEV_CERT_ISSUER_NAME}
+              group: ${LOCAL_DEV_CERT_ISSUER_GROUP}
         nico-bmc-proxy:
           image:
             repository: ${runtime.images.nico-bmc-proxy.image}
             tag: ${runtime.images.nico-bmc-proxy.tag}
             pullPolicy: IfNotPresent
+        nico-machine-a-tron:
+          image:
+            repository: ${runtime.images.machine-a-tron.image}
+            tag: ${runtime.images.machine-a-tron.tag}
+            pullPolicy: IfNotPresent
       valuesFiles:
         - dev/deployment/devspace/values.base.yaml
         - dev/deployment/devspace/values.generated.yaml
-  machine-a-tron-local:
-    namespace: ${LOCAL_DEV_NAMESPACE}
-    updateImageTags: true
-    kubectl:
-      manifests:
-        - dev/deployment/devspace/machine-a-tron.yaml
-      patches:
-        - target:
-            apiVersion: cert-manager.io/v1
-            kind: Certificate
-            name: machine-a-tron-certificate
-          op: replace
-          path: spec.issuerRef.kind
-          value: ${LOCAL_DEV_CERT_ISSUER_KIND}
-        - target:
-            apiVersion: cert-manager.io/v1
-            kind: Certificate
-            name: machine-a-tron-certificate
-          op: replace
-          path: spec.issuerRef.name
-          value: ${LOCAL_DEV_CERT_ISSUER_NAME}
-        - target:
-            apiVersion: cert-manager.io/v1
-            kind: Certificate
-            name: machine-a-tron-certificate
-          op: replace
-          path: spec.issuerRef.group
-          value: ${LOCAL_DEV_CERT_ISSUER_GROUP}
   nico-rest:
     namespace: nico-rest
     updateImageTags: false
@@ -329,10 +311,6 @@ hooks:
             "${runtime.images.nico-rest-cert-manager.image}:${runtime.images.nico-rest-cert-manager.tag}" \
             "${runtime.images.nico-mcp.image}:${runtime.images.nico-mcp.tag}"
           ;;
-        *)
-          echo "Full-stack deployment requires a kind context; current context is ${CONTEXT:-unset}" >&2
-          exit 1
-          ;;
       esac
   - name: setup-rest-integration
     events: ["after:deploy"]
@@ -342,6 +320,54 @@ hooks:
         dev/deployment/devspace/setup-rest-integration.sh
 
 profiles:
+  - name: dsx-exchange
+    patches:
+      - op: add
+        path: deployments.dsx-exchange
+        value:
+          namespace: ${LOCAL_DEV_NAMESPACE}
+          helm:
+            chart:
+              name: nats
+              version: "2.12.6"
+              repo: https://nats-io.github.io/k8s/helm/charts/
+            values:
+              fullnameOverride: dsx-exchange
+              config:
+                cluster:
+                  enabled: false
+                jetstream:
+                  enabled: true
+                  fileStore:
+                    enabled: true
+                    maxSize: 256Mi
+                    pvc:
+                      enabled: false
+                  memoryStore:
+                    enabled: true
+                    maxSize: 64Mi
+                mqtt:
+                  enabled: true
+                  port: 1883
+                  merge:
+                    stream_replicas: 1
+                    consumer_memory_storage: true
+              container:
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 500m
+                    memory: 512Mi
+              natsBox:
+                enabled: false
+              podDisruptionBudget:
+                enabled: false
+      - op: add
+        path: deployments.carbide-local.helm.values.nico-api
+        value:
+          dsxExchangeEventBusConfig: '{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}'
   - name: core-only
     patches:
       - op: remove

@@ -461,14 +461,20 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 
 	filterInput := cdbm.VpcPeeringFilterInput{}
 
+	qParams := c.QueryParams()
+
 	// Get Site ID from query param if specified and verify user has access to the Site
-	siteIDStr := c.QueryParam("siteId")
-	if siteIDStr != "" {
+	if siteIDStrs := qParams["siteId"]; len(siteIDStrs) > 0 {
+		siteIDStr := siteIDStrs[0]
 		providerSiteAuthorized := false
 		tenantSiteAuthorized := false
 
 		site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, gavph.dbSession)
 		if err != nil {
+			if errors.Is(err, common.ErrInvalidID) {
+				logger.Warn().Msg(fmt.Sprintf("invalid value in siteId query: %v", siteIDStr))
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Invalid Site ID %v in query", siteIDStr), nil)
+			}
 			if errors.Is(err, cdb.ErrDoesNotExist) {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in query does not exist", nil)
 			}
@@ -509,10 +515,9 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Get isMultiTenant from query param if specified
-	isMultiTenantStr := c.QueryParam("isMultiTenant")
 	var isMultiTenant *bool
-	if isMultiTenantStr != "" {
-		isMultiTenantParam, err := strconv.ParseBool(isMultiTenantStr)
+	if isMultiTenantStrs := qParams["isMultiTenant"]; len(isMultiTenantStrs) > 0 {
+		isMultiTenantParam, err := strconv.ParseBool(isMultiTenantStrs[0])
 		if err != nil {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `isMultiTenant` query param", nil)
 		}
@@ -520,7 +525,6 @@ func (gavph GetAllVpcPeeringHandler) Handle(c echo.Context) error {
 	}
 
 	// Get and validate includeRelation params
-	qParams := c.QueryParams()
 	qIncludeRelations, errMsg := common.GetAndValidateQueryRelations(qParams, cdbm.VpcPeeringRelatedEntities)
 	if errMsg != "" {
 		logger.Warn().Msg(errMsg)

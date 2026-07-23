@@ -84,7 +84,7 @@ impl StateControllerIO for SwitchStateControllerIO {
                 "Switch::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for Switch {} returned multiple results",
+                        "searching for switch {} returned multiple results",
                         switch_id
                     )
                     .into(),
@@ -175,6 +175,11 @@ impl StateControllerIO for SwitchStateControllerIO {
             SwitchControllerState::Error { .. } => ("error", ""),
             SwitchControllerState::Deleting => ("deleting", ""),
         }
+    }
+
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        // The stored cause is free text, so the reason is a fixed token.
+        matches!(state, SwitchControllerState::Error { .. }).then_some("error")
     }
 
     fn state_sla(

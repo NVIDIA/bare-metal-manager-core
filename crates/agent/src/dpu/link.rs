@@ -55,7 +55,7 @@ impl IpLink {
 
             std::fs::read_to_string(test_data_dir.join("iplink.json")).map_err(|e| {
                 error!(error = %e, "Could not read iplink.json");
-                eyre::eyre!("Could not read iplink.json: {}", e)
+                eyre::eyre!("could not read iplink.json: {}", e)
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");
@@ -66,7 +66,7 @@ impl IpLink {
 
             let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
                 .await
-                .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+                .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
             let fout = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(fout)

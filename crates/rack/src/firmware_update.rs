@@ -28,7 +28,7 @@ use model::rack::FirmwareUpgradeDeviceInfo;
 use model::rack_type::{RackHardwareClass, RackProfile};
 use sqlx::PgPool;
 
-use crate::rms_node_type::is_switch_node_type;
+use crate::rms_node_type::RmsNodeIdentity;
 
 #[derive(Debug, Clone)]
 pub struct RackFirmwareInventory {
@@ -253,7 +253,7 @@ async fn fetch_nvos_credentials(
 pub fn build_new_node_info(
     rack_id: &RackId,
     device: &FirmwareUpgradeDeviceInfo,
-    node_type: rms::NodeType,
+    identity: &RmsNodeIdentity,
 ) -> rms::NodeInfo {
     let bmc_endpoint = if device.bmc_ip.is_empty() || device.mac.is_empty() {
         None
@@ -266,13 +266,10 @@ pub fn build_new_node_info(
             }),
             port: 443,
             credentials: user_pass_credentials(&device.bmc_username, &device.bmc_password),
-            // TODO: we'll need to remove this from the RMS proto `Endpoint` field. This field
-            // should not be set by the caller, and should be owned by the RMS.
-            dangerously_accept_invalid_certs: true,
         })
     };
 
-    let host_endpoint = if is_switch_node_type(node_type) {
+    let host_endpoint = if identity.is_switch() {
         Some(rms::Endpoint {
             interface: build_host_interface(device),
             port: 0,
@@ -280,21 +277,22 @@ pub fn build_new_node_info(
                 device.os_username.as_deref().unwrap_or_default(),
                 device.os_password.as_deref().unwrap_or_default(),
             ),
-            // TODO: we'll need to remove this from the RMS proto `Endpoint` field. This field
-            // should not be set by the caller, and should be owned by the RMS.
-            dangerously_accept_invalid_certs: true,
         })
     } else {
         None
     };
 
-    rms::NodeInfo {
+    let mut node = rms::NodeInfo {
         node_id: device.node_id.clone(),
         rack_id: rack_id.to_string(),
-        r#type: Some(node_type as i32),
+        r#type: None,
         bmc_endpoint,
         host_endpoint,
-    }
+        node_descriptor: None,
+    };
+
+    identity.apply_to_node_info(&mut node);
+    node
 }
 
 fn build_host_interface(device: &FirmwareUpgradeDeviceInfo) -> Option<rms::NetworkInterface> {

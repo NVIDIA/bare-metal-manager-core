@@ -29,9 +29,9 @@
 //! rotate every device reads as "pending" until the engine lands.
 //! `GetCredentialRotationStatus` reports that convergence.
 //!
-//! NVOS is rejected for now: NICo does not own the NVOS password until REQ-6
-//! (set-NVOS-from-factory), so there is no baseline to rotate from and the
-//! backfill deliberately seeds no `nvos` target row.
+//! NVOS is rejected for now. Its target row remains absent until the first
+//! versioned target secret has been stored and verified; API exposure remains
+//! disabled until the end-to-end NVOS rotation path is activated.
 
 use ::rpc::forge as rpc;
 use carbide_authn::middleware::Principal;
@@ -89,8 +89,8 @@ fn to_rotation_type(credential_type: i32) -> Result<RotationType, CarbideError> 
         rpc::RotationCredentialType::RotationDpuUefi => Ok(RotationType::DpuUefi),
         rpc::RotationCredentialType::RotationLockdownIkm => Ok(RotationType::LockdownIkm),
         rpc::RotationCredentialType::RotationNvos => Err(CarbideError::FailedPrecondition(
-            "NVOS rotation is not supported yet: NICo does not own the NVOS password until \
-             set-NVOS-from-factory (REQ-6) ships"
+            "NVOS rotation is not supported yet: the end-to-end NVOS rotation path \
+             remains disabled"
                 .to_string(),
         )),
         // The proto3 zero value. Rejected rather than defaulted so a caller that

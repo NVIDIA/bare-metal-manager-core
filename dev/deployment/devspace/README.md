@@ -99,7 +99,7 @@ DevSpace will:
 
 - build the local runtime images from [`Dockerfile.api`](Dockerfile.api), [`Dockerfile.bmc-proxy`](Dockerfile.bmc-proxy), and [`Dockerfile.machine-a-tron`](Dockerfile.machine-a-tron)
 - build the REST API, workflow, site-manager, site-agent, database migration, certificate-manager, and MCP images from [`rest-api/docker/local`](../../../rest-api/docker/local)
-- deploy the Helm chart in [`helm/`](../../../helm)
+- deploy the Helm chart in [`helm/`](../../../helm) (including `nico-machine-a-tron`)
 - deploy the REST umbrella, site-agent, and MCP charts in [`helm/rest`](../../../helm/rest)
 - apply the local-only `machine-a-tron` Kubernetes objects from [`machine-a-tron.yaml`](machine-a-tron.yaml) with `kubectl`
 - inject the built image names and DevSpace-generated tags into both deployments at runtime
@@ -109,11 +109,9 @@ The image builds are configured in [`devspace.yaml`](../../../devspace.yaml). Th
 
 The DevSpace images also use Dockerfile-specific ignore files: [`Dockerfile.api.dockerignore`](Dockerfile.api.dockerignore), [`Dockerfile.bmc-proxy.dockerignore`](Dockerfile.bmc-proxy.dockerignore), and [`Dockerfile.machine-a-tron.dockerignore`](Dockerfile.machine-a-tron.dockerignore). This keeps the top-level [`.dockerignore`](../../../.dockerignore) aligned with the main branch for CI and release builds, while still giving the local DevSpace builds a small Docker context.
 
-DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when images need rebuilding.
+DevSpace watches the Rust workspace, toolchain metadata, and the runtime Dockerfiles to decide when images need rebuilding. On kind clusters, the pre-deploy hooks load all Core and REST images into the cluster selected by the current kube context.
 
-The REST images use the existing local Dockerfiles and one shared per-run tag because the REST Helm charts intentionally consume a common repository and tag. On kind clusters, the pre-deploy hooks load all Core and REST images into the cluster selected by the current kube context.
-
-The production Helm chart is still only responsible for the product services. `machine-a-tron` is deployed separately as plain local-only Kubernetes objects in [`machine-a-tron.yaml`](machine-a-tron.yaml), with DevSpace wiring in the local image tag and certificate issuer from [`devspace.yaml`](../../../devspace.yaml). The local API and BMC proxy configs in [`values.base.yaml`](values.base.yaml) point BMC traffic at `machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266`.
+The `nico-machine-a-tron` Helm subchart configuration is in [`values.base.yaml`](values.base.yaml). The local API and BMC proxy configs point BMC traffic at `nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266`.
 
 Common usage:
 
@@ -123,6 +121,21 @@ devspace deploy -n nico-system
 devspace deploy --skip-build -n nico-system
 devspace deploy --force-build
 ```
+
+To deploy a local DSX Exchange-compatible event bus and enable NICo's managed
+host state publisher, opt in with the `dsx-exchange` profile:
+
+```bash
+devspace deploy --profile dsx-exchange
+```
+
+This profile adds a single-node, unauthenticated NATS MQTT service alongside
+NICo in the local development namespace and publishes managed host state to
+`NICO/v1/machine/<machine-id>/state`. It also republishes current state every
+10 seconds so a local subscriber can observe messages after the initial state
+transitions. The event bus and publisher remain disabled when the profile is
+not selected. The profile does not enable the separate inbound
+`nico-dsx-exchange-consumer`.
 
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 
@@ -163,7 +176,13 @@ docker build -t "nico-bmc-proxy:<devspace-generated-tag>" -f dev/deployment/devs
 docker build -t "machine-a-tron:<devspace-generated-tag>" -f dev/deployment/devspace/Dockerfile.machine-a-tron .
 ```
 
-DevSpace then deploys the Helm chart with the built `nico-api` image wired into `global.image.repository` and `global.image.tag`, the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values, and applies the local-only `machine-a-tron` manifest with its image wired into the `Deployment` spec. The REST images are built from the existing `rest-api/docker/local` Dockerfiles and are passed to the three existing REST Helm charts with the same generated tag.
+DevSpace then deploys the Helm chart with:
+- the built `nico-api` image wired into `global.image.repository` and `global.image.tag`
+- the built `nico-bmc-proxy` image wired into the `nico-bmc-proxy` chart values
+- the built `machine-a-tron` image wired into the `nico-machine-a-tron` chart values
+- certificate issuer settings from the DevSpace environment variables
+
+The REST images are built from the existing `rest-api/docker/local` Dockerfiles and are passed to the three existing REST Helm charts with the same generated tag.
 
 ## Resetting the local environment
 
@@ -175,7 +194,7 @@ Reset the complete local environment by running:
 devspace purge -n nico-system
 ```
 
-When the current context is `kind-<cluster>`, the purge pipeline deletes and recreates that kind cluster with the same node image, then bootstraps clean prerequisites. This removes all Kubernetes state, including the Core and REST databases, Temporal namespaces and history, Vault data, Keycloak data, certificates, site registration, Helm releases, CRDs, and persistent volumes.
+When the current context is `kind-<cluster>`, the purge pipeline deletes and recreates that kind cluster with the same node image, then bootstraps clean prerequisites. This removes all Kubernetes state, including the Core and REST databases, Temporal namespaces and history, Vault data, Keycloak data, certificates, site registration, Helm releases (including machine-a-tron), CRDs, and persistent volumes.
 
 On any other Kubernetes context, the pipeline delegates to DevSpace's default purge behavior. It removes the deployments managed by this project without replacing the cluster or reinstalling separately managed prerequisites.
 

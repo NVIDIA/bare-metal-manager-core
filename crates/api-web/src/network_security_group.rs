@@ -139,9 +139,15 @@ pub async fn show(
             }
         };
 
+    // `limit == 0` is the "All" pagination option: everything on one page.
+    let page = if limit == 0 {
+        PageContext::all(network_security_groups.len(), path.path())
+    } else {
+        PageContext::from_page_count(current_page, limit, pages, path.path())
+    };
     let tmpl = NetworkSecurityGroupShow {
         network_security_groups,
-        page: PageContext::from_page_count(current_page, limit, pages, path.path()),
+        page,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
@@ -165,33 +171,36 @@ async fn fetch_network_security_groups(
         .map(|response| response.into_inner())?
         .network_security_group_ids;
 
-    // Handling the case of getting a nonsensical limit.
-    let limit = if limit == 0 {
-        DEFAULT_PAGE_RECORD_LIMIT
-    } else {
-        limit
-    };
-
     if all_ids.is_empty() {
         return Ok((0, vec![]));
     }
 
-    let pages = all_ids.len().div_ceil(limit);
+    // `limit == 0` means "show all" on a single page.
+    let (pages, ids_for_page): (usize, Vec<_>) = if limit == 0 {
+        (1, all_ids)
+    } else {
+        let pages = all_ids.len().div_ceil(limit);
 
-    let current_record_cnt_seen = current_page.saturating_mul(limit);
+        let current_record_cnt_seen = current_page.saturating_mul(limit);
 
-    // Just handles the other case of someone messing around with the
-    // query params and suddenly setting a limit that makes
-    // current_record_cnt_seen no longer make sense.
-    if current_record_cnt_seen > all_ids.len() {
-        return Ok((pages, vec![]));
-    }
+        // Just handles the other case of someone messing around with the
+        // query params and suddenly setting a limit that makes
+        // current_record_cnt_seen no longer make sense. `>=` (not `>`) so the
+        // first out-of-range page returns early instead of issuing a lookup with
+        // no IDs when the count is an exact multiple of limit.
+        if current_record_cnt_seen >= all_ids.len() {
+            return Ok((pages, vec![]));
+        }
 
-    let ids_for_page = all_ids
-        .into_iter()
-        .skip(current_record_cnt_seen)
-        .take(limit)
-        .collect();
+        (
+            pages,
+            all_ids
+                .into_iter()
+                .skip(current_record_cnt_seen)
+                .take(limit)
+                .collect(),
+        )
+    };
 
     let nsgs = api
         .find_network_security_groups_by_ids(tonic::Request::new(

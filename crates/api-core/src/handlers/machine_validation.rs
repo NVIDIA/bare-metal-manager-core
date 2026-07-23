@@ -90,7 +90,7 @@ pub(crate) async fn mark_machine_validation_complete(
     if machine.id != machine_id {
         tracing::error!(machine_validation_id = %validation_id, machine_id = %machine_id, "Validation ID does not belong to provided Machine ID");
         return Err(CarbideError::InvalidArgument(
-            "Validation ID does not belong to provided Machine ID".to_string(),
+            "validation ID does not belong to provided machine ID".to_string(),
         )
         .into());
     }
@@ -247,7 +247,7 @@ pub(crate) async fn persist_validation_result(
     request: tonic::Request<rpc::MachineValidationResultPostRequest>,
 ) -> Result<tonic::Response<()>, Status> {
     let Some(result) = request.into_inner().result else {
-        return Err(CarbideError::InvalidArgument("Validation Result".to_string()).into());
+        return Err(CarbideError::InvalidArgument("validation result".to_string()).into());
     };
 
     let validation_result: MachineValidationResult = result.try_into()?;
@@ -271,8 +271,21 @@ pub(crate) async fn persist_validation_result(
             return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
         }
     };
-    let machine_validation =
-        db::machine_validation::find_by_id(&mut txn, &validation_result.validation_id).await?;
+    // Acquire the parent-run lock before record_result() touches run-item rows.
+    // Heartbeats and stale-attempt reconciliation use the same parent-run ->
+    // run-item order. Successful results also serialize with the trigger that
+    // increments the parent run's completed count.
+    let machine_validation = db::machine_validation::lock_by_id_no_key_update(
+        &mut txn,
+        &validation_result.validation_id,
+    )
+    .await?
+    .ok_or_else(|| {
+        CarbideError::internal(format!(
+            "validation id {} was found via machine lookup but not by primary key",
+            validation_result.validation_id
+        ))
+    })?;
     if !db::machine_validation::is_active(&machine_validation) {
         tracing::info!(
             machine_validation_id = %validation_result.validation_id,
@@ -372,7 +385,7 @@ pub(crate) async fn get_machine_validation_results(
         None => {
             if machine_id.is_none() {
                 return Err(CarbideError::MissingArgument(
-                    "Validation id or Machine id is required",
+                    "validation id or machine id is required",
                 )
                 .into());
             }
@@ -668,7 +681,7 @@ pub(crate) async fn on_demand_machine_validation(
             )
             .await?
             .ok_or_else(|| {
-                CarbideError::InvalidArgument(format!("Machine id {machine_id} not found."))
+                CarbideError::InvalidArgument(format!("machine id {machine_id} not found"))
             })?;
             if machine
                 .on_demand_machine_validation_request
@@ -751,7 +764,7 @@ pub(crate) async fn on_demand_machine_validation(
         }
         rpc::machine_validation_on_demand_request::Action::Stop => {
             Err(CarbideError::InvalidArgument(
-                "Cannot stop an on-demand validation request".to_string(),
+                "cannot stop an on-demand validation request".to_string(),
             )
             .into())
         }
@@ -856,7 +869,7 @@ pub(crate) async fn add_machine_validation_test(
     )
     .await?;
     if !tests.is_empty() {
-        return Err(CarbideError::InvalidArgument("Name already exists".to_string()).into());
+        return Err(CarbideError::InvalidArgument("name already exists".to_string()).into());
     }
     let version = ConfigVersion::initial();
     let test_id = machine_validation_suites::save(&mut txn, model_req, version).await?;
@@ -987,7 +1000,7 @@ pub(crate) async fn update_machine_validation_run(
 
     let validation_id = req
         .validation_id
-        .ok_or(CarbideError::MissingArgument("Validation id"))?;
+        .ok_or(CarbideError::MissingArgument("validation id"))?;
     let selected_tests = req
         .selected_tests
         .into_iter()

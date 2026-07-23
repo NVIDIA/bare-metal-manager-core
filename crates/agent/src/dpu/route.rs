@@ -130,7 +130,7 @@ impl Route {
 
             std::fs::read_to_string(test_data_dir.join("iproute.json")).map_err(|e| {
                 error!(error = %e, "Could not read iproute.json");
-                eyre::eyre!("Could not read iproute.json: {}", e)
+                eyre::eyre!("could not read iproute.json: {}", e)
             })
         } else {
             let mut cmd = tokio::process::Command::new("bash");
@@ -141,7 +141,7 @@ impl Route {
 
             let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
                 .await
-                .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+                .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
             let fout = String::from_utf8_lossy(&output.stdout).to_string();
             Ok(fout)
@@ -177,7 +177,7 @@ impl Route {
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         if output.status.success() {
@@ -216,7 +216,7 @@ impl Route {
 
         let output = tokio::time::timeout(crate::dpu::COMMAND_TIMEOUT, cmd.output())
             .await
-            .wrap_err_with(|| format!("Timeout while running command: {cmd_str:?}"))??;
+            .wrap_err_with(|| format!("timeout while running command: {cmd_str:?}"))??;
 
         let fout = String::from_utf8_lossy(&output.stdout).to_string();
         if output.status == ExitStatus::from_raw(0) {

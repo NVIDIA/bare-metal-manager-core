@@ -303,7 +303,7 @@ async fn test_retain_bmc_address_pins_dhcp_and_survives_expiry(
         crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
     txn.commit().await?;
     assert!(
-        !deleted,
+        deleted.is_empty(),
         "DHCP-scoped expiry delete should not match a Static address"
     );
     assert_eq!(

@@ -196,7 +196,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             let credentials = self
                 .credential_reader()
                 .get_credentials(&CredentialKey::DpuUefi {
-                    credential_type: CredentialType::DpuHardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::Unknown,
+                    },
                 })
                 .await?
                 .unwrap_or(Credentials::UsernamePassword {
@@ -376,6 +378,53 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .map_err(RedfishClientCreationError::RedfishError)?;
 
         Ok(())
+    }
+
+    /// Whether `credentials` currently authenticate against the BMC, without
+    /// changing anything.
+    ///
+    /// Credential rotation uses this for crash recovery: [`set_bmc_root_password`]
+    /// is a single synchronous change, so a crash after the hardware password
+    /// changed but before the rotation was recorded leaves the device already at
+    /// the rotate-TO value. Re-issuing the change would authenticate fine but set
+    /// the password to the value it already holds -- a same-value change some
+    /// BMCs reject with a password-reuse policy error, which would falsely
+    /// quarantine a device that is in fact converged. This probe lets the engine
+    /// detect "already at target" and converge without that same-value change.
+    ///
+    /// Reads the account collection (`AccountService/Accounts`) through an
+    /// uninitialized `Unknown` client. That endpoint is gated behind login on
+    /// every vendor, and -- unlike `/Systems` -- is served even by factory BMCs
+    /// that answer `403 PasswordChangeRequired` on other resources (the
+    /// [`set_bmc_root_password`] path already reads it to resolve the account id),
+    /// so it verifies authentication without tripping that trap.
+    ///
+    /// Returns `Ok(true)` when the credentials authenticate, `Ok(false)` when the
+    /// BMC rejects them as unauthorized (401/403), and `Err` for a transport or
+    /// other failure the caller should treat as a transient tick error.
+    ///
+    /// [`set_bmc_root_password`]: RedfishClientPool::set_bmc_root_password
+    async fn bmc_credentials_valid(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        credentials: Credentials,
+    ) -> Result<bool, RedfishClientCreationError> {
+        let Credentials::UsernamePassword { username, password } = credentials;
+        let client = self
+            .create_client(
+                host,
+                port,
+                RedfishAuth::Direct(username, password),
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        match client.get_accounts().await {
+            Ok(_) => Ok(true),
+            Err(err) if err.is_unauthorized() => Ok(false),
+            Err(err) => Err(RedfishClientCreationError::RedfishError(err)),
+        }
     }
 
     /// Resolve the precise `RedfishVendor` of a BMC, for callers (e.g.
@@ -865,6 +914,56 @@ mod tests {
                 RedfishClientCreationError::RedfishError(libredfish::RedfishError::MissingVendor)
             ),
             "expected MissingVendor, got {err:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn bmc_credentials_valid_true_when_password_matches() {
+        let sim = RedfishSim::default();
+        sim.set_enforce_auth(true);
+        sim.seed_user("root", "correct");
+
+        let valid = sim
+            .bmc_credentials_valid("127.0.0.1", Some(443), Credentials::new("root", "correct"))
+            .await
+            .expect("a matching credential must not raise a transport error");
+
+        assert!(valid, "the seeded password must authenticate");
+    }
+
+    #[tokio::test]
+    async fn bmc_credentials_valid_false_when_password_wrong() {
+        let sim = RedfishSim::default();
+        sim.set_enforce_auth(true);
+        sim.seed_user("root", "correct");
+
+        let valid = sim
+            .bmc_credentials_valid("127.0.0.1", Some(443), Credentials::new("root", "stale"))
+            .await
+            .expect("an unauthorized rejection must be reported as Ok(false), not an error");
+
+        assert!(!valid, "a wrong password must be reported as not valid");
+    }
+
+    #[tokio::test]
+    async fn bmc_credentials_valid_propagates_transport_error() {
+        let sim = RedfishSim::default();
+        sim.seed_user("root", "correct");
+        // A non-authentication failure (503) must surface as an error rather than
+        // being misread as a definitive "credentials are invalid" (Ok(false)).
+        sim.set_get_accounts_error(true);
+
+        let err = sim
+            .bmc_credentials_valid("127.0.0.1", Some(443), Credentials::new("root", "correct"))
+            .await
+            .expect_err("a non-auth transport failure must propagate as an error");
+
+        assert!(
+            matches!(
+                err,
+                RedfishClientCreationError::RedfishError(ref e) if !e.is_unauthorized()
+            ),
+            "expected a non-unauthorized RedfishError, got {err:?}",
         );
     }
 }

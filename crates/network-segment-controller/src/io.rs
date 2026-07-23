@@ -76,7 +76,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
                 "db::network_segment::find()",
                 sqlx::Error::Decode(
                     eyre::eyre!(
-                        "Searching for NetworkSegment {} returned multiple results",
+                        "searching for NetworkSegment {} returned multiple results",
                         segment_id
                     )
                     .into(),

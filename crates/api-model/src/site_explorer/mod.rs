@@ -817,7 +817,7 @@ impl EndpointExplorationReport {
         }
     }
 
-    pub fn nic_mode(&self) -> Option<NicMode> {
+    pub fn bluefield_operating_mode(&self) -> Option<BlueFieldOperatingMode> {
         if self.is_dpu() && !self.systems.is_empty() {
             self.systems[0].attributes.nic_mode
         } else {
@@ -1176,22 +1176,22 @@ pub enum EndpointExplorationError {
     /// a DPU doesn't expose a Redfish API, you will see ConnectionRefused. This
     /// is ultimately tripped by a reqwest is_connect error in the current
     /// implementation.
-    #[error("The connection to the endpoint was refused: {details:?}")]
+    #[error("the connection to the endpoint was refused: {details:?}")]
     #[serde(rename_all = "PascalCase")]
     ConnectionRefused { details: String },
     /// Some other generic error happened while attempting to connect
     /// and make a request (or receive a response) from the endpoint
     /// which was not otherwise handled by connection timeout or
     /// connection refused handlers.
-    #[error("The endpoint was not reachable due to a generic network issue: {details:?}")]
+    #[error("the endpoint was not reachable due to a generic network issue: {details:?}")]
     #[serde(rename_all = "PascalCase")]
     Unreachable { details: Option<String> },
     /// A Redfish variant we don't support, typically a new vendor
-    #[error("Redfish vendor '{vendor}' not supported")]
+    #[error("redfish vendor '{vendor}' not supported")]
     UnsupportedVendor { vendor: String },
     /// A generic redfish error. No additional details are available
     #[error(
-        "Error while performing Redfish request: {details}: {response_body:?} (response code: {response_code:?})"
+        "error while performing redfish request: {details}: {response_body:?} (response code: {response_code:?})"
     )]
     #[serde(rename_all = "PascalCase")]
     RedfishError {
@@ -1200,29 +1200,29 @@ pub enum EndpointExplorationError {
         response_code: Option<u16>,
     },
     /// The endpoint returned a 401 Unauthorized or 403 Forbidden Status
-    #[error("Unauthorized: {details}")]
+    #[error("unauthorized: {details}")]
     #[serde(rename_all = "PascalCase")]
     Unauthorized {
         details: String,
         response_body: Option<String>,
         response_code: Option<u16>,
     },
-    #[error("Missing credential {key}")]
+    #[error("missing credential {key}")]
     MissingCredentials {
         #[serde(default)]
         key: String,
         cause: String,
     },
-    #[error("Secrets engine error occurred: {cause}")]
+    #[error("secrets engine error occurred: {cause}")]
     SecretsEngineError {
         #[serde(default)]
         cause: String,
     },
-    #[error("Failed setting credential {key}: {cause}")]
+    #[error("failed setting credential {key}: {cause}")]
     SetCredentials { key: String, cause: String },
     /// Deprecated. Replaced by `RedfishError`.
     /// This field just exists here until site-explorer updates existing records
-    #[error("Endpoint is not a BMC with Redfish support at the specified URI")]
+    #[error("endpoint is not a BMC with redfish support at the specified URI")]
     MissingRedfish { uri: Option<String> },
     /// The BMC's Redfish ServiceRoot (`/redfish/v1`) did not yield a vendor we
     /// recognize. `observed` is the raw vendor string we read from the root —
@@ -1231,18 +1231,18 @@ pub enum EndpointExplorationError {
     /// initializing/syncing (exploration will retry). `Some(value)` means the BMC
     /// reported a vendor we don't support yet — `value` is what it sent.
     #[error(
-        "BMC ServiceRoot (/redfish/v1) did not report a recognized vendor (observed Vendor/Oem = {observed:?}); an empty value usually means the BMC is still initializing and exploration will retry"
+        "BMC ServiceRoot (/redfish/v1) did not report a recognized vendor (observed vendor/oem = {observed:?}); an empty value usually means the BMC is still initializing and exploration will retry"
     )]
     MissingVendor {
         #[serde(default)]
         observed: Option<String>,
     },
     #[error(
-        "Site explorer will not explore this endpoint to avoid lockout: it could not login previously"
+        "site explorer will not explore this endpoint to avoid lockout: it could not login previously"
     )]
     AvoidLockout,
     /// An error which is not further detailed
-    #[error("Error: {details}")]
+    #[error("error: {details}")]
     #[serde(rename_all = "PascalCase")]
     Other { details: String },
 
@@ -1258,7 +1258,7 @@ pub enum EndpointExplorationError {
         response_code: Option<u16>,
     },
 
-    #[error("Invalid Redfish response for DPU BIOS: {details}")]
+    #[error("invalid redfish response for DPU BIOS: {details}")]
     #[serde(rename_all = "PascalCase")]
     InvalidDpuRedfishBiosResponse {
         details: String,
@@ -1270,7 +1270,7 @@ pub enum EndpointExplorationError {
     /// credentials are already set. This is a transient error that should be
     /// retried rather than triggering AvoidLockout behavior.
     /// After `consecutive_count` reaches the threshold, escalates to regular Unauthorized.
-    #[error("Intermittent unauthorized error (attempt {consecutive_count}): {details}")]
+    #[error("intermittent unauthorized error (attempt {consecutive_count}): {details}")]
     #[serde(rename_all = "PascalCase")]
     IntermittentUnauthorized {
         details: String,
@@ -1427,7 +1427,7 @@ pub enum EndpointType {
 #[derive(Clone, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ComputerSystemAttributes {
-    pub nic_mode: Option<NicMode>,
+    pub nic_mode: Option<BlueFieldOperatingMode>,
     pub is_infinite_boot_enabled: Option<bool>,
 }
 
@@ -1496,6 +1496,8 @@ pub struct Manager {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ethernet_interfaces: Vec<EthernetInterface>,
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ipmi_port: Option<u16>,
 }
 
 /// `EthernetInterface` definition. Matches redfish definition
@@ -1730,15 +1732,19 @@ impl From<Option<bool>> for MachineExpectation {
     }
 }
 
+/// The operating mode reported by a BlueField device.
+///
+/// This is observed hardware state, not the policy NICo applies to the host;
+/// see [`crate::expected_machine::HostDpuPolicy`] for the desired behavior.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub enum NicMode {
+pub enum BlueFieldOperatingMode {
     #[serde(rename = "DpuMode", alias = "Dpu")]
     Dpu,
     #[serde(rename = "NicMode", alias = "Nic")]
     Nic,
 }
 
-impl Display for NicMode {
+impl Display for BlueFieldOperatingMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
     }
@@ -1932,7 +1938,7 @@ pub struct ExploredMlxDevice {
     /// `device_kind` is its factory SKU, and the two legitimately differ for a
     /// DPU reconfigured to run as a NIC.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nic_mode: Option<NicMode>,
+    pub nic_mode: Option<BlueFieldOperatingMode>,
 }
 
 impl EndpointExplorationReport {
@@ -2057,7 +2063,7 @@ pub fn collect_explored_mlx_devices(endpoints: &[ExploredEndpoint]) -> Vec<Explo
                 .and_then(|serial| dpu_by_serial.get(serial))
             {
                 device.dpu_bmc_ip = Some(dpu_ep.address);
-                device.nic_mode = dpu_ep.report.nic_mode();
+                device.nic_mode = dpu_ep.report.bluefield_operating_mode();
             }
             device
         })
@@ -2352,7 +2358,7 @@ mod explored_mlx_device_tests {
                     id: "Bluefield".to_string(),
                     serial_number: Some("MT2403X00984".to_string()),
                     attributes: ComputerSystemAttributes {
-                        nic_mode: Some(NicMode::Nic),
+                        nic_mode: Some(BlueFieldOperatingMode::Nic),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -2381,7 +2387,7 @@ mod explored_mlx_device_tests {
             nic_dpu.dpu_bmc_ip,
             Some("192.0.2.50".parse::<IpAddr>().unwrap())
         );
-        assert_eq!(nic_dpu.nic_mode, Some(NicMode::Nic));
+        assert_eq!(nic_dpu.nic_mode, Some(BlueFieldOperatingMode::Nic));
 
         let supernic = &devices[1];
         assert_eq!(supernic.device_kind, MlxDeviceKind::Bf3SuperNic);
@@ -2454,7 +2460,7 @@ mod explored_mlx_device_tests {
                         id: "Bluefield".to_string(),
                         serial_number: Some(serial.to_string()),
                         attributes: ComputerSystemAttributes {
-                            nic_mode: Some(NicMode::Nic),
+                            nic_mode: Some(BlueFieldOperatingMode::Nic),
                             ..Default::default()
                         },
                         ..Default::default()
@@ -2509,6 +2515,37 @@ mod tests {
     use super::*;
     use crate::firmware::FirmwareComponent;
     use crate::machine::machine_id::from_hardware_info;
+
+    #[test]
+    fn bluefield_operating_mode_preserves_legacy_serialized_values() {
+        scenarios!(
+            run = |json| serde_json::from_str::<BlueFieldOperatingMode>(json).map_err(drop);
+            "DPU mode canonical value" {
+                r#""DpuMode""# => Yields(BlueFieldOperatingMode::Dpu),
+            }
+
+            "DPU mode alias" {
+                r#""Dpu""# => Yields(BlueFieldOperatingMode::Dpu),
+            }
+
+            "NIC mode canonical value" {
+                r#""NicMode""# => Yields(BlueFieldOperatingMode::Nic),
+            }
+
+            "NIC mode alias" {
+                r#""Nic""# => Yields(BlueFieldOperatingMode::Nic),
+            }
+        );
+
+        assert_eq!(
+            serde_json::to_string(&BlueFieldOperatingMode::Dpu).unwrap(),
+            r#""DpuMode""#
+        );
+        assert_eq!(
+            serde_json::to_string(&BlueFieldOperatingMode::Nic).unwrap(),
+            r#""NicMode""#
+        );
+    }
 
     fn create_test_firmware(firmware_type: FirmwareComponentType, regex_pattern: &str) -> Firmware {
         let mut components = HashMap::new();
@@ -2587,7 +2624,7 @@ mod tests {
         assert!(
             schema
                 .text
-                .contains("Invalid Redfish response for DPU BIOS")
+                .contains("invalid redfish response for DPU BIOS")
         );
     }
 
@@ -2900,6 +2937,7 @@ mod tests {
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
                 id: "bmc".to_string(),
+                ipmi_port: None,
             }],
             systems: vec![ComputerSystem {
                 ethernet_interfaces: vec![],
@@ -2908,7 +2946,7 @@ mod tests {
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
-                    nic_mode: Some(NicMode::Dpu),
+                    nic_mode: Some(BlueFieldOperatingMode::Dpu),
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],
@@ -2971,6 +3009,7 @@ mod tests {
             managers: vec![Manager {
                 ethernet_interfaces: vec![],
                 id: "bmc".to_string(),
+                ipmi_port: None,
             }],
             systems: vec![ComputerSystem {
                 ethernet_interfaces: vec![],
@@ -2979,7 +3018,7 @@ mod tests {
                 model: None,
                 serial_number: Some("MT2242XZ00NX".to_string()),
                 attributes: ComputerSystemAttributes {
-                    nic_mode: Some(NicMode::Dpu),
+                    nic_mode: Some(BlueFieldOperatingMode::Dpu),
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![],

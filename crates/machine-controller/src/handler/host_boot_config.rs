@@ -402,6 +402,7 @@ fn next_boot_config_retry_count(retry_count: u32, max_retries: u32) -> Option<u3
 pub(super) fn should_skip_boot_order_remediation(mh_snapshot: &ManagedHostStateSnapshot) -> bool {
     mh_snapshot
         .host_snapshot
+        .status
         .hardware_info
         .as_ref()
         .is_some_and(|hw| hw.is_dgx_h100())
@@ -423,7 +424,8 @@ async fn should_wait_for_dpus_before_host_boot_config(
             !are_dpus_up_trigger_reboot_if_needed(mh_snapshot, reachability_params, ctx).await
         }
         HostBootConfigDpuFreshness::SinceLastHostRebootRequest => {
-            let Some(last_reboot_requested) = mh_snapshot.host_snapshot.last_reboot_requested
+            let Some(last_reboot_requested) =
+                mh_snapshot.host_snapshot.status.last_reboot_requested
             else {
                 tracing::warn!(
                     machine_id = %mh_snapshot.host_snapshot.id,

@@ -83,7 +83,8 @@ pub trait DataSink: Send + Sync {
 /// the report sinks' submission workers for every completed attempt.
 #[derive(carbide_instrument::Event)]
 #[event(
-    name = "carbide_health_report_submissions_total",
+    event_name = "health_report_submission_completed",
+    metric_name = "carbide_health_report_submissions_total",
     component = "nico-hardware-health",
     log = dynamic,
     metric = counter,
@@ -362,9 +363,11 @@ mod tests {
             },
             collector_type: "test",
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                    .parse()
-                    .expect("valid machine id"),
+                machine_id: Some(
+                    "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                        .parse()
+                        .expect("valid machine id"),
+                ),
                 machine_serial: None,
                 slot_number: None,
                 tray_index: None,
@@ -435,9 +438,11 @@ mod tests {
             },
             collector_type: "sensor_collector",
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                    .parse()
-                    .expect("valid machine id"),
+                machine_id: Some(
+                    "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                        .parse()
+                        .expect("valid machine id"),
+                ),
                 machine_serial: None,
                 slot_number: None,
                 tray_index: None,
@@ -491,9 +496,11 @@ mod tests {
             },
             collector_type: "sensor_collector",
             metadata: Some(EndpointMetadata::Machine(MachineData {
-                machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                    .parse()
-                    .expect("valid machine id"),
+                machine_id: Some(
+                    "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                        .parse()
+                        .expect("valid machine id"),
+                ),
                 machine_serial: None,
                 slot_number: None,
                 tray_index: None,
