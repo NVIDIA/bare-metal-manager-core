@@ -2510,7 +2510,9 @@ mod explored_mlx_device_tests {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
+    use carbide_test_support::{
+        Case, Check, check_cases, check_values, scenarios, value_scenarios,
+    };
 
     use super::*;
     use crate::firmware::FirmwareComponent;
@@ -2758,59 +2760,75 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_find_all_versions_single_match() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware", Some("1.2.3")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0], &"1.2.3".to_string());
+    struct FindAllVersionsInput {
+        regex_pattern: &'static str,
+        inventories: Vec<(&'static str, Option<&'static str>)>,
     }
 
     #[test]
-    fn test_find_all_versions_multiple_matches() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware_1", Some("1.2.3")),
-            ("BMC_Firmware_2", Some("2.3.4")),
-            ("BMC_Firmware_3", Some("3.4.5")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
+    fn find_all_versions_returns_each_populated_match() {
+        check_values(
+            [
+                Check {
+                    scenario: "anchored pattern returns its exact match",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"^BMC_Firmware$",
+                        inventories: vec![
+                            ("BMC_Firmware", Some("1.2.3")),
+                            ("DPU_UEFI", Some("4.5.6")),
+                        ],
+                    },
+                    expect: vec!["1.2.3".to_string()],
+                },
+                Check {
+                    scenario: "returns matching versions in inventory order",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"BMC_Firmware",
+                        inventories: vec![
+                            ("BMC_Firmware_1", Some("1.2.3")),
+                            ("BMC_Firmware_2", Some("2.3.4")),
+                            ("BMC_Firmware_3", Some("3.4.5")),
+                            ("DPU_UEFI", Some("4.5.6")),
+                        ],
+                    },
+                    expect: vec![
+                        "1.2.3".to_string(),
+                        "2.3.4".to_string(),
+                        "3.4.5".to_string(),
+                    ],
+                },
+                Check {
+                    scenario: "returns no versions when no inventory matches",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"^BMC_Firmware$",
+                        inventories: vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))],
+                    },
+                    expect: Vec::new(),
+                },
+                Check {
+                    scenario: "skips a matching inventory without a version",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"BMC_Firmware",
+                        inventories: vec![
+                            ("BMC_Firmware_1", Some("1.2.3")),
+                            ("BMC_Firmware_2", None),
+                            ("BMC_Firmware_3", Some("3.4.5")),
+                        ],
+                    },
+                    expect: vec!["1.2.3".to_string(), "3.4.5".to_string()],
+                },
+            ],
+            |input| {
+                let fw_info = create_test_firmware(FirmwareComponentType::Bmc, input.regex_pattern);
+                let endpoint = create_test_endpoint(input.inventories);
 
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0], &"1.2.3".to_string());
-        assert_eq!(results[1], &"2.3.4".to_string());
-        assert_eq!(results[2], &"3.4.5".to_string());
-    }
-
-    #[test]
-    fn test_find_all_versions_no_matches() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint =
-            create_test_endpoint(vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn test_find_all_versions_skips_none() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware_1", Some("1.2.3")),
-            ("BMC_Firmware_2", None),
-            ("BMC_Firmware_3", Some("3.4.5")),
-        ]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0], &"1.2.3".to_string());
-        assert_eq!(results[1], &"3.4.5".to_string());
+                endpoint
+                    .find_all_versions(&fw_info, FirmwareComponentType::Bmc)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            },
+        );
     }
 
     #[test]
