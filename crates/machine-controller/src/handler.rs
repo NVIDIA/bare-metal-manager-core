@@ -9917,18 +9917,37 @@ fn handler_restart_dpu(
     dpf_used_for_ingestion: bool,
 ) -> impl Future<Output = Result<(), StateHandlerError>> {
     let trigger_location = std::panic::Location::caller();
-    tracing::info!(
-        dpu_machine_id = %machine.id,
-        %trigger_location,
-        "DPU restart triggered"
-    );
-    ctx.pending_db_writes
-        .push(MachineWriteOp::UpdateRebootRequestedTime {
-            machine_id: machine.id,
-            mode: model::machine::MachineLastRebootRequestedMode::Reboot,
-            time: Utc::now(),
-        });
-    restart_dpu(machine, ctx.services, dpf_used_for_ingestion)
+    async move {
+        tracing::info!(
+            dpu_machine_id = %machine.id,
+            %trigger_location,
+            "Attempting DPU restart"
+        );
+
+        if let Err(error) = restart_dpu(machine, ctx.services, dpf_used_for_ingestion).await {
+            tracing::error!(
+                dpu_machine_id = %machine.id,
+                %trigger_location,
+                error = %error,
+                "DPU restart failed"
+            );
+            return Err(error);
+        }
+
+        ctx.pending_db_writes
+            .push(MachineWriteOp::UpdateRebootRequestedTime {
+                machine_id: machine.id,
+                mode: model::machine::MachineLastRebootRequestedMode::Reboot,
+                time: Utc::now(),
+            });
+        tracing::info!(
+            dpu_machine_id = %machine.id,
+            %trigger_location,
+            "DPU restart triggered"
+        );
+
+        Ok(())
+    }
 }
 
 pub async fn host_power_state(
@@ -10585,13 +10604,10 @@ async fn restart_dpu(
             });
     }
 
-    if let Err(e) = dpu_redfish_client
+    dpu_redfish_client
         .power(SystemPowerControl::ForceRestart)
         .await
-    {
-        tracing::error!(error = %e, "Failed to reboot a DPU");
-        return Err(redfish_error("reboot dpu", e));
-    }
+        .map_err(|error| redfish_error("reboot dpu", error))?;
 
     Ok(())
 }
