@@ -62,6 +62,7 @@ struct PendingReWrap {
 /// completely.
 /// TODO(@chet): Migrate this to using WorkLockManager to do scoped locks of
 /// work without holding open a database connection or transaction.
+#[allow(txn_held_across_await)]
 pub async fn re_wrap_stale(
     pool: &PgPool,
     kms: &dyn KmsBackend,
