@@ -866,7 +866,11 @@ mod tests {
             let result = resolve_network_config(case.custom_cloud_init);
 
             if case.expect_default {
-                assert_eq!(result, DEFAULT_NETWORK_CONFIG, "case '{}' failed", case.name);
+                assert_eq!(
+                    result, DEFAULT_NETWORK_CONFIG,
+                    "case '{}' failed",
+                    case.name
+                );
             } else {
                 let parsed: serde_yaml::Value = serde_yaml::from_str(&result).unwrap_or_else(|e| {
                     panic!("case '{}': result was not valid YAML: {}", case.name, e)
