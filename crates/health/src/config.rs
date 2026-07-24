@@ -1852,7 +1852,7 @@ mod tests {
 
     fn static_machine() -> StaticMachineEndpoint {
         StaticMachineEndpoint {
-            id: "machine-id".to_string(),
+            id: Some("machine-id".to_string()),
             serial: None,
             driver_version: None,
             slot_number: None,
