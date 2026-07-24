@@ -6,6 +6,9 @@ package cli
 import (
 	"bytes"
 	"flag"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,6 +155,7 @@ func TestOperationAction(t *testing.T) {
 		{"get-jwks", "get"},
 		{"get-spiffe-jwks", "get"},
 		{"get-openid-configuration", "get"},
+		{"start-machine-validation-on-demand", "start"},
 	}
 
 	for _, tt := range tests {
@@ -189,6 +193,7 @@ func TestExtractResourceSuffix(t *testing.T) {
 		{"get-jwks", "jwks"},
 		{"get-spiffe-jwks", "spiffe-jwks"},
 		{"get-openid-configuration", "openid-configuration"},
+		{"start-machine-validation-on-demand", "machine-validation-on-demand"},
 	}
 
 	for _, tt := range tests {
@@ -989,6 +994,66 @@ func TestBuildCommands_AllocationConstraintIsUpdateOnly(t *testing.T) {
 	assert.Equal(t, []string{"update"}, actions,
 		"allocation constraint must expose only `update`; create/get/list/delete were "+
 			"removed from the OpenAPI spec because the server never registered those routes (NVBug 6232163)")
+}
+
+func TestNewApp_MachineValidationStartCommandSurface(t *testing.T) {
+	app, err := NewApp(openapi.Spec)
+	require.NoError(t, err)
+
+	var machineValidation *cli.Command
+	for _, command := range app.Commands {
+		if command.Name == "machine-validation" {
+			machineValidation = command
+			break
+		}
+	}
+	require.NotNil(t, machineValidation, "Machine validation must be exposed by the embedded OpenAPI spec")
+
+	var start *cli.Command
+	for _, command := range machineValidation.Subcommands {
+		if command.Name == "start" {
+			start = command
+			break
+		}
+	}
+	require.NotNil(t, start, "Machine validation must expose a start command")
+	assert.Equal(t, "nicocli machine-validation start [command options] <machineId>", start.UsageText)
+}
+
+func TestNewApp_MachineValidationStartExecutesRESTRequest(t *testing.T) {
+	var method, path, authorization, body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		method = request.Method
+		path = request.URL.Path
+		authorization = request.Header.Get("Authorization")
+		requestBody, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		body = string(requestBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, err = w.Write([]byte(`{"validationId":"validation-1"}`))
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	app, err := NewApp(openapi.Spec)
+	require.NoError(t, err)
+
+	err = app.Run([]string{
+		"nicocli",
+		"--base-url", server.URL,
+		"--org", "test-org",
+		"--api-name", "nico",
+		"--token", "test-token",
+		"machine-validation", "start",
+		"--data", `{"allowedTests":["gpu_bandwidth"],"runUnverifiedTests":true}`,
+		"machine-1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, method)
+	assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/validation/on-demand", path)
+	assert.Equal(t, "Bearer test-token", authorization)
+	assert.JSONEq(t, `{"allowedTests":["gpu_bandwidth"],"runUnverifiedTests":true}`, body)
 }
 
 // sortStrings is a tiny stable sort used by the order-independence test so it

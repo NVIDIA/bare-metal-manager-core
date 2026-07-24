@@ -218,6 +218,9 @@ tags:
   - name: Machine
     description: |-
       Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
+  - name: Machine Validation
+    description: |-
+      Machine Validation runs hardware validation tests on demand for a Machine.
   - name: BMC Reset
     x-displayName: BMC Reset
     description: |-
@@ -9941,6 +9944,49 @@ paths:
         Execute power control actions for a specific Machine.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/on-demand':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    post:
+      summary: Start on-demand Machine validation
+      tags:
+        - Machine Validation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MachineValidationOnDemandRequest'
+      responses:
+        '202':
+          description: On-demand Machine validation request was accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MachineValidationOnDemandResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: start-machine-validation-on-demand
+      description: |-
+        Start an on-demand Machine validation run. The Machine must be in a state accepted by NICo Core.
+
+        Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -15444,6 +15490,40 @@ components:
       examples:
         - action: ForceRestart
           acknowledgeAttachedInstance: true
+    MachineValidationOnDemandRequest:
+      type: object
+      title: MachineValidationOnDemandRequest
+      description: Optional filters for an on-demand Machine validation run
+      properties:
+        tags:
+          type: array
+          description: Tags used to select validation tests.
+          items:
+            type: string
+        allowedTests:
+          type: array
+          description: Validation test names allowed for this run.
+          items:
+            type: string
+        runUnverifiedTests:
+          type: boolean
+          description: Whether unverified validation tests may run.
+          default: false
+        contexts:
+          type: array
+          description: Contexts used to select validation tests.
+          items:
+            type: string
+    MachineValidationOnDemandResponse:
+      type: object
+      title: MachineValidationOnDemandResponse
+      description: Accepted on-demand Machine validation run
+      required:
+        - validationId
+      properties:
+        validationId:
+          type: string
+          description: ID of the accepted Machine validation run.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object
