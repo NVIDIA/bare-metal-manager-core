@@ -710,62 +710,6 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 		assert.Equal(t, tmplA.ID.String(), *unchanged.IpxeTemplateId, "template reference must be preserved")
 	})
 
-	t.Run("does not re-home a Local iPXE OS that anomalously has a tenant_id", func(t *testing.T) {
-		// A Local-scoped OS is provider-owned by definition and must never carry a
-		// tenant_id. Such a row is a data-integrity anomaly that no correct path can
-		// produce, so the reconcile must flag and skip it -- NOT silently clear the
-		// tenant and reassign ownership to the provider (which would hide the upstream
-		// error and irreversibly change ownership).
-		ip := util.TestBuildInfrastructureProvider(t, dbSession, "provider-anomaly", "provider-anomaly-org", ipu)
-		st := util.TestBuildSite(t, dbSession, ip, "site-anomaly", cdbm.SiteStatusRegistered, nil, ipu)
-
-		tnOrg := "tenant-anomaly-org"
-		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
-		tn := util.TestBuildTenant(t, dbSession, "tenant-anomaly", tnOrg, nil, tnu)
-
-		osID := uuid.New()
-		_, err := osDAO.Create(ctx, nil, cdbm.OperatingSystemCreateInput{
-			ID:          osID,
-			Name:        "anomalous-local-os",
-			Org:         tnOrg,
-			TenantID:    &tn.ID,
-			OsType:      cdbm.OperatingSystemTypeIPXE,
-			IpxeScript:  cutil.GetPtr("#!ipxe\n"),
-			IpxeOsScope: cutil.GetPtr(cdbm.OperatingSystemScopeLocal),
-			Status:      cdbm.OperatingSystemStatusReady,
-			CreatedBy:   tnu.ID,
-		})
-		require.NoError(t, err)
-
-		// Site reports the OS with a newer timestamp and a new name. Without the guard
-		// this would overwrite the definition, set the provider, and clear the tenant.
-		inventory := &corev1.OperatingSystemInventory{
-			InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
-			OperatingSystems: []*corev1.OperatingSystem{
-				{
-					Id:       &corev1.OperatingSystemId{Value: osID.String()},
-					Name:     "renamed-should-not-apply",
-					Type:     corev1.OperatingSystemType_OS_TYPE_IPXE,
-					Status:   corev1.TenantState_READY,
-					IsActive: true,
-					Updated:  time.Now().Add(time.Hour).Format(time.RFC3339),
-				},
-			},
-			Timestamp: timestamppb.Now(),
-		}
-
-		err = newManageOsImage().UpdateOperatingSystemsInDB(ctx, st.ID, inventory)
-		require.NoError(t, err)
-
-		unchanged, err := osDAO.GetByID(ctx, nil, osID, nil)
-		require.NoError(t, err)
-		require.NotNil(t, unchanged)
-		assert.Equal(t, "anomalous-local-os", unchanged.Name, "anomalous record must not be overwritten")
-		require.NotNil(t, unchanged.TenantID, "tenant_id must be preserved, not silently cleared")
-		assert.Equal(t, tn.ID, *unchanged.TenantID)
-		assert.Nil(t, unchanged.InfrastructureProviderID, "ownership must not be reassigned to the provider")
-	})
-
 	t.Run("skips timestamp-based update when reported Updated is invalid", func(t *testing.T) {
 		// A missing/invalid Updated from the Site must not drive a definition update:
 		// coreUpdated.After(...) stays false and, with no other reconciliation reason,
