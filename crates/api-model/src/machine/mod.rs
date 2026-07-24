@@ -2244,6 +2244,7 @@ impl FailureCause {
             FailureCause::MeasurementsCAValidationFailed { .. } => {
                 "measurements_ca_validation_failed"
             }
+            FailureCause::MeasurementsNotReceived { .. } => "measurements_not_received",
             FailureCause::DpfProvisioning { .. } => "dpf_provisioning",
             FailureCause::SpdmAttestationFailed { .. } => "spdm_attestation_failed",
             FailureCause::BiosSetupFailed { .. } => "bios_setup_failed",
