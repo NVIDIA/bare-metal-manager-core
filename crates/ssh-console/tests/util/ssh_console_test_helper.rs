@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use eyre::Context;
@@ -41,22 +41,8 @@ pub async fn spawn(
     carbide_port: u16,
     config_overrides: Option<ConfigOverrides>,
 ) -> eyre::Result<NewSshConsoleHandle> {
-    let listen_address = {
-        // Pick an open port
-        let l = TcpListener::bind("127.0.0.1:0")?;
-        l.local_addr()?
-            .to_socket_addrs()?
-            .next()
-            .expect("No socket available")
-    };
-    let metrics_address = {
-        // Pick an open port
-        let l = TcpListener::bind("127.0.0.1:0")?;
-        l.local_addr()?
-            .to_socket_addrs()?
-            .next()
-            .expect("No socket available")
-    };
+    let listen_address = "127.0.0.1:0".parse().expect("Invalid listen address");
+    let metrics_address = "127.0.0.1:0".parse().expect("Invalid metrics address");
 
     let logs_dir = TempDir::new().context("error creating temp dir for console logs")?;
 
@@ -108,6 +94,8 @@ pub async fn spawn(
     };
 
     let spawn_handle = ssh_console::spawn(config).await?;
+    let listen_address = spawn_handle.listen_address();
+    let metrics_address = spawn_handle.metrics_address();
 
     Ok(NewSshConsoleHandle {
         addr: listen_address,
