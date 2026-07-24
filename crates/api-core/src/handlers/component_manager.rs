@@ -721,25 +721,25 @@ fn is_rack_scale_server(machine: &Machine) -> bool {
         .is_some_and(|hw| hw.is_mnnvl_capable())
 }
 
-/// Splits the requested compute machines into two lists: rack-scale and standalone servers.
-/// Rack-scale systems go through the rack-level state controller maintenance flow
-//  Standalone servers use the existing host reprovisioning firmware path.
-async fn partition_compute_machines_by_rack_scale(
-    api: &Api,
+/// Splits already-loaded compute machines into rack-scale and standalone lists.
+/// Rack-scale systems go through the rack-level state controller maintenance flow.
+/// Standalone servers use the existing host reprovisioning firmware path.
+///
+/// Unknown ids are a hard error here (firmware path); power control collects
+/// them as per-machine results instead via [`machine_is_rack_scale`].
+fn partition_loaded_compute_machines_by_rack_scale(
+    machines_by_id: &HashMap<MachineId, Machine>,
     machine_ids: &[MachineId],
 ) -> Result<(Vec<MachineId>, Vec<MachineId>), Status> {
-    let machines_by_id = load_machines_by_id(api, machine_ids).await?;
-
     let mut rack_scale = Vec::new();
     let mut standalone = Vec::new();
     for &machine_id in machine_ids {
-        if machine_is_rack_scale(&machines_by_id, machine_id)? {
+        if machine_is_rack_scale(machines_by_id, machine_id)? {
             rack_scale.push(machine_id);
         } else {
             standalone.push(machine_id);
         }
     }
-
     Ok((rack_scale, standalone))
 }
 
@@ -1254,26 +1254,21 @@ struct ComputeTrayEndpoints {
     unresolved: Vec<UnresolvedDevice<carbide_uuid::machine::MachineId>>,
 }
 
-async fn resolve_compute_tray_endpoints(
-    api: &Api,
-    machine_ids: &[carbide_uuid::machine::MachineId],
-) -> Result<ComputeTrayEndpoints, Status> {
-    let machines = db::machine::find(
-        api.db_reader().as_mut(),
-        db::ObjectFilter::List(machine_ids),
-        MachineSearchConfig::default(),
-    )
-    .await
-    .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
-
-    let machine_by_id: HashMap<_, _> = machines.into_iter().map(|m| (m.id, m)).collect();
-
+/// Resolve BMC endpoints from an already-loaded machine map.
+///
+/// Callers that previously loaded machines for classification (power / firmware
+/// partition) reuse that map here so the machine table is not queried again.
+async fn resolve_compute_tray_endpoints_from_machines(
+    credential_manager: &dyn CredentialManager,
+    machines_by_id: &HashMap<MachineId, Machine>,
+    machine_ids: &[MachineId],
+) -> ComputeTrayEndpoints {
     let mut endpoints = Vec::with_capacity(machine_ids.len());
     let mut ip_to_machine_id = HashMap::with_capacity(machine_ids.len());
     let mut unresolved = Vec::new();
 
     for &machine_id in machine_ids {
-        let Some(machine) = machine_by_id.get(&machine_id) else {
+        let Some(machine) = machines_by_id.get(&machine_id) else {
             unresolved.push(UnresolvedDevice {
                 id: machine_id,
                 reason: "machine not found in database".into(),
@@ -1297,21 +1292,17 @@ async fn resolve_compute_tray_endpoints(
             continue;
         };
 
-        let bmc_credentials = match fetch_compute_tray_bmc_credentials(
-            api.credential_manager.as_ref(),
-            bmc_mac,
-        )
-        .await
-        {
-            Ok(c) => c,
-            Err(e) => {
-                unresolved.push(UnresolvedDevice {
-                    id: machine_id,
-                    reason: format!("BMC credentials unavailable: {e}"),
-                });
-                continue;
-            }
-        };
+        let bmc_credentials =
+            match fetch_compute_tray_bmc_credentials(credential_manager, bmc_mac).await {
+                Ok(c) => c,
+                Err(e) => {
+                    unresolved.push(UnresolvedDevice {
+                        id: machine_id,
+                        reason: format!("BMC credentials unavailable: {e}"),
+                    });
+                    continue;
+                }
+            };
 
         let vendor = map_bmc_vendor_to_compute_tray(machine.bmc_vendor());
 
@@ -1330,13 +1321,13 @@ async fn resolve_compute_tray_endpoints(
         );
     }
 
-    Ok(ComputeTrayEndpoints {
+    ComputeTrayEndpoints {
         resolved: ResolvedComputeTrayEndpoints {
             endpoints,
             ip_to_machine_id,
         },
         unresolved,
-    })
+    }
 }
 
 fn switch_mac_to_id_str(mac: &MacAddress, mac_to_id: &HashMap<MacAddress, SwitchId>) -> String {
@@ -1770,6 +1761,7 @@ pub(crate) async fn component_power_control(
                     match dispatch_compute_tray_power_control(
                         api,
                         cm.compute_tray.as_ref(),
+                        &machines_by_id,
                         &rack_scale_ids,
                         action,
                     )
@@ -1794,6 +1786,7 @@ pub(crate) async fn component_power_control(
                 match dispatch_compute_tray_power_control(
                     api,
                     &core_backend,
+                    &machines_by_id,
                     &standalone_ids,
                     action,
                 )
@@ -1839,20 +1832,26 @@ fn partition_error_results(
         .collect()
 }
 
-/// Resolve BMC endpoints for `machine_ids`, issue power control through
-/// `backend`, and return per-machine results (keyed by machine id via the
-/// resolved `ip_to_machine_id` map) alongside the BMC IPs that were dispatched
-/// to, so the caller can request site re-exploration for them.
+/// Resolve BMC endpoints for `machine_ids` from an already-loaded machine map,
+/// issue power control through `backend`, and return per-machine results (keyed
+/// by machine id via the resolved `ip_to_machine_id` map) alongside the BMC IPs
+/// that were dispatched to, so the caller can request site re-exploration.
 ///
 /// Shared by the rack-scale synchronous path (configured backend, e.g. RMS) and
 /// the standalone path (always NICo-core's Redfish backend).
 async fn dispatch_compute_tray_power_control(
     api: &Api,
     backend: &dyn ComputeTrayManager,
+    machines_by_id: &HashMap<MachineId, Machine>,
     machine_ids: &[MachineId],
     action: PowerAction,
 ) -> Result<(Vec<rpc::ComponentResult>, Vec<IpAddr>), Status> {
-    let resolved = resolve_compute_tray_endpoints(api, machine_ids).await?;
+    let resolved = resolve_compute_tray_endpoints_from_machines(
+        api.credential_manager.as_ref(),
+        machines_by_id,
+        machine_ids,
+    )
+    .await;
 
     let mut results: Vec<rpc::ComponentResult> = resolved
         .unresolved
@@ -2277,8 +2276,9 @@ pub(crate) async fn update_component_firmware(
             // systems (currently GB200 NVL, backed by RMS via the
             // ComputeTrayManager interface) can choose between the rack-level
             // state controller maintenance flow and a direct backend dispatch.
+            let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
             let (rack_scale_ids, standalone_ids) =
-                partition_compute_machines_by_rack_scale(api, &list.machine_ids).await?;
+                partition_loaded_compute_machines_by_rack_scale(&machines_by_id, &list.machine_ids)?;
 
             let mut results = Vec::new();
 
@@ -2309,7 +2309,12 @@ pub(crate) async fn update_component_firmware(
                 } else {
                     reject_firmware_object_json_for_direct_dispatch("compute tray", &access_token)?;
                     let components = map_compute_tray_components(&t.components)?;
-                    let resolved = resolve_compute_tray_endpoints(api, &rack_scale_ids).await?;
+                    let resolved = resolve_compute_tray_endpoints_from_machines(
+                        api.credential_manager.as_ref(),
+                        &machines_by_id,
+                        &rack_scale_ids,
+                    )
+                    .await;
 
                     results.extend(
                         resolved
@@ -2724,7 +2729,13 @@ pub(crate) async fn list_component_firmware_versions(
                 return Err(unsupported_from_json_firmware_versions("compute tray"));
             }
 
-            let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
+            let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
+            let resolved = resolve_compute_tray_endpoints_from_machines(
+                api.credential_manager.as_ref(),
+                &machines_by_id,
+                &list.machine_ids,
+            )
+            .await;
 
             let mut devices: Vec<rpc::DeviceFirmwareVersions> = resolved
                 .unresolved
