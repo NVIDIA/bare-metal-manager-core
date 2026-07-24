@@ -550,7 +550,7 @@ async fn initialize_dpf_sdk(
         return Ok(None);
     }
 
-    tracing::info!("Initializing DPF SDK");
+    tracing::info!("Initializing DPF SDK BF4 Astra");
 
     carbide_config
         .dpf
@@ -598,7 +598,9 @@ async fn initialize_dpf_sdk(
         |deployment: &crate::cfg::file::DpfDeploymentConfig,
          deployment_type: DpuDeploymentType,
          bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
-            let services = carbide_config.dpf.resolved_services_for(deployment);
+            let services = carbide_config
+                .dpf
+                .resolved_services_for(deployment, deployment_type);
             carbide_dpf::InitDpfResourcesConfig {
                 bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
                 bluefield_software,
@@ -641,6 +643,28 @@ async fn initialize_dpf_sdk(
         .map_err(|err| eyre::eyre!("failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
 
+    if let Some(bf4_astra) = &carbide_config.dpf.deployments.bf4_astra {
+        let bfs = bf4_astra
+            .bluefield_software
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("bf4_astra DPF deployment is missing bluefield_software"))?;
+        let pldm_url =
+            bfs.pldm_fw_bundle.values().next().ok_or_else(|| {
+                eyre::eyre!("bf4_astra DPF deployment has an empty pldm_fw_bundle")
+            })?;
+        let params = carbide_dpf::BlueFieldSoftwareParams {
+            os_iso: bfs.os_iso.clone(),
+            pldm_fw_bundle: Some(pldm_url.clone()),
+        };
+        sdk.create_initialization_objects(&make_init_config(
+            bf4_astra,
+            DpuDeploymentType::Bf4Astra,
+            Some(params),
+        ))
+        .await
+        .map_err(|err| eyre::eyre!("Failed to initialize bf4_astra DPF deployment: {err}"))?;
+    }
+
     Ok(Some(Arc::new(DpfSdkOps::new(
         Arc::new(sdk),
         db_pool,
@@ -675,6 +699,13 @@ fn build_deployment_type_labels(
         map.insert(
             DpuDeploymentType::Bf4Generic,
             make_labels(&bf4.node_label_key),
+        );
+    }
+
+    if let Some(bf4_astra) = &carbide_config.dpf.deployments.bf4_astra {
+        map.insert(
+            DpuDeploymentType::Bf4Astra,
+            make_labels(&bf4_astra.node_label_key),
         );
     }
 

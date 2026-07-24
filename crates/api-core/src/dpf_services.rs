@@ -22,8 +22,9 @@ use std::fmt::Write;
 
 use carbide_dpf::sdk::build_dpu_interfaces_vec;
 use carbide_dpf::types::{
-    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME,
-    FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
+    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_SERVICE_NAME,
+    DOCA_XPLANE_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, FMDS_SERVICE_NAME,
+    OTEL_COLLECTOR_SERVICE_NAME,
 };
 use carbide_dpf::{
     ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
@@ -31,7 +32,12 @@ use carbide_dpf::{
 };
 
 use crate::cfg::file::{
+<<<<<<< HEAD
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfMandatoryServicesConfig, DpfServiceConfig,
+=======
+    DEFAULT_DPF_IMAGE_PULL_SECRET, DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa,
+    DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
+>>>>>>> 0ca6c913a (Support for creating DPF flavor, deployment and services for BF4 Astra)
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
@@ -77,6 +83,18 @@ pub const FMDS_SERVICE_MTU: i64 = 1500;
 /// OTel Collector Service Definitions
 pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
+
+/// Weave service Definitions
+pub const DOCA_WEAVE_SERVICE_HELM_NAME: &str = "doca-weave";
+pub const DOCA_WEAVE_SERVICE_HELM_VERSION: &str = "1.0";
+pub const DOCA_WEAVE_SERVICE_IMAGE_NAME: &str = "doca_weave";
+pub const DOCA_WEAVE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+
+/// Xplane service Definitions
+pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
+pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
+pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
+pub const DOCA_XPLANE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 
 /// Compile-time helm version (set by CI via VERSION env var). Empty on PR/fork builds.
 pub(crate) const COMPILE_TIME_HELM_VERSION: &str = match option_env!("CARBIDE_BUILD_HELM_VERSION") {
@@ -233,6 +251,30 @@ fn apply_image_pull_secrets(helm_values: &mut serde_json::Value, cfg: &DpfServic
             "imagePullSecrets".to_string(),
             serde_json::json!([{ "name": secret }]),
         );
+
+pub(crate) fn default_doca_weave_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_WEAVE_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_WEAVE_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_WEAVE_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_WEAVE_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: DOCA_WEAVE_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+}
+
+pub(crate) fn default_doca_xplane_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_XPLANE_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_XPLANE_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_XPLANE_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: DOCA_XPLANE_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
+    }
+>>>>>>> 0ca6c913a (Support for creating DPF flavor, deployment and services for BF4 Astra)
 }
 
 /// DOCA HBN service definition.
@@ -480,19 +522,51 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-/// Build the full list of mandatory DPU services from config.
+pub fn doca_weave_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
+}
+
+pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
+}
+
+/// Build the full list of resolved mandatory DPU services.
 pub fn mandatory_services(
-    cfg: &DpfMandatoryServicesConfig,
+    resolved: &DpfResolvedMandatoryServicesConfig,
     bootstrap_ca: &DpfDpuAgentBootstrapCa,
 ) -> Vec<ServiceDefinition> {
-    vec![
-        dts_service(&cfg.dts),
-        doca_hbn_service(&cfg.doca_hbn),
-        dhcp_server_service(&cfg.dhcp_server),
-        dpu_agent_service(&cfg.dpu_agent, bootstrap_ca),
-        fmds_service(&cfg.fmds),
-        otelcol_service(&cfg.otel),
-    ]
+    let mut service_vec = vec![
+        dts_service(&resolved.base.dts),
+        doca_hbn_service(&resolved.base.doca_hbn),
+        dhcp_server_service(&resolved.base.dhcp_server),
+        dpu_agent_service(&resolved.base.dpu_agent, bootstrap_ca),
+        fmds_service(&resolved.base.fmds),
+        otelcol_service(&resolved.base.otel),
+    ];
+
+    for (name, cfg) in &resolved.extra {
+        match name.as_str() {
+            DOCA_WEAVE_SERVICE_NAME => service_vec.push(doca_weave_service(cfg)),
+            DOCA_XPLANE_SERVICE_NAME => service_vec.push(doca_xplane_service(cfg)),
+            _ => {}
+        }
+    }
+
+    service_vec
 }
 
 #[cfg(test)]

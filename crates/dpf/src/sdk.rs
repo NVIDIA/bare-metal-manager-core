@@ -617,6 +617,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
         DpuDeploymentType::Bf4Generic => "bf4generic",
+        DpuDeploymentType::Bf4Astra => "bf4astra",
     }
 }
 
@@ -813,6 +814,7 @@ pub fn build_deployment(
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     deployment_node_labels: BTreeMap<String, String>,
     suffix: &str,
+    deployment_type: DpuDeploymentType,
 ) -> DPUDeployment {
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
@@ -950,7 +952,8 @@ pub fn build_deployment(
                     r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
                 },
                 secure_boot: None,
-                astra_enabled: None,
+                astra_enabled: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
+                    .then_some(true),
                 blue_field_software: match source {
                     DpuProvisioningSource::Bfb(_) => None,
                     DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
@@ -1285,6 +1288,7 @@ async fn create_flavor_services_and_deployment<
         &interfaces,
         deployment_node_labels,
         suffix,
+        deployment_type,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())
@@ -2232,6 +2236,7 @@ mod tests {
             &[],
             BTreeMap::new(),
             "bf3",
+            DpuDeploymentType::Bf3,
         );
 
         let otel = deployment
@@ -2293,6 +2298,7 @@ mod tests {
             &[],
             BTreeMap::new(),
             bf4_suffix,
+            DpuDeploymentType::Bf4Generic,
         );
         let entry = bf4_deployment
             .spec
