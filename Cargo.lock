@@ -3122,6 +3122,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-instrument",
  "carbide-redfish",
+ "carbide-test-support",
  "carbide-utils",
  "config-version",
  "itertools 0.14.0",
