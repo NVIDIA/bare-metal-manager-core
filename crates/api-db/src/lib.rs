@@ -111,6 +111,7 @@ use std::ops::{Deref, DerefMut};
 use std::panic::Location;
 use std::pin::Pin;
 
+use carbide_instrument::{Event, LabelValue, emit};
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
 use mac_address::MacAddress;
@@ -610,6 +611,61 @@ impl From<::measured_boot::Error> for DatabaseError {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum DatabaseTransactionRollbackTrigger {
+    ExplicitCleanup,
+    ClosureError,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "database_transaction_rollback_failed",
+    metric_name = "carbide_database_transaction_rollback_failures_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "Failed to roll back transaction",
+    describe = "Number of database transaction rollback failures, by trigger."
+)]
+struct DatabaseTransactionRollbackFailed {
+    #[label]
+    trigger: DatabaseTransactionRollbackTrigger,
+    #[context]
+    caller: String,
+    #[context]
+    context: &'static str,
+    #[context]
+    error: String,
+}
+
+impl DatabaseTransactionRollbackFailed {
+    fn new(
+        trigger: DatabaseTransactionRollbackTrigger,
+        caller: &'static Location<'static>,
+        context: &'static str,
+        error: &DatabaseError,
+    ) -> Self {
+        Self {
+            trigger,
+            caller: caller.to_string(),
+            context,
+            error: error.to_string(),
+        }
+    }
+}
+
+fn record_database_transaction_rollback_failure(
+    trigger: DatabaseTransactionRollbackTrigger,
+    caller: &'static Location<'static>,
+    context: &'static str,
+    error: sqlx::Error,
+) {
+    let error = DatabaseError::txn_rollback(error, caller);
+    emit(DatabaseTransactionRollbackFailed::new(
+        trigger, caller, context, &error,
+    ));
+}
+
 #[derive(Debug)]
 pub struct Transaction<'a> {
     inner: sqlx::PgTransaction<'a>,
@@ -705,13 +761,13 @@ impl<'a> Transaction<'a> {
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
         let loc = Location::caller();
         Box::pin(async move {
-            if let Err(e) = self
-                .inner
-                .rollback()
-                .await
-                .map_err(|e| DatabaseError::txn_rollback(e, loc))
-            {
-                tracing::warn!(error = %e, context, "Failed to roll back transaction");
+            if let Err(error) = self.inner.rollback().await {
+                record_database_transaction_rollback_failure(
+                    DatabaseTransactionRollbackTrigger::ExplicitCleanup,
+                    loc,
+                    context,
+                    error,
+                );
             }
         })
     }
@@ -779,7 +835,14 @@ impl WithTransaction for PgPool {
                     Ok(Ok(output))
                 }
                 Err(e) => {
-                    t.rollback().await.ok();
+                    if let Err(error) = t.rollback().await {
+                        record_database_transaction_rollback_failure(
+                            DatabaseTransactionRollbackTrigger::ClosureError,
+                            caller,
+                            "transaction closure returned an error",
+                            error,
+                        );
+                    }
                     Ok(Err(e))
                 }
             }
@@ -843,8 +906,116 @@ fn setup_test_logging() {
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
     use crate::ip_allocator::DhcpError;
+
+    const TRANSACTION_ROLLBACK_FAILURES_METRIC: &str =
+        "carbide_database_transaction_rollback_failures_total";
+
+    #[derive(Clone, Copy)]
+    struct RollbackFailureCase {
+        trigger: DatabaseTransactionRollbackTrigger,
+        context: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RollbackFailureRecord {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        trigger: Option<String>,
+        caller: Option<String>,
+        context: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn database_transaction_rollback_failures_log_and_count_by_trigger() {
+        let caller = Location::caller();
+
+        check_values(
+            [
+                Check {
+                    scenario: "explicit cleanup",
+                    input: RollbackFailureCase {
+                        trigger: DatabaseTransactionRollbackTrigger::ExplicitCleanup,
+                        context: "read-only cleanup",
+                    },
+                    expect: RollbackFailureRecord {
+                        metadata_name: "database_transaction_rollback_failed".to_string(),
+                        level: tracing::Level::WARN,
+                        message: "Failed to roll back transaction".to_string(),
+                        event_name: Some("database_transaction_rollback_failed".to_string()),
+                        metric_name: Some(TRANSACTION_ROLLBACK_FAILURES_METRIC.to_string()),
+                        trigger: Some("explicit_cleanup".to_string()),
+                        caller: Some(caller.to_string()),
+                        context: Some("read-only cleanup".to_string()),
+                        error: Some("internal error: rollback unavailable".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "closure error",
+                    input: RollbackFailureCase {
+                        trigger: DatabaseTransactionRollbackTrigger::ClosureError,
+                        context: "transaction closure returned an error",
+                    },
+                    expect: RollbackFailureRecord {
+                        metadata_name: "database_transaction_rollback_failed".to_string(),
+                        level: tracing::Level::WARN,
+                        message: "Failed to roll back transaction".to_string(),
+                        event_name: Some("database_transaction_rollback_failed".to_string()),
+                        metric_name: Some(TRANSACTION_ROLLBACK_FAILURES_METRIC.to_string()),
+                        trigger: Some("closure_error".to_string()),
+                        caller: Some(caller.to_string()),
+                        context: Some("transaction closure returned an error".to_string()),
+                        error: Some("internal error: rollback unavailable".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |case| {
+                let metrics = MetricsCapture::start();
+                let error = DatabaseError::Internal {
+                    message: "rollback unavailable".to_string(),
+                };
+                let logs = capture_logs(|| {
+                    emit(DatabaseTransactionRollbackFailed::new(
+                        case.trigger,
+                        caller,
+                        case.context,
+                        &error,
+                    ));
+                });
+
+                assert_eq!(logs.len(), 1, "one emit must produce one log record");
+                let log = &logs[0];
+                let trigger = case.trigger.label_value();
+
+                RollbackFailureRecord {
+                    metadata_name: log.metadata_name.clone(),
+                    level: log.level,
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    trigger: log.field("trigger").map(str::to_string),
+                    caller: log.field("caller").map(str::to_string),
+                    context: log.field("context").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    counter_delta: metrics.counter_delta(
+                        TRANSACTION_ROLLBACK_FAILURES_METRIC,
+                        &[("trigger", trigger.as_str())],
+                    ),
+                }
+            },
+        );
+    }
 
     #[test]
     fn test_database_error_new() {
