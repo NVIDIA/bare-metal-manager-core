@@ -21,8 +21,10 @@ use std::path::Path;
 
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{LexError, TokenStream};
+use prost::Message as _;
 use prost_types::field_descriptor_proto::Label;
-use prost_types::{FileDescriptorProto, MethodDescriptorProto};
+use prost_types::{FieldDescriptorProto, FileDescriptorProto, MethodDescriptorProto};
+use protobuf::Message as _;
 use quote::{TokenStreamExt, quote};
 
 use crate::utils::{base_types, field_is_optional, resolve_field_primitive_type};
@@ -38,6 +40,10 @@ pub enum Error {
     Lex(#[from] LexError),
     #[error("invalid protobuf type: {0}")]
     InvalidProtobufType(String),
+    #[error("invalid admin CLI annotation: {0}")]
+    InvalidAdminCliAnnotation(String),
+    #[error("failed to decode protobuf descriptor set: {0}")]
+    DescriptorDecode(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("syntax error in generated code: {0}")]
@@ -271,6 +277,214 @@ impl CodeGenerator {
 
         write_token_stream_if_not_up_to_date(converters, &out)?;
         Ok(())
+    }
+
+    /// Generate clap argument types and RPC dispatch implementations from the
+    /// `admin_cli.command` and `admin_cli.argument` protobuf options.
+    pub fn write_admin_cli_commands<P: AsRef<Path>, Q: AsRef<Path>>(
+        &self,
+        descriptor_set: P,
+        out: Q,
+    ) -> Result<()> {
+        let descriptor_bytes = fs::read(descriptor_set)?;
+        let raw_descriptors =
+            protobuf::descriptor::FileDescriptorSet::parse_from_bytes(&descriptor_bytes)
+                .map_err(|error| Error::DescriptorDecode(error.to_string()))?;
+        let field_options = collect_admin_cli_field_options(&raw_descriptors)?;
+
+        let mut commands = TokenStream::new();
+        for file in &raw_descriptors.file {
+            for service in &file.service {
+                for method in &service.method {
+                    let Some(command) = decode_admin_cli_command(method.options.as_ref())? else {
+                        continue;
+                    };
+
+                    let method_name = method.name();
+                    if method.client_streaming() || method.server_streaming() {
+                        return Err(invalid_cli_annotation(format!(
+                            "{method_name}: streaming RPCs are not supported"
+                        )));
+                    }
+                    if !command.discard_response {
+                        return Err(invalid_cli_annotation(format!(
+                            "{method_name}: discard_response must be explicitly enabled"
+                        )));
+                    }
+
+                    let input_name = method.input_type();
+                    let input = self.message_types.get(input_name).ok_or_else(|| {
+                        invalid_cli_annotation(format!(
+                            "{method_name}: input message {input_name} was not found"
+                        ))
+                    })?;
+                    commands.append_all(self.make_admin_cli_command(
+                        method_name,
+                        input,
+                        &field_options,
+                    )?);
+                }
+            }
+        }
+
+        write_token_stream_if_not_up_to_date(commands, out)
+    }
+
+    fn make_admin_cli_command(
+        &self,
+        method_name: &str,
+        input: &MessageWithPackage,
+        field_options: &HashMap<(String, i32), AdminCliArgumentOption>,
+    ) -> Result<TokenStream> {
+        let command_module: TokenStream = method_name.to_snake_case().parse()?;
+        let request_type: TokenStream = self
+            .convert_protobuf_type_to_rust_type(&input.qualified_name())?
+            .parse()?;
+        let rpc_method: TokenStream = method_name.to_snake_case().parse()?;
+
+        let mut clap_fields = TokenStream::new();
+        let mut request_fields = TokenStream::new();
+        let mut seen_longs = HashSet::new();
+        let mut seen_shorts = HashSet::new();
+
+        for field in &input.message.field {
+            let Some(option) = field_options.get(&(input.qualified_name(), field.number())) else {
+                continue;
+            };
+            let field_name: TokenStream = field.name().to_snake_case().parse()?;
+            let field_type = self.admin_cli_field_type(method_name, field, option.required)?;
+            let help = &option.help;
+            if help.is_empty() {
+                return Err(invalid_cli_annotation(format!(
+                    "{method_name}.{}: help must not be empty",
+                    field.name()
+                )));
+            }
+
+            let clap_attribute = match AdminCliArgumentKind::try_from(option.kind).map_err(
+                |_| {
+                    invalid_cli_annotation(format!(
+                        "{method_name}.{}: unknown argument kind {}",
+                        field.name(),
+                        option.kind
+                    ))
+                },
+            )? {
+                AdminCliArgumentKind::Positional => {
+                    if !option.long.is_empty() || !option.short.is_empty() {
+                        return Err(invalid_cli_annotation(format!(
+                            "{method_name}.{}: positional arguments cannot have long or short names",
+                            field.name()
+                        )));
+                    }
+                    quote! { #[arg(help = #help)] }
+                }
+                AdminCliArgumentKind::Option => {
+                    if option.long.is_empty() {
+                        return Err(invalid_cli_annotation(format!(
+                            "{method_name}.{}: option arguments require a long name",
+                            field.name()
+                        )));
+                    }
+                    if !seen_longs.insert(option.long.clone()) {
+                        return Err(invalid_cli_annotation(format!(
+                            "{method_name}: duplicate --{} option",
+                            option.long
+                        )));
+                    }
+                    let long = &option.long;
+                    if option.short.is_empty() {
+                        quote! { #[arg(long = #long, help = #help)] }
+                    } else {
+                        let mut chars = option.short.chars();
+                        let short = chars.next().expect("short option is not empty");
+                        if chars.next().is_some() || !seen_shorts.insert(short) {
+                            return Err(invalid_cli_annotation(format!(
+                                "{method_name}.{}: short option must be one unique character",
+                                field.name()
+                            )));
+                        }
+                        quote! { #[arg(long = #long, short = #short, help = #help)] }
+                    }
+                }
+            };
+            clap_fields.extend(quote! {
+                #clap_attribute
+                pub #field_name: #field_type,
+            });
+
+            let request_value = if option.required && field_is_optional(field) {
+                quote! { Some(args.#field_name) }
+            } else {
+                quote! { args.#field_name }
+            };
+            request_fields.extend(quote! { #field_name: #request_value, });
+        }
+
+        Ok(quote! {
+            pub mod #command_module {
+                #[derive(::clap::Args, Debug)]
+                pub struct Args {
+                    #clap_fields
+                }
+
+                impl From<Args> for #request_type {
+                    fn from(args: Args) -> Self {
+                        Self {
+                            #request_fields
+                            ..Default::default()
+                        }
+                    }
+                }
+
+                impl crate::admin_cli::CliRpcCommand for Args {
+                    async fn execute(
+                        self,
+                        client: &crate::forge_api_client::ForgeApiClient,
+                    ) -> Result<(), ::tonic::Status> {
+                        client.#rpc_method(self).await?;
+                        Ok(())
+                    }
+                }
+            }
+        })
+    }
+
+    fn admin_cli_field_type(
+        &self,
+        method_name: &str,
+        field: &FieldDescriptorProto,
+        required: bool,
+    ) -> Result<TokenStream> {
+        if field.oneof_index.is_some() {
+            return Err(invalid_cli_annotation(format!(
+                "{method_name}.{}: oneof fields are not supported",
+                field.name()
+            )));
+        }
+        if field.label == Some(Label::Repeated as i32) {
+            return Err(invalid_cli_annotation(format!(
+                "{method_name}.{}: repeated fields are not supported",
+                field.name()
+            )));
+        }
+
+        let base_type = if let Some(primitive) = resolve_field_primitive_type(field) {
+            primitive
+        } else if let Some(type_name) = &field.type_name {
+            self.convert_protobuf_type_to_rust_type(type_name)?
+        } else {
+            return Err(invalid_cli_annotation(format!(
+                "{method_name}.{}: unsupported protobuf field type",
+                field.name()
+            )));
+        };
+
+        if field_is_optional(field) && !required {
+            format!("Option<{base_type}>").parse().map_err(Into::into)
+        } else {
+            base_type.parse().map_err(Into::into)
+        }
     }
 
     fn make_convenience_converter(
@@ -617,6 +831,113 @@ impl MessageWithPackage {
             format!(".{}", self.message.name())
         }
     }
+}
+
+const ADMIN_CLI_COMMAND_EXTENSION: u32 = 51_000;
+const ADMIN_CLI_ARGUMENT_EXTENSION: u32 = 51_001;
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AdminCliCommandOption {
+    #[prost(bool, tag = "1")]
+    discard_response: bool,
+}
+
+#[derive(Clone, PartialEq, prost::Message)]
+struct AdminCliArgumentOption {
+    #[prost(enumeration = "AdminCliArgumentKind", tag = "1")]
+    kind: i32,
+    #[prost(string, tag = "2")]
+    long: String,
+    #[prost(string, tag = "3")]
+    short: String,
+    #[prost(string, tag = "4")]
+    help: String,
+    #[prost(bool, tag = "5")]
+    required: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, prost::Enumeration)]
+enum AdminCliArgumentKind {
+    Positional = 0,
+    Option = 1,
+}
+
+fn invalid_cli_annotation(message: String) -> Error {
+    Error::InvalidAdminCliAnnotation(message)
+}
+
+fn decode_admin_cli_command(
+    options: Option<&protobuf::descriptor::MethodOptions>,
+) -> Result<Option<AdminCliCommandOption>> {
+    let Some(payload) = unknown_length_delimited(options, ADMIN_CLI_COMMAND_EXTENSION)? else {
+        return Ok(None);
+    };
+    AdminCliCommandOption::decode(payload)
+        .map(Some)
+        .map_err(|error| invalid_cli_annotation(format!("invalid command option: {error}")))
+}
+
+fn decode_admin_cli_argument(
+    options: Option<&protobuf::descriptor::FieldOptions>,
+) -> Result<Option<AdminCliArgumentOption>> {
+    let Some(payload) = unknown_length_delimited(options, ADMIN_CLI_ARGUMENT_EXTENSION)? else {
+        return Ok(None);
+    };
+    AdminCliArgumentOption::decode(payload)
+        .map(Some)
+        .map_err(|error| invalid_cli_annotation(format!("invalid argument option: {error}")))
+}
+
+trait HasUnknownFields {
+    fn unknown_fields(&self) -> &protobuf::UnknownFields;
+}
+
+impl HasUnknownFields for protobuf::descriptor::MethodOptions {
+    fn unknown_fields(&self) -> &protobuf::UnknownFields {
+        self.special_fields.unknown_fields()
+    }
+}
+
+impl HasUnknownFields for protobuf::descriptor::FieldOptions {
+    fn unknown_fields(&self) -> &protobuf::UnknownFields {
+        self.special_fields.unknown_fields()
+    }
+}
+
+fn unknown_length_delimited<T: HasUnknownFields>(
+    options: Option<&T>,
+    extension: u32,
+) -> Result<Option<&[u8]>> {
+    let Some(value) = options.and_then(|options| options.unknown_fields().get(extension)) else {
+        return Ok(None);
+    };
+    match value {
+        protobuf::UnknownValueRef::LengthDelimited(payload) => Ok(Some(payload)),
+        _ => Err(invalid_cli_annotation(format!(
+            "option extension {extension} has an invalid wire type"
+        ))),
+    }
+}
+
+fn collect_admin_cli_field_options(
+    descriptors: &protobuf::descriptor::FileDescriptorSet,
+) -> Result<HashMap<(String, i32), AdminCliArgumentOption>> {
+    let mut result = HashMap::new();
+    for file in &descriptors.file {
+        for message in &file.message_type {
+            let qualified_name = if file.package().is_empty() {
+                format!(".{}", message.name())
+            } else {
+                format!(".{}.{}", file.package(), message.name())
+            };
+            for field in &message.field {
+                if let Some(option) = decode_admin_cli_argument(field.options.as_ref())? {
+                    result.insert((qualified_name.clone(), field.number()), option);
+                }
+            }
+        }
+    }
+    Ok(result)
 }
 
 fn write_token_stream_if_not_up_to_date<T: AsRef<Path>>(
@@ -1010,5 +1331,59 @@ mod tests {
                 .to_string()
             );
         }
+    }
+
+    #[test]
+    fn test_decode_admin_cli_options() {
+        let expected = AdminCliCommandOption {
+            discard_response: true,
+        };
+        let mut options = protobuf::descriptor::MethodOptions::new();
+        options
+            .special_fields
+            .mut_unknown_fields()
+            .add_length_delimited(ADMIN_CLI_COMMAND_EXTENSION, expected.encode_to_vec());
+
+        assert_eq!(
+            decode_admin_cli_command(Some(&options)).unwrap(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn test_make_admin_cli_command() {
+        let generator = test_generator(include_str!("test_fixtures/test.proto"));
+        let input = generator.message_types.get(".MultiRequest").unwrap();
+        let field_options = HashMap::from([
+            (
+                (".MultiRequest".to_string(), 1),
+                AdminCliArgumentOption {
+                    help: "First value".to_string(),
+                    ..Default::default()
+                },
+            ),
+            (
+                (".MultiRequest".to_string(), 2),
+                AdminCliArgumentOption {
+                    kind: AdminCliArgumentKind::Option as i32,
+                    long: "second".to_string(),
+                    short: "s".to_string(),
+                    help: "Second value".to_string(),
+                    ..Default::default()
+                },
+            ),
+        ]);
+        let generated = generator
+            .make_admin_cli_command("MultiRpc", input, &field_options)
+            .unwrap()
+            .to_string();
+
+        assert!(generated.contains("pub mod multi_rpc"));
+        assert!(generated.contains("pub struct Args"));
+        assert!(generated.contains("arg (help = \"First value\")"));
+        assert!(generated.contains("long = \"second\""));
+        assert!(generated.contains("short = 's'"));
+        assert!(generated.contains("impl From < Args > for crate :: test :: MultiRequest"));
+        assert!(generated.contains("client . multi_rpc (self) . await"));
     }
 }

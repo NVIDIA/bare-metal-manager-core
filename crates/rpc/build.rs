@@ -30,9 +30,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let derive_prost_builder =
         "#[cfg_attr(feature = \"test-support\", derive(carbide_prost_builder::Builder))]";
-
     tonic_prost_build::configure()
-        .file_descriptor_set_path(reflection)
+        .file_descriptor_set_path(&reflection)
         .type_attribute(
             ".google.protobuf.Timestamp",
             "#[derive(serde::Serialize, serde::Deserialize)]",
@@ -1236,6 +1235,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     client_wrapper_generator.write_rpc_client_wrapper(out_dir.join("forge_api_client.rs"))?;
     client_wrapper_generator
         .write_rpc_convenience_converters(out_dir.join("convenience_converters.rs"))?;
+    client_wrapper_generator
+        .write_admin_cli_commands(&reflection, out_dir.join("admin_cli_commands.rs"))?;
 
     // enable the code generator for the nmx-c proto
     let nmx_c_client_wrapper = codegen::CodeGenerator::new(codegen::Config {

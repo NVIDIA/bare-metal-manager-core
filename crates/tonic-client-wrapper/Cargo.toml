@@ -31,7 +31,9 @@ codegen = [
   "dep:syn",
   "dep:prettyplease",
   "dep:heck",
+  "dep:prost",
   "dep:prost-types",
+  "dep:protobuf",
   "dep:lazy_static",
 ]
 
@@ -45,7 +47,9 @@ quote = { optional = true, workspace = true }
 syn = { optional = true, workspace = true }
 prettyplease = { optional = true, workspace = true }
 heck = { optional = true, workspace = true }
+prost = { optional = true, workspace = true }
 prost-types = { optional = true, workspace = true }
+protobuf = { optional = true, workspace = true }
 lazy_static = { optional = true, workspace = true }
 
 [dev-dependencies]

@@ -6,6 +6,7 @@ package forge;
 // message types!
 
 import "common.proto";
+import "admin_cli.proto";
 import "dns.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";
@@ -734,7 +735,11 @@ service Forge {
   rpc TpmAddCaCert(TpmCaCert) returns (TpmCaAddedCaStatus);
   rpc TpmShowCaCerts(google.protobuf.Empty) returns (TpmCaCertDetailCollection);
   rpc TpmShowUnmatchedEkCerts(google.protobuf.Empty) returns (TpmEkCertStatusCollection);
-  rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty);
+  rpc TpmDeleteCaCert(TpmCaCertId) returns (google.protobuf.Empty) {
+    option (admin_cli.command) = {
+      discard_response: true
+    };
+  }
 
   rpc RedfishBrowse(RedfishBrowseRequest) returns (RedfishBrowseResponse);
   rpc RedfishListActions(RedfishListActionsRequest) returns (RedfishListActionsResponse);
@@ -1284,7 +1289,12 @@ message TpmCaAddedCaStatus{
 }
 
 message TpmCaCertId{
-  int32 ca_cert_id = 1;
+  int32 ca_cert_id = 1 [(admin_cli.argument) = {
+    kind: OPTION
+    long: "ca-id"
+    short: "c"
+    help: "TPM CA id obtained from the show command"
+  }];
 }
 
 message TpmEkCertStatus{

@@ -56,6 +56,9 @@ pub mod forge {
             &mut self.host_nics
         }
     }
+
+    #[cfg(feature = "cli")]
+    include!(concat!(env!("OUT_DIR"), "/admin_cli_commands.rs"));
 }
 
 #[allow(non_snake_case, unknown_lints, clippy::all)]

@@ -25,6 +25,14 @@
 
 pub use output::OutputFormat;
 
+#[cfg(feature = "cli")]
+pub trait CliRpcCommand {
+    fn execute(
+        self,
+        client: &crate::forge_api_client::ForgeApiClient,
+    ) -> impl std::future::Future<Output = Result<(), tonic::Status>>;
+}
+
 pub mod output {
     use std::fmt;
 

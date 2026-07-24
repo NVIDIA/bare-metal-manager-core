@@ -81,7 +81,10 @@ fn parse_delete() {
         run = |argv| {
             Cmd::try_parse_from(argv.iter().copied())
                 .map(|cmd| match cmd {
-                    Cmd::Delete(args) => args.ca_id,
+                    Cmd::Delete(args) => {
+                        let request: rpc::forge::TpmCaCertId = args.into();
+                        request.ca_cert_id
+                    }
                     _ => panic!("expected Delete variant"),
                 })
                 .map_err(drop)

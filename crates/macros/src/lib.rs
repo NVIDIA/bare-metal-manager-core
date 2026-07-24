@@ -50,7 +50,7 @@ type AttributeArgs = syn::punctuated::Punctuated<syn::Meta, syn::Token![,]>;
 ///     SubGroup(sub::Cmd),
 /// }
 /// ```
-#[proc_macro_derive(Dispatch, attributes(dispatch))]
+#[proc_macro_derive(Dispatch, attributes(dispatch, rpc))]
 pub fn derive_dispatch(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     match expand_dispatch(input) {
@@ -74,14 +74,28 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 
     let mut run_arms = Vec::new();
     let mut dispatch_arms = Vec::new();
+    let mut rpc_arms = Vec::new();
 
     for variant in &data.variants {
         let variant_name = &variant.ident;
         let is_dispatch = variant.attrs.iter().any(|a| a.path().is_ident("dispatch"));
+        let is_rpc = variant.attrs.iter().any(|a| a.path().is_ident("rpc"));
 
-        if is_dispatch {
+        if is_dispatch && is_rpc {
+            return Err(syn::Error::new_spanned(
+                variant,
+                "a Dispatch variant cannot be both #[dispatch] and #[rpc]",
+            ));
+        } else if is_dispatch {
             dispatch_arms.push(quote! {
                 #name::#variant_name(cmd) => cmd.dispatch(ctx).await,
+            });
+        } else if is_rpc {
+            rpc_arms.push(quote! {
+                #name::#variant_name(args) => args
+                    .execute(&ctx.api_client.0)
+                    .await
+                    .map_err(Into::into),
             });
         } else {
             run_arms.push(quote! {
@@ -95,6 +109,11 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
     } else {
         quote! { use crate::cfg::dispatch::Dispatch as _; }
     };
+    let rpc_import = if rpc_arms.is_empty() {
+        quote! {}
+    } else {
+        quote! { use ::rpc::admin_cli::CliRpcCommand as _; }
+    };
 
     let output = quote! {
         impl crate::cfg::dispatch::Dispatch for #name {
@@ -104,9 +123,11 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
             ) -> crate::errors::CarbideCliResult<()> {
                 use crate::cfg::run::Run;
                 #dispatch_import
+                #rpc_import
                 match self {
                     #(#run_arms)*
                     #(#dispatch_arms)*
+                    #(#rpc_arms)*
                 }
             }
         }

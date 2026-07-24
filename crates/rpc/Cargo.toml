@@ -27,7 +27,12 @@ name = "rpc"
 
 [features]
 sqlx = ["dep:sqlx"]
-cli = ["dep:clap", "dep:prettytable-rs", "dep:serde_yaml", "dep:csv"]
+cli = [
+  "dep:clap",
+  "dep:prettytable-rs",
+  "dep:serde_yaml",
+  "dep:csv",
+]
 model = [
   "dep:carbide-api-model",
   "dep:once_cell",

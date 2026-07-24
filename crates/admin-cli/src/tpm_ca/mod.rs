@@ -17,7 +17,6 @@
 
 mod add;
 mod add_bulk;
-mod delete;
 mod show;
 mod show_unmatched_ek;
 
@@ -33,7 +32,15 @@ pub enum Cmd {
     #[clap(about = "Show all TPM CA certificates")]
     Show(show::Args),
     #[clap(about = "Delete TPM CA certificate with a given id")]
-    Delete(delete::Args),
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Delete a TPM CA certificate by its id (from `tpm-ca show`):
+    $ nico-admin-cli tpm-ca delete --ca-id 42
+
+")]
+    #[rpc]
+    Delete(rpc::forge::tpm_delete_ca_cert::Args),
     #[clap(about = "Add TPM CA certificate encoded in DER/CER/PEM format in a given file")]
     Add(add::Args),
     #[clap(about = "Show TPM EK certificates for which there is no CA match")]

@@ -61,6 +61,18 @@ pub enum Cmd {
     #[clap(about = "Set the primary interface (boot device) for the managed host")]
     SetPrimaryInterface(set_primary_interface::Args),
     #[clap(about = "Deprecated: use set-primary-interface. Sets the primary DPU.")]
+    #[command(after_long_help = "\
+EXAMPLES:
+
+Set the primary DPU for a host:
+    $ nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 \
+    abcdef01-2345-6789-abcd-ef0123456789
+
+Set the primary DPU and reboot the host afterward:
+    $ nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 \
+    abcdef01-2345-6789-abcd-ef0123456789 --reboot
+
+")]
     SetPrimaryDpu(set_primary_dpu::Args),
     #[clap(about = "Download debug bundle with logs for a specific host")]
     DebugBundle(debug_bundle::Args),

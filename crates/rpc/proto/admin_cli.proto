@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package admin_cli;
+
+import "google/protobuf/descriptor.proto";
+
+// Marks a unary RPC as eligible for generated nico-admin-cli plumbing.
+message Command {
+  // Responses may only be ignored when this is explicitly acknowledged.
+  bool discard_response = 1;
+}
+
+enum ArgumentKind {
+  POSITIONAL = 0;
+  OPTION = 1;
+}
+
+// Describes how one request field is exposed by clap.
+message Argument {
+  ArgumentKind kind = 1;
+  string long = 2;
+  string short = 3;
+  string help = 4;
+
+  // A required protobuf message is represented by Option<T> in prost. This
+  // unwraps that representation in the generated CLI argument structure.
+  bool required = 5;
+}
+
+extend google.protobuf.MethodOptions {
+  Command command = 51000;
+}
+
+extend google.protobuf.FieldOptions {
+  Argument argument = 51001;
+}
