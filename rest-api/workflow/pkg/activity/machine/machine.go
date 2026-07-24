@@ -404,7 +404,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 						Hostname:              &controllerMachineInterface.Hostname,
 						IsPrimary:             controllerMachineInterface.PrimaryInterface,
 						MacAddress:            &controllerMachineInterface.MacAddress,
-						IpAddresses:           controllerMachineInterface.Address,
+						IpAddresses:           machineInterfaceIPAddresses(controllerMachineInterface.Address),
 					},
 				)
 				if serr != nil {
@@ -623,7 +623,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 							Hostname:              &controllerMachineInterface.Hostname,
 							IsPrimary:             controllerMachineInterface.PrimaryInterface,
 							MacAddress:            &controllerMachineInterface.MacAddress,
-							IpAddresses:           controllerMachineInterface.Address,
+							IpAddresses:           machineInterfaceIPAddresses(controllerMachineInterface.Address),
 						},
 					)
 					if serr != nil {
@@ -642,7 +642,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 							Hostname:             &controllerMachineInterface.Hostname,
 							IsPrimary:            &controllerMachineInterface.PrimaryInterface,
 							MacAddress:           &controllerMachineInterface.MacAddress,
-							IpAddresses:          controllerMachineInterface.Address,
+							IpAddresses:          machineInterfaceIPAddresses(controllerMachineInterface.Address),
 						},
 					)
 					if serr != nil {
@@ -733,6 +733,15 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 	logger.Info().Msg("completed activity")
 
 	return nil
+}
+
+// machineInterfaceIPAddresses maps Core's optional repeated addresses to the
+// non-null array required by the REST database model.
+func machineInterfaceIPAddresses(addresses []string) []string {
+	if addresses == nil {
+		return []string{}
+	}
+	return addresses
 }
 
 // Utility function to parse discovery data and create/update Machine Capability records
