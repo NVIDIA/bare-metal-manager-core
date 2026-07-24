@@ -21,7 +21,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSystemUuid};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
@@ -73,7 +73,7 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: Some(machine_id.parse().expect("valid machine id")),
             machine_serial: None,
-            system_uuid: None,
+            system_uuid: SharedSystemUuid::default(),
             slot_number: None,
             tray_index: None,
             nvlink_domain_uuid: None,

@@ -20,7 +20,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSystemUuid};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
@@ -99,7 +99,7 @@ fn event_context() -> EventContext {
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: Some(MACHINE_ID.parse().expect("valid machine id")),
             machine_serial: None,
-            system_uuid: None,
+            system_uuid: SharedSystemUuid::default(),
             slot_number: None,
             tray_index: None,
             nvlink_domain_uuid: None,
@@ -279,7 +279,7 @@ fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
                 metadata: Some(EndpointMetadata::Machine(MachineData {
                     machine_id: Some(MACHINE_ID.parse().expect("valid machine id")),
                     machine_serial: None,
-                    system_uuid: None,
+                    system_uuid: SharedSystemUuid::default(),
                     slot_number: None,
                     tray_index: None,
                     nvlink_domain_uuid: None,

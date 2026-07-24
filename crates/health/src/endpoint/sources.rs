@@ -30,7 +30,7 @@ use crate::bmc::{BmcClient, FixedCredentialProvider};
 use crate::config::{StaticBmcEndpoint, StaticSwitchEndpointRole};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
-    PowerShelfData, SwitchData, SwitchEndpointRole,
+    PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
 
 pub struct StaticEndpointSource {
@@ -152,7 +152,7 @@ impl StaticEndpointSource {
                 Some(EndpointMetadata::Machine(MachineData {
                     machine_id,
                     machine_serial: machine.serial.clone(),
-                    system_uuid: None,
+                    system_uuid: SharedSystemUuid::default(),
                     slot_number: machine.slot_number,
                     tray_index: machine.tray_index,
                     nvlink_domain_uuid,

@@ -132,7 +132,7 @@ mod tests {
         CollectorEvent, CompositeDataSink, DataSink, DiagnosticLogRecord, EventContext, LogRecord,
         MetricSample, PrometheusSink,
     };
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSystemUuid};
     use crate::metrics::MetricsManager;
 
     struct CountingSink {
@@ -375,7 +375,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: None,
-                system_uuid: None,
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
@@ -453,7 +453,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: None,
-                system_uuid: None,
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
@@ -513,7 +513,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: None,
-                system_uuid: None,
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,

@@ -291,7 +291,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: Some("MN-001".to_string()),
-                system_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")),
+                system_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")).into(),
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),

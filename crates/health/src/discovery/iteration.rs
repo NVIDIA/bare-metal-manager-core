@@ -25,7 +25,7 @@ use futures::{StreamExt, stream};
 use super::DiscoveryIterationStats;
 use super::cleanup::{stop_ineligible_nmxc_collectors, stop_removed_bmc_collectors};
 use super::context::{CollectorKind, DiscoveryLoopContext};
-use super::identity::with_primary_system_uuid;
+use super::identity::ensure_primary_system_uuid;
 use super::spawn::{spawn_collectors_for_endpoint, switch_supports_nmxc_subscription};
 use crate::HealthError;
 use crate::config::Configurable;
@@ -77,27 +77,22 @@ pub async fn run_discovery_iteration(
         .cloned()
         .collect();
 
-    // Resolve machine identity before collectors start when possible. UUID
-    // enrichment is best-effort: a BMC connection or data error must not
-    // suppress all telemetry for the endpoint. Resolution is attempted again
-    // on the next discovery iteration.
+    // Resolve machine identity before collectors start when possible. Shared
+    // write-once state propagates the result to running collectors and caches
+    // both present and absent UUIDs, preventing repeated successful BMC queries.
     let identity_concurrency = ctx.discovery_config.discovery_concurrency.max(1);
-    let sharded_endpoints: Vec<Arc<BmcEndpoint>> = stream::iter(sharded_endpoints)
+    stream::iter(sharded_endpoints.iter().cloned())
         .map(|endpoint| async move {
-            match with_primary_system_uuid(&endpoint).await {
-                Ok(endpoint) => endpoint,
-                Err(error) => {
-                    tracing::warn!(
-                        ?error,
-                        bmc_address = ?endpoint.addr,
-                        "Could not resolve primary ComputerSystem UUID; continuing without it"
-                    );
-                    endpoint
-                }
+            if let Err(error) = ensure_primary_system_uuid(&endpoint).await {
+                tracing::warn!(
+                    ?error,
+                    bmc_address = ?endpoint.addr,
+                    "Could not resolve primary ComputerSystem UUID; continuing without it"
+                );
             }
         })
         .buffer_unordered(identity_concurrency)
-        .collect()
+        .collect::<Vec<()>>()
         .await;
 
     if sharded_endpoints.is_empty() {

@@ -96,7 +96,7 @@ impl EventContext {
     /// Returns the UUID reported by the primary Redfish ComputerSystem.
     pub fn system_uuid(&self) -> Option<uuid::Uuid> {
         self.machine_metadata()
-            .and_then(|machine| machine.system_uuid)
+            .and_then(|machine| machine.system_uuid.get())
     }
 
     /// Returns the uniform GPU driver version when it is known for the machine.
@@ -546,7 +546,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{MachineData, PowerShelfData, SwitchData};
+    use crate::endpoint::{MachineData, PowerShelfData, SharedSystemUuid, SwitchData};
 
     #[derive(Clone, Copy)]
     enum ContextKind {
@@ -656,7 +656,7 @@ mod tests {
             ContextKind::Machine => Some(EndpointMetadata::Machine(MachineData {
                 machine_id: Some(machine_id()),
                 machine_serial: Some("MN-001".to_string()),
-                system_uuid: None,
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: Some(7),
                 tray_index: Some(3),
                 nvlink_domain_uuid: Some(nvlink_domain_id()),
@@ -686,6 +686,25 @@ mod tests {
             rack_id: Some(RackId::new("rack-1")),
             labels: Default::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn cloned_event_context_observes_later_system_uuid_resolution() {
+        let system_uuid = SharedSystemUuid::default();
+        let mut context = context(ContextKind::Machine);
+        let Some(EndpointMetadata::Machine(machine)) = context.metadata.as_mut() else {
+            panic!("machine context");
+        };
+        machine.system_uuid = system_uuid.clone();
+        let collector_context = context.clone();
+        let expected = uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632");
+
+        system_uuid
+            .get_or_try_init(|| async { Ok::<_, std::convert::Infallible>(Some(expected)) })
+            .await
+            .expect("infallible UUID initialization");
+
+        assert_eq!(collector_context.system_uuid(), Some(expected));
     }
 
     fn summarize_context(context: EventContext) -> ContextSummary {
