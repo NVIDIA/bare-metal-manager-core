@@ -554,10 +554,14 @@ async fn corrected_target_supersedes_rejected_submission(pool: sqlx::PgPool) -> 
         .with_password_rotation_enabled()
         .with_expected_password_rotation_password("Different-Nvos-Password-1!");
 
-    assert!(matches!(
-        reconcile(&env, &pool, &switch_id, rejected).await?,
-        NvosPasswordRotationOutcome::Waiting(_)
-    ));
+    let error = reconcile(&env, &pool, &switch_id, rejected)
+        .await
+        .expect_err("rejected submission should return an error");
+    assert!(
+        error
+            .to_string()
+            .contains("NVOS submission is not retryable without correction")
+    );
 
     let rejected = operation_state(&pool, bmc_mac_address).await?;
     assert_eq!(rejected.rotating_to_version, Some(1));

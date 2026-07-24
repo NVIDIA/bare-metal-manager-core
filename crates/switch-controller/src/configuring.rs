@@ -152,6 +152,8 @@ pub(crate) async fn ensure_nvos_admin_credentials(
 ) -> Result<NvosAdminCredentialStatus, StateHandlerError> {
     let key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
 
+    // This effective value may be the bootstrap credential, the confirmed
+    // credential, or a target persisted immediately before DB promotion.
     let existing = ctx
         .services
         .credential_manager
@@ -177,6 +179,9 @@ pub(crate) async fn ensure_nvos_admin_credentials(
 
     txn.commit().await?;
 
+    // Rotation may resume after a restart. Before initial confirmation, retain
+    // any valid per-switch credential. Also retain a staged target that was
+    // persisted before its matching DB promotion completed.
     if let Some(operation) = operation.as_ref()
         && let Some(staged_version) = operation.rotating_to_version
     {
@@ -190,6 +195,9 @@ pub(crate) async fn ensure_nvos_admin_credentials(
         };
 
         if operation.current_version.is_none() {
+            // During initial rotation, no versioned credential is confirmed.
+            // Preserve any valid per-switch credential so retries keep a
+            // usable password.
             return Ok(if existing_password.is_some() {
                 NvosAdminCredentialStatus::Available
             } else {
@@ -211,10 +219,14 @@ pub(crate) async fn ensure_nvos_admin_credentials(
             .await?
             && existing_password == staged_password
         {
+            // Completion persists the target before promoting its DB version.
+            // Preserve that target when recovering between those two steps.
             return Ok(NvosAdminCredentialStatus::Available);
         }
     }
 
+    // Expected-switch data provides bootstrap credentials and the fallback
+    // username because site-wide rotation targets contain only a password.
     let Some(expected_switch) = expected_switch else {
         return Ok(NvosAdminCredentialStatus::Error(format!(
             "No expected switch found for BMC MAC {bmc_mac_address}"
@@ -236,6 +248,8 @@ pub(crate) async fn ensure_nvos_admin_credentials(
 
     let (credentials, source) = match current_version {
         Some(current_version) => {
+            // A confirmed version is authoritative. Repair its password from
+            // the immutable site credential instead of stale bootstrap data.
             let versioned = read_nvos_site_credentials(
                 switch_id,
                 current_version,
@@ -257,6 +271,8 @@ pub(crate) async fn ensure_nvos_admin_credentials(
                 )));
             }
 
+            // Rotation changes only the password. Preserve the established
+            // per-switch username, or recover it from expected-switch data.
             let username = match existing.as_ref() {
                 Some(Credentials::UsernamePassword { username, .. }) if !username.is_empty() => {
                     username.clone()
@@ -277,7 +293,11 @@ pub(crate) async fn ensure_nvos_admin_credentials(
             (credentials, "confirmed rotation version")
         }
         None => {
+            // Before first convergence, expected-switch credentials bootstrap
+            // the per-switch key.
             let Some((username, password)) = expected_credentials else {
+                // Preserve an existing credential when bootstrap input is
+                // absent so rotation can use it as the current credential.
                 let Some(credentials) = existing else {
                     tracing::info!(
                         switch_id = ?switch_id,
@@ -304,6 +324,7 @@ pub(crate) async fn ensure_nvos_admin_credentials(
         }
     };
 
+    // Availability is reported only after writer and effective readback agree.
     persist_nvos_admin_credentials(switch_id, bmc_mac_address, &credentials, ctx).await?;
 
     tracing::info!(

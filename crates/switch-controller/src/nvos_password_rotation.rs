@@ -49,7 +49,6 @@ pub enum NvosPasswordRotationOutcome {
 /// Inputs shared by initial dispatch and completion persistence.
 struct RotationInputs {
     endpoint: SwitchEndpoint,
-    target_password: String,
     target_credentials: Credentials,
 }
 
@@ -128,12 +127,11 @@ async fn rotation_inputs(
 
     let target_credentials = Credentials::UsernamePassword {
         username: username.clone(),
-        password: target_password.clone(),
+        password: target_password,
     };
 
     Ok(RotationInputs {
         endpoint,
-        target_password,
         target_credentials,
     })
 }
@@ -203,11 +201,11 @@ async fn ensure_staged_rotation(
     expected_attempt: i32,
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<NvosPasswordRotationOutcome, StateHandlerError> {
-    let Some(component_manager) = ctx.services.component_manager.clone() else {
-        return Ok(NvosPasswordRotationOutcome::Waiting(
-            "component manager is unavailable for NVOS password submission".to_string(),
-        ));
-    };
+    let component_manager = ctx.services.component_manager.clone().ok_or_else(|| {
+        StateHandlerError::GenericError(eyre::eyre!(
+            "switch {switch_id}: component manager is unavailable for NVOS password submission"
+        ))
+    })?;
 
     let inputs = match rotation_inputs(
         switch_id,
@@ -225,8 +223,13 @@ async fn ensure_staged_rotation(
         }
     };
 
+    let Credentials::UsernamePassword {
+        password: target_password,
+        ..
+    } = &inputs.target_credentials;
+
     match component_manager
-        .ensure_switch_password_rotation(&inputs.endpoint, &inputs.target_password)
+        .ensure_switch_password_rotation(&inputs.endpoint, target_password)
         .await
     {
         Ok(job_id) => {
@@ -275,8 +278,9 @@ async fn ensure_staged_rotation(
             txn.commit().await?;
 
             if failed {
-                Ok(NvosPasswordRotationOutcome::Waiting(format!(
-                    "NVOS submission is not retryable without correction: {error}"
+                Err(StateHandlerError::GenericError(eyre::eyre!(
+                    "switch {switch_id}: NVOS submission is not retryable without correction: \
+                     {error}"
                 )))
             } else {
                 Ok(NvosPasswordRotationOutcome::Waiting(
@@ -284,8 +288,8 @@ async fn ensure_staged_rotation(
                 ))
             }
         }
-        Err(error) => Ok(NvosPasswordRotationOutcome::Waiting(format!(
-            "NVOS submission could not be attempted: {error}"
+        Err(error) => Err(StateHandlerError::GenericError(eyre::eyre!(
+            "switch {switch_id}: NVOS submission could not be attempted: {error}"
         ))),
     }
 }
@@ -592,6 +596,10 @@ pub async fn reconcile_nvos_password_rotation(
     state: &Switch,
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<NvosPasswordRotationOutcome, StateHandlerError> {
+    // Component-manager availability and password-rotation support are rollout
+    // gates. The API cannot publish an NVOS target while either is absent, so
+    // treat disabled rotation as a no-op and continue the switch lifecycle.
+    // Durable rotation state remains unchanged and resumes when support returns.
     let Some(component_manager) = ctx.services.component_manager.as_ref() else {
         return Ok(NvosPasswordRotationOutcome::UpToDate);
     };
