@@ -1826,7 +1826,7 @@ where
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
 
@@ -3004,6 +3004,7 @@ skip_empty_reports = false
     fn test_nvue_config_defaults() {
         let defaults = NvueCollectorConfig::default();
         assert!(defaults.rest.is_enabled());
+        assert!(!defaults.gnmi.is_enabled());
 
         if let Configurable::Enabled(ref rest) = defaults.rest {
             assert_eq!(rest.poll_interval, Duration::from_secs(300));
@@ -3278,34 +3279,135 @@ platform_environment_leakage_enabled = false
     }
 
     #[test]
-    fn test_nvue_gnmi_events_disabled() {
-        let toml_content = r#"
-[endpoint_sources.carbide_api]
-enabled = false
-
-[sinks.health_report]
-enabled = false
-
-[collectors.nvue.gnmi]
-gnmi_port = 9339
-system_events_enabled = false
-"#;
-
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(toml_content))
-            .extract()
-            .expect("failed to parse");
-
-        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
-            if let Configurable::Enabled(ref gnmi) = nvue.gnmi {
-                assert!(!gnmi.system_events_enabled);
-            } else {
-                panic!("gnmi config should be enabled");
-            }
-        } else {
-            panic!("nvue config should be enabled");
+    fn nvue_gnmi_config_parsing() {
+        #[derive(Debug, PartialEq)]
+        enum Projection {
+            NvueDisabled,
+            GnmiDisabled,
+            Enabled {
+                port: u16,
+                sample_interval: Duration,
+                request_timeout: Duration,
+                dangerously_skip_tls_verification: bool,
+                system_events_enabled: bool,
+                components_enabled: bool,
+                interfaces_enabled: bool,
+                platform_general_enabled: bool,
+            },
         }
+
+        check_values(
+            [
+                Check {
+                    scenario: "NVUE disabled",
+                    input: "",
+                    expect: Projection::NvueDisabled,
+                },
+                Check {
+                    scenario: "gNMI disabled",
+                    input: "[collectors.nvue]",
+                    expect: Projection::GnmiDisabled,
+                },
+                Check {
+                    scenario: "gNMI defaults",
+                    input: "[collectors.nvue.gnmi]",
+                    expect: Projection::Enabled {
+                        port: 9339,
+                        sample_interval: Duration::from_secs(300),
+                        request_timeout: Duration::from_secs(30),
+                        dangerously_skip_tls_verification: false,
+                        system_events_enabled: true,
+                        components_enabled: true,
+                        interfaces_enabled: true,
+                        platform_general_enabled: true,
+                    },
+                },
+                Check {
+                    scenario: "custom gNMI settings and paths",
+                    input: r#"
+[collectors.nvue.gnmi]
+gnmi_port = 19339
+sample_interval = "45s"
+request_timeout = "7s"
+dangerously_skip_tls_verification = true
+system_events_enabled = false
+
+[collectors.nvue.gnmi.paths]
+components_enabled = false
+interfaces_enabled = true
+platform_general_enabled = false
+"#,
+                    expect: Projection::Enabled {
+                        port: 19339,
+                        sample_interval: Duration::from_secs(45),
+                        request_timeout: Duration::from_secs(7),
+                        dangerously_skip_tls_verification: true,
+                        system_events_enabled: false,
+                        components_enabled: false,
+                        interfaces_enabled: true,
+                        platform_general_enabled: false,
+                    },
+                },
+                Check {
+                    scenario: "system events subscription alias",
+                    input: r#"
+[collectors.nvue.gnmi]
+system_events_subscription_enabled = false
+"#,
+                    expect: Projection::Enabled {
+                        port: 9339,
+                        sample_interval: Duration::from_secs(300),
+                        request_timeout: Duration::from_secs(30),
+                        dangerously_skip_tls_verification: false,
+                        system_events_enabled: false,
+                        components_enabled: true,
+                        interfaces_enabled: true,
+                        platform_general_enabled: true,
+                    },
+                },
+                Check {
+                    scenario: "events enabled alias",
+                    input: r#"
+[collectors.nvue.gnmi]
+events_enabled = false
+"#,
+                    expect: Projection::Enabled {
+                        port: 9339,
+                        sample_interval: Duration::from_secs(300),
+                        request_timeout: Duration::from_secs(30),
+                        dangerously_skip_tls_verification: false,
+                        system_events_enabled: false,
+                        components_enabled: true,
+                        interfaces_enabled: true,
+                        platform_general_enabled: true,
+                    },
+                },
+            ],
+            |toml| {
+                let config: Config = Figment::new()
+                    .merge(Serialized::defaults(Config::default()))
+                    .merge(Toml::string(toml))
+                    .extract()
+                    .expect("failed to parse NVUE gNMI config");
+                let Configurable::Enabled(nvue) = config.collectors.nvue else {
+                    return Projection::NvueDisabled;
+                };
+                let Configurable::Enabled(gnmi) = nvue.gnmi else {
+                    return Projection::GnmiDisabled;
+                };
+
+                Projection::Enabled {
+                    port: gnmi.gnmi_port,
+                    sample_interval: gnmi.sample_interval,
+                    request_timeout: gnmi.request_timeout,
+                    dangerously_skip_tls_verification: gnmi.dangerously_skip_tls_verification,
+                    system_events_enabled: gnmi.system_events_enabled,
+                    components_enabled: gnmi.paths.components_enabled,
+                    interfaces_enabled: gnmi.paths.interfaces_enabled,
+                    platform_general_enabled: gnmi.paths.platform_general_enabled,
+                }
+            },
+        );
     }
 
     #[test]
@@ -3515,60 +3617,6 @@ root_ca = "/var/run/secrets/spiffe.io/ca.crt"
                 .lines()
                 .any(|line| line == "platform_environment_fan_enabled = true")
         );
-    }
-
-    #[test]
-    fn test_nvue_gnmi_dangerous_tls_skip_defaults_false_and_parses_true() {
-        let omitted = r#"
-[endpoint_sources.carbide_api]
-enabled = false
-
-[sinks.health_report]
-enabled = false
-
-[collectors.nvue.gnmi]
-gnmi_port = 9339
-"#;
-
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(omitted))
-            .extract()
-            .expect("failed to parse omitted tls flag");
-
-        let Configurable::Enabled(nvue) = config.collectors.nvue else {
-            panic!("nvue config should be enabled");
-        };
-        let Configurable::Enabled(gnmi) = nvue.gnmi else {
-            panic!("gnmi config should be enabled");
-        };
-        assert!(!gnmi.dangerously_skip_tls_verification);
-
-        let enabled = r#"
-[endpoint_sources.carbide_api]
-enabled = false
-
-[sinks.health_report]
-enabled = false
-
-[collectors.nvue.gnmi]
-gnmi_port = 9339
-dangerously_skip_tls_verification = true
-"#;
-
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(enabled))
-            .extract()
-            .expect("failed to parse enabled tls flag");
-
-        let Configurable::Enabled(nvue) = config.collectors.nvue else {
-            panic!("nvue config should be enabled");
-        };
-        let Configurable::Enabled(gnmi) = nvue.gnmi else {
-            panic!("gnmi config should be enabled");
-        };
-        assert!(gnmi.dangerously_skip_tls_verification);
     }
 
     #[test]

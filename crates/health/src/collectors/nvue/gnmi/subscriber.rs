@@ -808,24 +808,41 @@ mod tests {
     use std::sync::Mutex as StdMutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases_async};
     use mac_address::MacAddress;
 
     use super::*;
     use crate::bmc::{BoxFuture, CredentialProvider};
     use crate::endpoint::{BmcAddr, BmcCredentials};
 
+    enum ProviderResponse {
+        Credentials(BmcCredentials),
+        Error(&'static str),
+        Pending,
+    }
+
+    enum RefreshInput {
+        ReconnectError(HealthError),
+        StreamStatus(tonic::Status),
+    }
+
     struct RecordingProvider {
         calls: AtomicUsize,
         observed_addrs: StdMutex<Vec<BmcAddr>>,
-        credentials: BmcCredentials,
+        response: ProviderResponse,
     }
 
     impl RecordingProvider {
         fn new(credentials: BmcCredentials) -> Arc<Self> {
+            Self::responding_with(ProviderResponse::Credentials(credentials))
+        }
+
+        fn responding_with(response: ProviderResponse) -> Arc<Self> {
             Arc::new(Self {
                 calls: AtomicUsize::new(0),
                 observed_addrs: StdMutex::new(Vec::new()),
-                credentials,
+                response,
             })
         }
     }
@@ -837,8 +854,14 @@ mod tests {
         ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.observed_addrs.lock().unwrap().push(endpoint.clone());
-            let credentials = self.credentials.clone();
-            Box::pin(async move { Ok(credentials) })
+            let response = match &self.response {
+                ProviderResponse::Credentials(credentials) => Ok(credentials.clone()),
+                ProviderResponse::Error(message) => {
+                    Err(HealthError::GenericError((*message).to_string()))
+                }
+                ProviderResponse::Pending => return Box::pin(std::future::pending()),
+            };
+            Box::pin(async move { response })
         }
     }
 
@@ -849,6 +872,46 @@ mod tests {
             mac: "55:66:77:88:99:cc"
                 .parse::<MacAddress>()
                 .expect("valid mac"),
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct CredentialFetchProjection {
+        result: Result<(Option<String>, Option<String>), String>,
+        calls: usize,
+        observed_addrs: Vec<(IpAddr, Option<u16>, String)>,
+    }
+
+    fn expected_credential_fetch(
+        result: Result<(Option<String>, Option<String>), String>,
+    ) -> CredentialFetchProjection {
+        let addr = test_addr();
+        CredentialFetchProjection {
+            result,
+            calls: 1,
+            observed_addrs: vec![(addr.ip, addr.port, addr.mac.to_string())],
+        }
+    }
+
+    fn project_credential_fetch(
+        provider: &RecordingProvider,
+        result: Result<GnmiUsernamePassword, HealthError>,
+    ) -> CredentialFetchProjection {
+        let result = result
+            .map(|credentials| (credentials.username, credentials.password))
+            .map_err(|error| error.to_string());
+        let observed_addrs = provider
+            .observed_addrs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|addr| (addr.ip, addr.port, addr.mac.to_string()))
+            .collect();
+
+        CredentialFetchProjection {
+            result,
+            calls: provider.calls.load(Ordering::SeqCst),
+            observed_addrs,
         }
     }
 
@@ -926,56 +989,171 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn gnmi_credentials_are_fetched_from_the_switch_endpoint_provider() {
+    async fn gnmi_credential_fetch_cases() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "username and password",
+                    input: ProviderResponse::Credentials(BmcCredentials::UsernamePassword {
+                        username: "nvos-admin".to_string(),
+                        password: Some("nvos-secret".to_string()),
+                    }),
+                    expect: Yields(expected_credential_fetch(Ok((
+                        Some("nvos-admin".to_string()),
+                        Some("nvos-secret".to_string()),
+                    )))),
+                },
+                Case {
+                    scenario: "username without password",
+                    input: ProviderResponse::Credentials(BmcCredentials::UsernamePassword {
+                        username: "nvos-admin".to_string(),
+                        password: None,
+                    }),
+                    expect: Yields(expected_credential_fetch(Ok((
+                        Some("nvos-admin".to_string()),
+                        None,
+                    )))),
+                },
+                Case {
+                    scenario: "session token",
+                    input: ProviderResponse::Credentials(BmcCredentials::SessionToken {
+                        token: "redfish-session-token".to_string(),
+                    }),
+                    expect: Yields(expected_credential_fetch(Err(
+                        "gNMI error: NVUE gNMI collector requires username/password credentials"
+                            .to_string(),
+                    ))),
+                },
+                Case {
+                    scenario: "credential provider error",
+                    input: ProviderResponse::Error("credential provider unavailable"),
+                    expect: Yields(expected_credential_fetch(Err(
+                        "generic error: credential provider unavailable".to_string(),
+                    ))),
+                },
+            ],
+            |response| async move {
+                let addr = test_addr();
+                let provider = RecordingProvider::responding_with(response);
+                let result = fetch_gnmi_username_password(provider.clone(), &addr).await;
+
+                Ok::<_, ()>(project_credential_fetch(&provider, result))
+            },
+        )
+        .await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn gnmi_credential_fetch_times_out() {
         let addr = test_addr();
-        let provider = RecordingProvider::new(BmcCredentials::UsernamePassword {
-            username: "nvos-admin".to_string(),
-            password: Some("nvos-secret".to_string()),
-        });
+        let provider = RecordingProvider::responding_with(ProviderResponse::Pending);
+        let fetch_provider = provider.clone();
+        let fetch_addr = addr.clone();
+        let fetch =
+            tokio::spawn(
+                async move { fetch_gnmi_username_password(fetch_provider, &fetch_addr).await },
+            );
 
-        let credentials = fetch_gnmi_username_password(provider.clone(), &addr)
-            .await
-            .expect("username/password credentials are accepted");
+        tokio::time::advance(CREDENTIAL_REFRESH_TIMEOUT + Duration::from_secs(1)).await;
+        let result = fetch.await.expect("credential fetch task should join");
 
-        assert_eq!(credentials.username.as_deref(), Some("nvos-admin"));
-        assert_eq!(credentials.password.as_deref(), Some("nvos-secret"));
-        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
-        let observed_addrs = provider.observed_addrs.lock().unwrap();
-        assert_eq!(observed_addrs.len(), 1);
-        assert_eq!(observed_addrs[0].ip, addr.ip);
-        assert_eq!(observed_addrs[0].port, addr.port);
         assert_eq!(
-            observed_addrs[0].mac, addr.mac,
-            "gNMI must ask the switch host endpoint provider using the switch host address"
+            project_credential_fetch(&provider, result),
+            expected_credential_fetch(Err(format!(
+                "gNMI error: Timed out after {}s fetching NVUE gNMI credentials",
+                CREDENTIAL_REFRESH_TIMEOUT.as_secs()
+            )))
         );
     }
 
     #[tokio::test]
-    async fn gnmi_client_provider_reuses_cached_credentials() {
-        let provider = RecordingProvider::new(BmcCredentials::UsernamePassword {
-            username: "nvos-admin".to_string(),
-            password: Some("nvos-secret".to_string()),
-        });
-        let client_provider = test_client_provider(provider.clone());
+    async fn gnmi_auth_refresh_cases() {
+        check_cases_async(
+            [
+                Case {
+                    scenario: "reconnect unauthenticated",
+                    input: RefreshInput::ReconnectError(HealthError::GnmiStatus(
+                        tonic::Status::unauthenticated("expired gNMI credentials"),
+                    )),
+                    expect: Yields(2),
+                },
+                Case {
+                    scenario: "reconnect permission denied",
+                    input: RefreshInput::ReconnectError(HealthError::GnmiStatus(
+                        tonic::Status::permission_denied("rejected gNMI credentials"),
+                    )),
+                    expect: Yields(2),
+                },
+                Case {
+                    scenario: "reconnect unavailable",
+                    input: RefreshInput::ReconnectError(HealthError::GnmiStatus(
+                        tonic::Status::unavailable("connection timed out"),
+                    )),
+                    expect: Yields(1),
+                },
+                Case {
+                    scenario: "non-gNMI error",
+                    input: RefreshInput::ReconnectError(HealthError::GenericError(
+                        "connection setup failed".to_string(),
+                    )),
+                    expect: Yields(1),
+                },
+                Case {
+                    scenario: "stream unauthenticated",
+                    input: RefreshInput::StreamStatus(tonic::Status::unauthenticated(
+                        "expired gNMI credentials",
+                    )),
+                    expect: Yields(2),
+                },
+                Case {
+                    scenario: "stream permission denied",
+                    input: RefreshInput::StreamStatus(tonic::Status::permission_denied(
+                        "rejected gNMI credentials",
+                    )),
+                    expect: Yields(2),
+                },
+                Case {
+                    scenario: "stream unavailable",
+                    input: RefreshInput::StreamStatus(tonic::Status::unavailable(
+                        "connection timed out",
+                    )),
+                    expect: Yields(1),
+                },
+            ],
+            |input| async move {
+                let provider = RecordingProvider::new(BmcCredentials::UsernamePassword {
+                    username: "nvos-admin".to_string(),
+                    password: Some("nvos-secret".to_string()),
+                });
+                let client_provider = test_client_provider(provider.clone());
+                let (_client, generation) =
+                    client_provider.new_client().await.expect("client builds");
 
-        client_provider
-            .new_client()
-            .await
-            .expect("first client builds");
-        client_provider
-            .new_client()
-            .await
-            .expect("second client builds");
+                match input {
+                    RefreshInput::ReconnectError(error) => {
+                        client_provider
+                            .refresh_auth_if_needed(&error, generation)
+                            .await;
+                    }
+                    RefreshInput::StreamStatus(status) => {
+                        client_provider
+                            .refresh_status_auth_if_needed(&status, generation)
+                            .await;
+                    }
+                }
+                client_provider
+                    .new_client()
+                    .await
+                    .expect("cached credentials are reused");
 
-        assert_eq!(
-            provider.calls.load(Ordering::SeqCst),
-            1,
-            "gNMI reconnects should reuse cached credentials until an auth failure is observed"
-        );
+                Ok::<_, ()>(provider.calls.load(Ordering::SeqCst))
+            },
+        )
+        .await;
     }
 
     #[tokio::test]
-    async fn gnmi_client_provider_refreshes_cached_credentials_after_auth_failure() {
+    async fn gnmi_client_provider_ignores_stale_refresh_generation() {
         let provider = RecordingProvider::new(BmcCredentials::UsernamePassword {
             username: "nvos-admin".to_string(),
             password: Some("nvos-secret".to_string()),
@@ -1020,74 +1198,5 @@ mod tests {
             2,
             "reconnect after refresh should reuse refreshed credentials"
         );
-    }
-
-    #[tokio::test]
-    async fn gnmi_client_provider_refreshes_cached_credentials_after_auth_stream_status() {
-        let provider = RecordingProvider::new(BmcCredentials::UsernamePassword {
-            username: "nvos-admin".to_string(),
-            password: Some("nvos-secret".to_string()),
-        });
-        let client_provider = test_client_provider(provider.clone());
-        let (_client, generation) = client_provider.new_client().await.expect("client builds");
-
-        client_provider
-            .refresh_status_auth_if_needed(
-                &tonic::Status::unauthenticated("expired gNMI credentials"),
-                generation,
-            )
-            .await;
-
-        assert_eq!(
-            provider.calls.load(Ordering::SeqCst),
-            2,
-            "in-stream unauthenticated statuses should refresh cached credentials"
-        );
-    }
-
-    #[tokio::test]
-    async fn gnmi_client_provider_does_not_refresh_cached_credentials_after_non_auth_failure() {
-        let provider = RecordingProvider::new(BmcCredentials::UsernamePassword {
-            username: "nvos-admin".to_string(),
-            password: Some("nvos-secret".to_string()),
-        });
-        let client_provider = test_client_provider(provider.clone());
-        let (_client, generation) = client_provider.new_client().await.expect("client builds");
-
-        client_provider
-            .refresh_auth_if_needed(
-                &HealthError::GnmiStatus(tonic::Status::unavailable("connection timed out")),
-                generation,
-            )
-            .await;
-        client_provider
-            .new_client()
-            .await
-            .expect("cached credentials are reused");
-
-        assert_eq!(
-            provider.calls.load(Ordering::SeqCst),
-            1,
-            "non-auth reconnect failures should not fetch credentials again"
-        );
-    }
-
-    #[tokio::test]
-    async fn gnmi_credentials_reject_session_tokens() {
-        let provider = RecordingProvider::new(BmcCredentials::SessionToken {
-            token: "redfish-session-token".to_string(),
-        });
-
-        let error = fetch_gnmi_username_password(provider, &test_addr())
-            .await
-            .expect_err("gNMI metadata auth requires username/password credentials");
-
-        match error {
-            HealthError::GnmiError(message) => assert!(
-                message.contains("requires username/password"),
-                "expected explicit credential-kind message, got: {message}"
-            ),
-            other => panic!("unexpected error variant: {other:?}"),
-        }
     }
 }
