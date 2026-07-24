@@ -146,8 +146,10 @@ variable when the flag is omitted.
 
 The Helm chart explicitly renders `--listen`, `--path`, and
 `--shutdown-timeout` from `service.port`, `config.path`, and
-`config.shutdownTimeout`. Those Helm values take precedence over the
-corresponding `NICO_MCP_*` environment variables.
+`config.shutdownTimeout`. It also renders `--base-url`, `--org`, and
+`--api-name` when `config.baseURL`, `config.org`, and `config.apiName` are
+non-empty. These command-line flags take precedence over their corresponding
+environment variables.
 
 `nico-mcp` does not read `~/.nico/config.yaml`.
 
