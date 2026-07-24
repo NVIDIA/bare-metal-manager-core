@@ -35,13 +35,18 @@ pub async fn show(
 
     if let Some(req) = req {
         let expected_switch = api_client.0.get_expected_switch(req).await?;
-        println!("{:#?}", expected_switch);
+        if output_format == OutputFormat::Json {
+            println!("{}", serde_json::to_string_pretty(&expected_switch)?);
+        } else {
+            println!("{:#?}", expected_switch);
+        }
         return Ok(());
     }
 
     let expected_switches = api_client.0.get_all_expected_switches().await?;
     if output_format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&expected_switches)?);
+        return Ok(());
     }
 
     let linked_switches = api_client.0.get_all_expected_switches_linked().await?;

@@ -35,13 +35,18 @@ pub async fn show(
 
     if let Some(req) = req {
         let expected_power_shelf = api_client.0.get_expected_power_shelf(req).await?;
-        println!("{:#?}", expected_power_shelf);
+        if output_format == OutputFormat::Json {
+            println!("{}", serde_json::to_string_pretty(&expected_power_shelf)?);
+        } else {
+            println!("{:#?}", expected_power_shelf);
+        }
         return Ok(());
     }
 
     let expected_power_shelves = api_client.0.get_all_expected_power_shelves().await?;
     if output_format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&expected_power_shelves)?);
+        return Ok(());
     }
 
     // TODO: This should be optimised. `find_interfaces` should accept a list of macs also and
