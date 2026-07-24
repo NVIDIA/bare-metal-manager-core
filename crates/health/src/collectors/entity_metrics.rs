@@ -542,152 +542,714 @@ impl<B: Bmc + 'static> MetricsCollector<B> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::convert::Infallible;
+    use std::sync::Mutex as StdMutex;
 
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, Check, check_cases_async, check_values};
     use serde_json::json;
 
     use super::*;
+    use crate::collectors::projection_test_support::{ProjectionFixture, TestBmc, TestEntity};
+    use crate::endpoint::test_support::{mac, test_endpoint};
 
-    fn by_type(fields: &[MetricField]) -> HashMap<String, (&'static str, f64)> {
+    #[derive(Clone, Copy)]
+    enum Projection {
+        Processor,
+        Memory,
+        Drive,
+        PowerSupply,
+    }
+
+    struct ProjectionCase {
+        projection: Projection,
+        metrics: serde_json::Value,
+    }
+
+    type ProjectedMetric = (String, &'static str, f64);
+
+    fn sort_projected_metrics(mut fields: Vec<ProjectedMetric>) -> Vec<ProjectedMetric> {
+        fields.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.cmp(right.1))
+                .then(left.2.total_cmp(&right.2))
+        });
         fields
-            .iter()
-            .map(|f| (f.metric_type.to_string(), (f.unit, f.value)))
-            .collect()
+    }
+
+    fn project(case: ProjectionCase) -> Vec<ProjectedMetric> {
+        let fields = match case.projection {
+            Projection::Processor => processor_metric_fields(
+                &serde_json::from_value(case.metrics)
+                    .expect("processor metrics should deserialize"),
+            ),
+            Projection::Memory => memory_metric_fields(
+                &serde_json::from_value(case.metrics).expect("memory metrics should deserialize"),
+            ),
+            Projection::Drive => drive_metric_fields(
+                &serde_json::from_value(case.metrics).expect("drive metrics should deserialize"),
+            ),
+            Projection::PowerSupply => power_supply_metric_fields(
+                &serde_json::from_value(case.metrics)
+                    .expect("power supply metrics should deserialize"),
+            ),
+        };
+
+        sort_projected_metrics(
+            fields
+                .into_iter()
+                .map(|field| (field.metric_type.into_owned(), field.unit, field.value))
+                .collect(),
+        )
+    }
+
+    fn expected(
+        fields: impl IntoIterator<Item = (&'static str, &'static str, f64)>,
+    ) -> Vec<ProjectedMetric> {
+        sort_projected_metrics(
+            fields
+                .into_iter()
+                .map(|(metric_type, unit, value)| (metric_type.to_string(), unit, value))
+                .collect(),
+        )
     }
 
     #[test]
-    fn processor_scalars_and_pcie_errors_are_flattened() {
-        let metrics: ProcessorMetrics = serde_json::from_value(json!({
-            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
-            "Id": "ProcessorMetrics",
-            "Name": "Processor Metrics",
-            "BandwidthPercent": 42.5,
-            "OperatingSpeedMHz": 3200,
-            "CorrectableCoreErrorCount": 7,
-            "UncorrectableCoreErrorCount": 0,
-            "PCIeErrors": {
-                "CorrectableErrorCount": 3,
-                "FatalErrorCount": 1
+    fn child_metric_projection_cases() {
+        check_values(
+            [
+                Check {
+                    scenario: "processor scalars, durations, and PCIe errors",
+                    input: ProjectionCase {
+                        projection: Projection::Processor,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
+                            "Id": "ProcessorMetrics",
+                            "Name": "Processor Metrics",
+                            "BandwidthPercent": 42.5,
+                            "OperatingSpeedMHz": 3200,
+                            "CorrectableCoreErrorCount": 7,
+                            "UncorrectableCoreErrorCount": 0,
+                            "PCIeErrors": {
+                                "CorrectableErrorCount": 3,
+                                "FatalErrorCount": 1
+                            },
+                            "PowerLimitThrottleDuration": "PT0S",
+                            "ThermalLimitThrottleDuration": "PT1M30S"
+                        }),
+                    },
+                    expect: expected([
+                        ("bandwidth", "percent", 42.5),
+                        ("operating_speed", "mhz", 3200.0),
+                        ("correctable_core_errors", "count", 7.0),
+                        ("uncorrectable_core_errors", "count", 0.0),
+                        ("power_limit_throttle", "seconds", 0.0),
+                        ("thermal_limit_throttle", "seconds", 90.0),
+                        ("pcie_correctable_errors", "count", 3.0),
+                        ("pcie_fatal_errors", "count", 1.0),
+                    ]),
+                },
+                Check {
+                    scenario: "processor sensor-backed excerpt is ignored",
+                    input: ProjectionCase {
+                        projection: Projection::Processor,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
+                            "Id": "ProcessorMetrics",
+                            "Name": "Processor Metrics",
+                            "CoreVoltage": {
+                                "DataSourceUri": "/redfish/v1/Chassis/1/Sensors/CPU0_Voltage",
+                                "Reading": 1.2
+                            }
+                        }),
+                    },
+                    expect: expected([]),
+                },
+                Check {
+                    scenario: "processor inline excerpt is emitted",
+                    input: ProjectionCase {
+                        projection: Projection::Processor,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
+                            "Id": "ProcessorMetrics",
+                            "Name": "Processor Metrics",
+                            "CoreVoltage": { "Reading": 1.05 }
+                        }),
+                    },
+                    expect: expected([("core_voltage", "volts", 1.05)]),
+                },
+                Check {
+                    scenario: "remaining processor scalars and PCIe counters",
+                    input: ProjectionCase {
+                        projection: Projection::Processor,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
+                            "Id": "ProcessorMetrics",
+                            "Name": "Processor Metrics",
+                            "AverageFrequencyMHz": 2800.5,
+                            "ThrottlingCelsius": 95.0,
+                            "TemperatureCelsius": 65.0,
+                            "ConsumedPowerWatt": 250.0,
+                            "FrequencyRatio": 0.75,
+                            "LocalMemoryBandwidthBytes": 1000,
+                            "RemoteMemoryBandwidthBytes": 2000,
+                            "KernelPercent": 4.5,
+                            "UserPercent": 10.5,
+                            "CorrectableOtherErrorCount": 2,
+                            "UncorrectableOtherErrorCount": 3,
+                            "PCIeErrors": {
+                                "NonFatalErrorCount": 1,
+                                "L0ToRecoveryCount": 2,
+                                "ReplayCount": 3,
+                                "ReplayRolloverCount": 4,
+                                "NAKSentCount": 5,
+                                "NAKReceivedCount": 6,
+                                "UnsupportedRequestCount": 7,
+                                "BadTLPCount": 8,
+                                "BadDLLPCount": 9,
+                                "FlowControlTimeoutErrors": 10
+                            }
+                        }),
+                    },
+                    expect: expected([
+                        ("average_frequency", "mhz", 2800.5),
+                        ("throttling", "celsius", 95.0),
+                        ("temperature", "celsius", 65.0),
+                        ("consumed_power", "watts", 250.0),
+                        ("frequency_ratio", "ratio", 0.75),
+                        ("local_memory_bandwidth", "bytes", 1000.0),
+                        ("remote_memory_bandwidth", "bytes", 2000.0),
+                        ("kernel_time", "percent", 4.5),
+                        ("user_time", "percent", 10.5),
+                        ("correctable_other_errors", "count", 2.0),
+                        ("uncorrectable_other_errors", "count", 3.0),
+                        ("pcie_non_fatal_errors", "count", 1.0),
+                        ("pcie_l0_to_recovery", "count", 2.0),
+                        ("pcie_replay", "count", 3.0),
+                        ("pcie_replay_rollover", "count", 4.0),
+                        ("pcie_nak_sent", "count", 5.0),
+                        ("pcie_nak_received", "count", 6.0),
+                        ("pcie_unsupported_request", "count", 7.0),
+                        ("pcie_bad_tlp", "count", 8.0),
+                        ("pcie_bad_dllp", "count", 9.0),
+                        ("pcie_flow_control_timeout", "count", 10.0),
+                    ]),
+                },
+                Check {
+                    scenario: "sparse processor metrics",
+                    input: ProjectionCase {
+                        projection: Projection::Processor,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
+                            "Id": "ProcessorMetrics",
+                            "Name": "Processor Metrics",
+                            "BandwidthPercent": null,
+                            "PowerLimitThrottleDuration": null
+                        }),
+                    },
+                    expect: expected([]),
+                },
+                Check {
+                    scenario: "memory nested periods use distinct prefixes",
+                    input: ProjectionCase {
+                        projection: Projection::Memory,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Memory/DIMM0/MemoryMetrics",
+                            "Id": "MemoryMetrics",
+                            "Name": "Memory Metrics",
+                            "CorrectedVolatileErrorCount": 2,
+                            "CurrentPeriod": { "CorrectableECCErrorCount": 5 },
+                            "LifeTime": { "UncorrectableECCErrorCount": 9 }
+                        }),
+                    },
+                    expect: expected([
+                        ("corrected_volatile_errors", "count", 2.0),
+                        ("current_correctable_ecc_errors", "count", 5.0),
+                        ("lifetime_uncorrectable_ecc_errors", "count", 9.0),
+                    ]),
+                },
+                Check {
+                    scenario: "remaining memory scalars and period counters",
+                    input: ProjectionCase {
+                        projection: Projection::Memory,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Memory/DIMM0/MemoryMetrics",
+                            "Id": "MemoryMetrics",
+                            "Name": "Memory Metrics",
+                            "BlockSizeBytes": 4096,
+                            "BandwidthPercent": 72.5,
+                            "OperatingSpeedMHz": 6400,
+                            "CorrectedPersistentErrorCount": 3,
+                            "DirtyShutdownCount": 4,
+                            "CapacityUtilizationPercent": 81.0,
+                            "CurrentPeriod": {
+                                "UncorrectableECCErrorCount": 5,
+                                "IndeterminateCorrectableErrorCount": 6,
+                                "IndeterminateUncorrectableErrorCount": 7
+                            },
+                            "LifeTime": {
+                                "CorrectableECCErrorCount": 8,
+                                "IndeterminateCorrectableErrorCount": 9,
+                                "IndeterminateUncorrectableErrorCount": 10
+                            }
+                        }),
+                    },
+                    expect: expected([
+                        ("block_size", "bytes", 4096.0),
+                        ("bandwidth", "percent", 72.5),
+                        ("operating_speed", "mhz", 6400.0),
+                        ("corrected_persistent_errors", "count", 3.0),
+                        ("dirty_shutdown", "count", 4.0),
+                        ("capacity_utilization", "percent", 81.0),
+                        ("current_uncorrectable_ecc_errors", "count", 5.0),
+                        ("current_indeterminate_correctable_errors", "count", 6.0),
+                        ("current_indeterminate_uncorrectable_errors", "count", 7.0),
+                        ("lifetime_correctable_ecc_errors", "count", 8.0),
+                        ("lifetime_indeterminate_correctable_errors", "count", 9.0),
+                        ("lifetime_indeterminate_uncorrectable_errors", "count", 10.0),
+                    ]),
+                },
+                Check {
+                    scenario: "sparse memory metrics",
+                    input: ProjectionCase {
+                        projection: Projection::Memory,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Memory/DIMM0/MemoryMetrics",
+                            "Id": "MemoryMetrics",
+                            "Name": "Memory Metrics"
+                        }),
+                    },
+                    expect: expected([]),
+                },
+                Check {
+                    scenario: "drive error and lifetime counters",
+                    input: ProjectionCase {
+                        projection: Projection::Drive,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Storage/1/Drives/D0/Metrics",
+                            "Id": "DriveMetrics",
+                            "Name": "Drive Metrics",
+                            "BadBlockCount": 4,
+                            "CorrectableIOReadErrorCount": 11,
+                            "PowerOnHours": 12345.0
+                        }),
+                    },
+                    expect: expected([
+                        ("correctable_io_read_errors", "count", 11.0),
+                        ("bad_block", "count", 4.0),
+                        ("power_on_hours", "hours", 12345.0),
+                    ]),
+                },
+                Check {
+                    scenario: "remaining drive counters",
+                    input: ProjectionCase {
+                        projection: Projection::Drive,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Storage/1/Drives/D0/Metrics",
+                            "Id": "DriveMetrics",
+                            "Name": "Drive Metrics",
+                            "CorrectableIOWriteErrorCount": 1,
+                            "UncorrectableIOReadErrorCount": 2,
+                            "UncorrectableIOWriteErrorCount": 3,
+                            "NativeCommandQueueDepth": 4,
+                            "ReadIOKiBytes": 5,
+                            "WriteIOKiBytes": 6
+                        }),
+                    },
+                    expect: expected([
+                        ("correctable_io_write_errors", "count", 1.0),
+                        ("uncorrectable_io_read_errors", "count", 2.0),
+                        ("uncorrectable_io_write_errors", "count", 3.0),
+                        ("native_command_queue_depth", "count", 4.0),
+                        ("read_io", "kibibytes", 5.0),
+                        ("write_io", "kibibytes", 6.0),
+                    ]),
+                },
+                Check {
+                    scenario: "sparse drive metrics",
+                    input: ProjectionCase {
+                        projection: Projection::Drive,
+                        metrics: json!({
+                            "@odata.id": "/redfish/v1/Systems/1/Storage/1/Drives/D0/Metrics",
+                            "Id": "DriveMetrics",
+                            "Name": "Drive Metrics"
+                        }),
+                    },
+                    expect: expected([]),
+                },
+                Check {
+                    scenario: "power supply ignores sensor-backed and emits inline excerpts",
+                    input: ProjectionCase {
+                        projection: Projection::PowerSupply,
+                        metrics: json!({
+                            "@odata.id":
+                                "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/PSU0/Metrics",
+                            "Id": "PowerSupplyMetrics",
+                            "Name": "Power Supply Metrics",
+                            "InputVoltage": {
+                                "DataSourceUri": "/redfish/v1/Chassis/1/Sensors/PSU0_Vin",
+                                "Reading": 230.0
+                            },
+                            "InputPowerWatts": {
+                                "DataSourceUri": null,
+                                "Reading": 450.0
+                            },
+                            "OutputPowerWatts": {
+                                "DataSourceUri": null,
+                                "Reading": 500.0
+                            }
+                        }),
+                    },
+                    expect: expected([
+                        ("input_power", "watts", 450.0),
+                        ("output_power", "watts", 500.0),
+                    ]),
+                },
+                Check {
+                    scenario: "remaining power supply excerpts",
+                    input: ProjectionCase {
+                        projection: Projection::PowerSupply,
+                        metrics: json!({
+                            "@odata.id":
+                                "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/PSU0/Metrics",
+                            "Id": "PowerSupplyMetrics",
+                            "Name": "Power Supply Metrics",
+                            "InputVoltage": { "Reading": 230.0 },
+                            "InputCurrentAmps": {
+                                "DataSourceUri": null,
+                                "Reading": 2.0
+                            },
+                            "InputPowerWatts": { "Reading": null },
+                            "EnergykWh": {
+                                "DataSourceUri": null,
+                                "Reading": 2.5
+                            },
+                            "FrequencyHz": {
+                                "DataSourceUri": null,
+                                "Reading": 60.0
+                            },
+                            "TemperatureCelsius": {
+                                "DataSourceUri": null,
+                                "Reading": 35.0
+                            },
+                            "FanSpeedPercent": {
+                                "DataSourceUri": null,
+                                "Reading": 50.0
+                            }
+                        }),
+                    },
+                    expect: expected([
+                        ("input_voltage", "volts", 230.0),
+                        ("input_current", "amperes", 2.0),
+                        ("energy", "kilowatt_hours", 2.5),
+                        ("frequency", "hertz", 60.0),
+                        ("temperature", "celsius", 35.0),
+                        ("fan_speed", "percent", 50.0),
+                    ]),
+                },
+            ],
+            project,
+        );
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct ObservedMetric {
+        key: String,
+        name: String,
+        metric_type: String,
+        unit: String,
+        value: f64,
+        labels: Vec<(String, String)>,
+        has_context: bool,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum ObservedEvent {
+        CollectionStart,
+        Metric(ObservedMetric),
+        CollectionEnd,
+        CollectorRemoved,
+        Log,
+        Firmware,
+        HealthReport,
+    }
+
+    #[derive(Default)]
+    struct CapturingSink {
+        events: StdMutex<Vec<ObservedEvent>>,
+    }
+
+    impl DataSink for CapturingSink {
+        fn sink_type(&self) -> &'static str {
+            "capturing_sink"
+        }
+
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            event: &CollectorEvent,
+        ) -> Result<(), HealthError> {
+            let observed = match event {
+                CollectorEvent::MetricCollectionStart => ObservedEvent::CollectionStart,
+                CollectorEvent::Metric(sample) => ObservedEvent::Metric(ObservedMetric {
+                    key: sample.key.clone(),
+                    name: sample.name.clone(),
+                    metric_type: sample.metric_type.clone(),
+                    unit: sample.unit.clone(),
+                    value: sample.value,
+                    labels: sample
+                        .labels
+                        .iter()
+                        .map(|(key, value)| (key.to_string(), value.clone()))
+                        .collect(),
+                    has_context: sample.context.is_some(),
+                }),
+                CollectorEvent::MetricCollectionEnd => ObservedEvent::CollectionEnd,
+                CollectorEvent::CollectorRemoved => ObservedEvent::CollectorRemoved,
+                CollectorEvent::Log(_) => ObservedEvent::Log,
+                CollectorEvent::Firmware(_) => ObservedEvent::Firmware,
+                CollectorEvent::HealthReport(_) => ObservedEvent::HealthReport,
+            };
+            self.events.lock().unwrap().push(observed);
+            Ok(())
+        }
+    }
+
+    struct CollectionCase {
+        bmc: Arc<TestBmc>,
+        entity: DiscoveredEntity<TestBmc>,
+        with_sink: bool,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct ObservedCollection {
+        field_count: usize,
+        fetch_failures: usize,
+        events: Vec<ObservedEvent>,
+    }
+
+    async fn collect(case: CollectionCase) -> Result<ObservedCollection, Infallible> {
+        let capture = Arc::new(CapturingSink::default());
+        let data_sink = case.with_sink.then(|| capture.clone() as Arc<dyn DataSink>);
+        let collector = MetricsCollector::new_runner(
+            case.bmc,
+            Arc::new(test_endpoint(mac("00:11:22:33:44:55"))),
+            MetricsCollectorConfig {
+                data_sink,
+                shared: Arc::new(arc_swap::ArcSwapOption::empty()),
+                fetch_concurrency: 1,
             },
-            "PowerLimitThrottleDuration": "PT0S",
-            "ThermalLimitThrottleDuration": "PT1M30S"
-        }))
-        .expect("processor metrics should deserialize");
+        )
+        .expect("metrics collector should build");
+        let fetch_failures = AtomicUsize::new(0);
+        let field_count = collector
+            .collect_entity(&case.entity, &fetch_failures)
+            .await;
+        let events = capture.events.lock().unwrap().clone();
 
-        let fields = by_type(&processor_metric_fields(&metrics));
-        assert_eq!(fields.get("bandwidth"), Some(&("percent", 42.5)));
-        assert_eq!(fields.get("operating_speed"), Some(&("mhz", 3200.0)));
-        assert_eq!(fields.get("correctable_core_errors"), Some(&("count", 7.0)));
-        assert_eq!(
-            fields.get("uncorrectable_core_errors"),
-            Some(&("count", 0.0))
-        );
-        assert_eq!(fields.get("pcie_correctable_errors"), Some(&("count", 3.0)));
-        assert_eq!(fields.get("pcie_fatal_errors"), Some(&("count", 1.0)));
-        // ISO 8601 durations are emitted as seconds.
-        assert_eq!(fields.get("power_limit_throttle"), Some(&("seconds", 0.0)));
-        assert_eq!(
-            fields.get("thermal_limit_throttle"),
-            Some(&("seconds", 90.0))
-        );
+        Ok(ObservedCollection {
+            field_count,
+            fetch_failures: fetch_failures.load(Ordering::Relaxed),
+            events,
+        })
     }
 
-    #[test]
-    fn sensor_backed_excerpt_is_skipped_but_inline_excerpt_is_emitted() {
-        // CoreVoltage carrying a DataSourceUri is already published as hw_sensor
-        // and must NOT be re-emitted here.
-        let linked: ProcessorMetrics = serde_json::from_value(json!({
-            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
-            "Id": "ProcessorMetrics",
-            "Name": "Processor Metrics",
-            "CoreVoltage": {
-                "DataSourceUri": "/redfish/v1/Chassis/1/Sensors/CPU0_Voltage",
-                "Reading": 1.2
-            }
-        }))
-        .expect("deserialize");
-        assert!(!by_type(&processor_metric_fields(&linked)).contains_key("core_voltage"));
-
-        // Without a DataSourceUri the inline reading is emitted.
-        let inline: ProcessorMetrics = serde_json::from_value(json!({
-            "@odata.id": "/redfish/v1/Systems/1/Processors/CPU0/ProcessorMetrics",
-            "Id": "ProcessorMetrics",
-            "Name": "Processor Metrics",
-            "CoreVoltage": { "Reading": 1.05 }
-        }))
-        .expect("deserialize");
-        assert_eq!(
-            by_type(&processor_metric_fields(&inline)).get("core_voltage"),
-            Some(&("volts", 1.05))
-        );
+    fn metric(
+        key: &str,
+        metric_type: &str,
+        unit: &str,
+        value: f64,
+        labels: &[(&str, &str)],
+    ) -> ObservedEvent {
+        ObservedEvent::Metric(ObservedMetric {
+            key: key.to_string(),
+            name: "hw_metric".to_string(),
+            metric_type: metric_type.to_string(),
+            unit: unit.to_string(),
+            value,
+            labels: labels
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect(),
+            has_context: false,
+        })
     }
 
-    #[test]
-    fn memory_nested_periods_are_flattened_with_prefixes() {
-        let metrics: MemoryMetrics = serde_json::from_value(json!({
-            "@odata.id": "/redfish/v1/Systems/1/Memory/DIMM0/MemoryMetrics",
-            "Id": "MemoryMetrics",
-            "Name": "Memory Metrics",
-            "CorrectedVolatileErrorCount": 2,
-            "CurrentPeriod": { "CorrectableECCErrorCount": 5 },
-            "LifeTime": { "UncorrectableECCErrorCount": 9 }
-        }))
-        .expect("memory metrics should deserialize");
+    #[tokio::test]
+    async fn collect_entity_cases() {
+        let fixture = ProjectionFixture::new().await;
 
-        let fields = by_type(&memory_metric_fields(&metrics));
-        assert_eq!(
-            fields.get("corrected_volatile_errors"),
-            Some(&("count", 2.0))
-        );
-        assert_eq!(
-            fields.get("current_correctable_ecc_errors"),
-            Some(&("count", 5.0))
-        );
-        assert_eq!(
-            fields.get("lifetime_uncorrectable_ecc_errors"),
-            Some(&("count", 9.0))
-        );
-    }
-
-    #[test]
-    fn drive_io_error_counters_are_emitted() {
-        let metrics: nv_redfish::schema::drive_metrics::DriveMetrics =
-            serde_json::from_value(json!({
-                "@odata.id": "/redfish/v1/Systems/1/Storage/1/Drives/D0/Metrics",
-                "Id": "DriveMetrics",
-                "Name": "Drive Metrics",
-                "BadBlockCount": 4,
-                "CorrectableIOReadErrorCount": 11,
-                "PowerOnHours": 12345.0
-            }))
-            .expect("drive metrics should deserialize");
-
-        let fields = by_type(&drive_metric_fields(&metrics));
-        assert_eq!(fields.get("bad_block"), Some(&("count", 4.0)));
-        assert_eq!(
-            fields.get("correctable_io_read_errors"),
-            Some(&("count", 11.0))
-        );
-        assert_eq!(fields.get("power_on_hours"), Some(&("hours", 12345.0)));
-    }
-
-    #[test]
-    fn power_supply_metrics_skip_sensor_backed_excerpts() {
-        let metrics: PowerSupplyMetrics = serde_json::from_value(json!({
-            "@odata.id": "/redfish/v1/Chassis/1/PowerSubsystem/PowerSupplies/PSU0/Metrics",
-            "Id": "PowerSupplyMetrics",
-            "Name": "Power Supply Metrics",
-            "InputVoltage": {
-                "DataSourceUri": "/redfish/v1/Chassis/1/Sensors/PSU0_Vin",
-                "Reading": 230.0
-            },
-            "OutputPowerWatts": { "Reading": 500.0 }
-        }))
-        .expect("power supply metrics should deserialize");
-
-        let fields = by_type(&power_supply_metric_fields(&metrics));
-        // Sensor-backed input voltage is skipped; inline output power is kept.
-        assert!(!fields.contains_key("input_voltage"));
-        assert_eq!(fields.get("output_power"), Some(&("watts", 500.0)));
+        check_cases_async(
+            [
+                Case {
+                    scenario: "processor metric",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::Processor).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 1,
+                        fetch_failures: 0,
+                        events: vec![metric(
+                            "/redfish/v1/Systems/SYS0/Processors/CPU0/bandwidth",
+                            "bandwidth",
+                            "percent",
+                            42.0,
+                            &[
+                                ("processor_id", "CPU0"),
+                                ("system_id", "SYS0"),
+                                ("processor_type", "cpu"),
+                                ("model", "Grace"),
+                            ],
+                        )],
+                    }),
+                },
+                Case {
+                    scenario: "memory metric",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::Memory).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 1,
+                        fetch_failures: 0,
+                        events: vec![metric(
+                            "/redfish/v1/Systems/SYS0/Memory/DIMM0/block_size",
+                            "block_size",
+                            "bytes",
+                            4096.0,
+                            &[
+                                ("memory_id", "DIMM0"),
+                                ("system_id", "SYS0"),
+                                ("device_type", "ddr5"),
+                                ("model", "HMCG94AGBRA"),
+                            ],
+                        )],
+                    }),
+                },
+                Case {
+                    scenario: "drive metric",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::Drive).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 1,
+                        fetch_failures: 0,
+                        events: vec![metric(
+                            "/redfish/v1/Systems/SYS0/Storage/ST0/Drives/D0/bad_block",
+                            "bad_block",
+                            "count",
+                            4.0,
+                            &[
+                                ("drive_id", "D0"),
+                                ("storage_id", "ST0"),
+                                ("system_id", "SYS0"),
+                                ("model", "NVMe-1"),
+                            ],
+                        )],
+                    }),
+                },
+                Case {
+                    scenario: "power supply metric",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::PowerSupply).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 1,
+                        fetch_failures: 0,
+                        events: vec![metric(
+                            concat!(
+                                "/redfish/v1/Chassis/CH0/PowerSubsystem/PowerSupplies/PS0/",
+                                "output_power"
+                            ),
+                            "output_power",
+                            "watts",
+                            500.0,
+                            &[
+                                ("powersupply_id", "PS0"),
+                                ("chassis_id", "CH0"),
+                                ("model", "PSU-3KW"),
+                            ],
+                        )],
+                    }),
+                },
+                Case {
+                    scenario: "chassis is ignored",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::Chassis).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 0,
+                        fetch_failures: 0,
+                        events: vec![],
+                    }),
+                },
+                Case {
+                    scenario: "missing metrics link",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::SparseProcessor).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 0,
+                        fetch_failures: 0,
+                        events: vec![],
+                    }),
+                },
+                Case {
+                    scenario: "empty metrics resource",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::ProcessorWithEmptyMetrics).await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 0,
+                        fetch_failures: 0,
+                        events: vec![],
+                    }),
+                },
+                Case {
+                    scenario: "malformed metrics response",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture
+                            .entity(TestEntity::ProcessorWithMalformedMetrics)
+                            .await,
+                        with_sink: true,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 0,
+                        fetch_failures: 1,
+                        events: vec![],
+                    }),
+                },
+                Case {
+                    scenario: "metric projection without a sink",
+                    input: CollectionCase {
+                        bmc: fixture.bmc(),
+                        entity: fixture.entity(TestEntity::Processor).await,
+                        with_sink: false,
+                    },
+                    expect: Yields(ObservedCollection {
+                        field_count: 1,
+                        fetch_failures: 0,
+                        events: vec![],
+                    }),
+                },
+            ],
+            collect,
+        )
+        .await;
     }
 }

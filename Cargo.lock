@@ -2044,6 +2044,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
  "base64",
  "bmc-mock",
  "bytes",
