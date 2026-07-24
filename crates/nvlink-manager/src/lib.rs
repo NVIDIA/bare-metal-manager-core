@@ -48,7 +48,8 @@ use libnmxc::nmxc_model::{
 };
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
 use metrics::{
-    AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperationStatus,
+    AppliedChange, ChassisNmxCUnreachableReason, NmxcMetricOperation, NmxcMetricOperationStatus,
+    NmxcOperationFailureStage, NmxcOperationFinished, NvlPartitionMonitorIterationFinished,
     NvlPartitionMonitorMetrics,
 };
 use model::hardware_info::{HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
@@ -77,6 +78,7 @@ const NMX_C_PARTITION_MULTICAST_GROUPS_LIMIT: u32 = 16;
 fn managed_host_chassis_serial(snapshot: &ManagedHostStateSnapshot) -> Option<String> {
     snapshot
         .host_snapshot
+        .status
         .nvlink_info
         .as_ref()
         .map(|info| info.chassis_serial.trim())
@@ -85,6 +87,7 @@ fn managed_host_chassis_serial(snapshot: &ManagedHostStateSnapshot) -> Option<St
         .or_else(|| {
             snapshot
                 .host_snapshot
+                .status
                 .hardware_info
                 .as_ref()
                 .and_then(HardwareInfo::first_gpu_platform_chassis_serial)
@@ -158,7 +161,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 
     if let Some(snapshot_info) =
-        snapshot.and_then(|snapshot| snapshot.host_snapshot.nvlink_info.as_ref())
+        snapshot.and_then(|snapshot| snapshot.host_snapshot.status.nvlink_info.as_ref())
     {
         return MachineNvLinkInfo {
             domain_uuid,
@@ -172,7 +175,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 
     let gpus = snapshot
-        .and_then(|snapshot| snapshot.host_snapshot.hardware_info.as_ref())
+        .and_then(|snapshot| snapshot.host_snapshot.status.hardware_info.as_ref())
         .map(nvlink_gpus_from_hardware_info)
         .unwrap_or_default();
 
@@ -183,8 +186,7 @@ fn build_machine_nvlink_info_from_nmx_c_hello(
     }
 }
 
-/// Populates missing `machines.nvlink_info` entries, nil `domain_uuid`, or empty `chassis_serial`
-/// using NMX-C hello.
+/// Populates missing `machines.status.nvlink_info` entries (or nil `domain_uuid`) using NMX-C hello.
 fn populate_machine_nvlink_info_if_needed(
     machine_nvlink_info: &mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
     managed_host_snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -270,6 +272,76 @@ pub enum NmxcPartitionOperationType {
     Update(u32),                 // NMX-C partition ID
 }
 
+struct NmxcOperationError {
+    failure_stage: NmxcOperationFailureStage,
+    error: String,
+    nmx_c_partition_id: String,
+    create_partition_request: String,
+}
+
+/// `finish_nmxc_operation` records one terminal NMX-C operation before deciding
+/// whether its failure is recoverable. A default-partition delete failure still
+/// aborts the monitor pass, but its latency and applied-change counter are
+/// recorded before propagation. The helper also emits the stage-specific
+/// warning with partition context; the later chassis-level summary still
+/// reports the aborted pass.
+fn finish_nmxc_operation(
+    metrics: &mut NvlPartitionMonitorMetrics,
+    logical_partition_id: &NvLinkLogicalPartitionId,
+    operation: &NmxcPartitionOperation,
+    latency: Duration,
+    result: Result<(), NmxcOperationError>,
+) -> NvLinkManagerResult<bool> {
+    let succeeded = result.is_ok();
+    let (failure_stage, error, nmx_c_partition_id, create_partition_request) = match result {
+        Ok(()) => (
+            NmxcOperationFailureStage::None,
+            String::new(),
+            String::new(),
+            String::new(),
+        ),
+        Err(error) => (
+            error.failure_stage,
+            error.error,
+            error.nmx_c_partition_id,
+            error.create_partition_request,
+        ),
+    };
+    let status = if succeeded {
+        NmxcMetricOperationStatus::Completed
+    } else {
+        NmxcMetricOperationStatus::Failed
+    };
+    let metric_operation: NmxcMetricOperation = operation.operation_type.clone().into();
+    *metrics
+        .applied_changes
+        .entry(AppliedChange {
+            operation: metric_operation,
+            status,
+        })
+        .or_default() += 1;
+
+    let fatal_error =
+        (failure_stage == NmxcOperationFailureStage::DeleteDefaultPartition).then(|| {
+            NvLinkManagerError::internal(format!("failed to delete default partition: {error}"))
+        });
+    carbide_instrument::emit(NmxcOperationFinished {
+        operation: metric_operation,
+        status,
+        latency,
+        failure_stage,
+        nvlink_logical_partition_id: logical_partition_id.to_string(),
+        nmx_c_partition_id,
+        create_partition_request,
+        error,
+    });
+
+    if let Some(error) = fatal_error {
+        return Err(error);
+    }
+    Ok(succeeded)
+}
+
 #[derive(Debug, Clone)]
 enum GpuAction {
     AddToPartition,
@@ -332,6 +404,10 @@ fn is_nmx_c_default_partition(partition: &PartitionInfo) -> bool {
 
 fn tray_default_partition_name(slot_id: i32) -> String {
     format!("tray_partition_{slot_id}")
+}
+
+fn is_gpu_in_tray_default_partition(partition: &PartitionInfo, slot_id: i32) -> bool {
+    partition.name == tray_default_partition_name(slot_id)
 }
 
 impl PartitionProcessingContext {
@@ -1050,19 +1126,16 @@ impl NvlPartitionMonitor {
         let timer = PeriodicTimer::new(self.config.monitor_run_interval);
         loop {
             let mut tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(num_changes) => {
-                    if num_changes > 0 {
-                        // Decrease the interval if changes have been made.
-                        tick.set_interval(Duration::from_millis(1000));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "NVLink partition monitor error",
-                    );
-                }
+            // `run_single_iteration` owns the completion event, including the
+            // historical `WARN`; this loop only needs the successful change
+            // count to adjust its cadence.
+            if self
+                .run_single_iteration()
+                .await
+                .is_ok_and(|num_changes| num_changes > 0)
+            {
+                // Decrease the interval if changes have been made.
+                tick.set_interval(Duration::from_millis(1000));
             }
 
             tokio::select! {
@@ -1099,6 +1172,16 @@ impl NvlPartitionMonitor {
             check_nvl_partition_span.record("otel.status_message", format!("{e:?}"));
         }
         check_nvl_partition_span.record("metrics", metrics.to_string());
+        check_nvl_partition_span.in_scope(|| {
+            carbide_instrument::emit(NvlPartitionMonitorIterationFinished {
+                latency: metrics.recording_started_at.elapsed(),
+                error: result
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            });
+        });
         self.metric_holder.update_metrics(metrics);
         result
     }
@@ -1301,7 +1384,7 @@ impl NvlPartitionMonitor {
                 );
                 for (machine_id, nvlink_info) in &nvlink_info_db_updates {
                     if let Some(snapshot) = managed_host_snapshots_domain.get_mut(machine_id) {
-                        snapshot.host_snapshot.nvlink_info = Some(nvlink_info.clone());
+                        snapshot.host_snapshot.status.nvlink_info = Some(nvlink_info.clone());
                     }
                 }
             }
@@ -1673,25 +1756,29 @@ impl NvlPartitionMonitor {
                                 }
                                 None => {
                                     // TODO: should we add the partition NMX-C ID to the status obs?
-                                    if is_nmx_c_default_partition(&nmxc_partition) {
+                                    if is_nmx_c_default_partition(&nmxc_partition)
+                                        || is_gpu_in_tray_default_partition(
+                                            &nmxc_partition,
+                                            nvlink_gpu.slot_id,
+                                        )
+                                    {
                                         if instance_gpu_config.is_some() {
                                             tracing::info!(
                                                 gpu_guid = nvlink_gpu.guid,
                                                 machine_id = %instance.machine_id,
                                                 instance_id = %instance.id,
                                                 nmx_c_partition_id = partition_id,
-                                                "Removing GPU in machine and instance from default partition",
+                                                "Removing configured GPU from NMX-C holding partition",
                                             );
                                             gpu_action = GpuAction::RemoveFromUnknownPartition;
                                             gpu_ctx.partition_nmx_c_id =
                                                 nmxc_partition.partition_id.unwrap_or_default();
                                         } else {
-                                            // Do nothing if there is no config
+                                            // An omitted GPU config means this GPU should remain in its holding partition.
                                             gpu_action = GpuAction::NoOp;
                                         }
                                     } else {
-                                        // Monitor does not know about this partition, so just remove the GPU. On the next iteration
-                                        // the monitor will put the GPU in the correct partition (or leave it if the config says no partition)
+                                        // The monitor cannot safely preserve membership in an unrecognized partition.
                                         tracing::warn!(
                                             gpu_guid = nvlink_gpu.guid,
                                             nmx_c_partition_id = partition_id,
@@ -1941,7 +2028,7 @@ impl NvlPartitionMonitor {
             return Ok(());
         }
 
-        if let Some(nvlink_info) = &mh.host_snapshot.nvlink_info {
+        if let Some(nvlink_info) = &mh.host_snapshot.status.nvlink_info {
             for gpu in &nvlink_info.gpus {
                 let nmxc_partition = match partition_ctx.gpu_to_partition_map.get(&gpu.guid) {
                     // GPU is in a partition, so we need to remove it from the partition.
@@ -1958,8 +2045,7 @@ impl NvlPartitionMonitor {
                     }
                 };
 
-                let tray_nm = tray_default_partition_name(gpu.slot_id);
-                if nmxc_partition.name == tray_nm {
+                if is_gpu_in_tray_default_partition(nmxc_partition, gpu.slot_id) {
                     continue;
                 }
 
@@ -2147,7 +2233,7 @@ impl NvlPartitionMonitor {
         for (logical_partition_id, operations) in nmx_c_operations {
             for operation in operations {
                 let start_time = std::time::Instant::now();
-                let success = match &operation.operation_type {
+                let result = match &operation.operation_type {
                     NmxcPartitionOperationType::Create => {
                         let name = if operation.name.starts_with("tray_partition_") {
                             operation.name.chars().take(240).collect::<String>()
@@ -2179,28 +2265,25 @@ impl NvlPartitionMonitor {
                                 );
                                 let retry_request =
                                     nmx_c_create_partition_request(name, &operation.gpu_uids, 0);
+                                let retry_request_context = format!("{retry_request:?}");
                                 match nmxc_client.create_partition(retry_request).await {
-                                    Ok(_) => true,
-                                    Err(e) => {
-                                        tracing::warn!(
-                                            nvlink_logical_partition_id = %logical_partition_id,
-                                            error = %e,
-                                            "Failed to retry create partition on NMX-C with multicast_groups_limit=0",
-                                        );
-                                        false
-                                    }
+                                    Ok(_) => Ok(()),
+                                    Err(e) => Err(NmxcOperationError {
+                                        failure_stage:
+                                            NmxcOperationFailureStage::CreatePartitionRetry,
+                                        error: e.to_string(),
+                                        nmx_c_partition_id: String::new(),
+                                        create_partition_request: retry_request_context,
+                                    }),
                                 }
                             }
-                            Ok(_) => true,
-                            Err(e) => {
-                                tracing::warn!(
-                                    nvlink_logical_partition_id = %logical_partition_id,
-                                    create_partition_request = ?request,
-                                    error = %e,
-                                    "Failed to issue create partition to NMX-C, continuing with other operations",
-                                );
-                                false
-                            }
+                            Ok(_) => Ok(()),
+                            Err(e) => Err(NmxcOperationError {
+                                failure_stage: NmxcOperationFailureStage::CreatePartition,
+                                error: e.to_string(),
+                                nmx_c_partition_id: String::new(),
+                                create_partition_request: format!("{request:?}"),
+                            }),
                         }
                     }
                     NmxcPartitionOperationType::Remove(nmx_c_partition_id) => {
@@ -2213,16 +2296,13 @@ impl NvlPartitionMonitor {
                             name: String::new(),
                         };
                         match nmxc_client.delete_partition(request).await {
-                            Ok(_) => true,
-                            Err(e) => {
-                                tracing::warn!(
-                                    nvlink_logical_partition_id = %logical_partition_id,
-                                    %nmx_c_partition_id,
-                                    error = %e,
-                                    "Failed to issue delete partition to NMX-C, continuing with other operations",
-                                );
-                                false
-                            }
+                            Ok(_) => Ok(()),
+                            Err(e) => Err(NmxcOperationError {
+                                failure_stage: NmxcOperationFailureStage::DeletePartition,
+                                error: e.to_string(),
+                                nmx_c_partition_id: nmx_c_partition_id.to_string(),
+                                create_partition_request: String::new(),
+                            }),
                         }
                     }
                     NmxcPartitionOperationType::RemoveUnknownPartition(nmx_c_partition_id) => {
@@ -2235,12 +2315,13 @@ impl NvlPartitionMonitor {
                             name: String::new(),
                         };
                         match nmxc_client.delete_partition(request).await {
-                            Ok(_) => true,
-                            Err(e) => {
-                                return Err(NvLinkManagerError::internal(format!(
-                                    "Failed to delete default partition: {e}"
-                                )));
-                            }
+                            Ok(_) => Ok(()),
+                            Err(e) => Err(NmxcOperationError {
+                                failure_stage: NmxcOperationFailureStage::DeleteDefaultPartition,
+                                error: e.to_string(),
+                                nmx_c_partition_id: nmx_c_partition_id.to_string(),
+                                create_partition_request: String::new(),
+                            }),
                         }
                     }
                     NmxcPartitionOperationType::Update(nmx_c_partition_id) => {
@@ -2254,15 +2335,12 @@ impl NvlPartitionMonitor {
                             gateway_id: NMX_C_GATEWAY_ID.into(),
                         };
                         match nmxc_client.get_partition_info_list(list_req).await {
-                            Err(e) => {
-                                tracing::warn!(
-                                    nvlink_logical_partition_id = %logical_partition_id,
-                                    %nmx_c_partition_id,
-                                    error = %e,
-                                    "Failed to get partition info from NMX-C before update",
-                                );
-                                false
-                            }
+                            Err(e) => Err(NmxcOperationError {
+                                failure_stage: NmxcOperationFailureStage::GetPartitionInfo,
+                                error: e.to_string(),
+                                nmx_c_partition_id: nmx_c_partition_id.to_string(),
+                                create_partition_request: String::new(),
+                            }),
                             Ok(resp) => {
                                 let current_uids = resp
                                     .partition_info_list
@@ -2284,8 +2362,9 @@ impl NvlPartitionMonitor {
                                 let to_add: Vec<u64> =
                                     desired.difference(&current).copied().collect();
 
-                                let mut ok = true;
-                                if !to_remove.is_empty() {
+                                let remove_result = if to_remove.is_empty() {
+                                    Ok(())
+                                } else {
                                     let req = libnmxc::nmxc_model::UpdatePartitionRequest {
                                         context: None,
                                         partition_id: Some(pid),
@@ -2296,19 +2375,18 @@ impl NvlPartitionMonitor {
                                         reroute: true,
                                     };
                                     match nmxc_client.remove_gpus_from_partition(req).await {
-                                        Ok(_) => {}
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                nvlink_logical_partition_id = %logical_partition_id,
-                                                %nmx_c_partition_id,
-                                                error = %e,
-                                                "Failed to remove GPUs from partition on NMX-C",
-                                            );
-                                            ok = false;
-                                        }
+                                        Ok(_) => Ok(()),
+                                        Err(e) => Err(NmxcOperationError {
+                                            failure_stage: NmxcOperationFailureStage::RemoveGpus,
+                                            error: e.to_string(),
+                                            nmx_c_partition_id: nmx_c_partition_id.to_string(),
+                                            create_partition_request: String::new(),
+                                        }),
                                     }
-                                }
-                                if ok && !to_add.is_empty() {
+                                };
+                                if let Err(error) = remove_result {
+                                    Err(error)
+                                } else if !to_add.is_empty() {
                                     let req = libnmxc::nmxc_model::UpdatePartitionRequest {
                                         context: None,
                                         partition_id: Some(pid),
@@ -2319,40 +2397,28 @@ impl NvlPartitionMonitor {
                                         reroute: true,
                                     };
                                     match nmxc_client.add_gpus_to_partition(req).await {
-                                        Ok(_) => {}
-                                        Err(e) => {
-                                            tracing::warn!(
-                                                nvlink_logical_partition_id = %logical_partition_id,
-                                                %nmx_c_partition_id,
-                                                error = %e,
-                                                "Failed to add GPUs to partition on NMX-C",
-                                            );
-                                            ok = false;
-                                        }
+                                        Ok(_) => Ok(()),
+                                        Err(e) => Err(NmxcOperationError {
+                                            failure_stage: NmxcOperationFailureStage::AddGpus,
+                                            error: e.to_string(),
+                                            nmx_c_partition_id: nmx_c_partition_id.to_string(),
+                                            create_partition_request: String::new(),
+                                        }),
                                     }
+                                } else {
+                                    Ok(())
                                 }
-                                ok
                             }
                         }
                     }
                 };
-                let applied_change = AppliedChange {
-                    operation: operation.operation_type.clone().into(),
-                    status: if success {
-                        NmxcMetricOperationStatus::Completed
-                    } else {
-                        NmxcMetricOperationStatus::Failed
-                    },
-                };
-                *metrics
-                    .applied_changes
-                    .entry(applied_change.clone())
-                    .or_default() += 1;
-                metrics
-                    .operation_latencies
-                    .entry(applied_change)
-                    .or_default()
-                    .push(start_time.elapsed());
+                let success = finish_nmxc_operation(
+                    metrics,
+                    &logical_partition_id,
+                    &operation,
+                    start_time.elapsed(),
+                    result,
+                )?;
                 if success {
                     completed_operations
                         .entry(logical_partition_id)
@@ -2579,6 +2645,102 @@ fn record_domain_health(
     }
     for (state, count) in counts {
         map.insert((domain.to_string(), state), count);
+    }
+}
+
+#[cfg(test)]
+mod partition_classification_tests {
+    use libnmxc::nmxc_model::PartitionInfo;
+
+    use super::is_gpu_in_tray_default_partition;
+
+    #[test]
+    fn tray_default_partition_match_is_slot_specific() {
+        let cases = [
+            ("tray_partition_1", 1, true),
+            ("tray_partition_1", 2, false),
+            ("tray_partition_1_extra", 1, false),
+            ("Default", 1, false),
+            ("unknown-partition", 1, false),
+        ];
+
+        for (name, slot_id, expected) in cases {
+            let partition = PartitionInfo {
+                name: name.to_string(),
+                ..Default::default()
+            };
+            assert_eq!(
+                is_gpu_in_tray_default_partition(&partition, slot_id),
+                expected,
+                "partition name {name:?}, slot {slot_id}",
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod nmxc_operation_tests {
+    use std::time::Duration;
+
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+
+    use super::*;
+
+    #[test]
+    fn fatal_default_partition_delete_is_recorded_before_it_propagates() {
+        const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds";
+        let captured = MetricsCapture::start();
+        let logical_partition_id = NvLinkLogicalPartitionId::default();
+        let operation = NmxcPartitionOperation {
+            domain_uuid: None,
+            operation_type: NmxcPartitionOperationType::RemoveUnknownPartition(42),
+            gpu_uids: vec![],
+            name: String::new(),
+            db_partition_id: None,
+        };
+        let mut metrics = NvlPartitionMonitorMetrics::new();
+        let mut result = None;
+        let logs = capture_logs(|| {
+            result = Some(finish_nmxc_operation(
+                &mut metrics,
+                &logical_partition_id,
+                &operation,
+                Duration::from_millis(250),
+                Err(NmxcOperationError {
+                    failure_stage: NmxcOperationFailureStage::DeleteDefaultPartition,
+                    error: "delete failed".to_string(),
+                    nmx_c_partition_id: "42".to_string(),
+                    create_partition_request: String::new(),
+                }),
+            ));
+        });
+
+        let error = result
+            .expect("operation result")
+            .expect_err("fatal failure");
+        assert_eq!(
+            error.to_string(),
+            "internal error: failed to delete default partition: delete failed"
+        );
+        let change = AppliedChange {
+            operation: NmxcMetricOperation::RemoveDefaultPartition,
+            status: NmxcMetricOperationStatus::Failed,
+        };
+        assert_eq!(metrics.applied_changes.get(&change), Some(&1));
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, tracing::Level::WARN);
+        assert_eq!(logs[0].message, "Failed to delete default partition");
+        assert_eq!(logs[0].field("nmx_c_partition_id"), Some("42"));
+        assert_eq!(
+            captured.histogram_count_delta(
+                METRIC_NAME,
+                &[
+                    ("operation", "remove_default_partition"),
+                    ("status", "failed"),
+                ],
+            ),
+            1
+        );
     }
 }
 

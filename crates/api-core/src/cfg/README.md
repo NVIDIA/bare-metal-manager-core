@@ -117,18 +117,32 @@ applicable.
 | `tracing` | `TracingConfig` | *(default)* | `integrations` | OTLP trace export settings (see [TracingConfig](#tracingconfig)). |
 | `secrets` | `Option<SecretsConfig>` | — | `security` | Secrets backend configuration. When present, the credential reader chain and write target are operator-configured (see [SecretsConfig](#secretsconfig)). |
 | `dhcp_lease_expiry_handling` | `bool` | `false` | `networking` | Enables IP cleanup when a DHCP lease expires. |
+| `certificates` | `CertificatesConfig` | *(default)* | `security` | Certificate vending backend, selected independently of the credential store; the default shares the credential Vault (see [CertificatesConfig](#certificatesconfig)). |
+| `allow_insecure_discovery` | `bool` | `false` | `machines` | Allows machines to submit discovery without enforcing the request comes from the expected IP address. Needed for *Integration tests only*, should otherwise not be used. |
 
 ---
 
-### Component Manager RMS Node Type Resolution
+### Component Manager RMS Node Descriptors
 
-When `[component_manager]` uses RMS backends, NICo resolves RMS node types from
-rack profiles. The rack profile provides two facts:
+When `[component_manager]` uses RMS backends, NICo builds RMS node descriptors
+from rack profiles. Each descriptor contains three attributes:
 
-- Product family from `product_family`, which is required for RMS-backed
-  operations and currently accepts `gb200` or `gb300`.
+- Role from the component-manager operation: `compute`, `switch`, or
+  `power_shelf`.
+- Product family from `product_family`, which must be non-empty for RMS-backed
+  operations. NICo passes other non-empty product-family identifiers to RMS
+  without a local hardware mapping.
 - Vendor from `rack_capabilities.<role>.vendor` for each role using an RMS
   backend.
+
+NICo always sends these attributes in descriptor-based RMS requests. For exact
+role, vendor, and product-family combinations represented by the current RMS
+`NodeType` enum, NICo also sends that enum and legacy firmware-filter entries
+for compatibility with older RMS servers. Other combinations leave `NodeType`
+unset and require RMS support for `NodeDescriptor`. This best-effort legacy
+mapping does not participate in startup validation. In particular, VRNVL72
+power shelves use their configured VRNVL72 descriptor because no matching
+legacy `NodeType` exists.
 
 NICo validates configured rack profiles at startup when any component-manager
 backend is set to `rms`. The component-manager backend fields default to `rms`,
@@ -139,22 +153,16 @@ the vendor fields for enabled RMS roles. For example, if only
 values, then only `rack_capabilities.power_shelf.vendor` is required as a vendor
 field.
 
-Use these canonical vendor names in config:
+NICo trims outer whitespace from `product_family` and vendor values and requires
+both to be non-empty. It does not validate either value against a fixed list.
+RMS determines whether each role/vendor/product-family combination is supported
+when a request is made. See
+[Supported RMS descriptor combinations](../../../../docs/configuration/component-manager-rms.md#supported-rms-descriptor-combinations),
+including VRNVL72.
 
-| Role | Canonical values |
-|------|------------------|
-| Compute, when `compute_tray_backend = "rms"` | `NVIDIA`, `Lenovo` |
-| Switch, when `nv_switch_backend = "rms"` | `NVIDIA` |
-| Power shelf, when `power_shelf_backend = "rms"` | `LiteOn`, `Delta` |
-
-The `product_family` value is not normalized. It must exactly match one of the
-accepted lowercase values, such as `gb200` or `gb300`; values like `GB200` are
-rejected. Vendor matching is more forgiving. Vendor values are trimmed,
-case-insensitive, and ignore spaces, hyphens, and underscores, so `NVIDIA`,
-`nvidia`, `LiteOn`, `liteon`, `Lite-On`, and `lite_on` all work. Common company
-suffix text also works when the normalized value starts with the canonical
-vendor, but the canonical values above are preferred for operator-supplied
-config.
+For product families other than `gb200` and `gb300`, the `GetRackProfile`
+`product_family` enum is `UNSPECIFIED`. The configured string remains available
+to descriptor-based RMS operations.
 
 The examples below only show the component-manager and rack-profile fields.
 Configure `[rms]` separately when NICo needs to call RMS.
@@ -204,9 +212,8 @@ vendor = "delta"
 ```
 
 Example: only the component-manager power shelf backend uses RMS. The compute
-and switch component-manager backends are explicitly set to real non-RMS values
-so component-manager startup validation only requires the power shelf vendor
-field:
+and switch component-manager backends are explicitly set to non-RMS values, so
+component-manager startup validation only requires the power shelf vendor field:
 
 ```toml
 [component_manager]
@@ -231,13 +238,13 @@ existing rack database rows, so missing or unknown per-rack profile IDs are
 still checked when an RMS operation runs.
 
 The separate site-explorer machine-ingestion RMS slot/tray lookup also uses the
-rack profile for RMS node type resolution. If that path is enabled for machines
-with rack IDs, the profile also needs compute product-family and vendor data even
-when `compute_tray_backend` is not `rms`.
+rack profile to build a compute node descriptor. If that path is enabled for
+machines with rack IDs, the profile also needs compute product-family and vendor
+data even when `compute_tray_backend` is not `rms`.
 
-Supported RMS product-family values are exact-match `gb200` and `gb300`. The
-optional `rack_hardware_topology` field remains available for topology-specific
-flows.
+NICo accepts non-empty product-family strings. RMS evaluates descriptor support
+when an operation runs. The optional `rack_hardware_topology` field remains
+available for topology-specific flows.
 
 ---
 
@@ -285,7 +292,19 @@ flows.
 | `nmx_c_tls_authority` | `Option<String>` | — | TLS server name used for SNI and certificate verification. |
 | `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-C. |
 | `nmx_c_endpoint_port` | `Option<u16>` | — | TCP port for NMX-C endpoints derived from switch NVOS IP. Unset uses the production NMX-C port. |
-| `nmx_c_certificate_rotation` | `NmxCCertificateRotationConfig` | *(default)* | Optional monitoring for NMX-C server certificate propagation. |
+| `nmx_c_certificate_rotation` | `NmxCCertificateRotationConfig` | *(default)* | Optional expiry-driven rotation for NMX-C server certificates. |
+
+### `NmxCCertificateRotationConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Enables NMX-C server certificate expiry checks and rotation. |
+| `run_interval` | `Duration` | `1h` | Interval between checks of the certificate served by NMX-C. |
+| `rotate_before_expiry` | `Duration` | `1w` | Requests rotation when the served certificate expires within this duration. Must leave enough time for the replacement certificate to be issued first. |
+| `probe_timeout` | `Duration` | `10s` | Timeout for each NMX-C certificate probe operation. |
+
+`expiry_warning_window` remains accepted as a deprecated alias for
+`rotate_before_expiry`; its value now controls rotation rather than warning only.
 
 ### `SiteExplorerConfig`
 
@@ -310,7 +329,7 @@ flows.
 | `create_switches` | `bool` | `true` | Auto-create Switch state machines for explored switches with a matching `expected_switches` record. |
 | `switches_created_per_run` | `u64` | `9` | Max switches created per run. |
 | `explore_mode` | `SiteExplorerExploreMode` | `NvRedfish` | Redfish backend: `libredfish`, `nv-redfish`, or `compare-result`. |
-| `dpu_mode` | `Option<DpuMode>` | — | Site-wide DPU operating mode. When set, applies to every host that doesn't declare a per-host `ExpectedMachine.dpu_mode` override. |
+| `dpu_policy` | `Option<HostDpuPolicy>` | — (effective: `manage`) | Site-wide policy for DPU hardware: `manage`, `nic`, or `ignore`. Per-host `nic` and `ignore` override it; per-host `manage` inherits it for backward compatibility. When omitted, the site default is `manage`. The previous `use_as_nic` value and the legacy `dpu_mode` field with `dpu_mode` / `nic_mode` / `no_dpu` values remain accepted during deserialization. |
 
 ### `StateControllerConfig`
 
@@ -334,6 +353,17 @@ TOML section: `[observability]`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `per_object_metrics_for_classifications` | `Vec<HealthAlertClassification>` | `[]` | Health alert classifications for which the per-object metric `carbide_object_unhealthy_by_classification_count` is emitted, labeled with `object_type` (e.g. `machine`, `switch`, `rack`, `power_shelf`) and `object_id`. Each entry adds up to one extra time series per matching object, so it defaults to empty (disabled) to keep metric cardinality bounded. When empty, the metric is not registered or exposed at all; aggregate health metrics are unaffected regardless. |
+| `per_object_state_metrics` | `PerObjectStateMetricsConfig` | disabled | High-cardinality per-object state, SLA, manual-intervention, trait, and association metrics served from a dedicated listener. |
+
+### `PerObjectStateMetricsConfig`
+
+TOML section: `[observability.per_object_state_metrics]`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `false` | Registers per-object state metrics and starts the dedicated listener. When `object_types` is empty, registration and the listener are both skipped even if this is `true`. |
+| `listen_address` | `SocketAddr` | `[::]:9091` | Dual-stack address serving `/metrics`; the Helm chart derives it from `service.perObjectStateMetrics.port`. |
+| `object_types` | `Vec<PerObjectStateMetricObjectType>` | all supported types | Types to publish: `machine`, `switch`, `power_shelf`, `rack`, `network_segment`, `vpc_prefix`, `spdm_attestation`, and/or `ib_partition`. An empty list publishes no state series and skips the dedicated listener. |
 
 ### `MachineStateControllerConfig`
 
@@ -440,6 +470,7 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `bootstrap_ca_source` | `BootstrapCaSource` | `legacy_download` | How non-DPF DPUs obtain the API trust anchor: `legacy_download`, `embedded`, or `mounted`. Omitting the field preserves the historical PXE download. The field is not sent to host Scout boots. Non-network modes do not fall back to downloading. |
 | `dpu_nic_firmware_initial_update_enabled` | `bool` | `false` | Enable DPU NIC firmware updates on initial discovery. |
 | `dpu_nic_firmware_reprovision_update_enabled` | `bool` | `true` | Enable DPU NIC firmware updates on reprovisioning. |
 | `dpu_models` | `HashMap<String, Firmware>` | *(BF2+BF3 defaults)* | DPU model firmware definitions. |
@@ -447,6 +478,19 @@ Extends `StateControllerConfig` with:
 | `dpu_enable_secure_boot` | `bool` | `false` | Enable secure boot flow for DPU provisioning via Redfish. |
 | `num_of_vfs` | `u32` | `16` | Number of VFs configured per DPU PF during BlueField provisioning. Max `126`. |
 | `restart_ovs_on_use_admin_network_change` | `bool` | `false` | Restart OVS on DPU-OS agents when host `use_admin_network` changes. Containerized agents skip the local service restart and still ACK the network config. |
+
+To use `embedded`, build a site-specific BFB with an explicit
+`BOOTSTRAP_CA_PATH`. The build provides no repository or default CA fallback
+for the dedicated embedded payload. Existing legacy artifact inputs remain
+unchanged. It stages the source at `/opt/forge/embedded_forge_root.pem`.
+
+This path is separate from `/opt/forge/forge_root.pem`, which the provisioning
+environment must populate for `mounted`. NICo does not create that mount. Both
+modes fail closed when their own bundle is absent or invalid. Changing this
+setting affects the next DPU network boot or reprovisioning. It does not affect
+host Scout boots or rewrite installed DPUs in place. The selected CA validates
+the NICo API server certificate. This validation remains necessary even when
+client-certificate authentication is not used.
 
 ### `NetworkSecurityGroupConfig`
 
@@ -539,10 +583,53 @@ events, so consumers handle them identically.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enable DPF Kubernetes deployment. |
-| `services` | `Option<Vec<DpfServiceConfig>>` | — | Additional Helm services. |
+| `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
+| `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, and pull-secret settings for the six mandatory DPF services. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`. |
+
+Omitting `[dpf.dpu_agent_bootstrap_ca]` preserves the historical download URL.
+Use the following configuration to retain download mode while overriding the
+complete endpoint URL:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "legacy_download"
+# Optional full endpoint URL. Omit to use the agent default.
+url = "http://carbide-pxe.forge/api/v0/tls/root_ca"
+```
+
+Use the following configuration to project an existing Secret into the DPU
+agent init container:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "secret"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+Use the following configuration for a ConfigMap that already exists in every
+target DPU cluster:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+The URL override changes routing, not the initial trust model. An HTTPS URL is
+authenticated only when its server certificate chains to a root already
+trusted by the shared dpu-agent image.
+
+Mounted mode never falls back to the legacy download. The shared published
+dpu-agent image does not embed a site-specific trust anchor. A mounted
+ConfigMap must already exist in the DPU cluster. A suitably labeled Secret can
+be propagated there by DPF.
 
 ### `RmsConfig`
 
@@ -651,6 +738,23 @@ events, so consumers handle them identically.
 |-------|------|---------|-------------|
 | `active` | `String` | **required** | The provider that wraps DEKs for new writes. |
 | `providers` | `HashMap<String, KmsProviderConfig>` | **required** | Named provider configurations. |
+
+### `CertificatesConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `backend` | `CertBackendKind` | `shared_vault` | Which backend issues certificates: `shared_vault` reuses the credential store's Vault client (one client, one token lease), `dedicated_vault` uses a separately-configured Vault. |
+| `dedicated_vault` | `Option<DedicatedVaultSettings>` | — | Connection settings for a dedicated certificate Vault (see [DedicatedVaultSettings](#dedicatedvaultsettings)). Required when `backend = "dedicated_vault"`, ignored otherwise. |
+
+### `DedicatedVaultSettings`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `address` | `String` | **required, non-empty** | Vault address, e.g. `https://vault-certs.example:8200`. |
+| `pki_mount_location` | `String` | **required, non-empty** | PKI secrets-engine mount path on the target Vault. |
+| `pki_role_name` | `String` | **required, non-empty** | PKI role used to sign leaf certificates. |
+| `token` | `Option<String>` | — | Token for root-token auth; required only when the pod has no Kubernetes service-account token. |
+| `vault_cacert` | `Option<String>` | — | CA bundle that signs the target Vault's TLS cert. Defaults to the site root / `VAULT_CACERT`. |
 
 ### `RackValidationConfig`
 

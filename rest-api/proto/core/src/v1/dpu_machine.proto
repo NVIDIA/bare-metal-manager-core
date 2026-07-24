@@ -18,3 +18,8 @@ message DpuMachine {
   // DPU network configuration
   forge.ManagedHostNetworkConfigResponse dpu_network_config = 2;
 }
+
+// DpuMachineList - list of DPU Machines and their network configurations
+message DpuMachineList {
+  repeated DpuMachine machines = 1;
+}

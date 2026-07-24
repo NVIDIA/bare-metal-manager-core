@@ -329,7 +329,7 @@ async fn reconcile_admin_addresses_errors_without_any_primary_admin_interface(
     Ok(())
 }
 
-/// A DpuMode host that boots from an integrated NIC has a HostInband primary and
+/// A managed-DPU host that boots from an integrated NIC has a HostInband primary and
 /// no primary *admin* interface -- its DPU admin links are present but dormant.
 /// Reconcile must treat that as valid (clean up the dormant links), not as the
 /// "no primary admin interface" error.
@@ -665,7 +665,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 }
 
 #[crate::sqlx_test]
-async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_find_for_update_by_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
@@ -685,16 +685,8 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     .await
     .unwrap();
 
-    // By remote IP
-    let remote_ip = Some(interface.addresses[0]);
-    let interface_id = None;
-    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
-    assert_eq!(iface.id, interface.id);
-
-    // By interface ID
-    let remote_ip = None;
-    let interface_id = Some(iface.id);
-    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    let iface =
+        db::machine_interface::find_for_update_by_ip(&mut txn, interface.addresses[0]).await?;
     assert_eq!(iface.id, interface.id);
 
     Ok(())
@@ -923,13 +915,17 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     assert_eq!(dpu_bmc_interface_mac, dpu_bmc_mac);
 
     assert_eq!(
-        host_machine.bmc_info.machine_interface_id,
+        host_machine.status.bmc_info.machine_interface_id,
         Some(host_bmc_interface_id)
     );
-    assert_eq!(host_machine.bmc_info.mac, Some(host_bmc_interface_mac));
-    assert_eq!(host_machine.bmc_info.ip, Some(host_bmc_interface_ip));
+    assert_eq!(
+        host_machine.status.bmc_info.mac,
+        Some(host_bmc_interface_mac)
+    );
+    assert_eq!(host_machine.status.bmc_info.ip, Some(host_bmc_interface_ip));
     assert!(
         host_machine
+            .status
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != InterfaceType::Bmc
@@ -937,13 +933,14 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     );
 
     assert_eq!(
-        dpu_machine.bmc_info.machine_interface_id,
+        dpu_machine.status.bmc_info.machine_interface_id,
         Some(dpu_bmc_interface_id)
     );
-    assert_eq!(dpu_machine.bmc_info.mac, Some(dpu_bmc_interface_mac));
-    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_interface_ip));
+    assert_eq!(dpu_machine.status.bmc_info.mac, Some(dpu_bmc_interface_mac));
+    assert_eq!(dpu_machine.status.bmc_info.ip, Some(dpu_bmc_interface_ip));
     assert!(
         dpu_machine
+            .status
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != InterfaceType::Bmc
@@ -978,6 +975,9 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     );
     assert!(
         host_rpc_machine
+            .status
+            .as_ref()
+            .unwrap()
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != Some(rpc_bmc_type)
@@ -1002,6 +1002,9 @@ async fn machine_bmc_info_uses_bmc_interface_and_interfaces_exclude_it(
     );
     assert!(
         dpu_rpc_machine
+            .status
+            .as_ref()
+            .unwrap()
             .interfaces
             .iter()
             .all(|interface| interface.interface_type != Some(rpc_bmc_type)

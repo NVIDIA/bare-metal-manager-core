@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::ffi::OsStr;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
 use std::os::unix::fs::PermissionsExt;
@@ -36,12 +37,32 @@ const START_ATTEMPTS: usize = 5;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PASSWORD_UPDATE_TIMEOUT: Duration = Duration::from_secs(10);
+pub const STANDARD_IPMI_PORT: u16 = 623;
+const IPMI_SIM_EXECUTABLE: &str = "ipmi_sim";
 
 #[derive(Debug, Clone)]
 pub struct IpmiSimConfig {
     pub bind_ip: IpAddr,
+    /// Client-facing port advertised through Redfish. When absent, clients connect directly to
+    /// the dynamically allocated simulator port.
+    pub reachable_port: Option<u16>,
     pub stable_id: String,
     pub console_prompt: String,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct IpmiEndpoint {
+    pub reachable_port: u16,
+    pub listen_port: u16,
+}
+
+impl IpmiEndpoint {
+    fn new(listen_port: u16, reachable_port: Option<u16>) -> Self {
+        Self {
+            reachable_port: reachable_port.unwrap_or(listen_port),
+            listen_port,
+        }
+    }
 }
 
 pub struct IpmiSimHandle {
@@ -50,14 +71,14 @@ pub struct IpmiSimHandle {
     _console: MockConsole,
     manager: Arc<ManagerState>,
     _password_updater: Arc<dyn PasswordUpdater>,
-    pub ipmi_sim_lan_port: u16,
+    pub endpoint: IpmiEndpoint,
 }
 
 impl std::fmt::Debug for IpmiSimHandle {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("IpmiSimHandle")
-            .field("ipmi_sim_lan_port", &self.ipmi_sim_lan_port)
+            .field("endpoint", &self.endpoint)
             .finish_non_exhaustive()
     }
 }
@@ -71,6 +92,10 @@ impl Drop for IpmiSimHandle {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(
+        "IPMI simulation requires {executable}, but it was not found or is not executable in PATH"
+    )]
+    ExecutableUnavailable { executable: &'static str },
     #[error("the BMC mock has no administrative account")]
     MissingAdministrativeAccount,
     #[error("the IPMI simulator {0} contains unsupported characters")]
@@ -83,6 +108,30 @@ pub enum Error {
     ReadinessTimeout,
     #[error("ipmi_sim failed to start after {START_ATTEMPTS} attempts: {0}")]
     AttemptsExhausted(Box<Error>),
+}
+
+pub fn validate_executable() -> Result<(), Error> {
+    validate_executable_in_path(std::env::var_os("PATH").as_deref())
+}
+
+fn validate_executable_in_path(path: Option<&OsStr>) -> Result<(), Error> {
+    let executable_available = path
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .map(|directory| directory.join(IPMI_SIM_EXECUTABLE))
+        .any(|candidate| {
+            candidate.metadata().is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        });
+
+    if executable_available {
+        Ok(())
+    } else {
+        Err(Error::ExecutableUnavailable {
+            executable: IPMI_SIM_EXECUTABLE,
+        })
+    }
 }
 
 struct Reservations {
@@ -143,7 +192,7 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
         )?;
 
         drop(reservations);
-        let mut child = tokio::process::Command::new("ipmi_sim")
+        let mut child = tokio::process::Command::new(IPMI_SIM_EXECUTABLE)
             .current_dir(temp_dir.path())
             .arg("-c")
             .arg(temp_dir.path().join("lan.conf"))
@@ -167,6 +216,7 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
         .await
         {
             Ok(()) => {
+                let endpoint = IpmiEndpoint::new(ipmi_sim_lan_port, config.reachable_port);
                 let connect_ip = if config.bind_ip.is_unspecified() {
                     IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
                 } else {
@@ -179,14 +229,16 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
                 state
                     .account_service_state
                     .set_password_updater(&password_updater);
-                state.manager.set_ipmi_endpoint(Some(ipmi_sim_lan_port));
+                state
+                    .manager
+                    .set_ipmi_endpoint(Some(endpoint.reachable_port));
                 return Ok(IpmiSimHandle {
                     child,
                     _temp_dir: temp_dir,
                     _console: console,
                     manager: state.manager.clone(),
                     _password_updater: password_updater,
-                    ipmi_sim_lan_port,
+                    endpoint,
                 });
             }
             Err(error) => {
@@ -438,7 +490,74 @@ async fn serve_console(mut stream: TcpStream, prompt: &str) -> Result<(), std::i
 
 #[cfg(test)]
 mod tests {
-    use super::{Error, MockConsole, stable_guid, validate_credential};
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::{
+        Error, IPMI_SIM_EXECUTABLE, IpmiEndpoint, MockConsole, stable_guid, validate_credential,
+        validate_executable_in_path,
+    };
+
+    #[test]
+    fn endpoint_uses_configured_reachable_port_or_listen_port() {
+        for (name, listen_port, reachable_port, expected) in [
+            (
+                "direct",
+                16_020,
+                None,
+                IpmiEndpoint {
+                    reachable_port: 16_020,
+                    listen_port: 16_020,
+                },
+            ),
+            (
+                "forwarded",
+                16_020,
+                Some(623),
+                IpmiEndpoint {
+                    reachable_port: 623,
+                    listen_port: 16_020,
+                },
+            ),
+        ] {
+            assert_eq!(
+                IpmiEndpoint::new(listen_port, reachable_port),
+                expected,
+                "{name}",
+            );
+        }
+    }
+
+    #[test]
+    fn ipmi_sim_executable_is_required() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let missing_dir = temp_dir.path().join("missing");
+        let non_executable_dir = temp_dir.path().join("non-executable");
+        let executable_dir = temp_dir.path().join("executable");
+        fs::create_dir_all(&missing_dir).unwrap();
+        fs::create_dir_all(&non_executable_dir).unwrap();
+        fs::create_dir_all(&executable_dir).unwrap();
+
+        fs::write(non_executable_dir.join(IPMI_SIM_EXECUTABLE), []).unwrap();
+
+        let executable = executable_dir.join(IPMI_SIM_EXECUTABLE);
+        fs::write(&executable, []).unwrap();
+        let mut permissions = executable.metadata().unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&executable, permissions).unwrap();
+
+        for (scenario, path, expected) in [
+            ("missing executable", missing_dir, false),
+            ("non-executable file", non_executable_dir, false),
+            ("executable file", executable_dir, true),
+        ] {
+            assert_eq!(
+                validate_executable_in_path(Some(path.as_os_str())).is_ok(),
+                expected,
+                "{scenario}"
+            );
+        }
+    }
 
     #[test]
     fn stable_guid_is_stable_and_has_ipmi_length() {

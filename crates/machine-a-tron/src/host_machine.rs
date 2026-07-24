@@ -546,13 +546,20 @@ pub struct HostMachineHandle(Arc<HostMachineActor>);
 
 impl HostMachineHandle {
     #[cfg(test)]
-    pub(crate) fn for_control_test(dpus: Vec<DpuMachineHandle>) -> Self {
+    pub(crate) fn for_control_test(
+        dpus: Vec<DpuMachineHandle>,
+        ipmi_endpoint: Option<bmc_mock::ipmi_sim::IpmiEndpoint>,
+    ) -> Self {
         let (message_tx, _message_rx) = mpsc::unbounded_channel();
         let mac = mac_address::MacAddress::new([2, 0, 0, 0, 0, 2]);
+        let live_state = LiveState {
+            ipmi_endpoint,
+            ..LiveState::default()
+        };
         Self(Arc::new(HostMachineActor {
             message_tx,
             join_handle: Mutex::new(None),
-            live_state: Arc::new(RwLock::new(LiveState::default())),
+            live_state: Arc::new(RwLock::new(live_state)),
             mat_id: Uuid::new_v4(),
             host_info: HostMachineInfo {
                 hw_type: Default::default(),
@@ -659,6 +666,7 @@ impl HostMachineHandle {
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
+                ipmi: live_state.ipmi_endpoint.map(Into::into),
             },
             dpus: self.0.dpus.iter().map(|dpu| dpu.status(config)).collect(),
         }

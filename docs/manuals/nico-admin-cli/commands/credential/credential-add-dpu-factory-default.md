@@ -10,7 +10,7 @@ factory default BMC user/pass for the DPUs
 ## SYNOPSIS
 
 **nico-admin-cli credential add-dpu-factory-default** \<**--username**\>
-\<**--password**\> \[**--extended**\] \[**--sort-by**\]
+\<**--password**\> \[**--model**\] \[**--extended**\] \[**--sort-by**\]
 \[**-h**\|**--help**\]
 
 ## DESCRIPTION
@@ -24,6 +24,21 @@ Default username: root, ADMIN, etc
 
 **--password** *\<PASSWORD\>*  
 DPU manufacturer default password
+
+**--model** *\<MODEL\>* \[default: unknown\]  
+DPU model: bf2, bf3, bf4, or unknown (catch-all / backward-compatible
+default)\
+
+\
+*Possible values:*
+
+- bf2
+
+- bf3
+
+- bf4
+
+- unknown
 
 **--extended**  
 Extended result output.
@@ -48,7 +63,9 @@ Print help (see a summary with -h)
 ## Examples
 
 ```sh
-nico-admin-cli credential add-dpu-factory-default --username admin --password mypassword
+nico-admin-cli credential add-dpu-factory-default --username root --password mypassword
+nico-admin-cli credential add-dpu-factory-default --model bf3 --username root --password mypassword
+nico-admin-cli credential add-dpu-factory-default --model bf4 --username admin --password mynewpassword
 ```
 
 ---

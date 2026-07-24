@@ -732,7 +732,7 @@ func (r ApiGetDpuMachinesRequest) Execute() ([]DpuMachine, *http.Response, error
 /*
 GetDpuMachines Retrieve DPU Machines attached to a host Machine
 
-Retrieve DPU Machines attached to the host Machine, including the full network configuration sent to the DPU agent.
+Retrieve DPU Machines attached to the host Machine, including network configuration fields exposed by the REST API. Internal-only and sensitive fields from the Core configuration are omitted.
 
 The response is built by scheduling a synchronous Temporal `GetDpuMachines` workflow against the Machine's Site for the DPU Machine IDs referenced by the host Machine's interfaces.
 

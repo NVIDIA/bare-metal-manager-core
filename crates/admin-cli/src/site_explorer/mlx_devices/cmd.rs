@@ -16,7 +16,7 @@
  */
 
 use ::rpc::admin_cli::OutputFormat;
-use ::rpc::site_explorer::{ExploredMlxDevice, MlxDeviceKind, NicMode};
+use ::rpc::site_explorer::{BlueFieldOperatingMode, ExploredMlxDevice, MlxDeviceKind};
 use prettytable::{Row, Table};
 use serde::Serialize;
 
@@ -111,7 +111,7 @@ impl From<ExploredMlxDevice> for MlxDeviceRow {
 /// below we err toward surfacing a device rather than hiding it.
 fn operating_as_nic(device: &ExploredMlxDevice) -> bool {
     match device.nic_mode {
-        Some(mode) => mode == NicMode::Nic as i32,
+        Some(mode) => mode == BlueFieldOperatingMode::Nic as i32,
         None => {
             device.device_kind == MlxDeviceKind::Bf3NicMode as i32
                 || device.device_kind == MlxDeviceKind::Bf3SuperNic as i32
@@ -132,9 +132,9 @@ fn kind_label(device_kind: i32) -> String {
 }
 
 fn nic_mode_label(nic_mode: Option<i32>) -> Option<String> {
-    nic_mode.and_then(|mode| match NicMode::try_from(mode) {
-        Ok(NicMode::Nic) => Some("NIC".to_string()),
-        Ok(NicMode::Dpu) => Some("DPU".to_string()),
+    nic_mode.and_then(|mode| match BlueFieldOperatingMode::try_from(mode) {
+        Ok(BlueFieldOperatingMode::Nic) => Some("NIC".to_string()),
+        Ok(BlueFieldOperatingMode::Dpu) => Some("DPU".to_string()),
         Err(_) => None,
     })
 }
@@ -190,68 +190,63 @@ fn parse_version(version: &str) -> Option<Vec<u64>> {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
     fn operating_as_nic_prefers_reported_mode_over_sku() {
-        struct Case {
-            name: &'static str,
+        struct DeviceState {
             device_kind: MlxDeviceKind,
-            nic_mode: Option<NicMode>,
-            expect: bool,
+            nic_mode: Option<BlueFieldOperatingMode>,
         }
-        let cases = [
-            Case {
-                name: "dpu sku flipped into nic mode",
-                device_kind: MlxDeviceKind::Bf3DpuMode,
-                nic_mode: Some(NicMode::Nic),
-                expect: true,
-            },
-            Case {
-                name: "dpu sku running as a dpu",
-                device_kind: MlxDeviceKind::Bf3DpuMode,
-                nic_mode: Some(NicMode::Dpu),
-                expect: false,
-            },
-            Case {
-                name: "supernic sku flipped into dpu mode",
-                device_kind: MlxDeviceKind::Bf3NicMode,
-                nic_mode: Some(NicMode::Dpu),
-                expect: false,
-            },
-            Case {
-                name: "unmatched 9d3b4 supernic falls back to sku",
-                device_kind: MlxDeviceKind::Bf3NicMode,
-                nic_mode: None,
-                expect: true,
-            },
-            Case {
-                name: "unmatched 9d3d4 supernic falls back to sku",
-                device_kind: MlxDeviceKind::Bf3SuperNic,
-                nic_mode: None,
-                expect: true,
-            },
-            Case {
-                name: "unmatched dpu sku stays a dpu",
-                device_kind: MlxDeviceKind::Bf3DpuMode,
-                nic_mode: None,
-                expect: false,
-            },
-            Case {
-                name: "unmatched bf2 stays a dpu",
-                device_kind: MlxDeviceKind::Bf2Dpu,
-                nic_mode: None,
-                expect: false,
-            },
-        ];
-        for case in cases {
-            let device = ExploredMlxDevice {
-                device_kind: case.device_kind as i32,
-                nic_mode: case.nic_mode.map(|mode| mode as i32),
-                ..Default::default()
+
+        value_scenarios!(
+            run = |DeviceState {
+                device_kind,
+                nic_mode,
+            }| {
+                let device = ExploredMlxDevice {
+                    device_kind: device_kind as i32,
+                    nic_mode: nic_mode.map(|mode| mode as i32),
+                    ..Default::default()
+                };
+                operating_as_nic(&device)
             };
-            assert_eq!(operating_as_nic(&device), case.expect, "{}", case.name);
-        }
+            "reported mode takes precedence over SKU" {
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf3DpuMode,
+                    nic_mode: Some(BlueFieldOperatingMode::Nic),
+                } => true,
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf3DpuMode,
+                    nic_mode: Some(BlueFieldOperatingMode::Dpu),
+                } => false,
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf3NicMode,
+                    nic_mode: Some(BlueFieldOperatingMode::Dpu),
+                } => false,
+            }
+
+            "missing reported mode falls back to SKU" {
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf3NicMode,
+                    nic_mode: None,
+                } => true,
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf3SuperNic,
+                    nic_mode: None,
+                } => true,
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf3DpuMode,
+                    nic_mode: None,
+                } => false,
+                DeviceState {
+                    device_kind: MlxDeviceKind::Bf2Dpu,
+                    nic_mode: None,
+                } => false,
+            }
+        );
     }
 
     #[test]

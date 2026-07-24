@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_dhcp_common::{MachineArchitecture, VendorClass};
 use rpc::forge::DhcpRecord;
 use tokio::net::UdpSocket;
 
 use crate::Config;
 use crate::errors::DhcpError;
-use crate::vendor_class::{MachineArchitecture, VendorClass};
 
 macro_rules! socket_opr {
     ($socket:expr, $statement:expr, $retry:expr) => {
@@ -87,7 +87,7 @@ pub fn machine_get_filename(
 }
 
 /// Create a UDP socket and set non_blocking, broadcast and other options flag on it.
-pub async fn get_socket(listen_address: core::net::SocketAddr, interface: String) -> UdpSocket {
+pub async fn get_socket(listen_address: core::net::SocketAddrV4, interface: String) -> UdpSocket {
     for retry in 0..10 {
         // Create a socket2.socket. std and tokio sockets do not support advance options like
         // reuseaddr to be set.

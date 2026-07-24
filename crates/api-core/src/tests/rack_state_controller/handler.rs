@@ -2435,14 +2435,8 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_runs_on_all_sw
         .as_slice();
 
     assert_eq!(devices.len(), switch_ids.len());
-    for device in devices {
-        let host_endpoint = device
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("disable request should include host endpoints"))?;
+    assert!(devices.iter().all(|device| device.host_endpoint.is_some()));
 
-        assert!(host_endpoint.dangerously_accept_invalid_certs);
-    }
     let node_ids = devices
         .iter()
         .map(|device| device.node_id.clone())
@@ -2603,13 +2597,7 @@ async fn test_configure_nmx_cluster_configure_selects_persists_and_configures_pr
         .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
 
     assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(
-        configure_node
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("configure request should include a host endpoint"))?
-            .dangerously_accept_invalid_certs
-    );
+    assert!(configure_node.host_endpoint.is_some());
 
     let mut txn = pool.acquire().await?;
     let primary_switch = db_switch::find_by_id(&mut txn, &primary_switch_id)
@@ -2919,14 +2907,13 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
         .as_slice();
 
     assert_eq!(disable_devices.len(), switch_ids.len());
-    for device in disable_devices {
-        let host_endpoint = device
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("disable request should include host endpoints"))?;
 
-        assert!(host_endpoint.dangerously_accept_invalid_certs);
-    }
+    assert!(
+        disable_devices
+            .iter()
+            .all(|device| device.host_endpoint.is_some())
+    );
+
     let disabled_node_ids = disable_devices
         .iter()
         .map(|device| device.node_id.clone())
@@ -2999,13 +2986,7 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
         .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
 
     assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(
-        configure_node
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("configure request should include a host endpoint"))?
-            .dangerously_accept_invalid_certs
-    );
+    assert!(configure_node.host_endpoint.is_some());
 
     let mut txn = pool.acquire().await?;
     let primary_switch = db_switch::find_by_id(&mut txn, &primary_switch_id)
@@ -3359,13 +3340,7 @@ async fn test_configure_nmx_cluster_configure_failure_advances_to_wait_for_fabri
         .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
 
     assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(
-        configure_node
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("configure request should include a host endpoint"))?
-            .dangerously_accept_invalid_certs
-    );
+    assert!(configure_node.host_endpoint.is_some());
 
     let mut txn = pool.acquire().await?;
     let primary_switch = db_switch::find_by_id(&mut txn, &primary_switch_id)

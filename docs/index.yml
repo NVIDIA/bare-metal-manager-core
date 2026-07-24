@@ -112,7 +112,9 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
-        - page: Boot Interfaces and DPU Modes
+        - page: Site Setup API Parity
+          path: provisioning/site-setup-api-parity.md
+        - page: Boot Interfaces and DPU Policies
           path: provisioning/boot-interfaces-and-dpu-modes.md
         - page: Machine Validation
           path: provisioning/machine-validation.md
@@ -137,8 +139,14 @@ navigation:
           path: configuration/org-permissions.md
         - page: Machine Identity
           path: configuration/machine_identity.md
+        - page: Secrets Storage
+          path: configuration/secrets-storage.md
         - page: Host Naming
           path: configuration/host-naming.md
+        - page: DNS
+          path: configuration/dns.md
+        - page: Component Manager RMS Backends
+          path: configuration/component-manager-rms.md
 
     - section: Operations (Day 2)
       contents:
@@ -168,8 +176,12 @@ navigation:
               path: operations/firmware-updates/rack-component-firmware.md
             - page: Flow Operation Rules
               path: ../rest-api/flow/docs/operation-rules-guide.md
+        - page: NVOS Password Rotation
+          path: operations/nvos-password-rotation.md
         - page: Monitoring and Health
           path: operations/monitoring-health.md
+        - page: NICo MCP Server
+          path: operations/nico-mcp.md
         - page: Tenant Lifecycle Cleanup
           path: operations/tenant-lifecycle-cleanup.md
         - page: Network Isolation

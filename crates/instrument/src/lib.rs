@@ -38,6 +38,7 @@
 //!     component = "component_manager",
 //!     log       = warn,                          // error|warn|info|debug|trace|off
 //!     metric    = counter,                       // counter | histogram | none
+//!     describe  = "Number of power control operations that failed", // counter HELP text
 //!     message   = "power control failed",
 //! )]
 //! struct PowerControlFailed {
@@ -71,12 +72,36 @@
 //! ```compile_fail
 //! #[derive(carbide_instrument::Event)]
 //! #[event(event_name = "demo", metric_name = "carbide_demo_total",
-//!         component = "demo", log = off, metric = counter)]
+//!         component = "demo", log = off, metric = counter,
+//!         describe = "Number of demo events")]
 //! struct Demo {
 //!     #[label]
 //!     machine_id: String, // ERROR: String is not a LabelValue
 //! }
 //! ```
+//!
+//! `#[context]` formats through `Display` by default. `#[context(value)]` is
+//! the opt-in for fields whose tracing type is part of the structured-log
+//! contract; it accepts `bool`, `i64`, `f64`, or `String`:
+//!
+//! ```
+//! #[derive(carbide_instrument::Event)]
+//! #[event(
+//!     event_name = "retry_scheduled",
+//!     component = "demo",
+//!     message = "retry scheduled"
+//! )]
+//! struct RetryScheduled {
+//!     #[context(value)]
+//!     retry_interval_seconds: f64,
+//! }
+//! ```
+//!
+//! `#[label(name = "component")]` exists for a frozen metric key that cannot
+//! also be the Rust field name because Event logs reserve `component`. For a
+//! field such as `publisher: Publisher`, the metric keeps `component` while
+//! the generated log keeps `publisher`. Context and observation fields do not
+//! support this compatibility alias.
 //!
 //! The metric name is validated at compile time -- the `carbide_` prefix, the
 //! `_total` suffix for counters, a unit suffix for histograms:
@@ -119,6 +144,47 @@
 //! #[derive(carbide_instrument::Event)]
 //! #[event(event_name = "demo", component = "demo", message = "demo", describe = "demo")]
 //! struct Demo {} // ERROR: `describe` documents a metric; this event has metric = none
+//! ```
+//!
+//! A counter documents itself: `describe` is required and opens with
+//! "Number of ..." (the tech-writer house rule, so the `core_metrics.md`
+//! catalogue reads consistently):
+//!
+//! ```compile_fail
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo",
+//!         log = off, metric = counter)]
+//! struct Demo {} // ERROR: a counter must document itself with describe = "Number of ..."
+//! ```
+//!
+//! ```compile_fail
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo",
+//!         log = off, metric = counter, describe = "Total number of demos")]
+//! struct Demo {} // ERROR: a counter's describe opens with "Number of ..."
+//! ```
+//!
+//! A counter name ends in `_total` (Prometheus convention) but not
+//! `_total_total` -- the framework strips one `_total` before registering and
+//! the exporter appends it back, so a doubled suffix ships a `_total_total`
+//! series:
+//!
+//! ```compile_fail
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total_total", component = "demo",
+//!         log = off, metric = counter, describe = "Number of demos")]
+//! struct Demo {} // ERROR: counter name ends in `_total_total`
+//! ```
+//!
+//! Both checks have a greppable escape hatch for grandfathered metrics --
+//! `describe_unchecked` for the text, `metric_name_unchecked` for the name:
+//!
+//! ```
+//! #[derive(carbide_instrument::Event)]
+//! #[event(event_name = "demo", metric_name = "carbide_demo_total_total", component = "demo",
+//!         log = off, metric = counter, metric_name_unchecked,
+//!         describe = "Total number of demos", describe_unchecked)]
+//! struct Demo {}
 //! ```
 
 use std::time::Duration;
@@ -297,6 +363,29 @@ pub fn emit<E: Event>(event: E) {
     }
 }
 
+/// `initialize_counter_series` exposes one Event counter label set at zero
+/// without writing the Event's log line. It uses the same cached instrument as
+/// [`emit`], so the global meter provider must already be installed before this
+/// call. Context fields are ignored; only the Event's bounded labels select the
+/// series.
+///
+/// Returns `false` without registering anything when `event` does not declare
+/// `metric = counter`.
+#[must_use = "a false result means the Event is not a counter"]
+pub fn initialize_counter_series<E: Event>(event: &E) -> bool {
+    if !matches!(E::METRIC, MetricKind::Counter) {
+        return false;
+    }
+
+    match event.__instrument() {
+        __private::CachedInstrument::Counter(counter) => {
+            counter.add(0, event.labels().as_ref());
+            true
+        }
+        __private::CachedInstrument::Histogram(_) | __private::CachedInstrument::None => false,
+    }
+}
+
 /// The success-or-failure of an operation, as a bounded label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -403,6 +492,17 @@ pub trait DynamicLog {
     fn log_at(&self) -> LogAt;
 }
 
+/// Per-instance message selection for `message = dynamic` events: implement
+/// this and the derive routes `Event::message` through it, choosing the log
+/// message from the event's own fields. Return a distinct `&'static str` per
+/// case, e.g. by matching on a `#[label]` enum. Reach for it only when the
+/// wording says something a label doesn't: where the label already names the
+/// case, a static `message` plus that label is the leaner choice.
+pub trait DynamicMessage {
+    /// The message for this instance's log line.
+    fn message(&self) -> &'static str;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,6 +514,7 @@ mod tests {
         component = "instrument_test",
         log = off,
         metric = counter,
+        describe = "Number of metric-only reserved-label test events",
     )]
     struct MetricOnlyReservedLabels {
         #[label]
@@ -481,6 +582,62 @@ mod tests {
         assert_eq!(
             carbide_instrument::Event::log_at(&event),
             carbide_instrument::LogAt::Off
+        );
+    }
+
+    #[derive(carbide_instrument::Event)]
+    #[event(
+        event_name = "dynamic_message_test",
+        component = "instrument_test",
+        log = dynamic,
+        message = dynamic,
+    )]
+    struct DynamicMessageTest {
+        #[label]
+        outcome: carbide_instrument::Outcome,
+    }
+
+    impl carbide_instrument::DynamicLog for DynamicMessageTest {
+        fn log_at(&self) -> carbide_instrument::LogAt {
+            match self.outcome {
+                carbide_instrument::Outcome::Error => {
+                    carbide_instrument::LogAt::Level(tracing::Level::WARN)
+                }
+                carbide_instrument::Outcome::Ok => carbide_instrument::LogAt::Off,
+            }
+        }
+    }
+
+    impl carbide_instrument::DynamicMessage for DynamicMessageTest {
+        fn message(&self) -> &'static str {
+            match self.outcome {
+                carbide_instrument::Outcome::Error => "call failed",
+                carbide_instrument::Outcome::Ok => "call finished",
+            }
+        }
+    }
+
+    #[test]
+    fn dynamic_message_selects_wording_per_variant() {
+        let ok = DynamicMessageTest {
+            outcome: carbide_instrument::Outcome::Ok,
+        };
+        let err = DynamicMessageTest {
+            outcome: carbide_instrument::Outcome::Error,
+        };
+
+        // `message = dynamic` routes `Event::message` through `DynamicMessage`.
+        assert_eq!(carbide_instrument::Event::message(&ok), "call finished");
+        assert_eq!(carbide_instrument::Event::message(&err), "call failed");
+
+        // The message axis is independent of the level axis (`DynamicLog`).
+        assert_eq!(
+            carbide_instrument::Event::log_at(&ok),
+            carbide_instrument::LogAt::Off
+        );
+        assert_eq!(
+            carbide_instrument::Event::log_at(&err),
+            carbide_instrument::LogAt::Level(tracing::Level::WARN)
         );
     }
 }

@@ -853,6 +853,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_vendor_trims_and_rejects_invalid_values() {
+        scenarios!(run = |input| parse_vendor(input).map_err(drop);
+            "trimmed canonical vendors are accepted" {
+                " Dell " => Yields(bmc_vendor::BMCVendor::Dell),
+            }
+
+            "invalid vendors are rejected" {
+                "   " => Fails,
+                "Acme" => Fails,
+            }
+        );
+    }
+
+    #[test]
     fn parse_preingest_upgrade_when_below_trims_and_rejects_empty_values() {
         assert_eq!(
             parse_preingest_upgrade_when_below(FirmwareComponentType::Bmc, Some(" 7.20.10.50 "))

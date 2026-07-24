@@ -137,6 +137,8 @@ pub(crate) enum Command {
     MachineValidation(MachineValidation),
     #[clap(about = "Local Mellanox device management.")]
     Mlx(Mlx),
+    #[clap(about = "Print LLDP neighbors visible on this host and exit")]
+    LldpNeighbors,
 }
 
 #[derive(Parser, Clone)]

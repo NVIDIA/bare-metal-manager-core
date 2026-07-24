@@ -25,6 +25,7 @@ authors.workspace = true
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-health-metrics = { path = "../health-metrics", default-features = false }
+carbide-instrument = { path = "../instrument" }
 carbide-rack = { path = "../rack", default-features = false }
 carbide-secrets = { path = "../secrets", default-features = false }
 carbide-utils = { path = "../utils", default-features = false }
@@ -47,7 +48,10 @@ tracing = { workspace = true }
 tonic = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
+carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

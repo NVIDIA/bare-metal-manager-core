@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+// Flat `rpc::forge::Machine` fields are deprecated in favour of `status`/`config`
+// sub-messages, but this module must still read them until the REST API is migrated.
+// See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
 
 use std::sync::Arc;
 
@@ -76,7 +80,7 @@ impl From<forgerpc::Machine> for Row {
                     inventory
                         .components
                         .iter()
-                        .find(|c| c.name == "forge-dpu-agent")
+                        .find(|c| c.name == "carbide-dpu-agent" || c.name == "forge-dpu-agent")
                         .map(|c| c.version.clone())
                 })
                 .unwrap_or_default(),
@@ -102,7 +106,7 @@ impl From<forgerpc::Machine> for Row {
                 .and_then(|inv| {
                     inv.components
                         .iter()
-                        .find(|c| c.name == "doca_hbn")
+                        .find(|c| c.name.contains("hbn"))
                         .map(|c| c.version.clone())
                 })
                 .unwrap_or_default(),

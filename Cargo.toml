@@ -26,8 +26,8 @@ authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.44.21" }
-librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.9.1" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.45.0" }
+librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.10.0" }
 ansi-to-html = "0.2.2"
 
 tokio = { version = "1", features = ["full", "tracing"] }
@@ -60,7 +60,7 @@ opentelemetry-semantic-conventions = "0.32.1"
 tracing-opentelemetry = "0.33.0"
 
 # NV-Redfish
-nv-redfish = { version = "0.11.0" }
+nv-redfish = { version = "0.12.0" }
 
 ########
 # MARK: - Pinned packages that we can't upgrade due to conflicts or just bugs
@@ -237,7 +237,7 @@ tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 tonic-reflection = "0.14"
 tower = "0.5"
-tower-http = "0.6"
+tower-http = "0.7"
 tower-layer = "0.3"
 tower-service = "0.3.2"
 tower-test = "0.4"
@@ -261,6 +261,10 @@ x509-parser = "0.18.1"
 zeroize = { version = "1", features = ["derive"] }
 zip = { version = "8.6", default-features = false }
 jsonpath-rust = "1.0.4"
+
+[profile.ci-tests]
+inherits = "dev"
+debug = "line-tables-only"
 
 [profile.release]
 debug = "line-tables-only"

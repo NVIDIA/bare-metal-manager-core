@@ -19,6 +19,7 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use carbide_host_support::hardware_enumeration::discovery_ibs;
+use carbide_instrument::emit;
 use carbide_uuid::machine::MachineId;
 use regex::Regex;
 use scout::CarbideClientError;
@@ -28,6 +29,7 @@ use tracing::Instrument;
 use crate::cfg::Options;
 use crate::client::create_forge_client;
 use crate::deprovision::cmdrun;
+use crate::metrics::{ScoutStorageDeviceCleanup, StorageDeviceType};
 use crate::{CarbideClientResult, IN_QEMU_VM, platform};
 
 fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
@@ -449,19 +451,18 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
                     let result = clean_this_nvme(&nvmename).await;
                     let duration = device_start.elapsed();
 
+                    emit(ScoutStorageDeviceCleanup::new(
+                        StorageDeviceType::Nvme,
+                        duration,
+                        &result,
+                    ));
                     match result {
-                        Ok(()) => {
-                            tracing::info!(?duration, "Cleanup completed successfully");
-                            Ok(())
-                        }
-                        Err(error) => {
-                            tracing::error!(?duration, %error, "Cleanup failed");
-                            Err(CleanupFailure {
-                                device,
-                                duration,
-                                error,
-                            })
-                        }
+                        Ok(()) => Ok(()),
+                        Err(error) => Err(CleanupFailure {
+                            device,
+                            duration,
+                            error,
+                        }),
                     }
                 }
                 .instrument(span),
@@ -743,19 +744,18 @@ async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
                     let result = clean_this_block_device(&devpath).await;
                     let duration = device_start.elapsed();
 
+                    emit(ScoutStorageDeviceCleanup::new(
+                        StorageDeviceType::HddSas,
+                        duration,
+                        &result,
+                    ));
                     match result {
-                        Ok(()) => {
-                            tracing::info!(?duration, "Cleanup completed successfully");
-                            Ok(())
-                        }
-                        Err(error) => {
-                            tracing::error!(?duration, %error, "Cleanup failed");
-                            Err(CleanupFailure {
-                                device,
-                                duration,
-                                error,
-                            })
-                        }
+                        Ok(()) => Ok(()),
+                        Err(error) => Err(CleanupFailure {
+                            device,
+                            duration,
+                            error,
+                        }),
                     }
                 }
                 .instrument(span),

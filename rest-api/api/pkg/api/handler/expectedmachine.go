@@ -717,6 +717,17 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
 		}
 
+		if apiRequest.HasBmcIpAddress() && apiRequest.BmcIpAddress == nil {
+			em, err = emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
+				ExpectedMachineID: expectedMachine.ID,
+				BmcIpAddress:      true,
+			})
+			if err != nil {
+				logger.Error().Err(err).Msg("failed to clear ExpectedMachine BMC IP address in DB")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
+			}
+		}
+
 		updateExpectedMachineRequest := em.ToProto(cdbm.ExpectedMachineCredentials{
 			Username: apiRequest.DefaultBmcUsername,
 			Password: apiRequest.DefaultBmcPassword,
@@ -1529,6 +1540,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	// doesn't depend on the DAO preserving input order.
 	credsByID := make(map[uuid.UUID]cdbm.ExpectedMachineCredentials, len(apiRequests))
 	updateInputs := make([]cdbm.ExpectedMachineUpdateInput, 0, len(apiRequests))
+	bmcIPClearIDs := make([]uuid.UUID, 0)
 	for _, machineReq := range apiRequests {
 		// APIExpectedMachineUpdateRequest must allow nil ID for single update use case. If present here, it has already been validated.
 		if machineReq.ID == nil {
@@ -1540,6 +1552,9 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		credsByID[emID] = cdbm.ExpectedMachineCredentials{
 			Username: machineReq.DefaultBmcUsername,
 			Password: machineReq.DefaultBmcPassword,
+		}
+		if machineReq.HasBmcIpAddress() && machineReq.BmcIpAddress == nil {
+			bmcIPClearIDs = append(bmcIPClearIDs, emID)
 		}
 		updateInputs = append(updateInputs, cdbm.ExpectedMachineUpdateInput{
 			ExpectedMachineID:        emID,
@@ -1564,6 +1579,17 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 
 	// Update provided ExpectedMachines in DB
 	updatedExpectedMachines, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
+		for _, expectedMachineID := range bmcIPClearIDs {
+			_, derr := emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
+				ExpectedMachineID: expectedMachineID,
+				BmcIpAddress:      true,
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Str("ExpectedMachineID", expectedMachineID.String()).Msg("error clearing ExpectedMachine BMC IP address in DB")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
+			}
+		}
+
 		updatedMachines, derr := emDAO.UpdateMultiple(ctx, tx, updateInputs)
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error updating ExpectedMachine records in DB")

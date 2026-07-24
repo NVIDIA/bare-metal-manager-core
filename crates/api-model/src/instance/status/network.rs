@@ -29,7 +29,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::SerializableMacAddress;
 use crate::instance::config::network::{
-    InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
+    InstanceInterfaceConfig, InstanceInterfaceResolvedVpcPrefixes, InstanceNetworkConfig,
+    InterfaceFunctionId,
 };
 use crate::instance::status::SyncState;
 use crate::machine::Machine;
@@ -148,6 +149,7 @@ impl InstanceNetworkStatus {
                                     prefixes: obs_iface.prefixes.clone(),
                                     gateways: obs_iface.gateways.clone(),
                                     vpc_id: config_iface.vpc_id,
+                                    resolved_vpc_prefixes: config_iface.resolved_vpc_prefixes(),
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -176,6 +178,7 @@ impl InstanceNetworkStatus {
                                     prefixes: Vec::new(),
                                     gateways: Vec::new(),
                                     vpc_id: config_iface.vpc_id,
+                                    resolved_vpc_prefixes: config_iface.resolved_vpc_prefixes(),
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -198,6 +201,7 @@ impl InstanceNetworkStatus {
                             prefixes: Vec::new(),
                             gateways: Vec::new(),
                             vpc_id: config_iface.vpc_id,
+                            resolved_vpc_prefixes: config_iface.resolved_vpc_prefixes(),
                             device: config_iface
                                 .device_locator
                                 .as_ref()
@@ -245,6 +249,7 @@ impl InstanceNetworkStatus {
                                     prefixes: intf_obs.prefixes.clone(),
                                     gateways: intf_obs.gateways.clone(),
                                     vpc_id: config_iface.vpc_id,
+                                    resolved_vpc_prefixes: config_iface.resolved_vpc_prefixes(),
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -272,6 +277,7 @@ impl InstanceNetworkStatus {
                                     prefixes: Vec::new(),
                                     gateways: Vec::new(),
                                     vpc_id: config_iface.vpc_id,
+                                    resolved_vpc_prefixes: config_iface.resolved_vpc_prefixes(),
                                     device: config_iface
                                         .device_locator
                                         .as_ref()
@@ -319,6 +325,7 @@ impl InstanceNetworkStatus {
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
                     vpc_id: iface.vpc_id,
+                    resolved_vpc_prefixes: iface.resolved_vpc_prefixes(),
                     device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
                     device_instance: iface
                         .device_locator
@@ -376,6 +383,9 @@ pub struct InstanceInterfaceStatus {
     /// The logical VPC this interface belongs to.
     pub vpc_id: Option<VpcId>,
 
+    /// VPC prefixes resolved for this interface, keyed by address family.
+    pub resolved_vpc_prefixes: Option<InstanceInterfaceResolvedVpcPrefixes>,
+
     pub device: Option<String>,
     pub device_instance: usize,
 }
@@ -385,6 +395,7 @@ impl InstanceInterfaceStatus {
     /// Host-inband interfaces do not get real network status observations, so we construct status
     /// ourselves from the host interface's config.
     pub fn from_host_inband_interface(mut value: InstanceInterfaceConfig) -> Self {
+        let resolved_vpc_prefixes = value.resolved_vpc_prefixes();
         let (prefix_ids, addresses): (Vec<_>, Vec<_>) = value.ip_addrs.into_iter().unzip();
 
         // For each NetworkPrefixId we saw in ip_addrs, get that entry from the
@@ -423,6 +434,7 @@ impl InstanceInterfaceStatus {
             prefixes,
             gateways,
             vpc_id: value.vpc_id,
+            resolved_vpc_prefixes,
             device: None,
             device_instance: 0,
         }
@@ -531,9 +543,13 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+    use carbide_uuid::vpc::VpcPrefixId;
 
     use super::*;
-    use crate::instance::config::network::InstanceInterfaceConfig;
+    use crate::instance::config::network::{
+        InstanceInterfaceConfig, InstanceInterfaceIpFamilyMode, InstanceInterfaceVpcSelection,
+        Ipv6InterfaceConfig, NetworkDetails,
+    };
     use crate::network_security_group::NetworkSecurityGroupSource;
 
     #[test]
@@ -664,6 +680,7 @@ mod tests {
                     )]),
                     host_inband_mac_address: None,
                     network_details: None,
+                    vpc_selection: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
                     vpc_id: None,
@@ -688,6 +705,7 @@ mod tests {
                     )]),
                     host_inband_mac_address: None,
                     network_details: None,
+                    vpc_selection: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
                     vpc_id: None,
@@ -712,6 +730,7 @@ mod tests {
                     )]),
                     host_inband_mac_address: None,
                     network_details: None,
+                    vpc_selection: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
                     vpc_id: None,
@@ -749,6 +768,7 @@ mod tests {
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 6])),
                     network_details: None,
+                    vpc_selection: None,
                     device_locator: None,
                     internal_uuid: internal_uuid1,
                     vpc_id: None,
@@ -773,6 +793,7 @@ mod tests {
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 16])),
                     network_details: None,
+                    vpc_selection: None,
                     device_locator: None,
                     internal_uuid: internal_uuid2,
                     vpc_id: None,
@@ -797,6 +818,7 @@ mod tests {
                     )]),
                     host_inband_mac_address: Some(MacAddress::new([1, 2, 3, 4, 5, 26])),
                     network_details: None,
+                    vpc_selection: None,
                     device_locator: None,
                     internal_uuid: internal_uuid3,
                     vpc_id: None,
@@ -864,6 +886,7 @@ mod tests {
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -874,6 +897,7 @@ mod tests {
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -884,6 +908,7 @@ mod tests {
                     prefixes: Vec::new(),
                     gateways: Vec::new(),
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -905,6 +930,7 @@ mod tests {
             prefixes: iface.interface_prefixes.values().copied().collect(),
             gateways: iface.network_segment_gateways.values().copied().collect(),
             vpc_id: iface.vpc_id,
+            resolved_vpc_prefixes: iface.resolved_vpc_prefixes(),
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -921,6 +947,7 @@ mod tests {
             prefixes: iface.interface_prefixes.values().copied().collect(),
             gateways: iface.network_segment_gateways.values().copied().collect(),
             vpc_id: iface.vpc_id,
+            resolved_vpc_prefixes: iface.resolved_vpc_prefixes(),
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -938,6 +965,7 @@ mod tests {
             prefixes: iface.interface_prefixes.values().copied().collect(),
             gateways: iface.network_segment_gateways.values().copied().collect(),
             vpc_id: iface.vpc_id,
+            resolved_vpc_prefixes: iface.resolved_vpc_prefixes(),
             device: iface.device_locator.as_ref().map(|dl| dl.device.clone()),
             device_instance: iface
                 .device_locator
@@ -962,6 +990,7 @@ mod tests {
                     prefixes: vec!["127.0.1.0/24".parse().unwrap()],
                     gateways: vec!["127.0.1.1/24".parse().unwrap()],
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -972,6 +1001,7 @@ mod tests {
                     prefixes: vec!["127.0.2.0/24".parse().unwrap()],
                     gateways: vec!["127.0.2.1/24".parse().unwrap()],
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -982,6 +1012,7 @@ mod tests {
                     prefixes: vec!["127.0.3.0/24".parse().unwrap()],
                     gateways: vec!["127.0.3.1/24".parse().unwrap()],
                     vpc_id: None,
+                    resolved_vpc_prefixes: None,
                     device: None,
                     device_instance: 0,
                 },
@@ -1002,6 +1033,43 @@ mod tests {
             false,
         );
         assert_eq!(status, unsynced_status())
+    }
+
+    /// Allocation-derived prefix resolution remains visible while observed
+    /// interface addresses are still pending synchronization.
+    #[test]
+    fn network_status_without_observations_includes_resolved_prefixes() {
+        let vpc_id = VpcId::new();
+        let ipv4_vpc_prefix_id = VpcPrefixId::new();
+        let ipv6_vpc_prefix_id = VpcPrefixId::new();
+        let mut config = network_config();
+        let interface = &mut config.interfaces[0];
+        interface.network_details = Some(NetworkDetails::VpcPrefixId(ipv4_vpc_prefix_id));
+        interface.vpc_selection = Some(InstanceInterfaceVpcSelection {
+            vpc_id,
+            family_mode: InstanceInterfaceIpFamilyMode::DualStack,
+        });
+        interface.ipv6_interface_config = Some(Ipv6InterfaceConfig {
+            vpc_prefix_id: ipv6_vpc_prefix_id,
+            requested_ip_addr: None,
+        });
+        interface.vpc_id = Some(vpc_id);
+
+        let status = InstanceNetworkStatus::from_config_and_observations(
+            HashMap::default(),
+            Versioned::new(&config, ConfigVersion::initial()),
+            &HashMap::default(),
+            false,
+        );
+
+        assert!(status.interfaces[0].addresses.is_empty());
+        assert_eq!(
+            status.interfaces[0].resolved_vpc_prefixes,
+            Some(InstanceInterfaceResolvedVpcPrefixes {
+                ipv4_vpc_prefix_id: Some(ipv4_vpc_prefix_id),
+                ipv6_vpc_prefix_id: Some(ipv6_vpc_prefix_id),
+            })
+        );
     }
 
     #[test]

@@ -123,7 +123,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .machines
         .remove(0);
 
-    let discovery_info = rpc_machine.discovery_info.unwrap();
+    let discovery_info = rpc_machine.status.unwrap().discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
     assert_eq!(retrieved_hw_info, hardware_info);
@@ -171,7 +171,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .into_inner()
         .machines
         .remove(0);
-    let discovery_info = rpc_machine.discovery_info.unwrap();
+    let discovery_info = rpc_machine.status.unwrap().discovery_info.unwrap();
     let retrieved_hw_info = HardwareInfo::try_from(discovery_info).unwrap();
 
     assert_eq!(retrieved_hw_info, new_info);
@@ -194,7 +194,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     .unwrap()
     .unwrap();
 
-    assert!(host.hardware_info.as_ref().is_some());
+    assert!(host.status.hardware_info.as_ref().is_some());
 
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -225,7 +225,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
         .unwrap()
         .unwrap();
 
-    assert!(host.hardware_info.as_ref().is_some());
+    assert!(host.status.hardware_info.as_ref().is_some());
 }
 
 #[crate::sqlx_test]

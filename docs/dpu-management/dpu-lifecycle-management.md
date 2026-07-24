@@ -167,6 +167,22 @@ Operators can inspect DPU firmware status with:
 nico-admin-cli -a <api-url> dpu versions
 ```
 
+### Auditing NIC Firmware Across the Site
+
+A BlueField operating in NIC mode runs with its Arm OS down, so it cannot report its own NIC firmware and never appears in the `dpu versions` inventory. Site exploration already captures each host BMC's Redfish PCIe inventory, and `site-explorer mlx-devices` reports every BlueField and SuperNIC from that view - part number, serial, NIC firmware, and the mode the device's own BMC reports - so cards in NIC mode stay visible to firmware audits:
+
+```bash
+nico-admin-cli -a <api-url> site-explorer mlx-devices
+```
+
+You can filter to devices operating as NICs whose firmware is below a desired version:
+
+```bash
+nico-admin-cli -a <api-url> site-explorer mlx-devices --nic-mode-only --expected-version 32.42.1000
+```
+
+`--host <bmc-ip>` restricts the report to one host BMC. The report's `DPU BMC IP` column gives the address to target for an upgrade; a device whose DPU BMC has not been explored yet still appears, without the mode and DPU BMC fields. Refer to the [mlx-devices CLI reference](../manuals/nico-admin-cli/commands/site-explorer/site-explorer-mlx-devices.md) for the full flag and output list.
+
 ## Containerized Cumulus and NVUE
 
 After the DPU OS is installed, the `dpu-agent` keeps HBN configured by applying NVUE configuration generated from NICo Core state. The configuration covers:

@@ -33,6 +33,14 @@ struct NetworkState {
     state: String,
 }
 
+fn format_free_ip_count(legacy_count: u32, count_v2: Option<u64>, saturated: bool) -> String {
+    match (count_v2, saturated) {
+        (Some(_), true) => "Effectively unlimited".to_string(),
+        (Some(count), false) => count.to_string(),
+        (None, _) => u64::from(legacy_count).to_string(),
+    }
+}
+
 #[allow(deprecated)]
 fn convert_old_history(
     history: &[forgerpc::NetworkSegmentStateHistory],
@@ -144,7 +152,14 @@ pub async fn convert_network_to_nice_format(
                 ),
                 ("SVI IP", prefix.svi_ip.unwrap_or_default()),
                 ("Reserve First", prefix.reserve_first.to_string()),
-                ("Free IP Count", prefix.free_ip_count.to_string()),
+                (
+                    "Free IP Count",
+                    format_free_ip_count(
+                        prefix.free_ip_count,
+                        prefix.free_ip_count_v2,
+                        prefix.free_ip_count_saturated,
+                    ),
+                ),
             ];
 
             for (key, value) in data {
@@ -364,8 +379,9 @@ pub async fn handle_show(
 #[cfg(test)]
 mod tests {
     use ::rpc::forge as forgerpc;
+    use carbide_test_support::{Check, check_values};
 
-    use super::{convert_network_to_nice_table, convert_old_history};
+    use super::{convert_network_to_nice_table, convert_old_history, format_free_ip_count};
 
     fn prefix(cidr: &str) -> forgerpc::NetworkPrefix {
         forgerpc::NetworkPrefix {
@@ -375,7 +391,60 @@ mod tests {
             reserve_first: 0,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }
+    }
+
+    #[test]
+    fn free_ip_count_display_marks_saturated_values() {
+        struct FreeIpCountRow {
+            legacy: u32,
+            v2: Option<u64>,
+            saturated: bool,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "wide count",
+                    input: FreeIpCountRow {
+                        legacy: 42,
+                        v2: Some(1u64 << 32),
+                        saturated: false,
+                    },
+                    expect: (1u64 << 32).to_string(),
+                },
+                Check {
+                    scenario: "saturated",
+                    input: FreeIpCountRow {
+                        legacy: u32::MAX,
+                        v2: Some(u64::MAX),
+                        saturated: true,
+                    },
+                    expect: "Effectively unlimited".to_string(),
+                },
+                Check {
+                    scenario: "legacy server fallback",
+                    input: FreeIpCountRow {
+                        legacy: 42,
+                        v2: None,
+                        saturated: false,
+                    },
+                    expect: "42".to_string(),
+                },
+                Check {
+                    scenario: "legacy fallback ignores an unknown saturation flag",
+                    input: FreeIpCountRow {
+                        legacy: 42,
+                        v2: None,
+                        saturated: true,
+                    },
+                    expect: "42".to_string(),
+                },
+            ],
+            |row| format_free_ip_count(row.legacy, row.v2, row.saturated),
+        );
     }
 
     fn old_history_record(state: &str, version: &str) -> forgerpc::NetworkSegmentStateHistory {

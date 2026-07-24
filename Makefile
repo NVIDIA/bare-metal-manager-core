@@ -53,7 +53,11 @@ help: ## Show this help and exit (default goal)
 
 .PHONY: core/check-isolated-package-builds
 core/check-isolated-package-builds: ## Check each Rust package independently with default features
-	cargo make --no-workspace check-isolated-package-builds
+	make check-isolated-package-builds -f dev/Makefile.core
+
+.PHONY: core/tests
+core/tests: ## Run Core tests with isolated PostgreSQL (TEST_ARGS="...")
+	make tests -f dev/Makefile.core
 
 # =============================================================================
 # Getting started (build host setup)

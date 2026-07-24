@@ -41,6 +41,7 @@ vaultrs = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 serial_test = { workspace = true }
 tempfile = { workspace = true }

@@ -31,6 +31,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 
 # [local-dependencies]
+carbide-dhcp-common = { path = "../dhcp-common" }
 carbide-instrument = { path = "../instrument" }
 carbide-rpc = { path = "../rpc" }
 carbide-tls = { path = "../tls" }

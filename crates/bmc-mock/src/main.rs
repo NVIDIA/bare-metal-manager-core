@@ -116,6 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 state,
                 bmc_mock::ipmi_sim::IpmiSimConfig {
                     bind_ip: "0.0.0.0".parse().unwrap(),
+                    reachable_port: None,
                     stable_id: "standalone-bmc-mock".to_string(),
                     console_prompt: "root@bmc-mock # ".to_string(),
                 },

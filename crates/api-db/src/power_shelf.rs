@@ -523,8 +523,8 @@ pub async fn find_ids_by_bmc_macs(
         .map_err(|err| DatabaseError::new("power_shelf::find_ids_by_bmc_macs", err))
 }
 
-/// RMS identity for a power shelf, including rack profile context for node type
-/// resolution.
+/// RMS identity for a power shelf, including rack profile context for node
+/// descriptor construction.
 #[derive(Debug, sqlx::FromRow)]
 pub struct PowerShelfRmsIdentity {
     pub id: String,

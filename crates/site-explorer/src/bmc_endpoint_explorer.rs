@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use bmc_explorer::Product;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::RedfishClientPool;
@@ -33,7 +34,7 @@ use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
-    EndpointExplorationError, EndpointExplorationReport, LockdownStatus, NicMode,
+    BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
 };
 use sqlx::PgPool;
 
@@ -124,6 +125,15 @@ impl BmcEndpointExplorer {
         Ok(password)
     }
 
+    async fn get_sitewide_dpu_bmc_service_password(
+        &self,
+        create_if_missing: bool,
+    ) -> Result<String, EndpointExplorationError> {
+        self.credential_client
+            .get_sitewide_dpu_bmc_service_password(create_if_missing)
+            .await
+    }
+
     /// Resolve which site-wide BMC root version is currently live from
     /// `sitewide_credential_rotation.target_version`. This is the table-driven
     /// "current site-wide credential" lookup: rather than reading a fixed
@@ -176,9 +186,11 @@ impl BmcEndpointExplorer {
         })
     }
 
-    fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
+    async fn get_dpu_factory_default_credentials(&self, bmc_ip_address: SocketAddr) -> Credentials {
+        let model = self.redfish_client.get_dpu_model_hint(bmc_ip_address).await;
         self.credential_client
-            .get_default_hardware_dpu_bmc_root_credentials()
+            .get_dpu_factory_default_credentials(model)
+            .await
     }
 
     pub async fn get_bmc_root_credentials(
@@ -260,6 +272,17 @@ impl BmcEndpointExplorer {
             username: user,
             password: new_password,
         })
+    }
+
+    async fn rotate_dpu_service_password_from_factory_defaults(
+        &self,
+        bmc_ip_address: SocketAddr,
+        root_credentials: &Credentials,
+    ) -> Result<(), EndpointExplorationError> {
+        let new_password = self.get_sitewide_dpu_bmc_service_password(true).await?;
+        self.redfish_client
+            .set_bf4_dpu_service_password(bmc_ip_address, root_credentials.clone(), new_password)
+            .await
     }
 
     pub async fn generate_exploration_report(
@@ -510,7 +533,7 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        mode: NicMode,
+        mode: BlueFieldOperatingMode,
     ) -> Result<(), EndpointExplorationError> {
         self.redfish_client
             .set_nic_mode(bmc_ip_address, credentials, mode.into_libredfish())
@@ -786,7 +809,9 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 //   1) Login with expected/factory credentials
                 //   2) Rotate the BMC root password to the sitewide root password
                 //   3) Store the per-BMC vault entry
-                //   4) Generate the report
+                //   4) On BF4, rotate the BMC `service` account (required for
+                //      SSH access) to the site-wide DPU BMC service password
+                //   5) Generate the report
                 //
                 // If the expected/factory credentials fail (Unauthorized), fall
                 // back to the configured sitewide root password without rotation.
@@ -798,6 +823,25 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     %bmc_mac_address,
                     "Site explorer could not find a BMC root credential entry in vault - this is expected if the BMC has never been seen before.",
                 );
+
+                // When no expected entity is present and the vendor is a DPU, look up the
+                // per-model factory default from vault (or fall back to the hardcoded default).
+                // Declared before `bmc_cred_data` so it outlives the borrow.
+                let dpu_factory_creds = if expected.is_none() && vendor == RedfishVendor::NvidiaDpu
+                {
+                    Some(
+                        self.get_dpu_factory_default_credentials(bmc_ip_address)
+                            .await,
+                    )
+                } else {
+                    None
+                };
+
+                let product = self
+                    .redfish_client
+                    .get_redfish_product(bmc_ip_address)
+                    .await?;
+                let is_bf4_dpu = bmc_explorer::is_bf4_product(product.as_deref().map(Product::new));
 
                 let bmc_cred_data = match expected {
                     Some(v) => {
@@ -811,14 +855,19 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     }
                     None => {
                         tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
-                        // We dont know if this machine is a DPU at this point
-                        // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
                         match vendor {
                             RedfishVendor::NvidiaDpu => {
-                                // This machine is a DPU.
-                                // Try the DPU hardware default password to handle the DPU case
-                                // This password will not work for a Viking host and we will return an error
-                                self.get_default_hardware_dpu_bmc_root_credentials()
+                                // This machine is a DPU. Use the per-model factory default credential
+                                // (looked up above from vault, with hardcoded fallback).
+                                let Credentials::UsernamePassword {
+                                    ref username,
+                                    ref password,
+                                } = *dpu_factory_creds.as_ref().unwrap();
+                                BmcCredentialsData {
+                                    username,
+                                    password,
+                                    retain_credentials: false,
+                                }
                             }
                             _ => {
                                 return Err(EndpointExplorationError::MissingCredentials {
@@ -832,7 +881,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     }
                 };
 
-                match self
+                let bmc_credentials = match self
                     .set_sitewide_bmc_root_password(
                         bmc_ip_address,
                         bmc_mac_address,
@@ -841,36 +890,36 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     )
                     .await
                 {
-                    Ok(bmc_credentials) => {
-                        self.generate_exploration_report(
-                            bmc_ip_address,
-                            bmc_credentials,
-                            None,
-                            Some(vendor),
-                        )
-                        .await?
-                    }
+                    Ok(bmc_credentials) => bmc_credentials,
                     Err(
                         EndpointExplorationError::Unauthorized { .. }
                         | EndpointExplorationError::MissingCredentials { .. },
                     ) => {
-                        let bmc_credentials = self
-                            .try_sitewide_bmc_root_credentials(
-                                bmc_ip_address,
-                                bmc_mac_address,
-                                bmc_cred_data.username,
-                            )
-                            .await?;
-                        self.generate_exploration_report(
+                        self.try_sitewide_bmc_root_credentials(
                             bmc_ip_address,
-                            bmc_credentials,
-                            None,
-                            Some(vendor),
+                            bmc_mac_address,
+                            bmc_cred_data.username,
                         )
                         .await?
                     }
                     Err(e) => return Err(e),
+                };
+
+                if is_bf4_dpu {
+                    self.rotate_dpu_service_password_from_factory_defaults(
+                        bmc_ip_address,
+                        &bmc_credentials,
+                    )
+                    .await?;
                 }
+
+                self.generate_exploration_report(
+                    bmc_ip_address,
+                    bmc_credentials,
+                    None,
+                    Some(vendor),
+                )
+                .await?
             }
             Err(e) => {
                 return Err(e);
@@ -1163,7 +1212,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        mode: NicMode,
+        mode: BlueFieldOperatingMode,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 

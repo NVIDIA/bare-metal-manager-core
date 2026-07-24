@@ -40,7 +40,7 @@ use model::dpa_interface::DpaSearchConfig;
 use model::instance::config::InstanceConfig;
 use model::instance::config::extension_services::InstanceExtensionServicesConfig;
 use model::instance::config::infiniband::InstanceInfinibandConfig;
-use model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
+use model::instance::config::network::InstanceNetworkConfig;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
 use model::instance::config::spx::InstanceSpxConfig;
 use model::instance::config::tenant_config::TenantConfig;
@@ -937,16 +937,16 @@ pub(crate) async fn invoke_power(
         log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
     }
 
-    let bmc_ip =
-        snapshot
-            .host_snapshot
-            .bmc_info
-            .ip
-            .as_ref()
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "bmc_ip",
-                id: machine_id.to_string(),
-            })?;
+    let bmc_ip = snapshot
+        .host_snapshot
+        .status
+        .bmc_info
+        .ip
+        .as_ref()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "bmc_ip",
+            id: machine_id.to_string(),
+        })?;
 
     let run_provisioning_instructions_on_every_boot = snapshot
         .instance
@@ -1082,6 +1082,7 @@ pub(crate) async fn invoke_power(
     let bmc_mac_address =
         snapshot
             .host_snapshot
+            .status
             .bmc_info
             .mac
             .ok_or_else(|| CarbideError::NotFoundError {
@@ -1097,7 +1098,7 @@ pub(crate) async fn invoke_power(
         .redfish_pool
         .create_client(
             &bmc_ip,
-            snapshot.host_snapshot.bmc_info.port,
+            snapshot.host_snapshot.status.bmc_info.port,
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),
@@ -1540,8 +1541,8 @@ async fn update_instance_network_config(
     // Copy the resources if same interface and network are mentioned.
     network.copy_existing_resources(&instance.config.network);
 
-    // Allocate network segment here if vpc_prefix_id is mentioned before validate.
-    allocate_network(network, txn).await?;
+    // Resolve prefix-backed network resources before validating the generated segment IDs.
+    allocate_network(network, &instance.config.tenant.tenant_organization_id, txn).await?;
     network
         .validate(allow_instance_vf)
         .map_err(CarbideError::from)?;
@@ -1764,29 +1765,25 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .filter_map(|x| match &x.network_details {
-                Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                _ => None,
-            })
+            .filter_map(|x| x.generated_network_segment_id())
             .collect_vec();
         network_segment_ids_with_vpc.extend(
             update_network_req
                 .old_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match &x.network_details {
-                    Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-                    _ => None,
-                }),
+                .filter_map(|x| x.generated_network_segment_id()),
         );
     }
 
-    network_segment_ids_with_vpc.extend(instance.config.network.interfaces.iter().filter_map(
-        |x| match &x.network_details {
-            Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
-            _ => None,
-        },
-    ));
+    network_segment_ids_with_vpc.extend(
+        instance
+            .config
+            .network
+            .interfaces
+            .iter()
+            .filter_map(|x| x.generated_network_segment_id()),
+    );
 
     let network_segments_set: std::collections::HashSet<::carbide_uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();

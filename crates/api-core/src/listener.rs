@@ -222,22 +222,46 @@ enum ConnectionFailReason {
     TlsConnectionFailure,
 }
 
-/// An inbound connection failed before it could be served -- the TCP accept or
-/// the TLS handshake errored. Metric-only: the `tracing::error!` beside each
-/// emit stays the log, byte-for-byte as before; the `reason` label
-/// distinguishes which leg failed.
+/// `TcpAcceptFailed` records a listener error before a peer connection exists.
+/// It increments the existing `tcp_connection_failure` series while keeping
+/// the per-attempt error in log-only context.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "api_tcp_accept_failed",
+    metric_name = "carbide_api_tls_connection_fail_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error accepting connection",
+    describe = "Number of failed inbound TLS connection attempts"
+)]
+struct TcpAcceptFailed {
+    #[label]
+    reason: ConnectionFailReason,
+    #[context]
+    error: String,
+}
+
+/// `TlsConnectionFailed` records a handshake error after the listener knows
+/// the peer. It shares the failure counter with [`TcpAcceptFailed`], while
+/// `peer_address` and `error` remain available only on the diagnostic record.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "api_tls_connection_failed",
     metric_name = "carbide_api_tls_connection_fail_total",
     component = "nico-api",
-    log = off,
+    log = error,
     metric = counter,
+    message = "error accepting tls connection",
     describe = "Number of failed inbound TLS connection attempts"
 )]
 struct TlsConnectionFailed {
     #[label]
     reason: ConnectionFailReason,
+    #[context]
+    error: String,
+    #[context]
+    peer_address: SocketAddr,
 }
 
 /// Start listening for requests, spawning the listener task into `join_set`.
@@ -368,9 +392,9 @@ pub async fn start(
                 let (conn, addr) = match incoming_connection {
                     Ok(incoming) => incoming,
                     Err(e) => {
-                        tracing::error!(error = %e, "Error accepting connection");
-                        carbide_instrument::emit(TlsConnectionFailed {
+                        carbide_instrument::emit(TcpAcceptFailed {
                             reason: ConnectionFailReason::TcpConnectionFailure,
+                            error: e.to_string(),
                         });
                         continue;
                     }
@@ -453,13 +477,10 @@ pub async fn start(
                                     }
                                 }
                                 Err(error) => {
-                                    tracing::error!(
-                                        %error,
-                                        peer_address = %addr,
-                                        "error accepting tls connection"
-                                    );
                                     carbide_instrument::emit(TlsConnectionFailed {
                                         reason: ConnectionFailReason::TlsConnectionFailure,
+                                        error: error.to_string(),
+                                        peer_address: addr,
                                     });
                                 }
                             }
@@ -524,31 +545,142 @@ async fn root_url() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use carbide_instrument::LabelValue;
+    use std::net::SocketAddr;
+
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
 
-    use super::ConnectionFailReason;
+    use super::{ConnectionFailReason, TcpAcceptFailed, TlsConnectionFailed};
 
-    /// The `reason` label values are the metric's contract: each variant
-    /// renders to the exact snake_case string the fail counter has always
-    /// reported. The failure path is never exercised by the metrics
-    /// integration test, so this is what locks those bytes.
+    const FAILURE_METRIC: &str = "carbide_api_tls_connection_fail_total";
+
+    struct FailureInput {
+        reason: &'static str,
+        emit: fn(),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FailureObservation {
+        counter_delta: f64,
+        logs: Vec<FailureLog>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct FailureLog {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        reason: Option<String>,
+        error: Option<String>,
+        peer_address: Option<String>,
+    }
+
+    fn emit_tcp_accept_failure() {
+        carbide_instrument::emit(TcpAcceptFailed {
+            reason: ConnectionFailReason::TcpConnectionFailure,
+            error: "accept failed".to_string(),
+        });
+    }
+
+    fn emit_tls_connection_failure() {
+        carbide_instrument::emit(TlsConnectionFailed {
+            reason: ConnectionFailReason::TlsConnectionFailure,
+            error: "handshake failed".to_string(),
+            peer_address: "192.0.2.10:443"
+                .parse::<SocketAddr>()
+                .expect("test peer address is valid"),
+        });
+    }
+
+    fn observe_failure(input: FailureInput) -> FailureObservation {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(input.emit)
+            .into_iter()
+            .map(|log| {
+                let event_name = log.field("event_name").map(str::to_owned);
+                let metric_name = log.field("metric_name").map(str::to_owned);
+                let reason = log.field("reason").map(str::to_owned);
+                let error = log.field("error").map(str::to_owned);
+                let peer_address = log.field("peer_address").map(str::to_owned);
+                FailureLog {
+                    level: log.level,
+                    metadata_name: log.metadata_name,
+                    message: log.message,
+                    event_name,
+                    metric_name,
+                    reason,
+                    error,
+                    peer_address,
+                }
+            })
+            .collect();
+
+        FailureObservation {
+            counter_delta: metrics.counter_delta(FAILURE_METRIC, &[("reason", input.reason)]),
+            logs,
+        }
+    }
+
+    fn expected_failure(
+        event_name: &str,
+        message: &str,
+        reason: &str,
+        error: &str,
+        peer_address: Option<&str>,
+    ) -> FailureObservation {
+        FailureObservation {
+            counter_delta: 1.0,
+            logs: vec![FailureLog {
+                level: tracing::Level::ERROR,
+                metadata_name: event_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(event_name.to_string()),
+                metric_name: Some(FAILURE_METRIC.to_string()),
+                reason: Some(reason.to_string()),
+                error: Some(error.to_string()),
+                peer_address: peer_address.map(str::to_owned),
+            }],
+        }
+    }
+
+    /// Each accept or handshake failure writes one ERROR record and increments
+    /// exactly one existing `reason` series.
     #[test]
-    fn connection_fail_reason_renders_expected_label_values() {
+    fn connection_failures_emit_their_metric_and_historical_log() {
         check_values(
             [
                 Check {
                     scenario: "tcp accept failure",
-                    input: ConnectionFailReason::TcpConnectionFailure,
-                    expect: "tcp_connection_failure".to_string(),
+                    input: FailureInput {
+                        reason: "tcp_connection_failure",
+                        emit: emit_tcp_accept_failure,
+                    },
+                    expect: expected_failure(
+                        "api_tcp_accept_failed",
+                        "Error accepting connection",
+                        "tcp_connection_failure",
+                        "accept failed",
+                        None,
+                    ),
                 },
                 Check {
                     scenario: "tls handshake failure",
-                    input: ConnectionFailReason::TlsConnectionFailure,
-                    expect: "tls_connection_failure".to_string(),
+                    input: FailureInput {
+                        reason: "tls_connection_failure",
+                        emit: emit_tls_connection_failure,
+                    },
+                    expect: expected_failure(
+                        "api_tls_connection_failed",
+                        "error accepting tls connection",
+                        "tls_connection_failure",
+                        "handshake failed",
+                        Some("192.0.2.10:443"),
+                    ),
                 },
             ],
-            |reason| reason.label_value().to_string(),
+            observe_failure,
         );
     }
 }

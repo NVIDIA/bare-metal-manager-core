@@ -22,6 +22,7 @@ use common::api_fixtures::site_explorer::create_expected_switches;
 use mac_address::MacAddress;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedSwitchList, ExpectedSwitchRequest};
+use rpc::forge_api_client::EXPECTED_SWITCH_UPDATE_MASK_HEADER;
 
 use crate::tests::common;
 
@@ -118,6 +119,62 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
         expected_switch.expected_switch_id = retrieved_expected_switch.expected_switch_id.clone();
 
         assert_eq!(retrieved_expected_switch, expected_switch);
+    }
+}
+
+#[crate::sqlx_test()]
+async fn test_add_expected_switch_validates_nvos_credentials_pair(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    for (nvos_username, nvos_password, bmc_mac_address, expected_error) in [
+        (None, None, "3A:3B:3C:3D:3E:44", None),
+        (
+            Some("admin".to_string()),
+            None,
+            "3A:3B:3C:3D:3E:42",
+            Some("nvos_username and nvos_password must be set together"),
+        ),
+        (
+            None,
+            Some("nvos-pass".to_string()),
+            "3A:3B:3C:3D:3E:43",
+            Some("nvos_username and nvos_password must be set together"),
+        ),
+        (
+            Some(String::new()),
+            Some("nvos-pass".to_string()),
+            "3A:3B:3C:3D:3E:45",
+            Some("nvos_username must not be empty"),
+        ),
+        (
+            Some("admin".to_string()),
+            Some(String::new()),
+            "3A:3B:3C:3D:3E:46",
+            Some("nvos_password must not be empty"),
+        ),
+    ] {
+        let result = env
+            .api
+            .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+                bmc_mac_address: bmc_mac_address.into(),
+                nvos_mac_addresses: vec!["4A:4B:4C:4D:4E:42".to_string()],
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                switch_serial_number: "SW-NVOS-PARTIAL".into(),
+                nvos_username,
+                nvos_password,
+                ..Default::default()
+            }))
+            .await;
+
+        if let Some(expected_error) = expected_error {
+            let err = result.expect_err("invalid NVOS credentials should be rejected");
+
+            assert_eq!(err.code(), tonic::Code::InvalidArgument);
+            assert_eq!(err.message(), expected_error);
+        } else {
+            result.expect("absent NVOS credentials should be accepted");
+        }
     }
 }
 
@@ -273,9 +330,11 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
+
     txn.commit().await.unwrap();
 
     let bmc_mac_address: MacAddress = switches[1].bmc_mac_address;
+
     let nvos_mac_addresses: Vec<String> = switches[1]
         .nvos_mac_addresses
         .iter()
@@ -370,6 +429,60 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
 
         assert_eq!(retrieved_expected_switch, updated_switch);
     }
+}
+
+#[crate::sqlx_test()]
+async fn test_sparse_update_expected_switch_preserves_omitted_fields(pool: sqlx::PgPool) {
+    let env = create_test_env(pool.clone()).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let switches = create_expected_switches(&mut txn).await;
+
+    txn.commit().await.unwrap();
+
+    let bmc_mac_address: MacAddress = switches[1].bmc_mac_address;
+    let original_serial_number = switches[1].serial_number.clone();
+    let original_nvos_mac_addresses = switches[1].nvos_mac_addresses.clone();
+
+    let mut request = tonic::Request::new(rpc::forge::ExpectedSwitch {
+        bmc_mac_address: bmc_mac_address.to_string(),
+        nvos_username: Some("nvos_upd_user".into()),
+        nvos_password: Some("nvos_upd_pass".into()),
+        ..Default::default()
+    });
+
+    request.metadata_mut().insert(
+        EXPECTED_SWITCH_UPDATE_MASK_HEADER,
+        "nvos_username,nvos_password".parse().unwrap(),
+    );
+
+    env.api
+        .update_expected_switch(request)
+        .await
+        .expect("unable to update expected switch");
+
+    let updated = env
+        .api
+        .get_expected_switch(tonic::Request::new(ExpectedSwitchRequest {
+            bmc_mac_address: bmc_mac_address.to_string(),
+            expected_switch_id: None,
+        }))
+        .await
+        .expect("unable to read updated expected switch")
+        .into_inner();
+
+    assert_eq!(updated.switch_serial_number, original_serial_number);
+
+    assert_eq!(
+        updated.nvos_mac_addresses,
+        original_nvos_mac_addresses
+            .into_iter()
+            .map(|mac| mac.to_string())
+            .collect::<Vec<_>>()
+    );
+
+    assert_eq!(updated.nvos_username.as_deref(), Some("nvos_upd_user"));
+    assert_eq!(updated.nvos_password.as_deref(), Some("nvos_upd_pass"));
 }
 
 #[crate::sqlx_test()]

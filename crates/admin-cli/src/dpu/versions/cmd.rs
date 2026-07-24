@@ -58,6 +58,7 @@ struct DpuVersions {
 }
 
 impl From<Machine> for DpuVersions {
+    #[allow(deprecated)]
     fn from(machine: Machine) -> Self {
         let state = match machine.state.split_once(' ') {
             Some((state, _)) => state.to_owned(),
@@ -100,7 +101,7 @@ impl From<Machine> for DpuVersions {
             hbn_version: machine.inventory.and_then(|inv| {
                 inv.components
                     .into_iter()
-                    .find(|c| c.name == "doca_hbn")
+                    .find(|c| c.name.contains("hbn"))
                     .map(|c| c.version)
             }),
             agent_version: machine.dpu_agent_version,
@@ -144,6 +145,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
     Box::new(table)
 }
 
+#[allow(deprecated)]
 pub async fn handle_dpu_versions(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,

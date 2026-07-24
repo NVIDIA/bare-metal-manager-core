@@ -1059,8 +1059,16 @@ async fn test_managed_host_network_config_multi_dpu(pool: sqlx::PgPool) {
     let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
 
     let host_machine = mh.host().rpc_machine().await;
-    let dpu_1_id = host_machine.associated_dpu_machine_ids[0];
-    let dpu_2_id = host_machine.associated_dpu_machine_ids[1];
+    let dpu_1_id = host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .associated_dpu_machine_ids[0];
+    let dpu_2_id = host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .associated_dpu_machine_ids[1];
 
     // And: Multiple admin segments exist when the DPU network config is rendered.
     let _second_admin_segment = create_network_segment(
@@ -1180,8 +1188,16 @@ async fn test_managed_host_network_config_uses_non_dpu_primary_admin_interface(p
     // Given: A managed host with 2 DPUs and a separate host admin NIC marked primary.
     let mh = api_fixtures::create_managed_host_multi_dpu(&env, 2).await;
     let host_machine = mh.host().rpc_machine().await;
-    let dpu_1_id = host_machine.associated_dpu_machine_ids[0];
-    let dpu_2_id = host_machine.associated_dpu_machine_ids[1];
+    let dpu_1_id = host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .associated_dpu_machine_ids[0];
+    let dpu_2_id = host_machine
+        .status
+        .as_ref()
+        .unwrap()
+        .associated_dpu_machine_ids[1];
 
     let mut txn = env.pool.begin().await.unwrap();
     let admin_segment = db::network_segment::admin(&mut txn)
@@ -1373,6 +1389,8 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
         .into_inner()
         .machines
         .remove(0)
+        .status
+        .unwrap()
         .health;
     let mut reported_health = reported_health.unwrap();
     assert!(reported_health.observed_at.is_some());
@@ -1635,6 +1653,8 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
         .into_inner()
         .machines
         .remove(0)
+        .status
+        .unwrap()
         .health;
 
     let reported_health = reported_health.unwrap();
@@ -1662,6 +1682,8 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
         .into_inner()
         .machines
         .remove(0)
+        .status
+        .unwrap()
         .health;
     let reported_health = reported_health.unwrap();
     assert!(reported_health.observed_at.is_some());

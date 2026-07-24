@@ -76,7 +76,8 @@ impl EventContext {
 
     /// Returns the stable NICo machine ID when the endpoint is a machine.
     pub fn machine_id(&self) -> Option<MachineId> {
-        self.machine_metadata().map(|machine| machine.machine_id)
+        self.machine_metadata()
+            .and_then(|machine| machine.machine_id)
     }
 
     /// Returns the machine chassis serial when the endpoint is a machine.
@@ -640,7 +641,7 @@ mod tests {
         let metadata = match kind {
             ContextKind::Empty => None,
             ContextKind::Machine => Some(EndpointMetadata::Machine(MachineData {
-                machine_id: machine_id(),
+                machine_id: Some(machine_id()),
                 machine_serial: Some("MN-001".to_string()),
                 slot_number: Some(7),
                 tray_index: Some(3),

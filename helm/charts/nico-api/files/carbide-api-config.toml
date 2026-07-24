@@ -108,3 +108,8 @@ test_selection_mode = "EnableAll"
 
 [oem_manager_profiles.Dell.PowerEdge_R760.powerefficiency]
 "ServerPwr.1.PSRapidOn" = "Disabled"
+
+[observability.per_object_state_metrics]
+enabled = {{ .Values.service.perObjectStateMetrics.enabled }}
+listen_address = "[::]:{{ .Values.service.perObjectStateMetrics.port }}"
+object_types = {{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}

@@ -42,7 +42,7 @@ mod tpm;
 /// Path where the init container writes the hardware snapshot, and the containerized agent reads it from.
 pub const HW_CACHE_PATH: &str = "/data/hw_output.json";
 
-const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
+pub(crate) const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
 const PCI_SLOT_NAME: &str = "PCI_SLOT_NAME";
@@ -154,7 +154,7 @@ fn convert_udev_to_mac(udev: String) -> Result<String, HardwareEnumerationError>
     Ok(mac)
 }
 
-fn convert_property_to_string<'a>(
+pub fn convert_property_to_string<'a>(
     name: &'a str,
     default_value: &'a str,
     device: &'a Device,
@@ -223,6 +223,38 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
             "Failed to parse NUMA node value to i32: {e}"
         ))
     })
+}
+
+// Total capacity of an NVMe controller in MB, summed across its block
+// namespaces. The `size` sysattr on a block device is a count of 512-byte
+// sectors (1 MB == 2048 sectors). Returns None when no namespace size can be
+// read, so callers can treat size as "unknown" rather than zero.
+fn get_nvme_size_mb(context: &libudev::Context, controller: &Device) -> Option<u32> {
+    let mut enumerator = libudev::Enumerator::new(context).ok()?;
+    enumerator.match_subsystem("block").ok()?;
+    enumerator.match_parent(controller).ok()?;
+
+    let mut total_sectors = 0_u64;
+    let mut found_namespace = false;
+    for ns in enumerator.scan_devices().ok()? {
+        // Only whole-namespace disks. `match_parent` walks the full block
+        // subtree, so without this a partitioned drive would have its
+        // partition sizes summed on top of the namespace size, inflating
+        // the reported capacity.
+        if ns.property_value("DEVTYPE").and_then(|v| v.to_str()) != Some("disk") {
+            continue;
+        }
+        found_namespace = true;
+        let sectors = ns
+            .attribute_value("size")
+            .and_then(|v| v.to_str())
+            .and_then(|v| v.trim().parse::<u64>().ok())?;
+        total_sectors = total_sectors.checked_add(sectors)?;
+    }
+    if !found_namespace {
+        return None;
+    }
+    u32::try_from(total_sectors / 2048).ok()
 }
 
 // discovery all the non-DPU IB devices
@@ -679,12 +711,17 @@ fn enumerate_hardware_inner(
             .filter(|v| !v.contains("virtual"))
             .is_some()
         {
+            let pci_path = convert_property_to_string(PCI_DEV_PATH, "", &device)
+                .ok()
+                .map(|v| v.to_string());
             nvmes.push(rpc_discovery::NvmeDevice {
                 model: convert_sysattr_to_string("model", &device)?.to_string(),
                 firmware_rev: convert_sysattr_to_string("firmware_rev", &device)?.to_string(),
                 serial: convert_sysattr_to_string("serial", &device)?
                     .trim()
                     .to_string(),
+                size_mb: get_nvme_size_mb(&context, &device),
+                pci_path,
             });
         }
     }

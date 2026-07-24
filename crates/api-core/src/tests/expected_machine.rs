@@ -1945,148 +1945,6 @@ async fn test_add_expected_machine_with_invalid_static_ip(pool: sqlx::PgPool) {
     );
 }
 
-#[test]
-fn test_expected_machine_data_accepts_ipv6_host_nic_fixed_ip() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "IPV6-HOST-NIC-FIXED-IP".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_ip: Some("2001:db8::66".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let data = ExpectedMachineData::try_from(expected_machine).unwrap();
-
-    assert_eq!(
-        data.host_nics[0].fixed_ip,
-        Some("2001:db8::66".parse().unwrap())
-    );
-}
-
-#[test]
-fn test_expected_machine_data_rejects_invalid_host_nic_fixed_ip() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "INVALID-HOST-NIC-FIXED-IP".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_ip: Some("not-a-valid-ip".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let err = match ExpectedMachineData::try_from(expected_machine) {
-        Ok(_) => panic!("invalid host NIC fixed IP should fail conversion"),
-        Err(err) => err,
-    };
-
-    assert!(err.to_string().contains("Invalid fixed IP"));
-}
-
-#[test]
-fn test_expected_machine_data_accepts_ipv6_host_nic_fixed_gateway() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "IPV6-HOST-NIC-FIXED-GATEWAY".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_gateway: Some("2001:db8::1".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let data = ExpectedMachineData::try_from(expected_machine).unwrap();
-
-    assert_eq!(
-        data.host_nics[0].fixed_gateway,
-        Some("2001:db8::1".parse().unwrap())
-    );
-}
-
-#[test]
-fn test_expected_machine_data_rejects_invalid_host_nic_fixed_gateway() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "INVALID-HOST-NIC-FIXED-GATEWAY".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_gateway: Some("not-a-valid-ip".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let err = match ExpectedMachineData::try_from(expected_machine) {
-        Ok(_) => panic!("invalid host NIC fixed gateway should fail conversion"),
-        Err(err) => err,
-    };
-
-    assert!(err.to_string().contains("Invalid fixed gateway"));
-}
-
-#[test]
-fn test_expected_machine_data_rejects_invalid_host_nic_mac_address() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "INVALID-HOST-NIC-MAC".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "not-a-mac".to_string(),
-            fixed_ip: Some("192.0.2.66".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let err = match ExpectedMachineData::try_from(expected_machine) {
-        Ok(_) => panic!("invalid host NIC MAC should fail conversion"),
-        Err(err) => err,
-    };
-
-    assert!(
-        matches!(
-            &err,
-            ::rpc::errors::RpcDataConversionError::InvalidMacAddress(mac)
-                if mac == "not-a-mac"
-        ),
-        "got: {err}"
-    );
-}
-
 /// Adding an expected machine with `host_nics[].fixed_ip` should result in a static
 /// `machine_interface` for that NIC. The materialization is deferred: site-explorer's
 /// reconciliation pass (or the DHCP discover hook) is what creates the row. The test
@@ -2709,12 +2567,7 @@ async fn test_declared_primary_survives_dhcp_arrival_order(
     Ok(())
 }
 
-/// Simple test to have some round-trip coverage for `ExpectedMachine.dpu_mode`
-/// to make sure a `NicMode` setting makes it from the API to the DB and back
-/// correctly. Verifies:
-/// - The RPC carrying `Some(DpuMode::NicMode)` persists.
-/// - The re-read RPC response replies `dpu_mode = Some(NicMode)` back
-/// - Other `dpu_mode` values do the same.
+/// The stable Forge DPU policy field round-trips through the database.
 #[crate::sqlx_test]
 async fn test_dpu_mode_round_trip_for_non_default_values(
     pool: sqlx::PgPool,
@@ -2751,17 +2604,15 @@ async fn test_dpu_mode_round_trip_for_non_default_values(
         assert_eq!(
             retrieved.dpu_mode,
             Some(*mode as i32),
-            "DPU mode {mode:?} should survive DB round-trip unchanged"
+            "DPU policy mode {mode:?} should survive DB round-trip unchanged"
         );
     }
 
     Ok(())
 }
 
-/// Also have some "round trip" coverage for the dpu_mode default case,
-/// when the operator didn't set `dpu_mode` on the wire. In this case,
-/// we should persist the Postgrs default (`DpuMode::DpuMode`) and return
-/// `None` on the wire (so old clients see the same thing they sent).
+/// The default host DPU policy is omitted on the wire, preserving existing
+/// clients' absent-field behavior.
 #[crate::sqlx_test]
 async fn test_dpu_mode_default_value_omitted_on_wire(
     pool: sqlx::PgPool,
@@ -2775,7 +2626,6 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-DPU-DEFAULT".into(),
-            dpu_mode: None,
             ..Default::default()
         }))
         .await?;
@@ -2791,14 +2641,13 @@ async fn test_dpu_mode_default_value_omitted_on_wire(
 
     assert_eq!(
         retrieved.dpu_mode, None,
-        "default DpuMode should not be emitted on the wire for stable round-trips"
+        "default HostDpuPolicy should not be emitted on the Forge compatibility field"
     );
 
     Ok(())
 }
 
-/// Verify the update RPC (for update/patch flows) actually flips
-/// `dpu_mode` as expected.
+/// Verify the update RPC (for update/patch flows) changes the DPU policy.
 #[crate::sqlx_test]
 async fn test_update_changes_dpu_mode(
     pool: sqlx::PgPool,
@@ -2840,7 +2689,7 @@ async fn test_update_changes_dpu_mode(
             .await?
             .into_inner();
 
-        // DpuMode is the column default and the wire-default; the model
+        // Manage is the column default and the wire-default; the model
         // collapses it to `None` on the way out (see `From<ExpectedMachine>
         // for rpc::forge::ExpectedMachine`), so compare accordingly.
         let expected_wire = match mode {

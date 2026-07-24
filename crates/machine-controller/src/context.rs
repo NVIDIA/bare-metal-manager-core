@@ -20,6 +20,8 @@ use std::sync::Arc;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_secrets::credentials::CredentialManager;
+use component_manager::component_manager::ComponentManager;
 use db::db_read::PgPoolReader;
 use libredfish::Redfish;
 use model::machine::Machine;
@@ -28,6 +30,7 @@ use state_controller::state_handler::{StateHandlerContextObjects, StateHandlerEr
 
 use crate::config::MachineStateHandlerSiteConfig;
 use crate::metrics::MachineMetrics;
+use crate::per_object::MachinePerObjectInfo;
 
 pub struct MachineStateHandlerContextObjects {}
 
@@ -48,8 +51,14 @@ pub struct MachineStateHandlerServices {
     pub ipmi_tool: Arc<dyn IPMITool>,
     /// Configuration used by MachineStateHandler.
     pub site_config: Arc<MachineStateHandlerSiteConfig>,
+    /// Optional Component Manager backend for rack-scale maintenance operations.
+    pub component_manager: Option<Arc<ComponentManager>>,
+    pub credential_manager: Arc<dyn CredentialManager>,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
+    /// Trait/association info gauges for the per-object metrics endpoint,
+    /// present when per-object state metrics are enabled for machines.
+    pub per_object_info: Option<MachinePerObjectInfo>,
 }
 
 impl MachineStateHandlerServices {

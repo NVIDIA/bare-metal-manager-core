@@ -104,7 +104,7 @@ async fn current_host_state_and_cleanup_needed(
 
     (
         machine.current_state().clone(),
-        machine.last_cleanup_time.is_none(),
+        machine.status.last_cleanup_time.is_none(),
     )
 }
 
@@ -914,7 +914,7 @@ impl<'a> MockExploredHost<'a> {
                     20,
                     |machine| {
                         machine.current_state() == &expected_state
-                            || machine.hw_sku.is_none()
+                            || machine.config.hw_sku.is_none()
                                 && matches!(
                                     *machine.current_state(),
                                     ManagedHostState::BomValidating {
@@ -924,7 +924,7 @@ impl<'a> MockExploredHost<'a> {
                                             ),
                                     }
                                 )
-                            || machine.hw_sku.is_some()
+                            || machine.config.hw_sku.is_some()
                     },
                 )
                 .await;
@@ -1502,10 +1502,10 @@ pub async fn register_expected_machine(
         data.dpf_enabled = default_dpf_enabled;
     }
     // For fixtures that intentionally create zero-DPU hosts (no DpuConfigs),
-    // declare them as `NoDpu` so site-explorer accepts them. Tests that
-    // explicitly set `dpu_mode` via `expected_machine_data` are left alone.
-    if config.dpus.is_empty() && data.dpu_mode == model::expected_machine::DpuMode::DpuMode {
-        data.dpu_mode = model::expected_machine::DpuMode::NoDpu;
+    // declare them as `Ignore` so site-explorer accepts them. Explicit
+    // non-`Manage` policies in `expected_machine_data` are left alone.
+    if config.dpus.is_empty() && data.dpu_policy == model::expected_machine::HostDpuPolicy::Manage {
+        data.dpu_policy = model::expected_machine::HostDpuPolicy::Ignore;
     }
 
     let em = ExpectedMachine {
@@ -2187,41 +2187,6 @@ pub async fn create_expected_switches(
     let mut created = Vec::new();
     for i in 0..6 {
         created.push(create_expected_switch(txn, i).await);
-    }
-    created
-}
-
-/// create_expected_power_shelves seeds 6 expected power shelves into the
-/// database, replacing the create_expected_power_shelf.sql fixture.
-pub async fn create_expected_power_shelves(
-    txn: &mut sqlx::PgConnection,
-) -> Vec<model::expected_power_shelf::ExpectedPowerShelf> {
-    use model::expected_power_shelf::ExpectedPowerShelf;
-    use model::metadata::Metadata;
-
-    use crate::test_support::mac_address_pool::EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL;
-
-    let mut created = Vec::new();
-    for i in 0..6 {
-        let power_shelf = ExpectedPowerShelf {
-            expected_power_shelf_id: None,
-            bmc_mac_address: EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL.allocate(),
-            serial_number: format!("PS-SN-{:03}", i + 1),
-            bmc_username: "ADMIN".into(),
-            bmc_password: "Pwd2023x0x0x0x0x7".into(),
-            bmc_ip_address: if (3..=4).contains(&i) {
-                Some(format!("192.168.1.{}", 100 + i - 3).parse().unwrap())
-            } else {
-                None
-            },
-            metadata: Metadata::default(),
-            rack_id: None,
-            bmc_retain_credentials: None,
-        };
-        let result = db::expected_power_shelf::create(txn, power_shelf)
-            .await
-            .expect("unable to create expected power shelf");
-        created.push(result);
     }
     created
 }

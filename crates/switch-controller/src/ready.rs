@@ -18,12 +18,13 @@
 //! Handler for SwitchControllerState::Ready.
 
 use carbide_uuid::switch::SwitchId;
-use model::switch::{ReProvisioningState, Switch, SwitchControllerState};
+use model::switch::{ConfiguringState, ReProvisioningState, Switch, SwitchControllerState};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 use crate::context::SwitchStateHandlerContextObjects;
+use crate::nvos_password_rotation::needs_nvos_password_reconciliation;
 
 /// Handles the Ready state for a switch.
 ///
@@ -31,11 +32,11 @@ use crate::context::SwitchStateHandlerContextObjects;
 /// If a maintenance request has been posted via `switch_maintenance_requested`,
 /// transitions to `Maintenance` with the requested operation. If rack-level
 /// reprovisioning has been requested, transitions to `ReProvisioning`.
-/// Otherwise idles.
+/// Otherwise, actionable NVOS convergence work transitions back to `Configuring`.
 pub async fn handle_ready(
-    _switch_id: &SwitchId,
+    switch_id: &SwitchId,
     state: &mut Switch,
-    _ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
+    ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
     if state.is_marked_as_deleted() {
         return Ok(StateHandlerOutcome::transition(
@@ -76,6 +77,19 @@ pub async fn handle_ready(
                     "unknown initiator for switch reprovisioning request: {}",
                     req.initiator
                 ),
+            },
+        ));
+    }
+
+    if needs_nvos_password_reconciliation(switch_id, state, ctx).await? {
+        tracing::info!(
+            switch_id = ?switch_id,
+            "Switch: NVOS password reconciliation pending; transitioning to Configuring",
+        );
+
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Configuring {
+                config_state: ConfiguringState::RotateOsPassword,
             },
         ));
     }

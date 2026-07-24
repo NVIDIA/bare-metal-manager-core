@@ -46,6 +46,63 @@ sequenceDiagram
     end
 ```
 
+## Bootstrap CA Trust
+
+Before a DPU agent can use the configuration APIs, it needs a certificate
+authority (CA) bundle to authenticate the NICo API. Configure the bundle source
+for non-DPF provisioning in the site configuration:
+
+```toml
+[dpu_config]
+bootstrap_ca_source = "legacy_download" # legacy_download | embedded | mounted
+```
+
+If this field is omitted, NICo preserves the historical behavior: the booting
+DPU downloads `/api/v0/tls/root_ca` from `nico-pxe`. This supports rolling
+upgrades, but the download remains dependent on unauthenticated DHCP, DNS, and
+HTTP. `embedded` uses a site-specific bundle staged into the DPU BFB only when
+its build is given an explicit `BOOTSTRAP_CA_PATH`. There is no repository or
+default fallback for the dedicated embedded payload. Existing legacy artifact
+inputs remain unchanged. `mounted` instead expects the provisioning environment
+to place an operator-managed bundle at `/opt/forge/forge_root.pem`. NICo does
+not create that mount. The embedded
+source at `/opt/forge/embedded_forge_root.pem` and mounted final path are
+distinct. Both non-network modes fail closed when their own bundle is missing
+or invalid and never fall back to the download.
+
+NICo includes this setting only in DPU provisioning instructions. It does not
+change host Scout boot behavior.
+
+Upgrade NICo and publish compatible boot artifacts before you change the
+setting. To switch an installed non-DPF DPU, reprovision it or use another
+trusted mechanism to install the bundle. Changing site configuration alone
+does not rewrite its filesystem. For root rotation, build or mount an overlap
+bundle containing the old and new roots. Reprovision or refresh every DPU, then
+verify that each one installed the overlap bundle at
+`/opt/forge/forge_root.pem` and can authenticate the NICo API. Rotate the API
+server chain to the new root and verify authentication again. Only then deploy
+a bundle without the old root, verify every DPU again, and retire the old root.
+
+Containerized DPF agents use the separate
+`[dpf.dpu_agent_bootstrap_ca]` policy and apply it when their init container
+starts. Refer to
+[DPU Agent Bootstrap CA](../manuals/dpf.md#dpu-agent-bootstrap-ca) for the
+legacy-download and mounted-object forms. The shared published DPF
+dpu-agent image does not embed a site trust anchor.
+
+When pinning a root, verify that the NICo API sends the issuing intermediate
+certificate with its leaf certificate. Selecting a stable root establishes the
+intended trust anchor. If each replacement intermediate chains to the pinned
+root and the server presents the complete chain, clients can validate leaf
+certificates across those rotations without replacing the bundle. If an
+intermediate chains to a different root, stage and verify an updated bundle
+before rotating the server chain. This is server certificate validation and
+remains required whether client-certificate authentication is enabled. It does
+not authenticate the earlier DHCP, DNS, iPXE, and user-data boot chain. Embedded
+mode also depends on an authenticated artifact and boot chain, such as verified
+image signatures plus Secure Boot. Otherwise, an attacker can replace both the
+artifact and its CA.
+
 ## Configuration Versioning
 
 NICo uses versioned immutable configuration data in order to detect whether any intended changes have not yet been deployed:

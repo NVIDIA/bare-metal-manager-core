@@ -112,6 +112,17 @@ env:
   RUST_BACKTRACE: "full"
   RUST_LIB_BACKTRACE: "0"
 
+## Optional CA bundle served to bootstrapping clients at /api/v0/tls/root_ca.
+## Set at most one of configMapName or secretName. When neither is set, PXE
+## serves FORGE_ROOT_CAFILE_PATH exactly as it does in legacy deployments.
+## The referenced object must exist in the release namespace. The CA is public,
+## but Secret references are supported for sites that already distribute trust
+## bundles that way.
+bootstrapRootCa:
+  configMapName: ""
+  secretName: ""
+  key: ca.crt
+
 ## ConfigMap settings for the env ConfigMap
 config:
   ## NICO_API_HOST, NICO_API_PORT are auto-generated from the release namespace

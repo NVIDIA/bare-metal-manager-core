@@ -24,22 +24,27 @@ mod modes;
 mod packet_handler;
 mod rpc;
 mod util;
-mod vendor_class;
 
 use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
+use ::rpc::forge_tls_client::ForgeClientConfig;
 use cache::CacheEntry;
 use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{DhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath, HostConfig};
 use chrono::Utc;
 use command_line::{Args, ServerMode};
 use errors::DhcpError;
+use forge_tls::client_config::ClientCert;
+use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
 use grpc_server::{ControlRequest, run_grpc_server};
 use lru::LruCache;
-use metrics::{DhcpPacketDropped, DhcpReplySent, DropReason};
+use metrics::{
+    DhcpPacketDropped, DhcpReplySent, DhcpTimestampFileInitializationFailed,
+    DhcpTimestampFileWriteFailed, DropReason,
+};
 use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use modes::DhcpMode;
 use modes::controller::Controller;
@@ -75,11 +80,13 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
     };
 
     let dhcp_timestamps = Arc::new(Mutex::new({
-        let d = DhcpTimestamps::new(if let ServerMode::Dpu = args.mode {
+        let dhcp_timestamps_path = if let ServerMode::Dpu = args.mode {
             DhcpTimestampsFilePath::HbnTmp
         } else {
             DhcpTimestampsFilePath::NotSet
-        });
+        };
+        let dhcp_timestamps_path_context = dhcp_timestamps_path.path_str().to_string();
+        let d = DhcpTimestamps::new(dhcp_timestamps_path);
 
         // It looks like we can only expect the file to be present
         // if something has successfully DHCP'ed, after write() has been
@@ -88,7 +95,10 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
         // and pollute the logs. We could have read() skip NotFound errors, but that
         // could be misleading in other scenarios.  Let's just "init" the file.
         if let Err(e) = d.write() {
-            tracing::error!(error = %e, "Failed to init DHCP timestamps file");
+            emit(DhcpTimestampFileInitializationFailed::new(
+                dhcp_timestamps_path_context,
+                e.to_string(),
+            ));
             return;
         }
         d
@@ -106,13 +116,13 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
     for interface in args.interfaces {
         let config_ = config__.clone();
         let args_mode = args.mode.clone();
+        let listen_address = args.listen_addr;
         let dhcp_timestamps_ = dhcp_timestamps.clone();
         let rate_limiter = rate_limiter_.clone();
         let cancel = cancel_token.clone();
 
         let handle = tokio::spawn(async move {
             let handler: Arc<Box<dyn DhcpMode>> = Arc::new(get_mode(&args_mode));
-            let listen_address = SocketAddr::new(std::net::IpAddr::from([0, 0, 0, 0]), 67);
 
             let socket = get_socket(listen_address, interface.clone()).await;
             tracing::info!(
@@ -557,9 +567,12 @@ fn get_mode(args_mode: &ServerMode) -> Box<dyn DhcpMode> {
 pub struct Config {
     dhcp_config: DhcpConfig,
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
+    relay_response_port: u16,
+    forge_client_config: ForgeClientConfig,
 }
 
 async fn init(args: Args) -> Result<Config, DhcpError> {
+    let forge_client_config = forge_client_config(&args)?;
     let f = tokio::fs::read_to_string(args.dhcp_config).await?;
     let dhcp_config: DhcpConfig = serde_yaml::from_str(&f)?;
 
@@ -573,7 +586,33 @@ async fn init(args: Args) -> Result<Config, DhcpError> {
     Ok(Config {
         dhcp_config,
         host_config,
+        relay_response_port: args.relay_response_port,
+        forge_client_config,
     })
+}
+
+fn forge_client_config(args: &Args) -> Result<ForgeClientConfig, DhcpError> {
+    let root_ca_path = args
+        .forge_root_ca_path
+        .clone()
+        .unwrap_or_else(|| default_root_ca().to_string());
+    let client_cert = match (&args.client_cert_path, &args.client_key_path) {
+        (Some(cert_path), Some(key_path)) => ClientCert {
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+        },
+        (None, None) => ClientCert {
+            cert_path: default_client_cert().to_string(),
+            key_path: default_client_key().to_string(),
+        },
+        _ => {
+            return Err(DhcpError::MissingArgument(
+                "client_cert_path and client_key_path must be configured together".to_string(),
+            ));
+        }
+    };
+
+    Ok(ForgeClientConfig::new(root_ca_path, Some(client_cert)))
 }
 
 #[derive(Debug)]
@@ -702,11 +741,11 @@ async fn process(
         let mut dhcp_timestamps = dhcp_timestamps.lock().await;
         dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
         if let Err(e) = dhcp_timestamps.write() {
-            tracing::error!(
-                dhcp_timestamps_path = DhcpTimestampsFilePath::HbnTmp.path_str(),
-                error = %e,
-                "Failed to write DHCP timestamps file"
-            );
+            emit(DhcpTimestampFileWriteFailed::new(
+                DhcpTimestampsFilePath::HbnTmp.path_str().to_string(),
+                host_config.host_interface_id.to_string(),
+                e.to_string(),
+            ));
         }
     }
 }
@@ -731,13 +770,21 @@ mod test {
 
     use crate::command_line::{Args, ServerMode};
     use crate::errors::DhcpError;
-    use crate::{DhcpMode, Test, TestArm, cache, handle_reload, init, packet_handler, process};
+    use crate::{
+        DhcpMode, Test, TestArm, cache, forge_client_config, handle_reload, init, packet_handler,
+        process,
+    };
 
     fn make_reload_args(td: &TempDir, interfaces: Vec<String>) -> Args {
         Args {
             interfaces,
+            listen_addr: "0.0.0.0:67".parse().unwrap(),
+            relay_response_port: 67,
             dhcp_config: td.path().join("dhcp.yaml").display().to_string(),
             host_config: Some(td.path().join("host.yaml").display().to_string()),
+            forge_root_ca_path: None,
+            client_cert_path: None,
+            client_key_path: None,
             mode: ServerMode::Dpu,
             grpc_listen_addr: None,
             metrics_listen_addr: None,
@@ -901,6 +948,8 @@ mod test {
 
         Args {
             interfaces: vec!["eth0".to_string()],
+            listen_addr: "0.0.0.0:67".parse().unwrap(),
+            relay_response_port: 67,
             dhcp_config: base_path.join("conf/conf.yaml").display().to_string(),
             host_config: Some(
                 base_path
@@ -908,6 +957,9 @@ mod test {
                     .display()
                     .to_string(),
             ),
+            forge_root_ca_path: None,
+            client_cert_path: None,
+            client_key_path: None,
             mode: crate::command_line::ServerMode::Dpu,
             grpc_listen_addr: None,
             metrics_listen_addr: None,
@@ -919,9 +971,32 @@ mod test {
         init(get_test_args()).await.unwrap();
     }
 
+    #[test]
+    fn forge_client_tls_paths_are_configurable() {
+        let defaults = forge_client_config(&get_test_args()).unwrap();
+        assert_eq!(defaults.root_ca_path, forge_tls::default::ROOT_CA);
+        let default_identity = defaults.client_cert.unwrap();
+        assert_eq!(default_identity.cert_path, forge_tls::default::CLIENT_CERT);
+        assert_eq!(default_identity.key_path, forge_tls::default::CLIENT_KEY);
+
+        let mut explicit = get_test_args();
+        explicit.forge_root_ca_path = Some("/local/ca.crt".to_string());
+        explicit.client_cert_path = Some("/local/client.crt".to_string());
+        explicit.client_key_path = Some("/local/client.key".to_string());
+        let configured = forge_client_config(&explicit).unwrap();
+        assert_eq!(configured.root_ca_path, "/local/ca.crt");
+        let configured_identity = configured.client_cert.unwrap();
+        assert_eq!(configured_identity.cert_path, "/local/client.crt");
+        assert_eq!(configured_identity.key_path, "/local/client.key");
+
+        explicit.client_key_path = None;
+        assert!(forge_client_config(&explicit).is_err());
+    }
+
     #[tokio::test]
     async fn test_arm_non_relayed_packet() {
-        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request);
+        let byte_stream =
+            get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request, None);
         let handler: Box<dyn DhcpMode> = Box::new(TestArm {});
         let config = init(get_test_args()).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
@@ -946,6 +1021,7 @@ mod test {
             Ipv4Addr::new(0, 0, 0, 0),
             Some(Ipv4Addr::from_str("10.217.5.41").unwrap()),
             MessageType::Request,
+            None,
         );
         let handler: Box<dyn DhcpMode> = Box::new(TestArm {});
         let config = init(get_test_args()).await.unwrap();
@@ -965,15 +1041,21 @@ mod test {
         );
     }
 
+    /// A raw HTTP-client option 60 reaches the shared vendor-class parser
+    /// before the standalone server builds its reply. The reply keeps the
+    /// canonical client ID and uses the parsed architecture for option 67.
     #[tokio::test]
-    async fn test_complete_flow() {
+    async fn test_complete_http_boot_flow() {
         let byte_stream = get_byte_stream(
             Ipv4Addr::new(0, 0, 0, 0),
             Some(Ipv4Addr::from_str("10.217.5.41").unwrap()),
             MessageType::Request,
+            Some(b"HTTPClient::7::"),
         );
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
-        let config = init(get_test_args()).await.unwrap();
+        let mut args = get_test_args();
+        args.relay_response_port = 6768;
+        let config = init(args).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
             std::num::NonZeroUsize::new(cache::MACHINE_CACHE_SIZE).unwrap(),
         )));
@@ -989,11 +1071,21 @@ mod test {
 
         assert_eq!(
             packet.dst_address(),
-            SocketAddrV4::new(Ipv4Addr::from([0x0a, 0xd9, 0x05, 0x29]), 67)
+            SocketAddrV4::new(Ipv4Addr::from([0x0a, 0xd9, 0x05, 0x29]), 6768)
         );
         let packet = Message::decode(&mut dhcproto::Decoder::new(packet.encoded_packet())).unwrap();
 
         assert_eq!(packet.yiaddr(), Ipv4Addr::from([10, 217, 132, 204]));
+        assert_eq!(
+            packet.opts().get(OptionCode::ClassIdentifier),
+            Some(&DhcpOption::ClassIdentifier(b"HTTPClient".to_vec()))
+        );
+        assert_eq!(
+            packet.opts().get(OptionCode::BootfileName),
+            Some(&DhcpOption::BootfileName(
+                b"http://10.217.126.17:8080/public/blobs/internal/x86_64/ipxe.efi".to_vec()
+            ))
+        );
     }
 
     /// The request counter ticks for every decoded packet -- including one
@@ -1002,7 +1094,8 @@ mod test {
     async fn process_packet_counts_the_decoded_request() {
         // No other test in this binary processes an Inform, so this label's
         // delta is immune to tests running in parallel.
-        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Inform);
+        let byte_stream =
+            get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Inform, None);
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
@@ -1032,6 +1125,7 @@ mod test {
             Ipv4Addr::new(10, 217, 132, 204),
             Some(Ipv4Addr::from_str("10.217.5.41").unwrap()),
             MessageType::Request,
+            None,
         );
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
@@ -1060,7 +1154,8 @@ mod test {
 
     #[tokio::test]
     async fn test_send_metadata_to_agent() {
-        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Discover);
+        let byte_stream =
+            get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Discover, None);
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
@@ -1138,6 +1233,7 @@ mod test {
         ciaddr: Ipv4Addr,
         giaddr: Option<Ipv4Addr>,
         message_type: MessageType,
+        class_identifier: Option<&[u8]>,
     ) -> Vec<u8> {
         let mut msg = Message::new(
             ciaddr,
@@ -1152,6 +1248,10 @@ mod test {
         }
 
         msg.opts_mut().insert(DhcpOption::MessageType(message_type));
+        if let Some(class_identifier) = class_identifier {
+            msg.opts_mut()
+                .insert(DhcpOption::ClassIdentifier(class_identifier.to_vec()));
+        }
 
         let mut encoded_packet = Vec::new();
         let mut e = dhcproto::Encoder::new(&mut encoded_packet);
@@ -1161,7 +1261,7 @@ mod test {
 
     #[tokio::test]
     async fn validate_basic_ack() {
-        let packet = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request);
+        let packet = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request, None);
 
         let config = init(get_test_args()).await.unwrap();
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
@@ -1179,6 +1279,11 @@ mod test {
         .await
         .unwrap();
 
+        assert_eq!(
+            encoded_packet.dst_address(),
+            SocketAddrV4::new(Ipv4Addr::BROADCAST, 68)
+        );
+
         // The reply type the send path counts lease grants under matches the
         // encoded reply.
         assert_eq!(
@@ -1195,7 +1300,7 @@ mod test {
 
     #[tokio::test]
     async fn validate_nak() {
-        let packet = get_byte_stream(Ipv4Addr::new(10, 0, 0, 1), None, MessageType::Request);
+        let packet = get_byte_stream(Ipv4Addr::new(10, 0, 0, 1), None, MessageType::Request, None);
 
         let config = init(get_test_args()).await.unwrap();
         let handler: Box<dyn DhcpMode> = Box::new(Test {});

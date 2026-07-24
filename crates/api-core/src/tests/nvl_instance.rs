@@ -47,7 +47,6 @@ use model::switch::{
     SwitchConfig, SwitchControllerState,
 };
 use model::test_support::{HardwareInfoTemplate, ManagedHostConfig};
-use rcgen::{CertifiedKey, generate_simple_self_signed};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
@@ -185,7 +184,13 @@ async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -355,7 +360,13 @@ async fn test_detach_gpus_from_partition_by_clearing_nvlink_config(pool: sqlx::P
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -563,7 +574,13 @@ async fn test_with_multiple_nv_link_logical_partitions(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -653,7 +670,14 @@ async fn test_nvl_partition_monitor_adds_successful_partitions_when_some_creates
     )
     .await;
 
-    let discovery_info = mh.host().rpc_machine().await.discovery_info.unwrap();
+    let discovery_info = mh
+        .host()
+        .rpc_machine()
+        .await
+        .status
+        .unwrap()
+        .discovery_info
+        .unwrap();
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
 
     let nvl_config = rpc::forge::InstanceNvLinkConfig {
@@ -781,8 +805,20 @@ async fn test_create_instances_with_nvl_configs_same_logical_partition_different
 
     assert_eq!(&machine1.state, "Ready");
     assert_eq!(&machine2.state, "Ready");
-    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
-    let discovery_info2 = machine2.discovery_info.as_ref().unwrap();
+    let discovery_info1 = machine1
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
+    let discovery_info2 = machine2
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info1.gpus.len(), 4);
     assert_eq!(discovery_info2.gpus.len(), 4);
     let gpus1: Vec<Gpu> = discovery_info1.gpus.to_vec();
@@ -980,7 +1016,13 @@ async fn test_update_instance_with_nvl_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1182,7 +1224,13 @@ async fn test_instance_update_logical_partition(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1317,7 +1365,13 @@ async fn test_instance_delete_with_nvl_config(pool: sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1426,7 +1480,13 @@ async fn test_create_instance_remove_from_default_partition(pool: sqlx::PgPool) 
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1573,7 +1633,13 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
     .await;
     let machine1 = mh1.host().rpc_machine().await;
     assert_eq!(&machine1.state, "Ready");
-    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
+    let discovery_info1 = machine1
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info1.gpus.len(), 4);
 
@@ -1650,7 +1716,13 @@ async fn test_create_instance_add_to_existing_partition(pool: sqlx::PgPool) {
     .await;
     let machine2 = mh2.host().rpc_machine().await;
     assert_eq!(&machine2.state, "Ready");
-    let discovery_info2 = machine2.discovery_info.as_ref().unwrap();
+    let discovery_info2 = machine2
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info2.gpus.len(), 4);
 
     let gpus2: Vec<Gpu> = discovery_info2.gpus.to_vec();
@@ -1755,7 +1827,13 @@ async fn test_logical_partition_delete_with_instance_config(pool: sqlx::PgPool) 
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -1906,6 +1984,126 @@ async fn test_logical_partition_delete_with_instance_config(pool: sqlx::PgPool) 
 }
 
 #[crate::sqlx_test]
+async fn test_subset_nvl_config_preserves_unconfigured_gpus_in_tray_partition(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool.clone(),
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_1_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+    let gpus = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap()
+        .gpus
+        .clone();
+    assert_eq!(gpus.len(), 4);
+
+    let gpu_uid = |gpu: &Gpu| {
+        let guid = &gpu.platform_info.as_ref().unwrap().fabric_guid;
+        let guid = guid
+            .strip_prefix("0x")
+            .or_else(|| guid.strip_prefix("0X"))
+            .unwrap_or(guid);
+        u64::from_str_radix(guid, 16).unwrap()
+    };
+
+    // Establish the tray default partition before allocating the instance.
+    env.run_nvl_partition_monitor_iteration().await;
+    let mut nmxc_client = env
+        .nmxc_sim
+        .create_client(libnmxc::Endpoint::new("http://localhost:4010").unwrap())
+        .await
+        .unwrap();
+    let partitions = nmxc_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: None,
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+    let tray_partition = partitions
+        .iter()
+        .find(|partition| partition.name == "tray_partition_0")
+        .expect("tray default partition should exist before instance allocation");
+    assert_eq!(tray_partition.gpu_uid_list.len(), 4);
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus[..2]
+            .iter()
+            .map(|gpu| rpc::forge::InstanceNvLinkGpuConfig {
+                device_instance: gpu.platform_info.as_ref().unwrap().module_id - 1,
+                logical_partition_id: Some(logical_partition_id),
+            })
+            .collect(),
+    };
+    create_instance_with_nvlink_config(&env, &mh, nvl_config, segment_id).await;
+
+    // Run additional passes after instance allocation to verify omitted GPUs remain accounted for
+    // after reconciliation converges.
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let partitions = nmxc_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: None,
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+    assert_eq!(partitions.len(), 2);
+
+    let tray_partition = partitions
+        .iter()
+        .find(|partition| partition.name == "tray_partition_0")
+        .expect("tray default partition should be preserved");
+    let tenant_partition = partitions
+        .iter()
+        .find(|partition| partition.name != "tray_partition_0")
+        .expect("tenant partition should be created");
+
+    let mut expected_tenant_uids: Vec<_> = gpus[..2].iter().map(gpu_uid).collect();
+    let mut actual_tenant_uids = tenant_partition.gpu_uid_list.clone();
+    expected_tenant_uids.sort_unstable();
+    actual_tenant_uids.sort_unstable();
+    assert_eq!(actual_tenant_uids, expected_tenant_uids);
+
+    let mut expected_tray_uids: Vec<_> = gpus[2..].iter().map(gpu_uid).collect();
+    let mut actual_tray_uids = tray_partition.gpu_uid_list.clone();
+    expected_tray_uids.sort_unstable();
+    actual_tray_uids.sort_unstable();
+    assert_eq!(actual_tray_uids, expected_tray_uids);
+}
+
+#[crate::sqlx_test]
 async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
@@ -1963,7 +2161,13 @@ async fn test_create_instance_gpu_in_unknown_partition(pool: sqlx::PgPool) {
     .await;
     let machine1 = mh1.host().rpc_machine().await;
     assert_eq!(&machine1.state, "Ready");
-    let discovery_info1 = machine1.discovery_info.as_ref().unwrap();
+    let discovery_info1 = machine1
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info1.gpus.len(), 4);
 
@@ -2076,7 +2280,10 @@ async fn assert_machine_nvlink_observation_present(
 ) {
     let machine = mh.host().rpc_machine().await;
     let observation = machine
-        .nvlink_status_observation
+        .status
+        .as_ref()
+        .unwrap()
+        .nvlink
         .as_ref()
         .expect("expected nvlink_status_observation to be set");
     assert_eq!(observation.gpu_status.len(), expected_gpu_count);
@@ -2096,9 +2303,9 @@ async fn assert_machine_nvlink_observation_present(
 async fn assert_machine_nvlink_observation_null(mh: &TestManagedHost, pool: &sqlx::PgPool) {
     let machine = mh.host().rpc_machine().await;
     assert!(
-        machine.nvlink_status_observation.is_none(),
+        machine.status.as_ref().unwrap().nvlink.is_none(),
         "expected null nvlink_status_observation via RPC, got {:?}",
-        machine.nvlink_status_observation
+        machine.status.as_ref().unwrap().nvlink
     );
 
     let mut txn = pool
@@ -2107,9 +2314,9 @@ async fn assert_machine_nvlink_observation_null(mh: &TestManagedHost, pool: &sql
         .expect("begin txn for nvlink observation check");
     let db_machine = mh.host().db_machine(&mut txn).await;
     assert!(
-        db_machine.nvlink_status_observation.is_none(),
+        db_machine.status.nvlink_status_observation.is_none(),
         "expected null nvlink_status_observation in DB, got {:?}",
-        db_machine.nvlink_status_observation
+        db_machine.status.nvlink_status_observation
     );
     txn.commit().await.expect("commit nvlink observation check");
 }
@@ -2164,7 +2371,13 @@ async fn run_create_instance_with_nvl_config_nmxc_simulator_scenario(
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -2547,7 +2760,13 @@ async fn test_rack_switch_create_instance_with_nvl_config_use_nmxc_simulator(poo
     assert_eq!(machine.rack_id.as_ref(), Some(&rack_id));
     assert_eq!(&machine.state, "Ready");
 
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info.gpus.len(), 4);
 
     let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
@@ -2613,8 +2832,8 @@ async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx
 
 async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     pool: sqlx::PgPool,
-    desired_server_cert_path: &std::path::Path,
-    expected_fingerprint_mismatches: usize,
+    rotate_before_expiry: std::time::Duration,
+    expected_certificates_needing_rotation: usize,
 ) {
     let mut config = common::api_fixtures::get_config_with_rack_profiles();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
@@ -2625,8 +2844,9 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
         nvlink_config.nmx_c_tls_client_key_path = Some(NMXC_SIMULATOR_TLS_CLIENT_KEY.to_string());
         nvlink_config.nmx_c_tls_authority = Some(NMXC_SIMULATOR_TLS_AUTHORITY.to_string());
         nvlink_config.nmx_c_certificate_rotation.enabled = true;
-        nvlink_config.nmx_c_certificate_rotation.server_cert_path =
-            Some(desired_server_cert_path.to_string_lossy().into_owned());
+        nvlink_config
+            .nmx_c_certificate_rotation
+            .rotate_before_expiry = rotate_before_expiry;
     }
 
     let mut overrides = TestEnvOverrides::with_config(config);
@@ -2666,13 +2886,15 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     assert_eq!(result.observed_endpoints, 1);
     assert_eq!(result.successful_probes, 1);
     assert_eq!(
-        result.fingerprint_mismatches,
-        expected_fingerprint_mismatches
+        result.certificates_needing_rotation,
+        expected_certificates_needing_rotation
     );
-    assert_eq!(result.desired_cert_errors, 0);
     assert_eq!(result.probe_errors, 0);
     assert_eq!(result.applied_updates, 0);
-    assert_eq!(result.pending_updates, expected_fingerprint_mismatches);
+    assert_eq!(
+        result.pending_updates,
+        expected_certificates_needing_rotation
+    );
     assert_eq!(result.apply_errors, 0);
 
     let mut txn = pool.begin().await.expect("begin txn");
@@ -2690,7 +2912,7 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     .expect("rack");
     txn.commit().await.expect("commit txn");
 
-    if expected_fingerprint_mismatches > 0 {
+    if expected_certificates_needing_rotation > 0 {
         assert!(
             switch.switch_maintenance_requested.is_none(),
             "certificate rotation should not request per-switch maintenance"
@@ -2708,11 +2930,11 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
     } else {
         assert!(
             switch.switch_maintenance_requested.is_none(),
-            "matching certificate should not request switch certificate maintenance"
+            "certificate outside the rotation window should not request switch maintenance"
         );
         assert!(
             rack.config.maintenance_requested.is_none(),
-            "matching certificate should not request rack maintenance"
+            "certificate outside the rotation window should not request rack maintenance"
         );
     }
 
@@ -2728,40 +2950,36 @@ async fn assert_switch_cert_monitor_nmxc_simulator_probe(
 }
 
 #[crate::sqlx_test]
-async fn test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch(pool: sqlx::PgPool) {
+async fn test_switch_cert_monitor_rotates_nmxc_simulator_cert_inside_rotation_window(
+    pool: sqlx::PgPool,
+) {
     if !nmxc_simulator_tests_enabled() {
         println!(
-            "skipping test_switch_cert_monitor_detects_nmxc_simulator_cert_mismatch as nmxc simulator tests are not enabled"
-        );
-        return;
-    }
-
-    let CertifiedKey {
-        cert: desired_cert, ..
-    } = generate_simple_self_signed(vec!["desired-nmxc-cert.example.test".to_string()]).unwrap();
-    let desired_cert_file = tempfile::NamedTempFile::new().unwrap();
-    tokio::fs::write(desired_cert_file.path(), desired_cert.pem())
-        .await
-        .unwrap();
-
-    assert_switch_cert_monitor_nmxc_simulator_probe(pool, desired_cert_file.path(), 1).await;
-}
-
-#[crate::sqlx_test]
-async fn test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert(pool: sqlx::PgPool) {
-    if !nmxc_simulator_tests_enabled() {
-        println!(
-            "skipping test_switch_cert_monitor_accepts_matching_nmxc_simulator_cert as nmxc simulator tests are not enabled"
+            "skipping test_switch_cert_monitor_rotates_nmxc_simulator_cert_inside_rotation_window as nmxc simulator tests are not enabled"
         );
         return;
     }
 
     assert_switch_cert_monitor_nmxc_simulator_probe(
         pool,
-        std::path::Path::new(NMXC_SIMULATOR_TLS_CERT),
-        0,
+        std::time::Duration::from_secs(100 * 365 * 24 * 60 * 60),
+        1,
     )
     .await;
+}
+
+#[crate::sqlx_test]
+async fn test_switch_cert_monitor_skips_nmxc_simulator_cert_outside_rotation_window(
+    pool: sqlx::PgPool,
+) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_switch_cert_monitor_skips_nmxc_simulator_cert_outside_rotation_window as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    assert_switch_cert_monitor_nmxc_simulator_probe(pool, std::time::Duration::ZERO, 0).await;
 }
 
 // This test creates two instances in the same logical partition but on different domains.
@@ -2875,8 +3093,20 @@ async fn test_create_instance_multiple_domains_use_nmxc_simulator(pool: sqlx::Pg
     assert_eq!(&machine4.state, "Ready");
     assert_eq!(&machine5.state, "Ready");
 
-    let discovery_info4 = machine4.discovery_info.as_ref().unwrap();
-    let discovery_info5 = machine5.discovery_info.as_ref().unwrap();
+    let discovery_info4 = machine4
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
+    let discovery_info5 = machine5
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info4.gpus.len(), 4);
     assert_eq!(discovery_info5.gpus.len(), 4);
 
@@ -2989,7 +3219,13 @@ async fn test_instance_delete_with_nvl_config_use_nmxc_simulator(pool: sqlx::PgP
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -3093,7 +3329,13 @@ async fn test_managed_host_creation_with_tray_default_partition_use_nmxc_simulat
     let machine = mh.host().rpc_machine().await;
 
     assert_eq!(&machine.state, "Ready");
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
 
     assert_eq!(discovery_info.gpus.len(), 4);
 
@@ -3168,7 +3410,13 @@ async fn test_null_nvlink_observation_after_nmxc_unreachable_use_nmxc_simulator(
     let machine = mh.host().rpc_machine().await;
     assert_eq!(&machine.state, "Ready");
 
-    let discovery_info = machine.discovery_info.as_ref().unwrap();
+    let discovery_info = machine
+        .status
+        .as_ref()
+        .unwrap()
+        .discovery_info
+        .as_ref()
+        .unwrap();
     assert_eq!(discovery_info.gpus.len(), 4);
 
     let nvl_config = rpc::forge::InstanceNvLinkConfig {

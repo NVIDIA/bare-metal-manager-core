@@ -43,6 +43,7 @@ use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_p
 
 mod fixtures;
 mod maintenance;
+mod nvos_password_rotation;
 use fixtures::switch::{
     configure_certificate_start_state, configure_certificate_wait_state, mark_switch_as_deleted,
     set_switch_controller_state, set_switch_rack_id, transition_switch_controller_state,

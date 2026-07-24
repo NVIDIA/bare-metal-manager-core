@@ -25,10 +25,10 @@ use model::predicted_machine_interface::PredictedMachineInterface;
 /// Resolve how to target this host's boot interface for Redfish setup calls.
 ///
 /// The host's own `machine_interface` row wins the moment it exists: when that
-/// row has a captured Redfish interface id, the full pair is returned (enabling
-/// the MAC-first / interface-id fallback); otherwise it targets the MAC alone.
-/// Both come from the same row, so the pair can never name a different interface
-/// than the MAC.
+/// row has a captured `boot_interface_id`, the full pair is supplied to
+/// `libredfish` in one operation; otherwise the target contains only the MAC.
+/// Both identifiers come from the same row, so the pair cannot name a different
+/// interface than the MAC.
 ///
 /// Before that first DHCP lease creates a row -- the window a zero-DPU or
 /// NIC-mode host sits in, since it gets no primary row at ingestion -- the host's
@@ -78,12 +78,12 @@ fn boot_interface_target_from(
 
 /// What a Redfish boot step should do with a host's boot interface.
 ///
-/// Separates "not ready yet" from "broken". A zero-DPU host (`NoDpu` or
-/// `NicMode`) boots from a plain NIC that takes its first HostInband lease only
-/// after the host comes up, so until then it has no boot interface to
-/// resolve -- the controller should wait, not fail. A host with managed DPUs
-/// always has its DPU-facing primary set at promotion, so a missing boot
-/// interface there is a genuine fault.
+/// Separates "not ready yet" from "broken". A zero-DPU host (policy `Ignore` or
+/// `Nic`) boots from a plain NIC that takes its first HostInband lease only
+/// after the host comes up, so until then it has no boot interface to resolve --
+/// the controller should wait, not fail. A host with managed DPUs always has its
+/// DPU-facing primary set at promotion, so a missing boot interface there is a
+/// genuine fault.
 #[derive(Debug)]
 pub enum BootInterfaceResolution {
     /// The boot interface resolved; target it.

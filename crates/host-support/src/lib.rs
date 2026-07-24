@@ -26,9 +26,12 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub mod agent_config;
+pub mod bootstrap_ca;
 pub mod dpa_cmds;
 #[cfg(feature = "linux-build")]
 pub mod hardware_enumeration;
+#[cfg(feature = "linux-build")]
+pub mod lldp_collector;
 pub mod registration;
 
 static LOG_SETUP: Once = Once::new();

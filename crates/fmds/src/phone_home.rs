@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use rpc::forge::InstancePhoneHomeLastContactRequest;
@@ -37,15 +37,38 @@ enum PhoneHomeOutcome {
     Error,
 }
 
-/// One phone-home operation ran to completion. The event owns the failure log
-/// line -- every attempt is counted, only the failures write the WARN line
-/// (the success path keeps its own "Successfully phoned home" INFO log).
+/// `PhoneHomeSucceeded` writes the existing success record with the configured
+/// machine ID and the timestamp returned by Forge. `PhoneHomeCompleted` below
+/// retains the existing Event identity for failures, and both increment the
+/// same metric.
+#[derive(Event)]
+#[event(
+    event_name = "fmds_phone_home_succeeded",
+    metric_name = "carbide_fmds_phone_home_total",
+    component = "fmds",
+    log = info,
+    metric = counter,
+    message = "Successfully phoned home",
+    describe = "Number of FMDS tenant phone-home operations, by outcome"
+)]
+struct PhoneHomeSucceeded {
+    #[label]
+    outcome: PhoneHomeOutcome,
+    #[context]
+    machine_id: String,
+    #[context]
+    timestamp: String,
+}
+
+/// `PhoneHomeCompleted` retains the existing failure Event identity. Keeping
+/// success and failure as separate types lets each log expose only the fields
+/// it actually has while both increment the same `outcome` series.
 #[derive(Event)]
 #[event(
     event_name = "fmds_phone_home_completed",
     metric_name = "carbide_fmds_phone_home_total",
     component = "fmds",
-    log = dynamic,
+    log = warn,
     metric = counter,
     message = "Phone home failed",
     describe = "Number of FMDS tenant phone-home operations, by outcome"
@@ -53,20 +76,8 @@ enum PhoneHomeOutcome {
 struct PhoneHomeCompleted {
     #[label]
     outcome: PhoneHomeOutcome,
-    /// The failure's error chain; empty on success.
     #[context]
     error: String,
-}
-
-impl DynamicLog for PhoneHomeCompleted {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            PhoneHomeOutcome::Ok => LogAt::Off,
-            PhoneHomeOutcome::RateLimited
-            | PhoneHomeOutcome::InstanceNotFound
-            | PhoneHomeOutcome::Error => LogAt::Level(tracing::Level::WARN),
-        }
-    }
 }
 
 /// A phone-home failure tagged with the bounded outcome for the metric label,
@@ -96,16 +107,38 @@ impl From<tonic::Status> for PhoneHomeError {
 }
 
 pub async fn phone_home(state: &Arc<FmdsState>) -> Result<(), eyre::Error> {
-    let result = attempt_phone_home(state).await;
-    let (outcome, error) = match &result {
-        Ok(()) => (PhoneHomeOutcome::Ok, String::new()),
-        Err(err) => (err.outcome, format!("{:#}", err.source)),
-    };
-    emit(PhoneHomeCompleted { outcome, error });
-    result.map_err(|err| err.source)
+    complete_phone_home(attempt_phone_home(state).await)
 }
 
-async fn attempt_phone_home(state: &Arc<FmdsState>) -> Result<(), PhoneHomeError> {
+struct PhoneHomeSuccess {
+    machine_id: String,
+    timestamp: String,
+}
+
+fn complete_phone_home(
+    result: Result<PhoneHomeSuccess, PhoneHomeError>,
+) -> Result<(), eyre::Error> {
+    match result {
+        Ok(success) => {
+            emit(PhoneHomeSucceeded {
+                outcome: PhoneHomeOutcome::Ok,
+                machine_id: success.machine_id,
+                timestamp: success.timestamp,
+            });
+            Ok(())
+        }
+        Err(failure) => {
+            let PhoneHomeError { outcome, source } = failure;
+            emit(PhoneHomeCompleted {
+                outcome,
+                error: format!("{source:#}"),
+            });
+            Err(source)
+        }
+    }
+}
+
+async fn attempt_phone_home(state: &Arc<FmdsState>) -> Result<PhoneHomeSuccess, PhoneHomeError> {
     state
         .outbound_governor
         .clone()
@@ -152,11 +185,229 @@ async fn attempt_phone_home(state: &Arc<FmdsState>) -> Result<(), PhoneHomeError
         .timestamp
         .ok_or_else(|| eyre!("timestamp is empty in response"))?;
 
-    tracing::info!(
-        %machine_id,
-        %timestamp,
-        "Successfully phoned home",
-    );
+    Ok(PhoneHomeSuccess {
+        machine_id: machine_id.to_string(),
+        timestamp: timestamp.to_string(),
+    })
+}
 
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    const PHONE_HOME_METRIC: &str = "carbide_fmds_phone_home_total";
+    const MACHINE_ID: &str = "fm100ht6n80e7do39u8gmt7cvhm89pb32st9ngevgdolu542l1nfa4an0rg";
+    const TIMESTAMP: &str = "2026-07-21T18:42:00Z";
+
+    enum CompletionCase {
+        Success,
+        Failure {
+            outcome: PhoneHomeOutcome,
+            error: &'static str,
+        },
+    }
+
+    impl CompletionCase {
+        fn metric_label(&self) -> &'static str {
+            match self {
+                Self::Success => "ok",
+                Self::Failure { outcome, .. } => match outcome {
+                    PhoneHomeOutcome::Ok => "ok",
+                    PhoneHomeOutcome::RateLimited => "rate_limited",
+                    PhoneHomeOutcome::InstanceNotFound => "instance_not_found",
+                    PhoneHomeOutcome::Error => "error",
+                },
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct CompletionObservation {
+        returned_error: Option<String>,
+        metric_delta: f64,
+        logs: Vec<LogObservation>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct LogObservation {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        outcome: Option<String>,
+        machine_id: Option<String>,
+        machine_id_kind: Option<CapturedFieldKind>,
+        timestamp: Option<String>,
+        timestamp_kind: Option<CapturedFieldKind>,
+        error: Option<String>,
+        error_kind: Option<CapturedFieldKind>,
+    }
+
+    fn expected_log(
+        metadata_name: &str,
+        level: tracing::Level,
+        message: &str,
+        outcome: &str,
+        machine_id: Option<&str>,
+        timestamp: Option<&str>,
+        error: Option<&str>,
+    ) -> Vec<LogObservation> {
+        vec![LogObservation {
+            metadata_name: metadata_name.to_string(),
+            level,
+            message: message.to_string(),
+            event_name: Some(metadata_name.to_string()),
+            metric_name: Some(PHONE_HOME_METRIC.to_string()),
+            outcome: Some(outcome.to_string()),
+            machine_id: machine_id.map(str::to_string),
+            machine_id_kind: machine_id.map(|_| CapturedFieldKind::Debug),
+            timestamp: timestamp.map(str::to_string),
+            timestamp_kind: timestamp.map(|_| CapturedFieldKind::Debug),
+            error: error.map(str::to_string),
+            error_kind: error.map(|_| CapturedFieldKind::Debug),
+        }]
+    }
+
+    fn observe_completion(case: CompletionCase) -> CompletionObservation {
+        let outcome = case.metric_label();
+        let result = match case {
+            CompletionCase::Success => Ok(PhoneHomeSuccess {
+                machine_id: MACHINE_ID.to_string(),
+                timestamp: TIMESTAMP.to_string(),
+            }),
+            CompletionCase::Failure { outcome, error } => Err(PhoneHomeError {
+                outcome,
+                source: eyre!("{error}"),
+            }),
+        };
+
+        let metrics = MetricsCapture::start();
+        let mut completion = None;
+        let logs = capture_logs(|| {
+            completion = Some(complete_phone_home(result));
+        })
+        .into_iter()
+        .map(|log| {
+            let event_name = log.field("event_name").map(str::to_string);
+            let metric_name = log.field("metric_name").map(str::to_string);
+            let outcome = log.field("outcome").map(str::to_string);
+            let machine_id = log.field("machine_id").map(str::to_string);
+            let machine_id_kind = log.field_kind("machine_id");
+            let timestamp = log.field("timestamp").map(str::to_string);
+            let timestamp_kind = log.field_kind("timestamp");
+            let error = log.field("error").map(str::to_string);
+            let error_kind = log.field_kind("error");
+            LogObservation {
+                metadata_name: log.metadata_name,
+                level: log.level,
+                message: log.message,
+                event_name,
+                metric_name,
+                outcome,
+                machine_id,
+                machine_id_kind,
+                timestamp,
+                timestamp_kind,
+                error,
+                error_kind,
+            }
+        })
+        .collect();
+
+        CompletionObservation {
+            returned_error: completion.unwrap().err().map(|error| error.to_string()),
+            metric_delta: metrics.counter_delta(PHONE_HOME_METRIC, &[("outcome", outcome)]),
+            logs,
+        }
+    }
+
+    #[test]
+    fn terminal_events_log_and_count_each_phone_home_result() {
+        check_values(
+            [
+                Check {
+                    scenario: "success keeps its machine and timestamp fields",
+                    input: CompletionCase::Success,
+                    expect: CompletionObservation {
+                        returned_error: None,
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "fmds_phone_home_succeeded",
+                            tracing::Level::INFO,
+                            "Successfully phoned home",
+                            "ok",
+                            Some(MACHINE_ID),
+                            Some(TIMESTAMP),
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "rate limiting keeps its warning and error field",
+                    input: CompletionCase::Failure {
+                        outcome: PhoneHomeOutcome::RateLimited,
+                        error: "rate limit exceeded",
+                    },
+                    expect: CompletionObservation {
+                        returned_error: Some("rate limit exceeded".to_string()),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "fmds_phone_home_completed",
+                            tracing::Level::WARN,
+                            "Phone home failed",
+                            "rate_limited",
+                            None,
+                            None,
+                            Some("rate limit exceeded"),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "a missing instance keeps its bounded metric label",
+                    input: CompletionCase::Failure {
+                        outcome: PhoneHomeOutcome::InstanceNotFound,
+                        error: "instance not found",
+                    },
+                    expect: CompletionObservation {
+                        returned_error: Some("instance not found".to_string()),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "fmds_phone_home_completed",
+                            tracing::Level::WARN,
+                            "Phone home failed",
+                            "instance_not_found",
+                            None,
+                            None,
+                            Some("instance not found"),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "other failures use the generic error label",
+                    input: CompletionCase::Failure {
+                        outcome: PhoneHomeOutcome::Error,
+                        error: "forge unavailable",
+                    },
+                    expect: CompletionObservation {
+                        returned_error: Some("forge unavailable".to_string()),
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "fmds_phone_home_completed",
+                            tracing::Level::WARN,
+                            "Phone home failed",
+                            "error",
+                            None,
+                            None,
+                            Some("forge unavailable"),
+                        ),
+                    },
+                },
+            ],
+            observe_completion,
+        );
+    }
 }

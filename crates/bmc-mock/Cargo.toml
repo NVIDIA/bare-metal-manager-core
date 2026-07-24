@@ -23,6 +23,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+bmc-vendor = { path = "../bmc-vendor" }
 arc-swap = { workspace = true }
 axum = { workspace = true }
 axum-extra = { features = ["typed-header"], workspace = true }

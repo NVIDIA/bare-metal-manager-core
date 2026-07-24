@@ -275,6 +275,34 @@ pub fn option_fmt_or(
     })
 }
 
+/// Formats JSON for display without routing integer values through JavaScript numbers.
+///
+/// Invalid JSON is returned unchanged so this can also be used for endpoints whose
+/// response bodies are not guaranteed to be JSON.
+#[askama::filter_fn]
+pub fn pretty_json(value: impl Display, _env: &dyn askama::Values) -> ::askama::Result<String> {
+    Ok(format_json(value))
+}
+
+// separate function because askama filter functions can't be tested directly
+fn format_json(value: impl Display) -> String {
+    let input = value.to_string();
+    let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&input) else {
+        return input;
+    };
+
+    // Some Redfish responses contain JSON encoded inside this top-level field.
+    if let Some(response_body) = json
+        .get("ResponseBody")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|body| serde_json::from_str(body).ok())
+    {
+        json["ResponseBody"] = response_body;
+    }
+
+    serde_json::to_string_pretty(&json).unwrap_or(input)
+}
+
 pub(crate) fn state_and_substate_labels(state_json: impl Display) -> (String, String) {
     let state_json = state_json.to_string();
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&state_json) else {
@@ -409,4 +437,47 @@ pub fn controller_state_reason_fmt(
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::format_json;
+
+    #[test]
+    fn pretty_json_preserves_values_and_fallbacks() {
+        check_values(
+            [
+                Check {
+                    scenario: "smallest unsafe JavaScript integer",
+                    input: r#"{"id":9007199254740993}"#,
+                    expect: "{\n  \"id\": 9007199254740993\n}".to_string(),
+                },
+                Check {
+                    scenario: "maximum 64-bit integer",
+                    input: r#"{"gpu_uid":18446744073709551615}"#,
+                    expect: "{\n  \"gpu_uid\": 18446744073709551615\n}".to_string(),
+                },
+                Check {
+                    scenario: "nested ResponseBody JSON",
+                    input: r#"{"ResponseBody":"{\"id\":18446744073709551615}"}"#,
+                    expect: concat!(
+                        "{\n",
+                        "  \"ResponseBody\": {\n",
+                        "    \"id\": 18446744073709551615\n",
+                        "  }\n",
+                        "}"
+                    )
+                    .to_string(),
+                },
+                Check {
+                    scenario: "non-JSON response",
+                    input: "GPU not found: 18446744073709551615",
+                    expect: "GPU not found: 18446744073709551615".to_string(),
+                },
+            ],
+            format_json,
+        );
+    }
 }

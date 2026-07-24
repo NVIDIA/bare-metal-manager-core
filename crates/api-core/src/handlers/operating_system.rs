@@ -270,9 +270,14 @@ pub async fn create_operating_system(
     if req.name.is_empty() {
         return Err(Status::invalid_argument("name is required"));
     }
-    if req.tenant_organization_id.is_empty() {
+    // if tenant_organization_id is provided it must not be empty:
+    if req
+        .tenant_organization_id
+        .as_deref()
+        .is_some_and(|org| org.is_empty())
+    {
         return Err(Status::invalid_argument(
-            "tenant_organization_id is required",
+            "tenant_organization_id must not be empty when provided",
         ));
     }
 

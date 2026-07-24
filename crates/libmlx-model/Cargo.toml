@@ -29,5 +29,9 @@ test-support = []
 mac_address = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 
+[dev-dependencies]
+carbide-libmlx-model = { path = ".", features = ["test-support"] }
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

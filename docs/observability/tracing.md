@@ -132,7 +132,7 @@ through nico-api. The standard `TraceContextPropagator` is installed once at sta
   - **gRPC** - Forge and NMX-C (`crates/rpc`), the NSM and power-shelf (PSM) backends
     (`crates/component-manager`), and the NMX-C client pool (`crates/libnmxc`), through a shared tower
     layer applied to every request.
-  - **HTTP** - the BMC/Redfish handler, machine-identity token exchange, admin-UI OAuth2, NMX-M, NRAS,
+  - **HTTP** - the BMC/Redfish handler, machine-identity token exchange, admin-UI OAuth2, NRAS,
     the MQTT OAuth2 token provider, and firmware downloads.
 - **Interaction with the enable flag.** `tracing-enabled` is the master switch for what nico-api
   *records*: an inbound `sampled` flag never turns recording on here. When `tracing-enabled` is on, the inbound

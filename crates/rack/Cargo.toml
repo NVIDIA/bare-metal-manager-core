@@ -30,6 +30,7 @@ bms-dsx-exchange = { path = "../bms-dsx-exchange", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-health-report = { path = "../health-report", default-features = false }
+carbide-instrument = { path = "../instrument" }
 carbide-mqtt-common = { path = "../mqtt-common", default-features = false }
 carbide-secrets = { path = "../secrets", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
@@ -52,6 +53,7 @@ tokio-util = { workspace = true }
 tonic = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 
 [lints]

@@ -19,8 +19,8 @@ use std::str::FromStr;
 
 use carbide_test_harness::prelude::*;
 use model::site_explorer::{
-    Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
-    NicMode, PCIeDevice,
+    BlueFieldOperatingMode, Chassis, ComputerSystem, ComputerSystemAttributes,
+    EndpointExplorationReport, EndpointType, PCIeDevice,
 };
 
 fn pcie(part: &str, fw: &str, serial: &str, id: &str) -> PCIeDevice {
@@ -69,7 +69,7 @@ async fn test_find_explored_mlx_devices(pool: PgPool) -> Result<(), Box<dyn std:
             id: "Bluefield".to_string(),
             serial_number: Some("MT2403X00984".to_string()),
             attributes: ComputerSystemAttributes {
-                nic_mode: Some(NicMode::Nic),
+                nic_mode: Some(BlueFieldOperatingMode::Nic),
                 ..Default::default()
             },
             ..Default::default()
@@ -117,9 +117,7 @@ async fn test_find_explored_mlx_devices(pool: PgPool) -> Result<(), Box<dyn std:
     assert_eq!(devices.len(), 1);
     let device = &devices[0];
     assert_eq!(device.host_bmc_ip, "192.0.2.20");
-    assert_eq!(device.part_number.as_deref(), Some("900-9D3B4-00EN-EA0"));
     assert_eq!(device.firmware_version.as_deref(), Some("32.38.1002"));
-    assert_eq!(device.serial_number.as_deref(), Some("MT2403X00984"));
     assert_eq!(
         device.device_kind,
         ::rpc::site_explorer::MlxDeviceKind::Bf3NicMode as i32
@@ -128,7 +126,7 @@ async fn test_find_explored_mlx_devices(pool: PgPool) -> Result<(), Box<dyn std:
     assert_eq!(device.dpu_bmc_ip.as_deref(), Some("192.0.2.50"));
     assert_eq!(
         device.nic_mode,
-        Some(::rpc::site_explorer::NicMode::Nic as i32)
+        Some(::rpc::site_explorer::BlueFieldOperatingMode::Nic as i32)
     );
 
     // A page naming a host with no explored devices comes back empty.

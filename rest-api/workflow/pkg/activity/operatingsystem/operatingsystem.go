@@ -87,9 +87,19 @@ func (mos ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UUI
 		return nil, err
 	}
 
-	// Construct a map ID of Operating System Site Association to Operating System
+	// Construct a map ID of Operating System Site Association to Operating System.
+	//
+	// iPXE and Templated iPXE OS associations share the operating_system_site_association
+	// table but are reconciled exclusively by the OperatingSystem inventory path
+	// (UpdateOperatingSystemsInDB). They never appear in the OS Image inventory, so
+	// including them here would repeatedly (and wrongly) flag them as "missing on Site"
+	// and flip their status to Error every cycle. Restrict this reconcile to image-based
+	// OS associations.
 	existingOsImageMap := make(map[string]*cdbm.OperatingSystemSiteAssociation)
 	for _, ossa := range existingOssas {
+		if ossa.OperatingSystem != nil && cdbm.IsIPXEType(ossa.OperatingSystem.Type) {
+			continue
+		}
 		curossa := ossa
 		existingOsImageMap[ossa.OperatingSystemID.String()] = &curossa
 	}
@@ -480,8 +490,14 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 		existingOSByID[existingOSes[i].ID] = &existingOSes[i]
 	}
 
-	// Track global/limited OS IDs that need aggregate status recomputation.
-	globalOrLimitedOSIDs := map[uuid.UUID]struct{}{}
+	// Track multi-site (REST source-of-truth) OS IDs that need aggregate status
+	// recomputation from their per-site controller states.
+	multiSiteOSIDs := map[uuid.UUID]struct{}{}
+
+	// Cache org -> tenant id resolutions for this inventory cycle so several OSes
+	// owned by the same tenant do not each trigger a tenant lookup.
+	tenantDAO := cdbm.NewTenantDAO(mos.dbSession)
+	tenantOrgToID := map[string]*uuid.UUID{}
 
 	// Create or update OSes based on the Site inventory.
 	for _, reportedOS := range inventory.GetOperatingSystems() {
@@ -526,6 +542,51 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			continue
 		}
 
+		// Ownership is derived from nico-core's optional tenant_organization_id:
+		// when present the OS is tenant-owned (org + resolved tenant id); when absent
+		// it is provider-owned (the reporting Site's org + infrastructure provider).
+		// These values feed both the create path and the single-site update/backfill.
+		//
+		// Strict attribution: if tenant_organization_id is set but does not resolve to
+		// a known REST tenant, ownership cannot be attributed, so the OS is neither
+		// imported nor updated this cycle (rather than being stored orphaned and thus
+		// invisible to every caller). It is retried on the next inventory cycle once
+		// the tenant exists.
+		ownerOrg := site.Org
+		ownerProviderID := &site.InfrastructureProviderID
+		var ownerTenantID *uuid.UUID
+		if tenantOrg := reportedOS.GetTenantOrganizationId(); tenantOrg != "" {
+			ownerOrg = tenantOrg
+			ownerProviderID = nil
+			tenantID, cached := tenantOrgToID[tenantOrg]
+			if !cached {
+				tenants, _, terr := tenantDAO.GetAll(ctx, nil, cdbm.TenantFilterInput{
+					Orgs: []string{tenantOrg},
+				}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+				switch {
+				case terr != nil:
+					// Transient lookup failure: do not cache, so later Operating
+					// Systems for this org retry resolution this cycle.
+					slogger.Error().Err(terr).Str("TenantOrg", tenantOrg).Msg("Failed to resolve tenant for Operating System; skipping this cycle")
+				case len(tenants) == 0:
+					slogger.Error().Str("TenantOrg", tenantOrg).Msg("No REST tenant matches Operating System's tenant_organization_id; skipping OS (cannot attribute ownership)")
+					tenantOrgToID[tenantOrg] = tenantID
+				default:
+					if len(tenants) > 1 {
+						slogger.Warn().Str("TenantOrg", tenantOrg).Msg("Multiple tenants found for Operating System org; using first")
+					}
+					tenantID = cutil.GetPtr(tenants[0].ID)
+					tenantOrgToID[tenantOrg] = tenantID
+				}
+			}
+			if tenantID == nil {
+				// tenant_organization_id is set but unknown to REST: skip rather than
+				// create/update an unattributable (orphaned) Operating System.
+				continue
+			}
+			ownerTenantID = tenantID
+		}
+
 		existingOS, found := existingOSByID[reportedOSID]
 		if !found {
 			// Templated iPXE OS: require a non-empty template reference that is
@@ -553,10 +614,11 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				}
 			}
 
-			// New OS from Site: Create it with Site's InfrastructureProviderID.
-			// OSes originating in Site are provider-owned (not tenant-owned)
-			// ProviderAdmin can update them and all Tenants of the Provider can retrieve them
-			// Scope is Local: the definition lives at a single site with bidirectional sync
+			// New OS discovered from Site. Ownership follows nico-core's optional
+			// tenant_organization_id (resolved above): tenant-owned when present,
+			// otherwise provider-owned (the reporting Site's provider). A newly
+			// discovered OS starts with exactly one associated Site, so it is
+			// bidirectionally synced (core-driven) until more sites are added.
 
 			// Create site association linking the OS to the reporting site.
 			ossaStatus := cdbm.OperatingSystemSiteAssociationStatusFromProtoMap[reportedOS.Status]
@@ -566,13 +628,13 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			}
 
 			// Build the create input: definition fields come from the reported proto
-			// (FromProto); ID, ownership and scope come from the Site sync context.
+			// (FromProto); ID and ownership come from the Site sync context.
 			osInput := cdbm.OperatingSystemCreateInput{}
 			osInput.FromProto(reportedOS)
 			osInput.ID = reportedOSID
-			osInput.Org = site.Org
-			osInput.InfrastructureProviderID = &site.InfrastructureProviderID
-			osInput.IpxeOsScope = cutil.GetPtr(cdbm.OperatingSystemScopeLocal)
+			osInput.Org = ownerOrg
+			osInput.InfrastructureProviderID = ownerProviderID
+			osInput.TenantID = ownerTenantID
 
 			// The OS definition, the (optional) inactive correction, and the per-site
 			// association are dependent writes: commit them together so a later
@@ -615,8 +677,9 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 
 			// Newly-created OS: definition and per-site association have just been
 			// written with the reported state. Skip the existing-OS update path
-			// below (it dereferences existingOS which is nil here) and do not add
-			// to globalOrLimitedOSIDs because new records are always Local scope.
+			// below (it dereferences existingOS which is nil here); a brand new OS
+			// has a single associated Site, so it is not a multi-site (REST-owned)
+			// record and needs no aggregate-status recomputation this cycle.
 			continue
 		}
 
@@ -626,13 +689,11 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			continue
 		}
 
-		// Update or create the per-site association for every OS type. For
-		// Global/Limited, REST is the source of truth for the definition so we
-		// only record the Site's controller state and skip the definition update.
-		// For Local (provider-owned, from Site) we also fall through to update
-		// the definition below. nil scope is treated as Local for safety
-		// (legacy records before the backfill migration)
-		isLocalScope := existingOS.IpxeOsScope == nil || *existingOS.IpxeOsScope == cdbm.OperatingSystemScopeLocal
+		// Update or create the per-site association for every OS type. The
+		// definition update below is gated on the association count (computed after
+		// this association is ensured): a single associated Site is bidirectional
+		// (core-driven), while multiple associated Sites make REST the source of
+		// truth so we only record the Site's controller state.
 		controllerState := cdbm.OperatingSystemStatusFromProtoMap[reportedOS.Status]
 		if controllerState == "" {
 			slogger.Warn().Str("Status", reportedOS.Status.String()).Msg("Received unknown status from Site, using `Syncing` as default")
@@ -676,34 +737,32 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			}
 		}
 
-		if !isLocalScope {
-			globalOrLimitedOSIDs[reportedOSID] = struct{}{}
-		}
-
-		// Operating System exists in both REST and Site; update the REST record only for
-		// Local-scoped OSes (Site is the source of truth for the definition).
-		// Global/Limited OSes are REST-owned: skip the definition update and rely solely on
-		// the aggregate status recomputation that runs at the end of this function.
-		// Backfill: older records may have been created without an
-		// infrastructure_provider_id or org (before this ownership model was established);
-		// these fill in the missing values for provider-owned (Local) records.
-		needsProviderBackfill := isLocalScope && existingOS.InfrastructureProviderID == nil
-		needsOrgBackfill := isLocalScope && existingOS.Org == "" && site.Org != ""
-		needsIsActiveCorrection := isLocalScope && existingOS.IsActive != reportedOS.IsActive
-
-		// Data-integrity guard: a Local-scoped OS (nil scope is treated as Local) is
-		// provider-owned by definition and must not carry a tenant_id. No correct path
-		// can produce such a row -- the API/sync create paths never set tenant_id on a
-		// Local OS, and the ipxe_os_scope backfill migration maps tenant-owned iPXE to
-		// Global. Its presence therefore signals an upstream bug, so flag it and skip
-		// rather than silently clearing the tenant (which would hide the error and
-		// irreversibly reassign ownership from tenant to provider).
-		if isLocalScope && existingOS.TenantID != nil {
-			slogger.Error().Msg("Local-scoped Operating System unexpectedly has tenant_id set; skipping update (data-integrity anomaly, not auto-repairing)")
+		// Decide the source of truth from the association count (now that this
+		// Site's association is ensured): exactly one associated Site means the OS
+		// is bidirectionally synced and nico-core drives the definition; two or more
+		// make REST the source of truth, so we only recompute aggregate status.
+		osAssocs, _, cerr := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
+			OperatingSystemIDs: []uuid.UUID{reportedOSID},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if cerr != nil {
+			slogger.Error().Err(cerr).Msg("Failed to count Operating System Site Associations, skipping definition update")
 			continue
 		}
+		isSingleSite := len(osAssocs) == 1
+		if !isSingleSite {
+			multiSiteOSIDs[reportedOSID] = struct{}{}
+		}
 
-		if isLocalScope && (coreUpdated.After(existingOS.Updated) || needsProviderBackfill || needsOrgBackfill || needsIsActiveCorrection) {
+		// Single-site OS: nico-core is the source of truth for the definition.
+		// Backfill only fills missing ownership values (it never reassigns an
+		// existing owner) so a provider-owned record cannot silently be re-homed.
+		needsOwnershipBackfill := isSingleSite &&
+			((existingOS.Org == "" && ownerOrg != "") ||
+				(ownerProviderID != nil && existingOS.InfrastructureProviderID == nil) ||
+				(ownerTenantID != nil && existingOS.TenantID == nil))
+		needsIsActiveCorrection := isSingleSite && existingOS.IsActive != reportedOS.IsActive
+
+		if isSingleSite && (coreUpdated.After(existingOS.Updated) || needsOwnershipBackfill || needsIsActiveCorrection) {
 			controllerState := cdbm.OperatingSystemStatusFromProtoMap[reportedOS.Status]
 			if controllerState == "" {
 				slogger.Warn().Str("Status", reportedOS.Status.String()).Msg("Received unknown status from Site, using `Syncing` as default")
@@ -739,9 +798,9 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			updateInput := cdbm.OperatingSystemUpdateInput{
 				OperatingSystemId:        existingOS.ID,
 				Name:                     &reportedOS.Name,
-				Org:                      &site.Org,
-				TenantID:                 nil,
-				InfrastructureProviderID: &site.InfrastructureProviderID,
+				Org:                      &ownerOrg,
+				TenantID:                 ownerTenantID,
+				InfrastructureProviderID: ownerProviderID,
 				OsType:                   &osType,
 				Description:              reportedOS.Description,
 				UserData:                 reportedOS.UserData,
@@ -755,7 +814,31 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 				IpxeOSHash:               reportedOS.IpxeTemplateDefinitionHash,
 				Status:                   &controllerState,
 			}
-			if _, uerr := osDAO.Update(ctx, nil, updateInput); uerr != nil {
+			// Ownership is mutually exclusive: exactly one of TenantID /
+			// InfrastructureProviderID is populated. Update only writes the active
+			// owner column (the inactive one is nil and thus left unchanged), so
+			// when ownership flips we must explicitly clear the now-inactive column
+			// to avoid leaving both populated. Update + Clear run in one transaction.
+			var ownerClearInput *cdbm.OperatingSystemClearInput
+			switch {
+			case ownerTenantID != nil && existingOS.InfrastructureProviderID != nil:
+				ownerClearInput = &cdbm.OperatingSystemClearInput{OperatingSystemId: existingOS.ID, InfrastructureProviderID: true}
+			case ownerProviderID != nil && existingOS.TenantID != nil:
+				ownerClearInput = &cdbm.OperatingSystemClearInput{OperatingSystemId: existingOS.ID, TenantID: true}
+			}
+
+			uerr := cdb.WithTx(ctx, mos.dbSession, func(tx *cdb.Tx) error {
+				if _, serr := osDAO.Update(ctx, tx, updateInput); serr != nil {
+					return serr
+				}
+				if ownerClearInput != nil {
+					if _, serr := osDAO.Clear(ctx, tx, *ownerClearInput); serr != nil {
+						return serr
+					}
+				}
+				return nil
+			})
+			if uerr != nil {
 				slogger.Error().Err(uerr).Msg("Failed to update Operating System, DB error")
 				continue
 			}
@@ -765,8 +848,9 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 	// Deletion propagation: Site's Find APIs return only active records, so any iPXE OS
 	// in our DB that is NOT in this inventory was deleted in nico-core. Soft-delete it here.
 	// Image-based OSes are not managed by this inventory, so we restrict to iPXE types only.
-	// Exception: global- and limited-scoped OSes are owned by REST and must not be
-	// deleted based on Site's inventory (Site is not their source of truth)
+	// Only single-site OSes (exactly one associated Site) are bidirectionally synced and
+	// therefore subject to deletion-by-absence; multi-site OSes are REST-owned and must
+	// not be deleted from Site inventory, and raw iPXE OSes have no associations at all.
 	//
 	// Inventory may be paged: each page carries only a subset in OperatingSystems but the
 	// full reported ID set in InventoryPage.ItemIds. Deletion must therefore run against
@@ -791,18 +875,9 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			}
 		}
 
-		allIpxeOSes, _, derr := osDAO.GetAll(ctx, nil, cdbm.OperatingSystemFilterInput{
-			OsTypes:                  []string{cdbm.OperatingSystemTypeIPXE, cdbm.OperatingSystemTypeTemplatedIPXE},
-			InfrastructureProviderID: &site.InfrastructureProviderID,
-		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-		if derr != nil {
-			logger.Error().Err(derr).Msg("Failed to fetch iPXE Operating Systems from DB for deletion reconciliation")
-			return derr
-		}
-
 		// Scope deletion to the reporting Site: only OSes associated with this Site
-		// are candidates, so a provider's OSes that live at a different Site are not
-		// soft-deleted just because they are absent from this Site's inventory.
+		// are candidates, so an OS that lives at a different Site is not soft-deleted
+		// just because it is absent from this Site's inventory.
 		siteOssas, _, derr := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
 			SiteIDs: []uuid.UUID{siteID},
 		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
@@ -810,39 +885,62 @@ func (mos ManageOsImage) UpdateOperatingSystemsInDB(ctx context.Context, siteID 
 			logger.Error().Err(derr).Msg("Failed to fetch Operating System Site Associations for deletion reconciliation")
 			return derr
 		}
-		siteOSIDs := make(map[uuid.UUID]struct{}, len(siteOssas))
+		candidateOSIDs := make([]uuid.UUID, 0, len(siteOssas))
 		for _, ossa := range siteOssas {
-			siteOSIDs[ossa.OperatingSystemID] = struct{}{}
+			candidateOSIDs = append(candidateOSIDs, ossa.OperatingSystemID)
 		}
 
-		for _, ipxeOS := range allIpxeOSes {
-			if ipxeOS.IpxeOsScope != nil && *ipxeOS.IpxeOsScope != cdbm.OperatingSystemScopeLocal {
-				continue
+		if len(candidateOSIDs) > 0 {
+			// Count total associations per candidate OS across all Sites: only OSes
+			// with a single associated Site are bidirectionally synced (core-driven)
+			// and thus eligible for reconciliation-by-absence.
+			allAssocs, _, derr := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{
+				OperatingSystemIDs: candidateOSIDs,
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("Failed to count Operating System Site Associations for deletion reconciliation")
+				return derr
+			}
+			assocCountByOS := map[uuid.UUID]int{}
+			for _, ossa := range allAssocs {
+				assocCountByOS[ossa.OperatingSystemID]++
 			}
 
-			// Only OSes associated with the reporting Site are deletion candidates.
-			if _, associatedWithSite := siteOSIDs[ipxeOS.ID]; !associatedWithSite {
-				continue
+			// Restrict to iPXE-type OSes (Image OSes are not managed by this inventory).
+			candidateOSes, _, derr := osDAO.GetAll(ctx, nil, cdbm.OperatingSystemFilterInput{
+				OperatingSystemIds: candidateOSIDs,
+				OsTypes:            []string{cdbm.OperatingSystemTypeIPXE, cdbm.OperatingSystemTypeTemplatedIPXE},
+			}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("Failed to fetch iPXE Operating Systems from DB for deletion reconciliation")
+				return derr
 			}
 
-			slogger := logger.With().Str("OperatingSystemID", ipxeOS.ID.String()).Logger()
-
-			if !deletionReportedIDs.Contains(ipxeOS.ID) {
-				slogger.Info().Msg("Soft-deleting iPXE OS absent from Site inventory")
-				serr := osDAO.Delete(ctx, nil, ipxeOS.ID)
-				if serr != nil {
-					slogger.Error().Err(serr).Msg("Failed to soft-delete OS, DB error")
+			for _, ipxeOS := range candidateOSes {
+				// Only single-site (bidirectional) OSes are subject to deletion-by-absence.
+				if assocCountByOS[ipxeOS.ID] != 1 {
 					continue
+				}
+
+				slogger := logger.With().Str("OperatingSystemID", ipxeOS.ID.String()).Logger()
+
+				if !deletionReportedIDs.Contains(ipxeOS.ID) {
+					slogger.Info().Msg("Soft-deleting single-site iPXE OS absent from Site inventory")
+					if serr := osDAO.Delete(ctx, nil, ipxeOS.ID); serr != nil {
+						slogger.Error().Err(serr).Msg("Failed to soft-delete OS, DB error")
+						continue
+					}
 				}
 			}
 		}
 	}
 
-	// Aggregate status for global/limited OSes from their per-site core statuses.
-	// Rule: If all Site Associations have `Ready` status then the Operating System is `Ready`. Otherwise, it is `Syncing`.
-	if len(globalOrLimitedOSIDs) > 0 {
+	// Aggregate status for multi-site (REST source-of-truth) OSes from their per-site
+	// core statuses. Rule: if all Site Associations have `Ready` status then the
+	// Operating System is `Ready`. Otherwise, it is `Syncing`.
+	if len(multiSiteOSIDs) > 0 {
 		ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(mos.dbSession)
-		for osID := range globalOrLimitedOSIDs {
+		for osID := range multiSiteOSIDs {
 			slogger := logger.With().Str("OperatingSystemID", osID.String()).Logger()
 
 			ossas, _, serr := ossaDAO.GetAll(ctx, nil, cdbm.OperatingSystemSiteAssociationFilterInput{

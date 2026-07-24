@@ -38,5 +38,9 @@ opentelemetry = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }
 
+[dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

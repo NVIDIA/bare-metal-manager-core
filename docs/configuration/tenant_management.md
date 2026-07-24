@@ -937,7 +937,7 @@ Flag-first ordering -- always put flags before positional args.
 - [VPC Routing Profiles](../manuals/vpc/vpc_routing_profiles.md) -- Profile configuration and behavior
 - [VPC Network Virtualization](../manuals/vpc/vpc_network_virtualization.md) -- Full networking architecture
 - [VPC Peering](../manuals/vpc/vpc_peering_management.md) -- Connecting VPCs (gRPC only)
-- [NVLink Partitioning](../manuals/nvlink_partitioning.md) -- NVLink domain management
+- [NVLink Partitioning](../manuals/nvlink_partitioning.md) -- NVLink logical partition management
 - [Machine Reboot Playbook](../playbooks/machine_reboot.md) -- Emergency BMC reboot procedures
 - [Force Delete Playbook](../playbooks/force_delete.md) -- Removing stuck machines
 - [Day 0/1/2 Lifecycle](../overview/lifecycle.md) -- NICo lifecycle model overview

@@ -44,13 +44,6 @@ const (
 	// OperatingSystemTypeImage is the image based OperatingSystem type
 	OperatingSystemTypeImage = "Image"
 
-	// OperatingSystemScopeLocal means single site, bidirectional sync (provider-owned OS from nico-core).
-	OperatingSystemScopeLocal = "Local"
-	// OperatingSystemScopeLimited means carbide-rest is the source of truth for a fixed list of sites.
-	OperatingSystemScopeLimited = "Limited"
-	// OperatingSystemScopeGlobal means carbide-rest is the source of truth for all owner sites.
-	OperatingSystemScopeGlobal = "Global"
-
 	// OperatingSystemOrderByDefault default field to be used for ordering when none specified
 	OperatingSystemOrderByDefault = "created"
 
@@ -236,22 +229,17 @@ type OperatingSystem struct {
 	IpxeTemplateParameters     []OperatingSystemIpxeParameter `bun:"ipxe_template_parameters,type:jsonb"`
 	IpxeTemplateArtifacts      []OperatingSystemIpxeArtifact  `bun:"ipxe_template_artifacts,type:jsonb"`
 	IpxeTemplateDefinitionHash *string                        `bun:"ipxe_template_definition_hash"`
-	// IpxeOsScope controls synchronization direction between carbide-rest and nico-core for
-	// iPXE OS definitions: "Local" is bidirectional/provider-owned from nico-core, while
-	// "Global" and "Limited" make carbide-rest the source of truth. nil for Image-type OS;
-	// legacy iPXE rows with nil scope are treated as "Local".
-	IpxeOsScope        *string    `bun:"ipxe_os_scope"`
-	UserData           *string    `bun:"user_data"`
-	AllowOverride      bool       `bun:"allow_override,notnull"`
-	EnableBlockStorage bool       `bun:"enable_block_storage,notnull"`
-	PhoneHomeEnabled   bool       `bun:"phone_home_enabled,notnull"`
-	IsActive           bool       `bun:"is_active,notnull"`
-	DeactivationNote   *string    `bun:"deactivation_note"` // Note for deactivation, if any
-	Status             string     `bun:"status,notnull"`
-	Created            time.Time  `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated            time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted            *time.Time `bun:"deleted,soft_delete"`
-	CreatedBy          uuid.UUID  `bun:"type:uuid,notnull"`
+	UserData                   *string                        `bun:"user_data"`
+	AllowOverride              bool                           `bun:"allow_override,notnull"`
+	EnableBlockStorage         bool                           `bun:"enable_block_storage,notnull"`
+	PhoneHomeEnabled           bool                           `bun:"phone_home_enabled,notnull"`
+	IsActive                   bool                           `bun:"is_active,notnull"`
+	DeactivationNote           *string                        `bun:"deactivation_note"` // Note for deactivation, if any
+	Status                     string                         `bun:"status,notnull"`
+	Created                    time.Time                      `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated                    time.Time                      `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted                    *time.Time                     `bun:"deleted,soft_delete"`
+	CreatedBy                  uuid.UUID                      `bun:"type:uuid,notnull"`
 }
 
 // GetSiteID returns the OperatingSystem ID to use when communicating
@@ -330,7 +318,6 @@ type OperatingSystemCreateInput struct {
 	IpxeTemplateParameters []OperatingSystemIpxeParameter
 	IpxeTemplateArtifacts  []OperatingSystemIpxeArtifact
 	IpxeOSHash             *string
-	IpxeOsScope            *string
 	UserData               *string
 	AllowOverride          bool
 	EnableBlockStorage     bool
@@ -344,8 +331,8 @@ type OperatingSystemCreateInput struct {
 // template reference, template parameters, artifacts and definition hash.
 //
 // Ownership and sync-context fields (ID, Org, InfrastructureProviderID, TenantID,
-// IpxeOsScope, CreatedBy and the image-* fields) are not carried on this proto and
-// must be set by the caller after calling FromProto. A nil proto is a no-op.
+// CreatedBy and the image-* fields) are not carried on this proto and must be set
+// by the caller after calling FromProto. A nil proto is a no-op.
 func (in *OperatingSystemCreateInput) FromProto(protoOS *corev1.OperatingSystem) {
 	if protoOS == nil {
 		return
@@ -412,7 +399,6 @@ type OperatingSystemUpdateInput struct {
 	IpxeTemplateParameters *[]OperatingSystemIpxeParameter
 	IpxeTemplateArtifacts  *[]OperatingSystemIpxeArtifact
 	IpxeOSHash             *string
-	Scope                  *string
 	UserData               *string
 	AllowOverride          *bool
 	EnableBlockStorage     *bool
@@ -445,7 +431,6 @@ type OperatingSystemClearInput struct {
 	IpxeTemplateParameters bool
 	IpxeTemplateArtifacts  bool
 	IpxeOSHash             bool
-	Scope                  bool
 }
 
 type OperatingSystemFilterInput struct {
@@ -459,8 +444,6 @@ type OperatingSystemFilterInput struct {
 	SearchQuery              *string
 	OperatingSystemIds       []uuid.UUID
 	IsActive                 *bool
-	// Scopes filters iPXE OS definitions by their scope (e.g. "Global", "Limited", "Local").
-	Scopes []string
 	// IncludeDeleted includes soft-deleted records (used by inventory sync to detect deletions).
 	IncludeDeleted bool
 }
@@ -559,7 +542,6 @@ func (ossd OperatingSystemSQLDAO) Create(ctx context.Context, tx *db.Tx, input O
 		IpxeTemplateParameters:     input.IpxeTemplateParameters,
 		IpxeTemplateArtifacts:      input.IpxeTemplateArtifacts,
 		IpxeTemplateDefinitionHash: input.IpxeOSHash,
-		IpxeOsScope:                input.IpxeOsScope,
 	}
 
 	_, err := db.GetIDB(tx, ossd.dbSession).NewInsert().Model(os).Exec(ctx)
@@ -674,17 +656,6 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 	if filter.IsActive != nil {
 		query = query.Where("os.is_active = ?", *filter.IsActive)
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "is_active", *filter.IsActive)
-	}
-	if filter.Scopes != nil {
-		// Scope only applies to iPXE OS rows; restrict the match to iPXE types so Image rows
-		// (which have a NULL scope) are not coerced to "Local" by the COALESCE.
-		query = query.Where(
-			"os.type IN (?) AND COALESCE(os.ipxe_os_scope, ?) IN (?)",
-			bun.In([]string{OperatingSystemTypeIPXE, OperatingSystemTypeTemplatedIPXE}),
-			OperatingSystemScopeLocal,
-			bun.In(filter.Scopes),
-		)
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "scopes", filter.Scopes)
 	}
 	if filter.IncludeDeleted {
 		query = query.WhereAllWithDeleted()
@@ -861,10 +832,6 @@ func (ossd OperatingSystemSQLDAO) Update(ctx context.Context, tx *db.Tx, input O
 		it.IpxeTemplateDefinitionHash = input.IpxeOSHash
 		updatedFields = append(updatedFields, "ipxe_template_definition_hash")
 	}
-	if input.Scope != nil {
-		it.IpxeOsScope = input.Scope
-		updatedFields = append(updatedFields, "ipxe_os_scope")
-	}
 
 	if len(updatedFields) > 0 {
 		updatedFields = append(updatedFields, "updated")
@@ -976,10 +943,6 @@ func (ossd OperatingSystemSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Op
 	if input.IpxeOSHash {
 		it.IpxeTemplateDefinitionHash = nil
 		updatedFields = append(updatedFields, "ipxe_template_definition_hash")
-	}
-	if input.Scope {
-		it.IpxeOsScope = nil
-		updatedFields = append(updatedFields, "ipxe_os_scope")
 	}
 
 	if len(updatedFields) > 0 {

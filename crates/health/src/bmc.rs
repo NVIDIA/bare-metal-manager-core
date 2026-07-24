@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use carbide_utils::redfish::format_forwarded_host_parameter;
 use futures::TryStreamExt;
 use http::HeaderMap;
 use http::header::{self, InvalidHeaderValue};
@@ -444,7 +445,7 @@ fn bmc_headers(addr: &BmcAddr, proxy_url: Option<&Url>) -> Result<HeaderMap, Hea
     if proxy_url.is_some() {
         headers.insert(
             header::FORWARDED,
-            format!("host={}", addr.ip)
+            format_forwarded_host_parameter(&addr.ip.to_string())
                 .parse()
                 .map_err(|e: InvalidHeaderValue| HealthError::GenericError(e.to_string()))?,
         );
@@ -701,6 +702,7 @@ mod tests {
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
 
+    use carbide_test_support::value_scenarios;
     use mac_address::MacAddress;
     use nv_redfish::bmc_http::reqwest::ClientParams as ReqwestClientParams;
 
@@ -751,6 +753,31 @@ mod tests {
             port: Some(443),
             mac: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
         }
+    }
+
+    #[test]
+    fn proxy_forwarded_header_formats_ip_literals() {
+        value_scenarios!(run = |ip: &str| {
+            let addr = BmcAddr {
+                ip: ip.parse().unwrap(),
+                port: Some(443),
+                mac: MacAddress::from_str("00:11:22:33:44:55").unwrap(),
+            };
+            let proxy_url = Url::parse("https://proxy.example.com").unwrap();
+
+            bmc_headers(&addr, Some(&proxy_url))
+                .unwrap()
+                .get(header::FORWARDED)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        };
+            "Forwarded host parameter" {
+                "192.0.2.10" => "host=192.0.2.10".to_string(),
+                "2001:db8::10" => "host=\"[2001:db8::10]\"".to_string(),
+            }
+        );
     }
 
     fn reqwest() -> ReqwestClient {

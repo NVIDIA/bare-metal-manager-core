@@ -20,7 +20,6 @@ use std::fmt::Display;
 use std::net::{IpAddr, SocketAddr};
 
 use carbide_uuid::domain::DomainId;
-use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::network::NetworkSegmentId;
@@ -38,25 +37,18 @@ use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
 use strum_macros::EnumIter;
 
-use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
-use self::nvlink::MachineNvLinkStatusObservation;
-use self::spx::MachineSpxStatusObservation;
 use super::StateSla;
-use super::bmc_info::BmcInfo;
-use super::hardware_info::MachineInventory;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
 use super::machine_boot_interface::MachineBootInterface;
 use super::metadata::Metadata;
-use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
 use crate::errors::{ModelError, ModelResult};
 use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
-use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
@@ -64,13 +56,13 @@ use crate::machine::health_override::HealthReportSources;
 use crate::machine_interface::InterfaceType;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
-use crate::power_manager::PowerOptions;
 use crate::predicted_machine_interface::PredictedMachineInterface;
 use crate::state_history::StateHistoryRecord;
 
 pub mod slas;
 
 pub mod capabilities;
+pub mod config;
 pub mod health_override;
 pub mod infiniband;
 pub mod json;
@@ -79,8 +71,12 @@ pub mod machine_search_config;
 pub mod network;
 pub mod nvlink;
 pub mod spx;
+pub mod status;
 pub mod topology;
 pub mod upgrade_policy;
+
+pub use self::config::MachineConfig;
+pub use self::status::MachineStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DpuOsOperationalState {
@@ -355,11 +351,11 @@ impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host has at least one DPU snapshot
     /// attached -- i.e. a DPU we actively manage as a `Machine`.
     ///
-    /// A `false` return ("no managed DPUs") covers two cases that are intended
-    /// to be treated the same: actual zero-DPU hosts (`DpuMode::NoDpu`), and
-    /// `DpuMode::NicMode` hosts. The latter may acutally have DPUs, but
-    /// site-explorer puts them into NIC mode at ingestion, so no DPU snapshot
-    /// is ever attached.
+    /// A `false` return ("no managed DPUs") covers the two effective policies
+    /// that intentionally attach no DPU snapshots: `HostDpuPolicy::Ignore` and
+    /// `HostDpuPolicy::Nic`. A `Nic` host may have DPU hardware, but
+    /// site-explorer puts it into NIC mode at ingestion, so no DPU snapshot is
+    /// ever attached.
     ///
     /// Some callers combine this w/ `associated_dpu_machine_ids().is_empty()`
     /// to distinguish between truly no managed DPUs vs. DPU expected per
@@ -418,7 +414,7 @@ impl ManagedHostStateSnapshot {
     /// to be duplicated at every state controller callsite needing to pass a MAC
     /// into things like machine_setup, is_bios_setup, etc.
     pub fn boot_interface_mac(&self) -> Option<mac_address::MacAddress> {
-        pick_boot_interface_mac(&self.host_snapshot.interfaces)
+        pick_boot_interface_mac(&self.host_snapshot.status.interfaces)
     }
 
     /// Returns the host's boot interface as a fully-populated
@@ -431,7 +427,7 @@ impl ManagedHostStateSnapshot {
     /// alone. Because the MAC and id come from one row, the pair can never name a
     /// different interface than `boot_interface_mac`.
     pub fn boot_interface(&self) -> Option<MachineBootInterface> {
-        pick_boot_interface_pair(&self.host_snapshot.interfaces)
+        pick_boot_interface_pair(&self.host_snapshot.status.interfaces)
     }
 
     /// Returns `true` if override report is hw_health, `false` otherwise.
@@ -637,6 +633,7 @@ impl ManagedHostStateSnapshot {
     pub fn sort_dpu_snapshots(&mut self) -> Result<(), ManagedHostStateSnapshotError> {
         let mac_pci_map: HashMap<MacAddress, Option<&str>> = self
             .host_snapshot
+            .status
             .hardware_info
             .iter()
             .flat_map(|hi| &hi.network_interfaces)
@@ -653,6 +650,7 @@ impl ManagedHostStateSnapshot {
 
         self.dpu_snapshots.sort_by(|lhs, rhs| {
             let Some(lhs_dpu_mac) = lhs
+                .status
                 .hardware_info
                 .as_ref()
                 .and_then(|hi| hi.dpu_info.as_ref())
@@ -662,6 +660,7 @@ impl ManagedHostStateSnapshot {
             };
 
             let Some(rhs_dpu_mac) = rhs
+                .status
                 .hardware_info
                 .as_ref()
                 .and_then(|hi| hi.dpu_info.as_ref())
@@ -683,6 +682,7 @@ impl ManagedHostStateSnapshot {
 
         let primary_interface = self
             .host_snapshot
+            .status
             .interfaces
             .iter()
             .find(|interface| interface.primary_interface);
@@ -772,44 +772,34 @@ pub struct Machine {
     /// applied yet, and other useful things.
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
 
-    /// The most recent status of infiniband interfaces.
-    pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
-
-    // The most recent status of the nvlink GPUs.
-    pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
-
-    // The most recent status of the SPX attachments.
-    pub spx_status_observation: Option<MachineSpxStatusObservation>,
-
     /// A list of [StateHistoryRecord]s that this machine has experienced
     pub history: Vec<StateHistoryRecord>,
 
-    /// A list of [MachineInterfaceSnapshot]s that this machine owns
-    pub interfaces: Vec<MachineInterfaceSnapshot>,
+    /// Machine metadata
+    pub metadata: Metadata,
 
-    /// The Hardware information that was discovered for this machine
-    pub hardware_info: Option<HardwareInfo>,
+    /// Version field that tracks changes to
+    /// - Metadata
+    pub version: ConfigVersion,
+    // Columns for these exist, but are unused in rust code
+    // /// When this machine record was created
+    // pub created: DateTime<Utc>,
+    // /// When the machine record was last modified
+    // pub updated: DateTime<Utc>,
+    // /// When the machine was last deployed
+    // pub deployed: Option<DateTime<Utc>>,
+    /// The rack this machine is assigned to (sourced from the expected-machine record at
+    /// ingestion time; not operator-mutable).
+    pub rack_id: Option<RackId>,
 
-    /// The BMC info for this machine
-    pub bmc_info: BmcInfo,
+    /// Operator-set desired state.
+    pub config: MachineConfig,
 
-    /// Last time when machine came up.
-    pub last_reboot_time: Option<DateTime<Utc>>,
+    /// System-observed state.
+    pub status: MachineStatus,
 
-    /// Last time when cleanup was performed successfully.
-    pub last_cleanup_time: Option<DateTime<Utc>>,
-
-    /// Last time when discovery finished.
-    pub last_discovery_time: Option<DateTime<Utc>>,
-
-    /// Last time when scout contacted the machine.
-    pub last_scout_contact_time: Option<DateTime<Utc>>,
-
-    /// Build version of forge-scout last observed during machine discovery registration.
-    pub last_scout_observed_version: Option<String>,
-
-    /// Failure cause. If failure cause is critical, machine will move into Failed state.
-    pub failure_details: FailureDetails,
+    /// All health report sources
+    pub health_reports: HealthReportSources,
 
     /// Last time when machine reprovision requested.
     pub reprovision_requested: Option<ReprovisionRequest>,
@@ -817,19 +807,12 @@ pub struct Machine {
     /// Last time when host reprovision requested
     pub host_reprovision_requested: Option<HostReprovisionRequest>,
 
+    /// When set by an external entity, the state controller transitions the host into
+    /// [`ManagedHostState::Maintenance`] to execute the requested operation.
+    pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
-
-    /// All health report sources
-    pub health_reports: HealthReportSources,
-
-    // Inventory related to a DPU machine as reported by the agent there.
-    // Software and versions installed on the machine.
-    pub inventory: Option<MachineInventory>,
-
-    /// Last time when machine reboot was requested.
-    /// This field takes care of reboot requested from state machine only.
-    pub last_reboot_requested: Option<MachineLastRebootRequested>,
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
@@ -846,68 +829,25 @@ pub struct Machine {
     /// current cleanup validation id.
     pub cleanup_machine_validation_id: Option<MachineValidationId>,
 
-    /// Override to enable or disable firmware auto update
-    pub firmware_autoupdate: Option<bool>,
-
     /// current on demand validation id.
     pub on_demand_machine_validation_id: Option<MachineValidationId>,
 
     pub on_demand_machine_validation_request: Option<bool>,
 
-    /// The InstanceType with which a machine is associated if any
-    pub instance_type_id: Option<InstanceTypeId>,
-
     pub asn: Option<u32>,
-
-    /// Machine metadata
-    pub metadata: Metadata,
-
-    /// Version field that tracks changes to
-    /// - Metadata
-    pub version: ConfigVersion,
-    // Columns for these exist, but are unused in rust code
-    // /// When this machine record was created
-    // pub created: DateTime<Utc>,
-    // /// When the machine record was last modified
-    // pub updated: DateTime<Utc>,
-    // /// When the machine was last deployed
-    // pub deployed: Option<DateTime<Utc>>,
-    pub hw_sku: Option<String>,
-    pub hw_sku_status: Option<SkuStatus>,
-
-    /// Host's power options.
-    pub power_options: Option<PowerOptions>,
-
-    /// The hardware SKU's device type
-    pub hw_sku_device_type: Option<String>,
-
-    /// If host upgrades have been completed since the last start explicit start request or actual start
-    pub update_complete: bool,
-
-    /// The NVLink GPU info for this machine.
-    pub nvlink_info: Option<MachineNvLinkInfo>,
-
-    /// Whether the DPF is enabled for this machine
-    pub dpf: Dpf,
 
     /// Per-host profile for state-machine-affecting settings, seeded from the
     /// expected-machine record. Future per-host knobs that influence ingestion
     /// or state transitions should be added here.
     pub host_profile: HostProfile,
 
+    /// Rack-level firmware upgrade status, updated by the rack state machine.
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
+
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
-
-    /// The rack that this machine is associated with
-    pub rack_id: Option<RackId>,
-
-    /// Rack-level firmware upgrade status, updated by the rack state machine.
-    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
-
-    pub slot_number: Option<i32>,
-    pub tray_index: Option<i32>,
 }
 
 // Dpf status field.
@@ -968,7 +908,7 @@ impl Machine {
     }
 
     pub fn bmc_vendor(&self) -> bmc_vendor::BMCVendor {
-        match self.hardware_info.as_ref() {
+        match self.status.hardware_info.as_ref() {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
         }
@@ -1032,7 +972,8 @@ impl Machine {
     /// e.g. `9C:63:C0:E6:B4:3D` -> `9c-63-c0-e6-b4-3d`.
     /// Not using Machine ID because it's too long, and not using IP because it's not stable.
     pub fn dpf_id(&self) -> Option<String> {
-        self.bmc_info
+        self.status
+            .bmc_info
             .mac
             .map(|mac| mac.to_string().to_lowercase().replace(':', "-"))
     }
@@ -1047,16 +988,18 @@ impl Machine {
             return Vec::new();
         }
 
-        self.interfaces
+        self.status
+            .interfaces
             .iter()
             .filter_map(|i| i.attached_dpu_machine_id)
             .collect::<Vec<MachineId>>()
     }
 
     pub fn bmc_addr(&self) -> Option<SocketAddr> {
-        self.bmc_info
+        self.status
+            .bmc_info
             .ip
-            .map(|ip| SocketAddr::new(ip, self.bmc_info.port.unwrap_or(443)))
+            .map(|ip| SocketAddr::new(ip, self.status.bmc_info.port.unwrap_or(443)))
     }
 
     /// If this machine is a DPU, returns whether the version of the
@@ -1082,12 +1025,12 @@ impl Machine {
     }
 
     pub fn to_capabilities(&self) -> Option<MachineCapabilitiesSet> {
-        self.hardware_info.as_ref().map(|info| {
+        self.status.hardware_info.clone().map(|info| {
             MachineCapabilitiesSet::from_hardware_info(
-                info,
-                self.infiniband_status_observation.as_ref(),
+                &info,
+                self.status.infiniband_status_observation.as_ref(),
                 self.associated_dpu_machine_ids(),
-                &self.interfaces,
+                &self.status.interfaces,
             )
         })
     }
@@ -1114,7 +1057,8 @@ impl Machine {
     }
 
     pub fn primary_attached_dpu_machine_id(&self) -> Option<MachineId> {
-        self.interfaces
+        self.status
+            .interfaces
             .iter()
             .find(|iface| iface.primary_interface)
             .and_then(|iface| iface.attached_dpu_machine_id)
@@ -1127,22 +1071,24 @@ impl Machine {
             ));
         }
 
-        let hardware_info = self
-            .hardware_info
-            .as_ref()
-            .ok_or(ModelError::DpuMappingError(format!(
-                "Missing hardware information for machine {}",
-                self.id
-            )))?;
+        let hardware_info =
+            self.status
+                .hardware_info
+                .as_ref()
+                .ok_or(ModelError::DpuMappingError(format!(
+                    "Missing hardware information for machine {}",
+                    self.id
+                )))?;
 
         let mut id_to_device_map: HashMap<MachineId, String> = HashMap::default();
         let mut device_to_id_map: HashMap<String, Vec<MachineId>> = HashMap::default();
         // in order to ensure that the primary dpu is assigned a network config, it is configured first.
-        // hardware_interfaces has the primary dpu as the first interface, self.interfaces may not.
-        // iterate over hardware_interfaces and match it to self.interfaces using the mac address
+        // hardware_interfaces has the primary dpu as the first interface, self.status.interfaces may not.
+        // iterate over hardware_interfaces and match it to self.status.interfaces using the mac address
         for hardware_iface in &hardware_info.network_interfaces {
             if let Some(pci) = &hardware_iface.pci_properties
                 && let Some(iface) = self
+                    .status
                     .interfaces
                     .iter()
                     .find(|i| i.mac_address == hardware_iface.mac_address)
@@ -1206,6 +1152,12 @@ pub enum ManagedHostState {
     },
     /// Host is Ready for instance creation.
     Ready,
+
+    /// Host is executing an operator-requested maintenance operation.
+    Maintenance {
+        operation: MachineMaintenanceOperation,
+    },
+
     /// Host is assigned to an Instance.
     Assigned {
         instance_state: InstanceState,
@@ -1357,6 +1309,11 @@ impl std::fmt::Display for ValidationState {
 pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 
 impl ManagedHostState {
+    /// Builds the controller state for a requested maintenance operation.
+    pub fn maintenance_for_operation(operation: MachineMaintenanceOperation) -> Self {
+        Self::Maintenance { operation }
+    }
+
     pub fn as_reprovision_state(&self, dpu_id: &MachineId) -> Option<&ReprovisionState> {
         match self {
             ManagedHostState::DPUReprovision { dpu_states } => dpu_states.states.get(dpu_id),
@@ -1508,13 +1465,10 @@ impl NextStateBFBSupport<ReprovisionState> for ReprovisionState {
 }
 
 fn bfb_install_support(dpu_snapshots: &[Machine]) -> bool {
-    let bfb_install_support_ = |dpu_snapshots: &[Machine]| -> bool {
-        dpu_snapshots
+    !dpu_snapshots.is_empty()
+        && dpu_snapshots
             .iter()
-            .all(|m| m.bmc_info.supports_bfb_install())
-    };
-
-    bfb_install_support_(dpu_snapshots)
+            .all(|m| m.status.bmc_info.supports_bfb_install())
 }
 
 /// MeasuringState contains states used for host attestion (or
@@ -1820,6 +1774,14 @@ pub enum DpfState {
         /// Carbide should not care about non actionable DPF internal phases.
         #[serde(default)]
         phase_detail: Option<String>,
+    },
+    /// Executing a DPF-requested power cycle. `state.version.timestamp()`
+    /// records when this step started; the handler uses it to enforce the
+    /// configured power-transition delay (`reachability_params.power_down_wait`).
+    HandleReboot {
+        op: PerformPowerOperation,
+        #[serde(default)]
+        retry_count: u32,
     },
     /// DPU device reported ready by the DPF operator. Carbide
     /// waits for all DPUs to reach this state before proceeding.
@@ -2175,6 +2137,25 @@ pub struct ReprovisionRequest {
     pub restart_reprovision_requested_at: DateTime<Utc>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "operation", rename_all = "lowercase")]
+#[allow(clippy::enum_variant_names)]
+pub enum MachineMaintenanceOperation {
+    /// Power on the host.
+    PowerOn,
+    /// Power off the host.
+    PowerOff,
+    /// Reset the host (restart / AC power cycle).
+    Reset,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MachineMaintenanceRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    pub operation: MachineMaintenanceOperation,
+}
+
 /// Struct to store information if host reprovision is requested.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostReprovisionRequest {
@@ -2234,6 +2215,33 @@ impl Display for LockdownState {
 impl Display for FailureSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl FailureCause {
+    /// Stable snake_case token for use as a metric label value. Unlike
+    /// [`Display`], never interpolates the free-text `err` (metric labels must
+    /// come from a closed set).
+    pub fn metric_label(&self) -> &'static str {
+        match self {
+            FailureCause::NoError => "no_error",
+            FailureCause::NVMECleanFailed { .. } => "nvme_clean_failed",
+            FailureCause::Discovery { .. } => "discovery",
+            FailureCause::Reprovisioning { .. } => "reprovisioning",
+            FailureCause::MachineValidation { .. } => "machine_validation",
+            FailureCause::UnhandledState { .. } => "unhandled_state",
+            FailureCause::MeasurementsFailedSignatureCheck { .. } => {
+                "measurements_failed_signature_check"
+            }
+            FailureCause::MeasurementsRetired { .. } => "measurements_retired",
+            FailureCause::MeasurementsRevoked { .. } => "measurements_revoked",
+            FailureCause::MeasurementsCAValidationFailed { .. } => {
+                "measurements_ca_validation_failed"
+            }
+            FailureCause::DpfProvisioning { .. } => "dpf_provisioning",
+            FailureCause::SpdmAttestationFailed { .. } => "spdm_attestation_failed",
+            FailureCause::BiosSetupFailed { .. } => "bios_setup_failed",
+        }
     }
 }
 
@@ -2321,6 +2329,9 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::Maintenance { operation } => {
+                write!(f, "Maintenance({operation:?})")
+            }
             ManagedHostState::Assigned { instance_state, .. } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     let dpu_lowest_state = dpu_states
@@ -2413,6 +2424,9 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::Maintenance { operation } => {
+                format!("Maintenance({operation:?})")
+            }
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::DPUReprovision { dpu_states } => {
                     format!(
@@ -2612,6 +2626,9 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::Maintenance { .. } => {
+            StateSla::with_sla(slas::MAINTENANCE, time_in_state)
+        }
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Ready => StateSla::no_sla(),
             InstanceState::BootingWithDiscoveryImage { retry } => {
@@ -2945,7 +2962,7 @@ pub fn dpf_based_dpu_provisioning_possible(
     }
 
     // DPF should be enabled for host.
-    if !state.host_snapshot.dpf.enabled {
+    if !state.host_snapshot.config.dpf.enabled {
         tracing::info!(
             machine_id = %state.host_snapshot.id,
             "DPF based DPU provisioning is not possible because DPF is not enabled for the host.",
@@ -2960,11 +2977,19 @@ pub fn dpf_based_dpu_provisioning_possible(
         return false;
     }
 
+    if state.dpu_snapshots.is_empty() {
+        tracing::info!(
+            machine_id = %state.host_snapshot.id,
+            "DPF based DPU provisioning is not possible because the host has no DPUs.",
+        );
+        return false;
+    }
+
     // if it is reprovisioning case, initial ingestion should be done with dpf
     // to continue or we should be trying to reprovision all the dpus (switching
     // to DPF). Reprovisioning only a subset of DPUs cannot flip the host to DPF.
     if reprovisioning_case
-        && !state.host_snapshot.dpf.used_for_ingestion
+        && !state.host_snapshot.config.dpf.used_for_ingestion
         && !state
             .dpu_snapshots
             .iter()
@@ -2985,7 +3010,8 @@ pub fn dpf_based_dpu_provisioning_possible(
 
     // All DPUs should not be Bluefield 2.
     if state.dpu_snapshots.iter().any(|dpu| {
-        dpu.hardware_info
+        dpu.status
+            .hardware_info
             .as_ref()
             .and_then(|hardware_info| hardware_info.dpu_info.as_ref())
             .map(|dpu_data| crate::site_explorer::is_bf2_dpu_part_number(&dpu_data.part_number))
@@ -3008,7 +3034,7 @@ pub fn dpf_based_dpu_provisioning_possible(
     if !state
         .dpu_snapshots
         .iter()
-        .all(|dpu| dpu.bmc_info.supports_bfb_install())
+        .all(|dpu| dpu.status.bmc_info.supports_bfb_install())
     {
         tracing::info!(
             "DPF based DPU provisioning is not possible because some DPUs do not support BFB install via Redfish."
@@ -3030,9 +3056,380 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::{Check, check_values, scenarios};
 
     use super::*;
+    use crate::test_support::machine_snapshot::{
+        dpu_machine, host_machine, managed_host_state_snapshot,
+    };
+
+    #[derive(Clone, Copy)]
+    struct DpuProvisioningInput {
+        part_number: &'static str,
+        firmware_version: Option<&'static str>,
+        reprovision_requested: bool,
+    }
+
+    const BF2_SUPPORTED: DpuProvisioningInput = DpuProvisioningInput {
+        part_number: "MBF2M516C",
+        firmware_version: Some("BF-24.10"),
+        reprovision_requested: false,
+    };
+    const BF3_SUPPORTED: DpuProvisioningInput = DpuProvisioningInput {
+        part_number: "900-9D3B6",
+        firmware_version: Some("BF-24.10"),
+        reprovision_requested: false,
+    };
+    const BF3_REQUESTED: DpuProvisioningInput = DpuProvisioningInput {
+        reprovision_requested: true,
+        ..BF3_SUPPORTED
+    };
+    const BF3_UNSUPPORTED_BFB: DpuProvisioningInput = DpuProvisioningInput {
+        firmware_version: Some("BF-24.04"),
+        ..BF3_SUPPORTED
+    };
+    const BF4_SUPPORTED: DpuProvisioningInput = DpuProvisioningInput {
+        part_number: "900-9D4B4",
+        firmware_version: Some("BF4-26.04"),
+        reprovision_requested: false,
+    };
+
+    #[test]
+    fn machine_bmc_vendor_delegates_to_hardware_info() {
+        let mut with_hardware_info = host_machine();
+        with_hardware_info
+            .status
+            .hardware_info
+            .as_mut()
+            .and_then(|hardware_info| hardware_info.dmi_data.as_mut())
+            .expect("fixture host has DMI data")
+            .sys_vendor = "Dell Inc.".to_string();
+
+        let mut without_hardware_info = host_machine();
+        without_hardware_info.status.hardware_info = None;
+
+        check_values(
+            [
+                Check {
+                    scenario: "hardware info delegates to its DMI vendor",
+                    input: with_hardware_info,
+                    expect: bmc_vendor::BMCVendor::Dell,
+                },
+                Check {
+                    scenario: "missing hardware info falls back to unknown",
+                    input: without_hardware_info,
+                    expect: bmc_vendor::BMCVendor::Unknown,
+                },
+            ],
+            |machine| machine.bmc_vendor(),
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    struct DpfProvisioningInput {
+        dpf_enabled_at_site: bool,
+        dpf_enabled_for_host: bool,
+        used_for_ingestion: bool,
+        reprovisioning_case: bool,
+        dpus: &'static [DpuProvisioningInput],
+    }
+
+    fn dpf_input(dpus: &'static [DpuProvisioningInput]) -> DpfProvisioningInput {
+        DpfProvisioningInput {
+            dpf_enabled_at_site: true,
+            dpf_enabled_for_host: true,
+            used_for_ingestion: false,
+            reprovisioning_case: false,
+            dpus,
+        }
+    }
+
+    fn provisioning_state(input: DpfProvisioningInput) -> ManagedHostStateSnapshot {
+        let mut state = managed_host_state_snapshot();
+        state.host_snapshot.config.dpf = Dpf {
+            enabled: input.dpf_enabled_for_host,
+            used_for_ingestion: input.used_for_ingestion,
+        };
+        state.dpu_snapshots = input
+            .dpus
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let mut dpu = dpu_machine(index as u8);
+                dpu.status.bmc_info.firmware_version = input.firmware_version.map(str::to_string);
+                dpu.status
+                    .hardware_info
+                    .as_mut()
+                    .expect("fixture DPU has hardware info")
+                    .dpu_info
+                    .as_mut()
+                    .expect("fixture DPU has DPU info")
+                    .part_number = input.part_number.to_string();
+                dpu.reprovision_requested =
+                    input.reprovision_requested.then(|| ReprovisionRequest {
+                        requested_at: DateTime::<Utc>::UNIX_EPOCH,
+                        initiator: "test".to_string(),
+                        update_firmware: false,
+                        started_at: None,
+                        user_approval_received: false,
+                        restart_reprovision_requested_at: DateTime::<Utc>::UNIX_EPOCH,
+                    });
+                dpu
+            })
+            .collect();
+        state
+    }
+
+    #[test]
+    fn dpf_provisioning_policy_matrix() {
+        check_values(
+            [
+                Check {
+                    scenario: "site flag disables DPF provisioning",
+                    input: DpfProvisioningInput {
+                        dpf_enabled_at_site: false,
+                        ..dpf_input(&[BF3_SUPPORTED])
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "host flag disables DPF provisioning",
+                    input: DpfProvisioningInput {
+                        dpf_enabled_for_host: false,
+                        ..dpf_input(&[BF3_SUPPORTED])
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "initial BF3 provisioning is eligible",
+                    input: dpf_input(&[BF3_SUPPORTED]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "legacy ingestion can switch when every DPU is requested",
+                    input: DpfProvisioningInput {
+                        reprovisioning_case: true,
+                        dpus: &[BF3_REQUESTED, BF3_REQUESTED],
+                        ..dpf_input(&[])
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "legacy ingestion cannot switch a requested subset",
+                    input: DpfProvisioningInput {
+                        reprovisioning_case: true,
+                        dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
+                        ..dpf_input(&[])
+                    },
+                    expect: false,
+                },
+                Check {
+                    scenario: "DPF ingestion permits a requested subset",
+                    input: DpfProvisioningInput {
+                        used_for_ingestion: true,
+                        reprovisioning_case: true,
+                        dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
+                        ..dpf_input(&[])
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "a BF2 DPU prevents DPF provisioning",
+                    input: dpf_input(&[BF3_SUPPORTED, BF2_SUPPORTED]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "BF4 provisioning is eligible",
+                    input: dpf_input(&[BF4_SUPPORTED]),
+                    expect: true,
+                },
+                Check {
+                    scenario: "unsupported BFB firmware prevents DPF provisioning",
+                    input: dpf_input(&[BF3_UNSUPPORTED_BFB]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "mixed BFB support prevents DPF provisioning",
+                    input: dpf_input(&[BF3_SUPPORTED, BF3_UNSUPPORTED_BFB]),
+                    expect: false,
+                },
+                Check {
+                    scenario: "a host without DPUs is ineligible",
+                    input: dpf_input(&[]),
+                    expect: false,
+                },
+            ],
+            |input| {
+                let state = provisioning_state(input);
+                dpf_based_dpu_provisioning_possible(
+                    &state,
+                    input.dpf_enabled_at_site,
+                    input.reprovisioning_case,
+                )
+            },
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    struct DpuProvisioningRouteInput {
+        dpf: DpfProvisioningInput,
+        enable_secure_boot: bool,
+    }
+
+    #[test]
+    fn dpu_provisioning_route_matrix() {
+        check_values(
+            [
+                Check {
+                    scenario: "DPF takes priority over secure boot",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            used_for_ingestion: true,
+                            ..dpf_input(&[BF3_SUPPORTED])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::DpfStates {
+                            substate: DpfState::Reprovisioning,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "Redfish BFB is selected when site DPF is disabled",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpf_enabled_at_site: false,
+                            ..dpf_input(&[BF3_SUPPORTED])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::EnableSecureBoot {
+                            count: 0,
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "secure boot disabled bypasses Redfish BFB",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpf_enabled_at_site: false,
+                            ..dpf_input(&[BF3_SUPPORTED])
+                        },
+                        enable_secure_boot: false,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::WaitingForNetworkInstall,
+                    ),
+                },
+                Check {
+                    scenario: "mixed BFB support uses network installation",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpf_enabled_at_site: false,
+                            dpus: &[BF3_SUPPORTED, BF3_UNSUPPORTED_BFB],
+                            ..dpf_input(&[])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::WaitingForNetworkInstall,
+                    ),
+                },
+                Check {
+                    scenario: "legacy subset only blocks the reprovision DPF route",
+                    input: DpuProvisioningRouteInput {
+                        dpf: DpfProvisioningInput {
+                            dpus: &[BF3_REQUESTED, BF3_SUPPORTED],
+                            ..dpf_input(&[])
+                        },
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "BF2 falls back to Redfish BFB installation",
+                    input: DpuProvisioningRouteInput {
+                        dpf: dpf_input(&[BF2_SUPPORTED]),
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::EnableSecureBoot {
+                            count: 0,
+                            enable_secure_boot_state: SetSecureBootState::CheckSecureBootStatus,
+                        },
+                        ReprovisionState::InstallDpuOs {
+                            substate: InstallDpuOsState::InstallingBFB,
+                        },
+                    ),
+                },
+                Check {
+                    scenario: "an empty DPU set cannot select aggregate routes",
+                    input: DpuProvisioningRouteInput {
+                        dpf: dpf_input(&[]),
+                        enable_secure_boot: true,
+                    },
+                    expect: (
+                        DpuDiscoveringState::DisableSecureBoot {
+                            count: 0,
+                            disable_secure_boot_state: Some(
+                                SetSecureBootState::CheckSecureBootStatus,
+                            ),
+                        },
+                        ReprovisionState::WaitingForNetworkInstall,
+                    ),
+                },
+            ],
+            |input| {
+                let state = provisioning_state(input.dpf);
+                (
+                    DpuDiscoveringState::next_substate_based_on_bfb_support(
+                        input.enable_secure_boot,
+                        &state,
+                        input.dpf.dpf_enabled_at_site,
+                    ),
+                    ReprovisionState::next_substate_based_on_bfb_support(
+                        input.enable_secure_boot,
+                        &state,
+                        input.dpf.dpf_enabled_at_site,
+                    ),
+                )
+            },
+        );
+    }
 
     // Deserializing a `FailureDetails` JSON blob: the parsed value must match the
     // expected struct (cause + failed_at + source). The type is PartialEq, so we
@@ -3287,192 +3684,388 @@ mod tests {
         }
     }
 
-    /// State with a non-zero SLA returns no_sla when ExcludeFromStateMachineSla
-    /// classification is present on the single alert.
     #[test]
-    fn test_state_sla_exclude_classification_overrides_sla() {
+    fn state_sla_maps_machine_states_and_health_to_limits() {
+        struct Inputs {
+            state: ManagedHostState,
+            state_version: ConfigVersion,
+            aggregate_health: health_report::HealthReport,
+        }
+
         let machine_id =
             MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
                 .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
-        ])]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(sla.sla.is_none(), "SLA should be absent when excluded");
-        assert!(
-            !sla.time_in_state_above_sla,
-            "time_in_state_above_sla should be false when excluded"
-        );
-    }
-
-    /// When there are multiple alerts and only one carries the
-    /// ExcludeFromStateMachineSla classification, the SLA is still suppressed.
-    #[test]
-    fn test_state_sla_exclude_classification_on_one_of_multiple_alerts_suppresses_sla() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+        let other_dpu_id =
+            MachineId::from_str("fm100dtjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
                 .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![
-            // Alert without the exclusion classification
-            alert_with_classifications(vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-            ]),
-            // Alert with the exclusion classification
+        let validation_id = MachineValidationId::nil();
+        let sla_config = slas::MachineSlaConfig::new(chrono::Duration::minutes(10));
+        let failed = || ManagedHostState::Failed {
+            details: FailureDetails {
+                cause: FailureCause::NoError,
+                failed_at: chrono::Utc::now(),
+                source: FailureSource::NoError,
+            },
+            machine_id,
+            retry_count: 1,
+        };
+        let excluded = || {
             alert_with_classifications(vec![
                 health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
-            ]),
-        ]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_none(),
-            "SLA should be absent even if only one alert carries the exclusion classification"
-        );
-        assert!(!sla.time_in_state_above_sla);
-    }
-
-    /// Without the ExcludeFromStateMachineSla classification, the normal SLA
-    /// applies to states that have one defined.
-    #[test]
-    fn test_state_sla_without_exclude_classification_normal_sla_applies() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::prevent_allocations(),
-        ])]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_some(),
-            "SLA should be present when exclusion classification is absent"
-        );
-    }
-
-    /// An empty health report (no alerts) does not trigger the exclusion —
-    /// normal SLA logic applies.
-    #[test]
-    fn test_state_sla_empty_health_report_normal_sla_applies() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Created;
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_some(),
-            "SLA should be present when there are no alerts"
-        );
-    }
-
-    /// The ExcludeFromStateMachineSla classification suppresses the SLA even
-    /// for the Failed state, which ordinarily has an always-violated SLA (duration 0).
-    #[test]
-    fn test_state_sla_exclude_classification_overrides_failed_state_sla() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::NoError,
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::NoError,
-            },
-            machine_id,
-            retry_count: 1,
+            ])
         };
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
-        ])]);
-
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert!(
-            sla.sla.is_none(),
-            "SLA should be suppressed for Failed state when excluded"
-        );
-        assert!(!sla.time_in_state_above_sla);
-    }
-
-    /// Without the exclusion classification on a Failed machine, the SLA is
-    /// immediately violated (duration 0).
-    #[test]
-    fn test_state_sla_failed_state_without_exclude_classification_is_above_sla() {
-        let machine_id =
-            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
-                .unwrap();
-        let state = ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::NoError,
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::NoError,
-            },
-            machine_id,
-            retry_count: 1,
+        let unrelated = || {
+            alert_with_classifications(vec![
+                health_report::HealthAlertClassification::prevent_allocations(),
+            ])
         };
-        let state_version = ConfigVersion::initial();
-        let health = health_report_with_alerts(vec![]);
+        let seconds = |value| Some(std::time::Duration::from_secs(value));
+        // ConfigVersion::invalid() makes breached rows deterministic; the sole
+        // ConfigVersion::initial() row is the below-SLA countercheck.
+        let stale = |state| Inputs {
+            state,
+            state_version: ConfigVersion::invalid(),
+            aggregate_health: health_report_with_alerts(vec![]),
+        };
 
-        let sla = state_sla(
-            &machine_id,
-            &state,
-            &state_version,
-            &health,
-            &slas::MachineSlaConfig::default(),
-        );
-
-        assert_eq!(
-            sla.sla,
-            Some(std::time::Duration::ZERO),
-            "Failed state should have a zero-duration SLA"
-        );
-        assert!(
-            sla.time_in_state_above_sla,
-            "Failed state should always be above SLA"
+        check_values(
+            [
+                Check {
+                    scenario: "one exclusion among several alerts suppresses a failed-state SLA",
+                    input: Inputs {
+                        state: failed(),
+                        state_version: ConfigVersion::invalid(),
+                        aggregate_health: health_report_with_alerts(vec![unrelated(), excluded()]),
+                    },
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "a sole exclusion suppresses a positive SLA",
+                    input: Inputs {
+                        state: ManagedHostState::Created,
+                        state_version: ConfigVersion::invalid(),
+                        aggregate_health: health_report_with_alerts(vec![excluded()]),
+                    },
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "an unrelated alert leaves the positive SLA in effect",
+                    input: Inputs {
+                        state: ManagedHostState::Created,
+                        state_version: ConfigVersion::initial(),
+                        aggregate_health: health_report_with_alerts(vec![unrelated()]),
+                    },
+                    expect: (seconds(1_800), false),
+                },
+                Check {
+                    scenario: "DPU discovery without a DPU has no SLA",
+                    input: stale(ManagedHostState::DpuDiscoveringState {
+                        dpu_states: DpuDiscoveringStates {
+                            states: HashMap::new(),
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "nonempty DPU discovery uses the discovery SLA",
+                    input: stale(ManagedHostState::DpuDiscoveringState {
+                        dpu_states: DpuDiscoveringStates {
+                            states: HashMap::from([
+                                (machine_id, DpuDiscoveringState::EnableRshim),
+                                (other_dpu_id, DpuDiscoveringState::Initializing),
+                            ]),
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "DPU initialization without a DPU has no SLA",
+                    input: stale(ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::new(),
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "DPU initialization at Init has no SLA",
+                    input: stale(ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::from([
+                                (machine_id, DpuInitState::WaitingForPlatformConfiguration),
+                                (other_dpu_id, DpuInitState::Init),
+                            ]),
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "a pre-Init DPU sets the initialization SLA",
+                    input: stale(ManagedHostState::DPUInit {
+                        dpu_states: DpuInitStates {
+                            states: HashMap::from([
+                                (machine_id, DpuInitState::Init),
+                                (
+                                    other_dpu_id,
+                                    DpuInitState::InstallDpuOs {
+                                        substate: InstallDpuOsState::InstallingBFB,
+                                    },
+                                ),
+                            ]),
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "host initialization at Init has no SLA",
+                    input: stale(ManagedHostState::HostInit {
+                        machine_state: MachineState::Init,
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "host initialization waiting for discovery uses the host SLA",
+                    input: stale(ManagedHostState::HostInit {
+                        machine_state: MachineState::WaitingForDiscovery,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "Ready has no SLA",
+                    input: stale(ManagedHostState::Ready),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "maintenance uses the maintenance SLA",
+                    input: stale(ManagedHostState::Maintenance {
+                        operation: MachineMaintenanceOperation::PowerOn,
+                    }),
+                    expect: (seconds(300), true),
+                },
+                Check {
+                    scenario: "an assigned Ready machine has no SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "the first discovery-image retry uses the configured SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::BootingWithDiscoveryImage {
+                            retry: RetryInfo { count: 1 },
+                        },
+                    }),
+                    expect: (seconds(660), true),
+                },
+                Check {
+                    scenario: "the second discovery-image retry has a zero SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::BootingWithDiscoveryImage {
+                            retry: RetryInfo { count: 2 },
+                        },
+                    }),
+                    expect: (seconds(0), true),
+                },
+                Check {
+                    scenario: "host platform configuration uses its extended SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::HostPlatformConfiguration {
+                            platform_config_state: HostPlatformConfigurationState::CheckHostConfig,
+                        },
+                    }),
+                    expect: (seconds(5_400), true),
+                },
+                Check {
+                    scenario: "other assigned substates use the assigned SLA",
+                    input: stale(ManagedHostState::Assigned {
+                        instance_state: InstanceState::Init,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "cleanup uses the cleanup SLA",
+                    input: stale(ManagedHostState::WaitingForCleanup {
+                        cleanup_state: CleanupState::Init,
+                        cleanup_context: CleanupContext::Deprovision,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "force deletion uses the force-deletion SLA",
+                    input: stale(ManagedHostState::ForceDeletion),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "a failed state immediately exceeds its zero SLA",
+                    input: stale(failed()),
+                    expect: (seconds(0), true),
+                },
+                Check {
+                    scenario: "DPU reprovisioning uses the DPU reprovision SLA",
+                    input: stale(ManagedHostState::DPUReprovision {
+                        dpu_states: DpuReprovisionStates {
+                            states: HashMap::new(),
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "host reprovisioning uses the host reprovision SLA",
+                    input: stale(ManagedHostState::HostReprovision {
+                        reprovision_state: HostReprovisionState::CheckingFirmware,
+                        retry_count: 0,
+                    }),
+                    expect: (seconds(2_400), true),
+                },
+                Check {
+                    scenario: "pre-assignment measurement collection uses the measurement SLA",
+                    input: stale(ManagedHostState::Measuring {
+                        measuring_state: MeasuringState::WaitingForMeasurements,
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "pre-assignment pending bundles have no SLA",
+                    input: stale(ManagedHostState::Measuring {
+                        measuring_state: MeasuringState::PendingBundle,
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "post-assignment measured boot collection uses the measurement SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::MeasuredBoot {
+                            measuring_state: MeasuringState::WaitingForMeasurements,
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "post-assignment measured boot pending bundles have no SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::MeasuredBoot {
+                            measuring_state: MeasuringState::PendingBundle,
+                        },
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "post-assignment SPDM polling uses the poll SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::SpdmAttestation {
+                            spdm_measuring_state: SpdmMeasuringState::PollResult,
+                        },
+                    }),
+                    expect: (seconds(600), true),
+                },
+                Check {
+                    scenario: "post-assignment SPDM collection uses the trigger SLA",
+                    input: stale(ManagedHostState::PostAssignedMeasuring {
+                        attestation_mode: AttestationMode::SpdmAttestation {
+                            spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                        },
+                    }),
+                    expect: (seconds(30), true),
+                },
+                Check {
+                    scenario: "pre-assignment SPDM polling uses the poll SLA",
+                    input: stale(ManagedHostState::PreAssignedMeasuring {
+                        spdm_measuring_state: SpdmMeasuringState::PollResult,
+                    }),
+                    expect: (seconds(600), true),
+                },
+                Check {
+                    scenario: "pre-assignment SPDM collection uses the trigger SLA",
+                    input: stale(ManagedHostState::PreAssignedMeasuring {
+                        spdm_measuring_state: SpdmMeasuringState::TriggerMeasurements,
+                    }),
+                    expect: (seconds(30), true),
+                },
+                Check {
+                    scenario: "assignment-cycle startup uses the assignment SLA",
+                    input: stale(ManagedHostState::StartAssignmentCycle),
+                    expect: (seconds(60), true),
+                },
+                Check {
+                    scenario: "SKU verification failure has no SLA",
+                    input: stale(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::SkuVerificationFailed(
+                            BomValidatingContext::default(),
+                        ),
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "waiting for SKU assignment has no SLA",
+                    input: stale(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::WaitingForSkuAssignment(
+                            BomValidatingContext::default(),
+                        ),
+                    }),
+                    expect: (None, false),
+                },
+                Check {
+                    scenario: "active BOM validation uses the BOM SLA",
+                    input: stale(ManagedHostState::BomValidating {
+                        bom_validating_state: BomValidating::MatchingSku(
+                            BomValidatingContext::default(),
+                        ),
+                    }),
+                    expect: (seconds(300), true),
+                },
+                Check {
+                    scenario: "machine validation uses the validation SLA",
+                    input: stale(ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::MachineValidating {
+                                context: "Discovery".to_string(),
+                                id: validation_id,
+                                completed: 0,
+                                total: 1,
+                                is_enabled: true,
+                            },
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "validation reboot uses the validation SLA",
+                    input: stale(ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::RebootHost {
+                                validation_id,
+                            },
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+                Check {
+                    scenario: "boot repair validation uses the validation SLA",
+                    input: stale(ManagedHostState::Validation {
+                        validation_state: ValidationState::MachineValidation {
+                            machine_validation: MachineValidatingState::PrepareBootRepair {
+                                validation_id,
+                            },
+                        },
+                    }),
+                    expect: (seconds(1_800), true),
+                },
+            ],
+            |Inputs {
+                 state,
+                 state_version,
+                 aggregate_health,
+             }| {
+                let state_sla = state_sla(
+                    &machine_id,
+                    &state,
+                    &state_version,
+                    &aggregate_health,
+                    &sla_config,
+                );
+                (state_sla.sla, state_sla.time_in_state_above_sla)
+            },
         );
     }
 

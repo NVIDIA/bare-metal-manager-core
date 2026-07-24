@@ -29,7 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_instrument::{Outcome, emit};
+use carbide_instrument::emit;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -57,7 +57,8 @@ use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
-    ReportLoop, ReportLoopCompleted, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
+    NetworkStatusConnectionFailed, NetworkStatusRpcFailed, NetworkStatusSucceeded, create_metrics,
+    get_dpu_agent_meter, get_prometheus_registry,
 };
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -326,10 +327,13 @@ pub async fn setup_and_run(
         managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
     }
 
-    if options.agent_platform_type.is_dpu_os()
-        && let Err(e) = lldp::set_lldp_system_description(&machine_id)
-    {
-        tracing::warn!(error = %e, "Couldn't update LLDP system description")
+    if options.agent_platform_type.is_dpu_os() {
+        if let Err(e) = lldp::prepare_lldp().await {
+            tracing::error!(error = %e, "Couldn't prepare LLDP configuration");
+        }
+        if let Err(e) = lldp::set_lldp_system_description(&machine_id).await {
+            tracing::warn!(error = %e, "Couldn't update LLDP system description");
+        }
     }
 
     let periodic_config_reader = periodic_config_fetcher.reader();
@@ -998,7 +1002,9 @@ impl MainLoop {
                         Ok((has_changed, astra_config_status)) => {
                             self.current_network_version.update_from(&conf);
                             has_changed_configs = has_changed;
-                            status_out.astra_config_status = Some(astra_config_status);
+                            if conf.astra_config.is_some() {
+                                status_out.astra_config_status = Some(astra_config_status);
+                            }
                             if self.options.agent_platform_type.is_dpu_os()
                                 && let Err(err) = mtu::ensure().await
                             {
@@ -1434,30 +1440,19 @@ pub async fn record_network_status(
     {
         Ok(client) => client,
         Err(err) => {
-            tracing::error!(
-                forge_api,
-                error = format!("{err:#}"),
-                "record_network_status: Could not connect to Forge API server. Will retry."
-            );
-            emit(ReportLoopCompleted {
-                report_loop: ReportLoop::NetworkStatus,
-                outcome: Outcome::Error,
-            });
+            emit(NetworkStatusConnectionFailed::new(
+                forge_api.to_string(),
+                format!("{err:#}"),
+            ));
             return;
         }
     };
     let request = tonic::Request::new(status);
     let result = client.record_dpu_network_status(request).await;
-    if let Err(err) = &result {
-        tracing::error!(
-            error = format!("{err:#}"),
-            "Error while executing the record_network_status gRPC call"
-        );
+    match &result {
+        Ok(_) => emit(NetworkStatusSucceeded::new()),
+        Err(err) => emit(NetworkStatusRpcFailed::new(format!("{err:#}"))),
     }
-    emit(ReportLoopCompleted {
-        report_loop: ReportLoop::NetworkStatus,
-        outcome: Outcome::from(&result),
-    });
 }
 
 // Get the link type, carrier status, MTU, and whatever else for our uplinks

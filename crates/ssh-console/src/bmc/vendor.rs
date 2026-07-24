@@ -122,8 +122,6 @@ impl BmcVendor {
 
 #[derive(thiserror::Error, Debug)]
 pub enum BmcVendorDetectionError {
-    #[error("machine has no DMI data")]
-    MissingDmiData,
     #[error("unknown or unsupported sys_vendor string: {sys_vendor}")]
     UnknownSysVendor { sys_vendor: String },
 }
@@ -355,7 +353,8 @@ impl EscapeSequence {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
+    use carbide_uuid::machine::{MachineIdSource, MachineType};
 
     use super::*;
 
@@ -471,6 +470,18 @@ mod tests {
         vendor: BmcVendor,
     }
 
+    #[derive(Clone, Copy)]
+    enum VendorSerdeInput {
+        RoundTrip(BmcVendor),
+        Deserialize(&'static str),
+    }
+
+    #[derive(Clone, Copy)]
+    struct VendorDetectionInput {
+        vendor_string: &'static str,
+        machine_id: MachineId,
+    }
+
     const ALL_VENDORS: [(BmcVendor, &str); 7] = [
         (BmcVendor::Ssh(SshBmcVendor::Dell), "dell"),
         (BmcVendor::Ssh(SshBmcVendor::Lenovo), "lenovo"),
@@ -485,23 +496,20 @@ mod tests {
     ];
 
     #[test]
-    fn bmc_vendor_config_string_names_each_variant() {
-        // Driven from `ALL_VENDORS` so a new variant is covered by adding one row there.
-        for (vendor, config_string) in ALL_VENDORS {
-            assert_eq!(vendor.config_string(), config_string, "{vendor:?}");
-        }
-    }
-
-    #[test]
-    fn bmc_vendor_from_config_string_parses_each_variant() {
-        // Driven from `ALL_VENDORS` so a new variant is covered by adding one row there.
-        for (vendor, config_string) in ALL_VENDORS {
-            assert_eq!(
-                BmcVendor::from_config_string(config_string),
-                Some(vendor),
-                "{config_string:?}",
-            );
-        }
+    fn bmc_vendor_config_strings_map_both_directions() {
+        check_values(
+            ALL_VENDORS.map(|(vendor, config_string)| Check {
+                scenario: config_string,
+                input: (vendor, config_string),
+                expect: (config_string, Some(vendor)),
+            }),
+            |(vendor, config_string)| {
+                (
+                    vendor.config_string(),
+                    BmcVendor::from_config_string(config_string),
+                )
+            },
+        );
 
         value_scenarios!(
             run = |s: &str| BmcVendor::from_config_string(s);
@@ -514,32 +522,79 @@ mod tests {
     }
 
     #[test]
-    fn bmc_vendor_config_string_round_trips() {
-        // config_string -> from_config_string returns the same vendor for every variant.
-        for (vendor, _) in ALL_VENDORS {
-            assert_eq!(
-                BmcVendor::from_config_string(vendor.config_string()),
-                Some(vendor),
-                "{vendor:?}",
-            );
-        }
+    fn bmc_vendor_serde_uses_config_strings() {
+        scenarios!(
+            run = |input| match input {
+                VendorSerdeInput::RoundTrip(vendor) => {
+                    let serialized =
+                        toml::to_string(&Wrap { vendor }).map_err(|error| error.to_string())?;
+                    let deserialized =
+                        toml::from_str(&serialized).map_err(|error| error.to_string())?;
+                    Ok((Some(serialized), deserialized))
+                }
+                VendorSerdeInput::Deserialize(serialized) => toml::from_str(serialized)
+                    .map(|vendor| (None, vendor))
+                    .map_err(|error| error.to_string()),
+            };
+
+            "representative transports round trip" {
+                VendorSerdeInput::RoundTrip(BmcVendor::Ssh(SshBmcVendor::Dell)) => Yields((
+                    Some("vendor = \"dell\"\n".to_string()),
+                    Wrap { vendor: BmcVendor::Ssh(SshBmcVendor::Dell) },
+                )),
+                VendorSerdeInput::RoundTrip(BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking)) => Yields((
+                    Some("vendor = \"nvidia_viking\"\n".to_string()),
+                    Wrap { vendor: BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking) },
+                )),
+            }
+
+            "invalid config values are rejected" {
+                VendorSerdeInput::Deserialize("vendor = \"bogus\"") => Fails,
+                VendorSerdeInput::Deserialize("vendor = 7") => Fails,
+            }
+        );
     }
 
     #[test]
-    fn bmc_vendor_serde_round_trips_through_toml() {
-        // The custom Serialize/Deserialize go through a real TOML (de)serializer.
-        for (vendor, config_string) in ALL_VENDORS {
-            let label = format!("{vendor:?}");
-            let wrap = Wrap { vendor };
-            let serialized = toml::to_string(&wrap).expect("serialize");
-            assert_eq!(
-                serialized,
-                format!("vendor = \"{config_string}\"\n"),
-                "{label}"
-            );
-            let deserialized: Wrap = toml::from_str(&serialized).expect("deserialize");
-            assert_eq!(deserialized, wrap, "{label}");
-        }
+    fn bmc_vendor_detect_from_api_vendor_maps_hosts_and_dpus() {
+        let host_id = MachineId::new(MachineIdSource::Tpm, [1; 32], MachineType::Host);
+        let dpu_id = MachineId::new(MachineIdSource::Tpm, [2; 32], MachineType::Dpu);
+
+        scenarios!(
+            run = |VendorDetectionInput { vendor_string, machine_id }| {
+                BmcVendor::detect_from_api_vendor(vendor_string, &machine_id)
+                    .map_err(|error| error.to_string())
+            };
+
+            "DPU identity takes priority over the API vendor" {
+                VendorDetectionInput { vendor_string: "", machine_id: dpu_id } =>
+                    Yields(BmcVendor::Ssh(SshBmcVendor::Dpu)),
+            }
+
+            "supported host vendors select their transport" {
+                VendorDetectionInput { vendor_string: "lenovo", machine_id: host_id } =>
+                    Yields(BmcVendor::Ssh(SshBmcVendor::Lenovo)),
+                VendorDetectionInput { vendor_string: "lenovoami", machine_id: host_id } =>
+                    Yields(BmcVendor::Ssh(SshBmcVendor::LenovoAmi)),
+                VendorDetectionInput { vendor_string: "dell", machine_id: host_id } =>
+                    Yields(BmcVendor::Ssh(SshBmcVendor::Dell)),
+                VendorDetectionInput { vendor_string: "supermicro", machine_id: host_id } =>
+                    Yields(BmcVendor::Ipmi(IpmiBmcVendor::Supermicro)),
+                VendorDetectionInput { vendor_string: "hpe", machine_id: host_id } =>
+                    Yields(BmcVendor::Ssh(SshBmcVendor::Hpe)),
+                VendorDetectionInput { vendor_string: "nvidia", machine_id: host_id } =>
+                    Yields(BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking)),
+            }
+
+            "unsupported host vendors preserve the API text in the error" {
+                VendorDetectionInput { vendor_string: "liteon", machine_id: host_id } =>
+                    FailsWith("unknown or unsupported sys_vendor string: liteon".to_string()),
+                VendorDetectionInput { vendor_string: "delta", machine_id: host_id } =>
+                    FailsWith("unknown or unsupported sys_vendor string: delta".to_string()),
+                VendorDetectionInput { vendor_string: "Acme BMC", machine_id: host_id } =>
+                    FailsWith("unknown or unsupported sys_vendor string: Acme BMC".to_string()),
+            }
+        );
     }
 
     #[test]
@@ -607,22 +662,6 @@ mod tests {
                     output: b"connect com2\r\nready",
                     skip_data_read_len: b"connect com2".len(),
                 } => true,
-            }
-        );
-    }
-
-    #[test]
-    fn bmc_vendor_deserialize_rejects_an_unknown_string() {
-        scenarios!(
-            run = |s: &str| toml::from_str::<Wrap>(&format!("vendor = \"{s}\"")).map_err(|e| e.to_string());
-
-            "valid config strings deserialize" {
-                "dell" => Yields(Wrap { vendor: BmcVendor::Ssh(SshBmcVendor::Dell) }),
-                "nvidia_viking" => Yields(Wrap { vendor: BmcVendor::Ipmi(IpmiBmcVendor::NvidiaViking) }),
-            }
-
-            "an unknown string is rejected" {
-                "bogus" => Fails,
             }
         );
     }

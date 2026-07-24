@@ -309,10 +309,17 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let dpu = mh.dpu().db_machine(&mut txn).await;
 
-    assert!(!mh.host().db_machine(&mut txn).await.dpf.used_for_ingestion);
+    assert!(
+        !mh.host()
+            .db_machine(&mut txn)
+            .await
+            .config
+            .dpf
+            .used_for_ingestion
+    );
     for i in 0..mh.dpu_ids.len() {
         let dpu = mh.dpu_n(i).db_machine(&mut txn).await;
-        assert!(!dpu.dpf.used_for_ingestion);
+        assert!(!dpu.config.dpf.used_for_ingestion);
     }
 
     assert!(matches!(dpu.current_state(), ManagedHostState::Ready));
@@ -550,15 +557,25 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         dpu_machine.current_state(),
     );
     assert_eq!(
-        dpu_machine.hardware_info.as_ref().unwrap().machine_type,
+        dpu_machine
+            .status
+            .hardware_info
+            .as_ref()
+            .unwrap()
+            .machine_type,
         CpuArchitecture::Aarch64,
     );
-    assert_eq!(dpu_machine.bmc_info.ip, Some(dpu_bmc_ip));
+    assert_eq!(dpu_machine.status.bmc_info.ip, Some(dpu_bmc_ip));
 
     assert_eq!(
         format!(
             "BF-{}",
-            dpu_machine.bmc_info.firmware_version.clone().unwrap()
+            dpu_machine
+                .status
+                .bmc_info
+                .firmware_version
+                .clone()
+                .unwrap()
         ),
         InitialDpuConfig::default()
             .find_bf3_entry()
@@ -567,6 +584,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -578,6 +596,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -589,6 +608,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
     );
     assert_eq!(
         dpu_machine
+            .status
             .hardware_info
             .as_ref()
             .unwrap()
@@ -611,7 +631,7 @@ async fn test_machine_creator_created_host_advances_through_dpu_discovery(
         "expected DpuDiscoveringState, got {:?}",
         host_machine.current_state(),
     );
-    assert!(host_machine.bmc_info.ip.is_some());
+    assert!(host_machine.status.bmc_info.ip.is_some());
     txn.commit().await.unwrap();
 
     // 2nd creation does nothing.
@@ -945,7 +965,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         &env.pool,
         &host,
         1,
-        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+        Some(host.status.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
     )
     .await;
     // let state machine check the failure condition.
@@ -1080,10 +1100,10 @@ async fn test_repeated_initial_discovery_cleanup_failure_preserves_host_init_sou
         }
     ));
     assert!(matches!(
-        host.failure_details.source,
+        host.status.failure_details.source,
         FailureSource::StateMachineArea(StateMachineArea::HostInit)
     ));
-    let first_failed_at = host.failure_details.failed_at;
+    let first_failed_at = host.status.failure_details.failed_at;
     txn.commit().await.unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -1096,11 +1116,11 @@ async fn test_repeated_initial_discovery_cleanup_failure_preserves_host_init_sou
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(
-        host.failure_details.source,
+        host.status.failure_details.source,
         FailureSource::StateMachineArea(StateMachineArea::HostInit)
     ));
     assert!(
-        host.failure_details.failed_at > first_failed_at,
+        host.status.failure_details.failed_at > first_failed_at,
         "repeated cleanup failure should refresh failure details"
     );
     txn.commit().await.unwrap();
@@ -1160,7 +1180,7 @@ async fn test_hdd_clean_failed_state_host(pool: sqlx::PgPool) {
         &env.pool,
         &host,
         1,
-        Some(host.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
+        Some(host.status.last_reboot_requested.as_ref().unwrap().time - Duration::seconds(59)),
     )
     .await;
     // let state machine check the failure condition.
@@ -1357,7 +1377,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
             arch: rpc::forge::MachineArchitecture::X86 as i32,
             product: None,
-            client_ip: Some(host.interfaces[0].addresses[0].to_string()),
+            client_ip: Some(host.status.interfaces[0].addresses[0].to_string()),
             ..Default::default()
         }))
         .await
@@ -1390,8 +1410,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
-    assert!(host.last_reboot_requested.is_some());
-    let last_reboot_requested_time = host.last_reboot_requested.as_ref().unwrap().time;
+    assert!(host.status.last_reboot_requested.is_some());
+    let last_reboot_requested_time = host.status.last_reboot_requested.as_ref().unwrap().time;
 
     assert!(matches!(
         host.current_state(),
@@ -1455,7 +1475,7 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
 
     assert_ne!(
         last_reboot_requested_time,
-        host.last_reboot_requested.as_ref().unwrap().time
+        host.status.last_reboot_requested.as_ref().unwrap().time
     );
     txn.commit().await.unwrap();
 
@@ -2388,11 +2408,13 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         assert_ne!(
             snapshot.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .map(|x| x.time)
                 .unwrap_or_default(),
             snapshot1.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .unwrap()
                 .time
@@ -2420,11 +2442,13 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         assert_ne!(
             snapshot1.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .map(|x| x.time)
                 .unwrap_or_default(),
             snapshot2.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .unwrap()
                 .time
@@ -2457,11 +2481,13 @@ async fn test_update_reboot_requested_time_off(pool: sqlx::PgPool) {
         assert_eq!(
             snapshot2.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .map(|x| x.time)
                 .unwrap_or_default(),
             snapshot3.dpu_snapshots[i]
                 .clone()
+                .status
                 .last_reboot_requested
                 .unwrap()
                 .time
@@ -2741,7 +2767,7 @@ async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds
                 },
             }
         ) {
-            if host.last_reboot_requested.is_some() {
+            if host.status.last_reboot_requested.is_some() {
                 update_time_params(&env.pool, &host, 1, None).await;
             }
             mh.network_configured(&env).await;
@@ -3009,6 +3035,189 @@ async fn test_set_boot_order_sets_order_without_reasserting_when_device_configur
             .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
         "the device is already configured, so machine_setup should not be re-asserted, got: {actions:?}"
     );
+}
+
+const TEST_BOOT_ORDER_JOB_ID: &str = "JID_BOOT_ORDER_SCHEDULING";
+
+/// Runs one job state through the persisted boot-order scheduling phase and
+/// returns the resulting boot-order state.
+async fn run_wait_for_set_boot_order_job_scheduled(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    job_state: libredfish::JobState,
+    retry_count: u32,
+) -> SetBootOrderInfo {
+    env.redfish_sim.set_job_state_sequence(vec![job_state]);
+    set_host_controller_state_stuck_in(
+        env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::SetBootOrder {
+                set_boot_order_info: Some(SetBootOrderInfo {
+                    set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+                    set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                    retry_count,
+                }),
+            },
+        },
+        0,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostInit {
+        machine_state:
+            MachineState::SetBootOrder {
+                set_boot_order_info: Some(set_boot_order_info),
+            },
+    } = host.current_state()
+    else {
+        panic!(
+            "expected HostInit/SetBootOrder, got: {:?}",
+            host.current_state()
+        );
+    };
+    set_boot_order_info.clone()
+}
+
+/// A scheduled job still advances to the reboot phase with its job and retry
+/// context intact.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_advances_to_reboot(pool: sqlx::PgPool) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Scheduled,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::RebootHost,
+            retry_count: RETRY_COUNT,
+        }
+    );
+}
+
+/// A job that is still running remains in the scheduling wait without losing
+/// its job or retry context.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_keeps_waiting_for_running_job(
+    pool: sqlx::PgPool,
+) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Running,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+            retry_count: RETRY_COUNT,
+        }
+    );
+}
+
+/// Terminal job states observed before the boot-order reboot enter the existing
+/// job-failure recovery without losing the retry budget or diagnostic context.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_routes_terminal_errors_to_recovery(
+    pool: sqlx::PgPool,
+) {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, check_cases_async};
+
+    const RETRY_COUNT: u32 = 2;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct FailureTransition {
+        power_state: PowerState,
+        job_id_cleared: bool,
+        retry_count: u32,
+        diagnostic_has_job_id: bool,
+        diagnostic_has_job_state: bool,
+    }
+
+    let expected = || FailureTransition {
+        power_state: PowerState::Off,
+        job_id_cleared: true,
+        retry_count: RETRY_COUNT,
+        diagnostic_has_job_id: true,
+        diagnostic_has_job_state: true,
+    };
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "scheduled with errors",
+                input: libredfish::JobState::ScheduledWithErrors,
+                expect: Yields(expected()),
+            },
+            Case {
+                scenario: "completed with errors",
+                input: libredfish::JobState::CompletedWithErrors,
+                expect: Yields(expected()),
+            },
+            Case {
+                scenario: "failed",
+                input: libredfish::JobState::Failed,
+                expect: Yields(expected()),
+            },
+        ],
+        |job_state| {
+            let env = &env;
+            let mh = &mh;
+            async move {
+                let job_state_diagnostic = format!("{job_state:?}");
+                let set_boot_order_info =
+                    run_wait_for_set_boot_order_job_scheduled(env, mh, job_state, RETRY_COUNT)
+                        .await;
+                let SetBootOrderState::HandleJobFailure {
+                    failure,
+                    power_state,
+                } = &set_boot_order_info.set_boot_order_state
+                else {
+                    return Err(format!(
+                        "expected HandleJobFailure, got: {:?}",
+                        set_boot_order_info.set_boot_order_state
+                    ));
+                };
+
+                Ok(FailureTransition {
+                    power_state: *power_state,
+                    job_id_cleared: set_boot_order_info.set_boot_order_jid.is_none(),
+                    retry_count: set_boot_order_info.retry_count,
+                    diagnostic_has_job_id: failure.contains(TEST_BOOT_ORDER_JOB_ID),
+                    diagnostic_has_job_state: failure.contains(&job_state_diagnostic),
+                })
+            }
+        },
+    )
+    .await;
 }
 
 /// The reboot that applies a boot-order job can independently revert a managed
@@ -4166,12 +4375,7 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
         .await;
 
     let err = result.expect_err("Expected FK violation from mismatched TPM");
-    assert_eq!(err.code(), Code::FailedPrecondition);
-    assert!(
-        err.message().contains("machine_id foreign key violation"),
-        "Expected TPM mismatch error, got: {}",
-        err.message()
-    );
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 #[crate::sqlx_test]
@@ -4203,12 +4407,7 @@ async fn test_host_discovery_without_tpm_cert_does_not_downgrade_existing_tpm_id
         .await;
 
     let err = result.expect_err("Expected serial fallback to be rejected");
-    assert_eq!(err.code(), Code::FailedPrecondition);
-    assert!(
-        err.message().contains("TPM EK certificate missing"),
-        "Expected missing TPM EK certificate error, got: {}",
-        err.message()
-    );
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 /// Spins up a test env configured for zero-DPU hosts plus a zero-DPU

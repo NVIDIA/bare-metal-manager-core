@@ -45,6 +45,7 @@ struct DpuStatus {
 }
 
 impl From<Machine> for DpuStatus {
+    #[allow(deprecated)]
     fn from(machine: Machine) -> Self {
         let state = match machine.state.split_once(' ') {
             Some((state, _)) => state.to_owned(),
@@ -105,6 +106,7 @@ impl From<DpuStatus> for Row {
     }
 }
 
+#[allow(deprecated)]
 pub fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> String {
     let mut version_statuses = Vec::default();
 

@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+// The deprecated fields on `rpc::forge::Machine` must still be read here for
+// backwards-compat. See https://github.com/NVIDIA/infra-controller/issues/2793
+#![allow(deprecated)]
+
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::IpAddr;
@@ -474,7 +478,7 @@ impl ApiEndpointSource {
         let addr = BmcAddr::try_from(bmc_info)?;
         let metadata = machine.id.map(|machine_id| {
             EndpointMetadata::Machine(MachineData {
-                machine_id,
+                machine_id: Some(machine_id),
                 machine_serial: machine
                     .discovery_info
                     .as_ref()

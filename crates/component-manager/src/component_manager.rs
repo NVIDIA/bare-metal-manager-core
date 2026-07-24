@@ -7,10 +7,12 @@ use std::sync::Arc;
 use carbide_rack::firmware_object::rack_maintenance_access_token_key;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, WithTransaction};
 use librms::RmsApi;
+use model::machine::MachineMaintenanceOperation;
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
 use model::rack_type::RackProfileConfig;
 use model::switch::SwitchMaintenanceOperation;
@@ -52,6 +54,12 @@ pub struct ComponentManager {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwitchMaintenanceRequestResult {
     pub switch_id: SwitchId,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineMaintenanceRequestResult {
+    pub machine_id: MachineId,
     pub error: Option<String>,
 }
 
@@ -352,6 +360,91 @@ impl ComponentManager {
             .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
     }
 
+    pub async fn request_machine_maintenance_via_state_controller(
+        &self,
+        db_pool: &PgPool,
+        machine_ids: &[MachineId],
+        operation: MachineMaintenanceOperation,
+        initiator: &str,
+    ) -> Result<Vec<MachineMaintenanceRequestResult>, ComponentManagerError> {
+        if !self.compute_tray_use_state_controller {
+            return Err(ComponentManagerError::InvalidArgument(
+                "compute_tray_use_state_controller is disabled; machine maintenance through the state controller is unavailable"
+                    .to_string(),
+            ));
+        }
+
+        let machine_ids = machine_ids.to_vec();
+        let initiator = initiator.to_string();
+        db_pool
+            .with_txn(|txn| {
+                Box::pin(async move {
+                    let existing = db::machine::find(
+                        txn.as_mut(),
+                        db::ObjectFilter::List(&machine_ids),
+                        model::machine::machine_search_config::MachineSearchConfig::default(),
+                    )
+                    .await
+                    .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                    let by_id: HashMap<MachineId, model::machine::Machine> = existing
+                        .into_iter()
+                        .map(|machine| (machine.id, machine))
+                        .collect();
+                    let mut results = Vec::with_capacity(machine_ids.len());
+
+                    for machine_id in &machine_ids {
+                        let Some(machine) = by_id.get(machine_id) else {
+                            results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: Some(format!("machine {machine_id} not found")),
+                            });
+                            continue;
+                        };
+
+                        if !machine_id.machine_type().is_host() {
+                            results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: Some(format!("machine {machine_id} is not a host machine")),
+                            });
+                            continue;
+                        }
+
+                        if matches!(
+                            machine.state.value,
+                            model::machine::ManagedHostState::ForceDeletion
+                        ) {
+                            results.push(MachineMaintenanceRequestResult {
+                                machine_id: *machine_id,
+                                error: Some(format!(
+                                    "machine {machine_id} is marked for forced deletion"
+                                )),
+                            });
+                            continue;
+                        }
+
+                        db::machine::set_machine_maintenance_requested(
+                            txn,
+                            *machine_id,
+                            &initiator,
+                            operation,
+                        )
+                        .await
+                        .map_err(|error| ComponentManagerError::Internal(error.to_string()))?;
+
+                        results.push(MachineMaintenanceRequestResult {
+                            machine_id: *machine_id,
+                            error: None,
+                        });
+                    }
+
+                    Ok(results)
+                })
+            })
+            .await
+            .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
+    }
+
     pub async fn configure_switch_certificate(
         &self,
         endpoint: &SwitchEndpoint,
@@ -372,14 +465,14 @@ impl ComponentManager {
             .await
     }
 
-    /// Starts an NVOS password rotation through the configured switch backend.
-    pub async fn start_switch_password_rotation(
+    /// Converges an NVOS password through the configured switch backend.
+    pub async fn ensure_switch_password_rotation(
         &self,
         endpoint: &SwitchEndpoint,
         next_password: &str,
     ) -> Result<String, ComponentManagerError> {
         self.nv_switch
-            .start_password_rotation(endpoint, next_password)
+            .ensure_password_rotation(endpoint, next_password)
             .await
     }
 
@@ -417,9 +510,9 @@ impl ComponentManager {
 /// The factory inspects the configured nv-switch, power-shelf, and compute-tray
 /// backend selectors to decide which concrete implementations to instantiate.
 /// Unknown backend names are rejected at config-deserialization time by the
-/// backend enums. When any backend uses RMS, `rack_profiles` must contain enough
-/// product-family and vendor data to resolve RMS node types before startup
-/// continues.
+/// backend enums. When any backend uses RMS, `rack_profiles` must contain the
+/// product-family and vendor data required to build RMS node descriptors before
+/// startup continues.
 pub async fn build_component_manager(
     config: &ComponentManagerConfig,
     rack_profiles: RackProfileConfig,
@@ -578,6 +671,13 @@ mod tests {
 
     #[async_trait]
     impl CredentialWriter for FailingCredentialManager {
+        async fn get_credentials_from_writer(
+            &self,
+            _key: &CredentialKey,
+        ) -> Result<Option<Credentials>, SecretsError> {
+            Ok(None)
+        }
+
         async fn set_credentials(
             &self,
             _key: &CredentialKey,
@@ -1079,31 +1179,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "invalid argument: rack profile NVL72 rack_capabilities.power_shelf.vendor is required when power_shelf_backend is 'rms'"
-        );
-    }
-
-    #[tokio::test]
-    async fn build_validates_rms_backend_vendor_value() {
-        let mut profile = rms_rack_profile();
-        profile.rack_capabilities.switch.vendor = Some("Other".to_string());
-
-        let rack_profiles = rms_rack_profiles(profile);
-        let config = ComponentManagerConfig {
-            nv_switch_backend: NvSwitchBackend::Rms,
-            power_shelf_backend: PowerShelfBackend::Mock,
-            compute_tray_backend: ComputeBackend::Mock,
-            ..Default::default()
-        };
-
-        let result = build_component_manager(&config, rack_profiles, None, None, None, None).await;
-        let Err(error) = result else {
-            panic!("unsupported RMS vendor should be rejected");
-        };
-
-        assert_eq!(
-            error.to_string(),
-            "invalid argument: rack profile NVL72 cannot resolve RMS switch node type: RMS does not support switch vendor Other"
+            "invalid argument: rack profile NVL72 cannot build RMS power shelf node descriptor: rack profile does not identify an RMS power shelf vendor"
         );
     }
 }

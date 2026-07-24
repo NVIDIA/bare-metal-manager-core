@@ -51,11 +51,12 @@ pub struct RedfishActionsTable {
 /// and displays the result
 pub async fn query(
     AxumState(state): AxumState<Arc<Api>>,
-    Extension(oauth2_layer): Extension<Option<Oauth2Layer>>,
+    Extension(oauth2_layer): Extension<Option<Arc<Oauth2Layer>>>,
     request_headers: HeaderMap,
 ) -> Response {
-    let cookiejar = oauth2_layer
-        .map(|layer| PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key));
+    let cookiejar = oauth2_layer.map(|layer| {
+        PrivateCookieJar::from_headers(&request_headers, layer.private_cookiejar_key.clone())
+    });
 
     let mut browser = RedfishBrowser {
         actions: RedfishActionsTable {
@@ -209,6 +210,8 @@ pub mod filters {
     use askama_escape::Escaper;
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
+
+    pub use super::super::filters::pretty_json;
 
     #[askama::filter_fn]
     pub fn date_fmt(value: &rpc::Timestamp, _env: &dyn askama::Values) -> ::askama::Result<String> {

@@ -191,6 +191,7 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::{Method, Request, StatusCode};
     use axum::routing::get;
+    use bmc_mock::ipmi_sim::IpmiEndpoint;
     use tower::ServiceExt;
     use uuid::Uuid;
 
@@ -236,6 +237,51 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("machine-a-tron machines"));
+    }
+
+    #[tokio::test]
+    async fn machines_status_reports_each_bmc_ipmi_endpoint() {
+        let first = HostMachineHandle::for_control_test(
+            Vec::new(),
+            Some(IpmiEndpoint {
+                reachable_port: 623,
+                listen_port: 16_020,
+            }),
+        );
+        let second = HostMachineHandle::for_control_test(
+            Vec::new(),
+            Some(IpmiEndpoint {
+                reachable_port: 623,
+                listen_port: 16_021,
+            }),
+        );
+        let without_ipmi = HostMachineHandle::for_control_test(Vec::new(), None);
+        let router = append(
+            Router::new(),
+            ControlState::new(
+                vec![first, second, without_ipmi],
+                MachineStatusConfig::new(1266),
+            ),
+        );
+
+        let response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/machines/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let machines = status["machines"].as_array().unwrap();
+
+        assert_eq!(machines[0]["bmc"]["ipmi"]["reachable_port"], 623);
+        assert_eq!(machines[0]["bmc"]["ipmi"]["listen_port"], 16_020);
+        assert_eq!(machines[1]["bmc"]["ipmi"]["reachable_port"], 623);
+        assert_eq!(machines[1]["bmc"]["ipmi"]["listen_port"], 16_021);
+        assert!(machines[2]["bmc"].get("ipmi").is_none());
     }
 
     #[tokio::test]
@@ -298,7 +344,7 @@ mod tests {
             .parse()
             .unwrap();
         let dpu = DpuMachineHandle::for_control_test(dpu_id, Some(observed_dpu_id));
-        let host = HostMachineHandle::for_control_test(vec![dpu]);
+        let host = HostMachineHandle::for_control_test(vec![dpu], None);
         let router = append(
             Router::new(),
             ControlState::new(vec![host.clone()], MachineStatusConfig::new(1266)),
