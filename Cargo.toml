@@ -262,6 +262,10 @@ zeroize = { version = "1", features = ["derive"] }
 zip = { version = "8.6", default-features = false }
 jsonpath-rust = "1.0.4"
 
+[profile.ci-tests]
+inherits = "dev"
+debug = "line-tables-only"
+
 [profile.release]
 debug = "line-tables-only"
 debug-assertions = true    # Add some extra assurance during development
