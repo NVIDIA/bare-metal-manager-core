@@ -899,6 +899,7 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
+ "nix 0.31.3",
  "nv-redfish",
  "rand 0.10.1",
  "regex",
