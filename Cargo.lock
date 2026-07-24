@@ -1656,6 +1656,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
@@ -1689,9 +1690,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-dhcp-common"
+version = "0.0.0"
+dependencies = [
+ "carbide-test-support",
+]
+
+[[package]]
 name = "carbide-dhcp-server"
 version = "0.1.0"
 dependencies = [
+ "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
  "carbide-rpc-utils",

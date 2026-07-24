@@ -18,6 +18,7 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_dhcp_common::VendorClass;
 use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{HostConfig, InterfaceInfo};
 use dhcproto::v4::relay::{RelayAgentInformation, RelayCode, RelayInfo};
@@ -32,7 +33,6 @@ use tokio::sync::Mutex;
 use crate::cache::CacheEntry;
 use crate::errors::DhcpError;
 use crate::metrics::{DhcpRequestReceived, MessageTypeLabel};
-use crate::vendor_class::VendorClass;
 use crate::{Config, DhcpMode, util};
 
 const PKT_TYPE_OP_REQUEST: u8 = 1;

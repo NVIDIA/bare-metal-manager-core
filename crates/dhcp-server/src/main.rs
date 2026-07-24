@@ -24,7 +24,6 @@ mod modes;
 mod packet_handler;
 mod rpc;
 mod util;
-mod vendor_class;
 
 use std::error::Error;
 use std::net::SocketAddr;
@@ -996,7 +995,8 @@ mod test {
 
     #[tokio::test]
     async fn test_arm_non_relayed_packet() {
-        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request);
+        let byte_stream =
+            get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request, None);
         let handler: Box<dyn DhcpMode> = Box::new(TestArm {});
         let config = init(get_test_args()).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
@@ -1021,6 +1021,7 @@ mod test {
             Ipv4Addr::new(0, 0, 0, 0),
             Some(Ipv4Addr::from_str("10.217.5.41").unwrap()),
             MessageType::Request,
+            None,
         );
         let handler: Box<dyn DhcpMode> = Box::new(TestArm {});
         let config = init(get_test_args()).await.unwrap();
@@ -1040,12 +1041,16 @@ mod test {
         );
     }
 
+    /// A raw HTTP-client option 60 reaches the shared vendor-class parser
+    /// before the standalone server builds its reply. The reply keeps the
+    /// canonical client ID and uses the parsed architecture for option 67.
     #[tokio::test]
-    async fn test_complete_flow() {
+    async fn test_complete_http_boot_flow() {
         let byte_stream = get_byte_stream(
             Ipv4Addr::new(0, 0, 0, 0),
             Some(Ipv4Addr::from_str("10.217.5.41").unwrap()),
             MessageType::Request,
+            Some(b"HTTPClient::7::"),
         );
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let mut args = get_test_args();
@@ -1071,6 +1076,16 @@ mod test {
         let packet = Message::decode(&mut dhcproto::Decoder::new(packet.encoded_packet())).unwrap();
 
         assert_eq!(packet.yiaddr(), Ipv4Addr::from([10, 217, 132, 204]));
+        assert_eq!(
+            packet.opts().get(OptionCode::ClassIdentifier),
+            Some(&DhcpOption::ClassIdentifier(b"HTTPClient".to_vec()))
+        );
+        assert_eq!(
+            packet.opts().get(OptionCode::BootfileName),
+            Some(&DhcpOption::BootfileName(
+                b"http://10.217.126.17:8080/public/blobs/internal/x86_64/ipxe.efi".to_vec()
+            ))
+        );
     }
 
     /// The request counter ticks for every decoded packet -- including one
@@ -1079,7 +1094,8 @@ mod test {
     async fn process_packet_counts_the_decoded_request() {
         // No other test in this binary processes an Inform, so this label's
         // delta is immune to tests running in parallel.
-        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Inform);
+        let byte_stream =
+            get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Inform, None);
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
@@ -1109,6 +1125,7 @@ mod test {
             Ipv4Addr::new(10, 217, 132, 204),
             Some(Ipv4Addr::from_str("10.217.5.41").unwrap()),
             MessageType::Request,
+            None,
         );
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
@@ -1137,7 +1154,8 @@ mod test {
 
     #[tokio::test]
     async fn test_send_metadata_to_agent() {
-        let byte_stream = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Discover);
+        let byte_stream =
+            get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Discover, None);
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
         let config = init(get_test_args()).await.unwrap();
         let mut machine_cache = Arc::new(Mutex::new(LruCache::new(
@@ -1215,6 +1233,7 @@ mod test {
         ciaddr: Ipv4Addr,
         giaddr: Option<Ipv4Addr>,
         message_type: MessageType,
+        class_identifier: Option<&[u8]>,
     ) -> Vec<u8> {
         let mut msg = Message::new(
             ciaddr,
@@ -1229,6 +1248,10 @@ mod test {
         }
 
         msg.opts_mut().insert(DhcpOption::MessageType(message_type));
+        if let Some(class_identifier) = class_identifier {
+            msg.opts_mut()
+                .insert(DhcpOption::ClassIdentifier(class_identifier.to_vec()));
+        }
 
         let mut encoded_packet = Vec::new();
         let mut e = dhcproto::Encoder::new(&mut encoded_packet);
@@ -1238,7 +1261,7 @@ mod test {
 
     #[tokio::test]
     async fn validate_basic_ack() {
-        let packet = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request);
+        let packet = get_byte_stream(Ipv4Addr::new(0, 0, 0, 0), None, MessageType::Request, None);
 
         let config = init(get_test_args()).await.unwrap();
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
@@ -1277,7 +1300,7 @@ mod test {
 
     #[tokio::test]
     async fn validate_nak() {
-        let packet = get_byte_stream(Ipv4Addr::new(10, 0, 0, 1), None, MessageType::Request);
+        let packet = get_byte_stream(Ipv4Addr::new(10, 0, 0, 1), None, MessageType::Request, None);
 
         let config = init(get_test_args()).await.unwrap();
         let handler: Box<dyn DhcpMode> = Box::new(Test {});
