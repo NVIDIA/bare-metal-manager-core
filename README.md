@@ -10,8 +10,8 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 ## Getting Started
 
 - Go to the [NVIDIA Infra Controller overview](docs/overview/what-is-nico.md) to get an overview of NICo architecture and capabilities.
-- Or jump to the [Quick Start Guide](docs/getting-started/quick-start.md) to start setting up your site for NICo.
-- The [NICo web documentation](https://docs.nvidia.com/infra-controller/documentation/home) is also available online.
+- Or, go straight to the [Quick Start Guide](https://docs.nvidia.com/infra-controller/documentation/getting-started/quick-start-guide) to start setting up your site for NICo.
+- The [NICo web documentation](https://docs.nvidia.com/infra-controller/documentation/home) is available online.
 - Check out [Local Development with DevSpace](dev/deployment/devspace/README.md) to run NICo locally with mock systems.
 
 ## Bare-Metal Cluster Setup
