@@ -51,7 +51,7 @@ The sections below distinguish platforms maintained by NVIDIA from platforms con
 
 \* OVX may not show up as an option; check the Server Serial Number to confirm.
 
-#### Hosts -- Under Development
+#### Hosts Under Development
 
 This list outlines platforms that are under development and have not undergone full unit testing.
 
