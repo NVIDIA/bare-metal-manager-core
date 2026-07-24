@@ -2277,8 +2277,10 @@ pub(crate) async fn update_component_firmware(
             // ComputeTrayManager interface) can choose between the rack-level
             // state controller maintenance flow and a direct backend dispatch.
             let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
-            let (rack_scale_ids, standalone_ids) =
-                partition_loaded_compute_machines_by_rack_scale(&machines_by_id, &list.machine_ids)?;
+            let (rack_scale_ids, standalone_ids) = partition_loaded_compute_machines_by_rack_scale(
+                &machines_by_id,
+                &list.machine_ids,
+            )?;
 
             let mut results = Vec::new();
 
@@ -3785,8 +3787,7 @@ mod tests {
     fn all_rack_scale_batch_uses_only_rack_partition() {
         let id = host_machine_id();
         let machines = HashMap::from([(id, rack_scale_machine())]);
-        let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[id], &HashMap::new());
+        let (rack, standalone, results) = prepare_dispatch_lists(&machines, &[id], &HashMap::new());
         assert!(results.is_empty());
         assert_eq!(rack, vec![id]);
         assert!(standalone.is_empty());
@@ -3796,8 +3797,7 @@ mod tests {
     fn all_standalone_batch_uses_only_standalone_partition() {
         let id = host_machine_id();
         let machines = HashMap::from([(id, standalone_machine())]);
-        let (rack, standalone, results) =
-            prepare_dispatch_lists(&machines, &[id], &HashMap::new());
+        let (rack, standalone, results) = prepare_dispatch_lists(&machines, &[id], &HashMap::new());
         assert!(results.is_empty());
         assert!(rack.is_empty());
         assert_eq!(standalone, vec![id]);
@@ -3924,15 +3924,11 @@ mod tests {
             password: "secret".into(),
         });
 
-        let resolved =
-            resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
+        let resolved = resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
 
         assert!(resolved.unresolved.is_empty());
         assert_eq!(resolved.resolved.endpoints.len(), 1);
         assert_eq!(resolved.resolved.endpoints[0].bmc_ip, bmc_ip);
-        assert_eq!(
-            resolved.resolved.ip_to_machine_id.get(&bmc_ip),
-            Some(&id)
-        );
+        assert_eq!(resolved.resolved.ip_to_machine_id.get(&bmc_ip), Some(&id));
     }
 }
