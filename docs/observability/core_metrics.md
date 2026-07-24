@@ -64,6 +64,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>Number of DPU agents which have reported a certain version.</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>Number of DPUs which have reported a certain firmware version.</td></tr>
 <tr><td>carbide_dpu_remediation_executor_failures_total</td><td>counter</td><td>Number of DPU remediation executor failures, by failure stage.</td></tr>
+<tr><td>carbide_dpu_uefi_password_setup_skips_total</td><td>counter</td><td>Number of DPU UEFI password setup operations skipped, by reason.</td></tr>
 <tr><td>carbide_dpus_healthy_count</td><td>gauge</td><td>Number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.</td></tr>
 <tr><td>carbide_dpus_up_count</td><td>gauge</td><td>Number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.</td></tr>
 <tr><td>carbide_dropped_v6_requests_total</td><td>counter</td><td>Number of dropped DHCPv6 requests, by reason.</td></tr>
