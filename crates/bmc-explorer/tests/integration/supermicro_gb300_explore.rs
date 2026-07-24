@@ -54,4 +54,20 @@ async fn explore_supermicro_gb300() {
     );
     assert!(!report.systems.is_empty(), "systems must be present");
     assert!(!report.chassis.is_empty(), "chassis must be present");
+
+    let setup = report
+        .machine_setup_status
+        .expect("SMC GB300 must report machine setup status");
+    assert!(!setup.is_done);
+    assert_eq!(
+        setup
+            .diffs
+            .iter()
+            .map(|diff| diff.key.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Socket0Pcie6DisableOptionROM",
+            "Socket1Pcie6DisableOptionROM",
+        ]
+    );
 }

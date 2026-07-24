@@ -193,7 +193,9 @@ impl SupermicroGB300Nvl<'_> {
                     model: Some("GB NVL".into()),
                     oem: redfish::computer_system::Oem::Generic,
                     callbacks: Some(callbacks),
-                    secure_boot_available: true,
+                    // This firmware exposes the SecureBoot resource but omits
+                    // SecureBootEnable, so there is no usable status to report.
+                    secure_boot_available: false,
                     serial_console: Some(
                         redfish::serial_console::builder()
                             .max_concurrent_sessions(1)
@@ -299,12 +301,13 @@ impl SupermicroGB300Nvl<'_> {
 }
 
 fn base_bios(system_id: &str) -> serde_json::Value {
-    // libredfish uses this attribute to detect whether this BMC spells the
-    // enabled TPM state as "Enable" or "Enabled" before building its setup
-    // request. The suffixed key and value mirror a real Supermicro fixture.
+    // Security device support is already enabled; the DPU-facing option ROMs
+    // still need to be enabled by clearing their DisableOptionROM controls.
     redfish::bios::builder(&redfish::bios::resource(system_id))
         .attributes(json!({
-            "SecurityDeviceSupport_005A": "Enable",
+            "SecurityDeviceSupport": "Enabled",
+            "Socket0Pcie6DisableOptionROM": true,
+            "Socket1Pcie6DisableOptionROM": true,
         }))
         .build()
 }
