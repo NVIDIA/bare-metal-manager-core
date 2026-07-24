@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -288,6 +289,21 @@ pub(crate) async fn re_explore_endpoint(
             kind: "explored_endpoint",
             id: bmc_ip.to_string(),
         }
+        .into());
+    }
+
+    if let Some(bmc_interface) = db::machine_interface::find_by_ip(&mut txn, bmc_ip).await?
+        && db::bmc_suppression::is_suppressed(
+            txn.as_pgconn(),
+            bmc_interface.mac_address,
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "endpoint exploration is suppressed for BMC {} at {bmc_ip}",
+            bmc_interface.mac_address
+        ))
         .into());
     }
 

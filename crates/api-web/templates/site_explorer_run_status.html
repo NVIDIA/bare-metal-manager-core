@@ -32,6 +32,10 @@
 			<dt>Errored</dt>
 			<dd>{{ run.endpoint_explorations_failed }}</dd>
 		</div>
+		<div>
+			<dt>Skipped</dt>
+			<dd>{{ run.endpoint_explorations_skipped }}</dd>
+		</div>
 		{% if !run.failure_category.is_empty() %}
 		<div>
 			<dt>Failure Category</dt>

@@ -854,8 +854,10 @@ type SiteExplorerLastRun struct {
 	LastSuccessfulFinishedAt *string `protobuf:"bytes,9,opt,name=last_successful_finished_at,json=lastSuccessfulFinishedAt,proto3,oneof" json:"last_successful_finished_at,omitempty"`
 	// When the most recent failed run finished
 	LastFailedFinishedAt *string `protobuf:"bytes,10,opt,name=last_failed_finished_at,json=lastFailedFinishedAt,proto3,oneof" json:"last_failed_finished_at,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Number of skipped endpoint explorations during the run
+	EndpointExplorationsSkipped int64 `protobuf:"varint,11,opt,name=endpoint_explorations_skipped,json=endpointExplorationsSkipped,proto3" json:"endpoint_explorations_skipped,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *SiteExplorerLastRun) Reset() {
@@ -956,6 +958,13 @@ func (x *SiteExplorerLastRun) GetLastFailedFinishedAt() string {
 		return *x.LastFailedFinishedAt
 	}
 	return ""
+}
+
+func (x *SiteExplorerLastRun) GetEndpointExplorationsSkipped() int64 {
+	if x != nil {
+		return x.EndpointExplorationsSkipped
+	}
+	return 0
 }
 
 type ExploredEndpointSearchFilter struct {
@@ -2882,7 +2891,7 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\t_last_run\"n\n" +
 	"\x1bSiteExplorerLastRunResponse\x12B\n" +
 	"\blast_run\x18\x01 \x01(\v2\".site_explorer.SiteExplorerLastRunH\x00R\alastRun\x88\x01\x01B\v\n" +
-	"\t_last_run\"\xd0\x04\n" +
+	"\t_last_run\"\x94\x05\n" +
 	"\x13SiteExplorerLastRun\x12\x1d\n" +
 	"\n" +
 	"started_at\x18\x01 \x01(\tR\tstartedAt\x12\x1f\n" +
@@ -2896,7 +2905,8 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\x10failure_category\x18\b \x01(\tH\x01R\x0ffailureCategory\x88\x01\x01\x12B\n" +
 	"\x1blast_successful_finished_at\x18\t \x01(\tH\x02R\x18lastSuccessfulFinishedAt\x88\x01\x01\x12:\n" +
 	"\x17last_failed_finished_at\x18\n" +
-	" \x01(\tH\x03R\x14lastFailedFinishedAt\x88\x01\x01B\b\n" +
+	" \x01(\tH\x03R\x14lastFailedFinishedAt\x88\x01\x01\x12B\n" +
+	"\x1dendpoint_explorations_skipped\x18\v \x01(\x03R\x1bendpointExplorationsSkippedB\b\n" +
 	"\x06_errorB\x13\n" +
 	"\x11_failure_categoryB\x1e\n" +
 	"\x1c_last_successful_finished_atB\x1a\n" +

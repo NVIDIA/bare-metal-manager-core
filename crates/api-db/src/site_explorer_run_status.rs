@@ -34,6 +34,7 @@ struct DbSiteExplorerLastRun {
     endpoint_explorations: i64,
     endpoint_explorations_success: i64,
     endpoint_explorations_failed: i64,
+    endpoint_explorations_skipped: i64,
     last_successful_finished_at: Option<DateTime<Utc>>,
     last_failed_finished_at: Option<DateTime<Utc>>,
 }
@@ -49,6 +50,7 @@ impl From<DbSiteExplorerLastRun> for SiteExplorerLastRun {
             endpoint_explorations: run.endpoint_explorations,
             endpoint_explorations_success: run.endpoint_explorations_success,
             endpoint_explorations_failed: run.endpoint_explorations_failed,
+            endpoint_explorations_skipped: run.endpoint_explorations_skipped,
             last_successful_finished_at: run.last_successful_finished_at,
             last_failed_finished_at: run.last_failed_finished_at,
         }
@@ -57,7 +59,7 @@ impl From<DbSiteExplorerLastRun> for SiteExplorerLastRun {
 
 /// Fetches metadata for the latest site explorer run.
 pub async fn fetch(db: impl DbReader<'_>) -> DatabaseResult<Option<SiteExplorerLastRun>> {
-    let query = "SELECT started_at, finished_at, success, error, failure_category, endpoint_explorations, endpoint_explorations_success, endpoint_explorations_failed, last_successful_finished_at, last_failed_finished_at
+    let query = "SELECT started_at, finished_at, success, error, failure_category, endpoint_explorations, endpoint_explorations_success, endpoint_explorations_failed, endpoint_explorations_skipped, last_successful_finished_at, last_failed_finished_at
     FROM site_explorer_run_status
     WHERE id = $1";
 
@@ -81,13 +83,14 @@ pub async fn upsert(txn: &mut PgConnection, last_run: &SiteExplorerLastRun) -> D
     endpoint_explorations,
     endpoint_explorations_success,
     endpoint_explorations_failed,
+    endpoint_explorations_skipped,
     last_successful_finished_at,
     last_failed_finished_at
 )
 VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9,
-    CASE WHEN $4 THEN $3 ELSE $10 END,
-    CASE WHEN NOT $4 THEN $3 ELSE $11 END
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    CASE WHEN $4 THEN $3 ELSE $11 END,
+    CASE WHEN NOT $4 THEN $3 ELSE $12 END
 )
 ON CONFLICT (id) DO UPDATE SET
     started_at = EXCLUDED.started_at,
@@ -98,6 +101,7 @@ ON CONFLICT (id) DO UPDATE SET
     endpoint_explorations = EXCLUDED.endpoint_explorations,
     endpoint_explorations_success = EXCLUDED.endpoint_explorations_success,
     endpoint_explorations_failed = EXCLUDED.endpoint_explorations_failed,
+    endpoint_explorations_skipped = EXCLUDED.endpoint_explorations_skipped,
     last_successful_finished_at = CASE
         WHEN EXCLUDED.success THEN EXCLUDED.finished_at
         ELSE COALESCE(
@@ -123,6 +127,7 @@ ON CONFLICT (id) DO UPDATE SET
         .bind(last_run.endpoint_explorations)
         .bind(last_run.endpoint_explorations_success)
         .bind(last_run.endpoint_explorations_failed)
+        .bind(last_run.endpoint_explorations_skipped)
         .bind(last_run.last_successful_finished_at)
         .bind(last_run.last_failed_finished_at)
         .execute(txn)

@@ -129,6 +129,8 @@ message SiteExplorerLastRun {
   optional string last_successful_finished_at = 9;
   // When the most recent failed run finished
   optional string last_failed_finished_at = 10;
+  // Number of skipped endpoint explorations during the run
+  int64 endpoint_explorations_skipped = 11;
 }
 
 message ExploredEndpointSearchFilter {

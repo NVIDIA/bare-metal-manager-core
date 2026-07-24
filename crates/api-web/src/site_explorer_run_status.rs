@@ -38,6 +38,7 @@ pub(crate) struct SiteExplorerLastRunDisplay {
     pub(crate) endpoint_explorations: i64,
     pub(crate) endpoint_explorations_success: i64,
     pub(crate) endpoint_explorations_failed: i64,
+    pub(crate) endpoint_explorations_skipped: i64,
     pub(crate) failure_category: String,
     pub(crate) last_successful_finished_at: String,
     pub(crate) last_failed_finished_at: String,
@@ -59,6 +60,7 @@ impl From<&SiteExplorerLastRun> for SiteExplorerLastRunDisplay {
             endpoint_explorations: run.endpoint_explorations,
             endpoint_explorations_success: run.endpoint_explorations_success,
             endpoint_explorations_failed: run.endpoint_explorations_failed,
+            endpoint_explorations_skipped: run.endpoint_explorations_skipped,
             failure_category: run.failure_category.clone().unwrap_or_default(),
             last_successful_finished_at: run
                 .last_successful_finished_at
@@ -91,6 +93,7 @@ mod tests {
             endpoint_explorations: 0,
             endpoint_explorations_success: 0,
             endpoint_explorations_failed: 0,
+            endpoint_explorations_skipped: 0,
             last_successful_finished_at: None,
             last_failed_finished_at: None,
         }

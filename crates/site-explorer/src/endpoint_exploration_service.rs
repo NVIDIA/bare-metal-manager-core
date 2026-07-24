@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_redfish::boot_interface::BootInterfaceTarget;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, ExploredEndpoint};
@@ -39,6 +40,12 @@ pub enum EndpointExplorationServiceError {
 
     #[error("endpoint exploration already in progress for {0}")]
     AlreadyInProgress(IpAddr),
+
+    #[error("endpoint exploration is suppressed for BMC {bmc_mac_address} at {bmc_ip}")]
+    Suppressed {
+        bmc_ip: IpAddr,
+        bmc_mac_address: MacAddress,
+    },
 
     #[error(
         "an object of type {kind} was intended to be modified but did not have the expected version {version}"
@@ -149,6 +156,19 @@ impl EndpointExplorationService {
                 kind: "machine_interface",
                 id: bmc_ip.to_string(),
             })?;
+
+        if db::bmc_suppression::is_suppressed(
+            txn.as_pgconn(),
+            bmc_interface.mac_address,
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?
+        {
+            return Err(EndpointExplorationServiceError::Suppressed {
+                bmc_ip,
+                bmc_mac_address: bmc_interface.mac_address,
+            });
+        }
 
         let expected_machine =
             db::expected_machine::find_by_bmc_mac_address(&mut txn, bmc_interface.mac_address)

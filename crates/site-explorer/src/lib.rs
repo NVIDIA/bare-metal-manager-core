@@ -41,6 +41,7 @@ use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::errors::OperatorError;
 use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
@@ -528,6 +529,7 @@ impl SiteExplorer {
                 .endpoint_explorations_failures_by_type
                 .values()
                 .sum::<usize>() as i64,
+            endpoint_explorations_skipped: metrics.endpoint_explorations_skipped as i64,
             last_successful_finished_at: result.is_ok().then_some(finished_at),
             last_failed_finished_at: result.is_err().then_some(finished_at),
         }
@@ -647,6 +649,7 @@ impl SiteExplorer {
             identified_managed_hosts = tracing::field::Empty,
             endpoint_explorations = tracing::field::Empty,
             endpoint_explorations_success = tracing::field::Empty,
+            endpoint_explorations_skipped = tracing::field::Empty,
             endpoint_explorations_failures = tracing::field::Empty,
             endpoint_explorations_failures_by_type = tracing::field::Empty,
         );
@@ -664,6 +667,10 @@ impl SiteExplorer {
         explore_site_span.record(
             "endpoint_explorations_success",
             metrics.endpoint_explorations_success,
+        );
+        explore_site_span.record(
+            "endpoint_explorations_skipped",
+            metrics.endpoint_explorations_skipped,
         );
         explore_site_span.record(
             "endpoint_explorations_failures",
@@ -1992,12 +1999,38 @@ impl SiteExplorer {
             })
     }
 
+    async fn acknowledge_site_explorer_suppressions(
+        txn: &mut Transaction<'_>,
+    ) -> SiteExplorerResult<HashSet<MacAddress>> {
+        let suppressed_bmc_macs = db::bmc_suppression::find_bmc_mac_addresses(
+            txn.as_pgconn(),
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?;
+        let mut acknowledged_bmc_macs = HashSet::with_capacity(suppressed_bmc_macs.len());
+
+        for bmc_mac_address in suppressed_bmc_macs {
+            if db::bmc_suppression::acknowledge(
+                txn.as_pgconn(),
+                bmc_mac_address,
+                BmcSuppressionSubsystem::SiteExplorer,
+            )
+            .await?
+            {
+                acknowledged_bmc_macs.insert(bmc_mac_address);
+            }
+        }
+
+        Ok(acknowledged_bmc_macs)
+    }
+
     async fn update_explored_endpoints(
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<ExploredEndpointIndex> {
         let load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
+        let ignored_bmc_macs = Self::acknowledge_site_explorer_suppressions(&mut txn).await?;
 
         let underlay_segments =
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
@@ -2228,6 +2261,12 @@ impl SiteExplorer {
         for (address, endpoint) in index.explored_endpoints() {
             match index.underlay_interface(address) {
                 Some(iface) => {
+                    if ignored_bmc_macs.contains(&iface.mac_address) {
+                        tracing::info!(bmc_ip_address = %address, bmc_mac_address = %iface.mac_address, "Skipping exploration of suppressed BMC");
+                        metrics.endpoint_explorations_skipped += 1;
+                        continue;
+                    }
+
                     if endpoint.exploration_requested {
                         priority_update_endpoints.push((*address, iface, endpoint));
                     } else {
@@ -2271,12 +2310,22 @@ impl SiteExplorer {
         // If there is a MachineInterface and no previously discovered information,
         // we need to detect it. This includes both regular machines, PowerShelves
         // and Switches.
-        let unexplored_endpoints = index.get_unexplored_endpoints();
+        let unexplored_endpoints = index
+            .get_unexplored_endpoints()
+            .into_iter()
+            .filter(|(address, iface)| {
+                if ignored_bmc_macs.contains(&iface.mac_address) {
+                    metrics.endpoint_explorations_skipped += 1;
+                    tracing::info!(bmc_ip_address = %address, bmc_mac_address = %iface.mac_address, "Skipping exploration of suppressed BMC");
+                    return false;
+                }
+                true
+            })
+            .collect::<Vec<_>>();
         metrics.record_update_explored_endpoints_count(
             "unexplored_candidates",
             unexplored_endpoints.len(),
         );
-
         // Now that we gathered the candidates for exploration, let's decide what
         // we are actually going to explore. The config limits the amount of explorations
         // per iteration.

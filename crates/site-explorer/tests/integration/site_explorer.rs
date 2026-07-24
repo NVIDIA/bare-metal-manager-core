@@ -33,6 +33,7 @@ use db::ObjectFilter;
 use db::sku::CURRENT_SKU_VERSION;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::bmc_suppression::{BmcSuppressionSubsystem, NewBmcSuppression};
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
@@ -145,6 +146,322 @@ fn last_run_test_config() -> SiteExplorerConfig {
     }
 }
 
+fn suppression_test_config(explorations_per_run: u64) -> SiteExplorerConfig {
+    SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run,
+        concurrent_explorations: 1,
+        run_interval: Duration::from_secs(1),
+        create_machines: Arc::new(false.into()),
+        create_power_shelves: Arc::new(false.into()),
+        create_switches: Arc::new(false.into()),
+        ..Default::default()
+    }
+}
+
+fn suppression_input(
+    bmc_mac_address: MacAddress,
+    subsystem: BmcSuppressionSubsystem,
+) -> NewBmcSuppression {
+    NewBmcSuppression {
+        bmc_mac_address,
+        reason: "site explorer suppression test".to_string(),
+        subsystem,
+    }
+}
+
+fn cached_suppression_report(details: &str) -> EndpointExplorationReport {
+    EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        last_exploration_error: Some(EndpointExplorationError::Unauthorized {
+            details: details.to_string(),
+            response_body: None,
+            response_code: None,
+        }),
+        ..Default::default()
+    }
+}
+
+#[sqlx_test]
+async fn test_periodic_suppression_skips_every_candidate_class(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let mut machines = vec![
+        env.new_machine("02:00:00:00:10:01", "Vendor1"),
+        env.new_machine("02:00:00:00:10:02", "Vendor2"),
+        env.new_machine("02:00:00:00:10:03", "Vendor3"),
+        env.new_machine("02:00:00:00:10:04", "Vendor4"),
+    ];
+    machines.discover_dhcp(env.api()).await?;
+
+    let unexplored_ip: IpAddr = machines[0].ip.parse()?;
+    let priority_ip: IpAddr = machines[1].ip.parse()?;
+    let routine_ip: IpAddr = machines[2].ip.parse()?;
+    let dhcp_only_ip: IpAddr = machines[3].ip.parse()?;
+    let priority_report = cached_suppression_report("priority refresh");
+    let routine_report = cached_suppression_report("routine refresh");
+
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::insert(priority_ip, &priority_report, false, txn.as_mut()).await?;
+    db::explored_endpoints::insert(routine_ip, &routine_report, false, txn.as_mut()).await?;
+    db::explored_endpoints::request_exploration_for_addresses(&[priority_ip], txn.as_mut()).await?;
+    for machine in &machines[..3] {
+        db::bmc_suppression::upsert(
+            txn.as_mut(),
+            &suppression_input(machine.mac, BmcSuppressionSubsystem::SiteExplorer),
+        )
+        .await?;
+    }
+    db::bmc_suppression::upsert(
+        txn.as_mut(),
+        &suppression_input(machines[3].mac, BmcSuppressionSubsystem::Dhcp),
+    )
+    .await?;
+    let priority_before = db::explored_endpoints::find_all_by_ip(priority_ip, txn.as_mut()).await?;
+    let routine_before = db::explored_endpoints::find_all_by_ip(routine_ip, txn.as_mut()).await?;
+    txn.commit().await?;
+    assert_eq!(priority_before.len(), 1);
+    assert!(priority_before[0].exploration_requested);
+    assert_eq!(routine_before.len(), 1);
+    assert!(!routine_before[0].exploration_requested);
+
+    let explorer = env.test_site_explorer(suppression_test_config(10));
+    explorer.insert_endpoints(vec![(
+        dhcp_only_ip,
+        EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            ..Default::default()
+        },
+    )]);
+    explorer.run_single_iteration().await?;
+
+    assert_eq!(
+        explorer
+            .endpoint_explorer()
+            .explore_endpoint_calls
+            .lock()
+            .unwrap()
+            .as_slice(),
+        &[dhcp_only_ip]
+    );
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::explored_endpoints::find_all_by_ip(unexplored_ip, txn.as_mut())
+            .await?
+            .is_empty()
+    );
+    assert_eq!(
+        db::explored_endpoints::find_all_by_ip(priority_ip, txn.as_mut()).await?,
+        priority_before
+    );
+    assert_eq!(
+        db::explored_endpoints::find_all_by_ip(routine_ip, txn.as_mut()).await?,
+        routine_before
+    );
+    assert_eq!(
+        db::explored_endpoints::find_all_by_ip(dhcp_only_ip, txn.as_mut())
+            .await?
+            .len(),
+        1
+    );
+    for machine in &machines[..3] {
+        assert!(
+            db::bmc_suppression::find(
+                txn.as_mut(),
+                machine.mac,
+                BmcSuppressionSubsystem::SiteExplorer,
+            )
+                .await?
+                .unwrap()
+                .acknowledged_at
+                .is_some()
+        );
+    }
+    let dhcp_only_suppression = db::bmc_suppression::find(
+        txn.as_mut(),
+        machines[3].mac,
+        BmcSuppressionSubsystem::Dhcp,
+    )
+    .await?
+    .unwrap();
+    assert!(dhcp_only_suppression.acknowledged_at.is_none());
+    assert_eq!(
+        db::site_explorer_run_status::fetch(txn.as_mut())
+            .await?
+            .unwrap()
+            .endpoint_explorations_skipped,
+        3
+    );
+    txn.commit().await?;
+
+    assert_eq!(
+        env.test_harness
+            .test_meter
+            .formatted_metric("carbide_endpoint_exploration_skipped_count")
+            .as_deref(),
+        Some("3")
+    );
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_suppressed_unexplored_endpoint_does_not_consume_budget_and_resumes(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let mut machines = vec![
+        env.new_machine("02:00:00:00:11:01", "Vendor1"),
+        env.new_machine("02:00:00:00:11:02", "Vendor2"),
+    ];
+    machines.discover_dhcp(env.api()).await?;
+
+    let suppressed_ip: IpAddr = machines[0].ip.parse()?;
+    let routine_ip: IpAddr = machines[1].ip.parse()?;
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::insert(
+        routine_ip,
+        &cached_suppression_report("eligible routine refresh"),
+        false,
+        txn.as_mut(),
+    )
+    .await?;
+    db::bmc_suppression::upsert(
+        txn.as_mut(),
+        &suppression_input(machines[0].mac, BmcSuppressionSubsystem::SiteExplorer),
+    )
+    .await?;
+    let routine_before = db::explored_endpoints::find_all_by_ip(routine_ip, txn.as_mut()).await?;
+    txn.commit().await?;
+    assert_eq!(routine_before.len(), 1);
+
+    let explorer = env.test_site_explorer(suppression_test_config(1));
+    explorer.insert_endpoints(vec![
+        (
+            suppressed_ip,
+            EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                ..Default::default()
+            },
+        ),
+        (
+            routine_ip,
+            EndpointExplorationReport {
+                endpoint_type: EndpointType::Bmc,
+                ..Default::default()
+            },
+        ),
+    ]);
+    explorer.run_single_iteration().await?;
+
+    assert_eq!(
+        explorer
+            .endpoint_explorer()
+            .explore_endpoint_calls
+            .lock()
+            .unwrap()
+            .as_slice(),
+        &[routine_ip]
+    );
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::explored_endpoints::find_all_by_ip(suppressed_ip, txn.as_mut())
+            .await?
+            .is_empty()
+    );
+    let routine_after = db::explored_endpoints::find_all_by_ip(routine_ip, txn.as_mut()).await?;
+    assert_eq!(routine_after.len(), 1);
+    assert_eq!(
+        routine_after[0].report_version,
+        routine_before[0].report_version.increment()
+    );
+    db::bmc_suppression::delete(
+        txn.as_mut(),
+        machines[0].mac,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await?;
+    txn.commit().await?;
+
+    explorer
+        .endpoint_explorer()
+        .explore_endpoint_calls
+        .lock()
+        .unwrap()
+        .clear();
+    explorer.run_single_iteration().await?;
+
+    assert_eq!(
+        explorer
+            .endpoint_explorer()
+            .explore_endpoint_calls
+            .lock()
+            .unwrap()
+            .as_slice(),
+        &[suppressed_ip]
+    );
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::explored_endpoints::find_all_by_ip(suppressed_ip, txn.as_mut())
+            .await?
+            .len(),
+        1
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_suppression_is_acknowledged_before_precondition_failure(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let suppressed_mac: MacAddress = "02:00:00:00:12:01".parse()?;
+    let mut txn = env.pool.begin().await?;
+    db::bmc_suppression::upsert(
+        txn.as_mut(),
+        &suppression_input(suppressed_mac, BmcSuppressionSubsystem::SiteExplorer),
+    )
+    .await?;
+    txn.commit().await?;
+
+    let explorer = env.test_site_explorer(suppression_test_config(1));
+    explorer.endpoint_explorer().set_precondition_result(Err(
+        EndpointExplorationError::MissingCredentials {
+            key: LAST_RUN_MISSING_CREDENTIAL_KEY.to_string(),
+            cause: "missing site-wide credential".to_string(),
+        },
+    ));
+    explorer
+        .run_single_iteration()
+        .await
+        .expect_err("credential precondition should fail the iteration");
+
+    assert_eq!(
+        explorer.endpoint_explorer().explore_endpoint_call_count(),
+        0
+    );
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::bmc_suppression::find(
+            txn.as_mut(),
+            suppressed_mac,
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+            .await?
+            .unwrap()
+            .acknowledged_at
+            .is_some()
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
 #[sqlx_test]
 async fn test_site_explorer_records_last_run(
     pool: PgPool,
@@ -164,6 +481,7 @@ async fn test_site_explorer_records_last_run(
         endpoint_explorations: i64,
         endpoint_explorations_success: i64,
         endpoint_explorations_failed: i64,
+        endpoint_explorations_skipped: i64,
         failure_category: Option<&'static str>,
         has_last_successful_finished_at: bool,
         has_last_failed_finished_at: bool,
@@ -187,6 +505,7 @@ async fn test_site_explorer_records_last_run(
                 endpoint_explorations: 1,
                 endpoint_explorations_success: 1,
                 endpoint_explorations_failed: 0,
+                endpoint_explorations_skipped: 0,
                 failure_category: None,
                 has_last_successful_finished_at: true,
                 has_last_failed_finished_at: false,
@@ -201,6 +520,7 @@ async fn test_site_explorer_records_last_run(
                 endpoint_explorations: 0,
                 endpoint_explorations_success: 0,
                 endpoint_explorations_failed: 0,
+                endpoint_explorations_skipped: 0,
                 failure_category: Some(LAST_RUN_MISSING_CREDENTIAL_CATEGORY),
                 has_last_successful_finished_at: true,
                 has_last_failed_finished_at: true,
@@ -261,6 +581,11 @@ async fn test_site_explorer_records_last_run(
         );
         assert_eq!(
             last_run.endpoint_explorations_failed, case.expected.endpoint_explorations_failed,
+            "{}",
+            case.name
+        );
+        assert_eq!(
+            last_run.endpoint_explorations_skipped, case.expected.endpoint_explorations_skipped,
             "{}",
             case.name
         );

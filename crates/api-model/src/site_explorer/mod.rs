@@ -794,6 +794,8 @@ pub struct SiteExplorerLastRun {
     pub endpoint_explorations_success: i64,
     /// Number of endpoint exploration errors during the run.
     pub endpoint_explorations_failed: i64,
+    /// Number of endpoint explorations skipped during the run.
+    pub endpoint_explorations_skipped: i64,
     /// When the most recent successful run finished.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_successful_finished_at: Option<DateTime<Utc>>,

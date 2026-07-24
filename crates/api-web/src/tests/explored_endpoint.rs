@@ -101,6 +101,7 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         endpoint_explorations: 3,
         endpoint_explorations_success: 2,
         endpoint_explorations_failed: 1,
+        endpoint_explorations_skipped: 4,
         last_successful_finished_at: Some(finished_at),
         last_failed_finished_at: Some(finished_at),
     };
@@ -127,6 +128,8 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         assert!(body.contains("<dd>2</dd>"), "{uri}");
         assert!(body.contains("<dt>Errored</dt>"), "{uri}");
         assert!(body.contains("<dd>1</dd>"), "{uri}");
+        assert!(body.contains("<dt>Skipped</dt>"), "{uri}");
+        assert!(body.contains("<dd>4</dd>"), "{uri}");
         assert!(body.contains("<dt>Last Successful</dt>"), "{uri}");
         assert!(body.contains("<dt>Last Failed</dt>"), "{uri}");
     }
