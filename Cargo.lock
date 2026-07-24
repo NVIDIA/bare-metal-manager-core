@@ -2493,7 +2493,9 @@ dependencies = [
 name = "carbide-machine-validation"
 version = "0.0.0"
 dependencies = [
+ "carbide-instrument",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",

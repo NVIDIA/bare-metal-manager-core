@@ -126,9 +126,11 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>Number of machines in the system in the process of updating</td></tr>
 <tr><td>carbide_machine_validation_completed</td><td>gauge</td><td>Number of successfully completed machine validation runs</td></tr>
 <tr><td>carbide_machine_validation_failed</td><td>gauge</td><td>Number of failed machine validation runs</td></tr>
+<tr><td>carbide_machine_validation_heartbeat_failures_total</td><td>counter</td><td>Number of machine validation heartbeat failures, by stage and reason.</td></tr>
 <tr><td>carbide_machine_validation_in_progress</td><td>gauge</td><td>Number of machine validation runs in progress</td></tr>
 <tr><td>carbide_machine_validation_oldest_active_age_seconds</td><td>gauge</td><td>Age in seconds of the oldest active machine validation run</td></tr>
 <tr><td>carbide_machine_validation_outcomes_total</td><td>counter</td><td>Number of machine validation runs that completed as passed or failed, by outcome and failure cause; runs skipped by a disabled validation config are not counted</td></tr>
+<tr><td>carbide_machine_validation_result_persistence_attempts_total</td><td>counter</td><td>Number of machine validation result persistence attempts, by outcome.</td></tr>
 <tr><td>carbide_machine_validation_stale_runs_count</td><td>gauge</td><td>Number of active machine validation runs considered stale</td></tr>
 <tr><td>carbide_machine_validation_tests</td><td>gauge</td><td>The details of machine validation tests</td></tr>
 <tr><td>carbide_machines_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_machines in the system</td></tr>
