@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Database functions for carbide-api"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "db"

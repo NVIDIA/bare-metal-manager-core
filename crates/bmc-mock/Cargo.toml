@@ -21,6 +21,7 @@ description = "HTTP server that pretends to be a BMC / libredfish. For integrati
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }

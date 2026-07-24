@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Carbide API service implementation (Api/Forge, handlers, server bootstrap)"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_api_core"

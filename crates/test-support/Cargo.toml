@@ -21,6 +21,7 @@ edition.workspace = true
 description = "A tiny crate of shared test helpers: table-driven tests and query counting."
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_test_support"

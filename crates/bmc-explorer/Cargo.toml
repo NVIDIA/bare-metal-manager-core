@@ -21,6 +21,7 @@ description = "Explorer of BMC of different vendors"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [[test]]
 name = "integration"
