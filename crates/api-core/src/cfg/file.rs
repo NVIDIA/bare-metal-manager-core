@@ -2309,6 +2309,22 @@ pub struct PowerShelfStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// When `true`, the power shelf Ready handler accepts rack-level
+    /// `power_shelf_reprovisioning_requested` and enters
+    /// `ReProvisioning::WaitingForRackFirmwareUpgrade`.
+    ///
+    /// Defaults to `false` so power shelves stay out of rack firmware wait
+    /// unless explicitly enabled.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [power_shelf_state_controller]
+    /// rack_firmware_reprovisioning_enabled = true
+    /// ```
+    #[serde(default)]
+    pub rack_firmware_reprovisioning_enabled: bool,
 }
 
 /// RackStateController related config

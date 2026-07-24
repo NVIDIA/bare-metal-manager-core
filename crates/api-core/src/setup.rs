@@ -1444,6 +1444,9 @@ async fn initialize_and_start_controllers<'a>(
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                rack_firmware_reprovisioning_enabled: carbide_config
+                    .power_shelf_state_controller
+                    .rack_firmware_reprovisioning_enabled,
             }
             .into(),
         )
