@@ -65,6 +65,9 @@ impl From<BmcInfo> for rpc::BmcInfo {
     }
 }
 
+/// Converts the ingestion-time connection fields of `BmcInfo` into the
+/// new `BmcEndpoint` message. Part of the BmcInfo -> BmcEndpoint/BmcStatus
+/// split; see #3516.
 impl From<BmcInfo> for rpc::BmcEndpoint {
     fn from(value: BmcInfo) -> Self {
         rpc::BmcEndpoint {
@@ -76,6 +79,9 @@ impl From<BmcInfo> for rpc::BmcEndpoint {
     }
 }
 
+/// Converts the observed/runtime fields of `BmcInfo` into the new
+/// `BmcStatus` message. Part of the BmcInfo -> BmcEndpoint/BmcStatus
+/// split; see #3516.
 impl From<BmcInfo> for rpc::BmcStatus {
     fn from(value: BmcInfo) -> Self {
         rpc::BmcStatus {
