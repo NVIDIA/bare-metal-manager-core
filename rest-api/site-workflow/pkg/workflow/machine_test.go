@@ -4,7 +4,6 @@
 package workflow
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	temporalactivity "go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
@@ -218,16 +216,6 @@ type GetDpuMachinesTestSuite struct {
 	env *testsuite.TestWorkflowEnvironment
 }
 
-func legacyGetDpuMachinesByIDs(_ context.Context, dpuMachineIDs []string) ([]*cwssaws.DpuMachine, error) {
-	dpuMachines := make([]*cwssaws.DpuMachine, 0, len(dpuMachineIDs))
-	for _, id := range dpuMachineIDs {
-		dpuMachines = append(dpuMachines, &cwssaws.DpuMachine{
-			Machine: &cwssaws.Machine{Id: &cwssaws.MachineId{Id: id}},
-		})
-	}
-	return dpuMachines, nil
-}
-
 func (s *GetDpuMachinesTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
@@ -299,25 +287,6 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 	}
 	s.Equal("10.0.0.0/24", result.Machines[0].DpuNetworkConfig.NetworkSecurityPolicyOverrides[0].Rule.GetSrcPrefix())
 	s.Equal("10.1.0.0/24", result.Machines[0].DpuNetworkConfig.NetworkSecurityPolicyOverrides[0].Rule.GetDstPrefix())
-}
-
-func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_LegacyActivityResult() {
-	dpuMachineIDs := []string{"dpu-machine-1", "dpu-machine-2"}
-
-	s.env.RegisterActivityWithOptions(legacyGetDpuMachinesByIDs, temporalactivity.RegisterOptions{
-		Name: "GetDpuMachinesByIDs",
-	})
-
-	s.env.ExecuteWorkflow(GetDpuMachines, dpuMachineIDs)
-	s.True(s.env.IsWorkflowCompleted())
-	s.NoError(s.env.GetWorkflowError())
-
-	var result cwssaws.DpuMachineList
-	s.NoError(s.env.GetWorkflowResult(&result))
-	s.Len(result.Machines, len(dpuMachineIDs))
-	for i, dpuMachine := range result.Machines {
-		s.Equal(dpuMachineIDs[i], dpuMachine.Machine.Id.Id)
-	}
 }
 
 func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_ActivityFails() {
