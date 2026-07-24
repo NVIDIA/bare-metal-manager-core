@@ -212,6 +212,41 @@ Only registered Expected Machines will be ingested.
 
 For optional REST fields and batch JSON examples, use [Ingesting Hosts (REST API)](ingesting-hosts-rest-api.md#registering-expected-machines).
 
+### Per-Host Fields With the Admin CLI
+
+Some per-host settings are not exposed through the REST API or `nicocli`. To set them, use the admin CLI's `expected-machine` command (`em`), which reads a snake_case `expected_machines.json` file and applies the whole table at once:
+
+- **`dpu_policy`** (`"manage"` | `"nic"` | `"ignore"`): Per-host policy for managing DPU hardware. `nic` and `ignore` override the site policy; `manage` or an omitted field inherits the site-wide policy, which defaults to `manage`. The previous `"use_as_nic"` value is still accepted, as are manifests using the `dpu_mode` key with `"dpu_mode"`, `"nic_mode"`, or `"no_dpu"` values.
+- **`dpf_enabled`** (bool): Enable or disable DPF for this host.
+- **`bmc_retain_credentials`** (bool): Skip BMC password rotation.
+- **`default_pause_ingestion_and_poweron`** (bool): Pause ingestion and power-on for this host.
+- **`bmc_ip_address`** (string): Static BMC IP, which pre-allocates a machine interface.
+- **`host_lifecycle_profile.disable_lockdown`** (bool, default `false`): When `true`, the state machine does not lock down the host during lifecycle management, which suits automation workflows that keep lockdown disabled.
+
+Each manifest entry combines the required BMC credentials with any of these fields:
+
+```json
+{
+  "expected_machines": [
+    {
+      "bmc_mac_address": "C4:5A:B1:C8:38:0D",
+      "bmc_username": "root",
+      "bmc_password": "default-password1",
+      "chassis_serial_number": "SERIAL-1",
+      "dpu_policy": "nic"
+    }
+  ]
+}
+```
+
+Apply the manifest with the admin CLI:
+
+```bash
+nico-admin-cli -a <api-url> em replace-all --filename expected_machines.json
+```
+
+Because `em replace-all` sets the entire table, include every host in the file. To change one entry in place, use `nico-admin-cli em patch` (for example, `nico-admin-cli em patch --bmc-mac-address <bmc-mac> --dpu-policy nic`).
+
 ## Approve all Machines for Ingestion
 
 NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to enforce cryptographic identity of the host hardware and firmware. The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6:

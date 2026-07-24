@@ -17,13 +17,13 @@
 use std::ffi::{CStr, c_char};
 use std::net::{IpAddr, Ipv4Addr};
 
+use carbide_dhcp_common::VendorClass;
 use derive_builder::Builder;
 use mac_address::MacAddress;
 use rpc::forge as rpc;
 
 use crate::machine::Machine;
 use crate::metrics::set_service_healthy;
-use crate::vendor_class::VendorClass;
 use crate::{CONFIG, CarbideDhcpContext, cache, tls};
 
 /// Enumerates results of setting discovery options on the Builder

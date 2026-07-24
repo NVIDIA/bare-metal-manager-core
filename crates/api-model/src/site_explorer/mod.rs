@@ -1330,8 +1330,8 @@ impl EndpointExplorationError {
 
 impl OperatorError for EndpointExplorationError {
     fn operator_error_code(&self) -> ErrorCode {
-        // Every code in this module is a site-explorer code, so the subsystem is
-        // assumed rather than repeated per arm.
+        // Most variants use Site Explorer codes; the DPU BIOS variant below
+        // keeps its existing DPU-specific code.
         use ErrorSubsystem::SiteExplorer;
         match self {
             EndpointExplorationError::ConnectionTimeout { .. } => {
@@ -2510,7 +2510,9 @@ mod explored_mlx_device_tests {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
+    use carbide_test_support::{
+        Case, Check, check_cases, check_values, scenarios, value_scenarios,
+    };
 
     use super::*;
     use crate::firmware::FirmwareComponent;
@@ -2603,6 +2605,334 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum MitigationGroup {
+        Network,
+        HardwareCompatibility,
+        Credentials,
+        IntermittentCredentials,
+        DpuRecovery,
+        DgxRetry,
+        NoMitigation,
+    }
+
+    impl MitigationGroup {
+        fn from_mitigation(mitigation: Option<&str>) -> Self {
+            match mitigation {
+                None => Self::NoMitigation,
+                Some(mitigation) if mitigation.contains("force-restarts the DPU") => {
+                    Self::DpuRecovery
+                }
+                Some(mitigation)
+                    if mitigation.contains("general DGX H100/H200 Redfish API information") =>
+                {
+                    Self::DgxRetry
+                }
+                Some(mitigation) if mitigation.starts_with("Transient:") => {
+                    Self::IntermittentCredentials
+                }
+                Some(mitigation)
+                    if mitigation.contains("PUT /v2/org/{org}/nico/credential/bmc") =>
+                {
+                    Self::Credentials
+                }
+                Some(mitigation) if mitigation.contains("Hardware Compatibility List") => {
+                    Self::HardwareCompatibility
+                }
+                Some(mitigation) if mitigation.contains("network reachability") => Self::Network,
+                Some(mitigation) => panic!("unclassified mitigation: {mitigation}"),
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct EndpointErrorBehavior {
+        code: ErrorCode,
+        unauthorized: bool,
+        unreachable: bool,
+        redfish: bool,
+        invalid_dpu_bios_response: bool,
+        intermittent_unauthorized_count: Option<u32>,
+        mitigation_group: MitigationGroup,
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct EndpointPredicates {
+        unauthorized: bool,
+        unreachable: bool,
+        redfish: bool,
+        invalid_dpu_bios_response: bool,
+    }
+
+    fn expected_error_behavior(
+        code: ErrorCode,
+        predicates: EndpointPredicates,
+        intermittent_unauthorized_count: Option<u32>,
+        mitigation_group: MitigationGroup,
+    ) -> EndpointErrorBehavior {
+        let EndpointPredicates {
+            unauthorized,
+            unreachable,
+            redfish,
+            invalid_dpu_bios_response,
+        } = predicates;
+        EndpointErrorBehavior {
+            code,
+            unauthorized,
+            unreachable,
+            redfish,
+            invalid_dpu_bios_response,
+            intermittent_unauthorized_count,
+            mitigation_group,
+        }
+    }
+
+    #[test]
+    fn endpoint_exploration_error_behavior_is_stable() {
+        use ErrorSubsystem::SiteExplorer;
+        use MitigationGroup::*;
+
+        check_values(
+            [
+                Check {
+                    scenario: "connection timeout",
+                    input: EndpointExplorationError::ConnectionTimeout {
+                        details: "timeout".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 100),
+                        EndpointPredicates {
+                            unreachable: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Network,
+                    ),
+                },
+                Check {
+                    scenario: "connection refused",
+                    input: EndpointExplorationError::ConnectionRefused {
+                        details: "refused".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 101),
+                        EndpointPredicates {
+                            unreachable: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Network,
+                    ),
+                },
+                Check {
+                    scenario: "unreachable",
+                    input: EndpointExplorationError::Unreachable {
+                        details: Some("network".to_string()),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 102),
+                        EndpointPredicates {
+                            unreachable: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Network,
+                    ),
+                },
+                Check {
+                    scenario: "unsupported vendor",
+                    input: EndpointExplorationError::UnsupportedVendor {
+                        vendor: "unknown".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 120),
+                        EndpointPredicates::default(),
+                        None,
+                        HardwareCompatibility,
+                    ),
+                },
+                Check {
+                    scenario: "missing redfish",
+                    input: EndpointExplorationError::MissingRedfish { uri: None },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 121),
+                        EndpointPredicates::default(),
+                        None,
+                        NoMitigation,
+                    ),
+                },
+                Check {
+                    scenario: "missing vendor",
+                    input: EndpointExplorationError::MissingVendor { observed: None },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 122),
+                        EndpointPredicates::default(),
+                        None,
+                        HardwareCompatibility,
+                    ),
+                },
+                Check {
+                    scenario: "redfish error",
+                    input: EndpointExplorationError::RedfishError {
+                        details: "request failed".to_string(),
+                        response_body: None,
+                        response_code: Some(500),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 130),
+                        EndpointPredicates {
+                            redfish: true,
+                            ..Default::default()
+                        },
+                        None,
+                        NoMitigation,
+                    ),
+                },
+                Check {
+                    scenario: "DGX firmware inventory forbidden",
+                    input: EndpointExplorationError::VikingFWInventoryForbiddenError {
+                        details: "forbidden".to_string(),
+                        response_body: None,
+                        response_code: Some(403),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 131),
+                        EndpointPredicates::default(),
+                        None,
+                        DgxRetry,
+                    ),
+                },
+                Check {
+                    scenario: "unauthorized",
+                    input: EndpointExplorationError::Unauthorized {
+                        details: "unauthorized".to_string(),
+                        response_body: None,
+                        response_code: Some(401),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 140),
+                        EndpointPredicates {
+                            unauthorized: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "missing credentials",
+                    input: EndpointExplorationError::MissingCredentials {
+                        key: "bmc".to_string(),
+                        cause: "missing".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 141),
+                        EndpointPredicates::default(),
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "secrets engine",
+                    input: EndpointExplorationError::SecretsEngineError {
+                        cause: "unavailable".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 142),
+                        EndpointPredicates::default(),
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "set credentials",
+                    input: EndpointExplorationError::SetCredentials {
+                        key: "bmc".to_string(),
+                        cause: "failed".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 143),
+                        EndpointPredicates::default(),
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "avoid lockout",
+                    input: EndpointExplorationError::AvoidLockout,
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 144),
+                        EndpointPredicates {
+                            unauthorized: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "intermittent unauthorized",
+                    input: EndpointExplorationError::IntermittentUnauthorized {
+                        details: "temporary unauthorized response".to_string(),
+                        response_body: None,
+                        response_code: Some(401),
+                        consecutive_count: 3,
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 145),
+                        EndpointPredicates::default(),
+                        Some(3),
+                        IntermittentCredentials,
+                    ),
+                },
+                Check {
+                    scenario: "other",
+                    input: EndpointExplorationError::Other {
+                        details: "unexpected".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 199),
+                        EndpointPredicates::default(),
+                        None,
+                        NoMitigation,
+                    ),
+                },
+                Check {
+                    scenario: "invalid DPU BIOS response",
+                    input: EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                        details: "attributes not ready".to_string(),
+                        response_body: None,
+                        response_code: None,
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(ErrorSubsystem::Dpu, 134),
+                        EndpointPredicates {
+                            redfish: true,
+                            invalid_dpu_bios_response: true,
+                            ..Default::default()
+                        },
+                        None,
+                        DpuRecovery,
+                    ),
+                },
+            ],
+            |error| {
+                let schema = error.operator_error_schema();
+                EndpointErrorBehavior {
+                    code: schema.error_code,
+                    unauthorized: error.is_unauthorized(),
+                    unreachable: error.is_unreachable(),
+                    redfish: error.is_redfish(),
+                    invalid_dpu_bios_response: error.is_dpu_redfish_bios_response_invalid(),
+                    intermittent_unauthorized_count: error.intermittent_unauthorized_count(),
+                    mitigation_group: MitigationGroup::from_mitigation(
+                        schema.mitigation.as_deref(),
+                    ),
+                }
+            },
+        );
+    }
+
     #[test]
     fn dpu_bios_error_schema_contains_operator_action() {
         let error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
@@ -2612,15 +2942,13 @@ mod tests {
         };
 
         let schema = error.operator_error_schema();
+        let mitigation = schema
+            .mitigation
+            .as_deref()
+            .expect("DPU BIOS errors have recovery guidance");
 
-        assert_eq!(
-            schema.error_code,
-            EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
-        );
-        assert_eq!(
-            schema.mitigation.as_deref(),
-            Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
-        );
+        assert!(mitigation.contains("force-restarts the DPU"));
+        assert!(mitigation.contains("BMC reset"));
         assert!(
             schema
                 .text
@@ -2758,59 +3086,75 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_find_all_versions_single_match() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware", Some("1.2.3")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0], &"1.2.3".to_string());
+    struct FindAllVersionsInput {
+        regex_pattern: &'static str,
+        inventories: Vec<(&'static str, Option<&'static str>)>,
     }
 
     #[test]
-    fn test_find_all_versions_multiple_matches() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware_1", Some("1.2.3")),
-            ("BMC_Firmware_2", Some("2.3.4")),
-            ("BMC_Firmware_3", Some("3.4.5")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
+    fn find_all_versions_returns_each_populated_match() {
+        check_values(
+            [
+                Check {
+                    scenario: "anchored pattern returns its exact match",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"^BMC_Firmware$",
+                        inventories: vec![
+                            ("BMC_Firmware", Some("1.2.3")),
+                            ("DPU_UEFI", Some("4.5.6")),
+                        ],
+                    },
+                    expect: vec!["1.2.3".to_string()],
+                },
+                Check {
+                    scenario: "returns matching versions in inventory order",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"BMC_Firmware",
+                        inventories: vec![
+                            ("BMC_Firmware_1", Some("1.2.3")),
+                            ("BMC_Firmware_2", Some("2.3.4")),
+                            ("BMC_Firmware_3", Some("3.4.5")),
+                            ("DPU_UEFI", Some("4.5.6")),
+                        ],
+                    },
+                    expect: vec![
+                        "1.2.3".to_string(),
+                        "2.3.4".to_string(),
+                        "3.4.5".to_string(),
+                    ],
+                },
+                Check {
+                    scenario: "returns no versions when no inventory matches",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"^BMC_Firmware$",
+                        inventories: vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))],
+                    },
+                    expect: Vec::new(),
+                },
+                Check {
+                    scenario: "skips a matching inventory without a version",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"BMC_Firmware",
+                        inventories: vec![
+                            ("BMC_Firmware_1", Some("1.2.3")),
+                            ("BMC_Firmware_2", None),
+                            ("BMC_Firmware_3", Some("3.4.5")),
+                        ],
+                    },
+                    expect: vec!["1.2.3".to_string(), "3.4.5".to_string()],
+                },
+            ],
+            |input| {
+                let fw_info = create_test_firmware(FirmwareComponentType::Bmc, input.regex_pattern);
+                let endpoint = create_test_endpoint(input.inventories);
 
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0], &"1.2.3".to_string());
-        assert_eq!(results[1], &"2.3.4".to_string());
-        assert_eq!(results[2], &"3.4.5".to_string());
-    }
-
-    #[test]
-    fn test_find_all_versions_no_matches() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint =
-            create_test_endpoint(vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn test_find_all_versions_skips_none() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware_1", Some("1.2.3")),
-            ("BMC_Firmware_2", None),
-            ("BMC_Firmware_3", Some("3.4.5")),
-        ]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0], &"1.2.3".to_string());
-        assert_eq!(results[1], &"3.4.5".to_string());
+                endpoint
+                    .find_all_versions(&fw_info, FirmwareComponentType::Bmc)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            },
+        );
     }
 
     #[test]

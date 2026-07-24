@@ -17,6 +17,7 @@
 
 //! Handler for RackState::Maintenance.
 
+use carbide_instrument::{Event, emit};
 use carbide_rack::firmware_object::{
     ANY_RACK_HARDWARE_TYPE, profile_hardware_type_wire_value, rack_maintenance_access_token_key,
     rms_access_token_or_noauth,
@@ -289,6 +290,23 @@ async fn load_rack_maintenance_access_token(
     Ok(password)
 }
 
+#[derive(Event)]
+#[event(
+    event_name = "rack_maintenance_access_token_cleanup_failed",
+    metric_name = "carbide_rack_maintenance_access_token_cleanup_failures_total",
+    component = "rack-controller",
+    log = warn,
+    metric = counter,
+    message = "failed to delete rack maintenance access token",
+    describe = "Number of rack maintenance access token cleanup failures"
+)]
+struct RackMaintenanceAccessTokenCleanupFailed {
+    #[context]
+    rack_id: RackId,
+    #[context]
+    error: String,
+}
+
 async fn delete_rack_maintenance_access_token(
     credential_manager: &dyn CredentialManager,
     rack_id: &RackId,
@@ -297,11 +315,10 @@ async fn delete_rack_maintenance_access_token(
         .delete_credentials(&rack_maintenance_access_token_key(rack_id))
         .await
     {
-        tracing::warn!(
-            rack_id = %rack_id,
-            error = %error,
-            "failed to delete rack maintenance access token",
-        );
+        emit(RackMaintenanceAccessTokenCleanupFailed {
+            rack_id: rack_id.clone(),
+            error: error.to_string(),
+        });
     }
 }
 
@@ -2466,8 +2483,10 @@ pub async fn handle_maintenance(
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_rack::firmware_update::RackFirmwareInventory;
     use carbide_rack::rms_node_type::switch_node_identity_for_profile;
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_test_support::{Check, check_values};
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use carbide_uuid::rack::RackId;
@@ -2480,9 +2499,10 @@ mod tests {
     use model::rack_type::{RackHardwareType, RackProductFamily, RackProfile};
 
     use super::{
-        build_switch_device_info_request, filter_inventory_by_scope, firmware_device_status,
-        first_maintenance_state, next_state_after_configure, next_state_after_firmware,
-        next_state_after_nvos, profile_hardware_type_or_any,
+        build_switch_device_info_request, delete_rack_maintenance_access_token,
+        filter_inventory_by_scope, firmware_device_status, first_maintenance_state,
+        next_state_after_configure, next_state_after_firmware, next_state_after_nvos,
+        profile_hardware_type_or_any,
     };
 
     fn test_machine_id(seed: u8) -> MachineId {
@@ -2524,6 +2544,100 @@ mod tests {
             switch_ids: vec![switch_a, switch_b],
             switches: vec![test_device_info(switch_a), test_device_info(switch_b)],
         }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AccessTokenCleanupObservation {
+        counter_delta: f64,
+        log_count: usize,
+        level: Option<tracing::Level>,
+        metadata_name: Option<String>,
+        message: Option<String>,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        rack_id: Option<String>,
+        error: Option<String>,
+    }
+
+    #[test]
+    fn rack_maintenance_access_token_cleanup_emits_only_on_failure() {
+        const METRIC_NAME: &str = "carbide_rack_maintenance_access_token_cleanup_failures_total";
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("test runtime");
+        let rack_id = RackId::from("rack-1");
+
+        carbide_test_support::value_scenarios!(
+            run = |delete_fails: bool| {
+                let credential_manager = TestCredentialManager::default();
+                credential_manager.set_delete_credentials_failure(delete_fails);
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    runtime.block_on(delete_rack_maintenance_access_token(
+                        &credential_manager,
+                        &rack_id,
+                    ));
+                })
+                .into_iter()
+                .filter(|log| {
+                    log.field("event_name")
+                        == Some("rack_maintenance_access_token_cleanup_failed")
+                })
+                .collect::<Vec<_>>();
+                let log = logs.first();
+
+                AccessTokenCleanupObservation {
+                    counter_delta: metrics.counter_delta(METRIC_NAME, &[]),
+                    log_count: logs.len(),
+                    level: log.map(|log| log.level),
+                    metadata_name: log.map(|log| log.metadata_name.clone()),
+                    message: log.map(|log| log.message.clone()),
+                    event_name: log
+                        .and_then(|log| log.field("event_name"))
+                        .map(str::to_string),
+                    metric_name: log
+                        .and_then(|log| log.field("metric_name"))
+                        .map(str::to_string),
+                    rack_id: log
+                        .and_then(|log| log.field("rack_id"))
+                        .map(str::to_string),
+                    error: log.and_then(|log| log.field("error")).map(str::to_string),
+                }
+            };
+            "credential cleanup outcome" {
+                false => AccessTokenCleanupObservation {
+                    counter_delta: 0.0,
+                    log_count: 0,
+                    level: None,
+                    metadata_name: None,
+                    message: None,
+                    event_name: None,
+                    metric_name: None,
+                    rack_id: None,
+                    error: None,
+                },
+                true => AccessTokenCleanupObservation {
+                    counter_delta: 1.0,
+                    log_count: 1,
+                    level: Some(tracing::Level::WARN),
+                    metadata_name: Some(
+                        "rack_maintenance_access_token_cleanup_failed".to_string(),
+                    ),
+                    message: Some(
+                        "failed to delete rack maintenance access token".to_string(),
+                    ),
+                    event_name: Some(
+                        "rack_maintenance_access_token_cleanup_failed".to_string(),
+                    ),
+                    metric_name: Some(METRIC_NAME.to_string()),
+                    rack_id: Some("rack-1".to_string()),
+                    error: Some(
+                        "Secrets operation failed: test credential delete failure".to_string(),
+                    ),
+                },
+            }
+        );
     }
 
     #[test]

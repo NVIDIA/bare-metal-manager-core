@@ -438,10 +438,15 @@ impl RedfishSimActions {
 
 /// Stringifies a [`libredfish::BootInterfaceRef`] for recording in
 /// [`RedfishSimAction`], so tests can assert on the targeted boot interface
-/// regardless of which variant was used.
+/// regardless of which variant was used. Paired targets use their MAC because
+/// the simulator action fields and existing assertions model boot-interface
+/// targets as MAC strings.
 fn boot_interface_ref_to_string(boot_interface: libredfish::BootInterfaceRef<'_>) -> String {
     match boot_interface {
-        libredfish::BootInterfaceRef::Mac(mac) => mac.to_string(),
+        libredfish::BootInterfaceRef::Mac(mac)
+        | libredfish::BootInterfaceRef::Pair {
+            mac_address: mac, ..
+        } => mac.to_string(),
         libredfish::BootInterfaceRef::InterfaceId(id) => id.to_string(),
     }
 }

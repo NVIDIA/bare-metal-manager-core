@@ -81,6 +81,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
@@ -98,6 +99,107 @@ use sqlx::PgPool;
 
 /// All work in this crate is the `bmc` credential family.
 const BMC: CredentialRotationType = CredentialRotationType::Bmc;
+
+/// The persisted result of one BMC credential rotation attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum BmcCredentialRotationResult {
+    Converged,
+    Recovered,
+    Quarantined,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "bmc_credential_rotation_converged",
+    metric_name = "carbide_bmc_credential_rotation_results_total",
+    component = "credential-rotation",
+    log = info,
+    metric = counter,
+    message = "BMC credential rotated and converged",
+    describe = "Number of persisted BMC credential rotation results, by result"
+)]
+struct BmcCredentialRotationConverged {
+    #[label]
+    result: BmcCredentialRotationResult,
+    #[context]
+    mac: MacAddress,
+    #[context(value)]
+    target_version: i64,
+}
+
+impl BmcCredentialRotationConverged {
+    fn new(mac: MacAddress, target_version: u32) -> Self {
+        Self {
+            result: BmcCredentialRotationResult::Converged,
+            mac,
+            target_version: i64::from(target_version),
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "bmc_credential_rotation_recovered",
+    metric_name = "carbide_bmc_credential_rotation_results_total",
+    component = "credential-rotation",
+    log = warn,
+    metric = counter,
+    message = "BMC already at rotate-to credential; recovered from an interrupted prior rotation",
+    describe = "Number of persisted BMC credential rotation results, by result"
+)]
+struct BmcCredentialRotationRecovered {
+    #[label]
+    result: BmcCredentialRotationResult,
+    #[context]
+    mac: MacAddress,
+    #[context(value)]
+    target_version: i64,
+    #[context]
+    change_error: String,
+}
+
+impl BmcCredentialRotationRecovered {
+    fn new(mac: MacAddress, target_version: u32, change_error: String) -> Self {
+        Self {
+            result: BmcCredentialRotationResult::Recovered,
+            mac,
+            target_version: i64::from(target_version),
+            change_error,
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "bmc_credential_rotation_quarantined",
+    metric_name = "carbide_bmc_credential_rotation_results_total",
+    component = "credential-rotation",
+    log = warn,
+    metric = counter,
+    message = "BMC credential rotation attempt failed; quarantining",
+    describe = "Number of persisted BMC credential rotation results, by result"
+)]
+struct BmcCredentialRotationQuarantined {
+    #[label]
+    result: BmcCredentialRotationResult,
+    #[context]
+    mac: MacAddress,
+    #[context(value)]
+    target_version: i64,
+    #[context]
+    error: String,
+}
+
+impl BmcCredentialRotationQuarantined {
+    fn new(mac: MacAddress, target_version: u32, error: String) -> Self {
+        Self {
+            result: BmcCredentialRotationResult::Quarantined,
+            mac,
+            target_version: i64::from(target_version),
+            error,
+        }
+    }
+}
 
 /// Default freshness window for the [`BmcRotationGate`] aggregate cache. Short
 /// enough that a freshly staged rotation is picked up within roughly one sweep,
@@ -329,7 +431,7 @@ pub async fn rotate_bmc(
             promote_rotating_to_current(&mut conn, mac, BMC).await?;
             match convergence {
                 CredentialConvergence::Changed => {
-                    tracing::info!(%mac, target_version, "BMC credential rotated and converged");
+                    emit(BmcCredentialRotationConverged::new(mac, target_version));
                 }
                 // The change failed but the rotate-TO value already
                 // authenticated: a prior attempt changed the hardware and
@@ -339,12 +441,11 @@ pub async fn rotate_bmc(
                 // why the direct change failed (usually a stale-credential auth
                 // rejection).
                 CredentialConvergence::Recovered { change_error } => {
-                    tracing::warn!(
-                        %mac,
+                    emit(BmcCredentialRotationRecovered::new(
+                        mac,
                         target_version,
-                        change_error = %change_error,
-                        "BMC already at rotate-to credential; recovered from an interrupted prior rotation"
-                    );
+                        change_error,
+                    ));
                 }
             }
             Ok(RotateOutcome::Converged)
@@ -353,12 +454,11 @@ pub async fn rotate_bmc(
             let until = backoff_until(status.rotate_attempts, Utc::now());
             let mut conn = db_pool.acquire().await?;
             increment_rotate_attempt(&mut conn, mac, BMC, &redacted, until).await?;
-            tracing::warn!(
-                %mac,
+            emit(BmcCredentialRotationQuarantined::new(
+                mac,
                 target_version,
-                error = %redacted,
-                "BMC credential rotation attempt failed; quarantining"
-            );
+                redacted,
+            ));
             Ok(RotateOutcome::Quarantined { until })
         }
     }
@@ -536,12 +636,15 @@ fn redact(message: String, secrets: &[&str]) -> String {
 mod tests {
     use std::time::Duration as StdDuration;
 
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
     use carbide_redfish::libredfish::RedfishClientPool;
     use carbide_redfish::libredfish::test_support::RedfishSim;
     use carbide_secrets::credentials::{
         BmcCredentialType, CredentialKey, CredentialReader, CredentialWriter, Credentials,
     };
     use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_test_support::{Check, check_values};
     use chrono::{Duration, Utc};
     use db::credential_rotation::{
         DeviceRotationStatus, device_rotation_status, increment_rotate_attempt,
@@ -552,11 +655,14 @@ mod tests {
     use sqlx::PgPool;
 
     use super::{
-        BMC, BmcRotationGate, BmcRotationTarget, CredentialConvergence, RotateOutcome,
-        change_or_recover, needs_rotation, redact, rotate_bmc,
+        BMC, BmcCredentialRotationConverged, BmcCredentialRotationQuarantined,
+        BmcCredentialRotationRecovered, BmcRotationGate, BmcRotationTarget, CredentialConvergence,
+        RotateOutcome, change_or_recover, needs_rotation, redact, rotate_bmc,
     };
 
+    const BMC_ROTATION_RESULTS_METRIC: &str = "carbide_bmc_credential_rotation_results_total";
     const TEST_MAC: &str = "02:00:00:00:00:01";
+    const TEST_TARGET_VERSION: u32 = 7;
 
     fn test_mac() -> MacAddress {
         TEST_MAC.parse().unwrap()
@@ -636,6 +742,205 @@ mod tests {
         sim.bmc_credentials_valid("127.0.0.1", Some(443), creds("root", password))
             .await
             .expect("the credential probe must not raise a transport error")
+    }
+
+    fn rotation_result_deltas(metrics: &MetricsCapture) -> [f64; 3] {
+        [
+            metrics.counter_delta(BMC_ROTATION_RESULTS_METRIC, &[("result", "converged")]),
+            metrics.counter_delta(BMC_ROTATION_RESULTS_METRIC, &[("result", "recovered")]),
+            metrics.counter_delta(BMC_ROTATION_RESULTS_METRIC, &[("result", "quarantined")]),
+        ]
+    }
+
+    enum RotationEventCase {
+        Converged,
+        Recovered { change_error: &'static str },
+        Quarantined { error: &'static str },
+    }
+
+    impl RotationEventCase {
+        fn result(&self) -> &'static str {
+            match self {
+                Self::Converged => "converged",
+                Self::Recovered { .. } => "recovered",
+                Self::Quarantined { .. } => "quarantined",
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RotationEventObservation {
+        metric_deltas: [f64; 3],
+        logs: Vec<RotationLogObservation>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RotationLogObservation {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        event_name_kind: Option<CapturedFieldKind>,
+        metric_name: Option<String>,
+        metric_name_kind: Option<CapturedFieldKind>,
+        result: Option<String>,
+        result_kind: Option<CapturedFieldKind>,
+        mac: Option<String>,
+        mac_kind: Option<CapturedFieldKind>,
+        target_version: Option<String>,
+        target_version_kind: Option<CapturedFieldKind>,
+        change_error: Option<String>,
+        change_error_kind: Option<CapturedFieldKind>,
+        error: Option<String>,
+        error_kind: Option<CapturedFieldKind>,
+    }
+
+    fn expected_rotation_log(
+        metadata_name: &str,
+        level: tracing::Level,
+        message: &str,
+        result: &str,
+        change_error: Option<&str>,
+        error: Option<&str>,
+    ) -> Vec<RotationLogObservation> {
+        vec![RotationLogObservation {
+            metadata_name: metadata_name.to_string(),
+            level,
+            message: message.to_string(),
+            event_name: Some(metadata_name.to_string()),
+            event_name_kind: Some(CapturedFieldKind::String),
+            metric_name: Some(BMC_ROTATION_RESULTS_METRIC.to_string()),
+            metric_name_kind: Some(CapturedFieldKind::String),
+            result: Some(result.to_string()),
+            result_kind: Some(CapturedFieldKind::String),
+            mac: Some(TEST_MAC.to_string()),
+            mac_kind: Some(CapturedFieldKind::Debug),
+            target_version: Some(TEST_TARGET_VERSION.to_string()),
+            target_version_kind: Some(CapturedFieldKind::I64),
+            change_error: change_error.map(str::to_string),
+            change_error_kind: change_error.map(|_| CapturedFieldKind::Debug),
+            error: error.map(str::to_string),
+            error_kind: error.map(|_| CapturedFieldKind::Debug),
+        }]
+    }
+
+    fn observe_rotation_event(case: RotationEventCase) -> RotationEventObservation {
+        let result = case.result();
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| match case {
+            RotationEventCase::Converged => emit(BmcCredentialRotationConverged::new(
+                test_mac(),
+                TEST_TARGET_VERSION,
+            )),
+            RotationEventCase::Recovered { change_error } => {
+                emit(BmcCredentialRotationRecovered::new(
+                    test_mac(),
+                    TEST_TARGET_VERSION,
+                    change_error.to_string(),
+                ))
+            }
+            RotationEventCase::Quarantined { error } => {
+                emit(BmcCredentialRotationQuarantined::new(
+                    test_mac(),
+                    TEST_TARGET_VERSION,
+                    error.to_string(),
+                ))
+            }
+        })
+        .into_iter()
+        .map(|log| RotationLogObservation {
+            event_name: log.field("event_name").map(str::to_string),
+            event_name_kind: log.field_kind("event_name"),
+            metric_name: log.field("metric_name").map(str::to_string),
+            metric_name_kind: log.field_kind("metric_name"),
+            result: log.field("result").map(str::to_string),
+            result_kind: log.field_kind("result"),
+            mac: log.field("mac").map(str::to_string),
+            mac_kind: log.field_kind("mac"),
+            target_version: log.field("target_version").map(str::to_string),
+            target_version_kind: log.field_kind("target_version"),
+            change_error: log.field("change_error").map(str::to_string),
+            change_error_kind: log.field_kind("change_error"),
+            error: log.field("error").map(str::to_string),
+            error_kind: log.field_kind("error"),
+            metadata_name: log.metadata_name,
+            level: log.level,
+            message: log.message,
+        })
+        .collect();
+
+        let metric_deltas = rotation_result_deltas(&metrics);
+        assert_eq!(
+            metric_deltas.iter().sum::<f64>(),
+            1.0,
+            "{result} must increment exactly one result series"
+        );
+
+        RotationEventObservation {
+            metric_deltas,
+            logs,
+        }
+    }
+
+    #[test]
+    fn bmc_rotation_events_preserve_each_terminal_log_and_count_one_result() {
+        const RECOVERY_ERROR: &str = "stale credential rejected; password=REDACTED";
+        const QUARANTINE_ERROR: &str = "BMC rejected login with password=REDACTED";
+
+        check_values(
+            [
+                Check {
+                    scenario: "normal convergence keeps the existing info record",
+                    input: RotationEventCase::Converged,
+                    expect: RotationEventObservation {
+                        metric_deltas: [1.0, 0.0, 0.0],
+                        logs: expected_rotation_log(
+                            "bmc_credential_rotation_converged",
+                            tracing::Level::INFO,
+                            "BMC credential rotated and converged",
+                            "converged",
+                            None,
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "crash recovery keeps the redacted change failure",
+                    input: RotationEventCase::Recovered {
+                        change_error: RECOVERY_ERROR,
+                    },
+                    expect: RotationEventObservation {
+                        metric_deltas: [0.0, 1.0, 0.0],
+                        logs: expected_rotation_log(
+                            "bmc_credential_rotation_recovered",
+                            tracing::Level::WARN,
+                            "BMC already at rotate-to credential; recovered from an interrupted prior rotation",
+                            "recovered",
+                            Some(RECOVERY_ERROR),
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "quarantine keeps the redacted terminal failure",
+                    input: RotationEventCase::Quarantined {
+                        error: QUARANTINE_ERROR,
+                    },
+                    expect: RotationEventObservation {
+                        metric_deltas: [0.0, 0.0, 1.0],
+                        logs: expected_rotation_log(
+                            "bmc_credential_rotation_quarantined",
+                            tracing::Level::WARN,
+                            "BMC credential rotation attempt failed; quarantining",
+                            "quarantined",
+                            None,
+                            Some(QUARANTINE_ERROR),
+                        ),
+                    },
+                },
+            ],
+            observe_rotation_event,
+        );
     }
 
     #[tokio::test]
@@ -764,11 +1069,14 @@ mod tests {
         // The BMC is on the per-device secret ("old"), so the change succeeds.
         let redfish = bmc_on_password("old");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target())
             .await
             .expect("rotation must not raise a transient engine error");
 
         assert_eq!(outcome, RotateOutcome::Converged);
+        assert_eq!(rotation_result_deltas(&metrics), [1.0, 0.0, 0.0]);
+        drop(metrics);
         let status = status_of(&pool).await;
         assert!(status.converged, "device must be recorded converged");
         assert_eq!(status.current_version, Some(1));
@@ -810,9 +1118,12 @@ mod tests {
         // means this can only pass by probing, not by re-issuing the change.
         let redfish = bmc_on_password("new");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
         assert_eq!(outcome, RotateOutcome::Converged);
+        assert_eq!(rotation_result_deltas(&metrics), [0.0, 1.0, 0.0]);
+        drop(metrics);
         assert_eq!(status_of(&pool).await.current_version, Some(1));
         assert_eq!(
             cm.get_credentials(&per_device_key())
@@ -841,6 +1152,7 @@ mod tests {
         let redfish = bmc_on_password("mystery");
         redfish.set_change_password_error("BMC rejected login with password=topsecret");
 
+        let metrics = MetricsCapture::start();
         let before = Utc::now();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
@@ -848,6 +1160,12 @@ mod tests {
             RotateOutcome::Quarantined { until } => until,
             other => panic!("expected Quarantined, got {other:?}"),
         };
+        assert_eq!(rotation_result_deltas(&metrics), [0.0, 0.0, 1.0]);
+        assert!(
+            !metrics.render().contains("topsecret"),
+            "credential material must not become a metric label"
+        );
+        drop(metrics);
         // First failure: backoff is the base window (60s) from "now".
         assert!(until >= before + Duration::seconds(60));
         assert!(until <= Utc::now() + Duration::seconds(61));
@@ -878,9 +1196,16 @@ mod tests {
         let cm = TestCredentialManager::default();
         let redfish = bmc_on_password("old");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
         assert_eq!(outcome, RotateOutcome::Converged);
+        assert_eq!(
+            rotation_result_deltas(&metrics),
+            [0.0, 0.0, 0.0],
+            "an already-converged row is not a new persisted result"
+        );
+        drop(metrics);
         assert!(
             redfish.create_client_calls().is_empty(),
             "an already-converged device must not touch hardware"
@@ -901,9 +1226,12 @@ mod tests {
         // rotate_to_key(1) is intentionally left unstaged.
         let redfish = bmc_on_password("old");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
         assert!(matches!(outcome, RotateOutcome::Quarantined { .. }));
+        assert_eq!(rotation_result_deltas(&metrics), [0.0, 0.0, 1.0]);
+        drop(metrics);
         let recorded = status_of(&pool)
             .await
             .rotate_last_error_redacted
@@ -924,9 +1252,16 @@ mod tests {
         let cm = TestCredentialManager::default();
         let redfish = bmc_on_password("old");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
         assert_eq!(outcome, RotateOutcome::NoWork);
+        assert_eq!(
+            rotation_result_deltas(&metrics),
+            [0.0, 0.0, 0.0],
+            "a missing rotation row must stay silent"
+        );
+        drop(metrics);
         assert!(
             redfish.create_client_calls().is_empty(),
             "an orphaned device must not touch hardware"
@@ -951,9 +1286,16 @@ mod tests {
         let cm = TestCredentialManager::default();
         let redfish = bmc_on_password("old");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
         assert!(matches!(outcome, RotateOutcome::Quarantined { .. }));
+        assert_eq!(
+            rotation_result_deltas(&metrics),
+            [0.0, 0.0, 0.0],
+            "an active quarantine is not a new persisted result"
+        );
+        drop(metrics);
         assert!(
             redfish.create_client_calls().is_empty(),
             "a quarantined device must not be retried before its window passes"
@@ -982,9 +1324,12 @@ mod tests {
             .unwrap();
         let redfish = bmc_on_password("old");
 
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
 
         assert_eq!(outcome, RotateOutcome::Converged);
+        assert_eq!(rotation_result_deltas(&metrics), [1.0, 0.0, 0.0]);
+        drop(metrics);
         let status = status_of(&pool).await;
         assert_eq!(
             status.current_version,

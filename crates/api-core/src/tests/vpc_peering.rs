@@ -569,35 +569,6 @@ async fn test_vpc_peering_network_config_exclusive_etv(
 }
 
 #[crate::sqlx_test]
-async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
-
-    let (_, _, _, _, dpu_machine_id) = create_vpc_peering(
-        &env,
-        VpcVirtualizationType::EthernetVirtualizer,
-        VpcVirtualizationType::EthernetVirtualizer,
-    )
-    .await?;
-
-    let response = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(response.tenant_interfaces.len(), 1);
-    assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 1);
-    assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
 async fn test_vpc_peering_deletion_upon_vpc_deletion(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

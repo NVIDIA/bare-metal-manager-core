@@ -592,21 +592,7 @@ impl NmxtCollector {
         labels
     }
 
-    async fn scrape_iteration(&mut self) -> Result<(), HealthError> {
-        let switch_connect_host = self.endpoint.switch_connect_host_for_uri().to_string();
-
-        let metrics = match &mut self.http_client {
-            NmxtHttpClient::Legacy(client) => {
-                scrape_switch_nmxt_metrics(client, &switch_connect_host, false).await?
-            }
-            NmxtHttpClient::Tls { provider } => {
-                let client = provider.client().await?;
-
-                scrape_switch_nmxt_metrics_tls(&client, &switch_connect_host, self.request_timeout)
-                    .await?
-            }
-        };
-
+    fn emit_metric_collection(&self, metrics: Vec<NmxtMetricSample>) {
         self.emit_event(CollectorEvent::MetricCollectionStart);
 
         // Ports already emitted a cable temperature this iteration (one series per port).
@@ -706,14 +692,142 @@ impl NmxtCollector {
         }
 
         self.emit_event(CollectorEvent::MetricCollectionEnd);
+    }
 
+    async fn scrape_iteration(&mut self) -> Result<(), HealthError> {
+        let switch_connect_host = self.endpoint.switch_connect_host_for_uri().to_string();
+
+        let metrics = match &mut self.http_client {
+            NmxtHttpClient::Legacy(client) => {
+                scrape_switch_nmxt_metrics(client, &switch_connect_host, false).await?
+            }
+            NmxtHttpClient::Tls { provider } => {
+                let client = provider.client().await?;
+
+                scrape_switch_nmxt_metrics_tls(&client, &switch_connect_host, self.request_timeout)
+                    .await?
+            }
+        };
+
+        self.emit_metric_collection(metrics);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex as StdMutex;
+
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
+    use crate::endpoint::test_support::{mac, test_endpoint};
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct ObservedMetric {
+        key: String,
+        name: String,
+        metric_type: String,
+        unit: String,
+        value: f64,
+        labels: Vec<(String, String)>,
+        has_context: bool,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum ObservedEvent {
+        Start,
+        Metric(ObservedMetric),
+        End,
+    }
+
+    #[derive(Default)]
+    struct CapturingSink {
+        events: StdMutex<Vec<ObservedEvent>>,
+    }
+
+    impl DataSink for CapturingSink {
+        fn sink_type(&self) -> &'static str {
+            "capturing_sink"
+        }
+
+        fn try_handle_event(
+            &self,
+            _context: &EventContext,
+            event: &CollectorEvent,
+        ) -> Result<(), crate::HealthError> {
+            let observed = match event {
+                CollectorEvent::MetricCollectionStart => Some(ObservedEvent::Start),
+                CollectorEvent::Metric(sample) => Some(ObservedEvent::Metric(ObservedMetric {
+                    key: sample.key.clone(),
+                    name: sample.name.clone(),
+                    metric_type: sample.metric_type.clone(),
+                    unit: sample.unit.clone(),
+                    value: sample.value,
+                    labels: sample
+                        .labels
+                        .iter()
+                        .map(|(key, value)| (key.to_string(), value.clone()))
+                        .collect(),
+                    has_context: sample.context.is_some(),
+                })),
+                CollectorEvent::MetricCollectionEnd => Some(ObservedEvent::End),
+                CollectorEvent::CollectorRemoved
+                | CollectorEvent::Log(_)
+                | CollectorEvent::Firmware(_)
+                | CollectorEvent::HealthReport(_) => None,
+            };
+
+            if let Some(observed) = observed {
+                self.events.lock().unwrap().push(observed);
+            }
+            Ok(())
+        }
+    }
+
+    fn observed_metric(
+        key: &str,
+        metric_type: &str,
+        unit: &str,
+        value: f64,
+        labels: &[(&str, &str)],
+    ) -> ObservedEvent {
+        ObservedEvent::Metric(ObservedMetric {
+            key: key.to_string(),
+            name: "switch_nmxt".to_string(),
+            metric_type: metric_type.to_string(),
+            unit: unit.to_string(),
+            value,
+            labels: labels
+                .iter()
+                .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                .collect(),
+            has_context: false,
+        })
+    }
+
+    fn observed_collection(metrics: Vec<ObservedEvent>) -> Vec<ObservedEvent> {
+        std::iter::once(ObservedEvent::Start)
+            .chain(metrics)
+            .chain(std::iter::once(ObservedEvent::End))
+            .collect()
+    }
+
+    fn collect_metric_events(body: &str) -> Vec<ObservedEvent> {
+        let endpoint = Arc::new(test_endpoint(mac("00:11:22:33:44:55")));
+        let sink = Arc::new(CapturingSink::default());
+        let collector = NmxtCollector {
+            endpoint: endpoint.clone(),
+            http_client: NmxtHttpClient::Legacy(reqwest::Client::new()),
+            request_timeout: std::time::Duration::from_secs(30),
+            event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
+            data_sink: Some(sink.clone()),
+        };
+
+        collector.emit_metric_collection(parse_prometheus_metrics(body));
+
+        sink.events.lock().unwrap().clone()
+    }
 
     #[test]
     fn test_nmxt_endpoint_url_switches_scheme_when_tls_enabled() {
@@ -1026,112 +1140,6 @@ Link_Down{Port_Number="1"} 5
         assert_eq!(down_blame_to_state(""), "unknown");
     }
 
-    // Two scraped lines for the same port both carry down_blame="Remote_phy": exactly three
-    // down_blame series (one per state) are emitted for that port, remote_phy=1 the rest=0,
-    // unit "state", and down_blame is NOT a plain identity label on the emitted series.
-    #[test]
-    fn test_down_blame_state_set_once_per_port() {
-        use std::sync::Mutex as StdMutex;
-
-        use crate::endpoint::test_support::{mac, test_endpoint};
-
-        struct CapturingSink {
-            samples: StdMutex<Vec<MetricSample>>,
-        }
-
-        impl DataSink for CapturingSink {
-            fn sink_type(&self) -> &'static str {
-                "capturing_sink"
-            }
-
-            fn try_handle_event(
-                &self,
-                _context: &EventContext,
-                event: &CollectorEvent,
-            ) -> Result<(), crate::HealthError> {
-                if let CollectorEvent::Metric(sample) = event {
-                    self.samples.lock().unwrap().push((**sample).clone());
-                }
-                Ok(())
-            }
-        }
-
-        let endpoint = Arc::new(test_endpoint(mac("00:11:22:33:44:55")));
-        let sink = Arc::new(CapturingSink {
-            samples: StdMutex::new(Vec::new()),
-        });
-        let collector = NmxtCollector {
-            endpoint: endpoint.clone(),
-            http_client: NmxtHttpClient::Legacy(reqwest::Client::new()),
-            request_timeout: std::time::Duration::from_secs(30),
-            event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
-            data_sink: Some(sink.clone()),
-        };
-
-        // Two distinct families on the SAME port, both carrying down_blame.
-        let lines = [
-            r#"lid{Port_Number="11", down_blame="Remote_phy"} 3093"#,
-            r#"Effective_BER{Port_Number="11", down_blame="Remote_phy"} 0"#,
-        ];
-        let mut down_blame_ports: HashSet<String> = HashSet::new();
-        for line in lines {
-            let sample = parse_prometheus_line(line).expect("parse line");
-            if let Some(raw) = sample.labels.get("down_blame") {
-                let Some(port_num) = required_port_num(&sample.labels) else {
-                    continue;
-                };
-                if down_blame_ports.insert(port_num.to_string()) {
-                    let current = down_blame_to_state(raw);
-                    for state in DOWN_BLAME_STATES {
-                        let mut labels = collector.build_labels(&sample.labels);
-                        labels.push((Cow::Borrowed("state"), (*state).to_string()));
-                        collector.emit_event(CollectorEvent::Metric(
-                            MetricSample {
-                                key: format!("down_blame:{}:{}", port_num, state),
-                                name: NMXT_METRIC_NAME.to_string(),
-                                metric_type: "down_blame".to_string(),
-                                unit: "state".to_string(),
-                                value: if *state == current { 1.0 } else { 0.0 },
-                                labels,
-                                context: None,
-                            }
-                            .into(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        let samples = sink.samples.lock().unwrap();
-        let blame_series: Vec<&MetricSample> = samples
-            .iter()
-            .filter(|s| s.metric_type == "down_blame")
-            .collect();
-        assert_eq!(
-            blame_series.len(),
-            3,
-            "exactly one series per state per port per scrape"
-        );
-
-        for s in &blame_series {
-            assert_eq!(s.name, "switch_nmxt");
-            assert_eq!(s.unit, "state");
-            let state = s
-                .labels
-                .iter()
-                .find(|(k, _)| k == "state")
-                .map(|(_, v)| v.as_str())
-                .expect("state label present");
-            let expected = if state == "remote_phy" { 1.0 } else { 0.0 };
-            assert_eq!(s.value, expected, "state `{state}` value");
-            // down_blame must not survive as a plain identity label.
-            assert!(
-                !s.labels.iter().any(|(k, _)| k == "down_blame"),
-                "down_blame must not be a re-exported identity label"
-            );
-        }
-    }
-
     #[test]
     fn test_cable_temp_to_celsius() {
         assert_eq!(cable_temp_to_celsius("0C"), Some(0.0));
@@ -1142,107 +1150,186 @@ Link_Down{Port_Number="1"} 5
         assert_eq!(cable_temp_to_celsius("NA"), None);
     }
 
-    // Two scraped lines for the same port both carry Module_Temperature: exactly one
-    // cable_temperature_celsius series is emitted, with the parsed value and no cable_temp label.
     #[test]
-    fn test_cable_temperature_emit_once_per_port() {
-        use std::sync::Mutex as StdMutex;
-
-        use crate::endpoint::test_support::{mac, test_endpoint};
-
-        struct CapturingSink {
-            samples: StdMutex<Vec<MetricSample>>,
-        }
-
-        impl DataSink for CapturingSink {
-            fn sink_type(&self) -> &'static str {
-                "capturing_sink"
-            }
-
-            fn try_handle_event(
-                &self,
-                _context: &EventContext,
-                event: &CollectorEvent,
-            ) -> Result<(), crate::HealthError> {
-                if let CollectorEvent::Metric(sample) = event {
-                    self.samples.lock().unwrap().push((**sample).clone());
-                }
-                Ok(())
-            }
-        }
-
-        let endpoint = Arc::new(test_endpoint(mac("00:11:22:33:44:55")));
-        let sink = Arc::new(CapturingSink {
-            samples: StdMutex::new(Vec::new()),
-        });
-        let collector = NmxtCollector {
-            endpoint: endpoint.clone(),
-            http_client: NmxtHttpClient::Legacy(reqwest::Client::new()),
-            request_timeout: std::time::Duration::from_secs(30),
-            event_context: EventContext::from_endpoint(endpoint.as_ref(), "nmxt"),
-            data_sink: Some(sink.clone()),
-        };
-
-        // Two distinct families on the SAME port, both carrying Module_Temperature.
-        let lines = [
-            r#"lid{Port_Number="11", Module_Temperature="37.5C"} 3093"#,
-            r#"Effective_BER{Port_Number="11", Module_Temperature="37.5C"} 0"#,
-        ];
-        let mut cable_temp_ports: HashSet<String> = HashSet::new();
-        for line in lines {
-            let sample = parse_prometheus_line(line).expect("parse line");
-            if let Some(celsius) = sample
-                .labels
-                .get("Module_Temperature")
-                .and_then(|raw| cable_temp_to_celsius(raw))
-            {
-                let Some(port_num) = required_port_num(&sample.labels) else {
-                    continue;
-                };
-                if cable_temp_ports.insert(port_num.to_string()) {
-                    let labels = collector.build_labels(&sample.labels);
-                    collector.emit_event(CollectorEvent::Metric(
-                        MetricSample {
-                            key: format!("cable_temperature_celsius:{}", port_num),
-                            name: NMXT_METRIC_NAME.to_string(),
-                            metric_type: "cable_temperature_celsius".to_string(),
-                            unit: "celsius".to_string(),
-                            value: celsius,
-                            labels,
-                            context: None,
-                        }
-                        .into(),
-                    ));
-                }
-            }
-        }
-
-        let samples = sink.samples.lock().unwrap();
-        let temp_series: Vec<&MetricSample> = samples
-            .iter()
-            .filter(|s| s.metric_type == "cable_temperature_celsius")
-            .collect();
-        assert_eq!(
-            temp_series.len(),
-            1,
-            "exactly one series per port per scrape"
-        );
-
-        let series = temp_series[0];
-        assert_eq!(series.name, "switch_nmxt");
-        assert_eq!(series.unit, "celsius");
-        assert_eq!(series.value, 37.5);
-        assert_eq!(series.key, "cable_temperature_celsius:11");
-        assert!(
-            !series.labels.iter().any(|(k, _)| k == "cable_temp"),
-            "identity labels must no longer include cable_temp"
-        );
-        assert!(
-            series
-                .labels
-                .iter()
-                .any(|(k, v)| k == "port_num" && v == "11"),
-            "identity labels still carry port_num"
+    fn test_emit_metric_collection() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty scrape preserves collection boundaries",
+                    input: "",
+                    expect: observed_collection(vec![]),
+                },
+                Check {
+                    scenario: "down blame state set is emitted once per port",
+                    input: r#"
+                        lid{Port_Number="11", down_blame="Remote_phy"} 3093
+                        Effective_BER{Port_Number="11", down_blame="Remote_phy"} 0
+                    "#,
+                    expect: observed_collection(vec![
+                        observed_metric(
+                            "down_blame:11:unknown",
+                            "down_blame",
+                            "state",
+                            0.0,
+                            &[("port_num", "11"), ("state", "unknown")],
+                        ),
+                        observed_metric(
+                            "down_blame:11:local_phy",
+                            "down_blame",
+                            "state",
+                            0.0,
+                            &[("port_num", "11"), ("state", "local_phy")],
+                        ),
+                        observed_metric(
+                            "down_blame:11:remote_phy",
+                            "down_blame",
+                            "state",
+                            1.0,
+                            &[("port_num", "11"), ("state", "remote_phy")],
+                        ),
+                        observed_metric("lid:11", "lid", "id", 3093.0, &[("port_num", "11")]),
+                        observed_metric(
+                            "effective_ber:11",
+                            "effective_ber",
+                            "ratio",
+                            0.0,
+                            &[("port_num", "11")],
+                        ),
+                    ]),
+                },
+                Check {
+                    scenario: "cable temperature is emitted once per port",
+                    input: r#"
+                        lid{Port_Number="11", Module_Temperature="37.5C"} 3093
+                        Effective_BER{Port_Number="11", Module_Temperature="37.5C"} 0
+                    "#,
+                    expect: observed_collection(vec![
+                        observed_metric(
+                            "cable_temperature_celsius:11",
+                            "cable_temperature_celsius",
+                            "celsius",
+                            37.5,
+                            &[("port_num", "11")],
+                        ),
+                        observed_metric("lid:11", "lid", "id", 3093.0, &[("port_num", "11")]),
+                        observed_metric(
+                            "effective_ber:11",
+                            "effective_ber",
+                            "ratio",
+                            0.0,
+                            &[("port_num", "11")],
+                        ),
+                    ]),
+                },
+                Check {
+                    scenario: "label metrics precede filtering and deduplicate independently per port",
+                    input: r#"
+                        blocked_a{FW_Version="1.0", Port_Number="12", Module_Temperature="40C", down_blame="Local_phy"} 1
+                        blocked_b{FW_Version="2.0", Port_Number="12", Module_Temperature="99C", down_blame="Remote_phy"} 2
+                        blocked_c{Port_Number="13", Module_Temperature="41C", down_blame="Remote_phy"} 3
+                    "#,
+                    expect: observed_collection(vec![
+                        observed_metric(
+                            "cable_temperature_celsius:12",
+                            "cable_temperature_celsius",
+                            "celsius",
+                            40.0,
+                            &[("net_fw_ver", "1.0"), ("port_num", "12")],
+                        ),
+                        observed_metric(
+                            "down_blame:12:unknown",
+                            "down_blame",
+                            "state",
+                            0.0,
+                            &[
+                                ("net_fw_ver", "1.0"),
+                                ("port_num", "12"),
+                                ("state", "unknown"),
+                            ],
+                        ),
+                        observed_metric(
+                            "down_blame:12:local_phy",
+                            "down_blame",
+                            "state",
+                            1.0,
+                            &[
+                                ("net_fw_ver", "1.0"),
+                                ("port_num", "12"),
+                                ("state", "local_phy"),
+                            ],
+                        ),
+                        observed_metric(
+                            "down_blame:12:remote_phy",
+                            "down_blame",
+                            "state",
+                            0.0,
+                            &[
+                                ("net_fw_ver", "1.0"),
+                                ("port_num", "12"),
+                                ("state", "remote_phy"),
+                            ],
+                        ),
+                        observed_metric(
+                            "cable_temperature_celsius:13",
+                            "cable_temperature_celsius",
+                            "celsius",
+                            41.0,
+                            &[("port_num", "13")],
+                        ),
+                        observed_metric(
+                            "down_blame:13:unknown",
+                            "down_blame",
+                            "state",
+                            0.0,
+                            &[("port_num", "13"), ("state", "unknown")],
+                        ),
+                        observed_metric(
+                            "down_blame:13:local_phy",
+                            "down_blame",
+                            "state",
+                            0.0,
+                            &[("port_num", "13"), ("state", "local_phy")],
+                        ),
+                        observed_metric(
+                            "down_blame:13:remote_phy",
+                            "down_blame",
+                            "state",
+                            1.0,
+                            &[("port_num", "13"), ("state", "remote_phy")],
+                        ),
+                    ]),
+                },
+                Check {
+                    scenario: "missing port suppresses every metric path",
+                    input: r#"
+                        blocked_temp{Module_Temperature="37C"} 1
+                        blocked_blame{down_blame="Remote_phy"} 1
+                        lid 1
+                    "#,
+                    expect: observed_collection(vec![]),
+                },
+                Check {
+                    scenario: "invalid label metric on blocked family is ignored",
+                    input: r#"blocked{Port_Number="14", Module_Temperature="N/A"} 1"#,
+                    expect: observed_collection(vec![]),
+                },
+                Check {
+                    scenario: "mapped family reexports canonical identity labels in catalog order",
+                    input: r#"Effective_BER{Port_Number="2", Node_GUID="0x123", FW_Version="36.1"} 1.5e-10"#,
+                    expect: observed_collection(vec![observed_metric(
+                        "effective_ber:2",
+                        "effective_ber",
+                        "ratio",
+                        1.5e-10,
+                        &[
+                            ("net_fw_ver", "36.1"),
+                            ("node_guid", "0x123"),
+                            ("port_num", "2"),
+                        ],
+                    )]),
+                },
+            ],
+            collect_metric_events,
         );
     }
 }

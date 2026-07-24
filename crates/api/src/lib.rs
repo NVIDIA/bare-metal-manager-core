@@ -33,6 +33,7 @@
 
 mod logging;
 mod metrics;
+mod resources;
 mod run;
 
 pub use carbide_api_core::{AdminUiRoutesBuilder, Command, Options};

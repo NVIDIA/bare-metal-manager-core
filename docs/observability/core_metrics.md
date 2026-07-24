@@ -31,13 +31,16 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_authn_client_cert_rejected_total</td><td>counter</td><td>Number of client certificates rejected during authentication</td></tr>
 <tr><td>carbide_authn_connection_attributes_missing_total</td><td>counter</td><td>Number of requests authentication could not inspect because connection attributes were missing</td></tr>
 <tr><td>carbide_available_ips_count</td><td>gauge</td><td>Number of available IPs per network segment</td></tr>
+<tr><td>carbide_bmc_credential_rotation_results_total</td><td>counter</td><td>Number of persisted BMC credential rotation results, by result</td></tr>
 <tr><td>carbide_bmc_proxy_authorization_denied_total</td><td>counter</td><td>Number of BMC proxy requests denied by authorization layer and HTTP method</td></tr>
 <tr><td>carbide_bmc_proxy_authorization_errors_total</td><td>counter</td><td>Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_attempted_total</td><td>counter</td><td>Number of inbound TLS connection attempts</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_fail_total</td><td>counter</td><td>Number of failed inbound connections, by failure reason</td></tr>
 <tr><td>carbide_bmc_proxy_tls_connection_success_total</td><td>counter</td><td>Number of successful TLS connections</td></tr>
 <tr><td>carbide_bmc_proxy_upstream_request_duration_milliseconds</td><td>histogram</td><td>Duration of requests the proxy forwarded to BMCs, by HTTP method and upstream status class; the _count series, split by status, gives the request and outcome rates.</td></tr>
+<tr><td>carbide_bmc_session_cleanup_failures_total</td><td>counter</td><td>Number of BMC session cleanup failures, by operation.</td></tr>
 <tr><td>carbide_bmc_session_lockout_breaker_transitions_total</td><td>counter</td><td>Number of BMC session lockout-avoidance breaker transitions.</td></tr>
+<tr><td>carbide_bms_dsx_commands_dropped_total</td><td>counter</td><td>Number of BMS DSX Exchange commands dropped because the worker stopped, by command kind.</td></tr>
 <tr><td>carbide_certs_renewals_total</td><td>counter</td><td>Number of client certificate renewal attempts, by outcome</td></tr>
 <tr><td>carbide_client_tcp_connect_attempts_total</td><td>counter</td><td>Number of outbound TCP connect attempts across all HTTP connectors</td></tr>
 <tr><td>carbide_client_tcp_connect_errors_total</td><td>counter</td><td>Number of failed outbound TCP connect attempts across all HTTP connectors</td></tr>
@@ -109,11 +112,13 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_ib_monitor_machines_with_unexpected_pkeys_count</td><td>gauge</td><td>Number of machines where at least one port is assigned to an unexpected pkey on UFM</td></tr>
 <tr><td>carbide_ib_monitor_machines_with_unknown_pkeys_count</td><td>gauge</td><td>Number of machines where at least one port is assigned to a pkey value not associated with any partition ID</td></tr>
 <tr><td>carbide_ib_monitor_ufm_changes_applied_total</td><td>counter</td><td>Number of changes performed at UFM</td></tr>
+<tr><td>carbide_ib_partition_pkey_missing_total</td><td>counter</td><td>Number of IB partitions missing a pkey, by controller state</td></tr>
 <tr><td>carbide_ib_partitions_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_ib_partitions in the system</td></tr>
 <tr><td>carbide_ib_partitions_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_object_tasks_enqueued_total</td><td>counter</td><td>Number of object handling tasks freshly enqueued for objects of type carbide_ib_partitions</td></tr>
 <tr><td>carbide_ib_partitions_total</td><td>gauge</td><td>Number of carbide_ib_partitions in the system</td></tr>
 <tr><td>carbide_ipmi_commands_total</td><td>counter</td><td>Number of IPMI command executions, by command and outcome.</td></tr>
+<tr><td>carbide_kms_token_maintenance_failures_total</td><td>counter</td><td>Number of Transit KMS token maintenance failures, by maintenance stage</td></tr>
 <tr><td>carbide_log_events_total</td><td>counter</td><td>Number of log events emitted, by level and component. The always-on log-volume and error-rate signal for every binary.</td></tr>
 <tr><td>carbide_machine_dpu_info</td><td>gauge</td><td>Association between a host machine and one of its DPUs. Exposed only on the opt-in per-object endpoint.</td></tr>
 <tr><td>carbide_machine_identity_token_exchange_failures_total</td><td>counter</td><td>Number of machine identity token exchange failures, by failure stage</td></tr>
@@ -122,9 +127,11 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_machine_updates_started_count</td><td>gauge</td><td>Number of machines in the system in the process of updating</td></tr>
 <tr><td>carbide_machine_validation_completed</td><td>gauge</td><td>Number of successfully completed machine validation runs</td></tr>
 <tr><td>carbide_machine_validation_failed</td><td>gauge</td><td>Number of failed machine validation runs</td></tr>
+<tr><td>carbide_machine_validation_heartbeat_failures_total</td><td>counter</td><td>Number of machine validation heartbeat failures, by stage and reason.</td></tr>
 <tr><td>carbide_machine_validation_in_progress</td><td>gauge</td><td>Number of machine validation runs in progress</td></tr>
 <tr><td>carbide_machine_validation_oldest_active_age_seconds</td><td>gauge</td><td>Age in seconds of the oldest active machine validation run</td></tr>
 <tr><td>carbide_machine_validation_outcomes_total</td><td>counter</td><td>Number of machine validation runs that completed as passed or failed, by outcome and failure cause; runs skipped by a disabled validation config are not counted</td></tr>
+<tr><td>carbide_machine_validation_result_persistence_attempts_total</td><td>counter</td><td>Number of machine validation result persistence attempts, by outcome.</td></tr>
 <tr><td>carbide_machine_validation_stale_runs_count</td><td>gauge</td><td>Number of active machine validation runs considered stale</td></tr>
 <tr><td>carbide_machine_validation_tests</td><td>gauge</td><td>The details of machine validation tests</td></tr>
 <tr><td>carbide_machines_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_machines in the system</td></tr>
@@ -197,6 +204,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_preingestion_waiting_download</td><td>gauge</td><td>Number of machines that are waiting for firmware downloads on other machines to complete before doing their own</td></tr>
 <tr><td>carbide_preingestion_waiting_installation</td><td>gauge</td><td>Number of machines which have had firmware uploaded to them and are currently in the process of installing that firmware</td></tr>
 <tr><td>carbide_pxe_boot_outcomes_total</td><td>counter</td><td>Number of PXE boot-path outcomes served, by endpoint and reason.</td></tr>
+<tr><td>carbide_rack_maintenance_access_token_cleanup_failures_total</td><td>counter</td><td>Number of rack maintenance access token cleanup failures</td></tr>
 <tr><td>carbide_racks_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_racks in the system</td></tr>
 <tr><td>carbide_racks_health_overrides_count</td><td>gauge</td><td>Number of health overrides configured in the site</td></tr>
 <tr><td>carbide_racks_health_status_count</td><td>gauge</td><td>Number of racks in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
@@ -224,7 +232,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it took to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>Number of machine pairs created by Site Explorer after identification</td></tr>
 <tr><td>carbide_site_explorer_created_power_shelves_count</td><td>gauge</td><td>Number of power shelves created by Site Explorer after identification</td></tr>
-<tr><td>carbide_site_explorer_dpu_migration_signals_count</td><td>gauge</td><td>Number of DPU NIC-mode migration signals by signal type -- mode-mismatch found, set_nic_mode issued, reset requested, and zero-DPU registered for a NicMode host.</td></tr>
+<tr><td>carbide_site_explorer_dpu_migration_signals_count</td><td>gauge</td><td>Number of DPU NIC-mode migration signals by signal type -- mode-mismatch found, set_nic_mode issued, reset requested, and zero-DPU registered for a host whose DPU policy is nic.</td></tr>
 <tr><td>carbide_site_explorer_enabled</td><td>gauge</td><td>Whether site-explorer is enabled (1) or paused (0)</td></tr>
 <tr><td>carbide_site_explorer_iteration_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one site explorer iteration</td></tr>
 <tr><td>carbide_site_explorer_last_run_status</td><td>gauge</td><td>The status of the latest Site Explorer run</td></tr>

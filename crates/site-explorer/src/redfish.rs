@@ -555,7 +555,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         // We will be redoing machine_setup later and can worry about getting the profile right then.
-        // Bind the empty profiles outside the fallback closure so they outlive both attempts.
+        // Keep `empty_profiles` outside the closure so the returned future can borrow it.
         let empty_profiles: libredfish::BiosProfileVendor = HashMap::default();
         let result = match boot_interface {
             Some(target) => {

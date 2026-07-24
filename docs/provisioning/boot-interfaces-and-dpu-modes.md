@@ -1,10 +1,10 @@
-# Boot Interfaces and DPU Modes
+# Boot Interfaces and DPU Policies
 
-This guide explains how NICo decides **which interface a host boots from**, how a host's **DPUs are managed**, and how operators configure both through the Expected Machines table. It is the deep companion to [Ingesting Hosts](ingesting-hosts.md): that page covers the end-to-end ingest flow and the basic `expected_machines.json`; this page covers the per-host and per-NIC knobs (`dpu_mode`, `host_nics`), **what the defaults do when you set nothing**, and how a boot device is chosen and applied behind the scenes.
+This guide explains how NICo decides **which interface a host boots from**, how a host's **DPUs are managed**, and how operators configure both through the Expected Machines table. It is the deep companion to [Ingesting Hosts](ingesting-hosts.md): that page covers the end-to-end ingest flow and the basic `expected_machines.json`; this page covers the per-host and per-NIC knobs (`dpu_policy`, `host_nics`), **what the defaults do when you set nothing**, and how a boot device is chosen and applied behind the scenes.
 
 For the DHCP and network-segment substrate these knobs sit on (how a relay's `giaddr` maps to a segment), see [IP and Network Configuration](ip-and-network-configuration.md).
 
-> **Who should read this.** Operators configuring hosts for ingestion, and anyone debugging "why did this host boot from *that* interface?" **Most hosts need no configuration here** — the defaults handle the common managed-DPU case. Reach for the knobs in [Section 2](#2-configuring-via-expected-machines-and-the-defaults) and [Section 3](#3-scenarios) only for NIC-mode, zero-DPU, or integrated-NIC hosts. [Sections 6](#6-behind-the-scenes-how-a-boot-device-is-chosen-and-set)–[7](#7-the-boot-interface-data-model) explain the machinery when you need to trace a problem.
+> **Who should read this.** Operators configuring hosts for ingestion, and anyone debugging "why did this host boot from *that* interface?" **Most hosts need no configuration here** — the defaults handle the common managed-DPU case. Reach for the knobs in [Section 2](#2-configuring-via-expected-machines-and-the-defaults) and [Section 3](#3-scenarios) only for `nic`, `ignore`, or integrated-NIC hosts. [Sections 6](#6-behind-the-scenes-how-a-boot-device-is-chosen-and-set)–[7](#7-the-boot-interface-data-model) explain the machinery when you need to trace a problem.
 
 ---
 
@@ -14,10 +14,16 @@ Historically, two separate decisions were conflated into "what kind of host is t
 
 | Axis | Question | Controlled by |
 |---|---|---|
-| **DPU management** | Does NICo manage this host's DPUs (upgrade them, run agents, serve the host's admin network over the DPU overlay)? | `dpu_mode` |
+| **DPU management** | Does NICo manage this host's DPUs (upgrade them, run agents, and attach them to the ManagedHost)? | `dpu_policy` |
 | **Boot interface** | Which NIC does the host OS actually boot from and run its management network on? | the host's **primary** interface |
 
 A "normal" host couples them (managed DPU + boot through that DPU). But they are independent: you can keep a host's DPUs **managed** and still boot it from a plain **integrated NIC**. This guide treats the two axes separately, because the configuration knobs are separate.
+
+The policy is also separate from the card's current hardware state. NICo models
+operator intent as `HostDpuPolicy::{Manage, Nic, Ignore}` and the mode
+reported by a BlueField as `BlueFieldOperatingMode::{Dpu, Nic}`. Existing
+protobuf and Redfish boundaries retain the legacy `NicMode` name for
+compatibility, but model code does not use that name for observed state.
 
 ### Network segment types
 
@@ -44,23 +50,41 @@ Boot and DPU configuration is **declarative**: you describe the host in the Expe
 
 ### If you set nothing (the default)
 
-**Most hosts need zero boot/DPU configuration.** With no `dpu_mode` and no `host_nics`:
+**Most hosts with DPU hardware need zero boot/DPU configuration.** Outside rack-manager deployments, when neither the host nor the site sets `dpu_policy`, and the host has no `host_nics` declaration:
 
-- `dpu_mode` defaults to **`dpu_mode`** (managed) — NICo ingests and manages the host's DPUs, and the host boots through its primary DPU on the **Admin** network.
+- The effective `dpu_policy` resolves to **`manage`** — NICo ingests and manages the host's DPUs, and the host boots through its primary DPU on the **Admin** network.
 - Site-explorer **auto-selects the boot interface**: the lowest-PCI DPU host-PF (the NIC a DPU presents to the host).
 - The host's IP comes from whichever segment its DHCP relay lands in (see [IP and Network Configuration](ip-and-network-configuration.md)).
 
-So a standard DPU host is handled entirely by defaults. The knobs below exist for the hosts that *don't* fit that mold.
+So a standard DPU host is handled entirely by defaults. A host without DPU hardware must instead use `dpu_policy: ignore` and declare a primary HostInband NIC as described in [3.2](#32-zero-dpu-host-no-dpu-hardware). The knobs below exist for the hosts that *don't* fit the standard-DPU mold.
 
-### `dpu_mode`
+`rack_management_enabled` is a separate deployment-mode setting, not another
+DPU policy, and it does not override this resolution. Rack-manager deployments
+that operate DPUs as NICs must also set the site-wide `dpu_policy` (or each
+host's policy) to `nic`. If rack management is enabled while both policy
+levels remain unset, the effective policy is still `manage` and the Admin-network
+default above still applies.
 
-| Value (JSON / CLI) | Meaning |
-|---|---|
-| `dpu_mode` / `dpu-mode` (default) | DPUs are managed by NICo; the host boots through its primary DPU on the Admin overlay. |
-| `nic_mode` / `nic-mode` | DPU hardware is present but treated as a **plain NIC**. Site-explorer explores it but does **not** link or manage it; the host boots on **HostInband**. |
-| `no_dpu` / `no-dpu` | No DPU hardware at all — a plain host NIC on **HostInband**. DPU exploration is skipped entirely. |
+### `dpu_policy`
 
-**Resolution order:** a per-host `dpu_mode` on the Expected Machine wins; if unset, the site-wide `[site_explorer] dpu_mode` setting applies; if that too is unset, the default is `dpu_mode`.
+| JSON/TOML value | CLI value | Meaning |
+|---|---|---|
+| `manage` (site/effective default) | `manage` | DPU hardware is expected and managed by NICo. With no declared primary host NIC, the default boot interface is the primary DPU host-PF on the Admin overlay; a declared integrated primary can instead boot on HostInband. A host without DPU hardware must use `ignore` and declare a primary HostInband NIC. A per-host `manage` declaration inherits the site policy rather than overriding it. |
+| `nic` | `nic` | DPU hardware is present but should operate as a **plain NIC**. Site-explorer explores it but does **not** link or manage it; the host boots on **HostInband**. |
+| `ignore` | `ignore` | NICo does not configure or attach DPU hardware. Use this for a host without DPUs or when installed DPUs should be intentionally ignored; the host boots through a plain NIC on **HostInband**. |
+
+**Resolution order:** per-host `nic` and `ignore` policies override the site. For backward compatibility, per-host `manage` (like an omitted per-host policy) defers to the site-wide `[site_explorer] dpu_policy`; if the site policy is also unset, the result is `manage`.
+
+Compatibility declarations remain accepted when deserializing configuration and admin JSON input: the previous `dpu_policy` value `use_as_nic` remains accepted, and the legacy `dpu_mode` key with values `dpu_mode`, `nic_mode`, and `no_dpu` maps to `manage`, `nic`, and `ignore`, respectively. The admin CLI likewise accepts the previous `use-as-nic` value and legacy `--dpu-mode dpu-mode|nic-mode|no-dpu` forms, but new automation should use `--dpu-policy manage|nic|ignore`.
+
+The Forge RPC intentionally retains `ExpectedMachine.dpu_mode` (field 16,
+`DpuMode`) as its stable compatibility surface. Direct gRPC clients continue to
+send `DPU_MODE`, `NIC_MODE`, or `NO_DPU`; NICo translates those values at the
+RPC boundary to the internal `manage`, `nic`, and `ignore` policies.
+`HostDpuPolicy` and `dpu_policy` are model, configuration, admin-CLI, and admin
+JSON vocabulary rather than Forge protobuf symbols. Responses translate
+non-default policies back through `dpu_mode`; the default `manage` policy might
+leave that field unset.
 
 ### `host_nics` (per-NIC declaration)
 
@@ -76,7 +100,7 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
 
 > **What `network_segment_type` actually does.** A NIC's segment is normally determined by its DHCP relay: NICo picks the segment whose prefix *contains* the relay address. Where segment prefixes **nest or overlap** — for example a `/27` HostInband segment inside a `/24` underlay — one relay matches several segments. `network_segment_type` narrows that to the segment of the named type. If a relay maps unambiguously to one segment (the common case), this field is unnecessary.
 
-**JSON** (an Expected Machine entry):
+**Admin JSON** (an Expected Machine entry):
 
 ```json
 {
@@ -84,7 +108,7 @@ The optional `host_nics` array declares specifics for individual host NICs. Each
   "bmc_username": "root",
   "bmc_password": "default-password1",
   "chassis_serial_number": "SERIAL-1",
-  "dpu_mode": "dpu_mode",
+  "dpu_policy": "manage",
   "host_nics": [
     {
       "mac_address": "C4:5A:B1:C8:38:10",
@@ -102,7 +126,7 @@ nico-admin-cli -a <api-url> em add \
   --bmc-mac-address C4:5A:B1:C8:38:0D \
   --bmc-username root --bmc-password default-password1 \
   --chassis-serial-number SERIAL-1 \
-  --dpu-mode dpu-mode \
+  --dpu-policy manage \
   --host_nics '[{"mac_address":"C4:5A:B1:C8:38:10","primary":true,"network_segment_type":"host_inband"}]'
 ```
 
@@ -116,15 +140,15 @@ Concrete recipes for the cases beyond the default. All assume the rest of the Ex
 
 ### 3.1 Standard DPU host
 
-Nothing to configure. Managed DPUs, boot through the primary DPU on Admin. This is the default.
+With the site policy unset or set to `manage`, there is nothing to configure. DPUs are managed and the host boots through the primary DPU on Admin.
 
 ### 3.2 Zero-DPU host (no DPU hardware)
 
-A plain server with one or more host NICs and no DPU. Declare `no_dpu` and mark the boot NIC primary:
+A plain server with one or more host NICs and no DPU. Declare `ignore` and mark the boot NIC primary:
 
 ```json
 {
-  "dpu_mode": "no_dpu",
+  "dpu_policy": "ignore",
   "host_nics": [
     { "mac_address": "AA:BB:CC:00:00:10", "primary": true, "network_segment_type": "host_inband" }
   ]
@@ -135,11 +159,11 @@ The host boots from that NIC on HostInband and gets its IP from central NICo DHC
 
 ### 3.3 DPU in NIC mode
 
-The host has DPU hardware, but you want it treated as a plain NIC (not managed). Declare `nic_mode`. Site-explorer still explores the DPU (and will issue the mode flip — see [3.5](#35-flipping-a-dpu-to-nic-mode)) but does not link it as a managed machine; the host boots HostInband:
+The host has DPU hardware, but you want it treated as a plain NIC (not managed). Declare `nic`. Site-explorer still explores the DPU (and will issue the physical mode flip — see [3.5](#35-flipping-a-dpu-to-nic-mode)) but does not link it as a managed machine; the host boots HostInband:
 
 ```json
 {
-  "dpu_mode": "nic_mode",
+  "dpu_policy": "nic",
   "host_nics": [
     { "mac_address": "AA:BB:CC:00:00:20", "primary": true, "network_segment_type": "host_inband" }
   ]
@@ -148,11 +172,11 @@ The host has DPU hardware, but you want it treated as a plain NIC (not managed).
 
 ### 3.4 Boot an integrated NIC while keeping the DPUs managed
 
-This is the case where the two axes genuinely diverge: the host has cabled, explorable DPUs you **want managed** (for the data plane), but you want the host OS to boot from a **plain integrated NIC** rather than through a DPU. Declare `dpu_mode` (managed) *and* mark the integrated NIC primary on HostInband:
+This is the case where the two axes genuinely diverge: the host has cabled, explorable DPUs you **want managed** (for the data plane), but you want the host OS to boot from a **plain integrated NIC** rather than through a DPU. First ensure the site-wide policy is unset or `manage`; a per-host `manage` declaration inherits the site and cannot override `nic` or `ignore`. Then leave the host policy unset (or explicitly set `manage`) and mark the integrated NIC primary on HostInband:
 
 ```json
 {
-  "dpu_mode": "dpu_mode",
+  "dpu_policy": "manage",
   "host_nics": [
     { "mac_address": "AA:BB:CC:00:00:30", "primary": true, "network_segment_type": "host_inband" }
   ]
@@ -161,18 +185,20 @@ This is the case where the two axes genuinely diverge: the host has cabled, expl
 
 NICo keeps the DPUs explored, linked, and underlay-addressed (running agents for the data plane), but the host boots from the integrated NIC. The DPU-backed admin links are kept but go **dormant** — the host's admin/boot path is the HostInband NIC.
 
-> Previously this required faking `no_dpu`/`nic_mode`, which threw away DPU management to get integrated boot. The two are now decoupled.
+> Previously this required selecting an unmanaged-DPU policy, which threw away DPU management to get integrated boot. The two are now decoupled.
 
 ### 3.5 Flipping a DPU to NIC mode
 
-To change a host that's already ingested (e.g. from managed-DPU to NIC mode), update its Expected Machine `dpu_mode`, then force-delete and let it re-ingest so site-explorer re-explores and applies the new mode:
+To change a host that's already ingested (e.g. from managed-DPU to NIC mode), update its Expected Machine policy with `--dpu-policy`, then force-delete and let it re-ingest so site-explorer re-explores and applies the new physical mode:
 
 ```bash
-nico-admin-cli -a <api-url> em patch --bmc-mac-address <bmc-mac> --dpu-mode nic-mode
+nico-admin-cli -a <api-url> em patch --bmc-mac-address <bmc-mac> --dpu-policy nic
 nico-admin-cli -a <api-url> machine force-delete --machine <machine-id> --delete-interfaces
 ```
 
 See the [Force Delete playbook](../playbooks/force_delete.md) for the full re-ingest procedure. NICo preserves the host's boot-interface **Redfish id** across the deletion gap via the retained-boot-interface mechanism ([Section 7.3](#73-retained-boot-interfaces)), so the host can be re-targeted for boot before a fresh exploration completes. After a flip, you can re-apply the resolved boot interface with one click via **Restore Boot Interface** in the web UI ([Section 5](#5-web-ui)).
+
+The mode change itself takes effect only across a power cycle: The queued `Mode.Set` stays staged on the DPU until the host power-cycles. Site-explorer issues that power cycle automatically on every vendor, trying the standard Redfish `PowerCycle` reset first and escalating to a cold `ACPowercycle` on platforms that refuse it (HPE, Lenovo, Supermicro, and GBx00 systems). Repeat cycles are rate-limited, so a host mid-flip can take a pass or two of exploration to converge. If both reset types are refused, or the DPUs still report the old mode after cycling, the host surfaces the `manual_power_cycle_required` pairing blocker and waits for an operator (refer to [Section 8](#8-verifying-and-troubleshooting)).
 
 ---
 
@@ -184,10 +210,10 @@ All of these are **admin-only**; the Forge gRPC service enforces admin authoriza
 
 | admin-cli | Forge RPC | Purpose |
 |---|---|---|
-| `em add …` | `AddExpectedMachine` | Add one host (BMC creds, `--dpu-mode`, `--host_nics`, metadata). |
+| `em add …` | `AddExpectedMachine` | Add one host (BMC creds, `--dpu-policy`, `--host_nics`, metadata). |
 | `em show [--bmc-mac-address <mac>]` | `GetAllExpectedMachines` / `GetExpectedMachine` | List all, or show one. Add `-f json` to export. |
 | `em update --filename <json>` | `UpdateExpectedMachine` | Full replacement of one entry from JSON. |
-| `em patch --bmc-mac-address <mac> …` | `UpdateExpectedMachine` | Partial update (e.g. `--dpu-mode`), preserving other fields. |
+| `em patch --bmc-mac-address <mac> …` | `UpdateExpectedMachine` | Partial update (e.g. `--dpu-policy`), preserving other fields. |
 | `em delete --bmc-mac-address <mac>` | `DeleteExpectedMachine` | Remove one entry. |
 | `em replace-all --filename <json>` | (bulk) | Replace the entire table from a file. |
 | `em erase` | (bulk) | Erase the entire table. |
@@ -219,7 +245,7 @@ All of these are **admin-only**; the Forge gRPC service enforces admin authoriza
 
 ## 5. Web UI
 
-The NICo admin web UI (`/admin/…`) is primarily for **visibility**, with a focused set of boot/ingestion actions. **There is no DPU-mode-switching control in the UI** — change `dpu_mode` via Expected Machines (CLI/JSON) as in [Section 2](#2-configuring-via-expected-machines-and-the-defaults).
+The NICo admin web UI (`/admin/…`) is primarily for **visibility**, with a focused set of boot/ingestion actions. **There is no DPU-policy control in the UI** — change `dpu_policy` via Expected Machines (CLI/JSON) as in [Section 2](#2-configuring-via-expected-machines-and-the-defaults).
 
 **View:**
 
@@ -266,8 +292,8 @@ At each boot-config step the controller resolves the target via `load_boot_predi
 1. The host's **own owned interface row** (`machine_interfaces`), if it has a boot interface — used once the host has taken its first DHCP lease.
 2. Otherwise, the **boot prediction** (`pick_boot_prediction`) — used *before* the first lease.
 3. Otherwise, a classification:
-   - **AwaitingNic** — a zero-DPU/NIC-mode host whose boot NIC hasn't appeared yet; wait.
-   - **Missing** — a host that *should* have a boot interface (it has DPUs) but doesn't; a fault to investigate.
+   - **AwaitingNic** — a zero-DPU host using `ignore` or `nic` whose boot NIC hasn't appeared yet; wait.
+   - **Missing** — a host with managed DPUs has neither an owned primary interface nor a usable prediction; a fault to investigate. This includes a managed-DPU host declared to boot from an integrated HostInband NIC if that declaration did not produce a prediction.
 
 > **Key timing.** A host has no `machine_interfaces` row until its first DHCP lease. Predictions are what let the controller configure boot **before** that lease. Once the host leases and the prediction is promoted to an owned row, the **owned row supersedes** the prediction.
 
@@ -275,7 +301,7 @@ At each boot-config step the controller resolves the target via `load_boot_predi
 
 - `configure_host_bios` (at `WaitingForPlatformConfiguration`) calls Redfish `machine_setup` with the resolved boot interface; on Dell this schedules a BIOS job (`WaitingForBiosJob`).
 - `PollingBiosSetup` verifies the BIOS settings took.
-- `SetBootOrder` sets the host boot order via Redfish — **DPU-first** for DPU hosts; for zero-DPU/NIC-mode hosts it targets the resolved HostInband interface (a "no DPU" response from the BMC is expected and treated as success).
+- `SetBootOrder` targets the resolved primary interface via Redfish. In the default managed-DPU topology that is the primary DPU host-PF; for a declared integrated primary or a host using `ignore` or `nic`, it is the resolved HostInband interface. A "no DPU" response from the BMC is expected and treated as success only for a host with no managed DPUs.
 - On a reprovision repair, `check_host_boot_config` re-checks BIOS + boot order and only remediates if they drifted.
 
 ---
@@ -339,8 +365,10 @@ To inspect the boot interface itself — every store (managed, predicted, explor
 | Symptom | Likely cause / action |
 |---|---|
 | `boot_interface_mac_mismatch` (pairing blocker) | The host's boot MAC doesn't match any discovered DPU's pf0 MAC. Expected for an integrated-NIC host — declare the integrated NIC `primary` (see [3.4](#34-boot-an-integrated-nic-while-keeping-the-dpus-managed)); otherwise check the exploration reports. See [Ingesting Hosts → pairing blockers](ingesting-hosts.md#common-blockers-during-host--dpu-pairing). |
-| Host stuck waiting for a boot NIC | A zero-DPU/NIC-mode host whose boot NIC hasn't leased yet (`AwaitingNic`). Confirm the NIC is cabled and DHCP-reachable on its HostInband segment. |
+| Host stuck waiting for a boot NIC | A host using `ignore` or `nic` whose boot NIC hasn't leased yet (`AwaitingNic`). Confirm the NIC is cabled and DHCP-reachable on its HostInband segment. |
+| `Missing boot interface` for a managed-DPU host | The host has neither an owned primary interface nor a usable prediction. For an integrated-NIC boot, confirm `host_nics` declares exactly one `primary` NIC and that site-explorer created its HostInband prediction; otherwise investigate DPU pairing and promotion. |
 | Boot interface wrong after a DPU↔NIC-mode flip | Use **Restore Boot Interface** in the web UI, or re-ingest ([3.5](#35-flipping-a-dpu-to-nic-mode)). |
+| `manual_power_cycle_required` (pairing blocker) after a queued NIC-mode flip | Site-explorer could not apply the queued mode change: The BMC refused both Redfish reset types (`PowerCycle` and `ACPowercycle`), or the DPUs still report the old mode after cycling. Power-cycle the host manually (BMC UI, or the admin CLI's `redfish ac-power-cycle`); the next exploration pass verifies the mode and clears the blocker. A host can also sit here briefly mid-flip; repeat cycles are rate-limited. |
 | Boot interface disabled or no longer the boot device after a DPU replacement (notably on Dell) | The replacement DPU came up in InfiniBand (VPI) link type. NICo self-heals this: DPU cloud-init normalizes the ports to Ethernet and reboots before management-network setup runs, and DPU reprovision then repairs the host BIOS/boot-order configuration automatically — no manual action is needed. If it persists, confirm the DPU ran the normalization (`/var/log/forge/link-type.log` on the DPU) and re-ingest. |
 | DPU mode "unknown" (`dpu_nic_mode_unknown`) | DPU BMC firmware too old to report mode. Install a fresh DPU OS — see [Ingesting Hosts](ingesting-hosts.md#dpu-related-issues-installing-a-fresh-dpu-os). |
 

@@ -25,6 +25,8 @@ mod logs;
 mod nmxc;
 mod nmxt;
 mod nvue;
+#[cfg(test)]
+pub(in crate::collectors) mod projection_test_support;
 mod runtime;
 mod sensors;
 

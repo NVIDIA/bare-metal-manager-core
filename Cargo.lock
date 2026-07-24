@@ -848,6 +848,7 @@ dependencies = [
  "bmc-vendor",
  "carbide-api-model",
  "carbide-network",
+ "carbide-test-support",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
@@ -920,6 +921,7 @@ dependencies = [
 name = "bmc-vendor"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "clap",
  "serde",
 ]
@@ -1141,6 +1143,7 @@ dependencies = [
  "carbide-api-web",
  "carbide-http-connector",
  "carbide-instrument",
+ "carbide-kms-provider",
  "carbide-machine-controller",
  "carbide-metrics-utils",
  "carbide-secrets",
@@ -1165,8 +1168,10 @@ dependencies = [
  "tokio-util",
  "trace-propagation",
  "tracing",
+ "tracing-log",
  "tracing-opentelemetry 0.33.0",
  "tracing-subscriber",
+ "vaultrs",
 ]
 
 [[package]]
@@ -1180,7 +1185,6 @@ dependencies = [
  "base64",
  "bmc-vendor",
  "byteorder",
- "bytes",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-authn",
@@ -1212,7 +1216,6 @@ dependencies = [
  "carbide-rack-controller",
  "carbide-redfish",
  "carbide-rpc",
- "carbide-rpc-utils",
  "carbide-secrets",
  "carbide-site-explorer",
  "carbide-spdm-controller",
@@ -1244,7 +1247,6 @@ dependencies = [
  "hkdf 0.13.0",
  "hostname",
  "http",
- "http-body-util",
  "hyper",
  "hyper-util",
  "ipnetwork",
@@ -1266,7 +1268,6 @@ dependencies = [
  "pkcs1 0.7.5",
  "prometheus",
  "prometheus-text-parser",
- "prost",
  "rand 0.10.1",
  "rcgen",
  "regex",
@@ -1290,7 +1291,6 @@ dependencies = [
  "temp-dir",
  "tempfile",
  "thiserror 2.0.18",
- "time",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -1302,12 +1302,10 @@ dependencies = [
  "tower-http 0.7.0",
  "trace-propagation",
  "tracing",
- "tracing-log",
  "tracing-subscriber",
  "tss-esapi",
  "url",
  "uuid",
- "vaultrs",
  "x509-parser",
  "zeroize",
 ]
@@ -1637,10 +1635,12 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "carbide-api-db",
+ "carbide-instrument",
  "carbide-macros",
  "carbide-redfish",
  "carbide-secrets",
  "carbide-sqlx-testing",
+ "carbide-test-support",
  "chrono",
  "libredfish",
  "mac_address",
@@ -1655,6 +1655,7 @@ dependencies = [
 name = "carbide-dhcp"
 version = "0.0.0"
 dependencies = [
+ "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
  "carbide-test-support",
@@ -1688,9 +1689,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-dhcp-common"
+version = "0.0.0"
+dependencies = [
+ "carbide-test-support",
+]
+
+[[package]]
 name = "carbide-dhcp-server"
 version = "0.1.0"
 dependencies = [
+ "carbide-dhcp-common",
  "carbide-instrument",
  "carbide-rpc",
  "carbide-rpc-utils",
@@ -2035,6 +2044,7 @@ version = "0.0.1"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "axum",
  "base64",
  "bmc-mock",
  "bytes",
@@ -2218,6 +2228,8 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-ib-fabric",
+ "carbide-instrument",
+ "carbide-test-support",
  "carbide-uuid",
  "config-version",
  "eyre",
@@ -2364,6 +2376,7 @@ dependencies = [
  "anyhow",
  "carbide-health-report",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-uuid",
  "chrono",
@@ -2371,6 +2384,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tonic",
@@ -2480,7 +2494,9 @@ dependencies = [
 name = "carbide-machine-validation"
 version = "0.0.0"
 dependencies = [
+ "carbide-instrument",
  "carbide-rpc",
+ "carbide-test-support",
  "carbide-tls",
  "carbide-utils",
  "carbide-uuid",
@@ -2509,6 +2525,7 @@ dependencies = [
 name = "carbide-measured-boot"
 version = "0.0.0"
 dependencies = [
+ "carbide-test-support",
  "carbide-uuid",
  "chrono",
  "clap",
@@ -2761,6 +2778,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-health-report",
+ "carbide-instrument",
  "carbide-mqtt-common",
  "carbide-secrets",
  "carbide-test-support",
@@ -2790,6 +2808,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-health-metrics",
+ "carbide-instrument",
  "carbide-rack",
  "carbide-secrets",
  "carbide-test-support",
@@ -2807,6 +2826,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-controller",
+ "tokio",
  "tonic",
  "tracing",
 ]
@@ -3719,6 +3739,7 @@ name = "component-manager"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bmc-vendor",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-api-test-helper",
@@ -6778,7 +6799,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.44.22#53c0b12569d6de1ecccde826d495618ff987d8c6"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.45.0#7cdf76cfa974db4062c6e7418d9609110bd1f2f3"
 dependencies = [
  "chrono",
  "clap",
