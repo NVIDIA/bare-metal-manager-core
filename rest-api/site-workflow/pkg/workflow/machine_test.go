@@ -267,9 +267,9 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 		},
 	}}
 
-	// Mock GetDpuMachinesByIDs activity success
-	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDs)
-	s.env.OnActivity(machineManager.GetDpuMachinesByIDs, mock.Anything, mock.Anything).Return(expectedResult, nil)
+	// Mock GetDpuMachinesByIDsV2 activity success
+	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDsV2)
+	s.env.OnActivity(machineManager.GetDpuMachinesByIDsV2, mock.Anything, mock.Anything).Return(expectedResult, nil)
 
 	// Execute GetDpuMachines workflow
 	s.env.ExecuteWorkflow(GetDpuMachines, dpuMachineIDs)
@@ -296,9 +296,9 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_ActivityFails() {
 
 	errMsg := "Site Controller communication error"
 
-	// Mock GetDpuMachinesByIDs activity failure
-	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDs)
-	s.env.OnActivity(machineManager.GetDpuMachinesByIDs, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	// Mock GetDpuMachinesByIDsV2 activity failure
+	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDsV2)
+	s.env.OnActivity(machineManager.GetDpuMachinesByIDsV2, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	// Execute GetDpuMachines workflow
 	s.env.ExecuteWorkflow(GetDpuMachines, dpuMachineIDs)

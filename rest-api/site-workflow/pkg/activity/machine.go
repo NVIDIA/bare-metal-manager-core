@@ -153,8 +153,17 @@ func (mm *ManageMachine) DeleteMachineHealthReportOnSite(ctx context.Context, re
 }
 
 // GetDpuMachinesByIDs is an activity to retrieve DPU Machines by IDs with network configuration
-func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs []string) (*cwssaws.DpuMachineList, error) {
-	logger := log.With().Str("Activity", "GetDpuMachinesByIDs").Logger()
+func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs []string) ([]*cwssaws.DpuMachine, error) {
+	result, err := mm.GetDpuMachinesByIDsV2(ctx, dpuMachineIDs)
+	if err != nil {
+		return nil, err
+	}
+	return result.GetMachines(), nil
+}
+
+// GetDpuMachinesByIDsV2 is an activity to retrieve DPU Machines by IDs with network configuration
+func (mm *ManageMachine) GetDpuMachinesByIDsV2(ctx context.Context, dpuMachineIDs []string) (*cwssaws.DpuMachineList, error) {
+	logger := log.With().Str("Activity", "GetDpuMachinesByIDsV2").Logger()
 
 	logger.Info().Msg("Starting activity")
 

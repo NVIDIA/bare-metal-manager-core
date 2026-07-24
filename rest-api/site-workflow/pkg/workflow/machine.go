@@ -199,13 +199,13 @@ func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) (*cwssaws.DpuM
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Invoke GetDpuMachinesByIDs activity
+	// Invoke GetDpuMachinesByIDsV2 activity
 	var machineManager activity.ManageMachine
 
 	var result cwssaws.DpuMachineList
-	err := workflow.ExecuteActivity(ctx, machineManager.GetDpuMachinesByIDs, dpuMachineIDs).Get(ctx, &result)
+	err := workflow.ExecuteActivity(ctx, machineManager.GetDpuMachinesByIDsV2, dpuMachineIDs).Get(ctx, &result)
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "GetDpuMachinesByIDs").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "GetDpuMachinesByIDsV2").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 
