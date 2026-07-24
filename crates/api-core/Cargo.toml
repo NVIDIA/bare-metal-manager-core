@@ -91,7 +91,6 @@ base64 = { workspace = true }
 byteorder = { workspace = true }
 casbin = { workspace = true, features = ["glob"] }
 chrono = { workspace = true }
-clap = { workspace = true }
 dashmap = { workspace = true }
 duration-str = { workspace = true }
 eyre = { workspace = true }

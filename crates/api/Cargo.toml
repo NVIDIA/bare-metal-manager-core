@@ -98,6 +98,7 @@ carbide-version = { path = "../version" }
 carbide-api-core = { path = "../api-core", default-features = false, features = [
   "test-support",
 ] }
+carbide-test-support = { path = "../test-support" }
 trace-propagation = { path = "../trace-propagation" }
 
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
