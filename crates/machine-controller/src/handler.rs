@@ -2260,7 +2260,7 @@ pub async fn check_restart_in_logs(
 }
 
 // Function to wait for some time in state machine.
-fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
+pub(super) fn wait(basetime: &DateTime<Utc>, wait_time: Duration) -> bool {
     let expected_time = *basetime + wait_time;
     let current_time = Utc::now();
 
@@ -2332,6 +2332,15 @@ impl StateHandler for MachineStateHandler {
         _mh_state: &Self::ControllerState, // mh_snapshot above already contains it
         ctx: &mut StateHandlerContext<Self::ContextObjects>,
     ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        // Refresh the per-object info/association series before any early
+        // return: hosts stuck erroring must keep their join series alive, or
+        // hold-period eviction drops exactly the machines being triaged.
+        // (The aggregate metrics below deliberately stay behind the early
+        // returns, preserving their long-standing exclusions.)
+        if let Some(per_object_info) = &ctx.services.per_object_info {
+            per_object_info.record(mh_snapshot);
+        }
+
         if !mh_snapshot
             .host_snapshot
             .associated_dpu_machine_ids()
@@ -2353,7 +2362,19 @@ impl StateHandler for MachineStateHandler {
             continue_state_machine,
             msg,
         } = match mh_snapshot.host_snapshot.state.value {
-            ManagedHostState::Ready if self.power_options_config.enabled => {
+            // A pending maintenance request takes precedence over power-manager
+            // handling: `handle_power` can return `continue_state_machine = false`
+            // (e.g. desired state Off), which would keep `attempt_state_transition`
+            // -- and therefore `maintenance_transition_if_requested` -- from ever
+            // running, starving the queued operation. Skipping power handling here
+            // lets the request reach the Maintenance transition.
+            ManagedHostState::Ready
+                if self.power_options_config.enabled
+                    && mh_snapshot
+                        .host_snapshot
+                        .machine_maintenance_requested
+                        .is_none() =>
+            {
                 power::handle_power(mh_snapshot, ctx, &self.power_options_config).await?
             }
             _ => PowerHandlingOutcome::new(None, true, None),
@@ -2826,7 +2847,15 @@ async fn handle_dpu_reprovision(
                     "DPF reprovision state reached but DPF is not configured"
                 ))
             })?;
-            dpf::handle_dpf_state(state, dpu_snapshot, substate, ctx, dpf).await
+            dpf::handle_dpf_state(
+                state,
+                dpu_snapshot,
+                substate,
+                ctx,
+                dpf,
+                reachability_params.power_down_wait,
+            )
+            .await
         }
         ReprovisionState::InstallDpuOs { substate } => {
             handle_bfb_install_state(
@@ -3810,6 +3839,41 @@ impl DpuMachineStateHandler {
         }
     }
 
+    /// Whether DPF owns platform configuration for this BF4 DPU.
+    ///
+    /// The persisted ingestion marker prevents an enabled-but-unused DPF
+    /// configuration from changing the legacy provisioning path.
+    fn is_dpf_managed_bf4(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        dpu_snapshot: &Machine,
+    ) -> Result<bool, StateHandlerError> {
+        if !state.host_snapshot.config.dpf.used_for_ingestion {
+            return Ok(false);
+        }
+
+        let dpf_sdk = self.dpf_sdk.as_deref().ok_or_else(|| {
+            StateHandlerError::InvalidState(
+                "DPF-managed machine reached DPU platform configuration without DPF configured"
+                    .to_string(),
+            )
+        })?;
+
+        let deployment_type = dpf_sdk
+            .deployment_type_for_dpu(dpu_snapshot)
+            .map_err(|error| {
+                StateHandlerError::InvalidState(format!(
+                    "failed to determine DPF deployment type for DPU {}: {error}",
+                    dpu_snapshot.id
+                ))
+            })?;
+
+        Ok(matches!(
+            deployment_type,
+            carbide_dpf::DpuDeploymentType::Bf4Generic
+        ))
+    }
+
     async fn is_secure_boot_disabled(
         &self,
         // passing in dpu_machine_id only for testing
@@ -4088,7 +4152,15 @@ impl DpuMachineStateHandler {
                         "DPF state reached but DPF is not configured"
                     ))
                 })?;
-                dpf::handle_dpf_state(state, dpu_snapshot, dpf_state, ctx, dpf_sdk).await
+                dpf::handle_dpf_state(
+                    state,
+                    dpu_snapshot,
+                    dpf_state,
+                    ctx,
+                    dpf_sdk,
+                    self.reachability_params.power_down_wait,
+                )
+                .await
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::Off,
@@ -4146,6 +4218,8 @@ impl DpuMachineStateHandler {
                     }
                 })?;
 
+                let dpf_managed_bf4 = self.is_dpf_managed_bf4(state, dpu_snapshot)?;
+
                 let dpu_redfish_client = match ctx
                     .services
                     .create_redfish_client_from_machine(dpu_snapshot)
@@ -4188,45 +4262,50 @@ impl DpuMachineStateHandler {
                     return Ok(outcome);
                 }
 
-                let boot_interface = None; // libredfish will choose the DPU
-                if self.enable_secure_boot {
-                    dpu_redfish_client
-                        .set_host_rshim(EnabledDisabled::Disabled)
-                        .await
-                        .map_err(|e| redfish_error("set_host_rshim", e))?;
-                    dpu_redfish_client
-                        .set_host_privilege_level(HostPrivilegeLevel::Restricted)
-                        .await
-                        .map_err(|e| redfish_error("set_host_privilege_level", e))?;
-                } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
-                    dpu_redfish_client.as_ref(),
-                    boot_interface,
-                    state.host_snapshot.associated_dpu_machine_ids().len(),
-                    &ctx.services.site_config,
-                )
-                .await
-                {
-                    // TODO(chet): I don't know if this is still a thing, but I'm pretty sure
-                    // it hasn't been fixed/addressed yet, and it appears to be logged all over
-                    // the place now.
-                    let msg = format!(
-                        "redfish machine_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
-                        dpu_snapshot.id, e
-                    );
-                    tracing::warn!(msg);
-                    let reboot_status = trigger_reboot_if_needed(
-                        dpu_snapshot,
-                        state,
-                        None,
-                        &self.reachability_params,
-                        ctx,
+                // DPF owns BF4 platform configuration. NICo still owns the
+                // UEFI credential change performed below until DPF credential
+                // management is available.
+                if !dpf_managed_bf4 {
+                    let boot_interface = None; // libredfish will choose the DPU
+                    if self.enable_secure_boot {
+                        dpu_redfish_client
+                            .set_host_rshim(EnabledDisabled::Disabled)
+                            .await
+                            .map_err(|e| redfish_error("set_host_rshim", e))?;
+                        dpu_redfish_client
+                            .set_host_privilege_level(HostPrivilegeLevel::Restricted)
+                            .await
+                            .map_err(|e| redfish_error("set_host_privilege_level", e))?;
+                    } else if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
+                        dpu_redfish_client.as_ref(),
+                        boot_interface,
+                        state.host_snapshot.associated_dpu_machine_ids().len(),
+                        &ctx.services.site_config,
                     )
-                    .await?;
+                    .await
+                    {
+                        // TODO(chet): I don't know if this is still a thing, but I'm pretty sure
+                        // it hasn't been fixed/addressed yet, and it appears to be logged all over
+                        // the place now.
+                        let msg = format!(
+                            "redfish machine_setup failed for DPU {}, potentially due to known race condition between UEFI POST and BMC. issuing a force-restart. err: {}",
+                            dpu_snapshot.id, e
+                        );
+                        tracing::warn!(msg);
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
 
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
-                        dpu_snapshot.id
-                    )));
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )));
+                    }
                 }
 
                 let dpu_uefi_credentials = resolve_site_uefi_credentials(
@@ -4265,8 +4344,9 @@ impl DpuMachineStateHandler {
                     )));
                 }
 
-                // We need to reboot the DPU after configuring the BIOS settings appropriately
-                // so that they are applied
+                // The UEFI password is staged through Redfish BIOS settings,
+                // so retain the restart even when BF4 skips platform setup and
+                // BIOS verification.
                 handler_restart_dpu(
                     dpu_snapshot,
                     ctx,
@@ -4274,8 +4354,12 @@ impl DpuMachineStateHandler {
                 )
                 .await?;
 
-                let next_state = DpuInitState::PollingBiosSetup
-                    .next_state(&state.managed_state, dpu_machine_id)?;
+                let next_state = if dpf_managed_bf4 {
+                    DpuInitState::WaitingForNetworkConfig
+                } else {
+                    DpuInitState::PollingBiosSetup
+                }
+                .next_state(&state.managed_state, dpu_machine_id)?;
 
                 // The DPU's UEFI password is now the site-wide value (just set via
                 // uefi_setup above): record dpu_uefi convergence so the rotation
@@ -4303,6 +4387,16 @@ impl DpuMachineStateHandler {
             DpuInitState::PollingBiosSetup => {
                 let next_state = DpuInitState::WaitingForNetworkConfig
                     .next_state(&state.managed_state, dpu_machine_id)?;
+
+                // Handle BF4 machines already persisted in this state when the
+                // controller is upgraded: do not issue even one more BIOS query.
+                if self.is_dpf_managed_bf4(state, dpu_snapshot)? {
+                    tracing::info!(
+                        dpu_machine_id = %dpu_snapshot.id,
+                        "Skipping BIOS setup verification for DPF-managed BF4"
+                    );
+                    return Ok(StateHandlerOutcome::transition(next_state));
+                }
 
                 let dpu_redfish_client = match ctx
                     .services
@@ -9844,18 +9938,37 @@ fn handler_restart_dpu(
     dpf_used_for_ingestion: bool,
 ) -> impl Future<Output = Result<(), StateHandlerError>> {
     let trigger_location = std::panic::Location::caller();
-    tracing::info!(
-        dpu_machine_id = %machine.id,
-        %trigger_location,
-        "DPU restart triggered"
-    );
-    ctx.pending_db_writes
-        .push(MachineWriteOp::UpdateRebootRequestedTime {
-            machine_id: machine.id,
-            mode: model::machine::MachineLastRebootRequestedMode::Reboot,
-            time: Utc::now(),
-        });
-    restart_dpu(machine, ctx.services, dpf_used_for_ingestion)
+    async move {
+        tracing::info!(
+            dpu_machine_id = %machine.id,
+            %trigger_location,
+            "attempting DPU restart"
+        );
+
+        if let Err(error) = restart_dpu(machine, ctx.services, dpf_used_for_ingestion).await {
+            tracing::error!(
+                dpu_machine_id = %machine.id,
+                %trigger_location,
+                error = %error,
+                "DPU restart failed"
+            );
+            return Err(error);
+        }
+
+        ctx.pending_db_writes
+            .push(MachineWriteOp::UpdateRebootRequestedTime {
+                machine_id: machine.id,
+                mode: model::machine::MachineLastRebootRequestedMode::Reboot,
+                time: Utc::now(),
+            });
+        tracing::info!(
+            dpu_machine_id = %machine.id,
+            %trigger_location,
+            "DPU restart triggered"
+        );
+
+        Ok(())
+    }
 }
 
 pub async fn host_power_state(
@@ -10512,13 +10625,10 @@ async fn restart_dpu(
             });
     }
 
-    if let Err(e) = dpu_redfish_client
+    dpu_redfish_client
         .power(SystemPowerControl::ForceRestart)
         .await
-    {
-        tracing::error!(error = %e, "Failed to reboot a DPU");
-        return Err(redfish_error("reboot dpu", e));
-    }
+        .map_err(|error| redfish_error("reboot dpu", error))?;
 
     Ok(())
 }
@@ -11478,6 +11588,26 @@ async fn set_host_boot_order(
                     .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
+
+                if job_state.is_error_state() {
+                    tracing::warn!(
+                        %job_id,
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        job_state = ?job_state,
+                        "SetBootOrder: job failed while waiting for scheduling, transitioning to HandleJobFailure",
+                    );
+
+                    return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                        set_boot_order_jid: None,
+                        set_boot_order_state: SetBootOrderState::HandleJobFailure {
+                            failure: format!(
+                                "Job {job_id} failed while waiting to be scheduled: {job_state:#?}"
+                            ),
+                            power_state: PowerState::Off,
+                        },
+                        retry_count: set_boot_order_info.retry_count,
+                    }));
+                }
 
                 if !matches!(job_state, libredfish::JobState::Scheduled) {
                     return Err(StateHandlerError::GenericError(eyre::eyre!(

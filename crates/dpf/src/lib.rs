@@ -81,9 +81,9 @@ pub use services::{DEFAULT_DOCA_HELM_REGISTRY, ServiceRegistryConfig};
 pub use types::{
     BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DpuDeploymentType,
     DpuDeviceInfo, DpuErrorEvent, DpuEvent, DpuMismatch, DpuNodeInfo, DpuPhase, DpuReadyEvent,
-    InitDpfResourcesConfig, MaintenanceEvent, RebootRequiredEvent, ServiceChainSwitch,
-    ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition, ServiceInterface, ServiceNAD,
-    ServiceNADResourceType,
+    DpuServiceVersion, InitDpfResourcesConfig, MaintenanceEvent, RebootRequiredEvent,
+    ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
+    ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 pub use watcher::{DpuWatcher, DpuWatcherBuilder};
 

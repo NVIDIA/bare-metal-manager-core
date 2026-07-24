@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use carbide_host_support::agent_config::MachineIdentityConfig;
-use carbide_instrument::{Outcome, emit};
+use carbide_instrument::emit;
 use eyre::eyre;
 use forge_dpu_fmds_shared::machine_identity::MachineIdentityParams;
 use rpc::fmds::fmds_config_service_client::FmdsConfigServiceClient;
@@ -29,7 +29,7 @@ use rpc::forge::ManagedHostNetworkConfigResponse;
 use tonic::transport::Channel;
 
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;
-use crate::instrumentation::{ReportLoop, ReportLoopCompleted};
+use crate::instrumentation::{FmdsPushFailed, FmdsPushSucceeded};
 use crate::periodic_config_fetcher::InstanceMetadata;
 
 /// FmdsUpdater abstracts over embedded vs external FMDS
@@ -59,17 +59,13 @@ impl FmdsUpdater {
             }
             FmdsUpdater::External(client) => {
                 let result = client.update_config(&instance_data, &network_config).await;
-                if let Err(err) = &result {
-                    tracing::error!(
-                        error = format!("{err:#}"),
-                        fmds_address = client.address,
-                        "Failed to send config update to external FMDS"
-                    );
+                match &result {
+                    Ok(()) => emit(FmdsPushSucceeded::new()),
+                    Err(err) => emit(FmdsPushFailed::new(
+                        format!("{err:#}"),
+                        client.address.clone(),
+                    )),
                 }
-                emit(ReportLoopCompleted {
-                    report_loop: ReportLoop::FmdsPush,
-                    outcome: Outcome::from(&result),
-                });
             }
         }
     }

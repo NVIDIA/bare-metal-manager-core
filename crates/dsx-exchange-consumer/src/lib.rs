@@ -30,7 +30,6 @@ pub mod metrics;
 pub mod mqtt_consumer;
 
 pub use config::Config;
-pub use metrics::ConsumerMetrics;
 
 use crate::api_client::{ApiClientWrapper, ConsoleRackHealthSink};
 use crate::health_updater::HealthUpdater;
@@ -75,9 +74,6 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     let join_listener =
         tokio::spawn(async move { metrics_endpoint::run_metrics_endpoint(&metrics_config).await });
 
-    // Create consumer metrics
-    let consumer_metrics = ConsumerMetrics::new(&meter);
-
     let credential_manager = carbide_secrets::create_credential_manager(
         &carbide_secrets::CredentialConfig::default(),
         meter.clone(),
@@ -104,24 +100,14 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
             api_config.client_key,
             &api_config.api_url,
         ));
-        let health_updater = HealthUpdater::new(
-            config.mqtt.topic_prefix,
-            config.cache,
-            api_client,
-            consumer_metrics,
-            meter,
-        );
+        let health_updater =
+            HealthUpdater::new(config.mqtt.topic_prefix, config.cache, api_client, meter);
         tokio::spawn(async move { health_updater.run(rx).await })
     } else {
         tracing::warn!("Carbide API disabled, using console sink");
         let api_client = Arc::new(ConsoleRackHealthSink);
-        let health_updater = HealthUpdater::new(
-            config.mqtt.topic_prefix,
-            config.cache,
-            api_client,
-            consumer_metrics,
-            meter,
-        );
+        let health_updater =
+            HealthUpdater::new(config.mqtt.topic_prefix, config.cache, api_client, meter);
         tokio::spawn(async move { health_updater.run(rx).await })
     };
 

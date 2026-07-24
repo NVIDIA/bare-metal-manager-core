@@ -4,21 +4,24 @@ _[Hardware commands](../../hardware.md) › [credential](./credential.md) › **
 
 ## NAME
 
-nico-admin-cli-credential-delete-nmx-m - Delete NmxM credentials
+nico-admin-cli-credential-delete-nmx-m - Deprecated compatibility
+command; NMX-M is no longer supported
 
 ## SYNOPSIS
 
-**nico-admin-cli credential delete-nmx-m** \<**--username**\>
+**nico-admin-cli credential delete-nmx-m** \[**--username**\]
 \[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
-Delete NmxM credentials
+Deprecated compatibility command. NMX-M is no longer supported. This
+command always returns an error and does not modify credentials. Use
+NMX-C for NVLink partition management.
 
 ## OPTIONS
 
 **--username** *\<USERNAME\>*  
-NmxM url
+Legacy NMX-M credential username
 
 **--extended**  
 Extended result output.

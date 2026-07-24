@@ -23,7 +23,7 @@ import (
 // checks if the DpuMachine type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &DpuMachine{}
 
-// DpuMachine A DPU Machine with its complete network configuration sent to the DPU agent.
+// DpuMachine A DPU Machine with network configuration fields exposed by the REST API.
 type DpuMachine struct {
 	// ID of the DPU Machine
 	Id string `json:"id"`
@@ -49,7 +49,7 @@ type DpuMachine struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	// Lifecycle state of the DPU
 	State string `json:"state"`
-	// Complete network configuration sent to the DPU agent
+	// Network configuration fields exposed by the REST API
 	DpuNetworkConfig DpuNetworkConfig `json:"dpuNetworkConfig"`
 	// Last reboot timestamp
 	LastRebooted NullableTime `json:"lastRebooted,omitempty"`

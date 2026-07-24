@@ -67,11 +67,10 @@ pub struct ManagedHostStateRepublisherParams {
 }
 
 impl<P: MqttPublisher> ManagedHostStateRepublisher<P> {
-    /// Create a new republisher.
-    ///
-    /// Reuses the change-hook publish metrics (`carbide_dsx_event_bus_publish_count`)
-    /// under the `managed_host_republish` component so periodic publishes can be
-    /// told apart from change-driven ones on dashboards.
+    /// `ManagedHostStateRepublisher::new` reuses
+    /// `carbide_dsx_event_bus_publish_count_total`. Its
+    /// `component="managed_host_republish"` label keeps periodic sweeps
+    /// distinct from change-driven publishes on dashboards.
     pub fn new(publisher: P, params: ManagedHostStateRepublisherParams) -> Self {
         let metrics = MqttHookMetrics::without_queue_depth(PublishComponent::ManagedHostRepublish);
         Self {
@@ -293,25 +292,33 @@ async fn publish_state<P: MqttPublisher>(
         managed_host_state: state,
         timestamp,
     };
+    let topic = message.topic(topic_prefix);
+    let machine_id_context = machine_id.to_string();
 
     let payload = match message.to_json_bytes() {
         Ok(payload) => payload,
-        Err(e) => {
-            tracing::error!(
-                machine_id = %machine_id,
-                error = %e,
-                "Failed to serialize managed host state for republish"
+        Err(error) => {
+            metrics.record_republish_serialization_error(
+                topic,
+                machine_id_context,
+                error.to_string(),
             );
-            metrics.record_serialization_error();
             return;
         }
     };
 
     // Same topic layout and publish/timeout/metrics handling as the
     // change-driven hook, shared so the two paths can't drift.
-    let topic = message.topic(topic_prefix);
     let deadline = Instant::now() + publish_timeout;
-    publish_with_deadline(publisher, &topic, payload, deadline, metrics).await;
+    publish_with_deadline(
+        publisher,
+        &topic,
+        &machine_id_context,
+        payload,
+        deadline,
+        metrics,
+    )
+    .await;
 }
 
 #[cfg(test)]

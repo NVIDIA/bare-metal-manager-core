@@ -30,7 +30,10 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use component_manager::component_manager::{ComponentManager, SwitchMaintenanceRequestResult};
-use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayVendor};
+use component_manager::compute_tray_manager::{
+    ComputeTrayEndpoint, ComputeTrayManager, ComputeTrayVendor,
+};
+use component_manager::core_compute_manager::CoreComputeTrayManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
@@ -725,6 +728,28 @@ async fn partition_compute_machines_by_rack_scale(
     api: &Api,
     machine_ids: &[MachineId],
 ) -> Result<(Vec<MachineId>, Vec<MachineId>), Status> {
+    let machines_by_id = load_machines_by_id(api, machine_ids).await?;
+
+    let mut rack_scale = Vec::new();
+    let mut standalone = Vec::new();
+    for &machine_id in machine_ids {
+        if machine_is_rack_scale(&machines_by_id, machine_id)? {
+            rack_scale.push(machine_id);
+        } else {
+            standalone.push(machine_id);
+        }
+    }
+
+    Ok((rack_scale, standalone))
+}
+
+/// Load the requested machines keyed by id. A DB lookup failure is a hard
+/// error, since nothing can be classified without it; ids that don't exist are
+/// simply absent from the returned map, left for the caller to handle.
+async fn load_machines_by_id(
+    api: &Api,
+    machine_ids: &[MachineId],
+) -> Result<HashMap<MachineId, Machine>, Status> {
     let machines = db::machine::find(
         api.db_reader().as_mut(),
         db::ObjectFilter::List(machine_ids),
@@ -732,25 +757,24 @@ async fn partition_compute_machines_by_rack_scale(
     )
     .await
     .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
-    let machines_by_id: HashMap<_, _> = machines
+    Ok(machines
         .into_iter()
         .map(|machine| (machine.id, machine))
-        .collect();
+        .collect())
+}
 
-    let mut rack_scale = Vec::new();
-    let mut standalone = Vec::new();
-    for machine_id in machine_ids {
-        let machine = machines_by_id
-            .get(machine_id)
-            .ok_or_else(|| Status::not_found(format!("machine {machine_id} not found")))?;
-        if is_rack_scale_server(machine) {
-            rack_scale.push(*machine_id);
-        } else {
-            standalone.push(*machine_id);
-        }
-    }
-
-    Ok((rack_scale, standalone))
+/// Classify a single already-loaded machine as rack-scale (`true`) or
+/// standalone (`false`), returning `Err(Status::not_found)` if the id is not in
+/// the map. Callers decide whether an unknown id aborts the batch or is
+/// collected as a per-machine error.
+fn machine_is_rack_scale(
+    machines_by_id: &HashMap<MachineId, Machine>,
+    machine_id: MachineId,
+) -> Result<bool, Status> {
+    let machine = machines_by_id
+        .get(&machine_id)
+        .ok_or_else(|| Status::not_found(format!("machine {machine_id} not found")))?;
+    Ok(is_rack_scale_server(machine))
 }
 
 /// Initiate a firmware upgrade for standalone (non rack-scale) servers
@@ -1209,17 +1233,6 @@ async fn resolve_power_shelf_endpoints(
     })
 }
 
-fn map_bmc_vendor_to_compute_tray(vendor: bmc_vendor::BMCVendor) -> ComputeTrayVendor {
-    match vendor {
-        bmc_vendor::BMCVendor::Dell => ComputeTrayVendor::Dell,
-        bmc_vendor::BMCVendor::Hpe => ComputeTrayVendor::Hpe,
-        bmc_vendor::BMCVendor::Lenovo => ComputeTrayVendor::Lenovo,
-        bmc_vendor::BMCVendor::Supermicro => ComputeTrayVendor::Supermicro,
-        bmc_vendor::BMCVendor::Nvidia => ComputeTrayVendor::Nvidia,
-        _ => ComputeTrayVendor::Unknown,
-    }
-}
-
 struct ResolvedComputeTrayEndpoints {
     endpoints: Vec<ComputeTrayEndpoint>,
     ip_to_machine_id: HashMap<IpAddr, carbide_uuid::machine::MachineId>,
@@ -1289,7 +1302,7 @@ async fn resolve_compute_tray_endpoints(
             }
         };
 
-        let vendor = map_bmc_vendor_to_compute_tray(machine.bmc_vendor());
+        let vendor = ComputeTrayVendor::from(machine.bmc_vendor());
 
         ip_to_machine_id.insert(bmc_ip, machine_id);
         endpoints.push(ComputeTrayEndpoint {
@@ -1633,112 +1646,159 @@ pub(crate) async fn component_power_control(
             }
         }
         rpc::component_power_control_request::Target::MachineIds(list) => {
-            if cm.compute_tray_use_state_controller && !bypass_state_controller {
-                let results = queue_machine_power_control_via_state_controller(
-                    api,
-                    cm,
-                    &list.machine_ids,
-                    action,
-                )
-                .await?;
-                let ips = Vec::new();
-                (results, ips)
-            } else {
-                let resolved = resolve_compute_tray_endpoints(api, &list.machine_ids).await?;
-
-                let mut results: Vec<_> = resolved
-                    .unresolved
-                    .iter()
-                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                    .collect();
-
-                let resolved_machine_ids: Vec<_> = resolved
-                    .resolved
-                    .endpoints
-                    .iter()
-                    .filter_map(|ep| resolved.resolved.ip_to_machine_id.get(&ep.bmc_ip).copied())
-                    .collect();
-
-                // Insert health overrides and update power-manager desired state
-                // before issuing Redfish commands.
-                let desired_state = desired_power_state(action) as i32;
-                let mut overrides_inserted = Vec::new();
-                for &machine_id in &resolved_machine_ids {
-                    let inserted = power_control_health_override(api, machine_id, true).await;
-                    if inserted {
-                        overrides_inserted.push(machine_id);
+            // Divide the requested machines the same way compute firmware
+            // updates do: rack-scale (MNNVL) systems vs standalone servers. Only
+            // rack-scale systems have a compute-tray backend (RMS) and a
+            // state-controller maintenance flow; standalone servers are always
+            // driven synchronously through NICo-core's Redfish stack, because
+            // RMS cannot power-control them.
+            //
+            // Classify each machine and persist its power-manager desired state
+            // in a single pass. A machine joins `rack_scale_ids`/`standalone_ids`
+            // only after both steps succeed, so unknown ids and power-option
+            // failures are reported per-machine and never dispatched (no
+            // duplicate result, no actuation without a recorded intent).
+            //
+            // The state controller does not update the power manager today, so
+            // the handler owns it regardless of which dispatch path (rack vs
+            // standalone) a machine ultimately takes.
+            //
+            // The health override exists only to satisfy `update_power_option`'s
+            // precondition for powering a host off (it requires an
+            // `internal_maintenance` / `suppress_external_alerting` alert). The
+            // Redfish dispatch does not need it, so it brackets just the
+            // power-manager change. Durable alert suppression for an
+            // intentionally-off host comes from `desired_power_state` itself.
+            let machines_by_id = load_machines_by_id(api, &list.machine_ids).await?;
+            let desired_state = desired_power_state(action) as i32;
+            let mut results: Vec<rpc::ComponentResult> = Vec::new();
+            let (mut rack_scale_ids, mut standalone_ids) = (Vec::new(), Vec::new());
+            for &machine_id in &list.machine_ids {
+                // Unknown ids are reported per-machine and never dispatched.
+                let is_rack_scale = match machine_is_rack_scale(&machines_by_id, machine_id) {
+                    Ok(v) => v,
+                    Err(status) => {
+                        // Preserve the tonic status code (NotFound for an unknown
+                        // id) in the per-machine result instead of flattening it to
+                        // InternalError.
+                        results.push(status_result(&machine_id.to_string(), status));
+                        continue;
                     }
+                };
 
-                    let power_req = rpc::PowerOptionUpdateRequest {
-                        machine_id: Some(machine_id),
-                        power_state: desired_state,
-                    };
-                    match crate::handlers::power_options::update_power_option(
+                let override_inserted = power_control_health_override(api, machine_id, true).await;
+
+                let power_req = rpc::PowerOptionUpdateRequest {
+                    machine_id: Some(machine_id),
+                    power_state: desired_state,
+                };
+                let power_option_ok = match crate::handlers::power_options::update_power_option(
+                    api,
+                    Request::new(power_req),
+                )
+                .await
+                {
+                    Ok(_) => true,
+                    Err(e)
+                        if e.code() == Code::InvalidArgument
+                            && e.message().contains("already set as") =>
+                    {
+                        tracing::debug!(
+                            %machine_id,
+                            desired_state,
+                            "power option already in desired state, skipping"
+                        );
+                        true
+                    }
+                    Err(e) => {
+                        results.push(error_result(
+                            &machine_id.to_string(),
+                            format!("failed to update power option: {e}"),
+                        ));
+                        false
+                    }
+                };
+
+                if override_inserted {
+                    power_control_health_override(api, machine_id, false).await;
+                }
+
+                // Only machines whose desired state was recorded proceed to
+                // dispatch, so a power-option failure never actuates hardware
+                // without a matching intent.
+                if power_option_ok {
+                    if is_rack_scale {
+                        rack_scale_ids.push(machine_id);
+                    } else {
+                        standalone_ids.push(machine_id);
+                    }
+                }
+            }
+
+            let mut ips: Vec<IpAddr> = Vec::new();
+
+            // Rack-scale systems: the state-controller maintenance flow when
+            // enabled, otherwise a synchronous dispatch through the configured
+            // backend (RMS).
+            if !rack_scale_ids.is_empty() {
+                if cm.compute_tray_use_state_controller && !bypass_state_controller {
+                    match queue_machine_power_control_via_state_controller(
                         api,
-                        Request::new(power_req),
+                        cm,
+                        &rack_scale_ids,
+                        action,
                     )
                     .await
                     {
-                        Ok(_) => {}
-                        Err(e)
-                            if e.code() == Code::InvalidArgument
-                                && e.message().contains("already set as") =>
-                        {
-                            tracing::debug!(
-                                %machine_id,
-                                desired_state,
-                                "power option already in desired state, skipping"
-                            );
-                        }
-                        Err(e) => {
-                            results.push(error_result(
-                                &machine_id.to_string(),
-                                format!("failed to update power option: {e}"),
-                            ));
+                        Ok(sc_results) => results.extend(sc_results),
+                        Err(status) => {
+                            results.extend(partition_error_results(&rack_scale_ids, &status))
                         }
                     }
-                }
-
-                tracing::info!(
-                    backend = cm.compute_tray.name(),
-                    compute_tray_count = resolved.resolved.endpoints.len(),
-                    ?action,
-                    "power control for compute trays"
-                );
-                let backend_results = cm
-                    .compute_tray
-                    .power_control(&resolved.resolved.endpoints, action)
+                } else {
+                    match dispatch_compute_tray_power_control(
+                        api,
+                        cm.compute_tray.as_ref(),
+                        &rack_scale_ids,
+                        action,
+                    )
                     .await
-                    .map_err(component_manager_error_to_status)?;
-
-                // Clear health overrides after Redfish dispatch.
-                for machine_id in &overrides_inserted {
-                    power_control_health_override(api, *machine_id, false).await;
-                }
-
-                let ips: Vec<IpAddr> = resolved
-                    .resolved
-                    .endpoints
-                    .iter()
-                    .map(|ep| ep.bmc_ip)
-                    .collect();
-
-                results.extend(backend_results.into_iter().map(|r| {
-                    let id = resolved
-                        .resolved
-                        .ip_to_machine_id
-                        .get(&r.bmc_ip)
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| r.bmc_ip.to_string());
-                    if r.success {
-                        success_result(&id)
-                    } else {
-                        error_result(&id, r.error.unwrap_or_default())
+                    {
+                        Ok((rack_results, rack_ips)) => {
+                            results.extend(rack_results);
+                            ips.extend(rack_ips);
+                        }
+                        Err(status) => {
+                            results.extend(partition_error_results(&rack_scale_ids, &status))
+                        }
                     }
-                }));
-
-                (results, ips)
+                }
             }
+
+            // Standalone servers: always synchronous, always NICo-core's Redfish
+            // stack (never the state machine, which has no non-rack path), so
+            // power control works even when the configured backend is RMS.
+            if !standalone_ids.is_empty() {
+                let core_backend = CoreComputeTrayManager::new(api.redfish_pool.clone());
+                match dispatch_compute_tray_power_control(
+                    api,
+                    &core_backend,
+                    &standalone_ids,
+                    action,
+                )
+                .await
+                {
+                    Ok((standalone_results, standalone_ips)) => {
+                        results.extend(standalone_results);
+                        ips.extend(standalone_ips);
+                    }
+                    Err(status) => {
+                        results.extend(partition_error_results(&standalone_ids, &status))
+                    }
+                }
+            }
+
+            (results, ips)
         }
     };
 
@@ -1751,6 +1811,77 @@ pub(crate) async fn component_power_control(
     Ok(Response::new(rpc::ComponentPowerControlResponse {
         results,
     }))
+}
+
+/// Fan a whole-partition dispatch failure out to one result per machine in that
+/// partition, so a failure in one partition never discards results already
+/// committed for the other partition or for the power-option updates. The tonic
+/// status code is preserved per machine (e.g. `Unavailable` for a backend that
+/// is down) rather than flattened to `InternalError`.
+fn partition_error_results(
+    machine_ids: &[MachineId],
+    status: &Status,
+) -> Vec<rpc::ComponentResult> {
+    machine_ids
+        .iter()
+        .map(|id| status_result(&id.to_string(), status.clone()))
+        .collect()
+}
+
+/// Resolve BMC endpoints for `machine_ids`, issue power control through
+/// `backend`, and return per-machine results (keyed by machine id via the
+/// resolved `ip_to_machine_id` map) alongside the BMC IPs that were dispatched
+/// to, so the caller can request site re-exploration for them.
+///
+/// Shared by the rack-scale synchronous path (configured backend, e.g. RMS) and
+/// the standalone path (always NICo-core's Redfish backend).
+async fn dispatch_compute_tray_power_control(
+    api: &Api,
+    backend: &dyn ComputeTrayManager,
+    machine_ids: &[MachineId],
+    action: PowerAction,
+) -> Result<(Vec<rpc::ComponentResult>, Vec<IpAddr>), Status> {
+    let resolved = resolve_compute_tray_endpoints(api, machine_ids).await?;
+
+    let mut results: Vec<rpc::ComponentResult> = resolved
+        .unresolved
+        .iter()
+        .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+        .collect();
+
+    tracing::info!(
+        backend = backend.name(),
+        compute_tray_count = resolved.resolved.endpoints.len(),
+        ?action,
+        "power control for compute trays"
+    );
+    let backend_results = backend
+        .power_control(&resolved.resolved.endpoints, action)
+        .await
+        .map_err(component_manager_error_to_status)?;
+
+    let ips: Vec<IpAddr> = resolved
+        .resolved
+        .endpoints
+        .iter()
+        .map(|ep| ep.bmc_ip)
+        .collect();
+
+    results.extend(backend_results.into_iter().map(|r| {
+        let id = resolved
+            .resolved
+            .ip_to_machine_id
+            .get(&r.bmc_ip)
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| r.bmc_ip.to_string());
+        if r.success {
+            success_result(&id)
+        } else {
+            error_result(&id, r.error.unwrap_or_default())
+        }
+    }));
+
+    Ok((results, ips))
 }
 
 pub(crate) async fn component_configure_switch_certificate(
@@ -3222,6 +3353,54 @@ mod tests {
         assert_eq!(r.error, "boom");
     }
 
+    #[test]
+    fn status_result_maps_tonic_codes_and_defaults_to_internal_error() {
+        use super::status_result;
+
+        let cases = [
+            (
+                Status::not_found("missing"),
+                rpc::ComponentManagerStatusCode::NotFound,
+            ),
+            (
+                Status::invalid_argument("bad"),
+                rpc::ComponentManagerStatusCode::InvalidArgument,
+            ),
+            (
+                Status::failed_precondition("precondition"),
+                rpc::ComponentManagerStatusCode::InvalidArgument,
+            ),
+            (
+                Status::already_exists("dup"),
+                rpc::ComponentManagerStatusCode::AlreadyExists,
+            ),
+            (
+                Status::unavailable("down"),
+                rpc::ComponentManagerStatusCode::Unavailable,
+            ),
+            // Codes without an explicit arm collapse to InternalError.
+            (
+                Status::internal("boom"),
+                rpc::ComponentManagerStatusCode::InternalError,
+            ),
+            (
+                Status::permission_denied("nope"),
+                rpc::ComponentManagerStatusCode::InternalError,
+            ),
+        ];
+
+        for (status, expected) in cases {
+            let message = status.message().to_string();
+            let r = status_result("machine-1", status);
+            assert_eq!(r.component_id, "machine-1");
+            assert_eq!(
+                r.status, expected as i32,
+                "unexpected mapping for {message:?}"
+            );
+            assert_eq!(r.error, message);
+        }
+    }
+
     fn test_switch_id() -> SwitchId {
         use carbide_uuid::switch::{SwitchIdSource, SwitchType};
         SwitchId::new(SwitchIdSource::Tpm, [0u8; 32], SwitchType::NvLink)
@@ -3446,5 +3625,93 @@ mod tests {
                 .as_ref()
                 .is_some_and(|result| result.error.contains("machine not found"))
         );
+    }
+
+    // ---- compute power-control (MachineIds) decision logic ----
+
+    use model::hardware_info::{Gpu, GpuPlatformInfo, HardwareInfo};
+    use model::test_support::machine_snapshot::{dpu_machine_id, host_machine, host_machine_id};
+
+    /// A GPU carrying NVLink platform metadata and an MNNVL family name — what
+    /// `is_mnnvl_capable` keys off of to flag a rack-scale (GB200) server.
+    fn mnnvl_gpu() -> Gpu {
+        Gpu {
+            name: "NVIDIA GB200".to_string(),
+            serial: String::new(),
+            driver_version: String::new(),
+            vbios_version: String::new(),
+            inforom_version: String::new(),
+            total_memory: String::new(),
+            frequency: String::new(),
+            pci_bus_id: String::new(),
+            platform_info: Some(GpuPlatformInfo {
+                chassis_serial: "CHASSIS-1".to_string(),
+                slot_number: 1,
+                tray_index: 1,
+                host_id: 1,
+                module_id: 1,
+                fabric_guid: String::new(),
+            }),
+        }
+    }
+
+    fn machine_with_hardware(hardware_info: Option<HardwareInfo>) -> Machine {
+        let mut machine = host_machine();
+        machine.status.hardware_info = hardware_info;
+        machine
+    }
+
+    /// Rack-scale: at least one MNNVL-capable GPU.
+    fn rack_scale_machine() -> Machine {
+        machine_with_hardware(Some(HardwareInfo {
+            gpus: vec![mnnvl_gpu()],
+            ..Default::default()
+        }))
+    }
+
+    /// Standalone: no MNNVL-capable GPU.
+    fn standalone_machine() -> Machine {
+        machine_with_hardware(Some(HardwareInfo::default()))
+    }
+
+    #[test]
+    fn machine_is_rack_scale_classifies_rack_standalone_and_unknown() {
+        let id = host_machine_id();
+
+        let rack_map = HashMap::from([(id, rack_scale_machine())]);
+        assert!(
+            machine_is_rack_scale(&rack_map, id).unwrap(),
+            "MNNVL hardware should classify as rack-scale"
+        );
+
+        let standalone_map = HashMap::from([(id, standalone_machine())]);
+        assert!(
+            !machine_is_rack_scale(&standalone_map, id).unwrap(),
+            "non-MNNVL hardware should classify as standalone"
+        );
+
+        // Unknown id (absent from the map) is a per-machine NotFound carrying the id.
+        let err = machine_is_rack_scale(&HashMap::new(), id).unwrap_err();
+        assert_eq!(err.code(), Code::NotFound);
+        assert!(err.message().contains(&id.to_string()));
+    }
+
+    #[test]
+    fn partition_error_results_reports_one_error_per_machine() {
+        let ids = [host_machine_id(), dpu_machine_id(0)];
+        let status = Status::unavailable("backend down");
+
+        let results = partition_error_results(&ids, &status);
+
+        assert_eq!(results.len(), ids.len());
+        for (result, id) in results.iter().zip(ids) {
+            assert_eq!(result.component_id, id.to_string());
+            // The dispatch status code is preserved per machine, not flattened.
+            assert_eq!(
+                result.status,
+                rpc::ComponentManagerStatusCode::Unavailable as i32
+            );
+            assert!(result.error.contains("backend down"));
+        }
     }
 }

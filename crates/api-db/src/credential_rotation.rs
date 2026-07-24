@@ -72,12 +72,37 @@
 //! join `device_credential_rotation` to the live device tables when selecting
 //! work so a row orphaned by device deletion is never acted on.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use mac_address::MacAddress;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
 use crate::db_read::DbReader;
+
+/// Backoff floor: the first failed rotation attempt quarantines the device for
+/// this long before the engine will retry it.
+const BACKOFF_BASE_SECS: i64 = 60;
+/// Backoff ceiling: the quarantine window never grows past this (~1 hour), so a
+/// permanently failing device is still retried periodically.
+const BACKOFF_CAP_SECS: i64 = 3600;
+
+/// Exponential, capped backoff window: `now + min(BASE * 2^prior_attempts, CAP)`.
+///
+/// `prior_attempts` is the failure count recorded *before* the attempt being
+/// quarantined, so the first failure (`prior_attempts = 0`) waits [`BACKOFF_BASE_SECS`],
+/// the second waits twice that, and so on until [`BACKOFF_CAP_SECS`]. The engine
+/// passes the result to [`increment_rotate_attempt`] as `quarantined_until`.
+///
+/// Saturating arithmetic makes this total for any `i32` input: a huge attempt
+/// count saturates `2^exp` (and the multiply) at `i64::MAX`, which [`BACKOFF_CAP_SECS`]
+/// then clamps back to the ceiling -- so no separate exponent limit is needed.
+pub fn backoff_until(prior_attempts: i32, now: DateTime<Utc>) -> DateTime<Utc> {
+    let exp = prior_attempts.max(0) as u32;
+    let secs = BACKOFF_BASE_SECS
+        .saturating_mul(2_i64.saturating_pow(exp))
+        .min(BACKOFF_CAP_SECS);
+    now + Duration::seconds(secs)
+}
 
 /// Mirrors the `credential_rotation_type` Postgres enum
 /// (`20260623120000_credential_rotation.sql`).
@@ -216,13 +241,24 @@ pub async fn mark_device_rotating_to_version(
 /// already cleared and is a no-op, leaving the promoted `current_version` intact.
 /// A `false` return lets the caller fall back to [`record_device_converged`] for
 /// devices that were converged before this staged flow shipped (no marker).
+///
+/// Promotion also clears the failure bookkeeping ([`increment_rotate_attempt`]
+/// writes `rotate_attempts`, `rotate_quarantined_until`, and
+/// `rotate_last_error_redacted`): a device that just converged carries no stale
+/// error text into `GetCredentialRotationStatus`, and, crucially, a converged
+/// row never retains a future backoff window -- so the [`rotation_status`]
+/// converged and quarantined buckets stay disjoint.
 pub async fn promote_rotating_to_current(
     conn: &mut PgConnection,
     device_mac: MacAddress,
     credential_type: CredentialRotationType,
 ) -> Result<bool, DatabaseError> {
     let query = "UPDATE device_credential_rotation \
-                 SET current_version = rotating_to_version, rotating_to_version = NULL \
+                 SET current_version = rotating_to_version, \
+                     rotating_to_version = NULL, \
+                     rotate_attempts = 0, \
+                     rotate_quarantined_until = NULL, \
+                     rotate_last_error_redacted = NULL \
                  WHERE device_mac = $1 AND credential_type = $2 \
                        AND rotating_to_version IS NOT NULL";
     let result = sqlx::query(query)
@@ -233,6 +269,55 @@ pub async fn promote_rotating_to_current(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(result.rows_affected() > 0)
+}
+
+/// Records a failed rotation attempt for `(device_mac, credential_type)`: bumps
+/// `rotate_attempts`, stamps `rotate_last_attempt_at = now()`, stores the
+/// already-redacted `error_redacted`, and sets the backoff window
+/// `rotate_quarantined_until` so the engine skips this device until it expires.
+///
+/// This is the BMC engine's synchronous failure recorder, distinct from the
+/// NVOS job-based [`record_device_rotation_rejected`] (which marks a *terminal*
+/// backend rejection under attempt CAS). The in-flight `rotating_to_version`
+/// crash marker is deliberately left in place: once the window passes the engine
+/// re-enters and its two-candidate recovery reconciles the hardware.
+///
+/// The caller derives `quarantined_until` from [`backoff_until`] (exponential,
+/// capped). Only the failure path writes these columns; a successful
+/// convergence is recorded via [`promote_rotating_to_current`], which clears
+/// them again -- so a converged row never carries a future backoff window, which
+/// keeps the [`rotation_status`] quarantined and converged buckets disjoint.
+///
+/// Operates on the existing convergence row -- a device under management always
+/// has one (seeded at ingestion or by the backfill), and the engine only acts on
+/// devices [`device_rotation_status`] returned a row for -- so a missing row is a
+/// no-op rather than an error.
+///
+/// `error_redacted` MUST already have secrets removed (see the engine's redactor
+/// and `carbide_redfish::libredfish::redact_password`); it is surfaced verbatim
+/// by `GetCredentialRotationStatus`.
+pub async fn increment_rotate_attempt(
+    conn: &mut PgConnection,
+    device_mac: MacAddress,
+    credential_type: CredentialRotationType,
+    error_redacted: &str,
+    quarantined_until: DateTime<Utc>,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE device_credential_rotation \
+                 SET rotate_attempts = rotate_attempts + 1, \
+                     rotate_last_attempt_at = now(), \
+                     rotate_last_error_redacted = $3, \
+                     rotate_quarantined_until = $4 \
+                 WHERE device_mac = $1 AND credential_type = $2";
+    sqlx::query(query)
+        .bind(device_mac)
+        .bind(credential_type)
+        .bind(error_redacted)
+        .bind(quarantined_until)
+        .execute(conn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 /// Stages a target before dispatching a password mutation.
@@ -971,13 +1056,15 @@ mod test_backfill;
 
 #[cfg(test)]
 mod tests {
+    use chrono::{Duration, Utc};
     use mac_address::MacAddress;
     use sqlx::{PgConnection, PgPool};
 
     use super::{
-        CredentialRotationType, current_target_version, delete_device_converged,
-        device_rotation_operation_state, device_rotation_status, mark_device_rotating_to_version,
-        promote_rotating_to_current, record_device_converged, record_device_rotation_rejected,
+        BACKOFF_CAP_SECS, CredentialRotationType, backoff_until, current_target_version,
+        delete_device_converged, device_rotation_operation_state, device_rotation_status,
+        increment_rotate_attempt, mark_device_rotating_to_version, promote_rotating_to_current,
+        record_device_converged, record_device_rotation_rejected,
         record_device_rotation_retry_started, record_device_rotation_started,
         record_device_rotation_submitted, record_device_rotation_succeeded, rotation_status,
         set_initial_target_version, set_next_target_version,
@@ -1189,6 +1276,171 @@ mod tests {
             Some(2),
             "current_version must be preserved when there is nothing to promote"
         );
+    }
+
+    #[test]
+    fn backoff_is_exponential_and_capped() {
+        let now = Utc::now();
+
+        // prior_attempts = 0 is the first failure: the base floor (1 minute).
+        assert_eq!(backoff_until(0, now), now + Duration::seconds(60));
+        // Each subsequent failure doubles the window.
+        assert_eq!(backoff_until(1, now), now + Duration::seconds(120));
+        assert_eq!(backoff_until(2, now), now + Duration::seconds(240));
+        // A large attempt count saturates at the cap rather than overflowing.
+        assert_eq!(
+            backoff_until(1_000, now),
+            now + Duration::seconds(BACKOFF_CAP_SECS)
+        );
+        // i32::MAX exercises the extreme exponent path without a separate clamp.
+        assert_eq!(
+            backoff_until(i32::MAX, now),
+            now + Duration::seconds(BACKOFF_CAP_SECS)
+        );
+        // A negative count (never produced in practice) floors at the base.
+        assert_eq!(backoff_until(-5, now), now + Duration::seconds(60));
+    }
+
+    #[crate::sqlx_test]
+    async fn increment_rotate_attempt_accumulates_and_quarantines(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:07".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        // A device under management already carries a convergence row (bmc is
+        // seeded at target 0), behind which we model a failing rotation.
+        record_device_converged(&mut conn, mac, CredentialRotationType::Bmc)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE sitewide_credential_rotation SET target_version = 1 \
+             WHERE credential_type = 'bmc'",
+        )
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
+        let until = backoff_until(0, Utc::now());
+        increment_rotate_attempt(
+            &mut conn,
+            mac,
+            CredentialRotationType::Bmc,
+            "redacted boom",
+            until,
+        )
+        .await
+        .unwrap();
+
+        let status = device_rotation_status(
+            &mut conn,
+            CredentialRotationType::Bmc,
+            "02:00:00:00:00:07".parse().unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("a recorded device must have a status");
+        assert_eq!(status.rotate_attempts, 1);
+        assert!(
+            status.quarantined,
+            "a future window must read as quarantined"
+        );
+        assert!(status.quarantined_until.is_some());
+        assert!(status.rotate_last_attempt_at.is_some());
+        assert_eq!(
+            status.rotate_last_error_redacted.as_deref(),
+            Some("redacted boom")
+        );
+        assert!(!status.converged, "the device is still behind the target");
+
+        // A second failure accumulates the attempt count and overwrites the last
+        // error, leaving convergence untouched.
+        increment_rotate_attempt(
+            &mut conn,
+            mac,
+            CredentialRotationType::Bmc,
+            "second boom",
+            backoff_until(1, Utc::now()),
+        )
+        .await
+        .unwrap();
+        let status = device_rotation_status(
+            &mut conn,
+            CredentialRotationType::Bmc,
+            "02:00:00:00:00:07".parse().unwrap(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(status.rotate_attempts, 2);
+        assert_eq!(
+            status.rotate_last_error_redacted.as_deref(),
+            Some("second boom")
+        );
+
+        // Incrementing a device with no row is a harmless no-op.
+        increment_rotate_attempt(
+            &mut conn,
+            "02:00:00:00:00:fe".parse().unwrap(),
+            CredentialRotationType::Bmc,
+            "no row",
+            backoff_until(0, Utc::now()),
+        )
+        .await
+        .unwrap();
+    }
+
+    #[crate::sqlx_test]
+    async fn promote_clears_quarantine_and_error_on_success(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:08".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        // Advance the bmc target and stage an in-flight rotation to version 1.
+        sqlx::query(
+            "UPDATE sitewide_credential_rotation SET target_version = 1 \
+             WHERE credential_type = 'bmc'",
+        )
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+        mark_device_rotating_to_version(&mut conn, mac, CredentialRotationType::Bmc, 1)
+            .await
+            .unwrap();
+
+        // Model a prior failed attempt: attempts bumped, error stored, and a
+        // future backoff window recorded.
+        increment_rotate_attempt(
+            &mut conn,
+            mac,
+            CredentialRotationType::Bmc,
+            "transient boom",
+            backoff_until(0, Utc::now()),
+        )
+        .await
+        .unwrap();
+
+        // A later attempt succeeds and promotes the staged version.
+        let promoted = promote_rotating_to_current(&mut conn, mac, CredentialRotationType::Bmc)
+            .await
+            .unwrap();
+        assert!(promoted, "a staged rotation must report as promoted");
+
+        let status = device_rotation_status(
+            &mut conn,
+            CredentialRotationType::Bmc,
+            "02:00:00:00:00:08".parse().unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("a recorded device must have a status");
+
+        // The version advanced to the staged target, and the failure bookkeeping
+        // is wiped so a converged row carries no stale error or backoff window.
+        assert_eq!(status.current_version, Some(1));
+        assert!(status.converged);
+        assert_eq!(status.rotating_to_version, None);
+        assert_eq!(status.rotate_attempts, 0);
+        assert!(!status.quarantined);
+        assert!(status.quarantined_until.is_none());
+        assert!(status.rotate_last_error_redacted.is_none());
     }
 
     #[crate::sqlx_test]

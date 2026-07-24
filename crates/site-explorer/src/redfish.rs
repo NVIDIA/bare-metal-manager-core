@@ -120,6 +120,20 @@ impl RedfishClient {
             .await
     }
 
+    pub async fn get_redfish_product(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<Option<String>, EndpointExplorationError> {
+        let client = self
+            .create_anon_redfish_client(bmc_ip_address)
+            .await
+            .map_err(map_redfish_client_creation_error)?;
+
+        let service_root = client.get_service_root().await.map_err(map_redfish_error)?;
+
+        Ok(service_root.product)
+    }
+
     pub async fn get_redfish_vendor(
         &self,
         bmc_ip_address: SocketAddr,
@@ -154,6 +168,28 @@ impl RedfishClient {
                 Err(EndpointExplorationError::MissingVendor { observed })
             }
         }
+    }
+
+    /// Probe the DPU model from the unauthenticated Redfish service root `Product` field.
+    ///
+    /// BlueField BMCs populate `ServiceRoot.Product` with a human-readable model string
+    /// (e.g. `"BlueField-3 DPU"`). This makes a single anonymous `/redfish/v1` call and
+    /// parses that field. Returns `DpuModel::Unknown` on any error or unrecognized string
+    /// so callers can fall back to the catch-all factory credential.
+    pub async fn get_dpu_model_hint(&self, bmc_ip_address: SocketAddr) -> ::bmc_vendor::DpuModel {
+        let client = match self.create_anon_redfish_client(bmc_ip_address).await {
+            Ok(c) => c,
+            Err(_) => return ::bmc_vendor::DpuModel::Unknown,
+        };
+        let service_root = match client.get_service_root().await {
+            Ok(s) => s,
+            Err(_) => return ::bmc_vendor::DpuModel::Unknown,
+        };
+        service_root
+            .product
+            .as_deref()
+            .map(::bmc_vendor::DpuModel::from_service_root_product)
+            .unwrap_or_default()
     }
 
     pub async fn validate_bmc_credentials(
@@ -209,6 +245,23 @@ impl RedfishClient {
                 Some(bmc_ip_address.port()),
                 vendor,
                 current_bmc_root_credentials,
+                new_password,
+            )
+            .await
+            .map_err(map_redfish_client_creation_error)
+    }
+
+    pub async fn set_bf4_dpu_service_password(
+        &self,
+        bmc_ip_address: SocketAddr,
+        root_credentials: Credentials,
+        new_password: String,
+    ) -> Result<(), EndpointExplorationError> {
+        self.redfish_client_pool
+            .set_bf4_dpu_service_password(
+                &bmc_ip_address.ip().to_string(),
+                Some(bmc_ip_address.port()),
+                root_credentials,
                 new_password,
             )
             .await
@@ -502,7 +555,7 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         // We will be redoing machine_setup later and can worry about getting the profile right then.
-        // Bind the empty profiles outside the fallback closure so they outlive both attempts.
+        // Keep `empty_profiles` outside the closure so the returned future can borrow it.
         let empty_profiles: libredfish::BiosProfileVendor = HashMap::default();
         let result = match boot_interface {
             Some(target) => {

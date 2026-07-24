@@ -621,11 +621,12 @@ write_files:
           # Adjust the sfc.conf to insert our patch port where the host representor used to be
           sed -i "s#{{ forge_hbn_bridge }}~${host_representor}~${host_representor}_if_r~${host_representor}_if~${host_representor}_if_r#{{ forge_hbn_bridge }}~${host_intercept_hbn_port}~${host_representor}_if_r~${host_representor}_if~${host_representor}_if_r#" /etc/mellanox/sfc.conf
 
+          # Keep the OVSDB move when its backing host PF/VF is not available yet.
           # Now pop the host representor off of br-hbn and attach it to the host intercept bridge
           ovs-vsctl --if-exists del-port "${host_representor}" -- \
             --may-exist add-port "${host_intercept_bridge_name}" "${host_representor}" -- \
-            set interface "${host_representor}" type=dpdk mtu_request=9216 external_ids='{}'
-          ovs-vsctl set interface "${host_representor}" ofport_request=$(ovs-vsctl get interface "${host_representor}" ofport)
+            set interface "${host_representor}" type=dpdk mtu_request=9216 external_ids='{}' || true
+          ovs-vsctl set interface "${host_representor}" ofport_request=$(ovs-vsctl get interface "${host_representor}" ofport) || true
 
           # Add the detail about the "uplink" for this bridge to external ids for the bridge
           ovs-vsctl br-set-external-id "${host_intercept_bridge_name}" bridge-uplink "${host_intercept_bridge_port}"

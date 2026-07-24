@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{PowerState, RoleId, SystemPowerControl};
@@ -28,8 +29,27 @@ use model::site_explorer::{
     BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport,
     InternalLockdownStatus, LockdownStatus,
 };
+use tokio::sync::Notify;
 
 use crate::{EndpointExplorer, SiteExplorationMetrics};
+
+#[derive(Clone)]
+pub struct MockEndpointExplorationBlocker {
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl MockEndpointExplorationBlocker {
+    pub async fn wait_until_started(&self) {
+        tokio::time::timeout(Duration::from_secs(10), self.started.notified())
+            .await
+            .expect("timed out waiting for endpoint exploration to start");
+    }
+
+    pub fn release(&self) {
+        self.release.notify_one();
+    }
+}
 
 /// EndpointExplorer which returns predefined data.
 ///
@@ -58,6 +78,7 @@ pub struct MockEndpointExplorer {
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, BlueFieldOperatingMode)>>>,
     /// Records IPs that `explore_endpoint` was called for.
     pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
+    next_exploration_blocker: Arc<Mutex<Option<MockEndpointExplorationBlocker>>>,
     /// Real explorer that `machine_setup`/`set_boot_order_dpu_first` forward to
     /// (see [`Self::with_redfish_backend`]); `None` for the pure in-memory mock
     /// used by site-explorer's own tests.
@@ -74,6 +95,7 @@ impl Default for MockEndpointExplorer {
             power_control_failures: Arc::default(),
             set_nic_mode_calls: Arc::default(),
             explore_endpoint_calls: Arc::default(),
+            next_exploration_blocker: Arc::default(),
             redfish_backend: None,
         }
     }
@@ -82,6 +104,15 @@ impl Default for MockEndpointExplorer {
 impl MockEndpointExplorer {
     pub fn explore_endpoint_call_count(&self) -> usize {
         self.explore_endpoint_calls.lock().unwrap().len()
+    }
+
+    pub fn block_next_exploration(&self) -> MockEndpointExplorationBlocker {
+        let blocker = MockEndpointExplorationBlocker {
+            started: Arc::new(Notify::new()),
+            release: Arc::new(Notify::new()),
+        };
+        *self.next_exploration_blocker.lock().unwrap() = Some(blocker.clone());
+        blocker
     }
 
     /// Make `redfish_power_control` reject the given action, so tests can
@@ -154,6 +185,11 @@ impl EndpointExplorer for MockEndpointExplorer {
             .lock()
             .unwrap()
             .push(bmc_ip_address.ip());
+        let blocker = self.next_exploration_blocker.lock().unwrap().take();
+        if let Some(blocker) = blocker {
+            blocker.started.notify_one();
+            blocker.release.notified().await;
+        }
         let guard = self.reports.lock().unwrap();
         let res = guard.get(&bmc_ip_address.ip()).unwrap_or_else(|| {
             panic!(

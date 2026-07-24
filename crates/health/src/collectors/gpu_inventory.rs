@@ -266,7 +266,7 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for GpuInventoryCollector<B> {
         let event_context =
             EventContext::from_endpoint(endpoint.as_ref(), "gpu_inventory_collector");
         let machine_id = match &endpoint.metadata {
-            Some(EndpointMetadata::Machine(m)) => Some(m.machine_id),
+            Some(EndpointMetadata::Machine(m)) => m.machine_id,
             _ => None,
         };
         Ok(Self {

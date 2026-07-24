@@ -6,7 +6,7 @@ is allowed between all GPUs in an *NVLink Partition*. An *NVLink Partition* must
 NVIDIA Infra Controller (NICo) allows you to do the following with NVLink:
 
 * Create, update, and delete NVLink Logical Partitions using the NICo REST API.
-* Provision Instances with GPUs partitioned into NVLink Domains by way of NVLink Logical Partitions without knowledge of the underlying NVLink topology.
+* Provision Instances with GPUs assigned to partitions within NVLink Domains by way of NVLink Logical Partitions, without knowledge of the underlying NVLink topology.
 * Update Instances to change NVLink Logical Partition assignment for its GPUs
 
 NICo extends the concept of an *NVLink Partition* with the *NVLink Logical Partition*, which allows users to manage NVLink Partitions without having to learn the datacenter topology.
@@ -15,26 +15,24 @@ NICo extends the concept of an *NVLink Partition* with the *NVLink Logical Parti
 
 ## Operations: Who Does What
 
-NVLink splits between operator site setup against NMX-M / NMX-C and tenant
-partition management. Notably, several operator steps (NMX-C endpoint
-registration, the GPU-mapping populate step) are **not exposed via the REST
-API** and are therefore driven through `nico-admin-cli` over gRPC. See
+NVLink splits between operator site setup against NMX-C and tenant partition
+management. Notably, two operator steps (fallback NMX-C endpoint
+registration and the GPU-mapping populate step) are **not exposed via the
+REST API** and are therefore driven through `nico-admin-cli` over gRPC. See
 [Network Isolation → Who configures what, and how](network_isolation.md#who-configures-what-and-how)
 for the role and interface model.
 
 | Task | Role | Interface |
 |---|---|---|
-| Enable NVLink; NMX-M / NMX-C connection and TLS settings | Operator | **TOML** (`[nvlink_config]`) — Day 0 / rare |
-| NMX-M credentials | Operator | `nico-admin-cli credential add-nmx-m` (gRPC) — not in REST |
-| NMX-C endpoints (per chassis serial) | Operator | `nico-admin-cli nvlink-nmxc-endpoints …` (gRPC) — not in REST |
-| Populate the machine → NMX-M GPU mapping | Operator | `nico-admin-cli nvlink-info populate` (gRPC) — not in REST |
-| Create / update / delete an NVLink Logical Partition | Tenant | **REST** `…/nico/nvlink-logical-partition` · `nicocli nvlink-logical-partition create` |
-| Assign or change an instance's GPUs' partition | Tenant | **REST** `…/nico/instance` (`nvLinkInterfaces`) · `nicocli instance update` |
+| Enable NVLink; NMX-C connection and TLS settings | Operator | **TOML** (`[nvlink_config]`) — Day 0 / rare |
+| Fallback NMX-C endpoints (per chassis serial) | Operator | `nico-admin-cli nvlink-nmxc-endpoints ...` (gRPC) — not in REST |
+| Populate the machine → NMX-C GPU mapping | Operator | `nico-admin-cli machine nvlink-info populate` (gRPC) — not in REST |
+| Create / update / delete an NVLink Logical Partition | Tenant | **REST** `.../nico/nvlink-logical-partition` · `nicocli nvlink-logical-partition create` |
+| Assign or change an instance's GPUs' partition | Tenant | **REST** `.../nico/instance` (`nvLinkInterfaces`) · `nicocli instance update` |
 | Inspect a machine's GPU domain placement (triage) | Operator | `nico-admin-cli machine nvlink-info` (gRPC) |
 
-The operator NMX setup (the first four rows) is detailed under
-[Enabling NMX-C-based NVLink Partitioning](#enabling-nmx-c-based-nvlink-partitioning)
-and [Enabling NMX-M-based NVLink Partitioning](#enabling-nmx-m-based-nvlink-partitioning).
+The operator NMX setup (the first three rows) is detailed under
+[Enabling NMX-C-based NVLink Partitioning](#enabling-nmx-c-based-nvlink-partitioning).
 The tenant rows are the REST / `nicocli` flow described next.
 
 ### Creating a NVLink Logical Partition
@@ -110,17 +108,17 @@ If you want finer control, leave `nvLinkLogicalPartitionId` unset on the VPC and
 
 ### How NICo Reconciles NVLink State
 
-NICo runs a periodic reconciler against NMX-M and NMX-C to keep the actual
-NVLink partition topology aligned with the desired state implied by tenant
-instance configurations. The behaviour matters whenever an operator is
+NICo runs a periodic reconciler against NMX-C to keep the actual NVLink
+partition topology aligned with the desired state implied by tenant instance
+configurations. The behaviour matters whenever an operator is
 diagnosing latency between an API call and an instance becoming `Ready`.
 
 Each reconciliation pass does the following:
 
 1. Loads every NVLink Logical Partition and every NVLink Physical Partition
    from the NICo database.
-2. Queries each configured NMX-M and / or NMX-C endpoint for the current
-   partition list and GPU membership on that endpoint's chassis or domain.
+2. Resolves the NMX-C endpoint for each chassis and queries its current
+   partition list, compute nodes, and GPU membership.
 3. Compares observed state against desired state.
 4. Issues create / update / remove operations to the fabric-management
    service to converge it onto desired state.
@@ -154,13 +152,13 @@ When an instance is released (via `ReleaseInstance`):
 1. The instance's NVLink configuration is cleared from the database.
 2. The reconciler observes that GPUs previously assigned to the instance
    are no longer requested in any live partition.
-3. The reconciler removes those GPUs from their NMX-M / NMX-C partitions.
+3. The reconciler removes those GPUs from their NMX-C partitions.
 4. Once all NVLink state is removed, the machine's GPU status observation
    reflects an empty domain assignment and the host becomes eligible for
    reuse.
 
 When a Logical Partition is deleted, every underlying NVLink Physical
-Partition on each NMX-M / NMX-C endpoint backing it is also deleted. The
+Partition on each NMX-C endpoint backing it is also deleted. The
 deletion is rejected if any instance still references the Logical
 Partition.
 
@@ -170,12 +168,16 @@ NVLink configuration manually before force-deleting.
 
 ### Enabling NMX-C-based NVLink Partitioning
 
-NMX-C is the gRPC control path for NVLink partition management and is the
-current default for new deployments. NMX-M remains supported and is
-covered in the next section; the two are not mutually exclusive and a
-single site may use both.
+NMX-C is the supported gRPC control path for NVLink partition management.
 
-The TOML toggles live alongside the NMX-M ones under `[nvlink_config]`:
+<Note title="Compatibility note">
+NMX-M is no longer supported. The legacy
+`nico-admin-cli credential add-nmx-m` and `delete-nmx-m` command names remain
+available temporarily so existing scripts receive a clear unsupported error;
+they do not modify credentials.
+</Note>
+
+Configure the NMX-C client under `[nvlink_config]`:
 
 ```toml
 [nvlink_config]
@@ -188,6 +190,7 @@ nmx_c_tls_ca_cert_path     = "/etc/nico/nmxc/ca.pem"
 nmx_c_tls_client_cert_path = "/etc/nico/nmxc/client.crt"
 nmx_c_tls_client_key_path  = "/etc/nico/nmxc/client.key"
 nmx_c_tls_authority        = "nmxc.example.internal"
+nmx_c_endpoint_port        = 9370
 
 allow_insecure = false
 ```
@@ -198,11 +201,14 @@ allow_insecure = false
 | `nmx_c_tls_client_cert_path` | Optional client certificate for mTLS to NMX-C |
 | `nmx_c_tls_client_key_path` | Optional client key matching the certificate above |
 | `nmx_c_tls_authority` | Optional override for the expected server name during certificate verification (SNI / hostname check) |
+| `nmx_c_endpoint_port` | Optional gRPC port used when deriving an endpoint from a switch NVOS IP; defaults to `9370` |
 | `allow_insecure` | When `true`, disables TLS verification entirely. Intended for development |
 
-Unlike NMX-M, where a single endpoint URL is set in TOML, NMX-C endpoints
-are **per-chassis** and stored in the NICo database. Register them with
-`nico-admin-cli`, keyed by the chassis serial:
+NMX-C endpoints are resolved per chassis. NICo first uses the NVOS IP of a
+ready switch with its Fabric Manager control plane configured. If no suitable
+switch endpoint is available, NICo falls back to an explicit chassis mapping
+stored in the database. Register fallback mappings with `nico-admin-cli`,
+keyed by chassis serial:
 
 ```bash
 nico-admin-cli nvlink-nmxc-endpoints create \
@@ -219,55 +225,15 @@ The TLS material in TOML applies uniformly to every NMX-C endpoint NICo
 talks to. Per-endpoint credential overrides are not currently supported;
 deploy a uniform trust posture across the site's NMX-C control plane.
 
-### Enabling NMX-M-based NVLink Partitioning
+For machines discovered before NVLink partitioning was enabled, populate the
+machine's GPU mapping from Redfish and NMX-C:
 
-This section describes how to enable NVLink support via the [NMX-M platform](https://docs.nvidia.com/networking/display/nmxmv8513000).
+```bash
+nico-admin-cli machine nvlink-info populate --update-db <machine-id>
+```
 
-#### Prerequisites
-
-* nico-core/NICo is deployed and running.
-* vault is running.
-* nico-core can reach the NMX-M endpoint over the network.
-* NMX-M has an API user with permissions to read GPUs/partitions and create/update/delete partitions.
-
-#### Steps to Enable NMX-M
-
-1. Enable NVLink Partitioning in nico-core config. Add or update the configmap nico-api-site-config-files consumed by nico-core:
-
-    ```
-      [nvlink_config]
-      enabled = true
-      nmx_m_endpoint = "https://<nmx-m-host>:<port>"
-    
-      monitor_run_interval = "60s"
-      nmx_m_operation_timeout = "10s"
-    
-      allow_insecure = true
-    ```
-
-2. Restart nico-core
-
-3. Configure the NMX-M credentials. Store the NMX-M username and password in vault through nico admin CLI:
-
-    ```
-      nico-admin-cli credential add-nmx-m \
-        --username <nmx-m-username> \
-        --password <nmx-m-password>
-    ```
-
-4. Populate the NVLink GPU mapping. After enabling NVLink in the site config, for already discovered machines, populate the machine-to-NMX-M GPU mapping. Partitioning will not work until this step is complete.
-
-   <Note>Machines discovered after enabling NVLink do not require this step.</Note>
-
-    ```
-    nico-admin-cli nvlink-info populate --update-db <machine-id>
-    ```
-
-5. Validate the NVLink configuration for NMX-M:
-
-    * nico-core logs should not show "Failed to create NMXM client".
-    * Logs should not show failures getting NMX-M partitions or GPU list.
-    * Metrics show that `nico_nvlink_partition_monitor_nmxm_connect_error_count` is `0`.
+Machines discovered after NVLink partitioning is enabled are populated during
+discovery and do not require this step.
 
 ### Verifying a Tenant's NVLink Placement
 
@@ -277,12 +243,13 @@ following checks. There is no single all-in-one health command; the steps
 below should be repeatable as a checklist.
 
 1. **Reconciler is running.**
-   `nico_nvlink_partition_monitor_iteration_latency` is being recorded
-   and both `nico_nvlink_partition_monitor_nmxc_connect_error_count`
-   and `nico_nvlink_partition_monitor_nmxm_connect_error_count` are
-   flat.
+   `carbide_nvlink_partition_monitor_iteration_latency_milliseconds` is being
+   recorded. Evaluate the recent increase or rate of
+   `carbide_nvlink_partition_monitor_nmxc_connect_error_count` over a time
+   window appropriate to the reconcile interval; its historical total alone
+   does not indicate a current connection problem.
 2. **Logical-partition count matches expectation.**
-   `nico_nvlink_partition_monitor_num_logical_partitions` reflects
+   `carbide_nvlink_partition_monitor_num_logical_partitions` reflects
    the partitions a site planner expects to exist. A sudden change is
    worth correlating with recent tenant API activity.
 3. **Per-instance configuration has converged.** The instance's
@@ -304,6 +271,6 @@ below should be repeatable as a checklist.
 5. **Cleanup after release.** After releasing an instance, the same
    `machine nvlink-info` output should show an empty Domain assignment
    on the affected GPUs within one or two reconcile intervals. Failure
-   to clear indicates the reconciler could not remove the GPU from its
-   NMX-M / NMX-C partition; investigate the corresponding connect-error
-   and op-latency metrics.
+   to clear indicates the reconciler could not remove the GPU from its NMX-C
+   partition; investigate the corresponding connect-error and op-latency
+   metrics.

@@ -594,23 +594,112 @@ mod tests {
         );
     }
 
-    /// The BmcIpAllocationType default is Auto, which is what the Unspecified
-    /// mapping above relies on.
-    #[test]
-    fn bmc_ip_allocation_default_is_auto() {
-        assert_eq!(BmcIpAllocationType::default(), BmcIpAllocationType::Auto);
+    struct ExpectedHostNicInput {
+        mac_address: &'static str,
+        fixed_ip: Option<&'static str>,
+        fixed_gateway: Option<&'static str>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum ExpectedHostNicConversion {
+        Converted {
+            fixed_ip: Option<IpAddr>,
+            fixed_gateway: Option<IpAddr>,
+        },
+        InvalidMac(String),
+        InvalidArgument(String),
     }
 
     #[test]
-    fn expected_host_nic_rejects_invalid_mac_address() {
-        let err = ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
-            mac_address: "not-a-mac".into(),
-            ..Default::default()
-        })
-        .unwrap_err();
-
-        assert!(
-            matches!(err, RpcDataConversionError::InvalidMacAddress(mac) if mac == "not-a-mac")
+    fn expected_host_nic_converts_wire_addresses() {
+        check_values(
+            [
+                Check {
+                    scenario: "invalid MAC address is rejected",
+                    input: ExpectedHostNicInput {
+                        mac_address: "not-a-mac",
+                        fixed_ip: None,
+                        fixed_gateway: None,
+                    },
+                    expect: ExpectedHostNicConversion::InvalidMac("not-a-mac".to_string()),
+                },
+                Check {
+                    scenario: "IPv6 fixed IP is parsed",
+                    input: ExpectedHostNicInput {
+                        mac_address: "5A:5B:5C:5D:5E:66",
+                        fixed_ip: Some("2001:db8::66"),
+                        fixed_gateway: None,
+                    },
+                    expect: ExpectedHostNicConversion::Converted {
+                        fixed_ip: Some("2001:db8::66".parse().unwrap()),
+                        fixed_gateway: None,
+                    },
+                },
+                Check {
+                    scenario: "invalid fixed IP is rejected",
+                    input: ExpectedHostNicInput {
+                        mac_address: "5A:5B:5C:5D:5E:66",
+                        fixed_ip: Some("not-a-valid-ip"),
+                        fixed_gateway: None,
+                    },
+                    expect: ExpectedHostNicConversion::InvalidArgument(
+                        "Invalid fixed IP: not-a-valid-ip".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "IPv6 fixed gateway is parsed",
+                    input: ExpectedHostNicInput {
+                        mac_address: "5A:5B:5C:5D:5E:66",
+                        fixed_ip: None,
+                        fixed_gateway: Some("2001:db8::1"),
+                    },
+                    expect: ExpectedHostNicConversion::Converted {
+                        fixed_ip: None,
+                        fixed_gateway: Some("2001:db8::1".parse().unwrap()),
+                    },
+                },
+                Check {
+                    scenario: "invalid fixed gateway is rejected",
+                    input: ExpectedHostNicInput {
+                        mac_address: "5A:5B:5C:5D:5E:66",
+                        fixed_ip: None,
+                        fixed_gateway: Some("not-a-valid-ip"),
+                    },
+                    expect: ExpectedHostNicConversion::InvalidArgument(
+                        "Invalid fixed gateway: not-a-valid-ip".to_string(),
+                    ),
+                },
+                Check {
+                    scenario: "empty fixed addresses are treated as absent",
+                    input: ExpectedHostNicInput {
+                        mac_address: "5A:5B:5C:5D:5E:66",
+                        fixed_ip: Some(""),
+                        fixed_gateway: Some(""),
+                    },
+                    expect: ExpectedHostNicConversion::Converted {
+                        fixed_ip: None,
+                        fixed_gateway: None,
+                    },
+                },
+            ],
+            |input| match ExpectedHostNic::try_from(rpc::forge::ExpectedHostNic {
+                mac_address: input.mac_address.to_string(),
+                fixed_ip: input.fixed_ip.map(str::to_string),
+                fixed_gateway: input.fixed_gateway.map(str::to_string),
+                ..Default::default()
+            }) {
+                Ok(nic) => ExpectedHostNicConversion::Converted {
+                    fixed_ip: nic.fixed_ip,
+                    fixed_gateway: nic.fixed_gateway,
+                },
+                Err(RpcDataConversionError::InvalidMacAddress(mac)) => {
+                    ExpectedHostNicConversion::InvalidMac(mac)
+                }
+                Err(RpcDataConversionError::InvalidArgument(argument)) => {
+                    ExpectedHostNicConversion::InvalidArgument(argument)
+                }
+                Err(error) => panic!("unexpected conversion error: {error}"),
+            },
         );
     }
 

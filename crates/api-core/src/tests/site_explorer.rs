@@ -800,11 +800,15 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
     let bmc_ip = host_bmc_ip(&env, &mh).await?;
-    let _endpoint_lock = env
-        .api
-        .endpoint_exploration_locks
-        .try_claim(bmc_ip)
-        .expect("test should be able to claim the endpoint exploration lock");
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let first_refresh = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
 
     let err = env
         .api
@@ -813,6 +817,9 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
         }))
         .await
         .unwrap_err();
+
+    blocker.release();
+    first_refresh.await??;
 
     assert_eq!(err.code(), tonic::Code::AlreadyExists);
     assert!(
@@ -838,19 +845,79 @@ async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
         }))
         .await?;
 
-    let calls_before = endpoint_explore_call_count(&env, bmc_ip);
-    let _endpoint_lock = env
-        .api
-        .endpoint_exploration_locks
-        .try_claim(bmc_ip)
-        .expect("test should be able to claim the endpoint exploration lock");
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let refresh = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
+    let calls_while_refreshing = endpoint_explore_call_count(&env, bmc_ip);
 
     env.run_site_explorer_iteration().await;
 
     assert_eq!(
         endpoint_explore_call_count(&env, bmc_ip),
-        calls_before,
+        calls_while_refreshing,
         "periodic site explorer probe should be skipped while refresh lock is held"
+    );
+
+    blocker.release();
+    refresh.await??;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_refresh_endpoint_report_rejects_concurrent_report_update(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let baseline = explored_endpoint(&env, bmc_ip).await?;
+
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let refresh = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
+
+    let mut concurrent_report = baseline.report.clone();
+    concurrent_report.model = Some("concurrent update".to_string());
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::explored_endpoints::try_update(
+            bmc_ip,
+            baseline.report_version,
+            &concurrent_report,
+            baseline.waiting_for_explorer_refresh,
+            &mut txn,
+        )
+        .await?,
+        "concurrent report update should succeed"
+    );
+    txn.commit().await?;
+    let concurrent = explored_endpoint(&env, bmc_ip).await?;
+
+    blocker.release();
+    let error = refresh.await?.unwrap_err();
+
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    let final_endpoint = explored_endpoint(&env, bmc_ip).await?;
+    assert_eq!(
+        final_endpoint.report_version, concurrent.report_version,
+        "stale refresh must not overwrite the concurrent report"
+    );
+    assert_eq!(
+        final_endpoint.report.model.as_deref(),
+        Some("concurrent update")
     );
 
     Ok(())
@@ -930,11 +997,15 @@ async fn test_refresh_endpoint_report_lock_is_per_endpoint(
     let bmc_ip_a = host_bmc_ip(&env, &mh_a).await?;
     let bmc_ip_b = host_bmc_ip(&env, &mh_b).await?;
     let initial_version_b = explored_endpoint(&env, bmc_ip_b).await?.report_version;
-    let _endpoint_lock = env
-        .api
-        .endpoint_exploration_locks
-        .try_claim(bmc_ip_a)
-        .expect("test should be able to claim the endpoint exploration lock");
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let refresh_a = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip_a.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
 
     env.api
         .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
@@ -947,6 +1018,9 @@ async fn test_refresh_endpoint_report_lock_is_per_endpoint(
         refreshed_b.report_version.version_nr() > initial_version_b.version_nr(),
         "lock for endpoint {bmc_ip_a} should not block refresh for endpoint {bmc_ip_b}"
     );
+
+    blocker.release();
+    refresh_a.await??;
 
     Ok(())
 }

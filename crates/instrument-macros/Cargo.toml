@@ -36,5 +36,8 @@ syn = { workspace = true, features = [
   "proc-macro",
 ] }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

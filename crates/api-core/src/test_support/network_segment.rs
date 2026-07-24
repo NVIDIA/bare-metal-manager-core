@@ -244,6 +244,8 @@ pub async fn create_network_segment(
             reserve_first: 3,
             free_ip_count: 0,
             svi_ip: None,
+            free_ip_count_v2: None,
+            free_ip_count_saturated: false,
         }],
         subdomain_id,
         vpc_id,

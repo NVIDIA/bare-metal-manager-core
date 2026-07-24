@@ -83,9 +83,21 @@ fn forwarded_host<B>(request: &Request<B>) -> Option<String> {
         .get(FORWARDED)
         .and_then(|v| v.to_str().ok())
         .and_then(|fh| {
-            fh.split(';')
-                .find(|substr| substr.starts_with("host="))
-                .map(|substr| substr.replace("host=", ""))
+            fh.split([',', ';'])
+                .map(str::trim)
+                .find_map(|parameter| {
+                    let (key, value) = parameter.split_once('=')?;
+                    key.trim()
+                        .eq_ignore_ascii_case("host")
+                        .then(|| value.trim())
+                })
+                .map(|host| host.trim_matches('"'))
+                .map(|host| {
+                    host.strip_prefix('[')
+                        .and_then(|host| host.strip_suffix(']'))
+                        .unwrap_or(host)
+                        .to_string()
+                })
         })
 }
 
@@ -139,25 +151,44 @@ mod tests {
 
     #[tokio::test]
     async fn routes_by_forwarded_host() {
-        let router = combined_router(Arc::new(RwLock::new(HashMap::from([(
-            "172.20.0.20".to_string(),
-            Router::new().route("/redfish/v1", get(|| async { "bmc" })),
-        )]))));
+        for (scenario, router_key, forwarded) in [
+            ("IPv4 token", "172.20.0.20", "host=172.20.0.20"),
+            (
+                "case-insensitive host parameter",
+                "172.20.0.20",
+                "Host=172.20.0.20",
+            ),
+            (
+                "quoted IPv6 host",
+                "2001:db8::20",
+                "host=\"[2001:db8::20]\"",
+            ),
+            (
+                "host in a later forwarded element",
+                "2001:db8::20",
+                "for=192.0.2.1, host=\"[2001:db8::20]\"",
+            ),
+        ] {
+            let router = combined_router(Arc::new(RwLock::new(HashMap::from([(
+                router_key.to_string(),
+                Router::new().route("/redfish/v1", get(|| async { "bmc" })),
+            )]))));
 
-        let response = router
-            .oneshot(
-                Request::builder()
-                    .uri("/redfish/v1")
-                    .header("forwarded", "host=172.20.0.20")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .uri("/redfish/v1")
+                        .header("forwarded", forwarded)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
 
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert_eq!(&body[..], b"bmc");
+            assert_eq!(response.status(), StatusCode::OK, "{scenario}");
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(&body[..], b"bmc", "{scenario}");
+        }
     }
 
     #[tokio::test]

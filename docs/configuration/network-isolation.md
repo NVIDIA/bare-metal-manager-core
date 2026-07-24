@@ -28,7 +28,7 @@ nicocli tui
 
 ## NVLink
 
-NMX-M APIs configure NVLink partition assignments, ensuring that NVLink domains are dedicated to a single tenant. For GB200 NVL72 systems, NICo gates instance allocation on NVLink cluster readiness -- if the fabric is not healthy, provisioning is blocked.
+NMX-C APIs configure GPU membership in NVLink partitions. A physical NVLink domain can contain multiple isolated partitions belonging to different tenants; GPUs can communicate only with other GPUs in the same partition. For GB200 NVL72 systems, NICo gates instance allocation on NVLink cluster readiness -- if the fabric is not healthy, provisioning is blocked.
 
 View NVLink partition state:
 
@@ -46,5 +46,5 @@ nicocli tui
 | Network | Traffic within own VPCs and subnets | Management networks, other tenants' VPCs (unless peered) |
 | Storage | NVMe on assigned machines | Storage on unassigned machines |
 | InfiniBand | P_Key partitions assigned to their instances | Other tenants' IB partitions |
-| NVLink | NVLink domains allocated to their instances | Other tenants' NVLink domains |
+| NVLink | GPUs in NVLink partitions assigned to their instances | GPUs in partitions not assigned to their instances |
 | BMC/UEFI | No access (managed by NICo) | All BMC and UEFI interfaces |

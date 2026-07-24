@@ -149,7 +149,7 @@ func (t *InjectExpectationTaskInfo) Description() string {
 }
 
 func (t *InjectExpectationTaskInfo) CodeString() string {
-	return "inject_expectation"
+	return taskcommon.OpCodeInjectExpectation
 }
 
 type BringUpTaskInfo struct {

@@ -23,14 +23,13 @@ use serde::{Deserialize, Serialize};
 ///
 /// Both fields are always present: a `MachineBootInterface` is only ever
 /// constructed from a fully-populated pair, captured while the MAC was still
-/// reported by Redfish. Carrying both identifiers is what makes boot-interface
-/// operations resilient -- callers target the MAC first and fall back to the
-/// [stable] `interface_id`, so the boot interface stays addressable even if one
-/// identifier becomes unavailable. That happens, for example, after a BlueField
-/// operating-mode flip from DPU to NIC: some vendor BIOSes stop probing the
-/// adapter and the MAC drops out of `NetworkDeviceFunctions` /
-/// `EthernetInterfaces` / `NetworkAdapters`, leaving the `interface_id` as the
-/// reliable handle.
+/// reported by Redfish. When this complete pair is available, boot-interface
+/// callers pass both identifiers to `libredfish` as one `BootInterfaceRef::Pair`;
+/// callers without an `interface_id` target the MAC alone. This allows each
+/// vendor to use the identifier its implementation expects. Dell uses
+/// `interface_id` directly, which keeps the boot interface addressable after a
+/// BlueField operating-mode flip removes its MAC from `NetworkDeviceFunctions`,
+/// `EthernetInterfaces`, and `NetworkAdapters`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct MachineBootInterface {

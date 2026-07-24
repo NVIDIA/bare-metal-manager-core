@@ -1,4 +1,4 @@
-# machine-a-tron site values — MULTI-POD bmcServices mode (validated example)
+# machine-a-tron site values — MULTI-POD bmcServices mode
 #
 # Two machine-a-tron pods, each simulating 5 hosts x 2 DPUs (30 BMCs total),
 # each with a dedicated per-BMC ClusterIP Service range. Copy this file and
@@ -11,47 +11,24 @@
 #
 #  * Kubernetes 1.29+ for the ServiceCIDR object (beta 1.31+). On OLDER
 #    clusters set bmcServices.serviceCIDR.create=false and pick pod CIDRs
-#    INSIDE the apiserver's --service-cluster-ip-range — any clusterIP outside
-#    that range is rejected outright ("the provided IP is not in the valid
-#    range"). Verify the chosen sub-ranges are free of existing ClusterIPs:
-#      kubectl get svc -A -o jsonpath='{range .items[*]}{.spec.clusterIP}{"\n"}{end}'
+#    INSIDE the apiserver's --service-cluster-ip-range.
 #
 #  * The machine-a-tron image must include the bmc-mock Host-header routing
-#    fallback (PR #3190). Without a bmc_proxy the Redfish client sends no
-#    "Forwarded" header, and older mocks 404 every request with
-#    "no router configured".  Do NOT set site_explorer.bmc_proxy in this mode —
+#    fallback (PR #3190). Do NOT set site_explorer.bmc_proxy in this mode —
 #    NICo dials each BMC's ClusterIP directly.
 #
-#  * Every pod MUST get disjoint MAC pools (the per-pod TOML overrides below).
-#    All machine-a-tron instances otherwise derive identical MACs from the
-#    default pools (02:00:00:00:00:00 / 06:00:00:00:00:00); the pod that
-#    leases second is rejected on every DHCP with "Network segment mismatch
-#    for existing MAC address" and simulates nothing. The chart has no
-#    per-pod MAC knob yet, so the configFiles.matConfigs overrides are the
-#    only way to set mac_address_pool / hw_mac_address_ranges per pod.
+#  * MAC address pools are AUTO-GENERATED per pod by the Helm chart:
+#      - mac_address_pool:      02:00:PP:00:00:00 (PP = pod index)
+#      - hw_mac_address_ranges: 02:01:PP:00:00:00 (PP = pod index)
+#    No manual TOML overrides needed.
 #
 #  * One NICo network segment per pod CIDR: network_prefixes has a
-#    one-IPv4-prefix-per-segment constraint, so the pod CIDRs cannot be added
-#    as two prefixes of one OOB segment. Clone one underlay segment per pod
-#    (same jsonb_populate_record technique as setup-machine-a-tron.sh scale
-#    mode), prefix = the pod CIDR, gateway = .1, num_reserved = 1 — the chart
-#    allocates BMC Service IPs starting at .2, which then lines up with the
-#    DHCP allocator.
+#    one-IPv4-prefix-per-segment constraint, so each pod CIDR needs its own
+#    cloned underlay segment with gateway = .1, num_reserved = 1.
 #
-#  * Vendor-specific factory credential path: hw types whose Redfish vendor
-#    string is not recognized by libredfish (e.g. wiwynn_gb200_nvl reports
-#    "WIWYNN") resolve to BMCVendor::Unknown, so the host factory credential
-#    must be seeded at machines/all_hosts/factory_default/bmc-metadata-items/unknown.
-#
-#  * GB-class hosts (NvidiaGBx00 flow, e.g. wiwynn_gb200_nvl) require
-#    expected_machines rows with a WORKING BMC credential before exploration
-#    completes (error NICO-SITEEXPLORER-141 "Missing credential
-#    expected_machine"). machine-a-tron registers them itself when
-#    registerExpectedMachines=true, but only on nico-api builds with the
-#    Machineatron AddExpectedMachine RBAC grant — on older builds the call is
-#    403'd and the rows must be inserted directly (see the fallback in
-#    setup-machine-a-tron.sh; the row password must be the PINNED password
-#    below, not the factory default). DPU BMCs explore without expected rows.
+#  * GB-class hosts (NvidiaGBx00 flow) require expected_machines rows with a
+#    WORKING BMC credential before exploration completes. machine-a-tron
+#    registers them when registerExpectedMachines=true.
 
 certificate:
   uris:
@@ -65,9 +42,6 @@ global:
   imagePullSecrets:
     - name: machine-a-tron-pull
 
-# Build and push the image to the registry of your choice (see the deployment
-# guide); the setup script injects these from NICO_IMAGE_REGISTRY/MAT_IMAGE_TAG
-# when deploying via setup-machine-a-tron.sh.
 image:
   pullPolicy: IfNotPresent
   repository: ""
@@ -86,12 +60,15 @@ bmcServices:
   servicePort: 443
   serviceCIDR:
     # Requires Kubernetes 1.29+. On older clusters leave false and carve the
-    # pod CIDRs from the cluster's existing service range (see header).
+    # pod CIDRs from the cluster's existing service range.
     create: false
 
 pods:
   mat-0:
     cidr: "10.233.58.0/23"
+    # Auto-generated MAC pools:
+    #   mac_address_pool:      02:00:00:00:00:00
+    #   hw_mac_address_ranges: 02:01:00:00:00:00
     machines:
       compute:
         hwType: wiwynn_gb200_nvl
@@ -101,6 +78,9 @@ pods:
         adminDhcpRelayAddress: "10.102.0.1"
   mat-1:
     cidr: "10.233.60.0/23"
+    # Auto-generated MAC pools:
+    #   mac_address_pool:      02:00:01:00:00:00
+    #   hw_mac_address_ranges: 02:01:01:00:00:00
     machines:
       compute:
         hwType: wiwynn_gb200_nvl
@@ -117,76 +97,6 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# Full per-pod TOML overrides. The chart uses these VERBATIM instead of
-# generating mat.toml from pods.<name>.machines, so they must repeat the
-# machine sections — keep them in sync with the pods block above. They exist
-# solely to give each pod disjoint MAC pools (see header).
+# NOTE: Only use configFiles.matConfigs for advanced TOML overrides not exposed in values.
 configFiles:
-  matConfigs:
-    mat-0: |
-      # Pod: mat-0  CIDR: 10.233.58.0/23
-      carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
-      interface = "NOTUSED"
-      tui_enabled = false
-      bmc_mock_port = 1266
-      use_single_bmc_mock = true
-      mock_bmc_ssh_server = true
-      mock_bmc_ssh_port = 2222
-      cleanup_on_quit = false
-      register_expected_machines = true
-      host_bmc_password = "NicoSiteRoot1"
-      dpu_bmc_password = "NicoSiteRoot1"
-      api_refresh_interval = "2s"
-
-      mac_address_pool = { base = "02:00:00:00:00:00", host_bits = 24 }
-      hw_mac_address_ranges = { base = "06:00:00:00:00:00", host_bits = 32, range_host_bits = 8 }
-
-      [machines.compute]
-      hw_type = "wiwynn_gb200_nvl"
-      host_count = 5
-      vpc_count = 0
-      subnets_per_vpc = 0
-      dpu_per_host_count = 2
-      dpu_reboot_delay = 1
-      host_reboot_delay = 1
-      scout_run_interval = "60s"
-      run_interval_working = "1s"
-      run_interval_idle = "10s"
-      network_status_run_interval = "20s"
-      oob_dhcp_relay_address = "10.233.58.1"
-      admin_dhcp_relay_address = "10.102.0.1"
-      dpus_in_nic_mode = false
-    mat-1: |
-      # Pod: mat-1  CIDR: 10.233.60.0/23
-      carbide_api_url = "https://nico-api.nico-system.svc.cluster.local:1079"
-      interface = "NOTUSED"
-      tui_enabled = false
-      bmc_mock_port = 1266
-      use_single_bmc_mock = true
-      mock_bmc_ssh_server = true
-      mock_bmc_ssh_port = 2222
-      cleanup_on_quit = false
-      register_expected_machines = true
-      host_bmc_password = "NicoSiteRoot1"
-      dpu_bmc_password = "NicoSiteRoot1"
-      api_refresh_interval = "2s"
-
-      # Disjoint MAC spaces from mat-0 (outside its 2^24 / 2^32 host spans)
-      mac_address_pool = { base = "02:00:01:00:00:00", host_bits = 24 }
-      hw_mac_address_ranges = { base = "06:01:00:00:00:00", host_bits = 32, range_host_bits = 8 }
-
-      [machines.compute]
-      hw_type = "wiwynn_gb200_nvl"
-      host_count = 5
-      vpc_count = 0
-      subnets_per_vpc = 0
-      dpu_per_host_count = 2
-      dpu_reboot_delay = 1
-      host_reboot_delay = 1
-      scout_run_interval = "60s"
-      run_interval_working = "1s"
-      run_interval_idle = "10s"
-      network_status_run_interval = "20s"
-      oob_dhcp_relay_address = "10.233.60.1"
-      admin_dhcp_relay_address = "10.102.0.1"
-      dpus_in_nic_mode = false
+  matConfigs: {}

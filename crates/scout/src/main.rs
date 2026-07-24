@@ -264,22 +264,20 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
             }
         };
         if let Some(action) = controller_response.action {
-            let action_str = action.as_str_name().to_owned();
+            let action_name = action.as_str_name();
             // Capture the action label before handle_action consumes `action`.
             let scout_action = metrics::ScoutAction::from(&action);
             let result = handle_action(action, &machine_id, machine_interface_id, config).await;
+            let outcome = Outcome::from(&result);
+            let error = result
+                .err()
+                .map_or_else(String::new, |error| error.to_string());
             emit(metrics::ScoutActionHandled {
                 action: scout_action,
-                outcome: Outcome::from(&result),
+                outcome,
+                action_name,
+                error,
             });
-            match result {
-                Ok(_) => tracing::info!(action = %action_str, "Successfully served action"),
-                Err(e) => tracing::info!(
-                    action = %action_str,
-                    error = %e,
-                    "Failed to serve action",
-                ),
-            };
         } else {
             tracing::warn!("API response did not contain an action, skipping.");
         }

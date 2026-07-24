@@ -110,6 +110,9 @@ async fn read_uefi_credentials(
 /// Resolve the site-wide host UEFI credential to *set* on a device: the secret
 /// at the current `host_uefi` target version (table-driven; v0 = the legacy
 /// unversioned site-default).
+// TODO(#2991, @spydaNVIDIA): do not hold the database connection while the
+// credential reader may perform a remote Vault request.
+#[allow(txn_held_across_await)]
 pub(crate) async fn host_uefi_set_credentials(
     conn: &mut sqlx::PgConnection,
     reader: &dyn CredentialReader,
@@ -123,6 +126,9 @@ pub(crate) async fn host_uefi_set_credentials(
 /// Resolve the host UEFI credential a device currently carries, to authenticate
 /// a *clear* against its existing password (the device's converged version; see
 /// [`host_uefi_device_version`]).
+// TODO(#2991, @spydaNVIDIA): do not hold the database connection while the
+// credential reader may perform a remote Vault request.
+#[allow(txn_held_across_await)]
 pub(crate) async fn host_uefi_clear_credentials(
     conn: &mut sqlx::PgConnection,
     reader: &dyn CredentialReader,

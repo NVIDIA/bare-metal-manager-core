@@ -51,6 +51,11 @@ use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
+const KEY_PRODUCT_FAMILY: &str = "product_family";
+const KEY_ROLE: &str = "role";
+const KEY_VENDOR: &str = "vendor";
+const ROLE_COMPUTE: &str = "compute";
+
 struct ExploredHostFixture {
     host: ExploredManagedHost,
     host_report: EndpointExplorationReport,
@@ -237,7 +242,28 @@ async fn test_machine_creator_compute_rms_request_uses_rack_profile(
     };
 
     assert_eq!(node.rack_id, rack_id.to_string());
+
     assert_eq!(node.r#type, Some(rms::NodeType::ComputeGb200Nvidia as i32));
+
+    let descriptor = node.node_descriptor.as_ref().expect("node descriptor");
+
+    assert_eq!(
+        descriptor.attributes.get(KEY_ROLE).map(String::as_str),
+        Some(ROLE_COMPUTE)
+    );
+
+    assert_eq!(
+        descriptor.attributes.get(KEY_VENDOR).map(String::as_str),
+        Some("NVIDIA")
+    );
+
+    assert_eq!(
+        descriptor
+            .attributes
+            .get(KEY_PRODUCT_FAMILY)
+            .map(String::as_str),
+        Some("gb200")
+    );
 
     Ok(())
 }

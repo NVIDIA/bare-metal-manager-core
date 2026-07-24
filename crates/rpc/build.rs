@@ -1020,6 +1020,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
+            "forge.GetContainerRegistryCredentialRequest",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.GetContainerRegistryCredentialResponse",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
             ".forge.NetworkSegmentType",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )

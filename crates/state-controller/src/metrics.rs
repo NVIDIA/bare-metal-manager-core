@@ -43,10 +43,21 @@ pub struct CommonObjectHandlerMetrics<IO: StateControllerIO> {
     /// When a state transition occured and `initial_state` was exited during state handling,
     /// this field tracks the next state
     pub next_state: Option<IO::ControllerState>,
+    /// The handler decided to transition but lost the optimistic version
+    /// check to a concurrent writer: no transition happened (`next_state` is
+    /// `None`), but the object should be reprocessed promptly to act on the
+    /// concurrently written state
+    pub transition_conflict: bool,
     /// The time the object was in `initial_state` at the start of the iteration
     pub time_in_state: Duration,
     /// Whether the object was in `initial_state` for longer than allowed by the SLA
     pub time_in_state_above_sla: bool,
+    /// The SLA resolved for `initial_state`, if it has one
+    pub sla: Option<Duration>,
+    /// When the object entered the state it ends the iteration in: the
+    /// initial state's version timestamp, replaced by the new version's
+    /// timestamp on a committed transition
+    pub state_entered_at: Option<chrono::DateTime<chrono::Utc>>,
     /// How long we took to execute the state handler
     pub handler_latency: Duration,
     /// If state handling fails, this contains the error
@@ -58,9 +69,12 @@ impl<IO: StateControllerIO> Default for CommonObjectHandlerMetrics<IO> {
         Self {
             initial_state: None,
             next_state: None,
+            transition_conflict: false,
             handler_latency: Duration::from_secs(0),
             time_in_state: Duration::from_secs(0),
             time_in_state_above_sla: false,
+            sla: None,
+            state_entered_at: None,
             error: None,
         }
     }

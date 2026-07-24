@@ -21,7 +21,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use ::rpc::model::machine::ManagedHostStateSnapshotRpc;
 use carbide_redfish::libredfish::RedfishAuth;
-use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::hardware_info::MachineNvLinkInfo;
@@ -34,6 +34,29 @@ use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
+
+// TODO(#2991, @spydaNVIDIA): avoid holding this transaction while the
+// credential reader may perform a remote Vault request. Keep the allowance on
+// this small helper rather than the full force-delete handler.
+#[allow(txn_held_across_await)]
+async fn resolve_host_uefi_clear_credentials(
+    api: &Api,
+    bmc_mac_address: mac_address::MacAddress,
+) -> Option<Credentials> {
+    match api.txn_begin().await {
+        Ok(mut txn) => {
+            let credentials = crate::handlers::uefi::host_uefi_clear_credentials(
+                &mut txn,
+                api.redfish_pool.credential_reader(),
+                bmc_mac_address,
+            )
+            .await;
+            let _ = txn.commit().await;
+            credentials.ok()
+        }
+        Err(_) => None,
+    }
+}
 
 pub(crate) async fn find_machine_ids(
     api: &Api,
@@ -527,20 +550,8 @@ pub(crate) async fn admin_force_delete_machine(
                             // authenticate the clear (table-driven). Best effort: if it
                             // cannot be resolved, skip the clear rather than aborting the
                             // force-delete.
-                            let clear_credentials = match api.txn_begin().await {
-                                Ok(mut txn) => {
-                                    let credentials =
-                                        crate::handlers::uefi::host_uefi_clear_credentials(
-                                            &mut txn,
-                                            api.redfish_pool.credential_reader(),
-                                            bmc_mac_address,
-                                        )
-                                        .await;
-                                    let _ = txn.commit().await;
-                                    credentials.ok()
-                                }
-                                Err(_) => None,
-                            };
+                            let clear_credentials =
+                                resolve_host_uefi_clear_credentials(api, bmc_mac_address).await;
                             if let Some(clear_credentials) = clear_credentials {
                                 match api
                                     .redfish_pool

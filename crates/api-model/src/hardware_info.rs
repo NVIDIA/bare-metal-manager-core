@@ -872,23 +872,11 @@ mod tests {
         );
     }
 
-    // `bmc_vendor()` maps the DMI `sys_vendor` string through `from_udev_dmi`, and
-    // falls back to `Unknown` when there is no DMI data at all.
     #[test]
     fn hardware_info_bmc_vendor() {
         value_scenarios!(
             run = |info| info.bmc_vendor();
-            "lenovo sys vendor" {
-                info_with_dmi(
-                    CpuArchitecture::X86_64,
-                    DmiData {
-                        sys_vendor: "Lenovo".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Lenovo,
-            }
-
-            "dell sys vendor" {
+            "DMI data delegates to BMCVendor" {
                 info_with_dmi(
                     CpuArchitecture::X86_64,
                     DmiData {
@@ -898,67 +886,7 @@ mod tests {
                 ) => bmc_vendor::BMCVendor::Dell,
             }
 
-            "nvidia sys vendor" {
-                info_with_dmi(
-                    CpuArchitecture::Aarch64,
-                    DmiData {
-                        sys_vendor: "NVIDIA".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Nvidia,
-            }
-
-            "mellanox url maps to nvidia" {
-                info_with_dmi(
-                    CpuArchitecture::Aarch64,
-                    DmiData {
-                        sys_vendor: "https://www.mellanox.com".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Nvidia,
-            }
-
-            "supermicro sys vendor" {
-                info_with_dmi(
-                    CpuArchitecture::X86_64,
-                    DmiData {
-                        sys_vendor: "Supermicro".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Supermicro,
-            }
-
-            "hpe sys vendor" {
-                info_with_dmi(
-                    CpuArchitecture::X86_64,
-                    DmiData {
-                        sys_vendor: "HPE".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Hpe,
-            }
-
-            "unrecognized sys vendor is unknown" {
-                info_with_dmi(
-                    CpuArchitecture::X86_64,
-                    DmiData {
-                        sys_vendor: "Acme Corp".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Unknown,
-            }
-
-            "case-sensitive: lowercase dell is unknown" {
-                info_with_dmi(
-                    CpuArchitecture::X86_64,
-                    DmiData {
-                        sys_vendor: "dell inc.".to_string(),
-                        ..Default::default()
-                    },
-                ) => bmc_vendor::BMCVendor::Unknown,
-            }
-
-            "no dmi data is unknown" {
+            "missing DMI data falls back to unknown" {
                 HardwareInfo::default() => bmc_vendor::BMCVendor::Unknown,
             }
         );

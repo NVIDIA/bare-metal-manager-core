@@ -25,7 +25,7 @@ use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_boun
 use tokio::sync::mpsc;
 
 use crate::cfg::Options;
-use crate::metrics::{ScoutStreamConnection, ScoutStreamReconnect};
+use crate::metrics::{ScoutStreamConnection, ScoutStreamReconnect, ScoutStreamResponseDropped};
 use crate::{client, mlx_device};
 
 // ScoutStreamError represents errors that can
@@ -77,12 +77,10 @@ pub fn start_scout_stream(machine_id: MachineId, options: &Options) -> tokio::ta
                     );
                 }
             }
-            emit(ScoutStreamReconnect {});
-            tracing::warn!(
-                api_endpoint = %options.api,
-                %machine_id,
-                "scout stream reconnecting after 10s delay",
-            );
+            emit(ScoutStreamReconnect {
+                api_endpoint: options.api.clone(),
+                machine_id,
+            });
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
     })
@@ -161,12 +159,11 @@ async fn run_scout_stream_loop(
 
             // And then send the response back to carbide-api.
             if let Err(e) = tx.send(payload).await {
-                tracing::error!(
-                    api_endpoint = %options.api,
-                    %machine_id,
-                    error = %e,
-                    "scout stream failed to send response",
-                );
+                emit(ScoutStreamResponseDropped {
+                    api_endpoint: options.api.clone(),
+                    machine_id,
+                    error: e.to_string(),
+                });
                 break;
             }
         }

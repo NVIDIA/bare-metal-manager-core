@@ -101,6 +101,9 @@ pub enum CarbideCliError {
     #[error("not implemented {0}")]
     NotImplemented(String),
 
+    #[error("unsupported operation: {0}")]
+    UnsupportedOperation(&'static str),
+
     #[error("invalid machine id: {0}")]
     InvalidMachineId(#[from] MachineIdParseError),
 

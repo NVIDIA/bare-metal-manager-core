@@ -264,22 +264,204 @@ fn leak_alert(detector: &LeakDetector, target: String) -> HealthReportAlert {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::str::FromStr;
+
+    use carbide_test_support::{Check, check_values};
+    use mac_address::MacAddress;
+
     use super::*;
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::sink::HealthReportTarget;
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct SuccessSummary {
+        probe_id: Probe,
+        target: Option<String>,
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct AlertSummary {
+        probe_id: Probe,
+        target: Option<String>,
+        message: String,
+        classifications: Vec<Classification>,
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct ReportSummary {
+        source: ReportSource,
+        target: Option<HealthReportTarget>,
+        has_observed_at: bool,
+        successes: Vec<SuccessSummary>,
+        alerts: Vec<AlertSummary>,
+    }
+
+    impl From<HealthReport> for ReportSummary {
+        fn from(report: HealthReport) -> Self {
+            Self {
+                source: report.source,
+                target: report.target,
+                has_observed_at: report.observed_at.is_some(),
+                successes: report
+                    .successes
+                    .into_iter()
+                    .map(|success| SuccessSummary {
+                        probe_id: success.probe_id,
+                        target: success.target,
+                    })
+                    .collect(),
+                alerts: report
+                    .alerts
+                    .into_iter()
+                    .map(|alert| AlertSummary {
+                        probe_id: alert.probe_id,
+                        target: alert.target,
+                        message: alert.message,
+                        classifications: alert.classifications,
+                    })
+                    .collect(),
+            }
+        }
+    }
+
+    fn context() -> EventContext {
+        EventContext {
+            endpoint_key: "42:9e:b1:bd:9d:dd".to_string(),
+            addr: BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
+            },
+            collector_type: "leak_detector_collector",
+            metadata: Some(EndpointMetadata::Machine(MachineData {
+                machine_id: None,
+                machine_serial: None,
+                slot_number: None,
+                tray_index: None,
+                nvlink_domain_uuid: None,
+                driver_version: None,
+            })),
+            rack_id: None,
+        }
+    }
+
+    fn expected_report(successes: Vec<SuccessSummary>, alerts: Vec<AlertSummary>) -> ReportSummary {
+        ReportSummary {
+            source: ReportSource::BmcLeakDetectors,
+            target: Some(HealthReportTarget::Machine),
+            has_observed_at: true,
+            successes,
+            alerts,
+        }
+    }
 
     #[test]
-    fn leak_alerts_are_marked_for_leak_processing() {
-        let alert = HealthReportAlert {
-            probe_id: Probe::LeakDetection,
-            target: Some("LeakDetector_1".to_string()),
-            message: "leak".to_string(),
-            classifications: vec![Classification::LeakDetector],
-        };
+    fn leak_detector_health_report_cases() {
+        check_values(
+            [
+                Check {
+                    scenario: "no detectors produce an empty timestamped report",
+                    input: vec![],
+                    expect: expected_report(vec![], vec![]),
+                },
+                Check {
+                    scenario: "actionable states preserve alert order and detector targets",
+                    input: vec![
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Critical",
+                            "Id": "Critical",
+                            "Name": "Critical leak detector",
+                            "DetectorState": "Critical",
+                            "UserLabel": ""
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/OK",
+                            "Id": "OK",
+                            "Name": "Healthy leak detector",
+                            "DetectorState": "OK",
+                            "UserLabel": "Rack floor"
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Warning",
+                            "Id": "Warning",
+                            "Name": "Warning leak detector",
+                            "DetectorState": "Warning",
+                            "UserLabel": "Cooling tray"
+                        }"#,
+                    ],
+                    expect: expected_report(
+                        vec![SuccessSummary {
+                            probe_id: Probe::LeakDetection,
+                            target: Some("Rack floor".to_string()),
+                        }],
+                        vec![
+                            AlertSummary {
+                                probe_id: Probe::LeakDetection,
+                                target: Some(
+                                    "/redfish/v1/Chassis/System/LeakDetectors/Critical".to_string(),
+                                ),
+                                message: "Leak detector '/redfish/v1/Chassis/System/LeakDetectors/Critical' reports critical".to_string(),
+                                classifications: vec![Classification::LeakDetector],
+                            },
+                            AlertSummary {
+                                probe_id: Probe::LeakDetection,
+                                target: Some("Cooling tray".to_string()),
+                                message: "Leak detector 'Cooling tray' reports warning".to_string(),
+                                classifications: vec![Classification::LeakDetector],
+                            },
+                        ],
+                    ),
+                },
+                Check {
+                    scenario: "non-actionable and missing states do not produce report entries",
+                    input: vec![
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Unavailable",
+                            "Id": "Unavailable",
+                            "Name": "Unavailable leak detector",
+                            "DetectorState": "Unavailable"
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Absent",
+                            "Id": "Absent",
+                            "Name": "Absent leak detector",
+                            "DetectorState": "Absent"
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Vendor",
+                            "Id": "Vendor",
+                            "Name": "Vendor leak detector",
+                            "DetectorState": "VendorDefinedState"
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Missing",
+                            "Id": "Missing",
+                            "Name": "Missing state leak detector"
+                        }"#,
+                        r#"{
+                            "@odata.id": "/redfish/v1/Chassis/System/LeakDetectors/Null",
+                            "Id": "Null",
+                            "Name": "Null state leak detector",
+                            "DetectorState": null
+                        }"#,
+                    ],
+                    expect: expected_report(vec![], vec![]),
+                },
+            ],
+            |json_detectors| {
+                let detectors = json_detectors
+                    .into_iter()
+                    .map(|json| {
+                        Arc::new(
+                            serde_json::from_str::<LeakDetector>(json)
+                                .expect("valid leak detector"),
+                        )
+                    })
+                    .collect();
 
-        assert!(
-            alert
-                .classifications
-                .iter()
-                .any(|classification| classification == &Classification::LeakDetector)
+                build_health_report(detectors, &context()).into()
+            },
         );
     }
 }

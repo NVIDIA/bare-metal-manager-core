@@ -22,8 +22,8 @@ use bmc_mock::mac_address_pool::MacAddressPool;
 use forge_tls::client_config::get_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
-    MachineATronContext, api_throttler,
+    BmcMockRegistry, BmcRegistrationMode, DhcpClient, HostMachineHandle, MachineATron,
+    MachineATronConfig, MachineATronContext, UdpDhcpService, api_throttler,
 };
 use rpc::forge_api_client::FailOverOn;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
@@ -80,6 +80,9 @@ pub async fn run_local(
         "Got desired firmware versions from the server",
     );
 
+    let (dhcp_client, dhcp_service) =
+        DhcpClient::start(&app_config, forge_api_client.clone().into()).await?;
+
     let app_context = Arc::new(MachineATronContext {
         bmc_registration_mode: if let Some(bmc_address_registry) = bmc_address_registry.as_ref() {
             BmcRegistrationMode::BackingInstance(bmc_address_registry.clone())
@@ -92,6 +95,7 @@ pub async fn run_local(
         api_throttler,
         desired_firmware_versions: desired_firmware,
         forge_api_client,
+        dhcp_client,
         mac_address_pool,
     });
 
@@ -125,6 +129,7 @@ pub async fn run_local(
         MachineATronHandle {
             _stop_tx: stop_tx,
             _join_handle: join_handle,
+            dhcp_service,
         },
     ))
 }
@@ -132,12 +137,16 @@ pub async fn run_local(
 pub struct MachineATronHandle {
     _stop_tx: oneshot::Sender<()>,
     _join_handle: JoinHandle<eyre::Result<()>>,
+    dhcp_service: Option<UdpDhcpService>,
 }
 
 impl MachineATronHandle {
-    pub async fn shutdown(self) -> eyre::Result<()> {
+    pub async fn shutdown(mut self) -> eyre::Result<()> {
         drop(self._stop_tx);
-        self._join_handle.await??;
-        Ok(())
+        let mat_result = self._join_handle.await?;
+        if let Some(dhcp_service) = self.dhcp_service.take() {
+            dhcp_service.shutdown().await?;
+        }
+        mat_result
     }
 }

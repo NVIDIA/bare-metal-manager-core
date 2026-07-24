@@ -20,6 +20,7 @@ mod bmc_mock_wrapper;
 mod config;
 mod control_router;
 mod dhcp_wrapper;
+mod dhcp_wrapper_udp;
 mod discovery_info;
 mod dpu_machine;
 mod host_machine;
@@ -39,10 +40,11 @@ use std::time::{Duration, Instant};
 
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
-    MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig, PersistedDpuMachine,
-    PersistedHostMachine, RackConfig,
+    DhcpType, MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig,
+    PersistedDpuMachine, PersistedHostMachine, RackConfig,
 };
 pub use control_router::{ControlState, append as append_control_routes};
+pub use dhcp_wrapper::{DhcpClient, UdpDhcpService};
 pub use dpu_machine::DpuMachineHandle;
 pub use host_machine::HostMachineHandle;
 pub use machine_a_tron::{AppEvent, MachineATron};

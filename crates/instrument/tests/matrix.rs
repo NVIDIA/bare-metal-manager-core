@@ -20,8 +20,11 @@
 
 use std::time::Duration;
 
-use carbide_instrument::testing::{MetricsCapture, capture_logs};
-use carbide_instrument::{Event, LabelValue, LogAt, MetricKind, Outcome, emit};
+use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+use carbide_instrument::{
+    Event, LabelValue, LogAt, MetricKind, Outcome, emit, initialize_counter_series,
+};
+use carbide_test_support::value_scenarios;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
 enum Stage {
@@ -81,6 +84,187 @@ fn both_sides_from_one_emit() {
             &[("stage", "apply"), ("outcome", "error")],
         ),
         1.0
+    );
+}
+
+/// Counter initialization needs to expose the series without pretending the
+/// Event happened. The first real `emit` must therefore move the same series
+/// from zero to one and write exactly one log line.
+#[test]
+fn counter_series_initialization_does_not_emit_the_event() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_counter_initialized",
+        metric_name = "carbide_test_matrix_initialized_total",
+        component = "matrix-test",
+        log = warn,
+        metric = counter,
+        describe = "Number of initialized counter test events",
+        message = "initialized counter fired"
+    )]
+    struct InitializedCounter {
+        #[label]
+        stage: Stage,
+        #[context]
+        detail: String,
+    }
+
+    let event = InitializedCounter {
+        stage: Stage::PreFlight,
+        detail: "first real event".to_string(),
+    };
+    let metrics = MetricsCapture::start();
+    let initialization_logs = capture_logs(|| {
+        assert!(initialize_counter_series(&event));
+    });
+
+    assert!(initialization_logs.is_empty());
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_initialized_total",
+            &[("stage", "pre_flight")],
+        ),
+        0.0
+    );
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_initialized_total{stage=\"pre_flight\"} 0")
+    );
+
+    let logs = capture_logs(|| emit(event));
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].message, "initialized counter fired");
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_initialized_total",
+            &[("stage", "pre_flight")],
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn non_counter_event_cannot_initialize_a_counter_series() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_histogram_initialization_rejected",
+        metric_name = "carbide_test_matrix_initialization_milliseconds",
+        component = "matrix-test",
+        log = off,
+        metric = histogram,
+        describe = "Test initialization duration"
+    )]
+    struct Histogram {
+        #[observation]
+        latency: Duration,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        assert!(!initialize_counter_series(&Histogram {
+            latency: Duration::from_millis(10),
+        }));
+    });
+
+    assert!(logs.is_empty());
+    assert!(
+        !metrics
+            .render()
+            .contains("carbide_test_matrix_initialization_milliseconds")
+    );
+}
+
+/// `#[context(value)]` retains each supported structured type instead of
+/// routing it through `Display` formatting.
+#[test]
+fn native_context_retains_its_type() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_native_context",
+        component = "matrix-test",
+        message = "native context"
+    )]
+    struct NativeContext {
+        #[context(value)]
+        ready: bool,
+        #[context(value)]
+        attempt: i64,
+        #[context(value)]
+        retry_interval_seconds: f64,
+        #[context(value)]
+        phase: String,
+    }
+
+    let logs = capture_logs(|| {
+        emit(NativeContext {
+            ready: true,
+            attempt: 3,
+            retry_interval_seconds: 30.5,
+            phase: "backoff".to_string(),
+        });
+    });
+
+    assert_eq!(logs.len(), 1);
+    value_scenarios!(run = |field| (
+        logs[0].field(field).map(str::to_string),
+        logs[0].field_kind(field),
+    );
+        "native context retains its rendered value and tracing type" {
+            "ready" => (Some("true".to_string()), Some(CapturedFieldKind::Bool)),
+            "attempt" => (Some("3".to_string()), Some(CapturedFieldKind::I64)),
+            "retry_interval_seconds" => (
+                Some("30.5".to_string()),
+                Some(CapturedFieldKind::F64),
+            ),
+            "phase" => (Some("backoff".to_string()), Some(CapturedFieldKind::String)),
+        }
+    );
+}
+
+/// `#[label(name = "...")]` preserves a frozen metric key without changing
+/// the generated log's field name. This test pins both surfaces so the
+/// compatibility alias cannot leak into the log schema.
+#[test]
+fn label_alias_changes_only_the_metric_key() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_label_alias_fired",
+        metric_name = "carbide_test_matrix_label_alias_total",
+        component = "matrix-test",
+        log = info,
+        metric = counter,
+        describe = "Number of aliased-label test events",
+        message = "aliased label fired"
+    )]
+    struct AliasedLabel {
+        #[label(name = "component")]
+        publisher: Stage,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(AliasedLabel {
+            publisher: Stage::Apply,
+        });
+    });
+
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].field("publisher"), Some("apply"));
+    assert_eq!(logs[0].field("component"), None);
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_label_alias_total",
+            &[("component", "apply")],
+        ),
+        1.0
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_label_alias_total",
+            &[("publisher", "apply")],
+        ),
+        0.0
     );
 }
 

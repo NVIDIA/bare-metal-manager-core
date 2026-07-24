@@ -19,9 +19,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer};
+use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
@@ -54,6 +54,11 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
     let host_inband_segment = network_controller.create_host_inband_segment(&domain).await;
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let api = test_harness.api();
+    let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
+        api.database_connection.clone(),
+        endpoint_explorer.clone(),
+        Arc::new(api.runtime_config.get_firmware_config()),
+    ));
     let site_explorer = TestSiteExplorer::new(
         SiteExplorer::new(
             api.database_connection.clone(),
@@ -67,11 +72,9 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
                 ..Default::default()
             },
             test_harness.test_meter.meter(),
-            endpoint_explorer.clone(),
-            Arc::new(api.runtime_config.get_firmware_config()),
+            endpoint_exploration_service,
             api.common_pools().clone(),
             api.work_lock_manager_handle(),
-            carbide_site_explorer::EndpointExplorationLocks::default(),
             api.runtime_config.rack_profiles.clone(),
             None,
             api.credential_manager().clone(),

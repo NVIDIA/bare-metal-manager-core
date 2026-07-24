@@ -51,7 +51,8 @@ use nv_redfish::oem::lenovo::manager::KcsState;
 use nv_redfish::oem::lenovo::security_service::FwRollbackState;
 use nv_redfish::oem::supermicro::Privilege as SupermicroPrivilege;
 use nv_redfish::resource::{ResourceIdRef, ResourceNameRef};
-use nv_redfish::service_root::{Product, Vendor};
+pub use nv_redfish::service_root::Product;
+use nv_redfish::service_root::Vendor;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
 #[derive(PartialEq, Eq)]
@@ -72,7 +73,7 @@ pub struct Config<'a, B: Bmc> {
     pub retry_timeout: Duration,
 }
 
-fn is_bf4_product(product: Option<Product<&str>>) -> bool {
+pub fn is_bf4_product(product: Option<Product<&str>>) -> bool {
     // TODO: we should use part_number similar to BF3.
     product == Some(Product::new("B4240V")) || product == Some(Product::new("BlueField-4"))
 }
@@ -1119,5 +1120,18 @@ fn compare_boot_options<B: Bmc>(
         })
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Product, is_bf4_product};
+
+    #[test]
+    fn is_bf4_product_matches_bf4_service_root_products() {
+        assert!(is_bf4_product(Some(Product::new("B4240V"))));
+        assert!(is_bf4_product(Some(Product::new("BlueField-4"))));
+        assert!(!is_bf4_product(Some(Product::new("BlueField-3 DPU"))));
+        assert!(!is_bf4_product(None));
     }
 }

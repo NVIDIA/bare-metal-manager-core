@@ -388,18 +388,6 @@ impl WildcardPathComponent {
 #[derive(Clone)]
 struct AclVerb(http::Method);
 
-impl From<http::Method> for AclVerb {
-    fn from(method: http::Method) -> Self {
-        AclVerb(method)
-    }
-}
-
-impl From<AclVerb> for http::Method {
-    fn from(verb: AclVerb) -> Self {
-        verb.0
-    }
-}
-
 impl FromStr for AclVerb {
     type Err = AclPathParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -418,16 +406,6 @@ impl FromStr for AclVerb {
     }
 }
 
-impl<'de> Deserialize<'de> for AclVerb {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        s.parse().map_err(D::Error::custom)
-    }
-}
-
 impl Display for AclVerb {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         self.0.fmt(f)
@@ -436,9 +414,23 @@ impl Display for AclVerb {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{scenarios, value_scenarios};
     use figment::providers::{Format, Toml};
 
     use super::*;
+
+    struct EntryMatchInput {
+        entry: &'static str,
+        method: http::Method,
+        path: &'static str,
+    }
+
+    struct ConfigRequestInput {
+        principal: &'static str,
+        method: http::Method,
+        path: &'static str,
+    }
 
     fn parse_acl_config(config_str: &str) -> AclConfig {
         #[derive(Deserialize)]
@@ -457,205 +449,307 @@ mod tests {
         s.parse::<AclEntry>().map(|entry| entry.to_string())
     }
 
-    #[track_caller]
-    fn assert_stable_parse(s: &str) {
-        assert_eq!(
-            round_trip_as_acl_entry(s).unwrap(),
-            s,
-            "Entry's to_string() does not match the input it parsed from"
+    #[test]
+    fn acl_entry_parsing_cases() {
+        scenarios!(run = |input| round_trip_as_acl_entry(input).map_err(drop);
+            "canonical forms" {
+                "GET /redfish/v1/**" => Yields("GET /redfish/v1/**".to_string()),
+                "! GET,PUT,POST,PATCH /redfish/v1/**" => Yields(
+                    "! GET,PUT,POST,PATCH /redfish/v1/**".to_string()
+                ),
+                "! GET,PUT,POST,PATCH /redfish/v1/Systems/*/SecureBoot/**" => Yields(
+                    "! GET,PUT,POST,PATCH /redfish/v1/Systems/*/SecureBoot/**".to_string()
+                ),
+                "GET /redfish/v1/Systems/system*/SecureBoot" => Yields(
+                    "GET /redfish/v1/Systems/system*/SecureBoot".to_string()
+                ),
+                "GET /redfish/v1/Systems/*Boot/SecureBoot" => Yields(
+                    "GET /redfish/v1/Systems/*Boot/SecureBoot".to_string()
+                ),
+            }
+
+            "canonical spacing" {
+                "!/redfish/v1/**" => Yields("! /redfish/v1/**".to_string()),
+                "!GET,PUT,POST /redfish/v1/**" => Yields(
+                    "! GET,PUT,POST /redfish/v1/**".to_string()
+                ),
+            }
+
+            "canonical method normalization" {
+                "delete,head /redfish/v1/**" => Yields(
+                    "DELETE,HEAD /redfish/v1/**".to_string()
+                ),
+            }
+
+            "invalid entries" {
+                "" => Fails,
+                "/" => Fails,
+                "GET /foo//bar" => Fails,
+                "GET foo" => Fails,
+                "BOGUS /foo" => Fails,
+                "GET /foo?query_not_supported" => Fails,
+                "GET /foo/bar*baz" => Fails,
+                "GET /foo/**bar" => Fails,
+                "GET /redfish/v1/**/SecureBoot/**" => Fails,
+                "GET /foo/ba r" => Fails,
+                "GET /foo/ba r*" => Fails,
+                "GET /foo/*ba r" => Fails,
+                "GET /foo#fragment" => Fails,
+            }
         );
     }
 
     #[test]
-    fn test_valid_entry_parsing() {
-        assert_stable_parse("GET /redfish/v1/**");
-        assert_stable_parse("! GET,PUT,POST,PATCH /redfish/v1/**");
-        assert_stable_parse("! GET,PUT,POST,PATCH /redfish/v1/Systems/*/SecureBoot/**");
-        assert_stable_parse("GET /redfish/v1/Systems/system*/SecureBoot");
-        assert_stable_parse("GET /redfish/v1/Systems/*Boot/SecureBoot");
+    fn acl_entry_matching_cases() {
+        value_scenarios!(
+            run = |EntryMatchInput {
+                       entry,
+                       method,
+                       path,
+                   }| {
+                entry
+                    .parse::<AclEntry>()
+                    .expect("table contains a valid ACL entry")
+                    .matches(&method, path)
+            };
+            "fixed paths" {
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/node-1/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/node-1/SecureBoot/extra",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/node-1",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*/SecureBoot",
+                    method: http::Method::POST,
+                    path: "/redfish/v1/Systems/node-1/SecureBoot",
+                } => false,
+            }
 
-        assert_eq!(
-            round_trip_as_acl_entry("!/redfish/v1/**").unwrap(),
-            "! /redfish/v1/**".to_string()
+            "middle double wildcard" {
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/node-1/Bios/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/node-1/Bios",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v2/SecureBoot",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/**/redfish",
+                    method: http::Method::GET,
+                    path: "/redfish",
+                } => false,
+            }
+
+            "invalid request paths" {
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**",
+                    method: http::Method::GET,
+                    path: "",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**",
+                    method: http::Method::GET,
+                    path: "redfish/v1/Systems",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**",
+                    method: http::Method::GET,
+                    path: "/redfish//v1/Systems",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/",
+                } => false,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/**",
+                    method: http::Method::GET,
+                    path: "/",
+                } => false,
+            }
+
+            "trailing double wildcard" {
+                EntryMatchInput {
+                    entry: "GET /redfish/**",
+                    method: http::Method::GET,
+                    path: "/redfish",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/**",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/**",
+                    method: http::Method::GET,
+                    path: "/other/v1/Systems",
+                } => false,
+            }
+
+            "leading double wildcard" {
+                EntryMatchInput {
+                    entry: "GET /**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /**/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/Bios",
+                } => false,
+            }
+
+            "prefix wildcard" {
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/system*/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/system-1/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/system*/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/system/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/system*/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/node-system/SecureBoot",
+                } => false,
+            }
+
+            "suffix wildcard" {
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*Boot/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/FastBoot/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*Boot/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/Boot/SecureBoot",
+                } => true,
+                EntryMatchInput {
+                    entry: "GET /redfish/v1/Systems/*Boot/SecureBoot",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/BootOrder/SecureBoot",
+                } => false,
+            }
+
+            "verbless entries" {
+                EntryMatchInput {
+                    entry: "/redfish/v1/**",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems",
+                } => true,
+                EntryMatchInput {
+                    entry: "/redfish/v1/**",
+                    method: http::Method::DELETE,
+                    path: "/redfish/v1/Systems",
+                } => true,
+            }
         );
-
-        assert_eq!(
-            round_trip_as_acl_entry("!GET,PUT,POST /redfish/v1/**").unwrap(),
-            "! GET,PUT,POST /redfish/v1/**".to_string()
-        );
     }
 
     #[test]
-    fn test_invalid_entry_parsing() {
-        assert!(AclEntry::from_str("").is_err());
-        assert!(AclEntry::from_str("/").is_err());
-        assert!(AclEntry::from_str("//foo").is_err());
-        assert!(AclEntry::from_str("GET /foo//bar").is_err());
-        assert!(AclEntry::from_str("GET foo").is_err());
-        assert!(AclEntry::from_str("GET **").is_err());
-        assert!(AclEntry::from_str("BOGUS /foo").is_err());
-        assert!(AclEntry::from_str("GET /foo?query_not_supported").is_err());
-        assert!(AclEntry::from_str("GET /foo/bar*baz").is_err());
-        assert!(AclEntry::from_str("GET /foo/**bar").is_err());
-        assert!(AclEntry::from_str("GET /foo/bar**").is_err());
-        assert!(AclEntry::from_str("GET /redfish/v1/**/SecureBoot/**").is_err());
-    }
-
-    #[test]
-    fn test_path_matching_without_double_wildcard() {
-        let entry = AclEntry::from_str("GET /redfish/v1/Systems/*/SecureBoot").unwrap();
-
-        assert!(entry.matches(&http::Method::GET, "/redfish/v1/Systems/node-1/SecureBoot"));
-        assert!(!entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/node-1/SecureBoot/extra"
-        ));
-        assert!(!entry.matches(&http::Method::GET, "/redfish/v1/Systems/node-1"));
-        assert!(!entry.matches(&http::Method::POST, "/redfish/v1/Systems/node-1/SecureBoot"));
-    }
-
-    #[test]
-    fn test_path_matching_with_double_wildcard() {
-        let entry = AclEntry::from_str("GET /redfish/v1/**/SecureBoot").unwrap();
-
-        assert!(entry.matches(&http::Method::GET, "/redfish/v1/SecureBoot"));
-        assert!(entry.matches(&http::Method::GET, "/redfish/v1/Systems/node-1/SecureBoot"));
-        assert!(entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/node-1/Bios/SecureBoot"
-        ));
-        assert!(!entry.matches(&http::Method::GET, "/redfish/v1/Systems/node-1/Bios"));
-        assert!(!entry.matches(&http::Method::GET, "/redfish/v2/SecureBoot"));
-    }
-
-    #[test]
-    fn test_path_matching_rejects_invalid_request_paths() {
-        let entry = AclEntry::from_str("GET /redfish/v1/**").unwrap();
-
-        assert!(!entry.matches(&http::Method::GET, ""));
-        assert!(!entry.matches(&http::Method::GET, "redfish/v1/Systems"));
-        assert!(!entry.matches(&http::Method::GET, "/redfish//v1/Systems"));
-        assert!(!entry.matches(&http::Method::GET, "/redfish/v1/Systems/"));
-    }
-
-    #[test]
-    fn test_path_matching_with_double_wildcard_at_path_edges() {
-        let suffix_entry = AclEntry::from_str("GET /redfish/**").unwrap();
-        assert!(suffix_entry.matches(&http::Method::GET, "/redfish"));
-        assert!(suffix_entry.matches(&http::Method::GET, "/redfish/v1/Systems"));
-        assert!(!suffix_entry.matches(&http::Method::GET, "/other/v1/Systems"));
-
-        let prefix_entry = AclEntry::from_str("GET /**/SecureBoot").unwrap();
-        assert!(prefix_entry.matches(&http::Method::GET, "/SecureBoot"));
-        assert!(prefix_entry.matches(&http::Method::GET, "/redfish/v1/Systems/SecureBoot"));
-        assert!(!prefix_entry.matches(&http::Method::GET, "/redfish/v1/Systems/Bios"));
-    }
-
-    #[test]
-    fn test_path_matching_with_prefix_and_suffix_wildcards() {
-        let prefix_entry =
-            AclEntry::from_str("GET /redfish/v1/Systems/system*/SecureBoot").unwrap();
-        assert!(prefix_entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/system-1/SecureBoot"
-        ));
-        assert!(prefix_entry.matches(&http::Method::GET, "/redfish/v1/Systems/system/SecureBoot"));
-        assert!(!prefix_entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/node-system/SecureBoot"
-        ));
-
-        let suffix_entry = AclEntry::from_str("GET /redfish/v1/Systems/*Boot/SecureBoot").unwrap();
-        assert!(suffix_entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/SecureBoot/SecureBoot"
-        ));
-        assert!(suffix_entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/FastBoot/SecureBoot"
-        ));
-        assert!(!suffix_entry.matches(
-            &http::Method::GET,
-            "/redfish/v1/Systems/BootOrder/SecureBoot"
-        ));
-    }
-
-    #[test]
-    fn test_verbless_entry_matches_any_method() {
-        let entry = AclEntry::from_str("/redfish/v1/**").unwrap();
-
-        assert!(entry.matches(&http::Method::GET, "/redfish/v1/Systems"));
-        assert!(entry.matches(&http::Method::POST, "/redfish/v1/Systems"));
-        assert!(entry.matches(&http::Method::DELETE, "/redfish/v1/Systems"));
-    }
-
-    #[test]
-    fn test_acl_config_matching() {
+    fn acl_config_matching() {
         let acls = parse_acl_config(
             r#"
         [acls]
         service_a = ["/redfish/v1/**"]
         service_b = ["!POST /redfish/v1/Systems/*/SecureBoot/**", "/redfish/v1/**"]
-        service_c = ["!/redfish/v1/Systems/Bluefield/**", "/redfish/v1/Systems/**"]
         "#,
         );
 
-        assert!(acls.allows("service_a", &http::Method::GET, "/redfish/v1/Systems"));
-        assert!(acls.allows("service_b", &http::Method::GET, "/redfish/v1/Systems"));
-        assert!(!acls.allows(
-            "service_b",
-            &http::Method::POST,
-            "/redfish/v1/Systems/System1/SecureBoot/Bad"
-        ));
-        assert!(!acls.allows("service_a", &http::Method::GET, "/other/stuff"));
-        assert!(!acls.allows("service_b", &http::Method::GET, "/other/stuff"));
+        value_scenarios!(
+            run = |ConfigRequestInput {
+                       principal,
+                       method,
+                       path,
+                   }| acls.allows(principal, &method, path);
+            "matching allow entries" {
+                ConfigRequestInput {
+                    principal: "service_a",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems",
+                } => true,
+                ConfigRequestInput {
+                    principal: "service_b",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems",
+                } => true,
+            }
 
-        assert!(acls.allows(
-            "service_c",
-            &http::Method::GET,
-            "/redfish/v1/Systems/SomeSystem/foo"
-        ));
-        assert!(acls.allows(
-            "service_c",
-            &http::Method::GET,
-            "/redfish/v1/Systems/SomeSystem"
-        ));
-        assert!(!acls.allows(
-            "service_c",
-            &http::Method::GET,
-            "/redfish/v1/Systems/Bluefield"
-        ));
-        assert!(!acls.allows(
-            "service_c",
-            &http::Method::GET,
-            "/redfish/v1/Systems/Bluefield/Other"
-        ));
+            "matching deny entry" {
+                ConfigRequestInput {
+                    principal: "service_b",
+                    method: http::Method::POST,
+                    path: "/redfish/v1/Systems/System1/SecureBoot/Bad",
+                } => false,
+            }
+        );
     }
 
     #[test]
-    fn test_acl_config_first_match_wins() {
+    fn acl_config_first_match_wins() {
         let acls = parse_acl_config(
             r#"
         [acls]
-        deny_first = ["!/redfish/v1/Systems/**", "/redfish/v1/**"]
-        allow_first = ["/redfish/v1/**", "!/redfish/v1/Systems/**"]
+        deny_first = ["! /redfish/v1/Systems/**", "/redfish/v1/**"]
+        allow_first = ["/redfish/v1/**", "! /redfish/v1/Systems/**"]
         "#,
         );
 
-        assert!(!acls.allows(
-            "deny_first",
-            &http::Method::GET,
-            "/redfish/v1/Systems/System1"
-        ));
-        assert!(acls.allows(
-            "allow_first",
-            &http::Method::GET,
-            "/redfish/v1/Systems/System1"
-        ));
+        value_scenarios!(
+            run = |ConfigRequestInput {
+                       principal,
+                       method,
+                       path,
+                   }| acls.allows(principal, &method, path);
+            "first matching entry decides" {
+                ConfigRequestInput {
+                    principal: "deny_first",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/System1",
+                } => false,
+                ConfigRequestInput {
+                    principal: "allow_first",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems/System1",
+                } => true,
+            }
+        );
     }
 
     #[test]
-    fn test_acl_config_defaults_to_deny() {
+    fn acl_config_defaults_to_deny() {
         let acls = parse_acl_config(
             r#"
         [acls]
@@ -663,7 +757,24 @@ mod tests {
         "#,
         );
 
-        assert!(!acls.allows("unknown_service", &http::Method::GET, "/redfish/v1/Systems"));
-        assert!(!acls.allows("service_a", &http::Method::GET, "/other/stuff"));
+        value_scenarios!(
+            run = |ConfigRequestInput {
+                       principal,
+                       method,
+                       path,
+                   }| acls.allows(principal, &method, path);
+            "requests without an allow match" {
+                ConfigRequestInput {
+                    principal: "unknown_service",
+                    method: http::Method::GET,
+                    path: "/redfish/v1/Systems",
+                } => false,
+                ConfigRequestInput {
+                    principal: "service_a",
+                    method: http::Method::GET,
+                    path: "/other/stuff",
+                } => false,
+            }
+        );
     }
 }

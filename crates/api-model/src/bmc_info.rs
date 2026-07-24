@@ -108,6 +108,8 @@ impl FromStr for UserRoles {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     fn bmc_with_firmware(version: Option<&str>) -> BmcInfo {
@@ -118,27 +120,46 @@ mod tests {
     }
 
     #[test]
-    fn supports_bfb_install_bf4() {
-        // BF4 firmware is year-based (>= 26.x) and clears the 24.10 gate.
-        // In the real flow `dpu_bmc_version` strips the "bf4-" prefix, so the
-        // stored version is numeric; a raw "BF4-…" string works too.
-        assert!(bmc_with_firmware(Some("26.04-8")).supports_bfb_install());
-        assert!(bmc_with_firmware(Some("BF4-26.04-8")).supports_bfb_install());
-    }
-
-    #[test]
-    fn supports_bfb_install_bf3_gated_on_version() {
-        // BF3 firmware "BF-<ver>" is supported at/after 24.10.
-        assert!(bmc_with_firmware(Some("BF-25.10-9")).supports_bfb_install());
-        assert!(bmc_with_firmware(Some("BF-24.10-0")).supports_bfb_install());
-        // Already-stripped numeric form (as dpu_bmc_version returns) also works.
-        assert!(bmc_with_firmware(Some("25.10-9")).supports_bfb_install());
-        // Older BF3 firmware is not supported.
-        assert!(!bmc_with_firmware(Some("BF-24.04-1")).supports_bfb_install());
-    }
-
-    #[test]
-    fn supports_bfb_install_absent_firmware_is_false() {
-        assert!(!bmc_with_firmware(None).supports_bfb_install());
+    fn supports_bfb_install_firmware_matrix() {
+        check_values(
+            [
+                Check {
+                    scenario: "normalized BF4 firmware clears the minimum",
+                    input: Some("26.04-8"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "raw BF4 firmware clears the minimum",
+                    input: Some("BF4-26.04-8"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "newer raw BF3 firmware clears the minimum",
+                    input: Some("BF-25.10-9"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "BF3 firmware at the minimum is supported",
+                    input: Some("BF-24.10-0"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "normalized BF3 firmware clears the minimum",
+                    input: Some("25.10-9"),
+                    expect: true,
+                },
+                Check {
+                    scenario: "older BF3 firmware is unsupported",
+                    input: Some("BF-24.04-1"),
+                    expect: false,
+                },
+                Check {
+                    scenario: "absent firmware is unsupported",
+                    input: None,
+                    expect: false,
+                },
+            ],
+            |version| bmc_with_firmware(version).supports_bfb_install(),
+        );
     }
 }

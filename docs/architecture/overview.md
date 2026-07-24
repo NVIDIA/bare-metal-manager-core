@@ -178,7 +178,7 @@ IB Fabric Monitor emits metrics with prefix `nico_ib_monitor_`.
 
 NVLink Manager is a background module within the `nico-api` binary. Its implementation lives in the separate `crates/nvlink-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
 
-Its `NvlPartitionMonitor` reconciles NVLink logical partition desired state with the state reported by NMX-M. In each run, it loads MNNVL-capable machines and NVLink partition records from the database, queries NMX-M for GPU and partition state, records `MachineNvLinkStatusObservation` data, and creates, updates, or removes NMX-M partitions as needed.
+Its `NvlPartitionMonitor` reconciles NVLink logical partition desired state with the state reported by NMX-C. In each run, it groups MNNVL-capable machines by chassis, resolves the corresponding NMX-C endpoint, queries GPU, compute-node, and partition state, records `MachineNvLinkStatusObservation` data, and creates, updates, or removes NMX-C partitions as needed.
 
 ## Dependency services
 

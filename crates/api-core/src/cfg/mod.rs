@@ -17,6 +17,7 @@
 
 pub mod command_line;
 pub mod file;
+pub mod load;
 pub mod provenance;
 
 /// The configuration reference document (`README.md`), embedded so the admin

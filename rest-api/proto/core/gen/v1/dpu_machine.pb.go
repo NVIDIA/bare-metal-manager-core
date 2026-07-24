@@ -80,6 +80,51 @@ func (x *DpuMachine) GetDpuNetworkConfig() *ManagedHostNetworkConfigResponse {
 	return nil
 }
 
+// DpuMachineList - list of DPU Machines and their network configurations
+type DpuMachineList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Machines      []*DpuMachine          `protobuf:"bytes,1,rep,name=machines,proto3" json:"machines,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DpuMachineList) Reset() {
+	*x = DpuMachineList{}
+	mi := &file_dpu_machine_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DpuMachineList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DpuMachineList) ProtoMessage() {}
+
+func (x *DpuMachineList) ProtoReflect() protoreflect.Message {
+	mi := &file_dpu_machine_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DpuMachineList.ProtoReflect.Descriptor instead.
+func (*DpuMachineList) Descriptor() ([]byte, []int) {
+	return file_dpu_machine_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DpuMachineList) GetMachines() []*DpuMachine {
+	if x != nil {
+		return x.Machines
+	}
+	return nil
+}
+
 var File_dpu_machine_proto protoreflect.FileDescriptor
 
 const file_dpu_machine_proto_rawDesc = "" +
@@ -89,7 +134,9 @@ const file_dpu_machine_proto_rawDesc = "" +
 	"\n" +
 	"DpuMachine\x12(\n" +
 	"\amachine\x18\x01 \x01(\v2\x0e.forge.MachineR\amachine\x12U\n" +
-	"\x12dpu_network_config\x18\x02 \x01(\v2'.forge.ManagedHostNetworkConfigResponseR\x10dpuNetworkConfigB8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
+	"\x12dpu_network_config\x18\x02 \x01(\v2'.forge.ManagedHostNetworkConfigResponseR\x10dpuNetworkConfig\"D\n" +
+	"\x0eDpuMachineList\x122\n" +
+	"\bmachines\x18\x01 \x03(\v2\x16.dpumachine.DpuMachineR\bmachinesB8Z6github.com/NVIDIA/infra-controller/rest-api/proto/coreb\x06proto3"
 
 var (
 	file_dpu_machine_proto_rawDescOnce sync.Once
@@ -103,20 +150,22 @@ func file_dpu_machine_proto_rawDescGZIP() []byte {
 	return file_dpu_machine_proto_rawDescData
 }
 
-var file_dpu_machine_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_dpu_machine_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_dpu_machine_proto_goTypes = []any{
 	(*DpuMachine)(nil),                       // 0: dpumachine.DpuMachine
-	(*Machine)(nil),                          // 1: forge.Machine
-	(*ManagedHostNetworkConfigResponse)(nil), // 2: forge.ManagedHostNetworkConfigResponse
+	(*DpuMachineList)(nil),                   // 1: dpumachine.DpuMachineList
+	(*Machine)(nil),                          // 2: forge.Machine
+	(*ManagedHostNetworkConfigResponse)(nil), // 3: forge.ManagedHostNetworkConfigResponse
 }
 var file_dpu_machine_proto_depIdxs = []int32{
-	1, // 0: dpumachine.DpuMachine.machine:type_name -> forge.Machine
-	2, // 1: dpumachine.DpuMachine.dpu_network_config:type_name -> forge.ManagedHostNetworkConfigResponse
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	2, // 0: dpumachine.DpuMachine.machine:type_name -> forge.Machine
+	3, // 1: dpumachine.DpuMachine.dpu_network_config:type_name -> forge.ManagedHostNetworkConfigResponse
+	0, // 2: dpumachine.DpuMachineList.machines:type_name -> dpumachine.DpuMachine
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_dpu_machine_proto_init() }
@@ -132,7 +181,7 @@ func file_dpu_machine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dpu_machine_proto_rawDesc), len(file_dpu_machine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
