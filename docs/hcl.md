@@ -10,7 +10,7 @@ The sections below distinguish platforms maintained by NVIDIA from platforms con
 
 ### Hosts
 
-**Last Updated: 2/20/2026**
+**Last Updated: February 20, 2026**
 
 | Host Machine                        | BMC/Management Firmware Version     | BIOS/UEFI Version   | Misc. Firmware Version (FPGA, CPLD, LXPM, etc.) |
 |-------------------------------------|-------------------------------------|---------------------|-------------------------------------------------|
