@@ -579,6 +579,13 @@ nico-admin-cli -a <api-url> host generate-host-uefi-password
 nico-admin-cli -a <api-url> credential add-uefi --kind=host --password='<password>'
 ```
 
+Site Explorer will not run until all of these are set — it checks them before
+contacting any BMC and fails each iteration with `MissingCredentials` otherwise.
+When DPF is enabled, the site-wide BMC root credential is also mirrored into the
+DPF `bmc-shared-password` Secret; refer to
+[Set the site-wide BMC root credential](../manuals/dpf.md#36-set-the-site-wide-bmc-root-credential)
+for the DPF-specific details and for how to seed it ahead of time instead.
+
 ### Upload the Expected Machines Manifest
 
 Prepare an `expected_machines.json` with the BMC MAC address, factory default credentials, and chassis serial number for each host:

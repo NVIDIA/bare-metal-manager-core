@@ -764,7 +764,48 @@ longer presents a client certificate for mutual TLS. It does not authenticate
 the preceding artifact or provisioning chain. Those inputs still require
 integrity protection and a trusted boot mechanism such as Secure Boot.
 
-### 3.6. Mark hosts as DPF-managed in expected machines
+### 3.6. Set the site-wide BMC root credential
+
+DPF provisions DPUs out-of-band over Redfish, so it needs the BMC password NICo
+applies to managed hardware. carbide-api reads the **site-wide BMC root**
+credential and mirrors it into the `bmc-shared-password` Secret in
+`dpf-operator-system` (section 4), refreshing it every 60 seconds so a rotated
+credential propagates without a restart.
+
+Configure it either through the API or by seeding the credential store directly.
+
+**Through the API**, once carbide-api is running:
+
+```bash
+nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
+```
+
+carbide-api starts whether or not the credential is present. While it is
+missing, carbide-api logs a warning and leaves `bmc-shared-password` unwritten;
+it writes the Secret on the next refresh tick after the credential is set, with
+no restart required.
+
+**By seeding the credential store**, to have the credential in place before
+carbide-api first starts. For a Vault-backed site:
+
+```bash
+echo '{"UsernamePassword":{"username":"root","password":"<password>"}}' \
+  | vault kv put <kv-mount>/machines/bmc/site/root -
+```
+
+Until the credential is set, DPU provisioning cannot proceed and Site Explorer
+does not run: it requires this credential plus the host and DPU UEFI site
+defaults, and fails each iteration with `MissingCredentials` until all three are
+present.
+
+<Note>
+This is a site secret that must survive at all costs — it is also the input to
+SuperNIC lockdown key derivation. Refer to
+[SuperNIC Lockdown Key Management](../architecture/supernic_lockdown_key_management.md)
+for the backup and recovery requirements.
+</Note>
+
+### 3.7. Mark hosts as DPF-managed in expected machines
 
 Whether a given host is provisioned via DPF or via iPXE is decided per host,
 in the *expected machines* list that NICo loads on startup. The relevant
@@ -777,7 +818,7 @@ provisioned via DPF only when **both** of the following are true:
 There are several operator paths that can set this field. They are described
 below in the order an operator typically uses them.
 
-#### 3.6.a. `nico-admin-cli expected-machine add` — create a new entry
+#### 3.7.a. `nico-admin-cli expected-machine add` — create a new entry
 
 Adds a new expected-machine row. `--dpf-enabled` is optional; **omitting it
 stores `true`**.
@@ -791,7 +832,7 @@ nico-admin-cli expected-machine add \
   --dpf-enabled true
 ```
 
-#### 3.6.b. `nico-admin-cli expected-machine patch` — partial update via flags
+#### 3.7.b. `nico-admin-cli expected-machine patch` — partial update via flags
 
 Updates an existing entry in place. The lookup key is `--bmc-mac-address`
 (or `--id <UUID>`). Omitting `--dpf-enabled` **preserves** the existing
@@ -804,7 +845,7 @@ nico-admin-cli expected-machine patch \
   --dpf-enabled true
 ```
 
-#### 3.6.c. `nico-admin-cli expected-machine update --filename` — single-host update from JSON
+#### 3.7.c. `nico-admin-cli expected-machine update --filename` — single-host update from JSON
 
 Updates one entry from a JSON file. The JSON shape uses
 `chassis_serial_number` (not `serial_number`) and any field omitted from the
@@ -829,7 +870,7 @@ nico-admin-cli expected-machine update --filename em.json
 This is the most ergonomic path for "toggle DPF on one already-existing
 expected machine without touching anything else."
 
-#### 3.6.d. `nico-admin-cli expected-machine replace-all --filename` — destructive full reload
+#### 3.7.d. `nico-admin-cli expected-machine replace-all --filename` — destructive full reload
 
 Wipes the entire `expected_machines` table and re-creates it from the file.
 The file shape is a wrapper object whose `expected_machines` array uses the
@@ -859,7 +900,7 @@ nico-admin-cli expected-machine replace-all --filename em-all.json
 This is not a merge. Any expected-machine row that is not present in the file is **deleted**. Each entry is then re-created using the same path as `add`, so any entry whose `dpf_enabled` is omitted is re-inserted with `dpf_enabled = true`.
 </Warning>
 
-#### 3.6.e. Quick reference
+#### 3.7.e. Quick reference
 
 | Goal | Path |
 | --- | --- |
@@ -869,7 +910,7 @@ This is not a merge. Any expected-machine row that is not present in the file is
 | Replace the entire inventory | `nico-admin-cli expected-machine replace-all --filename em-all.json` |
 | Inspect current value | `nico-admin-cli expected-machine show <bmc-mac>` |
 
-### 3.7 Enabling DPF for Existing (Ingested) Nodes
+### 3.8 Enabling DPF for Existing (Ingested) Nodes
 
 You can enable the DPF flag on an already discovered host without force-deleting or recreating it by using:
 
@@ -931,7 +972,7 @@ service stack against the configured one. The full set is listed below.
 > machine's metadata only. **They are wiped on force-delete** and on
 > rediscovery the host reverts to whatever its expected-machine entry says.
 > To persist the per-host DPF setting, update the expected-machines table
-> (see section 3.6). This is useful when you want to reprovision a host that
+> (see section 3.7). This is useful when you want to reprovision a host that
 > was not previously managed by DPF, using the DPF framework.
 
 ### `dpf enable` — turn DPF on for a host
