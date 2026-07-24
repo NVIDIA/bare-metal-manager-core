@@ -445,14 +445,18 @@ impl ComponentManager {
             .map_err(|error| ComponentManagerError::Internal(error.to_string()))?
     }
 
+    /// Starts switch certificate configuration through the selected backend.
+    ///
+    /// `test_hello` requests post-installation NMX Hello verification.
     pub async fn configure_switch_certificate(
         &self,
         endpoint: &SwitchEndpoint,
         domain_name: Option<&str>,
         services: Option<&[i32]>,
+        test_hello: bool,
     ) -> Result<String, ComponentManagerError> {
         self.nv_switch
-            .configure_switch_certificate(endpoint, domain_name, services)
+            .configure_switch_certificate(endpoint, domain_name, services, test_hello)
             .await
     }
 

@@ -142,6 +142,7 @@ pub async fn start_configure_switch_certificate(
             &endpoint,
             domain_name,
             Some(ctx.services.switch_mtls_services.as_slice()),
+            true,
         )
         .await
         .map_err(|error| {

@@ -390,11 +390,13 @@ impl NvSwitchManager for NsmSwitchBackend {
         endpoint: &SwitchEndpoint,
         domain_name: Option<&str>,
         services: Option<&[i32]>,
+        test_hello: bool,
     ) -> Result<String, ComponentManagerError> {
         tracing::warn!(
             bmc_mac_address = %endpoint.bmc_mac,
             ?domain_name,
             ?services,
+            test_hello,
             "switch certificate configuration is not supported by NSM backend, passthrough"
         );
         Ok(Self::PASSTHROUGH_CERT_JOB_ID.to_string())

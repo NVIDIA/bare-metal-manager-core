@@ -68,29 +68,41 @@ pub fn switch_endpoint_from_firmware_device(
     })
 }
 
+/// Starts certificate installation for one NMX cluster switch.
+///
+/// `test_hello` requests RMS to enable the NMX cluster service and verify the
+/// installed certificate with NMX Hello.
 pub async fn start_configure_nmx_cluster_certificate(
     component_manager: &Arc<ComponentManager>,
-    primary_switch: &FirmwareUpgradeDeviceInfo,
+    switch: &FirmwareUpgradeDeviceInfo,
     domain_name: Option<&str>,
     switch_mtls_services: &[i32],
+    test_hello: bool,
 ) -> Result<SwitchConfigureCertificateJob, String> {
-    let switch_id = SwitchId::from_str(&primary_switch.node_id)
-        .map_err(|error| format!("switch {} has invalid id: {error}", primary_switch.node_id))?;
-    let endpoint = switch_endpoint_from_firmware_device(primary_switch)?;
+    let switch_id = SwitchId::from_str(&switch.node_id)
+        .map_err(|error| format!("switch {} has invalid id: {error}", switch.node_id))?;
+
+    let endpoint = switch_endpoint_from_firmware_device(switch)?;
+
     let job_id = component_manager
-        .configure_switch_certificate(&endpoint, domain_name, Some(switch_mtls_services))
+        .configure_switch_certificate(
+            &endpoint,
+            domain_name,
+            Some(switch_mtls_services),
+            test_hello,
+        )
         .await
         .map_err(|error| {
             format!(
                 "failed to start switch certificate configuration for {}: {error}",
-                primary_switch.node_id
+                switch.node_id
             )
         })?;
 
     tracing::info!(
         switch_id = %switch_id,
         %job_id,
-        "Started NMX cluster primary switch certificate configuration"
+        "Started NMX cluster switch certificate configuration"
     );
     Ok(SwitchConfigureCertificateJob { switch_id, job_id })
 }

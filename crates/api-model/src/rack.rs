@@ -455,31 +455,65 @@ impl Display for RackMaintenanceState {
     }
 }
 
+/// RMS API used by the ScaleUpFabric Manager configuration workflow.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScaleUpFabricManagerApiVersion {
+    /// Uses the synchronous V1 workflow.
+    #[default]
+    V1,
+
+    /// Uses the asynchronous V2 workflow.
+    V2,
+}
+
 /// Sub-states of `RackMaintenanceState::ConfigureNmxCluster`.
 ///
 /// `Start` advances into certificate configuration for ScaleUpFabric services.
-/// `ConfigureCertificates` installs mTLS certificates on the primary switch via
-/// Component Manager before fabric operations begin.
+/// `ConfigureCertificates` installs mTLS certificates before fabric operations
+/// begin.
 /// `DisableScaleUpFabricState` disables ScaleUpFabric state on all scoped
 /// switches before `ConfigureScaleUpFabricManager` selects, persists, and
 /// configures only the primary switch. `WaitForFabricStatus` polls
 /// `BatchGetScaleUpFabricServiceStatus` and persists the per-switch
 /// `fabric_manager_status` before advancing.
+///
+/// The API version is captured when certificate configuration starts so a
+/// controller restart cannot redirect an in-progress workflow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterState {
     Start,
+
     ConfigureCertificates {
+        /// ScaleUp Fabric Manager API selected before certificate configuration began.
+        #[serde(default)]
+        scale_up_fabric_manager_api_version: ScaleUpFabricManagerApiVersion,
+
+        /// Current certificate configuration sub-state.
         configure_certificate: ConfigureNmxClusterCertificateState,
     },
+
     DisableScaleUpFabricState,
     ConfigureScaleUpFabricManager,
+
+    /// Polls the asynchronous V2 configuration job.
+    ///
+    /// After the job completes, NICo reads the observed fabric status,
+    /// validates the RMS-selected primary, persists it with the per-switch
+    /// Fabric Manager status, and advances to the next requested maintenance
+    /// activity.
+    WaitForScaleUpFabricManagerJob {
+        /// RMS job identifier returned by V2 submission.
+        job_id: String,
+    },
+
     WaitForFabricStatus,
 }
 
 /// Sub-states of `ConfigureNmxClusterState::ConfigureCertificates`.
 ///
-/// `Start` submits a certificate configuration job for the primary switch.
-/// `WaitForComplete` polls the returned RMS job id until it finishes.
+/// `Start` submits certificate configuration jobs. `WaitForComplete` polls the
+/// returned RMS job IDs until all finish.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConfigureNmxClusterCertificateState {
     Start,
@@ -502,12 +536,16 @@ impl Display for ConfigureNmxClusterState {
             ConfigureNmxClusterState::Start => write!(f, "Start"),
             ConfigureNmxClusterState::ConfigureCertificates {
                 configure_certificate,
+                ..
             } => write!(f, "ConfigureCertificates({configure_certificate})"),
             ConfigureNmxClusterState::DisableScaleUpFabricState => {
                 write!(f, "DisableScaleUpFabricState")
             }
             ConfigureNmxClusterState::ConfigureScaleUpFabricManager => {
                 write!(f, "ConfigureScaleUpFabricManager")
+            }
+            ConfigureNmxClusterState::WaitForScaleUpFabricManagerJob { job_id } => {
+                write!(f, "WaitForScaleUpFabricManagerJob({job_id})")
             }
             ConfigureNmxClusterState::WaitForFabricStatus => write!(f, "WaitForFabricStatus"),
         }
@@ -868,6 +906,24 @@ mod tests {
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
 
     use super::*;
+
+    #[test]
+    fn configure_certificates_defaults_missing_scale_up_fabric_manager_api_version_to_v1() {
+        let state: ConfigureNmxClusterState = serde_json::from_value(serde_json::json!({
+            "ConfigureCertificates": {
+                "configure_certificate": "Start"
+            }
+        }))
+        .expect("older ConfigureCertificates state should deserialize");
+
+        assert_eq!(
+            state,
+            ConfigureNmxClusterState::ConfigureCertificates {
+                scale_up_fabric_manager_api_version: ScaleUpFabricManagerApiVersion::V1,
+                configure_certificate: ConfigureNmxClusterCertificateState::Start,
+            }
+        );
+    }
 
     // ── MaintenanceScope ────────────────────────────────────────────────
 
