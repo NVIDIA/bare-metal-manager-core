@@ -316,11 +316,11 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st4.ID,
-				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
-					DpuExtensionServices: []*corev1.DpuExtensionService{
+				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*cwssaws.DpuExtensionService{
 						{
 							ServiceId: dpuExtensionService6.ID.String(),
-							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
 								Version:       "V2",
 								Data:          "updated-test-data",
 								Created:       "invalid timestamp",
@@ -329,7 +329,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 							ActiveVersions: []string{"V2"},
 						},
 					},
-					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				},
 			},
 			updatedDpuExtensionServices: []*cdbm.DpuExtensionService{dpuExtensionService6},
@@ -349,11 +349,11 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 			args: args{
 				ctx:    ctx,
 				siteID: st5.ID,
-				dpuExtensionServiceInventory: &corev1.DpuExtensionServiceInventory{
-					DpuExtensionServices: []*corev1.DpuExtensionService{
+				dpuExtensionServiceInventory: &cwssaws.DpuExtensionServiceInventory{
+					DpuExtensionServices: []*cwssaws.DpuExtensionService{
 						{
 							ServiceId: dpuExtensionService7.ID.String(),
-							LatestVersionInfo: &corev1.DpuExtensionServiceVersionInfo{
+							LatestVersionInfo: &cwssaws.DpuExtensionServiceVersionInfo{
 								Version:       "V2",
 								Data:          "updated-test-data",
 								Created:       "",
@@ -362,7 +362,7 @@ func TestManageDpuExtensionService_UpdateDpuExtensionServicesInDB(t *testing.T) 
 							ActiveVersions: []string{"V2"},
 						},
 					},
-					InventoryStatus: corev1.InventoryStatus_INVENTORY_STATUS_SUCCESS,
+					InventoryStatus: cwssaws.InventoryStatus_INVENTORY_STATUS_SUCCESS,
 				},
 			},
 			updatedDpuExtensionServices: []*cdbm.DpuExtensionService{dpuExtensionService7},
