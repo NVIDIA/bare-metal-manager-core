@@ -22,9 +22,7 @@ use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
-use carbide_dpf::types::{
-    DOCA_WEAVE_SERVICE_NAME, DOCA_XPLANE_SERVICE_NAME, DpfProxyDetails, DpuDeploymentType,
-};
+use carbide_dpf::types::{DpfProxyDetails, DpuDeploymentType};
 use carbide_firmware::FirmwareConfig;
 use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
@@ -1399,17 +1397,17 @@ impl DpfConfig {
             .unwrap_or_else(|| (*self.services).clone());
         self.apply_pull_secret_override(&mut base);
         let extra = match deployment_type {
-            DpuDeploymentType::Bf4Astra => HashMap::from([
+            DpuDeploymentType::Bf4Astra => BTreeMap::from([
                 (
-                    DOCA_WEAVE_SERVICE_NAME.to_string(),
+                    DpfExtraService::DocaWeave,
                     crate::dpf_services::default_doca_weave_service(),
                 ),
                 (
-                    DOCA_XPLANE_SERVICE_NAME.to_string(),
+                    DpfExtraService::DocaXplane,
                     crate::dpf_services::default_doca_xplane_service(),
                 ),
             ]),
-            _ => HashMap::new(),
+            _ => BTreeMap::new(),
         };
         DpfResolvedMandatoryServicesConfig { base, extra }
     }
@@ -1478,11 +1476,28 @@ impl Default for DpfMandatoryServicesConfig {
     }
 }
 
-// DpfResolvedMandatoryServicesConfig - the compounded list of mandatory services
-// depending on deployment type
+/// Deployment-type-specific service that supplements the mandatory base set.
+///
+/// Modelled as an enum (rather than a string key) so the resolver that populates
+/// the extras and the consumer that projects them into service definitions stay in
+/// sync at compile time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(clippy::enum_variant_names)] // DOCA is part of the service identity, not a redundant prefix.
+pub enum DpfExtraService {
+    /// DOCA Weave service.
+    DocaWeave,
+    /// DOCA Xplane service.
+    DocaXplane,
+}
+
+/// `DpfResolvedMandatoryServicesConfig` - the compounded list of mandatory services
+/// depending on deployment type.
 pub struct DpfResolvedMandatoryServicesConfig {
+    /// Base mandatory services present for every deployment type.
     pub base: DpfMandatoryServicesConfig,
-    pub extra: HashMap<String, DpfServiceConfig>,
+    /// Deployment-type-specific extra services. Keyed by [`DpfExtraService`] in a
+    /// [`BTreeMap`] so iteration order is deterministic.
+    pub extra: BTreeMap<DpfExtraService, DpfServiceConfig>,
 }
 
 /// Configuration for a single Helm-based DPF service.

@@ -550,7 +550,14 @@ async fn initialize_dpf_sdk(
         return Ok(None);
     }
 
-    tracing::info!("Initializing DPF SDK BF4 Astra");
+    let mut deployments = vec!["bf3"];
+    if carbide_config.dpf.deployments.bf4_generic.is_some() {
+        deployments.push("bf4_generic");
+    }
+    if carbide_config.dpf.deployments.bf4_astra.is_some() {
+        deployments.push("bf4_astra");
+    }
+    tracing::info!(?deployments, "Initializing DPF SDK");
 
     carbide_config
         .dpf
@@ -662,7 +669,7 @@ async fn initialize_dpf_sdk(
             Some(params),
         ))
         .await
-        .map_err(|err| eyre::eyre!("Failed to initialize bf4_astra DPF deployment: {err}"))?;
+        .map_err(|err| eyre::eyre!("failed to initialize bf4_astra DPF deployment: {err}"))?;
     }
 
     Ok(Some(Arc::new(DpfSdkOps::new(

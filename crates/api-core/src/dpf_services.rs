@@ -32,12 +32,8 @@ use carbide_dpf::{
 };
 
 use crate::cfg::file::{
-<<<<<<< HEAD
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfMandatoryServicesConfig, DpfServiceConfig,
-=======
-    DEFAULT_DPF_IMAGE_PULL_SECRET, DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa,
-    DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
->>>>>>> 0ca6c913a (Support for creating DPF flavor, deployment and services for BF4 Astra)
+    DpfExtraService, DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
@@ -558,11 +554,10 @@ pub fn mandatory_services(
         otelcol_service(&resolved.base.otel),
     ];
 
-    for (name, cfg) in &resolved.extra {
-        match name.as_str() {
-            DOCA_WEAVE_SERVICE_NAME => service_vec.push(doca_weave_service(cfg)),
-            DOCA_XPLANE_SERVICE_NAME => service_vec.push(doca_xplane_service(cfg)),
-            _ => {}
+    for (service, cfg) in &resolved.extra {
+        match service {
+            DpfExtraService::DocaWeave => service_vec.push(doca_weave_service(cfg)),
+            DpfExtraService::DocaXplane => service_vec.push(doca_xplane_service(cfg)),
         }
     }
 
