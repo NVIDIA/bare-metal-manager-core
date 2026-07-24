@@ -654,9 +654,10 @@ pub(crate) async fn admin_force_delete_machine(
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
 
     // Clean up the explored tables next, in site-explorer's write order
-    // (`explored_managed_hosts`, then `explored_endpoints`, then interface
-    // rows), so this delete and a concurrent exploration pass can't hold the
-    // same tables in opposite orders.
+    // (`explored_managed_hosts`, then each machine topology and its
+    // `explored_endpoints` row, then interface rows), so this delete and a
+    // concurrent exploration pass can't hold the same tables in opposite
+    // orders.
     if let Some(machine) = &host_machine
         && let Some(addr) = machine.status.bmc_info.ip
     {
@@ -683,6 +684,10 @@ pub(crate) async fn admin_force_delete_machine(
             "Cleaning up explored endpoint",
         );
 
+        // Site Explorer refreshes firmware in machine_topologies before it
+        // updates this endpoint. Lock in the same order; force_cleanup later
+        // deletes the already-locked topology row.
+        db::machine_topology::lock_by_machine_id(&mut txn, &machine.id).await?;
         db::explored_endpoints::delete(&mut txn, addr).await?;
     }
 

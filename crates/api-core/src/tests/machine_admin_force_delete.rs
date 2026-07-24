@@ -441,6 +441,71 @@ async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::Pg
     }
 }
 
+/// Site Explorer updates a machine topology before its explored endpoint.
+/// Force-delete must take those locks in the same order: otherwise it can
+/// hold the endpoint while waiting for the topology, forming a cycle when
+/// Site Explorer proceeds to the endpoint.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_orders_topology_before_endpoint(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = db::machine::find_one(
+        txn.as_mut(),
+        &managed_host.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let bmc_ip = machine
+        .status
+        .bmc_info
+        .ip
+        .expect("managed host fixture has a BMC ip");
+    txn.commit().await.unwrap();
+
+    // Simulate Site Explorer's firmware refresh holding the topology row.
+    let mut exploration_txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE machine_topologies SET machine_id = machine_id WHERE machine_id = $1")
+        .bind(managed_host.id)
+        .execute(exploration_txn.as_mut())
+        .await
+        .unwrap();
+
+    let api = managed_host.api.clone();
+    let host_id = managed_host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on_any(&env.pool, &["machine_topologies", "cleanup_machine_by_id"]).await;
+
+    // With canonical topology -> endpoint ordering, force-delete is still
+    // waiting for the topology and has not locked the endpoint.
+    sqlx::query("UPDATE explored_endpoints SET address = address WHERE address = $1")
+        .bind(bmc_ip)
+        .execute(exploration_txn.as_mut())
+        .await
+        .expect("endpoint update must not deadlock against force-delete");
+    exploration_txn.commit().await.unwrap();
+
+    let response = force_delete_task
+        .await
+        .unwrap()
+        .expect("force delete completes once exploration commits")
+        .into_inner();
+    assert!(response.all_done);
+    validate_machine_deletion(&env, &managed_host.id, None).await;
+}
+
 /// Polls `pg_stat_activity` until some backend in this test's database sits
 /// in a lock wait on a query that names `relation`. The `datname` filter
 /// keeps parallel per-test databases on the shared server out of the match,
@@ -449,20 +514,26 @@ async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::Pg
 /// RPC's pre-transaction work (Redfish attempts against the fixture BMC)
 /// on slow CI runners.
 async fn wait_until_blocked_on(pool: &sqlx::PgPool, relation: &str) {
+    wait_until_blocked_on_any(pool, &[relation]).await;
+}
+
+async fn wait_until_blocked_on_any(pool: &sqlx::PgPool, queries: &[&str]) {
     for _ in 0..600 {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%' || $1 || '%'",
+        let waiting_queries: Vec<String> = sqlx::query_scalar(
+            "SELECT query FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
         )
-        .bind(relation)
-        .fetch_one(pool)
+        .fetch_all(pool)
         .await
         .unwrap();
-        if waiting > 0 {
+        if waiting_queries
+            .iter()
+            .any(|query| queries.iter().any(|needle| query.contains(needle)))
+        {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    panic!("force delete never blocked on {relation}");
+    panic!("force delete never blocked on any of {queries:?}");
 }
 
 async fn force_delete(
