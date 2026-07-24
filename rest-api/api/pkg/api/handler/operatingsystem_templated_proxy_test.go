@@ -48,6 +48,7 @@ type templatedProxyFixture struct {
 
 	ipOrg string
 	tnOrg string
+	ipu   *cdbm.User
 	tnu   *cdbm.User
 	site  *cdbm.Site
 	tmpl  *cdbm.IpxeTemplate
@@ -66,7 +67,6 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 	tnOrg := "tmpl-proxy-tn-org"
 
 	ipu := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, []string{authz.ProviderAdminRole})
-	_ = ipu
 	tnu := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{authz.TenantAdminRole})
 
 	ip := testMachineBuildInfrastructureProvider(t, dbSession, ipOrg, "tmpl-proxy-provider")
@@ -103,6 +103,7 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 		tracer:    tracer,
 		ipOrg:     ipOrg,
 		tnOrg:     tnOrg,
+		ipu:       ipu,
 		tnu:       tnu,
 		site:      site,
 		tmpl:      tmpl,
@@ -147,6 +148,10 @@ func (f *templatedProxyFixture) bindProxyClient(psc *proxySiteClient) {
 }
 
 func (f *templatedProxyFixture) newEchoContext(method, body string, params map[string]string) (echo.Context, *httptest.ResponseRecorder) {
+	return f.newEchoContextForUser(method, body, params, f.tnu)
+}
+
+func (f *templatedProxyFixture) newEchoContextForUser(method, body string, params map[string]string, user *cdbm.User) (echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
 	req := httptest.NewRequest(method, "/", strings.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -160,7 +165,7 @@ func (f *templatedProxyFixture) newEchoContext(method, body string, params map[s
 	}
 	ec.SetParamNames(names...)
 	ec.SetParamValues(values...)
-	ec.Set("user", f.tnu)
+	ec.Set("user", user)
 	reqCtx := context.WithValue(f.ctx, otelecho.TracerKey, f.tracer)
 	ec.SetRequest(ec.Request().WithContext(reqCtx))
 	return ec, rec
@@ -326,6 +331,49 @@ func TestOperatingSystemHandler_TemplatedIPXE_Proxy(t *testing.T) {
 		_, gerr := osDAO.GetByID(f.ctx, nil, parsedID, nil)
 		assert.ErrorIs(t, gerr, cdb.ErrDoesNotExist, "OS should be soft-deleted once every site is cleaned up")
 	})
+}
+
+func TestOperatingSystemHandler_TemplatedIPXE_ProviderCreateOmitsTenantOrganizationID(t *testing.T) {
+	f := buildTemplatedProxyFixture(t)
+	psc := newProxySiteClient(t, createOperatingSystemMethod, nil, nil)
+	f.bindProxyClient(psc)
+
+	createReq := model.APIOperatingSystemCreateRequest{
+		Name:           "tmpl-proxy-provider-os",
+		Description:    cutil.GetPtr("provider-owned templated OS"),
+		IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
+		SiteIDs:        []string{f.site.ID.String()},
+	}
+	body, err := json.Marshal(createReq)
+	require.NoError(t, err)
+
+	ec, rec := f.newEchoContextForUser(
+		http.MethodPost,
+		string(body),
+		map[string]string{"orgName": f.ipOrg},
+		f.ipu,
+	)
+	h := CreateOperatingSystemHandler{dbSession: f.dbSession, tc: f.tc, scp: f.scp, cfg: f.cfg}
+	require.NoError(t, h.Handle(ec))
+	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+	psc.client.AssertExpectations(t)
+	psc.workflow.AssertExpectations(t)
+	var coreReq corev1.CreateOperatingSystemRequest
+	require.NoError(t, protojson.Unmarshal(psc.captured.RequestJSON, &coreReq))
+	assert.Equal(t, "tmpl-proxy-provider-os", coreReq.Name)
+	assert.Nil(t, coreReq.TenantOrganizationId, "provider-owned OS must omit tenant_organization_id")
+
+	var rsp model.APIOperatingSystem
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rsp))
+	osID, err := uuid.Parse(rsp.ID)
+	require.NoError(t, err)
+	osDAO := cdbm.NewOperatingSystemDAO(f.dbSession)
+	persisted, err := osDAO.GetByID(f.ctx, nil, osID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.InfrastructureProviderID)
+	assert.Equal(t, f.site.InfrastructureProviderID, *persisted.InfrastructureProviderID)
+	assert.Nil(t, persisted.TenantID)
 }
 
 func TestOperatingSystemHandler_TemplatedIPXE_ProxyCreateExecuteError(t *testing.T) {

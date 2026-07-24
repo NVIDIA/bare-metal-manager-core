@@ -488,8 +488,8 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 
 	// Assign ownership: provider-owned OSes carry InfrastructureProviderID
 	// (tenant_id=nil); tenant-owned OSes carry TenantID
-	// (infrastructure_provider_id=nil). This aligns with the sync model where
-	// OSes from nico-core are provider-owned.
+	// (infrastructure_provider_id=nil). When pushed to nico-core, tenant-owned
+	// OSes carry tenant_organization_id while provider-owned OSes omit it.
 	var ownerTenantID *uuid.UUID
 	var ownerProviderID *uuid.UUID
 	if allowedByProvider {

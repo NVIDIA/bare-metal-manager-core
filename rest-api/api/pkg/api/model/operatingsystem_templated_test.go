@@ -127,12 +127,14 @@ func TestOperatingSystemUpdateRequest_Validate_Template(t *testing.T) {
 
 func TestBuildOperatingSystemRequests(t *testing.T) {
 	id := uuid.New()
+	tenantID := uuid.New()
 	authToken := "secret-token"
 	os := &cdbm.OperatingSystem{
 		ID:               id,
 		Name:             "templated-os",
 		Description:      cutil.GetPtr("desc"),
 		Org:              "org-1",
+		TenantID:         &tenantID,
 		Type:             cdbm.OperatingSystemTypeTemplatedIPXE,
 		IsActive:         true,
 		AllowOverride:    true,
@@ -148,11 +150,12 @@ func TestBuildOperatingSystemRequests(t *testing.T) {
 		IpxeTemplateDefinitionHash: cutil.GetPtr("hash-1"),
 	}
 
-	t.Run("create request maps all fields", func(t *testing.T) {
+	t.Run("tenant-owned create request maps all fields and tenant org", func(t *testing.T) {
 		req := BuildCreateOperatingSystemRequest(os)
 		require.NotNil(t, req)
 		assert.Equal(t, id.String(), req.GetId().GetValue())
 		assert.Equal(t, "templated-os", req.Name)
+		require.NotNil(t, req.TenantOrganizationId)
 		assert.Equal(t, "org-1", req.GetTenantOrganizationId())
 		assert.True(t, req.IsActive)
 		assert.True(t, req.AllowOverride)
@@ -166,6 +169,17 @@ func TestBuildOperatingSystemRequests(t *testing.T) {
 		assert.Equal(t, corev1.IpxeTemplateArtifactCacheStrategy_CACHE_AS_NEEDED, req.IpxeTemplateArtifacts[0].CacheStrategy)
 		// CachedUrl is never emitted from the rest side.
 		assert.Nil(t, req.IpxeTemplateArtifacts[0].CachedUrl)
+	})
+
+	t.Run("provider-owned create request omits tenant org", func(t *testing.T) {
+		providerOS := *os
+		providerID := uuid.New()
+		providerOS.TenantID = nil
+		providerOS.InfrastructureProviderID = &providerID
+
+		req := BuildCreateOperatingSystemRequest(&providerOS)
+		require.NotNil(t, req)
+		assert.Nil(t, req.TenantOrganizationId)
 	})
 
 	t.Run("update request maps all fields", func(t *testing.T) {

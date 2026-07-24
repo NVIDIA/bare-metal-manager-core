@@ -1088,7 +1088,7 @@ func BuildCreateOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.CreateO
 		Id:                     &corev1.OperatingSystemId{Value: os.ID.String()},
 		Name:                   os.Name,
 		Description:            os.Description,
-		TenantOrganizationId:   tenantOrganizationIDProto(os.Org),
+		TenantOrganizationId:   tenantOrganizationIDProto(os),
 		IsActive:               os.IsActive,
 		AllowOverride:          os.AllowOverride,
 		PhoneHomeEnabled:       os.PhoneHomeEnabled,
@@ -1127,13 +1127,15 @@ func BuildDeleteOperatingSystemRequest(os *cdbm.OperatingSystem) *corev1.DeleteO
 	}
 }
 
-// tenantOrganizationIDProto maps a persisted org string onto the optional Core
-// field. Empty means provider-owned and must be omitted (Core rejects "").
-func tenantOrganizationIDProto(org string) *string {
-	if org == "" {
+// tenantOrganizationIDProto maps a tenant-owned REST Operating System onto
+// Core's optional ownership field. Provider-owned rows also carry their
+// provider org in REST, so ownership must be determined from TenantID rather
+// than from whether Org is populated.
+func tenantOrganizationIDProto(os *cdbm.OperatingSystem) *string {
+	if os.TenantID == nil || os.Org == "" {
 		return nil
 	}
-	return &org
+	return &os.Org
 }
 
 func ipxeTemplateIDProto(id *string) *corev1.IpxeTemplateId {
