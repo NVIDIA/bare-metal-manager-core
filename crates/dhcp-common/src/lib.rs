@@ -158,148 +158,182 @@ mod tests {
 
     use super::*;
 
-    impl VendorClass {
-        pub fn arm(&self) -> bool {
-            self.arch == MachineArchitecture::Arm64
-        }
-
-        pub fn x64(&self) -> bool {
-            self.arch == MachineArchitecture::EfiX64
-        }
-
-        pub fn is_it_modern(&self) -> bool {
-            self.is_netboot() && self.arm()
-        }
-    }
-
-    /// The full boot-relevant classification a parsed vendor class resolves to:
-    /// architecture (`arm`/`x64`), whether it asks for HTTP `netboot`, and whether
-    /// it is a `modern` (netboot ARM-UEFI) client.
-    #[derive(Debug, PartialEq)]
-    struct Classification {
-        arm: bool,
-        x64: bool,
+    #[derive(Debug, PartialEq, Eq)]
+    struct ParsedVendorClass {
+        id: String,
+        arch: MachineArchitecture,
         netboot: bool,
-        modern: bool,
     }
 
-    impl Classification {
-        fn of(vc: &VendorClass) -> Self {
+    impl ParsedVendorClass {
+        fn new(id: &str, arch: MachineArchitecture, netboot: bool) -> Self {
             Self {
-                arm: vc.arm(),
-                x64: vc.x64(),
+                id: id.to_string(),
+                arch,
+                netboot,
+            }
+        }
+
+        fn of(vc: VendorClass) -> Self {
+            Self {
                 netboot: vc.is_netboot(),
-                modern: vc.is_it_modern(),
+                id: vc.id,
+                arch: vc.arch,
             }
         }
     }
 
-    /// Every vendor-class string we recognize, pinned to its full classification.
-    /// One row per input -- a `PXEClient` x64 UEFI, an OS-form `aarch64` DPU, an
-    /// `HTTPClient` netboot, a bare BMC id -- so a parse covers all four predicates
-    /// at once instead of one assertion apiece.
+    /// Both DHCP frontends use the same parse result: `id` is returned in
+    /// option 60, `arch` selects the boot file, and `is_netboot` gates that
+    /// selection. Keep the recognized and malformed spellings here so the
+    /// frontends only need tests for their own protocol boundaries.
     #[test]
-    fn classifies_each_vendor_class() {
+    fn parses_vendor_classes() {
         check_cases(
             [
                 Case {
                     scenario: "x64 UEFI PXEClient",
                     input: "PXEClient:Arch:00007:UNDI:003000",
-                    expect: Yields(Classification {
-                        arm: false,
-                        x64: true,
-                        netboot: false,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "PXEClient",
+                        MachineArchitecture::EfiX64,
+                        false,
+                    )),
                 },
                 Case {
                     scenario: "Dell iDRAC BMC (x64)",
                     input: "iDRAC",
-                    expect: Yields(Classification {
-                        arm: false,
-                        x64: true,
-                        netboot: false,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "iDRAC",
+                        MachineArchitecture::EfiX64,
+                        false,
+                    )),
                 },
                 Case {
                     scenario: "bare PXEClient iPXE response (arm)",
                     input: "PXEClient",
-                    expect: Yields(Classification {
-                        arm: true,
-                        x64: false,
-                        netboot: false,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "PXEClient",
+                        MachineArchitecture::Arm64,
+                        false,
+                    )),
                 },
                 Case {
                     scenario: "OS-form aarch64 DPU",
                     input: "nvidia-bluefield-dpu aarch64",
-                    expect: Yields(Classification {
-                        arm: true,
-                        x64: false,
-                        netboot: false,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "nvidia-bluefield-dpu",
+                        MachineArchitecture::Arm64,
+                        false,
+                    )),
                 },
                 Case {
                     scenario: "legacy BF2 card",
                     input: "BF2Client",
-                    expect: Yields(Classification {
-                        arm: true,
-                        x64: false,
-                        netboot: false,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "BF2Client",
+                        MachineArchitecture::Arm64,
+                        false,
+                    )),
                 },
                 Case {
                     scenario: "ARM UEFI PXEClient (not netboot)",
                     input: "PXEClient:Arch:00011:UNDI:003000",
-                    expect: Yields(Classification {
-                        arm: true,
-                        x64: false,
-                        netboot: false,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "PXEClient",
+                        MachineArchitecture::Arm64,
+                        false,
+                    )),
                 },
                 Case {
-                    scenario: "ARM UEFI HTTPClient is modern netboot",
+                    scenario: "ARM UEFI HTTPClient netboot",
                     input: "HTTPClient:Arch:00011:UNDI:003000",
-                    expect: Yields(Classification {
-                        arm: true,
-                        x64: false,
-                        netboot: true,
-                        modern: true,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "HTTPClient",
+                        MachineArchitecture::Arm64,
+                        true,
+                    )),
                 },
                 Case {
-                    scenario: "x64 HTTPClient netboots but is not modern",
+                    scenario: "x64 HTTPClient netboot",
                     input: "HTTPClient:Arch:00016:UNDI:003001",
-                    expect: Yields(Classification {
-                        arm: false,
-                        x64: true,
-                        netboot: true,
-                        modern: false,
-                    }),
+                    expect: Yields(ParsedVendorClass::new(
+                        "HTTPClient",
+                        MachineArchitecture::EfiX64,
+                        true,
+                    )),
+                },
+                Case {
+                    scenario: "BlueField out-of-band client",
+                    input: "NVIDIA/BF/OOB",
+                    expect: Yields(ParsedVendorClass::new(
+                        "NVIDIA/BF/OOB",
+                        MachineArchitecture::Arm64,
+                        false,
+                    )),
+                },
+                Case {
+                    scenario: "BlueField BMC client",
+                    input: "NVIDIA/BF/BMC",
+                    expect: Yields(ParsedVendorClass::new(
+                        "NVIDIA/BF/BMC",
+                        MachineArchitecture::Arm64,
+                        false,
+                    )),
+                },
+                Case {
+                    scenario: "HP iLO BMC",
+                    input: "CPQRIB3",
+                    expect: Yields(ParsedVendorClass::new(
+                        "CPQRIB3",
+                        MachineArchitecture::EfiX64,
+                        false,
+                    )),
+                },
+                Case {
+                    scenario: "malformed colon form",
+                    input: "PXEClient:Arch:00007",
+                    expect: Yields(ParsedVendorClass::new(
+                        "unknown: 'PXEClient:Arch:00007'",
+                        MachineArchitecture::Unknown,
+                        false,
+                    )),
+                },
+                Case {
+                    scenario: "malformed space form",
+                    input: "nvidia bluefield dpu",
+                    expect: Yields(ParsedVendorClass::new(
+                        "unknown: 'nvidia bluefield dpu'",
+                        MachineArchitecture::Unknown,
+                        false,
+                    )),
+                },
+                Case {
+                    scenario: "unknown bare client",
+                    input: "UnknownClient",
+                    expect: Yields(ParsedVendorClass::new(
+                        "unknown: 'UnknownClient'",
+                        MachineArchitecture::Unknown,
+                        false,
+                    )),
                 },
             ],
             |input| {
                 input
                     .parse::<VendorClass>()
-                    .map(|vc| Classification::of(&vc))
+                    .map(ParsedVendorClass::of)
                     .map_err(|_| "parse failed")
             },
         );
     }
 
-    /// The human-readable `VendorClass` `Display`: `"<arch> (<netboot|basic>)"`.
+    /// `VendorClass` adds the netboot mode to the architecture label. The
+    /// architecture table below owns each label, so these rows only pin the
+    /// `basic` and `netboot` suffixes.
     #[test]
     fn formats_vendor_class_display() {
         value_scenarios!(run = |input: &str| input.parse::<VendorClass>().unwrap().to_string();
-            "basic (non-netboot) clients" {
-                "NothingClient:Arch:00011:UNDI:X" => "ARM 64-bit UEFI (basic)".to_string(),
-                "NVIDIA/BF/OOB" => "ARM 64-bit UEFI (basic)".to_string(),
-                "NVIDIA/BF/BMC" => "ARM 64-bit UEFI (basic)".to_string(),
+            "basic clients" {
                 "PXEClient:Arch:00000:UNDI:003000" => "x86 BIOS (basic)".to_string(),
             }
 

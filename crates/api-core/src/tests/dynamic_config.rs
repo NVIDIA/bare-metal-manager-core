@@ -19,7 +19,7 @@ use std::sync::atomic::Ordering;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
-use crate::setup::parse_carbide_config;
+use crate::cfg::load::parse_carbide_config;
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
 };

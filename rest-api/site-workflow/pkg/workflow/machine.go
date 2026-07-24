@@ -178,7 +178,7 @@ func CollectAndPublishMachineInventory(ctx workflow.Context) error {
 }
 
 // GetDpuMachines is a workflow to retrieve DPU Machines by IDs with network configuration
-func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) ([]*corev1.DpuMachine, error) {
+func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) (*corev1.DpuMachineList, error) {
 	logger := log.With().Str("Workflow", "GetDpuMachines").Logger()
 
 	logger.Info().Msg("Starting workflow")
@@ -202,7 +202,7 @@ func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) ([]*corev1.Dpu
 	// Invoke GetDpuMachinesByIDs activity
 	var machineManager activity.ManageMachine
 
-	var result []*corev1.DpuMachine
+	var result corev1.DpuMachineList
 	err := workflow.ExecuteActivity(ctx, machineManager.GetDpuMachinesByIDs, dpuMachineIDs).Get(ctx, &result)
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "GetDpuMachinesByIDs").Msg("Failed to execute activity from workflow")
@@ -211,5 +211,5 @@ func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) ([]*corev1.Dpu
 
 	logger.Info().Msg("Completing workflow")
 
-	return result, nil
+	return &result, nil
 }

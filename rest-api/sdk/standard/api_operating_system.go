@@ -357,11 +357,9 @@ func (r ApiGetAllOperatingSystemRequest) Execute() ([]OperatingSystem, *http.Res
 /*
 GetAllOperatingSystem Retrieve all Operating Systems
 
-# Get an Operating System by ID
+List Operating Systems visible to the caller's Tenant.
 
-If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
+Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

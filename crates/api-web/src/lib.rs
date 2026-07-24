@@ -49,6 +49,7 @@ use rand::RngExt as _;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{self as forgerpc};
 use tonic::service::AxumBody;
+use tower_http::csrf::CsrfLayer;
 use tower_http::normalize_path::NormalizePath;
 
 /// Implemented by every page struct whose template extends `base.html`.
@@ -764,7 +765,7 @@ fn routes_with_auth_mode(
             )
             .route(
                 "/machine/{machine_id}/attestation-submit-report-promotion",
-                get(attestation::submit_report_promotion),
+                post(attestation::submit_report_promotion),
             )
             .route("/managed-host", get(managed_host::show_html))
             .route("/managed-host.json", get(managed_host::show_all_json))
@@ -893,6 +894,7 @@ fn routes_with_auth_mode(
             .route("/logs/{source}/stream", get(logs::stream))
             .route("/logs/{source}/history", get(logs::history))
             .layer(axum::middleware::from_fn(web_auth_middleware_fn))
+            .layer(CsrfLayer::new())
             .layer(Extension(Arc::new(web_auth)))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),

@@ -23,6 +23,7 @@ authors.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model" }
 carbide-instrument = { path = "../instrument" }

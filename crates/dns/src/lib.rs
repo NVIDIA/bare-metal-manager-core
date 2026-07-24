@@ -36,7 +36,7 @@ use hickory_server::proto::rr::Record;
 use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 use hickory_server::zone_handler::MessageResponseBuilder;
 use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
-use opentelemetry::KeyValue;
+use opentelemetry::StringValue;
 use opentelemetry::metrics::{Counter, Meter, ObservableGauge};
 use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
 use rpc::protos::dns::DnsResourceRecordLookupRequest;
@@ -51,8 +51,6 @@ use crate::config::Config;
 use crate::negative_cache::{CacheKey, NegativeCache};
 
 struct DnsMetrics {
-    negative_cache_hit: Counter<u64>,
-    negative_cache_miss: Counter<u64>,
     negative_cache_eviction: Counter<u64>,
     // Observable gauge of current cache occupancy: its callback reads the
     // cache length on each scrape. Held only to keep that callback registered
@@ -63,12 +61,6 @@ struct DnsMetrics {
 impl DnsMetrics {
     fn new(meter: &Meter, negative_cache: Arc<NegativeCache>) -> Self {
         Self {
-            negative_cache_hit: meter
-                .u64_counter("carbide_dns_negative_cache_hit_count")
-                .build(),
-            negative_cache_miss: meter
-                .u64_counter("carbide_dns_negative_cache_miss_count")
-                .build(),
             negative_cache_eviction: meter
                 .u64_counter("carbide_dns_negative_cache_eviction_count")
                 .build(),
@@ -221,6 +213,66 @@ impl From<ResponseCode> for Rcode {
     }
 }
 
+/// `NegativeCacheResponseCode` preserves Hickory's `Debug` spelling for the
+/// public `response_code` label on negative-cache hit and miss counters.
+///
+/// A derived `LabelValue` would turn values such as `NXDomain` and `ServFail`
+/// into snake_case. The manual implementation remains bounded because these
+/// Events only receive `classify_failure` results or cache entries populated
+/// from those same results.
+#[derive(Debug, Clone, Copy)]
+struct NegativeCacheResponseCode(ResponseCode);
+
+impl LabelValue for NegativeCacheResponseCode {
+    fn label_value(&self) -> StringValue {
+        StringValue::from(match self.0 {
+            ResponseCode::FormErr => "FormErr",
+            ResponseCode::NXDomain => "NXDomain",
+            ResponseCode::ServFail => "ServFail",
+            ResponseCode::NotImp => "NotImp",
+            ResponseCode::Refused => "Refused",
+            code => return StringValue::from(format!("{code:?}")),
+        })
+    }
+}
+
+/// `DnsNegativeCacheHit` records a cached response returned without an
+/// upstream lookup, keeping its DEBUG diagnostic and hit counter together.
+#[derive(Event)]
+#[event(
+    event_name = "dns_negative_cache_hit",
+    metric_name = "carbide_dns_negative_cache_hit_count_total",
+    component = "carbide-dns",
+    log = debug,
+    metric = counter,
+    message = "Negative cache hit",
+    describe = "Number of negative DNS cache hits, by response code"
+)]
+struct DnsNegativeCacheHit {
+    #[label]
+    response_code: NegativeCacheResponseCode,
+}
+
+/// `DnsNegativeCacheMiss` records an upstream failure before it enters the
+/// negative cache. Its error remains log-only context while the bounded
+/// response code labels both the WARN diagnostic and counter.
+#[derive(Event)]
+#[event(
+    event_name = "dns_negative_cache_miss",
+    metric_name = "carbide_dns_negative_cache_miss_count_total",
+    component = "carbide-dns",
+    log = warn,
+    metric = counter,
+    message = "DNS lookup failed",
+    describe = "Number of negative DNS cache misses, by response code"
+)]
+struct DnsNegativeCacheMiss {
+    #[label]
+    response_code: NegativeCacheResponseCode,
+    #[context]
+    error: String,
+}
+
 /// A query arrived, counted by query type: the request rate is the signal, so
 /// no per-query log line is built.
 #[derive(Event)]
@@ -255,19 +307,17 @@ struct DnsResponseSent {
     rcode: Rcode,
 }
 
-/// A request ran to completion: its duration records as a distribution by
-/// query type and response code. Metric-only: the historical "Request
-/// completed" info line stays exactly as it has always been -- this server
-/// logs JSON, where field types are part of the schema, and the derive
-/// renders context fields as strings -- so the histogram fires beside the
-/// untouched log line rather than replacing it.
+/// `DnsRequestCompleted` records the duration and the matching INFO diagnostic
+/// from one emission. The response details stay off the histogram labels, but
+/// remain native JSON values on the log record.
 #[derive(Event)]
 #[event(
     event_name = "dns_request_completed",
     metric_name = "carbide_dns_request_duration_milliseconds",
     component = "carbide-dns",
-    log = off,
+    log = info,
     metric = histogram,
+    message = "Request completed",
     describe = "Time to process a DNS query, by query type and response code"
 )]
 struct DnsRequestCompleted {
@@ -275,6 +325,12 @@ struct DnsRequestCompleted {
     qtype: Qtype,
     #[label]
     rcode: Rcode,
+    #[context(value)]
+    response_code: String,
+    #[context(value)]
+    record_count: i64,
+    #[context(value)]
+    duration_milliseconds: f64,
     #[observation]
     took: Duration,
 }
@@ -361,10 +417,9 @@ impl RequestHandler for DnsServer {
             let mut response_header = Metadata::response_from_request(request_info.metadata);
 
             let (response_code, records) = if let Some(code) = cached {
-                self.metrics
-                    .negative_cache_hit
-                    .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
-                tracing::debug!("Negative cache hit");
+                emit(DnsNegativeCacheHit {
+                    response_code: NegativeCacheResponseCode(code),
+                });
                 (code, vec![])
             } else {
                 // Clone the client out under the lock, then release it so the
@@ -399,14 +454,14 @@ impl RequestHandler for DnsServer {
                         (ResponseCode::NoError, records)
                     }
                     Err(e) => {
-                        warn!(error = %e, "DNS lookup failed");
                         let NegativeClassification { code, transient } = classify_failure(e.code());
 
-                        // Count the upstream negative regardless of how it is cached
-                        // below.
-                        self.metrics
-                            .negative_cache_miss
-                            .add(1, &[KeyValue::new("response_code", format!("{code:?}"))]);
+                        // Emit before `record`: every upstream negative is a
+                        // cache miss, even when admission evicts another entry.
+                        emit(DnsNegativeCacheMiss {
+                            response_code: NegativeCacheResponseCode(code),
+                            error: e.to_string(),
+                        });
 
                         // The LRU cache always admits the entry; a `true` return means
                         // a least-recently-used entry was evicted to make room.  Both are
@@ -423,15 +478,12 @@ impl RequestHandler for DnsServer {
             };
 
             let duration = start.elapsed();
-            tracing::info!(
-                response_code = ?response_code,
-                record_count = records.len(),
-                duration_milliseconds = duration.as_millis(),
-                "Request completed"
-            );
             emit(DnsRequestCompleted {
                 qtype: qtype_label,
                 rcode: Rcode::from(response_code),
+                response_code: format!("{response_code:?}"),
+                record_count: i64::try_from(records.len()).unwrap_or(i64::MAX),
+                duration_milliseconds: duration.as_millis() as f64,
                 took: duration,
             });
 
@@ -755,11 +807,159 @@ mod tests {
         );
     }
 
-    /// The per-request events are metric-only: one emit moves the declared
-    /// instrument under the derive's snake_case label values, and no log line
-    /// is built.
     #[test]
-    fn dns_request_events_move_their_metrics_without_logging() {
+    fn negative_cache_response_code_preserves_legacy_debug_rendering() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(
+            run = |code: ResponseCode| NegativeCacheResponseCode(code).label_value().to_string();
+            "the classified negative response codes" {
+                ResponseCode::FormErr => "FormErr".to_string(),
+                ResponseCode::NXDomain => "NXDomain".to_string(),
+                ResponseCode::ServFail => "ServFail".to_string(),
+                ResponseCode::Refused => "Refused".to_string(),
+                ResponseCode::NotImp => "NotImp".to_string(),
+            }
+        );
+    }
+
+    /// `dns_negative_cache_events_pair_metrics_and_logs` pins one counter
+    /// increment and one diagnostic record to the same `emit`, including the
+    /// shared `response_code` label spelling.
+    #[test]
+    fn dns_negative_cache_events_pair_metrics_and_logs() {
+        use carbide_instrument::testing::{MetricsCapture, capture_logs};
+        use carbide_test_support::{Check, check_values};
+
+        enum NegativeCacheEvent {
+            Hit(ResponseCode),
+            Miss {
+                response_code: ResponseCode,
+                error: &'static str,
+            },
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct LogObservation {
+            level: tracing::Level,
+            metadata_name: String,
+            message: String,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            response_code: Option<String>,
+            error: Option<String>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            log: Option<LogObservation>,
+            counters: [f64; 2],
+        }
+
+        fn expected_log(
+            level: tracing::Level,
+            metadata_name: &str,
+            message: &str,
+            metric_name: &str,
+            response_code: &str,
+            error: Option<&str>,
+        ) -> Option<LogObservation> {
+            Some(LogObservation {
+                level,
+                metadata_name: metadata_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(metadata_name.to_string()),
+                metric_name: Some(metric_name.to_string()),
+                response_code: Some(response_code.to_string()),
+                error: error.map(str::to_string),
+            })
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "negative-cache hit",
+                    input: NegativeCacheEvent::Hit(ResponseCode::NXDomain),
+                    expect: Observation {
+                        log_count: 1,
+                        log: expected_log(
+                            tracing::Level::DEBUG,
+                            "dns_negative_cache_hit",
+                            "Negative cache hit",
+                            "carbide_dns_negative_cache_hit_count_total",
+                            "NXDomain",
+                            None,
+                        ),
+                        counters: [1.0, 0.0],
+                    },
+                },
+                Check {
+                    scenario: "negative-cache miss",
+                    input: NegativeCacheEvent::Miss {
+                        response_code: ResponseCode::ServFail,
+                        error: "upstream unavailable",
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        log: expected_log(
+                            tracing::Level::WARN,
+                            "dns_negative_cache_miss",
+                            "DNS lookup failed",
+                            "carbide_dns_negative_cache_miss_count_total",
+                            "ServFail",
+                            Some("upstream unavailable"),
+                        ),
+                        counters: [0.0, 1.0],
+                    },
+                },
+            ],
+            |event| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match event {
+                    NegativeCacheEvent::Hit(response_code) => emit(DnsNegativeCacheHit {
+                        response_code: NegativeCacheResponseCode(response_code),
+                    }),
+                    NegativeCacheEvent::Miss {
+                        response_code,
+                        error,
+                    } => emit(DnsNegativeCacheMiss {
+                        response_code: NegativeCacheResponseCode(response_code),
+                        error: error.to_string(),
+                    }),
+                });
+                let log = logs.first().map(|log| LogObservation {
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    response_code: log.field("response_code").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                });
+
+                Observation {
+                    log_count: logs.len(),
+                    log,
+                    counters: [
+                        metrics.counter_delta(
+                            "carbide_dns_negative_cache_hit_count_total",
+                            &[("response_code", "NXDomain")],
+                        ),
+                        metrics.counter_delta(
+                            "carbide_dns_negative_cache_miss_count_total",
+                            &[("response_code", "ServFail")],
+                        ),
+                    ],
+                }
+            },
+        );
+    }
+
+    /// The query and response events only move their counters; neither builds
+    /// a per-request log record.
+    #[test]
+    fn dns_query_and_response_events_move_their_metrics_without_logging() {
         use carbide_instrument::testing::{MetricsCapture, capture_logs};
 
         let metrics = MetricsCapture::start();
@@ -774,16 +974,8 @@ mod tests {
             emit(DnsResponseSent {
                 rcode: Rcode::NotImp,
             });
-            emit(DnsRequestCompleted {
-                qtype: Qtype::A,
-                rcode: Rcode::NoError,
-                took: Duration::from_millis(250),
-            });
         });
 
-        // All three events are metric-only: the historical "Request
-        // completed" info line is ordinary production code beside the
-        // histogram emit, not part of the event.
         assert!(
             logs.is_empty(),
             "request-rate events are metric-only: {logs:?}"
@@ -805,20 +997,172 @@ mod tests {
             metrics.counter_delta("carbide_dns_responses_total", &[("rcode", "not_imp")]),
             1.0
         );
-        assert_eq!(
-            metrics.histogram_count_delta(
-                "carbide_dns_request_duration_milliseconds",
-                &[("qtype", "a"), ("rcode", "no_error")],
-            ),
-            1
-        );
-        let sum = metrics.histogram_sum_delta(
-            "carbide_dns_request_duration_milliseconds",
-            &[("qtype", "a"), ("rcode", "no_error")],
-        );
-        assert!(
-            (sum - 250.0).abs() < 1e-9,
-            "a 250ms request records 250 in the milliseconds histogram, got {sum}"
+    }
+
+    /// `DnsRequestCompleted` replaces the separate histogram and INFO calls:
+    /// one `emit()` records one duration and one diagnostic with the response
+    /// details kept as native structured values.
+    #[test]
+    fn dns_request_completed_pairs_its_histogram_and_log() {
+        use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+        use carbide_test_support::{Check, check_values};
+
+        struct RequestCompletedCase {
+            qtype: Qtype,
+            qtype_label: &'static str,
+            rcode: Rcode,
+            rcode_label: &'static str,
+            response_code: &'static str,
+            record_count: i64,
+            duration: Duration,
+            duration_milliseconds: f64,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            log_count: usize,
+            metadata_name: Option<String>,
+            level: Option<tracing::Level>,
+            message: Option<String>,
+            event_name: Option<String>,
+            metric_name: Option<String>,
+            qtype: Option<String>,
+            rcode: Option<String>,
+            response_code: Option<String>,
+            record_count: Option<String>,
+            duration_milliseconds: Option<String>,
+            response_code_kind: Option<CapturedFieldKind>,
+            record_count_kind: Option<CapturedFieldKind>,
+            duration_milliseconds_kind: Option<CapturedFieldKind>,
+            histogram_count: u64,
+            histogram_sum: f64,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "successful A request",
+                    input: RequestCompletedCase {
+                        qtype: Qtype::A,
+                        qtype_label: "a",
+                        rcode: Rcode::NoError,
+                        rcode_label: "no_error",
+                        response_code: "NoError",
+                        record_count: 3,
+                        duration: Duration::from_millis(250),
+                        duration_milliseconds: 250.0,
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        metadata_name: Some("dns_request_completed".to_string()),
+                        level: Some(tracing::Level::INFO),
+                        message: Some("Request completed".to_string()),
+                        event_name: Some("dns_request_completed".to_string()),
+                        metric_name: Some("carbide_dns_request_duration_milliseconds".to_string()),
+                        qtype: Some("a".to_string()),
+                        rcode: Some("no_error".to_string()),
+                        response_code: Some("NoError".to_string()),
+                        record_count: Some("3".to_string()),
+                        duration_milliseconds: Some("250".to_string()),
+                        response_code_kind: Some(CapturedFieldKind::String),
+                        record_count_kind: Some(CapturedFieldKind::I64),
+                        duration_milliseconds_kind: Some(CapturedFieldKind::F64),
+                        histogram_count: 1,
+                        histogram_sum: 250.0,
+                    },
+                },
+                Check {
+                    scenario: "event-level NotImp completion",
+                    input: RequestCompletedCase {
+                        qtype: Qtype::Other,
+                        qtype_label: "other",
+                        rcode: Rcode::NotImp,
+                        rcode_label: "not_imp",
+                        response_code: "NotImp",
+                        record_count: 0,
+                        duration: Duration::from_millis(1_500),
+                        duration_milliseconds: 1_500.0,
+                    },
+                    expect: Observation {
+                        log_count: 1,
+                        metadata_name: Some("dns_request_completed".to_string()),
+                        level: Some(tracing::Level::INFO),
+                        message: Some("Request completed".to_string()),
+                        event_name: Some("dns_request_completed".to_string()),
+                        metric_name: Some("carbide_dns_request_duration_milliseconds".to_string()),
+                        qtype: Some("other".to_string()),
+                        rcode: Some("not_imp".to_string()),
+                        response_code: Some("NotImp".to_string()),
+                        record_count: Some("0".to_string()),
+                        duration_milliseconds: Some("1500".to_string()),
+                        response_code_kind: Some(CapturedFieldKind::String),
+                        record_count_kind: Some(CapturedFieldKind::I64),
+                        duration_milliseconds_kind: Some(CapturedFieldKind::F64),
+                        histogram_count: 1,
+                        histogram_sum: 1_500.0,
+                    },
+                },
+            ],
+            |case| {
+                let RequestCompletedCase {
+                    qtype,
+                    qtype_label,
+                    rcode,
+                    rcode_label,
+                    response_code,
+                    record_count,
+                    duration,
+                    duration_milliseconds,
+                } = case;
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit(DnsRequestCompleted {
+                        qtype,
+                        rcode,
+                        response_code: response_code.to_string(),
+                        record_count,
+                        duration_milliseconds,
+                        took: duration,
+                    });
+                });
+                let log = logs.first();
+
+                Observation {
+                    log_count: logs.len(),
+                    metadata_name: log.map(|log| log.metadata_name.clone()),
+                    level: log.map(|log| log.level),
+                    message: log.map(|log| log.message.clone()),
+                    event_name: log
+                        .and_then(|log| log.field("event_name"))
+                        .map(str::to_string),
+                    metric_name: log
+                        .and_then(|log| log.field("metric_name"))
+                        .map(str::to_string),
+                    qtype: log.and_then(|log| log.field("qtype")).map(str::to_string),
+                    rcode: log.and_then(|log| log.field("rcode")).map(str::to_string),
+                    response_code: log
+                        .and_then(|log| log.field("response_code"))
+                        .map(str::to_string),
+                    record_count: log
+                        .and_then(|log| log.field("record_count"))
+                        .map(str::to_string),
+                    duration_milliseconds: log
+                        .and_then(|log| log.field("duration_milliseconds"))
+                        .map(str::to_string),
+                    response_code_kind: log.and_then(|log| log.field_kind("response_code")),
+                    record_count_kind: log.and_then(|log| log.field_kind("record_count")),
+                    duration_milliseconds_kind: log
+                        .and_then(|log| log.field_kind("duration_milliseconds")),
+                    histogram_count: metrics.histogram_count_delta(
+                        "carbide_dns_request_duration_milliseconds",
+                        &[("qtype", qtype_label), ("rcode", rcode_label)],
+                    ),
+                    histogram_sum: metrics.histogram_sum_delta(
+                        "carbide_dns_request_duration_milliseconds",
+                        &[("qtype", qtype_label), ("rcode", rcode_label)],
+                    ),
+                }
+            },
         );
     }
 }

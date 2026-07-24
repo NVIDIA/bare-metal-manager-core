@@ -22,6 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
 use ::rpc::{common as rpc_common, forge as rpc};
+use carbide_dpf::dpu_cr_name;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
@@ -34,7 +35,7 @@ use db::{
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
-use model::hardware_info::MachineInventory;
+use model::hardware_info::{MachineInventory, MachineInventorySoftwareComponent};
 use model::instance::config::extension_services::InstanceExtensionServiceConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
@@ -814,6 +815,76 @@ pub(crate) async fn update_agent_reported_inventory(
 
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    // For DPF-ingested DPUs the agent runs containerized and cannot enumerate
+    // the DPF services directly. Read service versions from the DPF operator
+    // on every inventory report so the DB stays current after upgrades.
+    let mut txn = api.txn_begin().await?;
+    let host_snapshot =
+        db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, LoadSnapshotOptions::default())
+            .await?;
+    txn.commit().await?;
+
+    if let Some(snapshot) = host_snapshot
+        && snapshot.host_snapshot.config.dpf.used_for_ingestion
+    {
+        let machine = snapshot
+            .dpu_snapshots
+            .iter()
+            .find(|d| d.id == dpu_machine_id)
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "dpu",
+                id: dpu_machine_id.to_string(),
+            })?;
+
+        let dpf_sdk = api.dpf_sdk.as_ref().ok_or_else(|| {
+            CarbideError::internal(format!(
+                "dpf SDK unavailable but DPU {dpu_machine_id} was ingested via DPF"
+            ))
+        })?;
+
+        // Both BMC MACs are needed to build the DPU CR name queried from the DPF
+        // operator. If either is not yet recorded, skip the DPF inventory update
+        // for this report rather than rejecting it; a later heartbeat retries once
+        // the MACs are known.
+        let (Some(dpu_device_id), Some(host_node_id)) =
+            (machine.dpf_id(), snapshot.host_snapshot.dpf_id())
+        else {
+            tracing::debug!(
+                machine_id = %dpu_machine_id,
+                "skipping DPF service inventory update: DPU or host BMC MAC not yet known"
+            );
+            return Ok(Response::new(()));
+        };
+        let dpu_name = dpu_cr_name(&dpu_device_id, &host_node_id);
+
+        let service_versions = dpf_sdk
+            .get_service_versions_for_dpu(&dpu_name)
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+        let inventory = MachineInventory {
+            components: service_versions
+                .into_iter()
+                .map(|v| MachineInventorySoftwareComponent {
+                    name: v.name,
+                    version: v.version,
+                    url: v.url,
+                })
+                .collect(),
+        };
+
+        let mut txn = api.txn_begin().await?;
+        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
+        txn.commit().await?;
+
+        tracing::debug!(
+            machine_id = %dpu_machine_id,
+            component_count = inventory.components.len(),
+            "updated DPF service inventory from operator",
+        );
+        return Ok(Response::new(()));
+    }
 
     if let Some(inventory) = request.inventory.as_ref() {
         let mut txn = api.txn_begin().await?;

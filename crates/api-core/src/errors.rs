@@ -22,6 +22,7 @@ use ::rpc::errors::RpcDataConversionError;
 use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
+use carbide_site_explorer::EndpointExplorationServiceError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
@@ -330,6 +331,28 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::TryAgain => Internal {
                 message: DatabaseError::TryAgain.to_string(),
             },
+        }
+    }
+}
+
+impl From<EndpointExplorationServiceError> for CarbideError {
+    fn from(error: EndpointExplorationServiceError) -> Self {
+        match error {
+            EndpointExplorationServiceError::Database(error) => error.into(),
+            EndpointExplorationServiceError::NotFound { kind, id } => {
+                CarbideError::NotFoundError { kind, id }
+            }
+            EndpointExplorationServiceError::AlreadyInProgress(bmc_ip) => {
+                CarbideError::AlreadyInProgress(format!(
+                    "endpoint exploration already in progress for {bmc_ip}"
+                ))
+            }
+            EndpointExplorationServiceError::ConcurrentModification { kind, version } => {
+                CarbideError::ConcurrentModificationError(kind, version)
+            }
+            background_error @ EndpointExplorationServiceError::BackgroundTaskFailed { .. } => {
+                CarbideError::internal(background_error.to_string())
+            }
         }
     }
 }

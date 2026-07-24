@@ -41,6 +41,7 @@ carbide-macros = { path = "../macros" }
 carbide-api-db = { path = "../api-db", default-features = false }
 sqlx = { workspace = true }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

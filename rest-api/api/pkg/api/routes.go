@@ -37,6 +37,13 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPut,
 			Handler: apiHandler.NewCreateOrUpdateBMCCredentialHandler(dbSession, scp, cfg),
 		},
+		// Site Explorer endpoint actions (Provider Admin). Composes existing
+		// single-endpoint Core methods through the generic gRPC proxy.
+		{
+			Path:    apiPathPrefix + "/site-explorer/endpoint/action",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewSiteExplorerEndpointActionHandler(dbSession, scp, cfg),
+		},
 		// Site-default UEFI credential endpoint (Provider Admin); equivalent to
 		// the admin CLI `credential add-uefi` command.
 		{
@@ -753,6 +760,17 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/operating-system/:id",
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteOperatingSystemHandler(dbSession, tc, scp, cfg),
+		},
+		// iPXE Template endpoints (read-only; templates are synced from nico-core)
+		{
+			Path:    apiPathPrefix + "/ipxe-template",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllIpxeTemplateHandler(dbSession, tc, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/ipxe-template/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetIpxeTemplateHandler(dbSession, tc, cfg),
 		},
 		// NetworkSecurityGroup endpoints
 		{

@@ -621,6 +621,53 @@ carbide_object_unhealthy_by_classification_count{object_type="machine",classific
 count(carbide_object_unhealthy_by_classification_count{object_type="machine",classification="Hardware"}) > 10
 ```
 
+### Per-object state progress metrics
+
+NICo can expose current state progress for individual machines, switches,
+power shelves, and racks (plus network segments, VPC prefixes, SPDM
+attestation, and IB partitions) from a dedicated Prometheus listener. This
+endpoint is disabled by default and uses a separate registry, so enabling it
+does not add high-cardinality series to the existing `/metrics` endpoint.
+
+```toml
+[observability.per_object_state_metrics]
+enabled = true
+listen_address = "[::]:9091"
+# Defaults to all supported object types; also valid: "network_segment",
+# "vpc_prefix", "spdm_attestation", "ib_partition".
+object_types = ["machine", "switch", "power_shelf", "rack"]
+```
+
+Scrape `/metrics` on the configured address at a relatively slow interval
+(60–120 seconds is normally sufficient). Queries joining these metrics with
+aggregate or health metrics require both the main and per-object endpoints to
+be scraped into the same Prometheus.
+
+When deploying with the Helm chart, set
+`nico-api.service.perObjectStateMetrics.enabled=true`; this configures the
+application listener, container port, and Service together. Enable its
+ServiceMonitor with `nico-api.perObjectStateMetricsServiceMonitor.enabled=true`.
+If `configFiles.nicoApiConfig` replaces the chart's bundled application
+configuration, that custom TOML must include the section above explicitly.
+
+| Metric | Meaning |
+|---|---|
+| `carbide_object_state_entered_timestamp_seconds` | One series per live object, labeled with its normalized current `state` and `substate`. Subtract it from `time()` to calculate state age. |
+| `carbide_object_state_sla_seconds` | The resolved SLA for the current state. States without an SLA emit no series. |
+| `carbide_object_manual_intervention_required` | Value `1` while the latest handler result or a terminal failed/error state requires operator action; `reason` is a bounded token (`error` for object types whose stored cause is free text). |
+| `carbide_object_info` | Stable traits used for joins: rack, SKU, vendor, and model where known. |
+| `carbide_machine_dpu_info` | One series for each host-to-DPU association. |
+| `carbide_machine_instance_info` | The current machine-to-instance and tenant association. |
+
+For example, this query finds objects that have exceeded their own resolved
+SLA:
+
+```promql
+(time() - carbide_object_state_entered_timestamp_seconds)
+  > on(object_type, object_id, state, substate) group_left()
+    carbide_object_state_sla_seconds
+```
+
 DPU metrics:
 
 | Metric | Use |

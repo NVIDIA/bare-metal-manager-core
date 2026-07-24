@@ -31,6 +31,7 @@ path = "src/main.rs"
 [dependencies]
 
 # [local-dependencies]
+carbide-dhcp-common = { path = "../dhcp-common" }
 carbide-instrument = { path = "../instrument" }
 carbide-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }

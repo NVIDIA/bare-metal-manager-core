@@ -478,7 +478,7 @@ impl ApiEndpointSource {
         let addr = BmcAddr::try_from(bmc_info)?;
         let metadata = machine.id.map(|machine_id| {
             EndpointMetadata::Machine(MachineData {
-                machine_id,
+                machine_id: Some(machine_id),
                 machine_serial: machine
                     .discovery_info
                     .as_ref()

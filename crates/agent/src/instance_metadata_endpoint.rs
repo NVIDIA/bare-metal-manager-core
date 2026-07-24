@@ -391,7 +391,6 @@ async fn get_metadata_params(
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
-            machine_identity::META_DATA_IDENTITY_CATEGORY,
         ]
         .join("\n"),
     )
@@ -735,7 +734,6 @@ mod tests {
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
-            machine_identity::META_DATA_IDENTITY_CATEGORY,
         ]
         .join("\n");
 

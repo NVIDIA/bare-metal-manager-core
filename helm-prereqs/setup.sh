@@ -687,6 +687,16 @@ _create_temporal_namespace() {
     local _namespace="$1"
     local _output
 
+    # Idempotency fast-path: skip creation when the namespace already exists.
+    # Any describe failure (not-found or transient) falls through to create,
+    # which propagates genuine errors with diagnostics below.
+    if kubectl exec -n temporal deploy/temporal-admintools -- \
+        sh -c "temporal operator namespace describe -n \"\$1\" --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" \
+        sh "${_namespace}" >/dev/null 2>&1; then
+        echo "Temporal namespace ${_namespace} already exists"
+        return
+    fi
+
     if _output="$(kubectl exec -n temporal deploy/temporal-admintools -- \
         sh -c "temporal operator namespace create -n \"\$1\" --retention 72h --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" \
         sh "${_namespace}" 2>&1)"; then

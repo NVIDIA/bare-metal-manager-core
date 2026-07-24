@@ -96,7 +96,7 @@ fn event_context() -> EventContext {
         },
         collector_type: "sensor_collector",
         metadata: Some(EndpointMetadata::Machine(MachineData {
-            machine_id: MACHINE_ID.parse().expect("valid machine id"),
+            machine_id: Some(MACHINE_ID.parse().expect("valid machine id")),
             machine_serial: None,
             slot_number: None,
             tray_index: None,
@@ -274,7 +274,7 @@ fn rack_event_contexts(rack_id: &str, tray_count: usize) -> Vec<EventContext> {
                 },
                 collector_type: "sensor_collector",
                 metadata: Some(EndpointMetadata::Machine(MachineData {
-                    machine_id: MACHINE_ID.parse().expect("valid machine id"),
+                    machine_id: Some(MACHINE_ID.parse().expect("valid machine id")),
                     machine_serial: None,
                     slot_number: None,
                     tray_index: None,

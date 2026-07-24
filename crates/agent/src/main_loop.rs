@@ -29,7 +29,7 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_instrument::{Outcome, emit};
+use carbide_instrument::emit;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -57,7 +57,8 @@ use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
-    ReportLoop, ReportLoopCompleted, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
+    NetworkStatusConnectionFailed, NetworkStatusRpcFailed, NetworkStatusSucceeded, create_metrics,
+    get_dpu_agent_meter, get_prometheus_registry,
 };
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -1439,30 +1440,19 @@ pub async fn record_network_status(
     {
         Ok(client) => client,
         Err(err) => {
-            tracing::error!(
-                forge_api,
-                error = format!("{err:#}"),
-                "record_network_status: Could not connect to Forge API server. Will retry."
-            );
-            emit(ReportLoopCompleted {
-                report_loop: ReportLoop::NetworkStatus,
-                outcome: Outcome::Error,
-            });
+            emit(NetworkStatusConnectionFailed::new(
+                forge_api.to_string(),
+                format!("{err:#}"),
+            ));
             return;
         }
     };
     let request = tonic::Request::new(status);
     let result = client.record_dpu_network_status(request).await;
-    if let Err(err) = &result {
-        tracing::error!(
-            error = format!("{err:#}"),
-            "Error while executing the record_network_status gRPC call"
-        );
+    match &result {
+        Ok(_) => emit(NetworkStatusSucceeded::new()),
+        Err(err) => emit(NetworkStatusRpcFailed::new(format!("{err:#}"))),
     }
-    emit(ReportLoopCompleted {
-        report_loop: ReportLoop::NetworkStatus,
-        outcome: Outcome::from(&result),
-    });
 }
 
 // Get the link type, carrier status, MTU, and whatever else for our uplinks

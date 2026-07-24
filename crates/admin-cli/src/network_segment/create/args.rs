@@ -121,6 +121,8 @@ impl From<Args> for forge::NetworkSegmentCreationRequest {
                 reserve_first: args.reserve_first,
                 free_ip_count: 0,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             })
             .collect();
 

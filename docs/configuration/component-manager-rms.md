@@ -2,17 +2,17 @@
 
 Operator guide for configuring **Rack Manager Service (RMS)** backends in the
 `[component_manager]` section of `nico-api` site config, and the **rack profile**
-data those backends require for node type resolution.
+data those backends require for node descriptors.
 
 `[component_manager]` manages compute trays, NVLink switches, and power shelves.
-When a role's backend is set to `rms`, NICo resolves the RMS node type from the
-rack profile. If a configured
-rack profile definition is missing required fields or is ambiguous, `nico-api`
-**fails configuration validation at startup**. Per-rack `rack_profile_id`
-assignments are not checked at startup. Those errors surface at runtime when an
-RMS operation runs (refer to [Startup validation](#startup-validation)).
+When a role's backend is set to `rms`, NICo builds an RMS `NodeDescriptor` from
+the rack profile. If a configured rack profile is missing required fields,
+`nico-api` **fails configuration validation at startup**. Per-rack
+`rack_profile_id` assignments are not checked at startup. Those errors surface
+at runtime when an RMS operation runs (refer to
+[Startup validation](#startup-validation)).
 
-Canonical field reference: [`crates/api-core/src/cfg/README.md`](https://github.com/NVIDIA/infra-controller/tree/main/crates/api-core/src/cfg/README.md).
+Canonical field reference: [`crates/api-core/src/cfg/README.md`](https://github.com/NVIDIA/infra-controller/blob/main/crates/api-core/src/cfg/README.md).
 Configure the `[rms]` block (mTLS connectivity to the external RMS) separately;
 the examples on this page cover the component-manager and rack-profile fields.
 
@@ -20,12 +20,57 @@ the examples on this page cover the component-manager and rack-profile fields.
 
 ## What the rack profile provides
 
-For RMS component-manager backends, the rack profile supplies two facts:
+For RMS component-manager backends, NICo sends a descriptor containing three
+attributes:
 
-- **Product family**: `product_family`. Required for RMS-backed operations;
-  currently accepts `gb200` or `gb300`.
+- **Role**: Derived from the operation as `compute`, `switch`, or `power_shelf`.
+- **Product family**: Taken from `product_family`.
 - **Vendor**: `rack_capabilities.<role>.vendor`, for each role using an RMS
   backend.
+
+NICo trims outer whitespace from product-family and vendor values and requires
+both to be non-empty. Case and internal punctuation are preserved after
+trimming. NICo does not map these values to a supported-hardware list. RMS
+validates each role/vendor/product-family combination when a request is made.
+
+For product families other than `gb200` and `gb300`, the `GetRackProfile`
+`product_family` enum is `UNSPECIFIED`. The configured string remains available
+to descriptor-based RMS operations.
+
+NICo always sends descriptor-based RMS requests. For exact role, vendor, and
+product-family combinations represented by the current RMS `NodeType` enum,
+NICo also sends that enum and legacy firmware-filter entries for compatibility
+with older RMS servers. Other combinations leave `NodeType` unset and require
+RMS support for `NodeDescriptor`. This best-effort legacy mapping does not
+participate in startup validation. VRNVL72 power shelves are descriptor-only
+because no matching legacy `NodeType` exists.
+
+## Supported RMS descriptor combinations
+
+RMS accepts these role, vendor, and product-family combinations:
+
+| `product_family` | Role | Supported vendor |
+| ---------------- | ---- | ---------------- |
+| `gb200` | `compute` | `nvidia` |
+| `gb200` | `switch` | `nvidia` |
+| `gb200` | `power_shelf` | `liteon`, `delta` |
+| `gb300` | `compute` | `nvidia`, `lenovo` |
+| `gb300` | `switch` | `nvidia` |
+| `gb300` | `power_shelf` | `liteon`, `delta` |
+| `vrnvl72` | `compute` | `nvidia` |
+| `vrnvl72` | `switch` | `nvidia` |
+| `vrnvl72` | `power_shelf` | `liteon`, `delta` |
+
+RMS compares normalized values: matching is case-insensitive and ignores
+spaces, hyphens, and underscores. For example, `Lite-On` and `LiteOn` are
+equivalent, as are `vr_nvl72` and `vrnvl72`. After normalization, RMS compares
+full values rather than prefixes, so `NVIDIACorp` does not match `NVIDIA`.
+
+VRNVL72 power shelves use the GB200 LiteOn or Delta internal implementation
+after descriptor resolution. RMS returns `INVALID_ARGUMENT` when no descriptor
+rule matches. NICo accepts other non-empty values at startup; RMS validates
+support when it receives a request. Consult the hardware compatibility list for
+the deployed RMS version when NICo and RMS versions differ.
 
 ## Startup validation
 
@@ -47,30 +92,11 @@ a key under `[rack_profiles]`. Startup validation does not scan existing rack
 database rows, so missing or unknown per-rack profile IDs are still checked when
 an RMS operation runs.
 
-## Canonical vendor names
-
-Use these vendor names in config:
-
-| Role | Canonical values |
-| --- | --- |
-| Compute, when `compute_tray_backend = "rms"` | `NVIDIA`; `Lenovo` (GB300; not valid for GB200) |
-| Switch, when `nv_switch_backend = "rms"` | `NVIDIA` |
-| Power shelf, when `power_shelf_backend = "rms"` | `LiteOn`, `Delta` |
-
-`product_family` is **not normalized**. It must exactly match one of the accepted
-lowercase values (`gb200`, `gb300`); values like `GB200` are rejected.
-
-Vendor matching is more forgiving: values are trimmed, case-insensitive, and ignore
-spaces, hyphens, and underscores, so `NVIDIA`, `nvidia`, `LiteOn`, `liteon`,
-`Lite-On`, and `lite_on` all work. Common company-suffix text also works when the
-normalized value starts with the canonical vendor, but the canonical values above
-are preferred for operator-supplied config.
-
 ---
 
 ## Examples
 
-### GB200 rack, all component-manager roles use RMS
+### GB200 rack with RMS for compute, switch, and power shelf
 
 ```toml
 [component_manager]
@@ -143,17 +169,17 @@ vendor = "Lite-On"
 
 | Field | Accepted values |
 | ----- | --------------- |
-| `product_family`, when an RMS-backed operation uses the profile | Exact match: `gb200`, `gb300` |
-| `rack_hardware_topology` | `gb200_nvl36r1_c2g4_topology`, `gb200_nvl72r1_c2g4_topology`, `gb300_nvl36r1_c2g4_topology`, `gb300_nvl72r1_c2g4_topology` |
-| Compute profile vendor, when `compute_tray_backend = "rms"` | `nvidia`, `lenovo` after normalization (`lenovo` requires `product_family = "gb300"`; GB200 compute accepts `nvidia`) |
-| Switch profile vendor, when `nv_switch_backend = "rms"` | `nvidia` after normalization |
-| Power shelf profile vendor, when `power_shelf_backend = "rms"` | `liteon`, `delta` after normalization |
+| `product_family`, when an RMS-backed operation uses the profile | Non-empty string; RMS validates support at request time |
+| `rack_hardware_topology` | `gb200_nvl36r1_c2g4_topology`, `gb200_nvl72r1_c2g4_topology`, `gb300_nvl36r1_c2g4_topology`, `gb300_nvl72r1_c2g4_topology`, `vr_nvl8r1_c2g4_rtf_topology`, `vr_nvl72r1_c2g4_topology` |
+| Compute profile vendor, when `compute_tray_backend = "rms"` | Non-empty string; RMS validates support at request time |
+| Switch profile vendor, when `nv_switch_backend = "rms"` | Non-empty string; RMS validates support at request time |
+| Power shelf profile vendor, when `power_shelf_backend = "rms"` | Non-empty string; RMS validates support at request time |
 
 ## Machine ingestion note
 
-The separate site-explorer machine-ingestion path performs an RMS slot/tray lookup
-and uses the rack profile for node type resolution. This path runs when **both**
-conditions hold:
+The separate site-explorer machine-ingestion path performs an RMS slot/tray
+lookup and uses the rack profile to build a compute node descriptor. This path
+runs when **both** conditions hold:
 
 1. An RMS client is configured (the `[rms]` block is present).
 2. The machine has a `rack_id`.

@@ -19,6 +19,7 @@ test-support = []
 
 [dependencies]
 bmc-explorer = { path = "../bmc-explorer" }
+bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-firmware = { path = "../firmware" }

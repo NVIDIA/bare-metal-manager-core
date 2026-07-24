@@ -32,7 +32,7 @@ use rpc::forge;
 use rpc::forge::PxeDomain;
 
 use crate::common::{AppState, Machine};
-use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome};
+use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome, PxeCloudInitRequestFailed};
 
 const DEFAULT_NUM_OF_VFS: u32 = 16;
 const DEFAULT_HBN_BRIDGE: &str = "br-hbn";
@@ -73,10 +73,10 @@ fn log_and_generate_generic_error(
     error: String,
     reason: OutcomeReason,
 ) -> (String, HashMap<String, String>) {
-    tracing::error!(error = %error, "cloud-init request could not be served");
-    emit(PxeBootOutcome {
+    emit(PxeCloudInitRequestFailed {
         endpoint: BootEndpoint::CloudInit,
         reason,
+        error,
     });
     let mut template_data: HashMap<String, String> = HashMap::new();
     template_data.insert(
@@ -660,6 +660,13 @@ mod tests {
             )
             .unwrap();
 
+        // Verify unavailable representors do not abort the remaining cloud-init work.
+        assert!(rendered.contains(
+            r#"set interface "${host_representor}" type=dpdk mtu_request=9216 external_ids='{}' || true"#
+        ));
+        assert!(rendered.contains(
+            r#"ofport_request=$(ovs-vsctl get interface "${host_representor}" ofport) || true"#
+        ));
         assert!(rendered.contains("ovs-vsctl get bridge br-sfc external_ids"));
         assert!(rendered.contains("ovs-vsctl --may-exist add-port br-sfc"));
         assert!(rendered.contains(

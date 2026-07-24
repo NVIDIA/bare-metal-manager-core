@@ -134,6 +134,14 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     /// an optional substate attribute.
     fn metric_state_names(state: &Self::ControllerState) -> (&'static str, &'static str);
 
+    /// Returns a stable reason token when the state itself signals that the
+    /// object requires manual operator action (e.g. a terminal failure state),
+    /// for the per-object manual-intervention metric. Values must come from a
+    /// closed set — never free-text errors.
+    fn manual_intervention_reason(_state: &Self::ControllerState) -> Option<&'static str> {
+        None
+    }
+
     /// Defines whether an object is in a certain state for longer than allowed
     /// by the SLA and returns the SLA.
     ///

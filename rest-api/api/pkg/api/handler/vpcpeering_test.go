@@ -513,6 +513,27 @@ func TestGetAllVpcPeeringHandler_Handle(t *testing.T) {
 			expectedStatus: http.StatusForbidden,
 		},
 		{
+			name:           "error when siteId is invalid",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"siteId": "not-a-uuid"},
+			user:           tnu1,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "error when siteId is empty",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"siteId": ""},
+			user:           tnu1,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "error when isMultiTenant is empty",
+			reqOrgName:     tnOrg1,
+			queryParams:    map[string]string{"isMultiTenant": ""},
+			user:           tnu1,
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
 			name:           "error when siteId does not exist",
 			reqOrgName:     tnOrg1,
 			queryParams:    map[string]string{"siteId": uuid.New().String()},

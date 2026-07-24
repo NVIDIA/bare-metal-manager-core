@@ -3,23 +3,45 @@
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
 {{/*
-Count active pods (same logic as deployment.yaml)
+Count active pods and build ordered list for consistent pod indexing
 */}}
 {{- $activePods := 0 }}
+{{- $podList := list }}
 {{- range $podName, $podConfig := .Values.pods }}
 {{- if $root.Values.bmcServices.enabled }}
 {{- if $podConfig.cidr }}
 {{- $activePods = add $activePods 1 }}
+{{- $podList = append $podList $podName }}
 {{- end }}
 {{- else }}
 {{- if $podConfig.machines }}
 {{- $activePods = add $activePods 1 }}
+{{- $podList = append $podList $podName }}
 {{- end }}
 {{- end }}
 {{- end }}
+{{- $podList = $podList | sortAlpha }}
 
 {{/* Machine defaults */}}
 {{- $defaults := .Values.machineDefaults | default dict }}
+{{/* MAC address pool config */}}
+{{- $macPool := .Values.macAddressPool | default dict }}
+{{- $macPoolEnabled := true }}
+{{- if hasKey $macPool "enabled" }}
+{{- $macPoolEnabled = $macPool.enabled }}
+{{- end }}
+{{- $macBasePrefix := $macPool.basePrefix | default "02:00" }}
+{{- $macHostBits := $macPool.hostBits | default 16 }}
+
+{{/* HW MAC address ranges config */}}
+{{- $hwMacRanges := .Values.hwMacAddressRanges | default dict }}
+{{- $hwMacRangesEnabled := true }}
+{{- if hasKey $hwMacRanges "enabled" }}
+{{- $hwMacRangesEnabled = $hwMacRanges.enabled }}
+{{- end }}
+{{- $hwMacBasePrefix := $hwMacRanges.basePrefix | default "02:01" }}
+{{- $hwMacHostBits := $hwMacRanges.hostBits | default 24 }}
+{{- $hwMacRangeHostBits := $hwMacRanges.rangeHostBits | default 8 }}
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
@@ -33,6 +55,19 @@ Skip conditions (same as deployment.yaml)
 {{- if not $podConfig.machines }}
 {{- continue }}
 {{- end }}
+{{- end }}
+
+{{/* Get pod index for MAC address pool */}}
+{{- $podIndex := 0 }}
+{{- range $i, $p := $podList }}
+{{- if eq $p $podName }}
+{{- $podIndex = $i }}
+{{- end }}
+{{- end }}
+
+{{/* Validate pod index fits in single byte for MAC address */}}
+{{- if ge $podIndex 256 }}
+{{- fail (printf "Too many pods: pod index %d exceeds maximum 255 for MAC address generation" $podIndex) }}
 {{- end }}
 
 {{- $name := $baseName }}
@@ -87,6 +122,54 @@ data:
     dpu_bmc_password = {{ $root.Values.machineATron.dpuBmcPassword | quote }}
     {{- end }}
     api_refresh_interval = {{ $root.Values.machineATron.apiRefreshInterval | quote }}
+
+    {{/*
+    MAC Address Pool Configuration
+    Each pod gets a unique base address: basePrefix:podIndex:00:00:00
+    Example with basePrefix=02:00 and 3 pods:
+      Pod 0: 02:00:00:00:00:00
+      Pod 1: 02:00:01:00:00:00
+      Pod 2: 02:00:02:00:00:00
+    */}}
+    {{- if $macPoolEnabled }}
+    {{- $podMacPool := $podConfig.macAddressPool | default dict }}
+    {{- if $podMacPool.base }}
+    {{/* Explicit per-pod override */}}
+    [mac_address_pool]
+    base = {{ $podMacPool.base | quote }}
+    host_bits = {{ $podMacPool.hostBits | default $macHostBits }}
+    {{- else }}
+    {{/* Auto-generate based on pod index */}}
+    [mac_address_pool]
+    base = "{{ $macBasePrefix }}:{{ printf "%02x" $podIndex }}:00:00:00"
+    host_bits = {{ $macHostBits }}
+    {{- end }}
+    {{- end }}
+
+    {{/*
+    HW MAC Address Ranges - for network interface MAC blocks
+    Format: basePrefix:podIndex:00:00:00
+    Example with 3 pods:
+      Pod 0: 02:01:00:00:00:00
+      Pod 1: 02:01:01:00:00:00
+      Pod 2: 02:01:02:00:00:00
+    */}}
+    {{- if $hwMacRangesEnabled }}
+    {{- $podHwMacRanges := $podConfig.hwMacAddressRanges | default dict }}
+    {{- if $podHwMacRanges.base }}
+    {{/* Explicit per-pod override */}}
+    [hw_mac_address_ranges]
+    base = {{ $podHwMacRanges.base | quote }}
+    host_bits = {{ $podHwMacRanges.hostBits | default $hwMacHostBits }}
+    range_host_bits = {{ $podHwMacRanges.rangeHostBits | default $hwMacRangeHostBits }}
+    {{- else }}
+    {{/* Auto-generate based on pod index: 02:01:PP:00:00:00 */}}
+    [hw_mac_address_ranges]
+    base = "{{ $hwMacBasePrefix }}:{{ printf "%02x" $podIndex }}:00:00:00"
+    host_bits = {{ $hwMacHostBits }}
+    range_host_bits = {{ $hwMacRangeHostBits }}
+    {{- end }}
+    {{- end }}
 
     {{- range $sectionName, $section := $podConfig.machines }}
     {{- if $section }}

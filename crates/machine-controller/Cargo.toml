@@ -62,6 +62,7 @@ libredfish = { workspace = true }
 mac_address = { workspace = true }
 mockall = { workspace = true, optional = true }
 opentelemetry = { workspace = true }
+prometheus = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

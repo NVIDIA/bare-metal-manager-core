@@ -31,9 +31,10 @@ The guide is organized into the following sections:
 3. **Post-Installation Configuration** — the cluster state and NICo configuration that must be in place after DPF is installed and before NICo starts.
 4. **Restart carbide-api** — what NICo creates on startup, and why a restart is required to apply DPF config changes.
 
-> **Note**: NICo expects DPF to be installed and configured on the same
-> Kubernetes cluster where NICo (the controller) runs.
-
+<Note title="Notes">
+1. NICo expects DPF to be installed and configured on the same Kubernetes cluster where NICo (the controller) runs.
+2. When `[dpf].enabled = true`, DPF is the default per-host provisioning strategy. A warning is displayed for hosts that are not configured to use DPF.
+</Note>
 ---
 
 ## 1. Prerequisites
@@ -557,7 +558,8 @@ Each DPU generation is provisioned by its own `DPUDeployment`, configured under
 `[dpf.deployments.<name>]`. **BF3** is always present with built-in defaults;
 **BF4 (generic)** is opt-in and is activated only when a
 `[dpf.deployments.bf4_generic]` table is present. Both deployments run
-side-by-side, each with its own BFB, `DPUFlavor`, and `DPUDeployment`.
+side-by-side, each with its own `DPUFlavor` and `DPUDeployment`. BF3 uses a
+BFB URL (`bfb_url`) and BF4 uses a `[bluefield_software]` block instead of a BFB.
 
 Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
 and `node_label_key`; carbide-api validates this at startup and refuses to start
@@ -574,17 +576,28 @@ node_label_key  = "carbide.nvidia.com/controlled.node.v2"
 # BF4 generic is opt-in. Add this table to provision BF4 DPUs via a second
 # DPUDeployment alongside BF3. All identifiers must differ from BF3's.
 [dpf.deployments.bf4_generic]
-bfb_url         = "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-<bf4-version>.bfb"
-flavor_name     = "carbide-dpu-flavor-bf4"
-deployment_name = "nico-deployment-bf4"
+# NOTE: bfb_url must NOT be set here. BF4 uses bluefield_software instead.
+flavor_name    = "dpu-flavor-bf4" 
+deployment_name = "dpu-deployment-bf4"
 node_label_key  = "carbide.nvidia.com/controlled.node.bf4"
+ 
+[dpf.deployments.bf4_generic.bluefield_software]
+# Shared across all PSIDs
+os_iso = "https://artifacts.example.com/bfb.3.3.x.iso"
+ 
+# PSID -> PLDM firmware bundle URL.
+# Currently exactly one PSID entry is supported.
+[dpf.deployments.bf4_generic.bluefield_software.pldm_fw_bundle]
+"MT_000000xxxx" = "https://artifacts.example.com/bf4/mt_000000xxxx.pldm"
 ```
 
 Per-deployment field reference:
 
 | TOML key | Required | Default (bf3) | Meaning |
 | --- | :---: | --- | --- |
-| `bfb_url` | no | BF3 bf-bundle URL | BlueField firmware bundle (BFB) used to provision the DPU. |
+| `bfb_url` | no | BF3 bf-bundle URL | BlueField firmware bundle (BFB) used to provision the DPU. Mutually exclusive with `bluefield_software`. |
+| `bluefield_software.os_iso` | BF4 only | — | OS ISO URL used by BF4 deployments in place of a BFB. Required when `bluefield_software` is set. |
+| `bluefield_software.pldm_fw_bundle` | BF4 only | — | Map of PSID → PLDM firmware bundle URL. Currently exactly one entry is supported. |
 | `flavor_name` | yes | `carbide-dpu-flavor` | `DPUFlavor` CR name for this deployment. |
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
@@ -634,6 +647,7 @@ Field reference (all under `[dpf]`):
 | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
 | `docker_image_pull_secret` | string | `dpf-pull-secret` | Pull Secret applied to every mandatory service except `dts` and `doca_hbn`. |
+| `dpu_agent_bootstrap_ca` | tagged table | `source = "legacy_download"` | Selects legacy download or mounted-object bootstrap trust for the DPU agent. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
 | `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |
 | `deployments.bf4_generic` | table | — | BF4 (generic) DPUDeployment config; opt-in, active only when present. |
@@ -646,6 +660,109 @@ Notes:
 - The DPF operator namespace (`dpf-operator-system`) and the kubeconfig used
   to talk to the host cluster are **not** configured here — carbide-api uses
   its in-cluster ServiceAccount and the fixed `dpf-operator-system` namespace.
+
+#### DPU Agent Bootstrap CA
+
+The containerized DPU agent has its own bootstrap policy. If the table is
+absent, its init container preserves the historical PXE download:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "legacy_download"
+# Optional. When set, this must be the full endpoint URL, not a PXE base URL.
+url = "http://carbide-pxe.forge/api/v0/tls/root_ca"
+```
+
+The URL override changes where the bundle is downloaded. It does not establish
+bootstrap trust by itself. HTTPS authenticates this fetch only when the shared
+DPU agent image already trusts the endpoint's certificate chain.
+
+Use the following configuration to project an operator-managed bundle into the
+init container:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "secret"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+Use the following equivalent ConfigMap configuration:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+The shared published DPU agent image does not contain a site-specific trust
+anchor, so DPF does not expose an `embedded` source. The `mounted` source
+validates and installs the projected bundle. It fails closed when the bundle is
+absent or invalid and never falls back to the legacy download. Upgrade the DPU
+agent image and NICo API before selecting `mounted`. If the table is absent,
+the chart renders the historical `init-container` invocation for rolling
+compatibility. Mounted mode requires the DPU agent chart's `certsDir` to remain
+at its default `/opt/forge`. The main container uses this fixed CA installation
+path too.
+
+The referenced object must exist in the `dpu-agent` workload namespace in every
+target DPU cluster. DPF does not propagate ConfigMaps, so create one in each
+cluster. To propagate a Secret from the host cluster, apply DPF's established
+label:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nico-bootstrap-ca-v1
+  namespace: dpf-operator-system
+  labels:
+    dpu.nvidia.com/image-pull-secret: ""
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+```
+
+The label name is historical. The CA is public and is not an image-pull
+credential. Confirm that the Secret has appeared in the target DPU cluster
+before enabling `mounted`.
+
+The NICo API reads changes under `[dpf]` only at startup. Updating only the
+contents of an object with the same name does not guarantee a pod restart or a
+newly installed CA. Use the following sequence for a mounted root rotation:
+
+1. Create a new versioned Secret or ConfigMap containing an overlap bundle with
+   both the old and new roots.
+2. Set `[dpf.dpu_agent_bootstrap_ca].name` to the new object name and restart
+   `carbide-api`.
+3. Wait for DPF to reconcile the service template and for every affected DPU
+   agent pod to roll and run its init container again.
+4. Verify that each pod installed the overlap bundle at
+   `/opt/forge/forge_root.pem` and can authenticate the NICo API certificate
+   chain.
+5. Rotate the NICo API certificate chain to one that terminates at the new root.
+   While the overlap bundle is installed, verify that every affected DPU agent
+   can authenticate the new server chain.
+6. Create another versioned object without the old root and repeat the
+   configuration, restart, reconciliation, and verification steps. Remove the
+   old objects only after that rollout succeeds.
+
+When pinning a root, verify that the NICo API serves the issuing intermediate
+certificate with its leaf. This policy controls trust-anchor selection. If each
+replacement intermediate chains to the pinned root and the server presents the
+complete chain, clients can validate leaf certificates across those rotations
+without replacing the bundle. If an intermediate chains to a different root,
+stage and verify an updated root bundle before rotating the server chain. TLS
+server certificate validation remains necessary even if the DPU agent no
+longer presents a client certificate for mutual TLS. It does not authenticate
+the preceding artifact or provisioning chain. Those inputs still require
+integrity protection and a trusted boot mechanism such as Secure Boot.
 
 ### 3.6. Mark hosts as DPF-managed in expected machines
 
@@ -663,7 +780,7 @@ below in the order an operator typically uses them.
 #### 3.6.a. `nico-admin-cli expected-machine add` — create a new entry
 
 Adds a new expected-machine row. `--dpf-enabled` is optional; **omitting it
-stores `false`**.
+stores `true`**.
 
 ```bash
 nico-admin-cli expected-machine add \
@@ -738,10 +855,9 @@ same per-entry shape as `update`:
 nico-admin-cli expected-machine replace-all --filename em-all.json
 ```
 
-> **Important**: this is **not a merge**. Any expected-machine row that is
-> not present in the file is **deleted**. Each entry is then re-created via
-> the same path as `add`, so any entry whose `dpf_enabled` is omitted is
-> re-inserted with `dpf_enabled = false`.
+<Warning>
+This is not a merge. Any expected-machine row that is not present in the file is **deleted**. Each entry is then re-created using the same path as `add`, so any entry whose `dpf_enabled` is omitted is re-inserted with `dpf_enabled = true`.
+</Warning>
 
 #### 3.6.e. Quick reference
 

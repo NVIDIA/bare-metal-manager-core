@@ -181,6 +181,10 @@ pub(crate) async fn get_astra_config(
         }
     }
 
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::internal(format!("failed to commit astra config read: {e}")))?;
+
     Ok(Some(AstraConfig { astra_attachments }))
 }
 

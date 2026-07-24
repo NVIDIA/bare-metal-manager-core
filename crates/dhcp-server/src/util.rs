@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_dhcp_common::{MachineArchitecture, VendorClass};
 use rpc::forge::DhcpRecord;
 use tokio::net::UdpSocket;
 
 use crate::Config;
 use crate::errors::DhcpError;
-use crate::vendor_class::{MachineArchitecture, VendorClass};
 
 macro_rules! socket_opr {
     ($socket:expr, $statement:expr, $retry:expr) => {

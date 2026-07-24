@@ -136,6 +136,7 @@ carbide-version = { path = "../version" }
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 ctor = { workspace = true }
 prost = { workspace = true }

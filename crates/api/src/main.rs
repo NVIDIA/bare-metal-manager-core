@@ -67,7 +67,7 @@ async fn main() -> eyre::Result<()> {
             //
             // We always supply the builder; whether it's actually mounted is decided
             // downstream from the `enable_admin_ui` config flag (default true) — see
-            // `start_api`. (We can't read config here: it's parsed inside `carbide::run`.)
+            // the core runtime. (We can't read config here: it's parsed inside `carbide::run`.)
             // See the docs on `carbide::AdminUiRoutesBuilder` for the full story.
             let admin_ui_routes_builder: Option<carbide::AdminUiRoutesBuilder> =
                 Some(Box::new(carbide_api_web::routes));

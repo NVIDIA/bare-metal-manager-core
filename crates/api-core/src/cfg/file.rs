@@ -945,6 +945,89 @@ pub struct ObservabilityConfig {
     /// `object_id="<machine_id>"`).
     #[serde(default)]
     pub per_object_metrics_for_classifications: Vec<HealthAlertClassification>,
+
+    /// Per-object state progress metrics, served on a dedicated endpoint
+    /// (see `docs/design/per-object-state-metrics.md`).
+    #[serde(default)]
+    pub per_object_state_metrics: PerObjectStateMetricsConfig,
+}
+
+/// Configuration for the per-object state metrics endpoint. Off by default:
+/// the series cost O(fleet) cardinality, so operators opt in and scrape the
+/// dedicated endpoint at their own cadence.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PerObjectStateMetricsConfig {
+    /// Whether the per-object state metrics endpoint is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// The address the dedicated endpoint listens on.
+    #[serde(default = "default_per_object_state_metrics_listen_address")]
+    pub listen_address: SocketAddr,
+    /// Object types to emit state series for; defaults to all. An empty list
+    /// disables emission even when `enabled = true`.
+    #[serde(default = "default_per_object_state_metrics_object_types")]
+    pub object_types: Vec<PerObjectStateMetricObjectType>,
+}
+
+impl Default for PerObjectStateMetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen_address: default_per_object_state_metrics_listen_address(),
+            object_types: default_per_object_state_metrics_object_types(),
+        }
+    }
+}
+
+fn default_per_object_state_metrics_listen_address() -> SocketAddr {
+    SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 9091)
+}
+
+fn default_per_object_state_metrics_object_types() -> Vec<PerObjectStateMetricObjectType> {
+    PerObjectStateMetricObjectType::ALL.to_vec()
+}
+
+/// Object types that can emit per-object state series. An enum so an
+/// unrecognized token fails config deserialization instead of silently
+/// emitting nothing for the intended type.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PerObjectStateMetricObjectType {
+    Machine,
+    Switch,
+    Rack,
+    PowerShelf,
+    NetworkSegment,
+    VpcPrefix,
+    SpdmAttestation,
+    IbPartition,
+}
+
+impl PerObjectStateMetricObjectType {
+    const ALL: [Self; 8] = [
+        Self::Machine,
+        Self::Switch,
+        Self::Rack,
+        Self::PowerShelf,
+        Self::NetworkSegment,
+        Self::VpcPrefix,
+        Self::SpdmAttestation,
+        Self::IbPartition,
+    ];
+
+    /// The `object_type` label token; must match what the controllers record.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::Switch => "switch",
+            Self::Rack => "rack",
+            Self::PowerShelf => "power_shelf",
+            Self::NetworkSegment => "network_segment",
+            Self::VpcPrefix => "vpc_prefix",
+            Self::SpdmAttestation => "spdm_attestation",
+            Self::IbPartition => "ib_partition",
+        }
+    }
 }
 
 /// One external tool link rendered in the admin web UI's "Tools"
@@ -1337,7 +1420,7 @@ impl DpfConfig {
 }
 
 fn default_dpf_bfb_url() -> String {
-    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb".to_string()
+    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.1-12_26.04_ubuntu-24.04_64k_prod.bfb".to_string()
 }
 
 fn default_dpf_deployment_name() -> String {
@@ -4131,6 +4214,14 @@ mod tests {
                     HealthAlertClassification::hardware(),
                     HealthAlertClassification::prevent_allocations(),
                 ],
+                per_object_state_metrics: PerObjectStateMetricsConfig {
+                    enabled: true,
+                    listen_address: "127.0.0.1:9191".parse().unwrap(),
+                    object_types: vec![
+                        PerObjectStateMetricObjectType::Machine,
+                        PerObjectStateMetricObjectType::Switch,
+                    ],
+                },
             }
         );
         assert_eq!(
@@ -4485,6 +4576,14 @@ mod tests {
                     HealthAlertClassification::hardware(),
                     HealthAlertClassification::prevent_allocations(),
                 ],
+                per_object_state_metrics: PerObjectStateMetricsConfig {
+                    enabled: true,
+                    listen_address: "127.0.0.1:9191".parse().unwrap(),
+                    object_types: vec![
+                        PerObjectStateMetricObjectType::Machine,
+                        PerObjectStateMetricObjectType::Switch,
+                    ],
+                },
             }
         );
         assert_eq!(
@@ -4586,6 +4685,10 @@ mod tests {
             jail.set_env("CARBIDE_API_ASN", 777);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
+                "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
+                r#"{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}"#,
+            );
+            jail.set_env(
                 "CARBIDE_API_TLS",
                 "{identity_pemfile_path=/patched/path/to/cert}",
             );
@@ -4615,6 +4718,15 @@ mod tests {
             );
             assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
             assert!(config.auth.as_ref().unwrap().permissive_mode);
+            let dsx_exchange = config.dsx_exchange_event_bus.as_ref().unwrap();
+            assert!(dsx_exchange.enabled);
+            assert_eq!(dsx_exchange.mqtt_endpoint, "dsx-exchange");
+            assert_eq!(dsx_exchange.mqtt_broker_port, 1883);
+            assert_eq!(dsx_exchange.auth.auth_mode, MqttAuthMode::None);
+            assert_eq!(
+                dsx_exchange.periodic_state_republish.interval,
+                std::time::Duration::from_secs(10)
+            );
             assert_eq!(
                 config
                     .auth

@@ -409,6 +409,12 @@ service Forge {
   rpc GetCredentialRotationStatus(CredentialRotationStatusRequest)
       returns (CredentialRotationStatusResult);
 
+  // Get Container registry credentials
+  rpc GetContainerRegistryCredential(GetContainerRegistryCredentialRequest)
+    returns (GetContainerRegistryCredentialResponse);
+  rpc SetContainerRegistryCredential(SetContainerRegistryCredentialRequest)
+    returns (google.protobuf.Empty);
+
   // Route Server Management
   rpc GetRouteServers(google.protobuf.Empty) returns (RouteServerEntries);
   rpc AddRouteServers(RouteServers) returns (google.protobuf.Empty);
@@ -2642,8 +2648,19 @@ message NetworkPrefix {
   reserved 5,6; // deprecated state and events
   // deprecated circuit id.
   reserved 7;
+  // Legacy `uint32` count retained for existing clients. Values above
+  // `2^32 - 1` are capped, and zero also represents "not requested." New
+  // clients should use `free_ip_count_v2`.
   uint32 free_ip_count = 8;
   optional string svi_ip = 9;
+  // Wider free-address count with explicit presence. Absent when accounting was
+  // not requested; clients also see it absent in responses from older servers.
+  // When `free_ip_count_saturated` is true, this is `2^64 - 1` and the exact
+  // count is larger.
+  optional uint64 free_ip_count_v2 = 10;
+  // True when `free_ip_count_v2` was capped because the exact count exceeds
+  // `2^64 - 1`.
+  bool free_ip_count_saturated = 11;
 }
 
 message MachineState {
@@ -9130,7 +9147,7 @@ message OperatingSystem {
   common.OperatingSystemId id = 1;
   string name = 2;
   optional string description = 3;
-  string tenant_organization_id = 4;
+  optional string tenant_organization_id = 4;
   OperatingSystemType type = 5;
   TenantState status = 6; // we only use some states from TenantState
   bool is_active = 7;
@@ -9152,7 +9169,7 @@ message OperatingSystem {
 message CreateOperatingSystemRequest {
   string name = 1;
   optional string description = 2;
-  string tenant_organization_id = 3;
+  optional string tenant_organization_id = 3;
   bool is_active = 4;
   bool allow_override = 5;
   bool phone_home_enabled = 6;
@@ -9364,4 +9381,19 @@ message GetMachineBootInterfacesResponse {
   // non-underlay prediction. Absent when there are no predictions or when the
   // pick refuses to guess among several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
+}
+
+message GetContainerRegistryCredentialRequest {
+  string registry = 1;
+}
+
+message GetContainerRegistryCredentialResponse {
+  string username = 1;
+  string password = 2;
+}
+
+message SetContainerRegistryCredentialRequest {
+  string registry = 1;
+  string username = 2;
+  string password = 3;
 }

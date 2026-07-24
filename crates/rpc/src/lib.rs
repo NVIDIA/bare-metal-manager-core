@@ -67,6 +67,7 @@ pub mod measured_boot;
 pub mod network;
 pub mod protos;
 pub mod secrets;
+mod site_explorer_report;
 pub mod utils;
 
 #[cfg(feature = "model")]

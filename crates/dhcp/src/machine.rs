@@ -20,11 +20,11 @@ use std::ptr;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use MachineArchitecture::*;
+use carbide_dhcp_common::MachineArchitecture::*;
+use carbide_dhcp_common::VendorClass;
 use ipnetwork::IpNetwork;
 
 use crate::discovery::Discovery;
-use crate::vendor_class::{MachineArchitecture, VendorClass};
 use crate::{CONFIG, cache};
 
 /// Rust-owned byte buffer returned across the C ABI for DHCP option payloads.
@@ -697,6 +697,7 @@ mod test {
     use std::net::{Ipv4Addr, Ipv6Addr};
     use std::str::FromStr;
 
+    use carbide_dhcp_common::VendorClass;
     use rpc::forge as rpc;
 
     use crate::carbide_set_config_ntp;
@@ -705,7 +706,6 @@ mod test {
         Machine, encode_domain_name, flatten_ipv6_addresses, machine_get_filename,
         machine_get_ntpservers, ntp_server_option_payload, parent_domain,
     };
-    use crate::vendor_class::VendorClass;
 
     #[test]
     fn test_use_booturl_internal() {

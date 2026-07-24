@@ -22,7 +22,7 @@ import (
 // checks if the DpuNetworkConfig type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &DpuNetworkConfig{}
 
-// DpuNetworkConfig Complete network configuration for a DPU Machine sent to the DPU agent
+// DpuNetworkConfig Network configuration fields exposed for a DPU Machine. Internal-only and sensitive fields from the Core configuration are omitted.
 type DpuNetworkConfig struct {
 	// Autonomous System Number for BGP routing
 	Asn int32 `json:"asn"`

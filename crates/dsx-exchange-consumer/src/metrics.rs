@@ -19,11 +19,13 @@
 
 use std::hash::Hash;
 
-use carbide_instrument::Event;
+use carbide_instrument::{Event, LabelValue};
 use moka::future::Cache;
-use opentelemetry::KeyValue;
-use opentelemetry::metrics::{Counter, Meter};
+use opentelemetry::StringValue;
+use opentelemetry::metrics::Meter;
 use tokio::sync::mpsc;
+
+use crate::messages::LeakPointType;
 
 pub static METRICS_PREFIX: &str = "carbide_dsx_exchange_consumer";
 
@@ -94,10 +96,11 @@ where
     // The moved-in strong sender drops here, leaving only `weak_tx`.
 }
 
-// The four message counters are `carbide-instrument` events. Each declares a
-// name ending in a single `_total`: the framework strips one `_total` before
-// registering the instrument and the OpenTelemetry Prometheus exporter appends
-// its own `_total`, so `/metrics` exposes the name exactly as declared here.
+// The message counters are `carbide-instrument` events. Each declares a name
+// ending in a single `_total`: the framework strips one `_total` before
+// registering the instrument and the OpenTelemetry Prometheus exporter
+// appends its own `_total`, so `/metrics` exposes the name exactly as declared
+// here.
 
 /// An MQTT message reached a subscription handler, before any queueing.
 #[derive(Event)]
@@ -125,35 +128,119 @@ pub struct MessageReceived;
 pub struct MessageProcessed;
 
 /// The bounded internal queue was full, so an incoming message was dropped.
-///
-/// Metric-only: the `tracing::warn!` at each drop site is unchanged, so this
-/// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
     event_name = "dsx_exchange_message_dropped",
     metric_name = "carbide_dsx_exchange_consumer_messages_dropped_total",
     component = "nico-dsx-exchange-consumer",
-    log = off,
+    log = warn,
     metric = counter,
+    message = dynamic,
     describe = "Number of messages dropped due to queue overflow"
 )]
-pub struct MessageDropped;
+pub struct MessageDropped {
+    /// `message_type` identifies which bounded MQTT subscription handler
+    /// rejected the message. It stays log-only so
+    /// `carbide_dsx_exchange_consumer_messages_dropped_total` remains a
+    /// zero-label metric.
+    #[context]
+    pub message_type: DroppedMessageType,
+}
+
+/// `DroppedMessageType` identifies which MQTT payload could not enter the
+/// bounded consumer queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DroppedMessageType {
+    Metadata,
+    Value,
+}
+
+impl std::fmt::Display for DroppedMessageType {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            DroppedMessageType::Metadata => "metadata",
+            DroppedMessageType::Value => "value",
+        })
+    }
+}
+
+impl carbide_instrument::DynamicMessage for MessageDropped {
+    fn message(&self) -> &'static str {
+        match self.message_type {
+            DroppedMessageType::Metadata => "Message queue full, dropping metadata message",
+            DroppedMessageType::Value => "Message queue full, dropping value message",
+        }
+    }
+}
 
 /// A value matched the state already cached for its point, so no API update
 /// was sent.
-///
-/// Metric-only: the `tracing::trace!` at the dedup site is unchanged, so this
-/// event only moves the counter beside it.
 #[derive(Event)]
 #[event(
     event_name = "dsx_exchange_message_deduplicated",
     metric_name = "carbide_dsx_exchange_consumer_dedup_skipped_total",
     component = "nico-dsx-exchange-consumer",
-    log = off,
+    log = trace,
     metric = counter,
+    message = "Deduplicating unchanged value",
     describe = "Number of messages skipped due to deduplication"
 )]
-pub struct MessageDeduplicated;
+pub struct MessageDeduplicated {
+    #[context]
+    pub point_path: String,
+    #[context]
+    pub point_type: LeakPointType,
+    #[context]
+    pub value: String,
+}
+
+/// `LeakAlertDetected` records an active BMS leak or sensor fault immediately
+/// before the consumer inserts its rack health override.
+#[derive(Event)]
+#[event(
+    event_name = "dsx_exchange_leak_alert_detected",
+    metric_name = "carbide_dsx_exchange_consumer_alerts_detected_total",
+    component = "nico-dsx-exchange-consumer",
+    log = info,
+    metric = counter,
+    message = "Leak alert detected, inserting health override",
+    describe = "Number of leak alerts detected"
+)]
+pub struct LeakAlertDetected {
+    #[label]
+    pub point_type: LeakPointType,
+    #[context]
+    pub point_path: String,
+    #[context]
+    pub rack_id: String,
+    #[context]
+    pub rack_name: String,
+    #[context]
+    pub value: String,
+}
+
+/// `leak_point_type_name` preserves the BMS's canonical CamelCase spelling for
+/// the public `point_type` metric label. `LeakPointType` is closed, but deriving
+/// `LabelValue` would render these variants as snake_case.
+fn leak_point_type_name(point_type: &LeakPointType) -> &'static str {
+    match point_type {
+        LeakPointType::LeakDetectRack => "LeakDetectRack",
+        LeakPointType::LeakSensorFaultRack => "LeakSensorFaultRack",
+        LeakPointType::LeakDetectRackTray => "LeakDetectRackTray",
+    }
+}
+
+impl std::fmt::Display for LeakPointType {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(leak_point_type_name(self))
+    }
+}
+
+impl LabelValue for LeakPointType {
+    fn label_value(&self) -> StringValue {
+        StringValue::from(leak_point_type_name(self))
+    }
+}
 
 /// How far behind the BMS event time we are when a value message reaches
 /// processing: end-to-end consumer lag (MQTT transit plus time spent queued).
@@ -200,37 +287,4 @@ pub struct HealthReportPersistFailed {
     /// The API error that prevented the persist.
     #[context]
     pub error: String,
-}
-
-/// Consumer metrics that remain hand-rolled OpenTelemetry counters.
-///
-/// Only `alerts_detected` stays here: its `point_type` label is a
-/// caller-supplied string that needs a bounded mapping before it can become a
-/// framework event, which is tracked separately. The message counters are the
-/// `carbide-instrument` events above.
-///
-/// Cloning is cheap and correct: OpenTelemetry counters are internally Arc'd,
-/// so clones share the same underlying metric instances.
-#[derive(Clone)]
-pub struct ConsumerMetrics {
-    alerts_detected: Counter<u64>,
-}
-
-impl ConsumerMetrics {
-    pub fn new(meter: &Meter) -> Self {
-        Self {
-            // The Prometheus exporter appends `_total`, so the registered name
-            // omits it; that yields the single-`_total` exposed name, matching
-            // the framework counters above (not a doubled `_total_total`).
-            alerts_detected: meter
-                .u64_counter(format!("{METRICS_PREFIX}_alerts_detected"))
-                .with_description("Number of leak alerts detected")
-                .build(),
-        }
-    }
-
-    pub fn record_alert_detected(&self, point_type: &str) {
-        self.alerts_detected
-            .add(1, &[KeyValue::new("point_type", point_type.to_string())]);
-    }
 }

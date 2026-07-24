@@ -41,14 +41,15 @@ use crate::api_client::{ClientApiError, DpuNetworkStatusArgs, MockDiscoveryData}
 use crate::bmc_mock_wrapper::{BmcMockRegistry, BmcMockWrapper, BmcMockWrapperHandle};
 use crate::config::{MachineATronContext, MachineConfig};
 use crate::dhcp_wrapper::{
-    DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, DhcpRequester, DhcpResponseInfo, DpuDhcpRelay,
+    DhcpRelayError, DhcpRelayResult, DhcpRequestInfo, DhcpRequester, DhcpResponseInfo,
+    DpuDhcpRelay, vendor_class,
 };
 use crate::machine_fsm::{Action as FsmAction, DhcpType, Event, MachineFsm, Timer};
 use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDpuMachine, PersistedHostMachine, dhcp_wrapper};
+use crate::{PersistedDpuMachine, PersistedHostMachine};
 
 pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 
@@ -521,29 +522,28 @@ impl MachineStateMachine {
 
     async fn bmc_dhcp_discovery(&self) -> DhcpRelayResult<DhcpResponseInfo> {
         let start = Instant::now();
-        dhcp_wrapper::request_ip(
-            self.app_context.api_client(),
-            DhcpRequestInfo {
+        self.app_context
+            .dhcp_client
+            .request_ip(DhcpRequestInfo {
                 mac_address: self.machine_info.bmc_mac_address(),
                 relay_address: self.config.oob_dhcp_relay_address,
-                vendor_class: dhcp_wrapper::vendor_class(&self.machine_info, DhcpRequester::Bmc),
-            },
-        )
-        .await
-        .inspect(|_| {
-            tracing::debug!(
-                bmc_mac_address = %self.machine_info.bmc_mac_address(),
-                elapsed_milliseconds = start.elapsed().as_millis(),
-                "BMC DHCP request completed",
-            );
-        })
-        .inspect_err(|err| {
-            tracing::warn!(
-                elapsed_milliseconds = start.elapsed().as_millis(),
-                error = %err,
-                "BMC DHCP request failed",
-            );
-        })
+                vendor_class: vendor_class(&self.machine_info, DhcpRequester::Bmc),
+            })
+            .await
+            .inspect(|_| {
+                tracing::debug!(
+                    bmc_mac_address = %self.machine_info.bmc_mac_address(),
+                    elapsed_milliseconds = start.elapsed().as_millis(),
+                    "BMC DHCP request completed",
+                );
+            })
+            .inspect_err(|err| {
+                tracing::warn!(
+                    elapsed_milliseconds = start.elapsed().as_millis(),
+                    error = %err,
+                    "BMC DHCP request failed",
+                );
+            })
     }
 
     async fn machine_dhcp_discovery(&self) -> Result<DhcpResponseInfo, MachineStateError> {
@@ -599,18 +599,14 @@ impl MachineStateMachine {
                 %direct_relay_address,
                 "requesting machine DHCP directly"
             );
-            dhcp_wrapper::request_ip(
-                self.app_context.api_client(),
-                DhcpRequestInfo {
+            self.app_context
+                .dhcp_client
+                .request_ip(DhcpRequestInfo {
                     mac_address: primary_mac,
                     relay_address: direct_relay_address,
-                    vendor_class: dhcp_wrapper::vendor_class(
-                        &self.machine_info,
-                        DhcpRequester::System,
-                    ),
-                },
-            )
-            .await
+                    vendor_class: vendor_class(&self.machine_info, DhcpRequester::System),
+                })
+                .await
         };
         machine_dhcp_info_result
             .inspect(|_| {

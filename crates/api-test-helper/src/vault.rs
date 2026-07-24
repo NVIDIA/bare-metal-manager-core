@@ -45,6 +45,7 @@ pub struct Vault {
     pub process: process::Child,
     pub token: String,
     pub ca_cert: String,
+    _tls_dir: tempfile::TempDir,
 }
 
 /// Start a vault dev server on a free local port and wait until it is ready.
@@ -90,10 +91,22 @@ fn allocate_port() -> SocketAddr {
 async fn try_start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
     let bins = crate::utils::find_prerequisites()?;
 
+    // Use an explicit directory under the repository instead of Vault's default
+    // temporary directory. Strictly confined packages such as Snap have a private
+    // /tmp mount, so the path Vault reports would otherwise be invisible to this
+    // process. A unique directory also allows tests to start Vault concurrently.
+    let tls_root = crate::utils::REPO_ROOT.join("target/vault-tls");
+    std::fs::create_dir_all(&tls_root).context("creating vault TLS root directory")?;
+    let tls_dir = tempfile::Builder::new()
+        .prefix("vault-")
+        .tempdir_in(tls_root)
+        .context("creating vault TLS directory")?;
+
     let mut process =
         tokio::process::Command::new(bins.get("vault").expect("vault command not found in PATH"))
             .arg("server")
             .arg("-dev-tls")
+            .arg(format!("-dev-tls-cert-dir={}", tls_dir.path().display()))
             .arg("-dev-no-store-token")
             .arg(format!("-dev-listen-address={addr}"))
             .env_remove("VAULT_ADDR")
@@ -181,5 +194,6 @@ async fn try_start(addr: SocketAddr) -> Result<Vault, eyre::Report> {
         process,
         token,
         ca_cert,
+        _tls_dir: tls_dir,
     })
 }

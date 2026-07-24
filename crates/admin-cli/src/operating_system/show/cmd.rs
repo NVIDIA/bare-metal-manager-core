@@ -114,7 +114,7 @@ async fn list_all(
         table.add_row(Row::new(vec![
             Cell::new(&id_str),
             Cell::new(&os.name),
-            Cell::new(&os.tenant_organization_id),
+            Cell::new(os.tenant_organization_id.as_deref().unwrap_or_default()),
             Cell::new(
                 OperatingSystemType::try_from(os.r#type)
                     .map(|t| t.as_str_name())
@@ -167,7 +167,10 @@ async fn show_one(
         os.id.map(|u| u.to_string()).as_deref().unwrap_or("")
     );
     println!("Name:                {}", os.name);
-    println!("Org:                 {}", os.tenant_organization_id);
+    println!(
+        "Org:                 {}",
+        os.tenant_organization_id.as_deref().unwrap_or_default()
+    );
     println!(
         "Type:                {}",
         OperatingSystemType::try_from(os.r#type)

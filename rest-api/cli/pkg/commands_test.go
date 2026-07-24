@@ -907,6 +907,27 @@ func TestBuildCommands_CurrentSingletonsAreRunnable(t *testing.T) {
 	}
 }
 
+func TestBuildCommands_SiteExplorerActionIsRunnable(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+
+	var siteExplorer *cli.Command
+	for _, command := range BuildCommands(spec) {
+		if command.HasName("site-explorer") {
+			siteExplorer = command
+			break
+		}
+	}
+	require.NotNil(t, siteExplorer)
+
+	for _, command := range siteExplorer.Subcommands {
+		if command.HasName("create") {
+			return
+		}
+	}
+	t.Fatal("site-explorer create must be generated from the OpenAPI operation")
+}
+
 // TestBuildCommands_AllocationConstraintIsUpdateOnly is the CLI-side guard for
 // NVBug 6232163: the server only registers PATCH for the AllocationConstraint
 // sub-resource, and the stale create/get/list/delete endpoints were removed

@@ -25,6 +25,7 @@ authors.workspace = true
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-ib-fabric = { path = "../ib-fabric" }
+carbide-instrument = { path = "../instrument" }
 carbide-uuid = { path = "../uuid", default-features = false }
 config-version = { path = "../config-version", default-features = false }
 state-controller = { path = "../state-controller" }
@@ -36,6 +37,8 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
+carbide-test-support = { path = "../test-support" }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]

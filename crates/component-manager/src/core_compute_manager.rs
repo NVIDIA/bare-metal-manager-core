@@ -134,3 +134,28 @@ impl crate::compute_tray_manager::ComputeTrayManager for CoreComputeTrayManager 
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+    use libredfish::model::service_root::RedfishVendor;
+
+    use super::*;
+
+    #[test]
+    fn compute_tray_vendor_maps_to_redfish_vendor() {
+        value_scenarios!(map_vendor:
+            "supported Redfish vendors" {
+                ComputeTrayVendor::Dell => Some(RedfishVendor::Dell),
+                ComputeTrayVendor::Hpe => Some(RedfishVendor::Hpe),
+                ComputeTrayVendor::Lenovo => Some(RedfishVendor::Lenovo),
+                ComputeTrayVendor::Supermicro => Some(RedfishVendor::Supermicro),
+            }
+
+            "vendors without a Redfish adapter" {
+                ComputeTrayVendor::Nvidia => None,
+                ComputeTrayVendor::Unknown => None,
+            }
+        );
+    }
+}

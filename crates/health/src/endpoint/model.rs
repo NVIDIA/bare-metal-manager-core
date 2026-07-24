@@ -54,10 +54,13 @@ impl BmcEndpoint {
 
     pub fn log_identity(&self) -> Cow<'_, str> {
         match &self.metadata {
-            Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
+            Some(EndpointMetadata::Machine(MachineData {
+                machine_id: Some(id),
+                ..
+            })) => Cow::Owned(id.to_string()),
             Some(EndpointMetadata::PowerShelf(power_shelf)) => Cow::Borrowed(&power_shelf.serial),
             Some(EndpointMetadata::Switch(switch)) => Cow::Borrowed(&switch.serial),
-            None => Cow::Owned(self.addr.mac.to_string()),
+            _ => Cow::Owned(self.addr.mac.to_string()),
         }
     }
 
@@ -117,8 +120,8 @@ impl EndpointMetadata {
 /// Metadata that describes a machine endpoint for health telemetry.
 #[derive(Clone, Debug)]
 pub struct MachineData {
-    /// Stable NICo machine identifier.
-    pub machine_id: MachineId,
+    /// Stable NICo machine identifier. None when running without NICo.
+    pub machine_id: Option<MachineId>,
 
     /// Hardware chassis serial discovered from machine DMI data, when known.
     pub machine_serial: Option<String>,
