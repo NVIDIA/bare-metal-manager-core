@@ -3651,6 +3651,8 @@ mod tests {
 
     // ---- compute power-control (MachineIds) decision logic ----
 
+    use carbide_secrets::credentials::Credentials;
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
     use model::hardware_info::{Gpu, GpuPlatformInfo, HardwareInfo};
     use model::test_support::machine_snapshot::{dpu_machine_id, host_machine, host_machine_id};
 
@@ -3683,6 +3685,11 @@ mod tests {
         machine
     }
 
+    fn machine_with_id(mut machine: Machine, id: MachineId) -> Machine {
+        machine.id = id;
+        machine
+    }
+
     /// Rack-scale: at least one MNNVL-capable GPU.
     fn rack_scale_machine() -> Machine {
         machine_with_hardware(Some(HardwareInfo {
@@ -3694,6 +3701,42 @@ mod tests {
     /// Standalone: no MNNVL-capable GPU.
     fn standalone_machine() -> Machine {
         machine_with_hardware(Some(HardwareInfo::default()))
+    }
+
+    /// Mirror the MachineIds power path's classify → power-option gate → partition
+    /// loop without a database: unknown ids become per-machine NotFound results,
+    /// and only machines with a successful power-option update join a partition.
+    fn prepare_dispatch_lists(
+        machines_by_id: &HashMap<MachineId, Machine>,
+        machine_ids: &[MachineId],
+        power_option_ok: &HashMap<MachineId, bool>,
+    ) -> (Vec<MachineId>, Vec<MachineId>, Vec<rpc::ComponentResult>) {
+        let mut results = Vec::new();
+        let mut rack_scale_ids = Vec::new();
+        let mut standalone_ids = Vec::new();
+        for &machine_id in machine_ids {
+            let is_rack_scale = match machine_is_rack_scale(machines_by_id, machine_id) {
+                Ok(v) => v,
+                Err(status) => {
+                    results.push(status_result(&machine_id.to_string(), status));
+                    continue;
+                }
+            };
+            let ok = power_option_ok.get(&machine_id).copied().unwrap_or(true);
+            if !ok {
+                results.push(error_result(
+                    &machine_id.to_string(),
+                    "failed to update power option: precondition".into(),
+                ));
+                continue;
+            }
+            if is_rack_scale {
+                rack_scale_ids.push(machine_id);
+            } else {
+                standalone_ids.push(machine_id);
+            }
+        }
+        (rack_scale_ids, standalone_ids, results)
     }
 
     #[test]
@@ -3719,6 +3762,90 @@ mod tests {
     }
 
     #[test]
+    fn mixed_batch_routes_rack_to_rack_partition_and_standalone_to_core_partition() {
+        let rack_id = host_machine_id();
+        let standalone_id = dpu_machine_id(0);
+        let machines = HashMap::from([
+            (rack_id, machine_with_id(rack_scale_machine(), rack_id)),
+            (
+                standalone_id,
+                machine_with_id(standalone_machine(), standalone_id),
+            ),
+        ]);
+
+        let (rack, standalone, results) =
+            prepare_dispatch_lists(&machines, &[rack_id, standalone_id], &HashMap::new());
+
+        assert!(results.is_empty());
+        assert_eq!(rack, vec![rack_id]);
+        assert_eq!(standalone, vec![standalone_id]);
+    }
+
+    #[test]
+    fn all_rack_scale_batch_uses_only_rack_partition() {
+        let id = host_machine_id();
+        let machines = HashMap::from([(id, rack_scale_machine())]);
+        let (rack, standalone, results) =
+            prepare_dispatch_lists(&machines, &[id], &HashMap::new());
+        assert!(results.is_empty());
+        assert_eq!(rack, vec![id]);
+        assert!(standalone.is_empty());
+    }
+
+    #[test]
+    fn all_standalone_batch_uses_only_standalone_partition() {
+        let id = host_machine_id();
+        let machines = HashMap::from([(id, standalone_machine())]);
+        let (rack, standalone, results) =
+            prepare_dispatch_lists(&machines, &[id], &HashMap::new());
+        assert!(results.is_empty());
+        assert!(rack.is_empty());
+        assert_eq!(standalone, vec![id]);
+    }
+
+    #[test]
+    fn unknown_machine_id_is_not_found_and_does_not_abort_rest_of_batch() {
+        let known = host_machine_id();
+        let unknown = dpu_machine_id(1);
+        let machines = HashMap::from([(known, standalone_machine())]);
+
+        let (rack, standalone, results) =
+            prepare_dispatch_lists(&machines, &[unknown, known], &HashMap::new());
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].component_id, unknown.to_string());
+        assert_eq!(
+            results[0].status,
+            rpc::ComponentManagerStatusCode::NotFound as i32
+        );
+        assert!(rack.is_empty());
+        assert_eq!(standalone, vec![known]);
+    }
+
+    #[test]
+    fn power_option_failure_is_not_dispatched_while_siblings_are() {
+        let ok_id = host_machine_id();
+        let fail_id = dpu_machine_id(0);
+        let machines = HashMap::from([
+            (ok_id, machine_with_id(rack_scale_machine(), ok_id)),
+            (fail_id, machine_with_id(standalone_machine(), fail_id)),
+        ]);
+        let power_ok = HashMap::from([(ok_id, true), (fail_id, false)]);
+
+        let (rack, standalone, results) =
+            prepare_dispatch_lists(&machines, &[ok_id, fail_id], &power_ok);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].component_id, fail_id.to_string());
+        assert!(results[0].error.contains("failed to update power option"));
+        assert_eq!(rack, vec![ok_id]);
+        assert!(
+            standalone.is_empty(),
+            "power-option failure must not join a dispatch partition"
+        );
+    }
+
+    #[test]
     fn partition_error_results_reports_one_error_per_machine() {
         let ids = [host_machine_id(), dpu_machine_id(0)];
         let status = Status::unavailable("backend down");
@@ -3735,5 +3862,77 @@ mod tests {
             );
             assert!(result.error.contains("backend down"));
         }
+    }
+
+    #[tokio::test]
+    async fn resolve_from_machines_reports_missing_id_and_bmc_gaps() {
+        let missing_id = dpu_machine_id(0);
+        let no_mac_id = host_machine_id();
+        let no_ip_id = dpu_machine_id(1);
+
+        let mut no_mac = standalone_machine();
+        no_mac.id = no_mac_id;
+        no_mac.status.bmc_info.mac = None;
+
+        let mut no_ip = standalone_machine();
+        no_ip.id = no_ip_id;
+        no_ip.status.bmc_info.ip = None;
+
+        let machines = HashMap::from([(no_mac_id, no_mac), (no_ip_id, no_ip)]);
+        let creds = TestCredentialManager::new(Credentials::UsernamePassword {
+            username: "u".into(),
+            password: "p".into(),
+        });
+
+        let resolved = resolve_compute_tray_endpoints_from_machines(
+            &creds,
+            &machines,
+            &[missing_id, no_mac_id, no_ip_id],
+        )
+        .await;
+
+        assert!(resolved.resolved.endpoints.is_empty());
+        assert_eq!(resolved.unresolved.len(), 3);
+        assert!(
+            resolved
+                .unresolved
+                .iter()
+                .any(|u| u.id == missing_id && u.reason.contains("machine not found"))
+        );
+        assert!(
+            resolved
+                .unresolved
+                .iter()
+                .any(|u| u.id == no_mac_id && u.reason.contains("BMC MAC"))
+        );
+        assert!(
+            resolved
+                .unresolved
+                .iter()
+                .any(|u| u.id == no_ip_id && u.reason.contains("BMC IP"))
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_from_machines_builds_endpoint_when_bmc_and_creds_present() {
+        let id = host_machine_id();
+        let machine = standalone_machine();
+        let bmc_ip = machine.status.bmc_info.ip.expect("fixture has BMC IP");
+        let machines = HashMap::from([(id, machine)]);
+        let creds = TestCredentialManager::new(Credentials::UsernamePassword {
+            username: "root".into(),
+            password: "secret".into(),
+        });
+
+        let resolved =
+            resolve_compute_tray_endpoints_from_machines(&creds, &machines, &[id]).await;
+
+        assert!(resolved.unresolved.is_empty());
+        assert_eq!(resolved.resolved.endpoints.len(), 1);
+        assert_eq!(resolved.resolved.endpoints[0].bmc_ip, bmc_ip);
+        assert_eq!(
+            resolved.resolved.ip_to_machine_id.get(&bmc_ip),
+            Some(&id)
+        );
     }
 }
