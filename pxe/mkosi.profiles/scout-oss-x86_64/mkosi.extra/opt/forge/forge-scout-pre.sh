@@ -38,7 +38,6 @@ do
                 cli_cmd=`echo $line|cut -d'=' -f2`
         fi
 done
-/opt/forge/forge-scout-network.sh || echo "Scout NIC filtering failed; continuing startup" >&2
 
 rm "/opt/forge/forge-scout.env"
 cat "/opt/forge/forge-scout.env.template" > "/opt/forge/forge-scout.env"
@@ -67,3 +66,4 @@ udevadm settle
 chown nvidia-dcgm:nvidia-dcgm /var/log/nvidia-dcgm
 /opt/forge/load_modules.sh || true
 udevadm settle
+/opt/forge/forge-scout-network.sh || echo "Scout NIC filtering failed; continuing startup" >&2
