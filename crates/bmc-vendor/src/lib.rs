@@ -169,19 +169,6 @@ impl BMCVendor {
         }
     }
 
-    /// BMC vendors issue their own TLS certs. Match on the Organization in that cert.
-    pub fn from_tls_issuer(s: &str) -> BMCVendor {
-        match s {
-            "Lenovo" => BMCVendor::Lenovo,
-            "Dell Inc." => BMCVendor::Dell,
-            "Super Micro Computer" => BMCVendor::Supermicro,
-            "Hewlett Packard Enterprise" => BMCVendor::Hpe,
-            "American Megatrends International LLC (AMI)" => BMCVendor::Nvidia,
-            "OpenBMC" => BMCVendor::Nvidia,
-            _ => BMCVendor::Unknown,
-        }
-    }
-
     /// to_pascalcase converts to StringLikeThis to match serialization
     pub fn to_pascalcase(self) -> String {
         match self {
@@ -201,10 +188,6 @@ impl BMCVendor {
         *self == Self::Lenovo
     }
 
-    pub fn is_lenovo_ami(&self) -> bool {
-        *self == Self::LenovoAMI
-    }
-
     pub fn is_supermicro(&self) -> bool {
         *self == Self::Supermicro
     }
@@ -217,19 +200,156 @@ impl BMCVendor {
         *self == Self::Dell
     }
 
-    pub fn is_hpe(&self) -> bool {
-        *self == Self::Hpe
-    }
-
-    pub fn is_liteon(&self) -> bool {
-        *self == Self::Liteon
-    }
-
-    pub fn is_delta(&self) -> bool {
-        *self == Self::Delta
-    }
-
     pub fn is_unknown(&self) -> bool {
         *self == Self::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct VendorPredicates {
+        is_lenovo: bool,
+        is_supermicro: bool,
+        is_nvidia: bool,
+        is_dell: bool,
+        is_unknown: bool,
+    }
+
+    #[test]
+    fn bmc_vendor_canonical_forms_cover_all_variants() {
+        value_scenarios!(
+            run = |input: &str| {
+                let vendor = BMCVendor::from(input);
+                (
+                    vendor,
+                    vendor.to_string(),
+                    vendor.to_pascalcase(),
+                    VendorPredicates {
+                        is_lenovo: vendor.is_lenovo(),
+                        is_supermicro: vendor.is_supermicro(),
+                        is_nvidia: vendor.is_nvidia(),
+                        is_dell: vendor.is_dell(),
+                        is_unknown: vendor.is_unknown(),
+                    },
+                )
+            };
+
+            "canonical names are case insensitive" {
+                "LeNoVo" => (
+                    BMCVendor::Lenovo,
+                    "lenovo".to_string(),
+                    "Lenovo".to_string(),
+                    VendorPredicates {
+                        is_lenovo: true,
+                        ..Default::default()
+                    },
+                ),
+                "LeNoVoAmI" => (
+                    BMCVendor::LenovoAMI,
+                    "lenovoami".to_string(),
+                    "LenovoAMI".to_string(),
+                    VendorPredicates::default(),
+                ),
+                "DELL" => (
+                    BMCVendor::Dell,
+                    "dell".to_string(),
+                    "Dell".to_string(),
+                    VendorPredicates {
+                        is_dell: true,
+                        ..Default::default()
+                    },
+                ),
+                "SuPeRmIcRo" => (
+                    BMCVendor::Supermicro,
+                    "supermicro".to_string(),
+                    "Supermicro".to_string(),
+                    VendorPredicates {
+                        is_supermicro: true,
+                        ..Default::default()
+                    },
+                ),
+                "HPE" => (
+                    BMCVendor::Hpe,
+                    "hpe".to_string(),
+                    "Hpe".to_string(),
+                    VendorPredicates::default(),
+                ),
+                "NVIDIA" => (
+                    BMCVendor::Nvidia,
+                    "nvidia".to_string(),
+                    "Nvidia".to_string(),
+                    VendorPredicates {
+                        is_nvidia: true,
+                        ..Default::default()
+                    },
+                ),
+                "LiTeOn" => (
+                    BMCVendor::Liteon,
+                    "liteon".to_string(),
+                    "Liteon".to_string(),
+                    VendorPredicates::default(),
+                ),
+                "DeLtA" => (
+                    BMCVendor::Delta,
+                    "delta".to_string(),
+                    "Delta".to_string(),
+                    VendorPredicates::default(),
+                ),
+                "unknown" => (
+                    BMCVendor::Unknown,
+                    "unknown".to_string(),
+                    "Unknown".to_string(),
+                    VendorPredicates {
+                        is_unknown: true,
+                        ..Default::default()
+                    },
+                ),
+            }
+
+            "noncanonical names are unknown" {
+                "Acme" => (
+                    BMCVendor::Unknown,
+                    "unknown".to_string(),
+                    "Unknown".to_string(),
+                    VendorPredicates {
+                        is_unknown: true,
+                        ..Default::default()
+                    },
+                ),
+                " dell " => (
+                    BMCVendor::Unknown,
+                    "unknown".to_string(),
+                    "Unknown".to_string(),
+                    VendorPredicates {
+                        is_unknown: true,
+                        ..Default::default()
+                    },
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn bmc_vendor_from_udev_dmi_classifies_system_vendors() {
+        value_scenarios!(BMCVendor::from_udev_dmi:
+            "known system vendors" {
+                "Lenovo" => BMCVendor::Lenovo,
+                "Dell Inc." => BMCVendor::Dell,
+                "https://www.mellanox.com" => BMCVendor::Nvidia,
+                "NVIDIA" => BMCVendor::Nvidia,
+                "Supermicro" => BMCVendor::Supermicro,
+                "HPE" => BMCVendor::Hpe,
+            }
+
+            "unknown system vendors" {
+                "Acme Corp" => BMCVendor::Unknown,
+                "dell inc." => BMCVendor::Unknown,
+            }
+        );
     }
 }

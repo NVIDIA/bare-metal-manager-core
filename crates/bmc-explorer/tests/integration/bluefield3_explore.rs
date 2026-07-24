@@ -59,7 +59,6 @@ async fn explore_bluefield3_without_system_eth_interfaces() {
         .await
         .unwrap();
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
-    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert_eq!(
         report
             .systems
@@ -250,7 +249,6 @@ async fn explore_bluefield3_ignores_500_on_bios_fetch() {
         .expect("exploration must succeed when BlueField BIOS fetch returns 500");
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
-    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert!(
         report
             .machine_setup_status

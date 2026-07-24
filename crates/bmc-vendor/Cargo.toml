@@ -25,5 +25,8 @@ authors.workspace = true
 clap = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 
+[dev-dependencies]
+carbide-test-support = { path = "../test-support" }
+
 [lints]
 workspace = true

@@ -3059,7 +3059,9 @@ mod tests {
     use carbide_test_support::{Check, check_values, scenarios};
 
     use super::*;
-    use crate::test_support::machine_snapshot::{dpu_machine, managed_host_state_snapshot};
+    use crate::test_support::machine_snapshot::{
+        dpu_machine, host_machine, managed_host_state_snapshot,
+    };
 
     #[derive(Clone, Copy)]
     struct DpuProvisioningInput {
@@ -3091,6 +3093,37 @@ mod tests {
         firmware_version: Some("BF4-26.04"),
         reprovision_requested: false,
     };
+
+    #[test]
+    fn machine_bmc_vendor_delegates_to_hardware_info() {
+        let mut with_hardware_info = host_machine();
+        with_hardware_info
+            .status
+            .hardware_info
+            .as_mut()
+            .and_then(|hardware_info| hardware_info.dmi_data.as_mut())
+            .expect("fixture host has DMI data")
+            .sys_vendor = "Dell Inc.".to_string();
+
+        let mut without_hardware_info = host_machine();
+        without_hardware_info.status.hardware_info = None;
+
+        check_values(
+            [
+                Check {
+                    scenario: "hardware info delegates to its DMI vendor",
+                    input: with_hardware_info,
+                    expect: bmc_vendor::BMCVendor::Dell,
+                },
+                Check {
+                    scenario: "missing hardware info falls back to unknown",
+                    input: without_hardware_info,
+                    expect: bmc_vendor::BMCVendor::Unknown,
+                },
+            ],
+            |machine| machine.bmc_vendor(),
+        );
+    }
 
     #[derive(Clone, Copy)]
     struct DpfProvisioningInput {

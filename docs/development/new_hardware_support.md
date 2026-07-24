@@ -177,7 +177,7 @@ NICo has its own `BMCVendor` enum, distinct from libredfish's `RedfishVendor`. I
 
 1. **Update the** `bmc_vendor()` **mapping** in `crates/redfish/src/libredfish/conv.rs` so libredfish's vendor detection flows into NICo's enum.
 
-1. **Extend parsing** in `From<&str>`, `from_udev_dmi()`, and `from_tls_issuer()` as applicable.
+1. **Extend parsing** in `From<&str>` and `from_udev_dmi()` as applicable.
 
 ### `HwType` enum (`crates/bmc-explorer/src/hw/mod.rs`)
 
@@ -386,4 +386,3 @@ To add one:
 1. Wire the variant through `crates/bmc-mock/src/machine_info.rs`: DPU count and type, vendor and product identity, Redfish version, manager, system, chassis, discovery, firmware inventory, and OEM behavior should match the live BMC responses relevant to the test.
 
 1. Add focused tests for the behavior the hardware contribution changes, such as vendor detection, inventory, NIC-mode detection, or provisioning.
-

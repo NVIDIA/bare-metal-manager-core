@@ -848,6 +848,7 @@ dependencies = [
  "bmc-vendor",
  "carbide-api-model",
  "carbide-network",
+ "carbide-test-support",
  "itertools 0.14.0",
  "lazy_static",
  "mac_address",
@@ -920,6 +921,7 @@ dependencies = [
 name = "bmc-vendor"
 version = "0.1.0"
 dependencies = [
+ "carbide-test-support",
  "clap",
  "serde",
 ]
@@ -3727,6 +3729,7 @@ name = "component-manager"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bmc-vendor",
  "carbide-api-db",
  "carbide-api-model",
  "carbide-api-test-helper",

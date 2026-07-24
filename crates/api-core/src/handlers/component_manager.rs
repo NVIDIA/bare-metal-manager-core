@@ -1233,17 +1233,6 @@ async fn resolve_power_shelf_endpoints(
     })
 }
 
-fn map_bmc_vendor_to_compute_tray(vendor: bmc_vendor::BMCVendor) -> ComputeTrayVendor {
-    match vendor {
-        bmc_vendor::BMCVendor::Dell => ComputeTrayVendor::Dell,
-        bmc_vendor::BMCVendor::Hpe => ComputeTrayVendor::Hpe,
-        bmc_vendor::BMCVendor::Lenovo => ComputeTrayVendor::Lenovo,
-        bmc_vendor::BMCVendor::Supermicro => ComputeTrayVendor::Supermicro,
-        bmc_vendor::BMCVendor::Nvidia => ComputeTrayVendor::Nvidia,
-        _ => ComputeTrayVendor::Unknown,
-    }
-}
-
 struct ResolvedComputeTrayEndpoints {
     endpoints: Vec<ComputeTrayEndpoint>,
     ip_to_machine_id: HashMap<IpAddr, carbide_uuid::machine::MachineId>,
@@ -1313,7 +1302,7 @@ async fn resolve_compute_tray_endpoints(
             }
         };
 
-        let vendor = map_bmc_vendor_to_compute_tray(machine.bmc_vendor());
+        let vendor = ComputeTrayVendor::from(machine.bmc_vendor());
 
         ip_to_machine_id.insert(bmc_ip, machine_id);
         endpoints.push(ComputeTrayEndpoint {
