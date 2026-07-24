@@ -18,6 +18,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/nicoapi"
 	svc "github.com/NVIDIA/infra-controller/rest-api/flow/internal/service"
@@ -31,8 +32,10 @@ import (
 )
 
 const (
-	defaultServicePort    = 50051
-	componentMgrCfgEnvVar = "COMPONENT_MANAGER_CONFIG"
+	defaultServicePort                 = 50051
+	componentMgrCfgEnvVar              = "COMPONENT_MANAGER_CONFIG"
+	allowedServiceIdentitiesFileEnvVar = "FLOW_AUTHORIZATION_ALLOWED_SERVICE_IDENTITIES_FILE"
+	authorizationModeEnvVar            = "FLOW_AUTHORIZATION_MODE"
 
 	// computeImplEnvVar selects the compute component manager
 	// implementation at deploy time. This override exists for the
@@ -52,9 +55,10 @@ const (
 )
 
 var (
-	port               int
-	componentMgrConfig string
-	devMode            bool
+	port                     int
+	componentMgrConfig       string
+	devMode                  bool
+	allowedServiceIdentities []string
 
 	// clientOnlyFlags are the global persistent flags that apply only to
 	// client commands. They are hidden from serve's help and rejected if set.
@@ -91,6 +95,12 @@ func init() {
 	// Component manager config: priority is CLI flag > env var > service default config.
 	serveCmd.Flags().StringVarP(&componentMgrConfig, "component-config", "c", "", "Path to component manager config file (YAML)")               //nolint:lll
 	serveCmd.Flags().BoolVar(&devMode, "dev-mode", false, "Enable developer options (gRPC reflection, debug logging). Not for production use.") //nolint:lll
+	serveCmd.Flags().StringSliceVar(
+		&allowedServiceIdentities,
+		"allowed-service-identity",
+		nil,
+		"SPIFFE URI allowed to call Flow; may be specified multiple times",
+	)
 }
 
 // loadComponentManagerConfig loads the component manager configuration with the following priority:
@@ -191,6 +201,11 @@ func doServe() {
 	log.Info().Str(svc.EnvVarName, flowEnv).Msg("Deployment environment")
 
 	flowConfig := config.ReadConfig()
+
+	authorization, err := loadAuthorizationConfig()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load gRPC service authorization config")
+	}
 
 	dbConf, err := cdb.ConfigFromEnv()
 	if err != nil {
@@ -297,6 +312,7 @@ func doServe() {
 			CMConfig:         cmConfig,
 			ProviderRegistry: providerRegistry,
 			DevMode:          devMode,
+			Authorization:    authorization,
 			CertConfig: pkgcerts.Config{
 				CACert:  globalCACert,
 				TLSCert: globalTLSCert,
@@ -323,6 +339,48 @@ func doServe() {
 	if err := service.Start(ctx); err != nil {
 		log.Fatal().Msgf("failed to start the service: %v\n", err)
 	}
+}
+
+func loadAuthorizationConfig() (authz.Config, error) {
+	mode, err := authz.NewMode(os.Getenv(authorizationModeEnvVar))
+	if err != nil {
+		return authz.Config{}, fmt.Errorf("%s: %w", authorizationModeEnvVar, err)
+	}
+
+	rawPath, isSet := os.LookupEnv(allowedServiceIdentitiesFileEnvVar)
+	if !isSet {
+		// Without an allowlist file, use identities passed through the
+		// --allowed-service-identity command-line option.
+		return authz.Config{
+			AllowedServiceIdentities: allowedServiceIdentities,
+			Mode:                     mode,
+		}, nil
+	}
+
+	if len(allowedServiceIdentities) > 0 {
+		return authz.Config{}, fmt.Errorf(
+			"allowed service identities cannot be configured by both file and command-line options",
+		)
+	}
+
+	path := strings.TrimSpace(rawPath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return authz.Config{}, fmt.Errorf("read allowed service identities file %q: %w", path, err)
+	}
+
+	var identities []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		identity := strings.TrimSpace(line)
+		if identity != "" {
+			identities = append(identities, identity)
+		}
+	}
+
+	return authz.Config{
+		AllowedServiceIdentities: identities,
+		Mode:                     mode,
+	}, nil
 }
 
 func logComponentManagerRegistry(registry *componentmanager.Registry) {
