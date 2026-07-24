@@ -2805,6 +2805,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-health-metrics",
+ "carbide-instrument",
  "carbide-rack",
  "carbide-secrets",
  "carbide-test-support",
@@ -2822,6 +2823,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "state-controller",
+ "tokio",
  "tonic",
  "tracing",
 ]
