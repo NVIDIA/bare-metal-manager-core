@@ -122,6 +122,15 @@
 #                          Default: <repo>/helm/charts/nico-machine-a-tron
 #   VALUES_FILE            Base values template.
 #                          Default: <this dir>/values/machine-a-tron.yaml
+#   SCALE_RUN_INTERVAL     Tuning override (#3738): [site_explorer] run_interval
+#                          (e.g. "30s"). Unset = leave the site's value.
+#   SCALE_FW_CONCURRENCY   Tuning override: [firmware_global] concurrency_limit.
+#   SCALE_FW_RUN_INTERVAL  Tuning override: [firmware_global] run_interval.
+#   SCALE_STATE_MAX_CONCURRENCY
+#                          Tuning override: [machine_state_controller.controller]
+#                          max_concurrency (parallel state-machine tasks).
+#   INGEST_RATE_CSV        Where the Phase 10 loop writes its per-sample
+#                          ingestion counters (CSV). Default: a file under /tmp.
 #   DPF_SIM_IMAGE          dpf-sim-controller image ref for Phase 4b. Default:
 #                          ${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}
 #   DPF_SIM_IMAGE_TAG      Tag for the derived default above. Default: latest
@@ -626,14 +635,19 @@ elif [[ "$MAT_MODE" == "scale" ]]; then
         SCALE_RESERVE="$SCALE_RESERVE" \
         BMC_PROXY="${BMC_MOCK_FQDN}:${BMC_MOCK_PORT}" \
         KNOB_CONC="$SCALE_CONCURRENT_EXPLORATIONS" KNOB_EPR="$SCALE_EXPLORATIONS_PER_RUN" \
-        KNOB_MCPR="$SCALE_MACHINES_CREATED_PER_RUN" python3 - "$CM_JSON" <<'PY'
+        KNOB_MCPR="$SCALE_MACHINES_CREATED_PER_RUN" \
+        KNOB_SE_RUN_INTERVAL="${SCALE_RUN_INTERVAL:-}" \
+        KNOB_FW_CONC="${SCALE_FW_CONCURRENCY:-}" \
+        KNOB_FW_RUN_INTERVAL="${SCALE_FW_RUN_INTERVAL:-}" \
+        KNOB_STATE_CONC="${SCALE_STATE_MAX_CONCURRENCY:-}" \
+        python3 - "$CM_JSON" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 cm = json.load(open(path))
 env = os.environ
 # lines managed by this script inside [site_explorer]
-drop = ("bmc_proxy", "override_target_host", "override_target_ip", "override_target_port",
-        "concurrent_explorations", "explorations_per_run", "machines_created_per_run")
+drop = ["bmc_proxy", "override_target_host", "override_target_ip", "override_target_port",
+        "concurrent_explorations", "explorations_per_run", "machines_created_per_run"]
 knobs = [
     # PROXY-DIRECT: the Redfish client injects "Forwarded: host=<BMC IP>"
     # whenever bmc_proxy is set; the mock's registry routes on it. One
@@ -648,6 +662,28 @@ knobs = [
     f'      explorations_per_run = {env["KNOB_EPR"]}',
     f'      machines_created_per_run = {env["KNOB_MCPR"]}',
 ]
+# Optional tuning override (issue #3738): the explore->create cycle period.
+# Only managed when explicitly set, so default runs keep the site's value.
+if env.get("KNOB_SE_RUN_INTERVAL"):
+    drop.append("run_interval")   # scoped to [site_explorer] by insertion point
+    knobs.append(f'      run_interval = "{env["KNOB_SE_RUN_INTERVAL"]}"')
+
+# Optional tuning overrides living OUTSIDE [site_explorer] (issue #3738):
+# managed as a sentinel-delimited tail block that each run regenerates. A
+# duplicate TOML table would be a parse error, so refuse if the operator
+# already defines these sections outside our block.
+TUNING_BEGIN = "# --- BEGIN scale tuning overrides (managed by setup-machine-a-tron.sh) ---"
+TUNING_END   = "# --- END scale tuning overrides ---"
+tuning = []
+if env.get("KNOB_FW_CONC") or env.get("KNOB_FW_RUN_INTERVAL"):
+    tuning.append("[firmware_global]")
+    if env.get("KNOB_FW_CONC"):
+        tuning.append(f'concurrency_limit = {env["KNOB_FW_CONC"]}')
+    if env.get("KNOB_FW_RUN_INTERVAL"):
+        tuning.append(f'run_interval = "{env["KNOB_FW_RUN_INTERVAL"]}"')
+if env.get("KNOB_STATE_CONC"):
+    tuning.append("[machine_state_controller.controller]")
+    tuning.append(f'max_concurrency = {env["KNOB_STATE_CONC"]}')
 networks = f'''
 # --- simulated networks for machine-a-tron scale testing (managed by
 # --- setup-machine-a-tron.sh --scale; safe to leave in place) ---
@@ -675,9 +711,21 @@ for k, v in cm["data"].items():
     if "[site_explorer]" not in v:
         continue
     out, in_lo = [], False
-    for ln in v.splitlines():
+    # Strip any previously-managed tuning block before re-rendering.
+    if TUNING_BEGIN in v:
+        pre, _, rest = v.partition(TUNING_BEGIN)
+        _, _, post = rest.partition(TUNING_END)
+        v_work = pre.rstrip("\n") + "\n" + post.lstrip("\n")
+    else:
+        v_work = v
+    in_sec = ""
+    for ln in v_work.splitlines():
         s = ln.strip()
-        if any(t in ln for t in drop):
+        if s.startswith("["):
+            in_sec = s
+        # drop-list is scoped: managed [site_explorer] keys only there, so a
+        # run_interval belonging to another section is never touched.
+        if in_sec == "[site_explorer]" and any(t in ln for t in drop) and not s.startswith("["):
             continue
         if s.startswith("[pools."):
             in_lo = (s == "[pools.lo-ip]")
@@ -687,9 +735,15 @@ for k, v in cm["data"].items():
         out.append(ln)
         if s == "[site_explorer]":
             out.extend(knobs)
-    new = "\n".join(out) + ("\n" if v.endswith("\n") else "")
+    new = "\n".join(out) + ("\n" if v_work.endswith("\n") else "")
     if "[networks.simulated-oob]" not in new:
         new = new.rstrip("\n") + "\n" + networks
+    if tuning:
+        for header in ("[firmware_global]", "[machine_state_controller"):
+            if any(l.strip().startswith(header) for l in new.splitlines()):
+                sys.stderr.write(f"ERROR: {header} already defined in the site config outside the managed block; set the knob there instead\n")
+                sys.exit(3)
+        new = new.rstrip("\n") + "\n\n" + TUNING_BEGIN + "\n" + "\n".join(tuning) + "\n" + TUNING_END + "\n"
     if new != v:
         cm["data"][k] = new
         changed = True
@@ -707,6 +761,8 @@ PY
             || warn "nico-api rollout did not complete in time; continuing"
         ok "scale networks: oob ${SCALE_OOB_PREFIX} (gw ${SCALE_OOB_GW}), admin ${SCALE_ADMIN_PREFIX} (gw ${SCALE_ADMIN_GW})"
         ok "site_explorer knobs: concurrent=${SCALE_CONCURRENT_EXPLORATIONS} per_run=${SCALE_EXPLORATIONS_PER_RUN} create/run=${SCALE_MACHINES_CREATED_PER_RUN}"
+        [[ -n "${SCALE_RUN_INTERVAL:-}${SCALE_FW_CONCURRENCY:-}${SCALE_FW_RUN_INTERVAL:-}${SCALE_STATE_MAX_CONCURRENCY:-}" ]] && \
+            ok "tuning overrides (#3738): se.run_interval=${SCALE_RUN_INTERVAL:-·} fw.concurrency=${SCALE_FW_CONCURRENCY:-·} fw.run_interval=${SCALE_FW_RUN_INTERVAL:-·} state.max_concurrency=${SCALE_STATE_MAX_CONCURRENCY:-·}"
     else
         ok "scale config already in place"
     fi
@@ -1193,15 +1249,39 @@ ok "cleared exploration lockouts + requested re-exploration"
 MACHINE_TARGET=$(( HOST_COUNT * (1 + DPU_PER_HOST) ))
 MACHINE_WAIT=$(( 420 + HOST_COUNT * 3 )); (( MACHINE_WAIT > 5400 )) && MACHINE_WAIT=5400
 info "waiting for explore → rotate → preingest → identify → create (target ${MACHINE_TARGET} machines, up to ${MACHINE_WAIT}s)..."
+
+# --- per-phase ingestion rate instrumentation (#3756) -----------------------
+# One CSV row per sample; counters are cumulative so post-processing derives
+# per-phase rates as deltas. `epoch` is wall-clock so rows from different runs
+# and the DB's own machines.created timestamps line up exactly. Effective knob
+# values are embedded as header comments so every CSV is self-describing.
+INGEST_RATE_CSV="${INGEST_RATE_CSV:-/tmp/mat-ingestion-rates-$(date +%Y%m%d-%H%M%S).csv}"
+{
+    echo "# setup-machine-a-tron ingestion rates  host_count=${HOST_COUNT} dpu_per_host=${DPU_PER_HOST} mode=${MAT_MODE}"
+    _KNOBS="$(kubectl get cm nico-api-site-config-files -n "$NICO_SYSTEM_NS" \
+        -o jsonpath='{.data.nico-api-site-config\.toml}' 2>/dev/null \
+        | grep -vE '^[[:space:]]*#' \
+        | grep -E 'run_interval|concurrent_explorations|explorations_per_run|machines_created_per_run|concurrency_limit|max_concurrency|max_concurrent_machine_updates' \
+        | sed 's/^[[:space:]]*//' | tr '\n' ';' )"
+    echo "# effective_knobs: ${_KNOBS}"
+    echo "epoch,dhcp_addresses,endpoints_ok,managed_hosts,machines,machines_ready"
+} > "$INGEST_RATE_CSV"
+info "per-phase rate samples → ${INGEST_RATE_CSV}"
+
 _end=$((SECONDS+MACHINE_WAIT)); MACHINES=0
 while (( SECONDS < _end )); do
-    MACHINES="$(psql_count "SELECT count(*) FROM machines;")"
-    (( MACHINES >= MACHINE_TARGET )) && break
-    # single round-trip for the progress line
+    # single round-trip for the progress line AND the CSV sample
     _prog="$(psql_q "SELECT
+        (SELECT count(*) FROM machine_interface_addresses) || '/' ||
         (SELECT count(*) FILTER (WHERE exploration_report->'LastExplorationError' = 'null'::jsonb) FROM explored_endpoints) || '/' ||
-        (SELECT count(*) FROM explored_managed_hosts);" || echo '?/?')"
-    info "  endpoints_ok=${_prog%%/*}/${IFACES}  managed_hosts=${_prog##*/}  machines=${MACHINES} ..."
+        (SELECT count(*) FROM explored_managed_hosts) || '/' ||
+        (SELECT count(*) FROM machines) || '/' ||
+        (SELECT count(*) FROM machines WHERE controller_state->>'state' = 'ready');" || echo '?/?/?/?/?')"
+    IFS=/ read -r _dhcp _eok _mh MACHINES _rdy <<< "$_prog"
+    MACHINES="${MACHINES:-0}"; [[ "$MACHINES" == "?" ]] && MACHINES=0
+    echo "$(date +%s),${_dhcp},${_eok},${_mh},${MACHINES},${_rdy}" >> "$INGEST_RATE_CSV"
+    (( MACHINES >= MACHINE_TARGET )) && break
+    info "  endpoints_ok=${_eok}/${IFACES}  managed_hosts=${_mh}  machines=${MACHINES} ..."
     # Re-clear any AvoidLockout that latched during the wait (e.g. an
     # exploration racing a mock reboot from preingestion's initial BMC reset).
     # Idempotent; scoped to latched endpoints only so successful reports keep
@@ -1223,6 +1303,26 @@ while (( SECONDS < _end )); do
 done
 ENDPOINTS="$(psql_count "SELECT count(*) FROM explored_endpoints;")"
 MHOSTS="$(psql_count "SELECT count(*) FROM explored_managed_hosts;")"
+# Per-phase rate summary (#3756): for each cumulative counter, the window is
+# first-movement → 90%-of-final; avg rate = delta/window. Sampling-based, so
+# rates are floors — exact curves come from ingestion-rate-report.sh, which
+# reads the DB's own timestamps.
+if [[ -s "$INGEST_RATE_CSV" ]]; then
+    awk -F, -v OFS=' ' '
+        /^#/ || /^epoch/ { next }
+        { for (i = 2; i <= 6; i++) { v[i] = $i + 0
+            if (v[i] > first_v[i] && first_t[i] == 0 && v[i] > 0) { if (base_seen[i]) { first_t[i] = $1; first_v[i] = v[i] } }
+            if (!base_seen[i]) { base_seen[i] = 1; base_v[i] = v[i]; if (v[i] > 0) { first_t[i] = $1; first_v[i] = v[i] } }
+            last_t[i] = $1; last_v[i] = v[i] } }
+        END {
+            split("dhcp_addresses endpoints_ok managed_hosts machines machines_ready", n, " ")
+            for (i = 2; i <= 6; i++) {
+                dt = last_t[i] - first_t[i]; dv = last_v[i] - first_v[i]
+                rate = (dt > 0) ? sprintf("%.1f", dv * 60 / dt) : "n/a"
+                printf "  %-16s %6d -> %-6d  %ss window  %s/min\n", n[i-1], first_v[i], last_v[i], dt, rate } }
+    ' "$INGEST_RATE_CSV" | while IFS= read -r l; do info "$l"; done
+    ok "rate samples: ${INGEST_RATE_CSV}"
+fi
 echo
 if (( MACHINES >= MACHINE_TARGET )); then
     ok "${GREEN}END TO END OK${NC} — endpoints=${ENDPOINTS}, managed_hosts=${MHOSTS}, machines=${MACHINES}/${MACHINE_TARGET}"
