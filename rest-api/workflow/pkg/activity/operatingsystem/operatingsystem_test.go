@@ -924,7 +924,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		tnOrg := "tenant-create-org"
 		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
-		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-create", nil, tnu)
+		tn := util.TestBuildTenant(t, dbSession, "tenant-create", tnOrg, nil, tnu)
 
 		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
 			ID: uuid.New(), Name: "tmpl-tenant-create", Template: "#!ipxe\n", Visibility: "Public",
@@ -968,7 +968,7 @@ func TestManageOsImage_UpdateOperatingSystemsInDB(t *testing.T) {
 
 		tnOrg := "tenant-flip-org"
 		tnu := util.TestBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg}, []string{"FORGE_TENANT_ADMIN"})
-		tn := util.TestBuildTenant(t, dbSession, tnOrg, "tenant-flip", nil, tnu)
+		tn := util.TestBuildTenant(t, dbSession, "tenant-flip", tnOrg, nil, tnu)
 
 		tmpl, err := templateDAO.Create(ctx, nil, cdbm.IpxeTemplateCreateInput{
 			ID: uuid.New(), Name: "tmpl-flip", Template: "#!ipxe\n", Visibility: "Public",
