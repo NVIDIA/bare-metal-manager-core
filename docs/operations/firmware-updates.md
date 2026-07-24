@@ -1,6 +1,6 @@
 # Firmware Updates
 
-This guide first gives a high-level view of firmware upgrades in NICo and helps
+This guide first gives a high-level view of firmware updates in NICo and helps
 you choose the workflow that applies to your hardware. The linked workflow
 pages then explain their configuration, prerequisites, execution, verification,
 and recovery in detail.
@@ -10,8 +10,8 @@ and recovery in detail.
 NICo uses a site-wide desired-state process for managed host firmware and DPU
 NIC firmware. Operators configure the versions expected at the site. When
 automatic updates are enabled, NICo compares those versions with the firmware
-reported by managed hardware. Drift makes a device eligible for an upgrade,
-which NICo schedules automatically instead of requiring a one-off upgrade
+reported by managed hardware. Drift makes a device eligible for an update,
+which NICo schedules automatically instead of requiring a one-off update
 command.
 
 The drift-driven workflow is:
@@ -22,11 +22,11 @@ flowchart LR
     B --> C{"Drift detected?"}
     C -- No --> D["No action"]
     C -- Yes --> E["Wait until the device is eligible"]
-    E --> F["Upgrade or reprovision"]
+    E --> F["Update or reprovision"]
     F --> G["Rediscover and verify"]
 ```
 
-Detecting drift does not mean the upgrade starts immediately. NICo may wait for
+Detecting drift does not mean the update starts immediately. NICo may wait for
 the machine to enter an eligible state, an update window to open, or site-wide
 concurrency limits to allow more work. The responsible controller then performs
 the update or reprovisioning and verifies the result from newly discovered
@@ -41,8 +41,8 @@ baseline.
 Not every firmware workflow begins with drift detection. Rack-scale compute
 trays, NVSwitches, and power shelves can be updated through explicit API
 requests. Some platforms require a vendor tool, a script, rack maintenance, or
-a manually confirmed procedure. See
-[Choose the upgrade path](#choose-the-upgrade-path) for the path used by each
+a manually confirmed procedure. Refer to
+[Choose the update path](#choose-the-update-path) for the path used by each
 component.
 
 ## How automatic work is scheduled
@@ -54,10 +54,10 @@ the disruptive work and the return to service.
 On each scheduler pass, NICo:
 
 1. clears bookkeeping for updates that have completed;
-2. counts the distinct hosts already in maintenance or an update workflow;
-3. calculates the remaining capacity from the site-wide machine-update limit;
-4. asks the enabled DPU and host firmware modules for eligible work; and
-5. creates requests until the shared capacity is full.
+1. counts the distinct hosts already in maintenance or an update workflow;
+1. calculates the remaining capacity from the site-wide machine-update limit;
+1. asks the enabled DPU and host firmware modules for eligible work; and
+1. creates requests until the shared capacity is full.
 
 ```mermaid
 flowchart LR
@@ -77,7 +77,7 @@ machine update starts.
 
 Pre-ingestion firmware is not scheduled by Machine Update Manager. It has a
 separate polling interval and concurrency limit because the hardware has not
-yet entered the managed-host lifecycle. See the
+yet entered the managed-host lifecycle. Refer to the
 [Machine Update Manager architecture](../architecture/overview.md#machine-update-manager)
 for the broader ownership model.
 
@@ -108,15 +108,15 @@ DPU NIC firmware uses an accepted-version list in the site configuration
 instead of the host catalog. Rack and component workflows receive their target
 from an explicit request or their component backend.
 
-See [Configure firmware versions](firmware-updates/configuration.md) for the
+Refer to [Configure Firmware Versions](firmware-updates/configuration.md) for the
 configuration models, setting reference, examples, and source precedence.
 
-## Choose the upgrade path
+## Choose the update path
 
 Use the table below to find the path for the hardware and component you are
 updating. For hosts, the path also depends on whether ingestion has completed.
 
-| Your situation | Upgrade path | How it begins |
+| Your situation | Update path | How it begins |
 |---|---|---|
 | A host has not completed ingestion and a reported component version is below `preingest_upgrade_when_below`. | [Pre-ingestion](firmware-updates/pre-ingestion.md) | The pre-ingestion manager detects the condition. When global automatic updates are enabled, it selects the default or pre-ingestion-only firmware entry and starts the update. |
 | Firmware on a managed host differs from the effective default in the merged firmware catalog. | [Host firmware](firmware-updates/host-firmware.md) | When host automatic updates are enabled, NICo detects the drift and schedules host reprovisioning. If `explicit_start_needed` is enabled, NICo first waits for the host's update window. |

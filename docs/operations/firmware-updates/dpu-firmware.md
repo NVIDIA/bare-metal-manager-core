@@ -12,8 +12,8 @@ Keep two kinds of configuration separate:
 - `dpu_models` contains the BMC, ERoT/CEC, and NIC versions that NICo expects
   after the BFB has been applied.
 
-These values and the BFB must describe the same release. See
-[Configure firmware versions](configuration.md#dpu-firmware) before enabling
+These values and the BFB must describe the same release. Refer to
+[DPU firmware](configuration.md#dpu-firmware) before enabling
 automatic updates.
 
 ## Components covered
@@ -144,7 +144,7 @@ contributes to the unavailable count until the host returns to top-level
 `Ready`.
 
 An operator can
-[request DPU reprovisioning explicitly](api:PATCH/v2/org/{org}/nico/machine/{machineId}/dpu/reprovision).
+[request DPU reprovisioning explicitly](api:PATCH/v2/org/:org/nico/machine/:machineId/dpu/reprovision).
 The API requires a `HostUpdateInProgress` health alert with
 `PreventAllocations`; the CLI's `--update-message` option creates that alert
 before sending the request:
@@ -227,8 +227,8 @@ nico-admin-cli -a <core-api-url> dpu reprovision clear \
   --id <host-or-dpu-machine-id>
 ```
 
-For DPU OS installation, networking, and health details beyond firmware, see
-[DPU lifecycle management](../../dpu-management/dpu-lifecycle-management.md).
+For DPU OS installation, networking, and health details beyond firmware, refer to
+[DPU Lifecycle Management](../../dpu-management/dpu-lifecycle-management.md).
 
 ## Current limitations
 

@@ -8,7 +8,7 @@ work.
 
 Use this path when an operator needs Flow to update a rack or selected tray.
 For desired-state updates on a conventional managed host, use
-[Host firmware upgrades](host-firmware.md) instead.
+[Host firmware updates](host-firmware.md) instead.
 
 ## How the request runs
 
@@ -172,8 +172,8 @@ that has no matching components is reported as skipped.
 The built-in rule deliberately excludes power shelves and does not perform an
 AC power cycle after flashing. Use an approved custom operation rule for power
 shelves. If firmware activation requires a power cycle, submit the appropriate
-power-recycle task separately or include it in a custom rule. See the
-[Flow operation rules guide](../../../rest-api/flow/docs/operation-rules-guide.md).
+power-recycle task separately or include it in a custom rule. Refer to the
+Flow [Operation Rules Guide](../../../rest-api/flow/docs/operation-rules-guide.md).
 
 ## Component behavior
 
@@ -190,8 +190,8 @@ selected firmware bundle. It does not include DPU reprovisioning.
 `dpu` is a special, explicit-only compute target. NICo first submits any
 compute-tray update, then reprovisions the DPU on each selected host serially.
 The request's `version` is ignored for the DPU branch; its target comes from
-site configuration. Use `targets: ["dpu"]` for a DPU-only request. See
-[DPU firmware upgrades](dpu-firmware.md#assigned-hosts-and-operator-requests)
+site configuration. Use `targets: ["dpu"]` for a DPU-only request. Refer to
+[Assigned hosts and operator requests](dpu-firmware.md#assigned-hosts-and-operator-requests)
 before using this path.
 
 Core routes conventional standalone machines through the managed-host firmware
@@ -309,7 +309,7 @@ nico-admin-cli component-manager update-firmware power-shelf \
 ```
 
 Run `nico-admin-cli component-manager update-firmware --help` for the complete
-command options. See the
+command options. Refer to the
 [rack state machine](../../architecture/state_machines/rackstatemachine.md) for
 lower-level execution details.
 

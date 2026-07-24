@@ -7,7 +7,7 @@ supplied by the request or selected by their backend.
 
 The firmware catalog answers **what firmware NICo recognizes and should
 install**. Start there: define host firmware through the
-[Host Firmware Config API](api:PUT/v2/org/{org}/nico/firmware-config/host)
+[Host Firmware Config API](api:PUT/v2/org/:org/nico/firmware-config/host)
 or legacy metadata. Later sections cover DPU baselines and the site controls
 that determine **when NICo looks for work** and **how much work it may start**.
 
@@ -73,17 +73,17 @@ For example, assume the BMC minimum is `7.00.00.00` and the default is
 | `7.05.00.00` | Meets the minimum, so ingestion can continue. After ingestion it is still drifted from `7.10.30.00`. |
 | `7.10.30.00` | Meets the minimum and matches the desired version. No firmware update is needed. |
 
-See [Pre-ingestion firmware](pre-ingestion.md) for minimum-version enforcement
-and [managed host firmware](host-firmware.md) for post-ingestion drift handling.
+Refer to [Pre-ingestion Firmware Updates](pre-ingestion.md) for minimum-version enforcement
+and [Managed Host Firmware Updates](host-firmware.md) for post-ingestion drift handling.
 
 ### Configure host firmware through the API
 
 The current way to configure host firmware is the
-[Create or Update Host Firmware Config](api:PUT/v2/org/{org}/nico/firmware-config/host)
+[Create or Update Host Firmware Config](api:PUT/v2/org/:org/nico/firmware-config/host)
 operation:
 
 ```text
-PUT /v2/org/{org}/nico/firmware-config/host
+PUT /v2/org/:org/nico/firmware-config/host
 ```
 
 The request is site-scoped and keyed by `(vendor, model)`. NICo stores the
@@ -138,7 +138,7 @@ mappings. The request is rejected when no mapping exists.
   component.
 
 The
-[Delete Host Firmware Config](api:DELETE/v2/org/{org}/nico/firmware-config/host)
+[Delete Host Firmware Config](api:DELETE/v2/org/:org/nico/firmware-config/host)
 operation removes the runtime entry. If the same vendor and model also exists
 in static or legacy metadata, that lower-priority definition becomes effective
 again.
@@ -270,7 +270,7 @@ version `32.44.1030`, that version must be accepted by
 `dpu_nic_firmware_update_versions` and should be the NIC baseline in the
 matching `dpu_models` entry.
 
-See [DPU firmware upgrades](dpu-firmware.md) for how NICo acts on this
+Refer to [DPU firmware updates](dpu-firmware.md) for how NICo acts on this
 configuration.
 
 ## Operational controls
@@ -305,7 +305,7 @@ instance_autoreboot_period.end = "2026-08-15T05:00:00Z"
 
 The autoreboot period is not the per-host firmware window used by models with
 `explicit_start_needed`. Operators open that window through the managed-host
-API. See [Scheduling gates](host-firmware.md#scheduling-gates).
+API. Refer to [Scheduling gates](host-firmware.md#scheduling-gates).
 
 ### Firmware execution
 
@@ -358,17 +358,17 @@ canary:
 
 1. Update the canonical configuration source. Do not maintain a second live
    version table in this guide or a site runbook.
-2. Make every referenced host artifact available. For DPU firmware, update the
+1. Make every referenced host artifact available. For DPU firmware, update the
    BFB, accepted NIC versions, and `dpu_models` together.
-3. Check host component ordering, defaults, pre-ingestion thresholds, and
+1. Check host component ordering, defaults, pre-ingestion thresholds, and
    inventory matchers. Then inspect the merged host catalog with `firmware
    show`.
-4. Configure a nonzero shared capacity, explicit-start windows, and assigned-host
+1. Configure a nonzero shared capacity, explicit-start windows, and assigned-host
    approval policy. Keep site-wide automatic selection disabled while validating
    one host through a per-machine host policy or an explicit DPU reprovisioning
    request.
-5. After verification, enable the intended site-wide automatic policy.
-6. Monitor the applicable workflow until inventory reports the configured
+1. After verification, enable the intended site-wide automatic policy.
+1. Monitor the applicable workflow until inventory reports the configured
    versions and the host has returned to service.
 
 Changing a pre-ingestion threshold while `firmware_global.autoupdate` is enabled
@@ -379,5 +379,5 @@ catalog and artifact availability before applying that change.
 
 Rack and component firmware do not use either of the configuration models
 above. Their target version comes from the update request or from the default
-selected by the rack or component backend. See
-[Rack and component firmware upgrades](rack-component-firmware.md).
+selected by the rack or component backend. Refer to
+[Rack and Tray Firmware Updates](rack-component-firmware.md).

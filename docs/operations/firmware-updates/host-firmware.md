@@ -1,6 +1,6 @@
 # Managed Host Firmware Updates
 
-Managed host firmware upgrades keep an ingested host aligned with the default
+Managed host firmware updates keep an ingested host aligned with the default
 versions in the
 [effective host firmware catalog](configuration.md#host-firmware-catalog).
 They are normally triggered by drift, scheduled by Machine Update Manager, and
@@ -187,7 +187,7 @@ The host reprovisioning command always enters firmware checking; its legacy
 `--update-firmware` flag is not needed. A request that has not started can be
 removed with `host reprovision clear --id <machine-id>`.
 
-## Upgrade sequence
+## Update workflow
 
 After the request can proceed, the managed-host state machine performs the
 following sequence:
@@ -195,20 +195,20 @@ following sequence:
 1. **Protect the host.** NICo records the update health report and, where
    needed, moves an assigned host into its discovery environment and disables
    platform lockdown.
-2. **Refresh inventory.** Site Explorer revisits the BMC. The state machine
+1. **Refresh inventory.** Site Explorer revisits the BMC. The state machine
    selects the effective catalog definition by BMC vendor and host model.
-3. **Select a component.** NICo walks `ordering` and finds the first component
+1. **Select a component.** NICo walks `ordering` and finds the first component
    for which any matching inventory entry differs from the default version.
    Pre-ingestion-only firmware entries are excluded.
-4. **Install it.** NICo chooses the installation route described below.
+1. **Install it.** NICo chooses the installation route described below.
    Multi-artifact entries are applied in sequence.
-5. **Activate and verify.** For Scout and Redfish updates, NICo performs
+1. **Activate and verify.** For Scout and Redfish updates, NICo performs
    component-specific resets, reboots, or configured power drains. A legacy
    local script owns its own activation procedure. NICo then requests fresh
    inventory and checks the reported versions.
-6. **Repeat.** NICo returns to the beginning of `ordering` and selects the next
+1. **Repeat.** NICo returns to the beginning of `ordering` and selects the next
    mismatched component.
-7. **Restore service.** When no mismatch remains, NICo restores lockdown when
+1. **Restore service.** When no mismatch remains, NICo restores lockdown when
    required, returns the host to `Ready` or its assigned-instance state, clears
    the reprovisioning request, and removes the update health report.
 
@@ -238,12 +238,12 @@ The route precedence is:
    and its `metadata.toml`. If present, NICo sends Scout the verified script,
    artifact URLs and digests, and execution timeouts. Scout downloads and
    verifies the files, runs the script on the host, and reports the result.
-2. **Core-local script.** If no Scout script exists and the firmware entry has
+1. **Core-local script.** If no Scout script exists and the firmware entry has
    `script`, NICo runs that legacy script on the Core service with the BMC
    address and credentials in its environment. The script is responsible for
    installation and activation; after it succeeds, NICo returns to inventory
    checking.
-3. **Redfish.** Otherwise NICo resolves the configured artifact, waits for a
+1. **Redfish.** Otherwise NICo resolves the configured artifact, waits for a
    shared `firmware_global.max_uploads` slot, uploads asynchronously, and polls
    the returned Redfish task.
 
@@ -261,7 +261,7 @@ preservation settings, activation requirements, and recovery.
 Before adding an artifact or script to the catalog, verify that it implements
 the procedure for the exact platform and release. A successful Redfish task or
 script exit only shows that the installation mechanism completed; NICo still
-needs fresh inventory to confirm the configured version. See the
+needs fresh inventory to confirm the configured version. Refer to the
 [Redfish workflow](../../architecture/redfish_workflow.md) for the request and
 task ownership boundaries.
 
@@ -319,7 +319,7 @@ The principal host firmware substates are:
 | `NewFirmwareReportedWait` | NICo is refreshing inventory until all matching entries report the target. |
 | `FailedFirmwareUpgrade` | The attempt failed; NICo is waiting to retry or has exhausted its retry budget. |
 
-See the [managed-host state machine](../../architecture/state_machines/managedhost.md)
+Refer to [Managed Host State Diagrams](../../architecture/state_machines/managedhost.md)
 for these firmware substates in the complete host lifecycle.
 
 Completion requires more than leaving an installation state. Verify that the
@@ -338,7 +338,7 @@ Useful metrics are:
 | `carbide_machines_in_maintenance_count` | Machines consuming the shared maintenance budget. |
 | `carbide_concurrent_machine_updates_available` | The calculated site-wide concurrency ceiling for machine updates. |
 
-See [Core metrics](../../observability/core_metrics.md) for the common metric
+Refer to [Core Metrics](../../observability/core_metrics.md) for the common metric
 labels and collection endpoint.
 
 ## Failures and recovery

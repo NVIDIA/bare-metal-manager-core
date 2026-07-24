@@ -1,6 +1,6 @@
 # Pre-ingestion Firmware Updates
 
-Pre-ingestion firmware upgrades run against a discovered host BMC before NICo
+Pre-ingestion firmware updates run against a discovered host BMC before NICo
 creates the managed host. Their purpose is to update firmware that is too old
 for the normal ingestion and management workflow.
 
@@ -21,12 +21,12 @@ are true:
 
 1. Site exploration has produced a BMC vendor, host model, and firmware
    inventory for an endpoint that has not completed pre-ingestion.
-2. The effective host firmware catalog contains a definition for that vendor
+1. The effective host firmware catalog contains a definition for that vendor
    and model.
-3. At least one reported component has
+1. At least one reported component has
    `preingest_upgrade_when_below` configured and its reported version is lower
    than that threshold.
-4. `firmware_global.autoupdate` is enabled.
+1. `firmware_global.autoupdate` is enabled.
 
 The reported version must come from an inventory entry matched by
 `current_version_reported_as`. A missing catalog definition, missing inventory
@@ -66,7 +66,7 @@ For example:
   meet their minimums. After ingestion, both can still be treated as drifted
   from their steady-state targets.
 
-## Upgrade sequence
+## Update sequence
 
 ```mermaid
 flowchart TD
@@ -91,22 +91,22 @@ The state machine performs the following work:
 1. **Prepare the BMC.** NICo attempts an initial BMC reset, waits for a fresh
    exploration report, configures the site's NTP servers, and checks BMC time.
    Firmware comparison uses the refreshed inventory.
-2. **Evaluate minimums.** NICo selects the effective catalog definition by BMC
+1. **Evaluate minimums.** NICo selects the effective catalog definition by BMC
    vendor and host model, then compares matched inventory versions with each
    configured pre-ingestion threshold.
-3. **Select one component.** If a minimum is breached, NICo follows `ordering`
+1. **Select one component.** If a minimum is breached, NICo follows `ordering`
    and selects the first component whose reported version differs from its
    pre-ingestion target. Components are handled serially for each endpoint.
-4. **Install the firmware.** A firmware entry with `script` runs the configured
+1. **Install the firmware.** A firmware entry with `script` runs the configured
    local upgrade script. Otherwise NICo resolves the artifact, waits for a
    shared upload slot, and uploads it through Redfish. Multi-artifact entries
    are installed in sequence.
-5. **Activate and verify.** NICo waits for the Redfish task, performs the
+1. **Activate and verify.** NICo waits for the Redfish task, performs the
    component-specific reset, reboot, or configured power drains, and requests
    a fresh exploration report. When the matching inventory entry is present,
    NICo waits until its reported version matches the target. A missing entry
    cannot be verified or selected for another update.
-6. **Continue ingestion.** NICo repeats target selection for the remaining
+1. **Continue ingestion.** NICo repeats target selection for the remaining
    ordered components. When none need an update, it marks pre-ingestion
    complete and the normal ingestion process can continue.
 
