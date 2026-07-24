@@ -4,6 +4,7 @@
 package workflow
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
+	temporalactivity "go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 
@@ -216,6 +218,16 @@ type GetDpuMachinesTestSuite struct {
 	env *testsuite.TestWorkflowEnvironment
 }
 
+func legacyGetDpuMachinesByIDs(_ context.Context, dpuMachineIDs []string) ([]*cwssaws.DpuMachine, error) {
+	dpuMachines := make([]*cwssaws.DpuMachine, 0, len(dpuMachineIDs))
+	for _, id := range dpuMachineIDs {
+		dpuMachines = append(dpuMachines, &cwssaws.DpuMachine{
+			Machine: &cwssaws.Machine{Id: &cwssaws.MachineId{Id: id}},
+		})
+	}
+	return dpuMachines, nil
+}
+
 func (s *GetDpuMachinesTestSuite) SetupTest() {
 	s.env = s.NewTestWorkflowEnvironment()
 }
@@ -267,9 +279,9 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 		},
 	}}
 
-	// Mock GetDpuMachinesByIDsV2 activity success
-	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDsV2)
-	s.env.OnActivity(machineManager.GetDpuMachinesByIDsV2, mock.Anything, mock.Anything).Return(expectedResult, nil)
+	// Mock GetDpuMachinesByIDs activity success
+	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDs)
+	s.env.OnActivity(machineManager.GetDpuMachinesByIDs, mock.Anything, mock.Anything).Return(expectedResult, nil)
 
 	// Execute GetDpuMachines workflow
 	s.env.ExecuteWorkflow(GetDpuMachines, dpuMachineIDs)
@@ -289,6 +301,25 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_Success() {
 	s.Equal("10.1.0.0/24", result.Machines[0].DpuNetworkConfig.NetworkSecurityPolicyOverrides[0].Rule.GetDstPrefix())
 }
 
+func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_LegacyActivityResult() {
+	dpuMachineIDs := []string{"dpu-machine-1", "dpu-machine-2"}
+
+	s.env.RegisterActivityWithOptions(legacyGetDpuMachinesByIDs, temporalactivity.RegisterOptions{
+		Name: "GetDpuMachinesByIDs",
+	})
+
+	s.env.ExecuteWorkflow(GetDpuMachines, dpuMachineIDs)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result cwssaws.DpuMachineList
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Len(result.Machines, len(dpuMachineIDs))
+	for i, dpuMachine := range result.Machines {
+		s.Equal(dpuMachineIDs[i], dpuMachine.Machine.Id.Id)
+	}
+}
+
 func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_ActivityFails() {
 	var machineManager mActivity.ManageMachine
 
@@ -296,9 +327,9 @@ func (s *GetDpuMachinesTestSuite) Test_GetDpuMachines_ActivityFails() {
 
 	errMsg := "Site Controller communication error"
 
-	// Mock GetDpuMachinesByIDsV2 activity failure
-	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDsV2)
-	s.env.OnActivity(machineManager.GetDpuMachinesByIDsV2, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
+	// Mock GetDpuMachinesByIDs activity failure
+	s.env.RegisterActivity(machineManager.GetDpuMachinesByIDs)
+	s.env.OnActivity(machineManager.GetDpuMachinesByIDs, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
 	// Execute GetDpuMachines workflow
 	s.env.ExecuteWorkflow(GetDpuMachines, dpuMachineIDs)

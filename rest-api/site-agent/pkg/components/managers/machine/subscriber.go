@@ -53,9 +53,5 @@ func (api *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(machineManager.GetDpuMachinesByIDs)
 	ManagerAccess.Data.EB.Log.Info().Msg("Machine: Successfully registered GetDpuMachinesByIDs activity")
 
-	// Register GetDpuMachinesByIDsV2 activity
-	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(machineManager.GetDpuMachinesByIDsV2)
-	ManagerAccess.Data.EB.Log.Info().Msg("Machine: Successfully registered GetDpuMachinesByIDsV2 activity")
-
 	return nil
 }

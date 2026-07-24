@@ -4,10 +4,12 @@
 package workflow
 
 import (
+	"errors"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	tsdkConverter "go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -199,13 +201,21 @@ func GetDpuMachines(ctx workflow.Context, dpuMachineIDs []string) (*cwssaws.DpuM
 
 	ctx = workflow.WithActivityOptions(ctx, options)
 
-	// Invoke GetDpuMachinesByIDsV2 activity
+	// Invoke GetDpuMachinesByIDs activity
 	var machineManager activity.ManageMachine
 
+	resultFuture := workflow.ExecuteActivity(ctx, machineManager.GetDpuMachinesByIDs, dpuMachineIDs)
 	var result cwssaws.DpuMachineList
-	err := workflow.ExecuteActivity(ctx, machineManager.GetDpuMachinesByIDsV2, dpuMachineIDs).Get(ctx, &result)
+	err := resultFuture.Get(ctx, &result)
+	if errors.Is(err, tsdkConverter.ErrUnableToDecode) {
+		var legacyResult []*cwssaws.DpuMachine
+		err = resultFuture.Get(ctx, &legacyResult)
+		if err == nil {
+			result.Machines = legacyResult
+		}
+	}
 	if err != nil {
-		logger.Error().Err(err).Str("Activity", "GetDpuMachinesByIDsV2").Msg("Failed to execute activity from workflow")
+		logger.Error().Err(err).Str("Activity", "GetDpuMachinesByIDs").Msg("Failed to execute activity from workflow")
 		return nil, err
 	}
 
