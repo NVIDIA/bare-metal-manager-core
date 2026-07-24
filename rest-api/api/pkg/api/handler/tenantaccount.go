@@ -6,6 +6,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -943,7 +944,7 @@ func (utah UpdateTenantAccountHandler) handleProviderSiteCapabilitiesUpdate(c ec
 		for siteID := range siteUpdates {
 			ts, gerr := tsDAO.GetByTenantIDAndSiteID(ctx, tx, *ta.TenantID, siteID, []string{"Site"})
 			if gerr != nil {
-				if gerr == cdb.ErrDoesNotExist {
+				if errors.Is(gerr, cdb.ErrDoesNotExist) {
 					return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Site %s is not associated with Tenant", siteID.String()), nil)
 				}
 				logger.Error().Err(gerr).Msg("error retrieving TenantSite for siteCapabilities update")

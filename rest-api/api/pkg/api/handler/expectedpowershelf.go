@@ -285,8 +285,8 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		}
 
 		filterInput.SiteIDs = []uuid.UUID{site.ID}
-	} else if tenant != nil {
-		// Tenants must specify a Site ID
+	} else if tenant != nil && infrastructureProvider == nil {
+		// Tenant-only callers must specify a Site ID.
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site ID must be specified in query when retrieving Expected Power Shelves as a Tenant", nil)
 	} else {
 		// Get all Sites for the org's Infrastructure Provider
