@@ -2365,6 +2365,8 @@ dependencies = [
 name = "carbide-libmlx-model"
 version = "0.0.0"
 dependencies = [
+ "carbide-libmlx-model",
+ "carbide-test-support",
  "mac_address",
  "serde",
 ]
