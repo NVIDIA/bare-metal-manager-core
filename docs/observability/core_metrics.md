@@ -86,6 +86,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_exhausted_reprovision_retry_count</td><td>gauge</td><td>Number of host machines in the system whose host firmware upgrade retry budget is exhausted.</td></tr>
 <tr><td>carbide_extension_service_credential_cleanup_failures_total</td><td>counter</td><td>Number of extension-service credential cleanup failures, by operation.</td></tr>
 <tr><td>carbide_external_call_duration_milliseconds</td><td>histogram</td><td>Duration of outbound calls by backend, operation, and outcome; the _count series, split by outcome, gives the request and error rates.</td></tr>
+<tr><td>carbide_firmware_artifact_unavailable_total</td><td>counter</td><td>Number of firmware artifacts unavailable before download, by reason.</td></tr>
 <tr><td>carbide_firmware_download_duration_seconds</td><td>histogram</td><td>Duration of background firmware artifact downloads, by outcome; an ok attempt spans fetch, checksum verification, and publish, and the _count series, split by outcome, is the download and failure rate.</td></tr>
 <tr><td>carbide_firmware_update_failures_total</td><td>counter</td><td>Number of firmware update failures, by update target and cause</td></tr>
 <tr><td>carbide_firmware_updates_total</td><td>counter</td><td>Number of firmware updates started and completed, by update target and phase; only the host target emits both phases</td></tr>
