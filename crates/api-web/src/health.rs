@@ -19,6 +19,7 @@
 // See https://github.com/NVIDIA/infra-controller/issues/2793
 #![allow(deprecated)]
 
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -311,6 +312,10 @@ fn render_health(object: HealthObject, data: HealthPageData) -> Response {
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
+fn not_found_response(kind: &str, id: &impl fmt::Display) -> Response {
+    (StatusCode::NOT_FOUND, format!("{kind} not found: {id}")).into_response()
+}
+
 async fn fetch_machine_health_page_data(
     api: &Api,
     machine_id: &MachineId,
@@ -418,6 +423,15 @@ async fn fetch_nvlink_domain_health_page_data(
     api: &Api,
     domain_id: &NvLinkDomainId,
 ) -> Result<HealthPageData, Response> {
+    match db::nvlink_domain_health_report::find(api.db_reader().as_mut(), domain_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(not_found_response("NVLink domain", domain_id)),
+        Err(err) => {
+            tracing::error!(error = %err, %domain_id, "find_nvlink_domain_health_reports");
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
+        }
+    }
+
     let entries = match list_nvlink_domain_health_report_entries(api, domain_id).await {
         Ok(entries) => entries,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
@@ -553,7 +567,9 @@ async fn fetch_machine_health_snapshot(
         .await
         .map(|response| response.into_inner())
     {
-        Ok(m) if m.machines.is_empty() => None,
+        Ok(m) if m.machines.is_empty() => {
+            return Err(not_found_response("Machine", machine_id));
+        }
         Ok(m) if m.machines.len() != 1 => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -564,8 +580,10 @@ async fn fetch_machine_health_snapshot(
             )
                 .into_response());
         }
-        Ok(mut m) => Some(m.machines.remove(0)),
-        Err(err) if err.code() == tonic::Code::NotFound => None,
+        Ok(mut m) => m.machines.remove(0),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return Err(not_found_response("Machine", machine_id));
+        }
         Err(err) => {
             tracing::error!(error = %err, %machine_id, "find_machines_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
@@ -574,12 +592,10 @@ async fn fetch_machine_health_snapshot(
 
     Ok(MachineHealthSnapshot {
         aggregate_health: machine
+            .health
             .as_ref()
-            .and_then(|m| m.health.as_ref())
             .map(|health| health_report_from_rpc_convert_invalid(health.clone())),
-        associated_dpu_machine_ids: machine
-            .map(|m| m.associated_dpu_machine_ids)
-            .unwrap_or_default(),
+        associated_dpu_machine_ids: machine.associated_dpu_machine_ids,
     })
 }
 
@@ -594,7 +610,7 @@ async fn fetch_rack_aggregate_health(
         .await
         .map(|response| response.into_inner())
     {
-        Ok(r) if r.racks.is_empty() => None,
+        Ok(r) if r.racks.is_empty() => return Err(not_found_response("Rack", rack_id)),
         Ok(r) if r.racks.len() != 1 => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -602,8 +618,10 @@ async fn fetch_rack_aggregate_health(
             )
                 .into_response());
         }
-        Ok(mut r) => Some(r.racks.remove(0)),
-        Err(err) if err.code() == tonic::Code::NotFound => None,
+        Ok(mut r) => r.racks.remove(0),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return Err(not_found_response("Rack", rack_id));
+        }
         Err(err) => {
             tracing::error!(error = %err, %rack_id, "find_racks_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
@@ -611,8 +629,8 @@ async fn fetch_rack_aggregate_health(
     };
 
     Ok(rack
+        .status
         .as_ref()
-        .and_then(|rack| rack.status.as_ref())
         .and_then(|status| status.health.as_ref())
         .map(|health| health_report_from_rpc_convert_invalid(health.clone())))
 }
@@ -628,7 +646,9 @@ async fn fetch_power_shelf_aggregate_health(
         .await
         .map(|response| response.into_inner())
     {
-        Ok(r) if r.power_shelves.is_empty() => None,
+        Ok(r) if r.power_shelves.is_empty() => {
+            return Err(not_found_response("Power shelf", power_shelf_id));
+        }
         Ok(r) if r.power_shelves.len() != 1 => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -639,8 +659,10 @@ async fn fetch_power_shelf_aggregate_health(
             )
                 .into_response());
         }
-        Ok(mut r) => Some(r.power_shelves.remove(0)),
-        Err(err) if err.code() == tonic::Code::NotFound => None,
+        Ok(mut r) => r.power_shelves.remove(0),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return Err(not_found_response("Power shelf", power_shelf_id));
+        }
         Err(err) => {
             tracing::error!(error = %err, %power_shelf_id, "find_power_shelves_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
@@ -648,8 +670,8 @@ async fn fetch_power_shelf_aggregate_health(
     };
 
     Ok(power_shelf
+        .status
         .as_ref()
-        .and_then(|power_shelf| power_shelf.status.as_ref())
         .and_then(|status| status.health.as_ref())
         .map(|health| health_report_from_rpc_convert_invalid(health.clone())))
 }
@@ -665,7 +687,7 @@ async fn fetch_switch_aggregate_health(
         .await
         .map(|response| response.into_inner())
     {
-        Ok(r) if r.switches.is_empty() => None,
+        Ok(r) if r.switches.is_empty() => return Err(not_found_response("Switch", switch_id)),
         Ok(r) if r.switches.len() != 1 => {
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -676,8 +698,10 @@ async fn fetch_switch_aggregate_health(
             )
                 .into_response());
         }
-        Ok(mut r) => Some(r.switches.remove(0)),
-        Err(err) if err.code() == tonic::Code::NotFound => None,
+        Ok(mut r) => r.switches.remove(0),
+        Err(err) if err.code() == tonic::Code::NotFound => {
+            return Err(not_found_response("Switch", switch_id));
+        }
         Err(err) => {
             tracing::error!(error = %err, %switch_id, "find_switches_by_ids");
             return Err((StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response());
@@ -685,8 +709,8 @@ async fn fetch_switch_aggregate_health(
     };
 
     Ok(switch
+        .status
         .as_ref()
-        .and_then(|switch| switch.status.as_ref())
         .and_then(|status| status.health.as_ref())
         .map(|health| health_report_from_rpc_convert_invalid(health.clone())))
 }
