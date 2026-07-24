@@ -465,6 +465,74 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 	assert.Equal(t, dbm.IsUsableByTenant, apimi.IsUsableByTenant)
 }
 
+func TestMachine_NewAPIMachineLastScoutObservedVersion(t *testing.T) {
+	statusVersion := "2.6.1"
+	legacyVersion := "2.5.0"
+
+	tests := []struct {
+		name     string
+		metadata *cdbm.SiteControllerMachine
+		want     *string
+	}{
+		{
+			name: "uses Machine status value",
+			metadata: &cdbm.SiteControllerMachine{Machine: &corev1.Machine{
+				Status: &corev1.MachineStatus{LastScoutObservedVersion: &statusVersion},
+			}},
+			want: &statusVersion,
+		},
+		{
+			name: "falls back to deprecated Machine value",
+			metadata: &cdbm.SiteControllerMachine{Machine: &corev1.Machine{
+				LastScoutObservedVersion: &legacyVersion,
+			}},
+			want: &legacyVersion,
+		},
+		{
+			name: "prefers Machine status value",
+			metadata: &cdbm.SiteControllerMachine{Machine: &corev1.Machine{
+				Status:                   &corev1.MachineStatus{LastScoutObservedVersion: &statusVersion},
+				LastScoutObservedVersion: &legacyVersion,
+			}},
+			want: &statusVersion,
+		},
+		{
+			name:     "returns null when version is unknown",
+			metadata: &cdbm.SiteControllerMachine{Machine: &corev1.Machine{}},
+			want:     nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiMachine := NewAPIMachine(
+				&cdbm.Machine{Metadata: tt.metadata},
+				nil,
+				nil,
+				nil,
+				nil,
+				false,
+				false,
+			)
+
+			assert.Equal(t, tt.want, apiMachine.LastScoutObservedVersion)
+
+			response, err := json.Marshal(apiMachine)
+			require.NoError(t, err)
+
+			var fields map[string]interface{}
+			require.NoError(t, json.Unmarshal(response, &fields))
+			value, found := fields["lastScoutObservedVersion"]
+			require.True(t, found)
+			if tt.want == nil {
+				assert.Nil(t, value)
+			} else {
+				assert.Equal(t, *tt.want, value)
+			}
+		})
+	}
+}
+
 func TestMachine_NewAPIMachineSummary(t *testing.T) {
 	mID := uuid.NewString()
 	dbm := &cdbm.Machine{

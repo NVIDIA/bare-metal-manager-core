@@ -13,20 +13,21 @@ import (
 
 // Machine represents a simplified Machine
 type Machine struct {
-	ID                  string                  `json:"id"`
-	InstanceTypeID      *string                 `json:"instanceTypeId"`
-	InstanceID          *string                 `json:"instanceId"`
-	Vendor              *string                 `json:"vendor"`
-	ProductName         *string                 `json:"productName"`
-	SerialNumber        *string                 `json:"serialNumber"`
-	Hostname            *string                 `json:"hostname"`
-	MachineCapabilities []MachineCapability     `json:"machineCapabilities"`
-	AdminInterfaces     []MachineAdminInterface `json:"adminInterfaces"`
-	MaintenanceMessage  *string                 `json:"maintenanceMessage"`
-	Labels              map[string]string       `json:"labels"`
-	Status              string                  `json:"status"`
-	Created             time.Time               `json:"created"`
-	Updated             time.Time               `json:"updated"`
+	ID                       string                  `json:"id"`
+	InstanceTypeID           *string                 `json:"instanceTypeId"`
+	InstanceID               *string                 `json:"instanceId"`
+	Vendor                   *string                 `json:"vendor"`
+	ProductName              *string                 `json:"productName"`
+	SerialNumber             *string                 `json:"serialNumber"`
+	Hostname                 *string                 `json:"hostname"`
+	MachineCapabilities      []MachineCapability     `json:"machineCapabilities"`
+	AdminInterfaces          []MachineAdminInterface `json:"adminInterfaces"`
+	MaintenanceMessage       *string                 `json:"maintenanceMessage"`
+	LastScoutObservedVersion *string                 `json:"lastScoutObservedVersion"`
+	Labels                   map[string]string       `json:"labels"`
+	Status                   string                  `json:"status"`
+	Created                  time.Time               `json:"created"`
+	Updated                  time.Time               `json:"updated"`
 }
 
 // MachineCapability represents a machine capability
@@ -81,6 +82,9 @@ func machineFromStandard(api standard.Machine) Machine {
 	}
 	if api.MaintenanceMessage.IsSet() {
 		m.MaintenanceMessage = api.MaintenanceMessage.Get()
+	}
+	if api.LastScoutObservedVersion.IsSet() {
+		m.LastScoutObservedVersion = api.LastScoutObservedVersion.Get()
 	}
 	if api.Status != nil {
 		m.Status = string(*api.Status)

@@ -57,6 +57,8 @@ type Machine struct {
 	PlacementInRack *PlacementInRack `json:"placementInRack,omitempty"`
 	// If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
+	// Last Scout version reported by the Machine, if known
+	LastScoutObservedVersion NullableString `json:"lastScoutObservedVersion,omitempty"`
 	// Health information about the machine
 	Health *MachineHealth `json:"health,omitempty"`
 	// Only available to Providers. Returned if the `includeMetadata` query parameter is specified. Otherwise attribute is omitted from response.
@@ -735,6 +737,49 @@ func (o *Machine) UnsetMaintenanceMessage() {
 	o.MaintenanceMessage.Unset()
 }
 
+// GetLastScoutObservedVersion returns the LastScoutObservedVersion field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *Machine) GetLastScoutObservedVersion() string {
+	if o == nil || IsNil(o.LastScoutObservedVersion.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.LastScoutObservedVersion.Get()
+}
+
+// GetLastScoutObservedVersionOk returns a tuple with the LastScoutObservedVersion field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *Machine) GetLastScoutObservedVersionOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.LastScoutObservedVersion.Get(), o.LastScoutObservedVersion.IsSet()
+}
+
+// HasLastScoutObservedVersion returns a boolean if a field has been set.
+func (o *Machine) HasLastScoutObservedVersion() bool {
+	if o != nil && o.LastScoutObservedVersion.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetLastScoutObservedVersion gets a reference to the given NullableString and assigns it to the LastScoutObservedVersion field.
+func (o *Machine) SetLastScoutObservedVersion(v string) {
+	o.LastScoutObservedVersion.Set(&v)
+}
+
+// SetLastScoutObservedVersionNil sets the value for LastScoutObservedVersion to be an explicit nil
+func (o *Machine) SetLastScoutObservedVersionNil() {
+	o.LastScoutObservedVersion.Set(nil)
+}
+
+// UnsetLastScoutObservedVersion ensures that no value is present for LastScoutObservedVersion, not even an explicit nil
+func (o *Machine) UnsetLastScoutObservedVersion() {
+	o.LastScoutObservedVersion.Unset()
+}
+
 // GetHealth returns the Health field value if set, zero value otherwise.
 func (o *Machine) GetHealth() MachineHealth {
 	if o == nil || IsNil(o.Health) {
@@ -1051,6 +1096,9 @@ func (o Machine) ToMap() (map[string]interface{}, error) {
 	}
 	if o.MaintenanceMessage.IsSet() {
 		toSerialize["maintenanceMessage"] = o.MaintenanceMessage.Get()
+	}
+	if o.LastScoutObservedVersion.IsSet() {
+		toSerialize["lastScoutObservedVersion"] = o.LastScoutObservedVersion.Get()
 	}
 	if !IsNil(o.Health) {
 		toSerialize["health"] = o.Health
