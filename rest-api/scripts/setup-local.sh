@@ -238,7 +238,7 @@ ensure_temporal_namespace() {
 
     echo "Registering Temporal namespace: $temporal_namespace"
     for attempt in {1..30}; do
-        if describe_error=$("${temporal_command[@]}" describe --namespace "$temporal_namespace" \
+        if describe_error=$("${temporal_command[@]}" describe -n "$temporal_namespace" \
             --address "$temporal_address" \
             --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
             --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
@@ -248,7 +248,8 @@ ensure_temporal_namespace() {
             return
         fi
 
-        create_error=$("${temporal_command[@]}" create --namespace "$temporal_namespace" \
+        create_error=$("${temporal_command[@]}" create -n "$temporal_namespace" \
+            --retention 72h \
             --address "$temporal_address" \
             --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
             --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
@@ -258,7 +259,7 @@ ensure_temporal_namespace() {
         sleep 5
     done
 
-    if describe_error=$("${temporal_command[@]}" describe --namespace "$temporal_namespace" \
+    if describe_error=$("${temporal_command[@]}" describe -n "$temporal_namespace" \
         --address "$temporal_address" \
         --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
         --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
