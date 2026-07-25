@@ -613,12 +613,24 @@ echo "=== [1c] MetalLB ==="
 #   3. On sync failure, attempt CRD restoration before returning the error.
 #   4. Wait for CRDs to reach Established=True before applying site objects.
 #
-# Single source of truth for the chart version is the metallb release in
-# helmfile.yaml — read it from there so this bootstrap and the helm release
-# cannot drift when the version is bumped.
-METALLB_CHART_VERSION="$(awk '/chart: metallb\/metallb/{found=1} found && /^[[:space:]]*version:/{gsub(/"/,"",$2); print $2; exit}' helmfile.yaml)"
-if [[ -z "${METALLB_CHART_VERSION}" ]]; then
-    echo "ERROR: could not read the metallb chart version from helmfile.yaml" >&2
+# Single source of truth for the chart source and version is the metallb
+# release in helmfile.yaml. Read both from that release block so HTTP, OCI,
+# repository-qualified, and local chart coordinates all work consistently.
+METALLB_CHART="$(awk '
+    /^  - name:[[:space:]]*metallb[[:space:]]*$/ { release=1; next }
+    release && /^  - name:/ { exit }
+    release && /^    chart:/ {
+        sub(/^[^:]*:[[:space:]]*/, "")
+        gsub(/^"|"$/, "")
+        print
+        exit
+    }' helmfile.yaml)"
+METALLB_CHART_VERSION="$(awk '
+    /^  - name:[[:space:]]*metallb[[:space:]]*$/ { release=1; next }
+    release && /^  - name:/ { exit }
+    release && /^    version:/ { gsub(/"/, "", $2); print $2; exit }' helmfile.yaml)"
+if [[ -z "${METALLB_CHART}" || -z "${METALLB_CHART_VERSION}" ]]; then
+    echo "ERROR: could not read the metallb chart source and version from helmfile.yaml" >&2
     exit 1
 fi
 
@@ -629,7 +641,7 @@ fi
 # stderr is left attached so a repo/render failure says what actually broke
 # instead of surfacing as a confusing kubectl parse error downstream.
 _apply_metallb_crds() {
-    helm template metallb metallb/metallb --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
+    helm template metallb "${METALLB_CHART}" --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
         | awk '
             /^---[[:space:]]*$/ { if (doc ~ /kind: CustomResourceDefinition/) printf "%s---\n", doc; doc = ""; next }
             { doc = doc $0 "\n" }
