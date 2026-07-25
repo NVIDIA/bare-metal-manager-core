@@ -414,6 +414,8 @@ nico-dhcp:
   # apiServiceName: carbide-api
   config:
     kea:
+      # Debian multiarch path; DANTE rewrites this for ARM64 Spark labs.
+      hookLibraryPath: "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so"
       hookParameters:
         # DPUs need a resolver that serves the .forge zone (carbide-api.forge etc.).
         # nico-dns is authoritative-only and does NOT serve .forge, so hand DPUs
