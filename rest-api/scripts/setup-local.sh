@@ -227,7 +227,15 @@ create_site() {
 
 ensure_temporal_namespace() {
     local temporal_namespace=$1
-    local temporal_address="temporal-frontend-headless.temporal.svc.cluster.local.:7233"
+    local temporal_frontend_ip
+    temporal_frontend_ip=$(kubectl -n temporal get pods \
+        -l app.kubernetes.io/component=frontend \
+        -o jsonpath='{.items[0].status.podIP}')
+    if [ -z "$temporal_frontend_ip" ]; then
+        echo "ERROR: Temporal frontend pod IP is unavailable" >&2
+        return 1
+    fi
+    local temporal_address="${temporal_frontend_ip}:7233"
     local describe_error=""
     local create_error=""
 
