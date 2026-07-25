@@ -866,18 +866,28 @@ while IFS='=' read -r _db_name _db_owner; do
         echo "ERROR: invalid PostgreSQL database or owner in nico-pg-cluster: ${_db_name}=${_db_owner}" >&2
         exit 1
     fi
-    if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
-        su postgres -c "psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname = '${_db_name}'\"" \
-        2>/dev/null | grep -qx '1'; then
-        echo "  database ${_db_name} already exists"
-        continue
-    fi
-    if ! kubectl exec -n postgres "${_PG_PRIMARY}" -- \
-        su postgres -c "psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE \"${_db_name}\" OWNER \"${_db_owner}\"'"; then
+    _db_ready=false
+    for _db_attempt in $(seq 1 12); do
+        if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+            su postgres -c "psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname = '${_db_name}'\"" \
+            2>/dev/null | grep -qx '1'; then
+            echo "  database ${_db_name} already exists"
+            _db_ready=true
+            break
+        fi
+        if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+            su postgres -c "PGOPTIONS='-c lock_timeout=5s' psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE \"${_db_name}\" OWNER \"${_db_owner}\"'"; then
+            echo "  database ${_db_name} created"
+            _db_ready=true
+            break
+        fi
+        echo "  database ${_db_name} is still being reconciled (${_db_attempt}/12) — retrying in 5s..."
+        sleep 5
+    done
+    if [[ "${_db_ready}" != "true" ]]; then
         echo "ERROR: failed to create PostgreSQL database ${_db_name} owned by ${_db_owner}" >&2
         exit 1
     fi
-    echo "  database ${_db_name} created"
 done < <(kubectl get postgresql nico-pg-cluster -n postgres \
     -o go-template='{{range $database, $owner := .spec.databases}}{{$database}}={{$owner}}{{"\n"}}{{end}}')
 
