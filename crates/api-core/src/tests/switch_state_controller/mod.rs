@@ -32,6 +32,7 @@ use component_manager::nv_switch_manager::{
 use component_manager::power_shelf_manager::Backend as PowerShelfBackend;
 use db::switch as db_switch;
 use model::component_manager::ConfigureSwitchCertificateState;
+use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::switch::{ConfigureCertificateState, ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
@@ -204,21 +205,26 @@ async fn test_configure_certificate_start_transitions_to_wait_for_complete_with_
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let switch_id =
+        common::api_fixtures::site_explorer::new_switch(&env, Some("Switch4".to_string()), None)
+            .await?;
 
     let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
         .await?
         .first()
         .expect("switch endpoint row")
         .bmc_mac;
+
+    let credential_key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+
+    let imported_credentials = Credentials::UsernamePassword {
+        username: "nvos-admin".to_string(),
+        password: "nvos-secret".to_string(),
+    };
+
     env.test_credential_manager
-        .set_credentials(
-            &CredentialKey::SwitchNvosAdmin { bmc_mac_address },
-            &Credentials::UsernamePassword {
-                username: "nvos-admin".to_string(),
-                password: "nvos-secret".to_string(),
-            },
-        )
+        .set_credentials(&credential_key, &imported_credentials)
         .await
         .expect("failed to seed NVOS credentials");
 
@@ -264,7 +270,203 @@ async fn test_configure_certificate_start_transitions_to_wait_for_complete_with_
             },
         } if job_id == "mock-switch-cert-job"
     ));
+
     assert_eq!(switch.rack_id.as_ref(), Some(&"rack-id-1".into()));
+
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials_from_writer(&credential_key)
+            .await
+            .expect("failed to read imported NVOS credentials"),
+        Some(imported_credentials)
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_start_seeds_expected_switch_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let switch_id =
+        common::api_fixtures::site_explorer::new_switch(&env, Some("Switch4".to_string()), None)
+            .await?;
+
+    let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
+        .await?
+        .first()
+        .expect("switch endpoint row")
+        .bmc_mac;
+
+    let credential_key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials_from_writer(&credential_key)
+            .await
+            .expect("failed to check for existing NVOS credentials"),
+        None
+    );
+
+    let mut txn = pool.begin().await?;
+    set_switch_rack_id(txn.as_mut(), &switch_id, &"rack-id-1".into()).await?;
+
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_start_state(),
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        SwitchStateHandlerServices {
+            db_pool: pool.clone(),
+            component_manager: Some(mock_component_manager(Arc::new(
+                MockNvSwitchManager::default(),
+            ))),
+            credential_manager: env.test_credential_manager.clone(),
+            switch_mtls_services: default_switch_mtls_services(),
+            per_object_metrics_registry: carbide_health_metrics::PerObjectMetricsRegistry::new(
+                Vec::new(),
+                std::time::Duration::from_secs(60),
+            ),
+        },
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::ConfigureCertificate {
+                configure_certificate: ConfigureCertificateState::WaitForComplete { .. },
+            },
+        }
+    ));
+
+    assert_eq!(
+        env.test_credential_manager
+            .get_credentials_from_writer(&credential_key)
+            .await
+            .expect("failed to read seeded NVOS credentials"),
+        Some(Credentials::UsernamePassword {
+            username: "nvos_admin1".to_string(),
+            password: "nvos_pass1".to_string(),
+        })
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_configure_certificate_start_retries_after_credential_import(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let bmc_mac_address = db_switch::find_switch_endpoints_by_ids(&pool, &[switch_id])
+        .await?
+        .first()
+        .expect("switch endpoint row")
+        .bmc_mac;
+
+    let credential_key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+
+    let mut txn = pool.begin().await?;
+    set_switch_rack_id(txn.as_mut(), &switch_id, &"rack-id-1".into()).await?;
+
+    transition_switch_controller_state(
+        txn.as_mut(),
+        &switch_id,
+        configure_certificate_start_state(),
+    )
+    .await?;
+
+    txn.commit().await?;
+
+    let services = || SwitchStateHandlerServices {
+        db_pool: pool.clone(),
+        component_manager: Some(mock_component_manager(Arc::new(
+            MockNvSwitchManager::default(),
+        ))),
+        credential_manager: env.test_credential_manager.clone(),
+        switch_mtls_services: default_switch_mtls_services(),
+        per_object_metrics_registry: carbide_health_metrics::PerObjectMetricsRegistry::new(
+            Vec::new(),
+            std::time::Duration::from_secs(60),
+        ),
+    };
+
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        services(),
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+
+    assert_eq!(
+        switch.controller_state.value,
+        configure_certificate_start_state()
+    );
+
+    assert!(matches!(
+        switch.controller_state_outcome.as_ref(),
+        Some(PersistentStateHandlerOutcome::Wait { reason, .. })
+            if reason == &format!("switch {switch_id}: waiting for NVOS admin credentials")
+    ));
+
+    drop(txn);
+
+    env.test_credential_manager
+        .set_credentials(
+            &credential_key,
+            &Credentials::UsernamePassword {
+                username: "imported-admin".to_string(),
+                password: "imported-secret".to_string(),
+            },
+        )
+        .await
+        .expect("failed to import NVOS credentials");
+
+    run_switch_controller_with_services(
+        pool.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        services(),
+    )
+    .await;
+
+    let mut txn = pool.acquire().await?;
+
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Configuring {
+            config_state: ConfiguringState::ConfigureCertificate {
+                configure_certificate: ConfigureCertificateState::WaitForComplete { .. },
+            },
+        }
+    ));
 
     Ok(())
 }
