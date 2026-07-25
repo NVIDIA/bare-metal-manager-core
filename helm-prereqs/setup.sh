@@ -778,13 +778,27 @@ helmfile sync -l name=nico-prereqs
 # before NICo Core starts (the NICo Core API needs the DB credentials Secret).
 # ---------------------------------------------------------------------------
 echo "Waiting for nico-pg-cluster to reach Running state..."
-until kubectl get postgresql nico-pg-cluster -n postgres \
-    -o jsonpath='{.status.PostgresClusterStatus}' 2>/dev/null | grep -q "Running"; do
+_pg_cluster_ready=false
+for _pg_wait_i in $(seq 1 60); do
     STATUS="$(kubectl get postgresql nico-pg-cluster -n postgres \
-        -o jsonpath='{.status.PostgresClusterStatus}' 2>/dev/null || echo 'unknown')"
-    echo "  nico-pg-cluster status: ${STATUS} — retrying in 10s..."
+        -o jsonpath='{.status.PostgresClusterStatus}{.status.status}' 2>/dev/null || true)"
+    _PG_PRIMARY_READY="$(kubectl get pods -n postgres \
+        -l application=spilo,cluster-name=nico-pg-cluster,spilo-role=master \
+        -o jsonpath='{range .items[*]}{.status.containerStatuses[?(@.name=="postgres")].ready}{"\n"}{end}' \
+        2>/dev/null || true)"
+    if [[ "${STATUS}" == *"Running"* ]] || grep -qx "true" <<<"${_PG_PRIMARY_READY}"; then
+        _pg_cluster_ready=true
+        break
+    fi
+    echo "  nico-pg-cluster status: ${STATUS:-unknown}; primary ready: ${_PG_PRIMARY_READY:-false} (${_pg_wait_i}/60) — retrying in 10s..."
     sleep 10
 done
+if [[ "${_pg_cluster_ready}" != "true" ]]; then
+    echo "ERROR: nico-pg-cluster did not become ready within 600s" >&2
+    kubectl get postgresql nico-pg-cluster -n postgres -o yaml >&2 || true
+    kubectl get pods -n postgres -l application=spilo,cluster-name=nico-pg-cluster -o wide >&2 || true
+    exit 1
+fi
 echo "nico-pg-cluster is Running"
 
 # Install pg_trgm on nico_rest (needed by the nico-rest-db GIN index migration).
