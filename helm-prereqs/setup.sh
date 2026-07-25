@@ -873,7 +873,7 @@ while IFS='=' read -r _db_name _db_owner; do
         continue
     fi
     if ! kubectl exec -n postgres "${_PG_PRIMARY}" -- \
-        su postgres -c "createdb --owner='${_db_owner}' '${_db_name}'"; then
+        su postgres -c "psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE \"${_db_name}\" OWNER \"${_db_owner}\"'"; then
         echo "ERROR: failed to create PostgreSQL database ${_db_name} owned by ${_db_owner}" >&2
         exit 1
     fi
