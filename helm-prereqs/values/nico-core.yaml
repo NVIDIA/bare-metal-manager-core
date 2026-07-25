@@ -51,6 +51,16 @@ global:
 nico-api:
   hostname: ""   # REQUIRED: external nico-api hostname (e.g. api-<site>.<domain>)
 
+  # The lab installs NICo into nico-system while retaining compatibility
+  # aliases in forge-system. Own the legacy namespace in the Core release so
+  # the alias Services can be created on a fresh cluster.
+  legacyAlias:
+    enabled: true
+    aliases:
+      - name: carbide-api
+        namespace: forge-system
+        createNamespace: true
+
   ## Trust admin-CLI client certs minted from the site CA (CN=site-root) so admin-cli works
   ## with NO manual ConfigMap edit. Pair with helm-prereqs vault.nicoCliClientRole.
   ## "site-root" is the CN of the cert-manager site root created by nico-prereqs — generic, keep as-is.
