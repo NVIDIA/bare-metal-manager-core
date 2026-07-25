@@ -227,7 +227,7 @@ create_site() {
 
 ensure_temporal_namespace() {
     local temporal_namespace=$1
-    local temporal_address="temporal-frontend.temporal.svc.cluster.local.:7233"
+    local temporal_address="temporal-frontend-headless.temporal.svc.cluster.local.:7233"
     local describe_error=""
     local create_error=""
 
