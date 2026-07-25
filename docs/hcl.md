@@ -68,7 +68,7 @@ NICo supports all current NVIDIA data center GPUs.
 
 Unlike host platforms, GPU compatibility is not validated on a per-platform basis in this Hardware Compatibility List. GPU support is provided through the supported host platforms and NVIDIA software stack. For platform-specific GPU qualification, certification, thermal, power, or configuration guidance, refer to your server manufacturer.
 
-GPU Family | Support
---- | ---
-Current NVIDIA Data Center GPUs | Supported
+| GPU Family | Support |
+| ---------- | ------- |
+| Current NVIDIA Data Center GPUs | Supported |
 
