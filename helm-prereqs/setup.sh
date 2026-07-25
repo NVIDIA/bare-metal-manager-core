@@ -455,6 +455,8 @@ if ! command -v helmfile &>/dev/null; then
     if command -v brew &>/dev/null; then
         brew install helmfile
     else
+        HELMFILE_INSTALL_DIR="${HELMFILE_INSTALL_DIR:-${HOME}/.local/bin}"
+        mkdir -p "${HELMFILE_INSTALL_DIR}"
         # Download the latest release binary for Linux
         HELMFILE_VERSION="$(curl -fsSL https://api.github.com/repos/helmfile/helmfile/releases/latest \
             | grep '"tag_name"' | sed 's/.*"tag_name": *"v\([^"]*\)".*/\1/')"
@@ -462,8 +464,9 @@ if ! command -v helmfile &>/dev/null; then
         [[ "${ARCH}" == "x86_64" ]] && ARCH="amd64"
         [[ "${ARCH}" == "aarch64" ]] && ARCH="arm64"
         curl -fsSL "https://github.com/helmfile/helmfile/releases/download/v${HELMFILE_VERSION}/helmfile_${HELMFILE_VERSION}_linux_${ARCH}.tar.gz" \
-            | tar -xz -C /usr/local/bin helmfile
-        chmod +x /usr/local/bin/helmfile
+            | tar -xz -C "${HELMFILE_INSTALL_DIR}" helmfile
+        chmod +x "${HELMFILE_INSTALL_DIR}/helmfile"
+        export PATH="${HELMFILE_INSTALL_DIR}:${PATH}"
     fi
     echo "helmfile $(helmfile --version) installed"
 fi
