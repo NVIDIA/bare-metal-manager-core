@@ -117,15 +117,28 @@ fn machine_creator(env: &Env, config: SiteExplorerConfig) -> MachineCreator {
 }
 
 fn machine_creator_with_rms(env: &Env, rms_sim: &RmsSim) -> MachineCreator {
+    // Rack attributes are inherited by the compute descriptor, while its
+    // role-level attribute replaces the identical rack-level key.
     let rack_profiles = RackProfileConfig {
         rack_profiles: [(
             TEST_RMS_RACK_PROFILE_ID.to_string(),
             RackProfile {
                 product_family: Some(RackProductFamily::Gb200),
                 rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+                attributes: HashMap::from([
+                    ("attribute1".to_string(), "rack-value".to_string()),
+                    (
+                        "additional_attribute2".to_string(),
+                        "additional-value".to_string(),
+                    ),
+                ]),
                 rack_capabilities: RackCapabilitiesSet {
                     compute: RackCapabilityCompute {
                         vendor: Some("NVIDIA".to_string()),
+                        attributes: HashMap::from([(
+                            "attribute1".to_string(),
+                            "compute-value".to_string(),
+                        )]),
                         ..Default::default()
                     },
                     switch: RackCapabilitySwitch {
@@ -263,6 +276,19 @@ async fn test_machine_creator_compute_rms_request_uses_rack_profile(
             .get(KEY_PRODUCT_FAMILY)
             .map(String::as_str),
         Some("gb200")
+    );
+
+    assert_eq!(
+        descriptor
+            .attributes
+            .get("additional_attribute2")
+            .map(String::as_str),
+        Some("additional-value")
+    );
+
+    assert_eq!(
+        descriptor.attributes.get("attribute1").map(String::as_str),
+        Some("compute-value")
     );
 
     Ok(())
