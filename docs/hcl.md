@@ -1,5 +1,9 @@
 # Hardware Compatibility List
 
+# Hardware Compatibility List
+
+**Last updated July 24, 2026**
+
 This Hardware Compatibility List (HCL) is provided for reference purposes only. Systems listed here have been unit tested or exercised internally in limited scenarios.
 Inclusion in this list does not imply qualification, certification, or support, and does not represent a commitment to ongoing compatibility. For specific hardware support
 inquiries or technical specifications, please contact the original hardware vendor.
