@@ -138,6 +138,208 @@ impl DynamicLog for IbMonitorIterationFinished {
     }
 }
 
+/// The best-effort step that failed while the monitor continued its pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum IbMonitorPartialFailureStage {
+    BuildClient,
+    HealthCheck,
+    LoadPorts,
+    LoadPartitions,
+    PreloadSkuInactiveDevices,
+    UpdateMachineStatusObservation,
+}
+
+// `LabelValue` exports the full variant names, including the shared prefix, as
+// the established `failure_stage` values.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum IbMonitorPkeyReconciliationFailureStage {
+    ResolvePartitionId,
+    ResolvePartition,
+}
+
+/// `IbFabricDataLoadFailed` records the stage that left one fabric's cached
+/// data incomplete while the monitor continues with what it could load.
+#[derive(Event)]
+#[event(
+    event_name = "ib_fabric_data_load_failed",
+    metric_name = "carbide_ib_monitor_partial_failures_total",
+    component = "ib-fabric-monitor",
+    log = error,
+    metric = counter,
+    message = "IB fabric operation failed",
+    describe = "Number of IB fabric monitor partial failures, by failure stage."
+)]
+pub(crate) struct IbFabricDataLoadFailed {
+    #[label]
+    failure_stage: IbMonitorPartialFailureStage,
+    #[context]
+    fabric: String,
+    #[context]
+    endpoints: String,
+    #[context]
+    error: String,
+}
+
+impl IbFabricDataLoadFailed {
+    pub(crate) fn build_client(fabric: String, endpoints: String, error: String) -> Self {
+        Self::new(
+            IbMonitorPartialFailureStage::BuildClient,
+            fabric,
+            endpoints,
+            error,
+        )
+    }
+
+    pub(crate) fn health_check(fabric: String, endpoints: String, error: String) -> Self {
+        Self::new(
+            IbMonitorPartialFailureStage::HealthCheck,
+            fabric,
+            endpoints,
+            error,
+        )
+    }
+
+    pub(crate) fn load_ports(fabric: String, endpoints: String, error: String) -> Self {
+        Self::new(
+            IbMonitorPartialFailureStage::LoadPorts,
+            fabric,
+            endpoints,
+            error,
+        )
+    }
+
+    pub(crate) fn load_partitions(fabric: String, endpoints: String, error: String) -> Self {
+        Self::new(
+            IbMonitorPartialFailureStage::LoadPartitions,
+            fabric,
+            endpoints,
+            error,
+        )
+    }
+
+    fn new(
+        failure_stage: IbMonitorPartialFailureStage,
+        fabric: String,
+        endpoints: String,
+        error: String,
+    ) -> Self {
+        Self {
+            failure_stage,
+            fabric,
+            endpoints,
+            error,
+        }
+    }
+}
+
+/// `IbMonitorSkuInactivePreloadFailed` marks the pass-wide lookup failure that
+/// makes every machine skip IB port monitoring.
+#[derive(Event)]
+#[event(
+    event_name = "ib_monitor_sku_inactive_preload_failed",
+    metric_name = "carbide_ib_monitor_partial_failures_total",
+    component = "ib-fabric-monitor",
+    log = warn,
+    metric = counter,
+    message = "Failed to preload SKU inactive devices, will skip IB port monitoring for all machines",
+    describe = "Number of IB fabric monitor partial failures, by failure stage."
+)]
+pub(crate) struct IbMonitorSkuInactivePreloadFailed {
+    #[label]
+    failure_stage: IbMonitorPartialFailureStage,
+    #[context]
+    error: String,
+}
+
+impl IbMonitorSkuInactivePreloadFailed {
+    pub(crate) fn new(error: String) -> Self {
+        Self {
+            failure_stage: IbMonitorPartialFailureStage::PreloadSkuInactiveDevices,
+            error,
+        }
+    }
+}
+
+/// `IbMonitorMachineStatusObservationFailed` records one machine that could
+/// not be updated without stopping the rest of the monitor pass.
+#[derive(Event)]
+#[event(
+    event_name = "ib_monitor_machine_status_observation_failed",
+    metric_name = "carbide_ib_monitor_partial_failures_total",
+    component = "ib-fabric-monitor",
+    log = error,
+    metric = counter,
+    message = "Failed to update IB Status observation",
+    describe = "Number of IB fabric monitor partial failures, by failure stage."
+)]
+pub(crate) struct IbMonitorMachineStatusObservationFailed {
+    #[label]
+    failure_stage: IbMonitorPartialFailureStage,
+    #[context]
+    error: String,
+    #[context]
+    machine_id: String,
+}
+
+impl IbMonitorMachineStatusObservationFailed {
+    pub(crate) fn new(error: String, machine_id: String) -> Self {
+        Self {
+            failure_stage: IbMonitorPartialFailureStage::UpdateMachineStatusObservation,
+            error,
+            machine_id,
+        }
+    }
+}
+
+/// `IbMonitorPkeyReconciliationSkipped` counts a missing lookup that leaves
+/// one GUID-to-pkey change unapplied.
+#[derive(Event)]
+#[event(
+    event_name = "ib_monitor_pkey_reconciliation_skipped",
+    metric_name = "carbide_ib_monitor_partial_failures_total",
+    component = "ib-fabric-monitor",
+    log = warn,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of IB fabric monitor partial failures, by failure stage."
+)]
+pub(crate) struct IbMonitorPkeyReconciliationSkipped {
+    #[label]
+    failure_stage: IbMonitorPkeyReconciliationFailureStage,
+    #[context]
+    pkey: String,
+}
+
+impl IbMonitorPkeyReconciliationSkipped {
+    pub(crate) fn missing_partition_id(pkey: String) -> Self {
+        Self {
+            failure_stage: IbMonitorPkeyReconciliationFailureStage::ResolvePartitionId,
+            pkey,
+        }
+    }
+
+    pub(crate) fn missing_partition(pkey: String) -> Self {
+        Self {
+            failure_stage: IbMonitorPkeyReconciliationFailureStage::ResolvePartition,
+            pkey,
+        }
+    }
+}
+
+impl DynamicMessage for IbMonitorPkeyReconciliationSkipped {
+    fn message(&self) -> &'static str {
+        match self.failure_stage {
+            IbMonitorPkeyReconciliationFailureStage::ResolvePartitionId => {
+                "Missing pkey does not map to a Partition ID"
+            }
+            IbMonitorPkeyReconciliationFailureStage::ResolvePartition => {
+                "Missing pkey does not map to a Partition"
+            }
+        }
+    }
+}
+
 /// Registers the observable instruments used by `IbFabricMonitor`.
 struct IbFabricMonitorInstruments;
 
@@ -714,6 +916,286 @@ mod tests {
                     log,
                     histogram_count_delta: metrics.histogram_count_delta(EXPOSED_METRIC, &[]),
                     histogram_sum_delta: metrics.histogram_sum_delta(EXPOSED_METRIC, &[]),
+                }
+            },
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    enum PartialFailureCase {
+        BuildClient,
+        HealthCheck,
+        LoadPorts,
+        LoadPartitions,
+        PreloadSkuInactiveDevices,
+        UpdateMachineStatusObservation,
+        ResolvePartitionId,
+        ResolvePartition,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct PartialFailureObservation {
+        log_count: usize,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        failure_stage: Option<String>,
+        fabric: Option<String>,
+        endpoints: Option<String>,
+        error: Option<String>,
+        machine_id: Option<String>,
+        pkey: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn partial_failures_keep_their_logs_and_count_by_stage() {
+        const ENDPOINTS: &str = "https://ufm-1,https://ufm-2";
+        const ERROR: &str = "simulated failure";
+        const FABRIC: &str = "fabric-1";
+        const MACHINE_ID: &str = "machine-1";
+        const METRIC: &str = "carbide_ib_monitor_partial_failures_total";
+        const PKEY: &str = "0x101";
+
+        check_values(
+            [
+                Check {
+                    scenario: "build client",
+                    input: PartialFailureCase::BuildClient,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::ERROR,
+                        message: "IB fabric operation failed".to_string(),
+                        event_name: Some("ib_fabric_data_load_failed".to_string()),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("build_client".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: Some(ENDPOINTS.to_string()),
+                        error: Some(ERROR.to_string()),
+                        machine_id: None,
+                        pkey: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "health check",
+                    input: PartialFailureCase::HealthCheck,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::ERROR,
+                        message: "IB fabric operation failed".to_string(),
+                        event_name: Some("ib_fabric_data_load_failed".to_string()),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("health_check".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: Some(ENDPOINTS.to_string()),
+                        error: Some(ERROR.to_string()),
+                        machine_id: None,
+                        pkey: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "load ports",
+                    input: PartialFailureCase::LoadPorts,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::ERROR,
+                        message: "IB fabric operation failed".to_string(),
+                        event_name: Some("ib_fabric_data_load_failed".to_string()),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("load_ports".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: Some(ENDPOINTS.to_string()),
+                        error: Some(ERROR.to_string()),
+                        machine_id: None,
+                        pkey: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "load partitions",
+                    input: PartialFailureCase::LoadPartitions,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::ERROR,
+                        message: "IB fabric operation failed".to_string(),
+                        event_name: Some("ib_fabric_data_load_failed".to_string()),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("load_partitions".to_string()),
+                        fabric: Some(FABRIC.to_string()),
+                        endpoints: Some(ENDPOINTS.to_string()),
+                        error: Some(ERROR.to_string()),
+                        machine_id: None,
+                        pkey: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "preload SKU inactive devices",
+                    input: PartialFailureCase::PreloadSkuInactiveDevices,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "Failed to preload SKU inactive devices, will skip IB port monitoring for all machines".to_string(),
+                        event_name: Some(
+                            "ib_monitor_sku_inactive_preload_failed".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("preload_sku_inactive_devices".to_string()),
+                        fabric: None,
+                        endpoints: None,
+                        error: Some(ERROR.to_string()),
+                        machine_id: None,
+                        pkey: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "update machine status observation",
+                    input: PartialFailureCase::UpdateMachineStatusObservation,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::ERROR,
+                        message: "Failed to update IB Status observation".to_string(),
+                        event_name: Some(
+                            "ib_monitor_machine_status_observation_failed".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some(
+                            "update_machine_status_observation".to_string(),
+                        ),
+                        fabric: None,
+                        endpoints: None,
+                        error: Some(ERROR.to_string()),
+                        machine_id: Some(MACHINE_ID.to_string()),
+                        pkey: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "resolve partition ID",
+                    input: PartialFailureCase::ResolvePartitionId,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "Missing pkey does not map to a Partition ID".to_string(),
+                        event_name: Some(
+                            "ib_monitor_pkey_reconciliation_skipped".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("resolve_partition_id".to_string()),
+                        fabric: None,
+                        endpoints: None,
+                        error: None,
+                        machine_id: None,
+                        pkey: Some(PKEY.to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "resolve partition",
+                    input: PartialFailureCase::ResolvePartition,
+                    expect: PartialFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "Missing pkey does not map to a Partition".to_string(),
+                        event_name: Some(
+                            "ib_monitor_pkey_reconciliation_skipped".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("resolve_partition".to_string()),
+                        fabric: None,
+                        endpoints: None,
+                        error: None,
+                        machine_id: None,
+                        pkey: Some(PKEY.to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |case| {
+                let failure_stage_label = match case {
+                    PartialFailureCase::BuildClient => "build_client",
+                    PartialFailureCase::HealthCheck => "health_check",
+                    PartialFailureCase::LoadPorts => "load_ports",
+                    PartialFailureCase::LoadPartitions => "load_partitions",
+                    PartialFailureCase::PreloadSkuInactiveDevices => {
+                        "preload_sku_inactive_devices"
+                    }
+                    PartialFailureCase::UpdateMachineStatusObservation => {
+                        "update_machine_status_observation"
+                    }
+                    PartialFailureCase::ResolvePartitionId => "resolve_partition_id",
+                    PartialFailureCase::ResolvePartition => "resolve_partition",
+                };
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match case {
+                    PartialFailureCase::BuildClient => {
+                        emit(IbFabricDataLoadFailed::build_client(
+                            FABRIC.to_string(),
+                            ENDPOINTS.to_string(),
+                            ERROR.to_string(),
+                        ));
+                    }
+                    PartialFailureCase::HealthCheck => {
+                        emit(IbFabricDataLoadFailed::health_check(
+                            FABRIC.to_string(),
+                            ENDPOINTS.to_string(),
+                            ERROR.to_string(),
+                        ));
+                    }
+                    PartialFailureCase::LoadPorts => {
+                        emit(IbFabricDataLoadFailed::load_ports(
+                            FABRIC.to_string(),
+                            ENDPOINTS.to_string(),
+                            ERROR.to_string(),
+                        ));
+                    }
+                    PartialFailureCase::LoadPartitions => {
+                        emit(IbFabricDataLoadFailed::load_partitions(
+                            FABRIC.to_string(),
+                            ENDPOINTS.to_string(),
+                            ERROR.to_string(),
+                        ));
+                    }
+                    PartialFailureCase::PreloadSkuInactiveDevices => {
+                        emit(IbMonitorSkuInactivePreloadFailed::new(ERROR.to_string()));
+                    }
+                    PartialFailureCase::UpdateMachineStatusObservation => {
+                        emit(IbMonitorMachineStatusObservationFailed::new(
+                            ERROR.to_string(),
+                            MACHINE_ID.to_string(),
+                        ));
+                    }
+                    PartialFailureCase::ResolvePartitionId => {
+                        emit(IbMonitorPkeyReconciliationSkipped::missing_partition_id(
+                            PKEY.to_string(),
+                        ));
+                    }
+                    PartialFailureCase::ResolvePartition => {
+                        emit(IbMonitorPkeyReconciliationSkipped::missing_partition(
+                            PKEY.to_string(),
+                        ));
+                    }
+                });
+                let log = logs.first().expect("partial failure Event logged");
+
+                PartialFailureObservation {
+                    log_count: logs.len(),
+                    level: log.level,
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    failure_stage: log.field("failure_stage").map(str::to_string),
+                    fabric: log.field("fabric").map(str::to_string),
+                    endpoints: log.field("endpoints").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    machine_id: log.field("machine_id").map(str::to_string),
+                    pkey: log.field("pkey").map(str::to_string),
+                    counter_delta: metrics
+                        .counter_delta(METRIC, &[("failure_stage", failure_stage_label)]),
                 }
             },
         );

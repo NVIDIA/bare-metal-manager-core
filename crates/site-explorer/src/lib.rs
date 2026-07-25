@@ -106,7 +106,8 @@ use errors::{SiteExplorerError, SiteExplorerResult};
 use self::metrics::{
     BmcResetFinished, BmcResetMethod, BmcResetStatus, BmcResetTimestampPersistenceFailed,
     DpuMigrationSignal, PairingBlockerReason, SiteExplorerIterationFinished,
-    exploration_error_to_metric_label,
+    SiteExplorerMachineSlotTrayFetchFailed, SiteExplorerMachineSlotTrayResponseMissing,
+    SiteExplorerMachineSlotTrayValueInvalid, exploration_error_to_metric_label,
 };
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
@@ -210,8 +211,33 @@ pub(crate) async fn ensure_rack_exists(
     }
 }
 
-/// Fetches slot_number and tray_index from the RMS for a given rack/node pair.
-/// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
+#[derive(Clone, Copy)]
+enum RmsLocationField {
+    SlotNumber,
+    TrayIndex,
+}
+
+fn rms_location_value(value: Option<u32>, field: RmsLocationField) -> Option<i32> {
+    let value = value?;
+    match i32::try_from(value) {
+        Ok(value) => Some(value),
+        Err(_) => {
+            let event = match field {
+                RmsLocationField::SlotNumber => {
+                    SiteExplorerMachineSlotTrayValueInvalid::slot_number(value)
+                }
+                RmsLocationField::TrayIndex => {
+                    SiteExplorerMachineSlotTrayValueInvalid::tray_index(value)
+                }
+            };
+            carbide_instrument::emit(event);
+            None
+        }
+    }
+}
+
+/// Fetches `slot_number` and `tray_index` from RMS for one rack/node pair.
+/// Each value remains usable when the other is absent or outside `i32`.
 pub async fn fetch_slot_and_tray(
     rms_client: &dyn librms::RmsApi,
     request: librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest,
@@ -219,23 +245,21 @@ pub async fn fetch_slot_and_tray(
     match rms_client.batch_get_node_device_info(request).await {
         Ok(info) => {
             let Some(node_device_details) = info.node_device_details.first() else {
+                carbide_instrument::emit(SiteExplorerMachineSlotTrayResponseMissing::new());
                 return (None, None);
             };
 
-            let slot_number = node_device_details
-                .slot_number
-                .and_then(|value| i32::try_from(value).ok());
-            let tray_index = node_device_details
-                .tray_index
-                .and_then(|value| i32::try_from(value).ok());
+            let slot_number = rms_location_value(
+                node_device_details.slot_number,
+                RmsLocationField::SlotNumber,
+            );
+            let tray_index =
+                rms_location_value(node_device_details.tray_index, RmsLocationField::TrayIndex);
 
             (slot_number, tray_index)
         }
         Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "Failed to get device info from RMS, slot_number and tray_index will be unset"
-            );
+            carbide_instrument::emit(SiteExplorerMachineSlotTrayFetchFailed::new(e.to_string()));
             (None, None)
         }
     }
@@ -4146,12 +4170,102 @@ fn health_reports_equal_ignoring_observed_at(
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, value_scenarios};
+    use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
     use super::*;
+
+    #[test]
+    fn rms_location_values_keep_valid_and_absent_fields_without_failure_events() {
+        const METRIC: &str = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total";
+
+        #[derive(Clone, Copy)]
+        struct ConversionCase {
+            value: Option<u32>,
+            field: RmsLocationField,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            converted: Option<i32>,
+            log_count: usize,
+            counter_delta: f64,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "valid slot number",
+                    input: ConversionCase {
+                        value: Some(42),
+                        field: RmsLocationField::SlotNumber,
+                    },
+                    expect: Observation {
+                        converted: Some(42),
+                        log_count: 0,
+                        counter_delta: 0.0,
+                    },
+                },
+                Check {
+                    scenario: "absent tray index",
+                    input: ConversionCase {
+                        value: None,
+                        field: RmsLocationField::TrayIndex,
+                    },
+                    expect: Observation {
+                        converted: None,
+                        log_count: 0,
+                        counter_delta: 0.0,
+                    },
+                },
+                Check {
+                    scenario: "slot number outside i32",
+                    input: ConversionCase {
+                        value: Some(i32::MAX as u32 + 1),
+                        field: RmsLocationField::SlotNumber,
+                    },
+                    expect: Observation {
+                        converted: None,
+                        log_count: 1,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "tray index outside i32",
+                    input: ConversionCase {
+                        value: Some(u32::MAX),
+                        field: RmsLocationField::TrayIndex,
+                    },
+                    expect: Observation {
+                        converted: None,
+                        log_count: 1,
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |ConversionCase { value, field }| {
+                let failure_stage_label = match field {
+                    RmsLocationField::SlotNumber => "slot_number_out_of_range",
+                    RmsLocationField::TrayIndex => "tray_index_out_of_range",
+                };
+                let metrics = MetricsCapture::start();
+                let mut converted = None;
+                let logs = capture_logs(|| {
+                    converted = rms_location_value(value, field);
+                });
+
+                Observation {
+                    converted,
+                    log_count: logs.len(),
+                    counter_delta: metrics
+                        .counter_delta(METRIC, &[("failure_stage", failure_stage_label)]),
+                }
+            },
+        );
+    }
 
     #[test]
     fn in_memory_marker_keeps_bmc_reset_throttled_when_persist_fails() {
