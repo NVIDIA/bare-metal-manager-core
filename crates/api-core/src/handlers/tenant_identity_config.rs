@@ -49,8 +49,9 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::machine_identity::require_machine_identity_site_enabled;
 use crate::machine_identity::{
-    ReencryptBlobOutcome, decrypt_token_delegation_encrypted_blob,
-    machine_identity_encryption_secret, reencrypt_ciphertext_if_needed,
+    ReencryptBlobOutcome, StoredMachineIdentitySecretKind, decrypt_token_delegation_encrypted_blob,
+    emit_token_delegation_auth_decryption_failed, machine_identity_encryption_secret,
+    reencrypt_ciphertext_if_needed,
 };
 
 /// Decrypts DB ciphertext into [`TenantIdentityConfigDecrypted`]: `row` keeps envelope in
@@ -65,11 +66,7 @@ async fn tenant_identity_with_decrypted_token_delegation(
     )
     .await
     .inspect_err(|e| {
-        tracing::error!(
-            organization_id = %cfg.organization_id.as_str(),
-            error = %e.message(),
-            "token delegation auth config decrypt failed"
-        );
+        emit_token_delegation_auth_decryption_failed(cfg.organization_id.as_str(), e);
     })?;
     Ok(TenantIdentityConfigDecrypted {
         row: cfg,
@@ -573,6 +570,12 @@ enum ReencryptFieldResult {
     Failed(ReencryptTenantIdentityFailure),
 }
 
+#[derive(Clone, Copy)]
+struct ReencryptField {
+    name: &'static str,
+    secret_kind: StoredMachineIdentitySecretKind,
+}
+
 fn tally_reencrypt_field(
     plan: &mut ReencryptOrgPlan,
     result: ReencryptFieldResult,
@@ -603,7 +606,7 @@ fn tally_reencrypt_field(
 async fn reencrypt_one_field(
     credentials: &dyn CredentialReader,
     org_id: &str,
-    field: &str,
+    field: ReencryptField,
     ciphertext: Option<&str>,
     target_key_id: &EncryptionKeyId,
     target_aes: &key_encryption::Aes256Key,
@@ -615,6 +618,8 @@ async fn reencrypt_one_field(
     match reencrypt_ciphertext_if_needed(
         credentials,
         ciphertext,
+        field.secret_kind,
+        org_id,
         target_key_id,
         target_aes,
         dry_run,
@@ -629,7 +634,7 @@ async fn reencrypt_one_field(
         Err(status) => Ok(ReencryptFieldResult::Failed(
             ReencryptTenantIdentityFailure {
                 organization_id: org_id.to_string(),
-                field: field.to_string(),
+                field: field.name.to_string(),
                 error: status.message().to_string(),
             },
         )),
@@ -695,11 +700,17 @@ async fn reencrypt_signing_key_fields(
     for slot in [SigningKeySlot::Key1, SigningKeySlot::Key2] {
         let (field, ciphertext) = match slot {
             SigningKeySlot::Key1 => (
-                "encrypted_signing_key_1",
+                ReencryptField {
+                    name: "encrypted_signing_key_1",
+                    secret_kind: StoredMachineIdentitySecretKind::SigningKey,
+                },
                 plan.enc1.as_ref().map(|v| v.as_str()).map(str::to_string),
             ),
             SigningKeySlot::Key2 => (
-                "encrypted_signing_key_2",
+                ReencryptField {
+                    name: "encrypted_signing_key_2",
+                    secret_kind: StoredMachineIdentitySecretKind::SigningKey,
+                },
                 plan.enc2.as_ref().map(|v| v.as_str()).map(str::to_string),
             ),
         };
@@ -722,7 +733,7 @@ async fn reencrypt_signing_key_fields(
             };
             store_reencrypted_signing_key(
                 org_id_str,
-                field,
+                field.name,
                 enc_slot,
                 &mut plan.failures,
                 new_ciphertext,
@@ -771,7 +782,10 @@ async fn plan_org_reencrypt(
         reencrypt_one_field(
             credentials,
             org_id_str,
-            "encrypted_auth_method_config",
+            ReencryptField {
+                name: "encrypted_auth_method_config",
+                secret_kind: StoredMachineIdentitySecretKind::TokenDelegationAuth,
+            },
             delegation_ciphertext.as_deref(),
             target_key_id,
             target_aes,

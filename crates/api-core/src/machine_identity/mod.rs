@@ -30,8 +30,9 @@ use std::fmt;
 
 use base64::Engine;
 pub(crate) use crypto::{
-    ReencryptBlobOutcome, decrypt_machine_identity_ciphertext,
-    decrypt_token_delegation_encrypted_blob, machine_identity_encryption_secret,
+    ReencryptBlobOutcome, StoredMachineIdentitySecretKind, decrypt_machine_identity_ciphertext,
+    decrypt_token_delegation_encrypted_blob, emit_signing_key_decryption_failed,
+    emit_token_delegation_auth_decryption_failed, machine_identity_encryption_secret,
     reencrypt_ciphertext_if_needed, token_delegation_credentials,
 };
 use jsonwebtoken::{EncodingKey, Header, encode};
