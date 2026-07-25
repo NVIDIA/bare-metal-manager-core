@@ -733,7 +733,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
             }
         };
 
-        tracing::info!(
+        tracing::debug!(
             target: "carbide_diagnostics::bmc_redfish_supported",
             %bmc_ip_address,
             %vendor,
