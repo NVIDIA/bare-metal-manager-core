@@ -25,14 +25,6 @@
 # =============================================================================
 
 repositories:
-  - name: jetstack
-    url: https://charts.jetstack.io
-  - name: hashicorp
-    url: https://helm.releases.hashicorp.com
-  - name: postgres-operator
-    url: https://opensource.zalando.com/postgres-operator/charts/postgres-operator
-  - name: metallb
-    url: https://metallb.github.io/metallb
   - name: argo
     url: https://argoproj.github.io/argo-helm
   - name: nfd
@@ -50,7 +42,7 @@ releases:
   - name: metallb
     namespace: metallb-system
     createNamespace: true
-    chart: metallb/metallb
+    chart: https://github.com/metallb/metallb/releases/download/metallb-chart-0.14.5/metallb-0.14.5.tgz
     version: "0.14.5"
     wait: true
     timeout: 600
@@ -66,7 +58,7 @@ releases:
   - name: postgres-operator
     namespace: postgres
     createNamespace: true
-    chart: postgres-operator/postgres-operator
+    chart: https://opensource.zalando.com/postgres-operator/charts/postgres-operator/postgres-operator-1.15.1.tgz
     version: "1.15.1"
     wait: true
     timeout: 600
@@ -81,7 +73,7 @@ releases:
   - name: cert-manager
     namespace: cert-manager
     createNamespace: true
-    chart: jetstack/cert-manager
+    chart: oci://quay.io/jetstack/charts/cert-manager
     version: "v1.17.1"
     wait: true
     timeout: 600
@@ -97,7 +89,7 @@ releases:
   - name: vault
     namespace: vault
     createNamespace: true
-    chart: hashicorp/vault
+    chart: https://helm.releases.hashicorp.com/vault-0.25.0.tgz
     version: "0.25.0"
     wait: true
     timeout: 600
