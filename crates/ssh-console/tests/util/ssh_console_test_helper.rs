@@ -24,6 +24,7 @@ use hyper_util::rt::TokioExecutor;
 use size::Size;
 use ssh_console::config::Defaults;
 use temp_dir::TempDir;
+use tokio::net::TcpStream;
 
 use crate::util::fixtures::{
     API_CA_CERT, API_CLIENT_CERT, API_CLIENT_KEY, AUTHORIZED_KEYS_PATH, SSH_HOST_KEY,
@@ -96,6 +97,14 @@ pub async fn spawn(
     let spawn_handle = ssh_console::spawn(config).await?;
     let listen_address = spawn_handle.listen_address();
     let metrics_address = spawn_handle.metrics_address();
+    assert_ne!(listen_address.port(), 0);
+    assert_ne!(metrics_address.port(), 0);
+    TcpStream::connect(listen_address)
+        .await
+        .context("error connecting to runtime-assigned SSH address")?;
+    TcpStream::connect(metrics_address)
+        .await
+        .context("error connecting to runtime-assigned metrics address")?;
 
     Ok(NewSshConsoleHandle {
         addr: listen_address,
