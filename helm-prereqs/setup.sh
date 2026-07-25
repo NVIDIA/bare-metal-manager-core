@@ -805,30 +805,34 @@ echo "nico-pg-cluster is Running"
 # Zalando's preparedDatabases conflicts with the databases section, so we install
 # the extension directly after the cluster is ready. Idempotent: IF NOT EXISTS.
 # Wait up to 120s for the Zalando operator to create the nico_rest database.
-_pg_trgm_installed=false
-for _pg_i in $(seq 1 24); do
-    _PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
-        -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
-        2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
-    if [[ -z "${_PG_PRIMARY}" ]]; then
-        echo "  pg_trgm: no Patroni primary yet (${_pg_i}/24) — retrying in 5s..."
+if "${SKIP_REST}"; then
+    echo "pg_trgm skipped (--skip-rest flag set)"
+else
+    _pg_trgm_installed=false
+    for _pg_i in $(seq 1 24); do
+        _PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
+            -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
+            2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
+        if [[ -z "${_PG_PRIMARY}" ]]; then
+            echo "  pg_trgm: no Patroni primary yet (${_pg_i}/24) — retrying in 5s..."
+            sleep 5
+            continue
+        fi
+        if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+            su postgres -c "psql -d nico_rest -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
+            2>/dev/null; then
+            echo "pg_trgm ready"
+            _pg_trgm_installed=true
+            break
+        fi
+        echo "  pg_trgm: nico_rest not yet created by operator (${_pg_i}/24) — retrying in 5s..."
         sleep 5
-        continue
+    done
+    if [[ "${_pg_trgm_installed}" == "false" ]]; then
+        echo "  pg_trgm: nico_rest unavailable after 120s."
+        echo "    → If rest.enabled=false in nico-prereqs, the nico_rest database is not created — this is expected."
+        echo "    → If rest.enabled=true, the nico-rest-db migration will fail on the GIN index step."
     fi
-    if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
-        su postgres -c "psql -d nico_rest -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
-        2>/dev/null; then
-        echo "pg_trgm ready"
-        _pg_trgm_installed=true
-        break
-    fi
-    echo "  pg_trgm: nico_rest not yet created by operator (${_pg_i}/24) — retrying in 5s..."
-    sleep 5
-done
-if [[ "${_pg_trgm_installed}" == "false" ]]; then
-    echo "  pg_trgm: nico_rest unavailable after 120s."
-    echo "    → If rest.enabled=false in nico-prereqs, the nico_rest database is not created — this is expected."
-    echo "    → If rest.enabled=true, the nico-rest-db migration will fail on the GIN index step."
 fi
 
 echo "Waiting for DB credentials to be synced by ESO..."
