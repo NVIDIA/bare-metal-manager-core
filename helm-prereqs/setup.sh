@@ -471,6 +471,45 @@ if ! command -v helmfile &>/dev/null; then
     echo "helmfile $(helmfile --version) installed"
 fi
 
+# Recover only interrupted Helm transactions owned by this installer. A normal
+# deployed release is left untouched. This makes setup rerunnable after its SSH
+# client or local DANTE process is interrupted during a Helm upgrade.
+recover_pending_helm_release() {
+    local release_name="$1"
+    local release_namespace="$2"
+    local release_status
+    local deployed_revision
+
+    release_status="$(helm status "${release_name}" --namespace "${release_namespace}" \
+        --output json 2>/dev/null | jq -r '.info.status // empty' || true)"
+    case "${release_status}" in
+        pending-upgrade|pending-rollback)
+            deployed_revision="$(helm history "${release_name}" --namespace "${release_namespace}" \
+                --output json 2>/dev/null \
+                | jq -r '[.[] | select(.status == "deployed")][-1].revision // empty' || true)"
+            if [[ -z "${deployed_revision}" ]]; then
+                echo "ERROR: ${release_namespace}/${release_name} is ${release_status} with no deployed revision to restore" >&2
+                exit 1
+            fi
+            echo "Recovering ${release_namespace}/${release_name} from ${release_status} to deployed revision ${deployed_revision}"
+            helm rollback "${release_name}" "${deployed_revision}" \
+                --namespace "${release_namespace}" --wait --timeout 600s
+            ;;
+        pending-install)
+            deployed_revision="$(helm history "${release_name}" --namespace "${release_namespace}" \
+                --output json 2>/dev/null \
+                | jq -r '[.[] | select(.status == "deployed")][-1].revision // empty' || true)"
+            if [[ -n "${deployed_revision}" ]]; then
+                echo "ERROR: ${release_namespace}/${release_name} is pending-install but has deployed revision ${deployed_revision}" >&2
+                exit 1
+            fi
+            echo "Removing interrupted first install ${release_namespace}/${release_name}"
+            helm uninstall "${release_name}" --namespace "${release_namespace}" \
+                --wait --timeout 600s
+            ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------
 # DNS check — verify cluster DNS is working before proceeding.
 #
@@ -579,6 +618,7 @@ fi
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1b] postgres-operator"
 echo "=== [1b] postgres-operator ==="
+recover_pending_helm_release postgres-operator postgres
 helmfile sync -l name=postgres-operator
 
 # ---------------------------------------------------------------------------
@@ -675,6 +715,7 @@ _apply_metallb_crds
 
 # Capture helmfile sync exit code so CRDs can be restored even on failure.
 # With set -e active, the || construct is required to prevent immediate exit.
+recover_pending_helm_release metallb metallb-system
 _metallb_sync_rc=0
 helmfile sync -l name=metallb || _metallb_sync_rc=$?
 
@@ -725,6 +766,7 @@ echo "MetalLB ready"
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[2/6] cert-manager + Vault TLS bootstrap"
 echo "=== [2/6] cert-manager + Vault TLS bootstrap ==="
+recover_pending_helm_release cert-manager cert-manager
 helmfile sync -l name=cert-manager
 
 kubectl apply --server-side -f operators/crds/ \
@@ -751,6 +793,7 @@ echo "Vault TLS bootstrap complete"
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[3/6] vault install"
 echo "=== [3/6] vault ==="
+recover_pending_helm_release vault vault
 helmfile sync -l name=vault \
     --set server.dataStorage.storageClass="${NICO_STORAGE_CLASS}" \
     --set server.auditStorage.storageClass="${NICO_STORAGE_CLASS}"
@@ -770,7 +813,9 @@ echo "=== [4/6] unseal vault ==="
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[5/6] external-secrets + NICo prereqs"
 echo "=== [5/6] external-secrets + NICo prereqs ==="
+recover_pending_helm_release external-secrets external-secrets
 helmfile sync -l name=external-secrets
+recover_pending_helm_release nico-prereqs nico-system
 helmfile sync -l name=nico-prereqs
 
 # ---------------------------------------------------------------------------
