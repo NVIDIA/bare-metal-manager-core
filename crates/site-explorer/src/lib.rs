@@ -2335,7 +2335,10 @@ impl SiteExplorer {
                             endpoint
                                 .last_explored
                                 .and_then(|e| e.report.last_exploration_error.as_ref()),
-                            endpoint.last_explored.and_then(|e| e.boot_interface_mac),
+                            endpoint
+                                .last_explored
+                                .and_then(ExploredEndpoint::boot_interface_target)
+                                .map(Into::into),
                         )
                         .await
                     else {

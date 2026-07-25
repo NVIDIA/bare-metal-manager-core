@@ -289,7 +289,7 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: Option<MacAddress>,
+        boot_interface: Option<&BootInterfaceTarget>,
         vendor: Option<RedfishVendor>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         match self.mode {
@@ -298,14 +298,14 @@ impl BmcEndpointExplorer {
                     .generate_exploration_report(
                         bmc_ip_address,
                         credentials.clone(),
-                        boot_interface_mac,
+                        boot_interface,
                         vendor,
                     )
                     .await
             }
             SiteExplorerExploreMode::NvRedfish => {
                 self.redfish_client
-                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface)
                     .await
             }
             SiteExplorerExploreMode::CompareResult => {
@@ -314,13 +314,13 @@ impl BmcEndpointExplorer {
                     .generate_exploration_report(
                         bmc_ip_address,
                         credentials.clone(),
-                        boot_interface_mac,
+                        boot_interface,
                         vendor,
                     )
                     .await;
                 let nvredfish = self
                     .redfish_client
-                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface)
                     .await;
                 match (&libredfish, &nvredfish) {
                     (Ok(report), Ok(nv_report)) => warn_report_diff(report, nv_report),
@@ -666,7 +666,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedEntity>,
         last_exploration_error: Option<&EndpointExplorationError>,
-        boot_interface_mac: Option<MacAddress>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         // If the site explorer was previously unable to login to the root BMC account using
         // the expected credentials, wait for an operator to manually intervene.
@@ -751,7 +751,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                     .generate_exploration_report(
                         bmc_ip_address,
                         credentials,
-                        boot_interface_mac,
+                        boot_interface,
                         Some(vendor),
                     )
                     .await
@@ -916,7 +916,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 self.generate_exploration_report(
                     bmc_ip_address,
                     bmc_credentials,
-                    None,
+                    boot_interface,
                     Some(vendor),
                 )
                 .await?
@@ -1655,7 +1655,9 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
     } else if let Some(r1) = &report1.machine_setup_status
         && let Some(r2) = &report2.machine_setup_status
     {
-        if r1.is_done != r2.is_done {
+        // Both backends should retain the same logical target. Keep the target
+        // in this comparison so future backend changes cannot hide a mismatch.
+        if r1.is_done != r2.is_done || r1.evaluated_boot_interface != r2.evaluated_boot_interface {
             tracing::warn!(
                 libredfish_machine_setup_status = ?r1,
                 nvredfish_machine_setup_status = ?r2,
@@ -1755,10 +1757,150 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
 
 #[cfg(test)]
 mod tests {
+    use arc_swap::ArcSwap;
     use carbide_instrument::Outcome;
     use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
+    use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
+    use carbide_redfish::nv_redfish::NvRedfishClientPool;
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases_async, value_scenarios};
+    use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+    use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
+    use model::site_explorer::MachineSetupStatus;
 
     use super::*;
+
+    fn report_with_evaluated_target(
+        evaluated_boot_interface: Option<MachineBootInterfaceTarget>,
+    ) -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            machine_setup_status: Some(MachineSetupStatus {
+                is_done: true,
+                diffs: Vec::new(),
+                evaluated_boot_interface,
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn report_comparison_includes_the_evaluated_boot_interface() {
+        let mac_address = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
+        let pair = MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address,
+            interface_id: "NIC.Slot.7-1-1".to_string(),
+        });
+        let mac_only = MachineBootInterfaceTarget::MacOnly(mac_address);
+
+        value_scenarios!(run = |(libredfish_target, nvredfish_target)| {
+            let libredfish_report = report_with_evaluated_target(libredfish_target);
+            let nvredfish_report = report_with_evaluated_target(nvredfish_target);
+            capture_logs(|| warn_report_diff(&libredfish_report, &nvredfish_report))
+                .into_iter()
+                .map(|log| log.message)
+                .collect::<Vec<_>>()
+        };
+            "same evaluated pair does not warn" {
+                (Some(pair.clone()), Some(pair)) => Vec::<String>::new(),
+            }
+
+            "pair and MAC-only targets warn" {
+                (Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address,
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                })), Some(mac_only)) => vec!["machine setup statuses are not equal".to_string()],
+            }
+
+            "two targetless statuses do not warn" {
+                (None, None) => Vec::<String>::new(),
+            }
+
+            "pair and targetless statuses warn" {
+                (Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address,
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                })), None) => vec!["machine setup statuses are not equal".to_string()],
+            }
+        );
+    }
+
+    async fn explore_after_credential_bootstrap(
+        boot_interface: Option<BootInterfaceTarget>,
+    ) -> Result<Vec<Option<RedfishSimBootInterfaceRef>>, String> {
+        let sim = Arc::new(RedfishSim::default());
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let explorer = BmcEndpointExplorer::new(
+            sim.clone(),
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+            carbide_ipmi::test_support(),
+            Arc::new(TestCredentialManager::default()),
+            Arc::new(AtomicBool::new(false)),
+            SiteExplorerExploreMode::LibRedfish,
+            None,
+        );
+        let bmc_ip_address: SocketAddr = "127.0.0.1:443".parse().expect("valid test BMC address");
+        let bmc_mac_address: MacAddress = "02:00:00:00:00:01".parse().expect("valid test BMC MAC");
+        let interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
+        let expected = ExpectedEntity::Machine(ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_username: "root".to_string(),
+                bmc_password: "factory-password".to_string(),
+                serial_number: "credential-bootstrap-host".to_string(),
+                bmc_retain_credentials: Some(true),
+                ..Default::default()
+            },
+        });
+
+        explorer
+            .explore_endpoint(
+                bmc_ip_address,
+                &interface,
+                Some(&expected),
+                None,
+                boot_interface.as_ref(),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(sim.machine_setup_status_targets(&bmc_ip_address.ip().to_string()))
+    }
+
+    #[tokio::test]
+    async fn credential_bootstrap_preserves_the_evaluated_boot_interface() {
+        let mac_address = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
+        let boot_interface = MachineBootInterface {
+            mac_address,
+            interface_id: "NIC.Slot.7-1-1".to_string(),
+        };
+
+        check_cases_async(
+            [
+                Case {
+                    scenario: "complete pair",
+                    input: Some(BootInterfaceTarget::Pair(boot_interface.clone())),
+                    expect: Yields(vec![Some(RedfishSimBootInterfaceRef::Pair {
+                        mac_address,
+                        interface_id: boot_interface.interface_id,
+                    })]),
+                },
+                Case {
+                    scenario: "legacy MAC only",
+                    input: Some(BootInterfaceTarget::MacOnly(mac_address)),
+                    expect: Yields(vec![Some(RedfishSimBootInterfaceRef::Mac(mac_address))]),
+                },
+                Case {
+                    scenario: "no boot interface",
+                    input: None,
+                    expect: Yields(vec![None]),
+                },
+            ],
+            explore_after_credential_bootstrap,
+        )
+        .await;
+    }
 
     /// One emit per rotation attempt writes the INFO log line and moves
     /// carbide_site_explorer_bmc_password_rotations_total, split by outcome.
