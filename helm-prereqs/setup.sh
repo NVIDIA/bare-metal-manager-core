@@ -618,6 +618,17 @@ fi
 # ---------------------------------------------------------------------------
 _SETUP_PHASE="[1b] postgres-operator"
 echo "=== [1b] postgres-operator ==="
+_existing_postgres_instances="$(kubectl get postgresql nico-pg-cluster -n postgres \
+    -o jsonpath='{.spec.numberOfInstances}' 2>/dev/null || true)"
+_existing_synchronous_mode="$(kubectl get postgresql nico-pg-cluster -n postgres \
+    -o jsonpath='{.spec.patroni.synchronous_mode}' 2>/dev/null || true)"
+if [[ "${_existing_postgres_instances}" == "1" && "${_existing_synchronous_mode}" == "true" ]]; then
+    echo "Recovering existing single-instance PostgreSQL cluster from synchronous replication"
+    kubectl patch postgresql nico-pg-cluster -n postgres --type=merge \
+        -p '{"spec":{"patroni":{"synchronous_mode":false,"synchronous_mode_strict":false}}}'
+    kubectl rollout restart deployment/postgres-operator -n postgres
+    kubectl rollout status deployment/postgres-operator -n postgres --timeout=120s
+fi
 recover_pending_helm_release postgres-operator postgres
 helmfile sync -l name=postgres-operator
 
