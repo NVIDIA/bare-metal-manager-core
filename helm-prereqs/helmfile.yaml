@@ -29,8 +29,6 @@ repositories:
     url: https://charts.jetstack.io
   - name: hashicorp
     url: https://helm.releases.hashicorp.com
-  - name: external-secrets
-    url: https://charts.external-secrets.io
   - name: postgres-operator
     url: https://opensource.zalando.com/postgres-operator/charts/postgres-operator
   - name: metallb
@@ -113,7 +111,7 @@ releases:
   - name: external-secrets
     namespace: external-secrets
     createNamespace: true
-    chart: external-secrets/external-secrets
+    chart: oci://ghcr.io/external-secrets/charts/external-secrets
     version: "0.14.3"
     wait: true
     timeout: 600
