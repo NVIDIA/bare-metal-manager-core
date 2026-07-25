@@ -922,14 +922,14 @@ while IFS='=' read -r _db_name _db_owner; do
 done < <(kubectl get postgresql nico-pg-cluster -n postgres \
     -o go-template='{{range $database, $owner := .spec.databases}}{{$database}}={{$owner}}{{"\n"}}{{end}}')
 
-# Install pg_trgm on nico_rest (needed by the nico-rest-db GIN index migration).
+# Install PostgreSQL extensions on nico_rest (needed by REST DB migrations).
 # Zalando's preparedDatabases conflicts with the databases section, so we install
 # the extension directly after the cluster is ready. Idempotent: IF NOT EXISTS.
 # Wait up to 120s for the Zalando operator to create the nico_rest database.
 if "${SKIP_REST}"; then
-    echo "pg_trgm skipped (--skip-rest flag set)"
+    echo "PostgreSQL REST extensions skipped (--skip-rest flag set)"
 else
-    _pg_trgm_installed=false
+    _rest_extensions_installed=false
     for _pg_i in $(seq 1 24); do
         _PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
             -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
@@ -940,19 +940,20 @@ else
             continue
         fi
         if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
-            su postgres -c "psql -d nico_rest -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
+            su postgres -c "psql -d nico_rest -v ON_ERROR_STOP=1 \
+                -c 'CREATE EXTENSION IF NOT EXISTS btree_gin;' \
+                -c 'CREATE EXTENSION IF NOT EXISTS pg_trgm;'" \
             2>/dev/null; then
-            echo "pg_trgm ready"
-            _pg_trgm_installed=true
+            echo "PostgreSQL REST extensions ready"
+            _rest_extensions_installed=true
             break
         fi
-        echo "  pg_trgm: nico_rest not yet created by operator (${_pg_i}/24) — retrying in 5s..."
+        echo "  PostgreSQL REST extensions: nico_rest not yet available (${_pg_i}/24) — retrying in 5s..."
         sleep 5
     done
-    if [[ "${_pg_trgm_installed}" == "false" ]]; then
-        echo "  pg_trgm: nico_rest unavailable after 120s."
-        echo "    → If rest.enabled=false in nico-prereqs, the nico_rest database is not created — this is expected."
-        echo "    → If rest.enabled=true, the nico-rest-db migration will fail on the GIN index step."
+    if [[ "${_rest_extensions_installed}" == "false" ]]; then
+        echo "ERROR: failed to install PostgreSQL extensions in nico_rest after 120s" >&2
+        exit 1
     fi
 fi
 
