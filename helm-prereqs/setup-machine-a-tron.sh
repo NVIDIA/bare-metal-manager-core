@@ -58,18 +58,20 @@
 #    hostCount + hostCount*dpuPerHostCount. Overflowing the OOB pool yields
 #    "No IP addresses left in prefix ..." and machines never register.
 #
-#  * DPF simulation (Phase 4b): runs by default ONLY when the nico-core
-#    config enables DPF ([dpf] enabled = true; site config overrides global) —
-#    a simulation site with DPF enabled but no operator parks every host in
-#    dpuinit forever. GUARDRAIL: hard-fails if the real DPF operator is
-#    deployed (both would drive DPU.status.phase); bypass everything with
-#    --skip-dpf-sim. The phase deploys dev/k8s/dpf-sim-controller (namespace,
-#    DPF CRDs, RBAC, Deployment; see its README), grants nico-api its
-#    DPF-namespace Role (nico-api-dpf), and sets
-#    CARBIDE_API_ALLOW_INSECURE_DISCOVERY=true on nico-api — post-#3561 cores
-#    resolve DiscoverMachine callers by source IP, which every simulated
-#    machine shares, so without the flag all agent discovery fails and
-#    dpuinit parks at waitingfornetworkconfig.
+#  * DPF prerequisites + simulation (Phase 4b), when [dpf] enabled = true in
+#    the nico-core config (site config overrides global). Two parts:
+#    (a) INGESTION PREREQUISITES applied whether or not the simulator is
+#        deployed: the nico-api DPF-namespace Role (nico-api-dpf) and
+#        CARBIDE_API_ALLOW_INSECURE_DISCOVERY=true on nico-api. Post-#3561
+#        cores resolve DiscoverMachine callers by source IP, which every
+#        simulated machine shares — without the flag, discovery-gated machine
+#        CREATION stalls short of the target (a --skip-dpf-sim run once wedged
+#        at 2838/3000) and agent self-discovery fails.
+#    (b) SIMULATOR DEPLOYMENT (dev/k8s/dpf-sim-controller: namespace, DPF CRDs,
+#        RBAC, Deployment) — this is the part --skip-dpf-sim skips. Without a
+#        simulator (and no real operator) hosts finish ingestion but park in
+#        dpuinit. GUARDRAIL: hard-fails if the real DPF operator is deployed,
+#        since both would drive DPU.status.phase.
 #
 #  * SVI IPs on the simulated prefixes (Phase 5, scale mode): the host
 #    network-config builder under FNN requires network_prefixes.svi_ip on L2
@@ -495,56 +497,19 @@ for _src in \
     DPF_ENABLED="$(_toml_dpf_enabled "$(_cm_key $_src)")"
 done
 
-if $SKIP_DPF_SIM; then
-    warn "--skip-dpf-sim: not deploying the simulator. Hosts on a [dpf]-enabled"
-    warn "  site will park in dpuinit unless a real DPF operator (or a"
-    warn "  separately-deployed simulator) drives DPU.status.phase."
-elif [[ "$DPF_ENABLED" != "true" ]]; then
-    ok "DPF is not enabled in the nico-core config ([dpf] enabled = ${DPF_ENABLED:-absent}) — nothing to simulate, skipping"
+if [[ "$DPF_ENABLED" != "true" ]]; then
+    ok "DPF is not enabled in the nico-core config ([dpf] enabled = ${DPF_ENABLED:-absent}) — skipping DPF prerequisites and simulator"
 else
-    # GUARDRAIL: never beside a real operator — both would drive
-    # DPU.status.phase and fight. If the real DPF stack is deployed, this is
-    # not a simulation-only cluster: refuse loudly rather than risk it.
-    _REAL_DPF="$(kubectl get deploy -n "$DPF_NAMESPACE" -o name 2>/dev/null \
-        | grep -vE 'deployment.apps/dpf-sim-controller$' | grep -E 'dpf.*operator|operator.*dpf' || true)"
-    if [[ -n "$_REAL_DPF" ]]; then
-        die "the real DPF operator is deployed in ${DPF_NAMESPACE} (${_REAL_DPF#deployment.apps/}).
-       The DPF simulator must NOT run beside it — both drive DPU.status.phase.
-       To bring up the simulator, remove the real DPF operator first (this must
-       be a simulation-only cluster); to keep the real operator, re-run with
-       --skip-dpf-sim."
-    fi
-    command -v make >/dev/null 2>&1 || die "make is required for the simulator deploy (or pass --skip-dpf-sim)"
-    [[ -d "$DPF_SIM_DIR" ]] || die "simulator module not found at ${DPF_SIM_DIR} (or pass --skip-dpf-sim)"
-    if [[ -z "$DPF_SIM_IMAGE" ]]; then
-        [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] \
-            || die "set DPF_SIM_IMAGE (or NICO_IMAGE_REGISTRY) for the dpf-sim-controller image, or pass --skip-dpf-sim"
-        DPF_SIM_IMAGE="${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}"
-    fi
-
-    kubectl get ns "$DPF_NAMESPACE" >/dev/null 2>&1 || kubectl create ns "$DPF_NAMESPACE" >/dev/null
-    _DPF_PULL_ARGS=()
-    if [[ -n "${REGISTRY_PULL_SECRET:-}" ]]; then
-        kubectl -n "$DPF_NAMESPACE" create secret docker-registry dpf-sim-pull \
-            --docker-server="${DPF_SIM_IMAGE%%/*}" \
-            --docker-username="$REGISTRY_PULL_USERNAME" \
-            --docker-password="$REGISTRY_PULL_SECRET" \
-            --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-        _DPF_PULL_ARGS=(PULL_SECRET=dpf-sim-pull)
-    fi
-    # `make deploy` = DPF CRDs (waits for Established) + RBAC + Deployment +
-    # rollout; everything idempotent. Keep the log for failure triage.
-    _DPF_LOG="$(mktemp)"
-    if ! make -C "$DPF_SIM_DIR" deploy IMG="$DPF_SIM_IMAGE" DPF_NAMESPACE="$DPF_NAMESPACE" ${_DPF_PULL_ARGS[@]+"${_DPF_PULL_ARGS[@]}"} >"$_DPF_LOG" 2>&1; then
-        tail -8 "$_DPF_LOG" >&2; rm -f "$_DPF_LOG"
-        die "simulator deploy failed (make -C ${DPF_SIM_DIR} deploy)"
-    fi
-    rm -f "$_DPF_LOG"
-    ok "dpf-sim-controller deployed: ${DPF_SIM_IMAGE} in ${DPF_NAMESPACE}"
-
-    # nico-api needs access to the DPF namespace for the DPF SDK (mirrors
-    # helm/charts/nico-api/templates/dpf-rbac.yaml on the setup-dpf-install
-    # branch, which is not on main yet — drop this once the chart ships it).
+    # -------------------------------------------------------------------------
+    # DPF-enabled INGESTION PREREQUISITES — applied whether or not the
+    # simulator is deployed (--skip-dpf-sim only skips the simulator itself).
+    # These gate machine INGESTION, not just the DPF walk: without them the
+    # last hosts never finish creating and ingestion stalls short of the
+    # target (learned the hard way — a --skip-dpf-sim run wedged at 2838/3000).
+    # -------------------------------------------------------------------------
+    # 1. nico-api's access to the DPF namespace for the DPF SDK (mirrors
+    #    helm/charts/nico-api/templates/dpf-rbac.yaml on the setup-dpf-install
+    #    branch, not on main yet — drop this once the chart ships it).
     kubectl apply -f - <<NICOAPIDPF >/dev/null
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -602,11 +567,11 @@ subjects:
 NICOAPIDPF
     ok "nico-api-dpf Role/RoleBinding applied in ${DPF_NAMESPACE}"
 
-    # Post-#3561 cores resolve DiscoverMachine callers by TCP source IP; every
-    # simulated machine shares the MAT pod IP, so without this flag all agent
-    # discovery fails ("machine_interface for discovery IP not found") and
-    # dpuinit parks at waitingfornetworkconfig. Only set + restart when it is
-    # not already true — re-runs must not bounce a healthy nico-api.
+    # 2. Post-#3561 cores resolve DiscoverMachine callers by TCP source IP;
+    #    every simulated machine shares the MAT pod IP, so without this flag
+    #    discovery-gated creation and agent self-discovery fail. Only set +
+    #    restart when not already true — re-runs must not bounce a healthy
+    #    nico-api.
     _INSECURE_NOW="$(kubectl get deploy nico-api -n "$NICO_SYSTEM_NS" \
         -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CARBIDE_API_ALLOW_INSECURE_DISCOVERY")].value}' 2>/dev/null || true)"
     if [[ "$_INSECURE_NOW" != "true" ]]; then
@@ -616,6 +581,57 @@ NICOAPIDPF
             || warn "nico-api rollout did not complete in time; continuing"
     fi
     ok "allow_insecure_discovery enabled on nico-api (test-env only; see #3561)"
+fi
+
+# -----------------------------------------------------------------------------
+# Simulator deployment — the part --skip-dpf-sim actually skips.
+# -----------------------------------------------------------------------------
+if $SKIP_DPF_SIM; then
+    warn "--skip-dpf-sim: prerequisites applied but the simulator is NOT deployed."
+    warn "  Ingestion completes; hosts then park in dpuinit until a DPF operator"
+    warn "  (or a separately-deployed simulator) drives DPU.status.phase."
+elif [[ "$DPF_ENABLED" != "true" ]]; then
+    : # non-DPF site: nothing to deploy (already reported above)
+else
+    # GUARDRAIL: never beside a real operator — both would drive
+    # DPU.status.phase and fight. If the real DPF stack is deployed, this is
+    # not a simulation-only cluster: refuse loudly rather than risk it.
+    _REAL_DPF="$(kubectl get deploy -n "$DPF_NAMESPACE" -o name 2>/dev/null \
+        | grep -vE 'deployment.apps/dpf-sim-controller$' | grep -E 'dpf.*operator|operator.*dpf' || true)"
+    if [[ -n "$_REAL_DPF" ]]; then
+        die "the real DPF operator is deployed in ${DPF_NAMESPACE} (${_REAL_DPF#deployment.apps/}).
+       The DPF simulator must NOT run beside it — both drive DPU.status.phase.
+       To bring up the simulator, remove the real DPF operator first (this must
+       be a simulation-only cluster); to keep the real operator, re-run with
+       --skip-dpf-sim."
+    fi
+    command -v make >/dev/null 2>&1 || die "make is required for the simulator deploy (or pass --skip-dpf-sim)"
+    [[ -d "$DPF_SIM_DIR" ]] || die "simulator module not found at ${DPF_SIM_DIR} (or pass --skip-dpf-sim)"
+    if [[ -z "$DPF_SIM_IMAGE" ]]; then
+        [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] \
+            || die "set DPF_SIM_IMAGE (or NICO_IMAGE_REGISTRY) for the dpf-sim-controller image, or pass --skip-dpf-sim"
+        DPF_SIM_IMAGE="${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}"
+    fi
+
+    kubectl get ns "$DPF_NAMESPACE" >/dev/null 2>&1 || kubectl create ns "$DPF_NAMESPACE" >/dev/null
+    _DPF_PULL_ARGS=()
+    if [[ -n "${REGISTRY_PULL_SECRET:-}" ]]; then
+        kubectl -n "$DPF_NAMESPACE" create secret docker-registry dpf-sim-pull \
+            --docker-server="${DPF_SIM_IMAGE%%/*}" \
+            --docker-username="$REGISTRY_PULL_USERNAME" \
+            --docker-password="$REGISTRY_PULL_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+        _DPF_PULL_ARGS=(PULL_SECRET=dpf-sim-pull)
+    fi
+    # `make deploy` = DPF CRDs (waits for Established) + RBAC + Deployment +
+    # rollout; everything idempotent. Keep the log for failure triage.
+    _DPF_LOG="$(mktemp)"
+    if ! make -C "$DPF_SIM_DIR" deploy IMG="$DPF_SIM_IMAGE" DPF_NAMESPACE="$DPF_NAMESPACE" ${_DPF_PULL_ARGS[@]+"${_DPF_PULL_ARGS[@]}"} >"$_DPF_LOG" 2>&1; then
+        tail -8 "$_DPF_LOG" >&2; rm -f "$_DPF_LOG"
+        die "simulator deploy failed (make -C ${DPF_SIM_DIR} deploy)"
+    fi
+    rm -f "$_DPF_LOG"
+    ok "dpf-sim-controller deployed: ${DPF_SIM_IMAGE} in ${DPF_NAMESPACE}"
 fi
 
 # =============================================================================
