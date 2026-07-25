@@ -22,7 +22,10 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_test_support::Outcome::Yields;
+use carbide_test_support::{Case, check_cases_async};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use common::network_segment::{
@@ -41,7 +44,7 @@ use model::network_segment::{
     NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
 };
 use model::resource_pool::common::VLANID;
-use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
+use model::resource_pool::{ResourcePool, ResourcePoolError, ResourcePoolStats, ValueType};
 use model::vpc::{NewVpc, UpdateVpcVirtualization, VpcDefinition, VpcStatus};
 use prometheus_text_parser::ParsedPrometheusMetrics;
 use rpc::Metadata;
@@ -729,6 +732,208 @@ pub async fn test_create_initial_vpc_and_attached_network(
         1,
         "second create_initial_vpcs should not create duplicate VPCs"
     );
+
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InitialVpcAllocationFailure {
+    Exhausted,
+    RequestedUnavailable,
+}
+
+impl InitialVpcAllocationFailure {
+    fn pool_name(self) -> &'static str {
+        match self {
+            Self::Exhausted => "initial-vpc-empty",
+            Self::RequestedUnavailable => "initial-vpc-requested",
+        }
+    }
+
+    fn requested_vni(self) -> Option<i32> {
+        match self {
+            Self::Exhausted => None,
+            Self::RequestedUnavailable => Some(42),
+        }
+    }
+
+    fn metric_labels(self) -> [(&'static str, &'static str); 5] {
+        match self {
+            Self::Exhausted => [
+                ("operation", "allocate"),
+                ("failure", "exhausted"),
+                ("failure_policy", "required"),
+                ("allocation_mode", "automatic"),
+                ("value_type", "integer"),
+            ],
+            Self::RequestedUnavailable => [
+                ("operation", "allocate"),
+                ("failure", "requested_value_unavailable"),
+                ("failure_policy", "required"),
+                ("allocation_mode", "requested"),
+                ("value_type", "integer"),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct InitialVpcAllocationFailureRecord {
+    error_kind: &'static str,
+    error_message: String,
+    metadata_name: String,
+    event_name: Option<String>,
+    metric_name: Option<String>,
+    level: tracing::Level,
+    message: String,
+    operation: Option<String>,
+    failure: Option<String>,
+    failure_policy: Option<String>,
+    allocation_mode: Option<String>,
+    value_type: Option<String>,
+    owner_id_is_vpc: bool,
+    pool: Option<String>,
+    error: Option<String>,
+    counter_delta: f64,
+}
+
+#[crate::sqlx_test]
+async fn initial_vpc_allocation_failures_preserve_errors_and_emit(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    const LIFECYCLE_FAILURES_METRIC: &str = "carbide_resource_pool_lifecycle_failures_total";
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "automatic pool exhaustion",
+                input: InitialVpcAllocationFailure::Exhausted,
+                expect: Yields(InitialVpcAllocationFailureRecord {
+                    error_kind: "resource_pool_empty",
+                    error_message:
+                        "resource pool database error: resource pool is empty, cannot allocate"
+                            .to_string(),
+                    metadata_name: "resource_pool_exhausted".to_string(),
+                    event_name: Some("resource_pool_exhausted".to_string()),
+                    metric_name: Some(LIFECYCLE_FAILURES_METRIC.to_string()),
+                    level: tracing::Level::ERROR,
+                    message: "Pool exhausted, cannot allocate".to_string(),
+                    operation: Some("allocate".to_string()),
+                    failure: Some("exhausted".to_string()),
+                    failure_policy: Some("required".to_string()),
+                    allocation_mode: Some("automatic".to_string()),
+                    value_type: Some("integer".to_string()),
+                    owner_id_is_vpc: true,
+                    pool: Some("initial-vpc-empty".to_string()),
+                    error: None,
+                    counter_delta: 1.0,
+                }),
+            },
+            Case {
+                scenario: "requested VNI unavailable",
+                input: InitialVpcAllocationFailure::RequestedUnavailable,
+                expect: Yields(InitialVpcAllocationFailureRecord {
+                    error_kind: "requested_value_unavailable",
+                    error_message: "resource pool database error: `42` not an available value for resource-pool `initial-vpc-requested`".to_string(),
+                    metadata_name: "resource_pool_allocation_failed".to_string(),
+                    event_name: Some("resource_pool_allocation_failed".to_string()),
+                    metric_name: Some(LIFECYCLE_FAILURES_METRIC.to_string()),
+                    level: tracing::Level::ERROR,
+                    message: "Error allocating from resource pool".to_string(),
+                    operation: Some("allocate".to_string()),
+                    failure: Some("requested_value_unavailable".to_string()),
+                    failure_policy: Some("required".to_string()),
+                    allocation_mode: Some("requested".to_string()),
+                    value_type: Some("integer".to_string()),
+                    owner_id_is_vpc: true,
+                    pool: Some("initial-vpc-requested".to_string()),
+                    error: Some(
+                        "`42` not an available value for resource-pool `initial-vpc-requested`"
+                            .to_string(),
+                    ),
+                    counter_delta: 1.0,
+                }),
+            },
+        ],
+        |failure| {
+            let db_pool = db_pool.clone();
+            async move {
+                let source_pool =
+                    ResourcePool::<i32>::new(failure.pool_name().to_string(), ValueType::Integer);
+                if matches!(failure, InitialVpcAllocationFailure::RequestedUnavailable) {
+                    let mut txn = db_pool.begin().await.expect("begin seed transaction");
+                    db::resource_pool::populate(&source_pool, &mut txn, vec![43], false)
+                        .await
+                        .expect("seed a different requestable VNI");
+                    txn.commit().await.expect("commit seed transaction");
+                }
+
+                let vpcs = HashMap::from([(
+                    format!("{}-vpc", failure.pool_name()),
+                    VpcDefinition {
+                        organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
+                        network_virtualization_type: VpcVirtualizationType::Flat,
+                        routing_profile_type: None,
+                        vni: failure.requested_vni(),
+                    },
+                )]);
+                let metrics = MetricsCapture::start();
+                let (result, logs) = capture_logs_async(crate::db_init::create_initial_vpcs(
+                    &db_pool,
+                    &vpcs,
+                    &source_pool,
+                ))
+                .await;
+                let returned_error = result.expect_err("initial VPC allocation must fail");
+                let error_kind = match &returned_error {
+                    crate::CarbideError::ResourcePoolDatabaseError(
+                        db::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+                            ResourcePoolError::Empty,
+                        ),
+                    ) => "resource_pool_empty",
+                    crate::CarbideError::ResourcePoolDatabaseError(
+                        db::resource_pool::ResourcePoolDatabaseError::Database(error),
+                    ) if matches!(error.as_ref(), db::DatabaseError::FailedPrecondition(_)) => {
+                        "requested_value_unavailable"
+                    }
+                    error => panic!("unexpected initial VPC allocation error: {error:?}"),
+                };
+                let event_logs = logs
+                    .iter()
+                    .filter(|log| {
+                        log.field("metric_name") == Some(LIFECYCLE_FAILURES_METRIC)
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(event_logs.len(), 1);
+                let log = event_logs[0];
+
+                Ok::<_, ()>(InitialVpcAllocationFailureRecord {
+                    error_kind,
+                    error_message: returned_error.to_string(),
+                    metadata_name: log.metadata_name.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    level: log.level,
+                    message: log.message.clone(),
+                    operation: log.field("operation").map(str::to_string),
+                    failure: log.field("failure").map(str::to_string),
+                    failure_policy: log.field("failure_policy").map(str::to_string),
+                    allocation_mode: log.field("allocation_mode").map(str::to_string),
+                    value_type: log.field("value_type").map(str::to_string),
+                    owner_id_is_vpc: log
+                        .field("owner_id")
+                        .is_some_and(|owner_id| VpcId::from_str(owner_id).is_ok()),
+                    pool: log.field("pool").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    counter_delta: metrics.counter_delta(
+                        LIFECYCLE_FAILURES_METRIC,
+                        &failure.metric_labels(),
+                    ),
+                })
+            }
+        },
+    )
+    .await;
 
     Ok(())
 }

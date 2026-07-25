@@ -19,6 +19,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use carbide_instrument::{Event, LabelValue, emit};
 use config_version::ConfigVersion;
 use ipnetwork::Ipv6Network;
 use model::resource_pool;
@@ -37,6 +38,196 @@ use tokio::sync::oneshot;
 use super::BIND_LIMIT;
 use crate::DatabaseError;
 use crate::db_read::DbReader;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ResourcePoolOperation {
+    Allocate,
+    Release,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ResourcePoolFailure {
+    Exhausted,
+    RequestedValueUnavailable,
+    Parse,
+    Database,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ResourcePoolFailurePolicy {
+    Required,
+    BestEffort,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ResourcePoolAllocationMode {
+    Automatic,
+    Requested,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ResourcePoolValueType {
+    Integer,
+    Ipv4,
+    Ipv6,
+    Ipv6Prefix,
+}
+
+impl From<ValueType> for ResourcePoolValueType {
+    fn from(value: ValueType) -> Self {
+        match value {
+            ValueType::Integer => Self::Integer,
+            ValueType::Ipv4 => Self::Ipv4,
+            ValueType::Ipv6 => Self::Ipv6,
+            ValueType::Ipv6Prefix => Self::Ipv6Prefix,
+        }
+    }
+}
+
+// These Events share one counter. Keep its kind, description, and label keys
+// identical. Existing allocation diagnostics retain their messages and
+// context; `release` gains its first diagnostic at this database boundary.
+#[derive(Event)]
+#[event(
+    event_name = "resource_pool_exhausted",
+    metric_name = "carbide_resource_pool_lifecycle_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Pool exhausted, cannot allocate",
+    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+)]
+struct ResourcePoolExhausted {
+    #[label]
+    operation: ResourcePoolOperation,
+    #[label]
+    failure: ResourcePoolFailure,
+    #[label]
+    failure_policy: ResourcePoolFailurePolicy,
+    #[label]
+    allocation_mode: ResourcePoolAllocationMode,
+    #[label]
+    value_type: ResourcePoolValueType,
+    #[context]
+    owner_id: String,
+    #[context]
+    pool: String,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "resource_pool_requested_vni_unavailable",
+    metric_name = "carbide_resource_pool_lifecycle_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "invalid pool value requested, cannot allocate",
+    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+)]
+struct ResourcePoolRequestedVniUnavailable {
+    #[label]
+    operation: ResourcePoolOperation,
+    #[label]
+    failure: ResourcePoolFailure,
+    #[label]
+    failure_policy: ResourcePoolFailurePolicy,
+    #[label]
+    allocation_mode: ResourcePoolAllocationMode,
+    #[label]
+    value_type: ResourcePoolValueType,
+    #[context]
+    owner_id: String,
+    #[context]
+    pool: String,
+    #[context(value)]
+    requested_vni: i64,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "resource_pool_allocation_failed",
+    metric_name = "carbide_resource_pool_lifecycle_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error allocating from resource pool",
+    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+)]
+struct ResourcePoolAllocationFailed {
+    #[label]
+    operation: ResourcePoolOperation,
+    #[label]
+    failure: ResourcePoolFailure,
+    #[label]
+    failure_policy: ResourcePoolFailurePolicy,
+    #[label]
+    allocation_mode: ResourcePoolAllocationMode,
+    #[label]
+    value_type: ResourcePoolValueType,
+    #[context]
+    owner_id: String,
+    #[context]
+    error: String,
+    #[context]
+    pool: String,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "resource_pool_release_failed",
+    metric_name = "carbide_resource_pool_lifecycle_failures_total",
+    component = "nico-api",
+    log = error,
+    metric = counter,
+    message = "Error releasing value to resource pool",
+    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+)]
+struct ResourcePoolReleaseFailed {
+    #[label]
+    operation: ResourcePoolOperation,
+    #[label]
+    failure: ResourcePoolFailure,
+    #[label]
+    failure_policy: ResourcePoolFailurePolicy,
+    #[label]
+    allocation_mode: ResourcePoolAllocationMode,
+    #[label]
+    value_type: ResourcePoolValueType,
+    #[context]
+    error: String,
+    #[context]
+    pool: String,
+    #[context]
+    value: String,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "dpu_asn_allocation_failed",
+    metric_name = "carbide_resource_pool_lifecycle_failures_total",
+    component = "nico-api",
+    log = info,
+    metric = counter,
+    message = "Failed to allocate asn for dpu",
+    describe = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type."
+)]
+struct DpuAsnAllocationFailed {
+    #[label]
+    operation: ResourcePoolOperation,
+    #[label]
+    failure: ResourcePoolFailure,
+    #[label]
+    failure_policy: ResourcePoolFailurePolicy,
+    #[label]
+    allocation_mode: ResourcePoolAllocationMode,
+    #[label]
+    value_type: ResourcePoolValueType,
+    #[context]
+    stable_machine_id: String,
+    #[context]
+    error: String,
+}
 
 /// Put some resources into the pool, so they can be allocated later.
 /// This needs to be called before `allocate` can return anything.
@@ -195,19 +386,34 @@ where
 {
     // TODO: If we would get passed the current owner, we could guard on that
     // so that nothing else could release the value
+    let value = value.to_string();
     let query = "
 UPDATE resource_pool SET
   allocated = NULL,
   state = $1
 WHERE name = $2 AND value = $3
 ";
-    sqlx::query(query)
+    if let Err(source) = sqlx::query(query)
         .bind(sqlx::types::Json(ResourcePoolEntryState::Free))
         .bind(&pool.name)
-        .bind(value.to_string())
+        .bind(&value)
         .execute(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+    {
+        let event_error = source.to_string();
+        let error = DatabaseError::query(query, source);
+        emit(ResourcePoolReleaseFailed {
+            operation: ResourcePoolOperation::Release,
+            failure: ResourcePoolFailure::Database,
+            failure_policy: ResourcePoolFailurePolicy::Required,
+            allocation_mode: ResourcePoolAllocationMode::NotApplicable,
+            value_type: pool.value_type.into(),
+            error: event_error,
+            pool: pool.name.clone(),
+            value,
+        });
+        return Err(error);
+    }
     Ok(())
 }
 
@@ -388,6 +594,164 @@ impl From<DatabaseError> for ResourcePoolDatabaseError {
     fn from(e: DatabaseError) -> Self {
         ResourcePoolDatabaseError::Database(Box::new(e))
     }
+}
+
+pub(crate) fn classify_resource_pool_failure(
+    error: &ResourcePoolDatabaseError,
+) -> ResourcePoolFailure {
+    match error {
+        ResourcePoolDatabaseError::ResourcePool(ResourcePoolError::Empty) => {
+            ResourcePoolFailure::Exhausted
+        }
+        ResourcePoolDatabaseError::ResourcePool(ResourcePoolError::Parse { .. }) => {
+            ResourcePoolFailure::Parse
+        }
+        ResourcePoolDatabaseError::Database(error) => classify_database_failure(error),
+    }
+}
+
+fn classify_database_failure(error: &DatabaseError) -> ResourcePoolFailure {
+    if matches!(error, DatabaseError::FailedPrecondition(_)) {
+        ResourcePoolFailure::RequestedValueUnavailable
+    } else {
+        ResourcePoolFailure::Database
+    }
+}
+
+/// Whether an allocation error represents an unavailable requested value.
+pub fn is_requested_value_unavailable(error: &ResourcePoolDatabaseError) -> bool {
+    classify_resource_pool_failure(error) == ResourcePoolFailure::RequestedValueUnavailable
+}
+
+/// Emit the non-fatal diagnostic used when DPU creation cannot allocate an ASN.
+pub(crate) fn emit_best_effort_dpu_asn_allocation_failure(
+    value_type: ValueType,
+    stable_machine_id: &str,
+    error: &ResourcePoolDatabaseError,
+) {
+    emit(DpuAsnAllocationFailed {
+        operation: ResourcePoolOperation::Allocate,
+        failure: classify_resource_pool_failure(error),
+        failure_policy: ResourcePoolFailurePolicy::BestEffort,
+        allocation_mode: ResourcePoolAllocationMode::Automatic,
+        value_type: value_type.into(),
+        stable_machine_id: stable_machine_id.to_string(),
+        error: error.to_string(),
+    });
+}
+
+/// Emit a generic resource-pool allocation failure at its API mapping boundary.
+///
+/// `allocate` returns a deliberately detailed error so each caller can retain
+/// its existing status mapping. Recording it here keeps that boundary as the
+/// single log and metric owner without counting the same failed query again in
+/// the database helper.
+///
+/// `diagnostic_pool` is deliberately supplied by the caller. Some existing
+/// diagnostics use a stable alias such as `lo-ip` instead of the configured
+/// pool name, and adopting an Event must preserve those structured log fields.
+pub fn emit_allocation_failure(
+    value_type: ValueType,
+    owner_id: &str,
+    requested: bool,
+    diagnostic_pool: &str,
+    error: &ResourcePoolDatabaseError,
+) {
+    let failure = classify_resource_pool_failure(error);
+    emit_classified_allocation_failure(
+        value_type,
+        owner_id,
+        requested,
+        diagnostic_pool,
+        failure,
+        error.to_string(),
+    );
+}
+
+/// Emit an allocation failure after a caller has unwrapped its database error.
+///
+/// VPC and SPX allocation preserve their existing database-error status
+/// mapping, so those callers retain ownership of the inner [`DatabaseError`].
+pub fn emit_database_allocation_failure(
+    value_type: ValueType,
+    owner_id: &str,
+    requested: bool,
+    diagnostic_pool: &str,
+    error: &DatabaseError,
+) {
+    emit_classified_allocation_failure(
+        value_type,
+        owner_id,
+        requested,
+        diagnostic_pool,
+        classify_database_failure(error),
+        error.to_string(),
+    );
+}
+
+fn emit_classified_allocation_failure(
+    value_type: ValueType,
+    owner_id: &str,
+    requested: bool,
+    diagnostic_pool: &str,
+    failure: ResourcePoolFailure,
+    error: String,
+) {
+    let allocation_mode = if requested {
+        ResourcePoolAllocationMode::Requested
+    } else {
+        ResourcePoolAllocationMode::Automatic
+    };
+    let value_type = value_type.into();
+
+    match failure {
+        ResourcePoolFailure::Exhausted => emit(ResourcePoolExhausted {
+            operation: ResourcePoolOperation::Allocate,
+            failure,
+            failure_policy: ResourcePoolFailurePolicy::Required,
+            allocation_mode,
+            value_type,
+            owner_id: owner_id.to_string(),
+            pool: diagnostic_pool.to_string(),
+        }),
+        ResourcePoolFailure::RequestedValueUnavailable
+        | ResourcePoolFailure::Parse
+        | ResourcePoolFailure::Database => {
+            emit(ResourcePoolAllocationFailed {
+                operation: ResourcePoolOperation::Allocate,
+                failure,
+                failure_policy: ResourcePoolFailurePolicy::Required,
+                allocation_mode,
+                value_type,
+                owner_id: owner_id.to_string(),
+                error,
+                pool: diagnostic_pool.to_string(),
+            });
+        }
+    }
+}
+
+/// Emit the requested-VNI diagnostic retained by VPC and SPX allocation APIs.
+///
+/// This Event shares the normalized lifecycle counter labels with generic pool
+/// failures while preserving the APIs' existing message and `requested_vni`
+/// structured field.
+pub fn emit_requested_vni_unavailable(
+    value_type: ValueType,
+    owner_id: &str,
+    requested_vni: i32,
+    diagnostic_pool: &str,
+) {
+    emit(ResourcePoolRequestedVniUnavailable {
+        operation: ResourcePoolOperation::Allocate,
+        failure: ResourcePoolFailure::RequestedValueUnavailable,
+        failure_policy: ResourcePoolFailurePolicy::Required,
+        allocation_mode: ResourcePoolAllocationMode::Requested,
+        value_type: value_type.into(),
+        owner_id: owner_id.to_string(),
+        pool: diagnostic_pool.to_string(),
+        requested_vni: i64::from(requested_vni),
+    });
 }
 
 /// A pool bigger than this is very likely a mistake
@@ -1061,11 +1425,573 @@ pub async fn create_common_pools(
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::MetricKind;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs, capture_logs_async};
     use carbide_test_support::Outcome::*;
     use carbide_test_support::query_counter::count_queries;
-    use carbide_test_support::{Case, check_cases};
+    use carbide_test_support::{Case, Check, check_cases, check_values};
 
     use super::*;
+
+    const RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC: &str =
+        "carbide_resource_pool_lifecycle_failures_total";
+    const RESOURCE_POOL_LIFECYCLE_FAILURES_DESCRIPTION: &str = "Number of resource pool lifecycle failures, by operation, failure, failure policy, allocation mode, and value type.";
+    const RESOURCE_POOL_LIFECYCLE_FAILURE_LABELS: [&str; 5] = [
+        "operation",
+        "failure",
+        "failure_policy",
+        "allocation_mode",
+        "value_type",
+    ];
+
+    fn assert_shared_failure_metric_contract<E: Event>(event: E) {
+        assert_eq!(
+            E::METRIC_NAME,
+            Some(RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC)
+        );
+        assert_eq!(E::METRIC, MetricKind::Counter);
+        assert_eq!(E::DESCRIBE, RESOURCE_POOL_LIFECYCLE_FAILURES_DESCRIPTION);
+        assert_eq!(E::COMPONENT, "nico-api");
+
+        let labels = event.labels();
+        let label_keys = labels
+            .as_ref()
+            .iter()
+            .map(|label| label.key.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(label_keys, RESOURCE_POOL_LIFECYCLE_FAILURE_LABELS);
+    }
+
+    #[test]
+    fn resource_pool_failure_events_share_one_metric_contract() {
+        assert_shared_failure_metric_contract(ResourcePoolExhausted {
+            operation: ResourcePoolOperation::Allocate,
+            failure: ResourcePoolFailure::Exhausted,
+            failure_policy: ResourcePoolFailurePolicy::Required,
+            allocation_mode: ResourcePoolAllocationMode::Automatic,
+            value_type: ResourcePoolValueType::Integer,
+            owner_id: "owner".to_string(),
+            pool: "pool".to_string(),
+        });
+        assert_shared_failure_metric_contract(ResourcePoolRequestedVniUnavailable {
+            operation: ResourcePoolOperation::Allocate,
+            failure: ResourcePoolFailure::RequestedValueUnavailable,
+            failure_policy: ResourcePoolFailurePolicy::Required,
+            allocation_mode: ResourcePoolAllocationMode::Requested,
+            value_type: ResourcePoolValueType::Integer,
+            owner_id: "owner".to_string(),
+            pool: "pool".to_string(),
+            requested_vni: 42,
+        });
+        assert_shared_failure_metric_contract(ResourcePoolAllocationFailed {
+            operation: ResourcePoolOperation::Allocate,
+            failure: ResourcePoolFailure::Database,
+            failure_policy: ResourcePoolFailurePolicy::Required,
+            allocation_mode: ResourcePoolAllocationMode::Automatic,
+            value_type: ResourcePoolValueType::Integer,
+            owner_id: "owner".to_string(),
+            error: "database unavailable".to_string(),
+            pool: "pool".to_string(),
+        });
+        assert_shared_failure_metric_contract(ResourcePoolReleaseFailed {
+            operation: ResourcePoolOperation::Release,
+            failure: ResourcePoolFailure::Database,
+            failure_policy: ResourcePoolFailurePolicy::Required,
+            allocation_mode: ResourcePoolAllocationMode::NotApplicable,
+            value_type: ResourcePoolValueType::Ipv4,
+            error: "database unavailable".to_string(),
+            pool: "pool".to_string(),
+            value: "192.0.2.1".to_string(),
+        });
+        assert_shared_failure_metric_contract(DpuAsnAllocationFailed {
+            operation: ResourcePoolOperation::Allocate,
+            failure: ResourcePoolFailure::Exhausted,
+            failure_policy: ResourcePoolFailurePolicy::BestEffort,
+            allocation_mode: ResourcePoolAllocationMode::Automatic,
+            value_type: ResourcePoolValueType::Integer,
+            stable_machine_id: "dpu-1".to_string(),
+            error: "pool exhausted".to_string(),
+        });
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum AllocationFailureInput {
+        Exhausted,
+        RequestedValueUnavailable,
+        Parse,
+        Database,
+    }
+
+    impl AllocationFailureInput {
+        fn label(self) -> &'static str {
+            match self {
+                Self::Exhausted => "exhausted",
+                Self::RequestedValueUnavailable => "requested_value_unavailable",
+                Self::Parse => "parse",
+                Self::Database => "database",
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct AllocationFailureCase {
+        failure: AllocationFailureInput,
+        allocation_mode: ResourcePoolAllocationMode,
+    }
+
+    impl AllocationFailureCase {
+        fn requested(self) -> bool {
+            self.allocation_mode == ResourcePoolAllocationMode::Requested
+        }
+
+        fn allocation_mode_label(self) -> &'static str {
+            match self.allocation_mode {
+                ResourcePoolAllocationMode::Automatic => "automatic",
+                ResourcePoolAllocationMode::Requested => "requested",
+                ResourcePoolAllocationMode::NotApplicable => "not_applicable",
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct AllocationFailureRecord {
+        metadata_name: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        message: String,
+        operation: Option<String>,
+        failure: Option<String>,
+        failure_policy: Option<String>,
+        allocation_mode: Option<String>,
+        value_type: Option<String>,
+        owner_id: Option<String>,
+        pool: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    fn allocation_error(input: AllocationFailureInput) -> ResourcePoolDatabaseError {
+        match input {
+            AllocationFailureInput::Exhausted => ResourcePoolError::Empty.into(),
+            AllocationFailureInput::RequestedValueUnavailable => {
+                DatabaseError::FailedPrecondition("value is not available".to_string()).into()
+            }
+            AllocationFailureInput::Parse => ResourcePoolError::Parse {
+                e: "invalid integer".to_string(),
+                v: "not-an-integer".to_string(),
+                pool_name: "test-pool".to_string(),
+                owner_type: "machine".to_string(),
+                owner_id: "machine-1".to_string(),
+            }
+            .into(),
+            AllocationFailureInput::Database => DatabaseError::Internal {
+                message: "database unavailable".to_string(),
+            }
+            .into(),
+        }
+    }
+
+    #[test]
+    fn allocation_failures_log_and_count_by_failure() {
+        check_values(
+            [
+                Check {
+                    scenario: "automatic pool exhaustion",
+                    input: AllocationFailureCase {
+                        failure: AllocationFailureInput::Exhausted,
+                        allocation_mode: ResourcePoolAllocationMode::Automatic,
+                    },
+                    expect: AllocationFailureRecord {
+                        metadata_name: "resource_pool_exhausted".to_string(),
+                        event_name: Some("resource_pool_exhausted".to_string()),
+                        metric_name: Some(
+                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
+                        ),
+                        message: "Pool exhausted, cannot allocate".to_string(),
+                        operation: Some("allocate".to_string()),
+                        failure: Some("exhausted".to_string()),
+                        failure_policy: Some("required".to_string()),
+                        allocation_mode: Some("automatic".to_string()),
+                        value_type: Some("integer".to_string()),
+                        owner_id: Some("machine-1".to_string()),
+                        pool: Some("legacy-pool-name".to_string()),
+                        error: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "requested value unavailable",
+                    input: AllocationFailureCase {
+                        failure: AllocationFailureInput::RequestedValueUnavailable,
+                        allocation_mode: ResourcePoolAllocationMode::Requested,
+                    },
+                    expect: AllocationFailureRecord {
+                        metadata_name: "resource_pool_allocation_failed".to_string(),
+                        event_name: Some("resource_pool_allocation_failed".to_string()),
+                        metric_name: Some(
+                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
+                        ),
+                        message: "Error allocating from resource pool".to_string(),
+                        operation: Some("allocate".to_string()),
+                        failure: Some("requested_value_unavailable".to_string()),
+                        failure_policy: Some("required".to_string()),
+                        allocation_mode: Some("requested".to_string()),
+                        value_type: Some("integer".to_string()),
+                        owner_id: Some("machine-1".to_string()),
+                        pool: Some("legacy-pool-name".to_string()),
+                        error: Some("value is not available".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "allocated value parse failure",
+                    input: AllocationFailureCase {
+                        failure: AllocationFailureInput::Parse,
+                        allocation_mode: ResourcePoolAllocationMode::Automatic,
+                    },
+                    expect: AllocationFailureRecord {
+                        metadata_name: "resource_pool_allocation_failed".to_string(),
+                        event_name: Some("resource_pool_allocation_failed".to_string()),
+                        metric_name: Some(
+                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
+                        ),
+                        message: "Error allocating from resource pool".to_string(),
+                        operation: Some("allocate".to_string()),
+                        failure: Some("parse".to_string()),
+                        failure_policy: Some("required".to_string()),
+                        allocation_mode: Some("automatic".to_string()),
+                        value_type: Some("integer".to_string()),
+                        owner_id: Some("machine-1".to_string()),
+                        pool: Some("legacy-pool-name".to_string()),
+                        error: Some(
+                            "cannot convert 'not-an-integer' to test-pool's pool type for machine machine-1: invalid integer"
+                                .to_string(),
+                        ),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "database failure",
+                    input: AllocationFailureCase {
+                        failure: AllocationFailureInput::Database,
+                        allocation_mode: ResourcePoolAllocationMode::Requested,
+                    },
+                    expect: AllocationFailureRecord {
+                        metadata_name: "resource_pool_allocation_failed".to_string(),
+                        event_name: Some("resource_pool_allocation_failed".to_string()),
+                        metric_name: Some(
+                            RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string(),
+                        ),
+                        message: "Error allocating from resource pool".to_string(),
+                        operation: Some("allocate".to_string()),
+                        failure: Some("database".to_string()),
+                        failure_policy: Some("required".to_string()),
+                        allocation_mode: Some("requested".to_string()),
+                        value_type: Some("integer".to_string()),
+                        owner_id: Some("machine-1".to_string()),
+                        pool: Some("legacy-pool-name".to_string()),
+                        error: Some("internal error: database unavailable".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |input| {
+                let pool = ResourcePool::<i32>::new(
+                    "test-pool".to_string(),
+                    ValueType::Integer,
+                );
+                let error = allocation_error(input.failure);
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| {
+                    emit_allocation_failure(
+                        pool.value_type,
+                        "machine-1",
+                        input.requested(),
+                        "legacy-pool-name",
+                        &error,
+                    );
+                });
+                assert_eq!(logs.len(), 1);
+                let log = &logs[0];
+                AllocationFailureRecord {
+                    metadata_name: log.metadata_name.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    message: log.message.clone(),
+                    operation: log.field("operation").map(str::to_string),
+                    failure: log.field("failure").map(str::to_string),
+                    failure_policy: log
+                        .field("failure_policy")
+                        .map(str::to_string),
+                    allocation_mode: log
+                        .field("allocation_mode")
+                        .map(str::to_string),
+                    value_type: log.field("value_type").map(str::to_string),
+                    owner_id: log.field("owner_id").map(str::to_string),
+                    pool: log.field("pool").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    counter_delta: metrics.counter_delta(
+                        RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC,
+                        &[
+                            ("operation", "allocate"),
+                            ("failure", input.failure.label()),
+                            ("failure_policy", "required"),
+                            ("allocation_mode", input.allocation_mode_label()),
+                            ("value_type", "integer"),
+                        ],
+                    ),
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn requested_vni_unavailable_preserves_diagnostic_and_counter_schema() {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            emit_requested_vni_unavailable(ValueType::Integer, "vpc-1", 42, "vpc-vni");
+        });
+
+        assert_eq!(logs.len(), 1);
+        let log = &logs[0];
+        assert_eq!(log.metadata_name, "resource_pool_requested_vni_unavailable");
+        assert_eq!(log.message, "invalid pool value requested, cannot allocate");
+        assert_eq!(
+            log.field("event_name"),
+            Some("resource_pool_requested_vni_unavailable")
+        );
+        assert_eq!(
+            log.field("metric_name"),
+            Some(RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC)
+        );
+        assert_eq!(log.field("owner_id"), Some("vpc-1"));
+        assert_eq!(log.field("pool"), Some("vpc-vni"));
+        assert_eq!(log.field("requested_vni"), Some("42"));
+        assert_eq!(log.field("failure_policy"), Some("required"));
+        assert_eq!(
+            metrics.counter_delta(
+                RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC,
+                &[
+                    ("operation", "allocate"),
+                    ("failure", "requested_value_unavailable"),
+                    ("failure_policy", "required"),
+                    ("allocation_mode", "requested"),
+                    ("value_type", "integer"),
+                ],
+            ),
+            1.0
+        );
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum PolicySpecificFailureInput {
+        Release,
+        BestEffortDpuAsn,
+    }
+
+    impl PolicySpecificFailureInput {
+        fn metric_labels(self) -> [(&'static str, &'static str); 5] {
+            match self {
+                Self::Release => [
+                    ("operation", "release"),
+                    ("failure", "database"),
+                    ("failure_policy", "required"),
+                    ("allocation_mode", "not_applicable"),
+                    ("value_type", "ipv4"),
+                ],
+                Self::BestEffortDpuAsn => [
+                    ("operation", "allocate"),
+                    ("failure", "exhausted"),
+                    ("failure_policy", "best_effort"),
+                    ("allocation_mode", "automatic"),
+                    ("value_type", "integer"),
+                ],
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct PolicySpecificFailureRecord {
+        metadata_name: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        level: tracing::Level,
+        message: String,
+        operation: Option<String>,
+        failure: Option<String>,
+        failure_policy: Option<String>,
+        allocation_mode: Option<String>,
+        value_type: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn policy_specific_resource_pool_failures_preserve_their_log_contracts() {
+        check_values(
+            [
+                Check {
+                    scenario: "release failure",
+                    input: PolicySpecificFailureInput::Release,
+                    expect: PolicySpecificFailureRecord {
+                        metadata_name: "resource_pool_release_failed".to_string(),
+                        event_name: Some("resource_pool_release_failed".to_string()),
+                        metric_name: Some(RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string()),
+                        level: tracing::Level::ERROR,
+                        message: "Error releasing value to resource pool".to_string(),
+                        operation: Some("release".to_string()),
+                        failure: Some("database".to_string()),
+                        failure_policy: Some("required".to_string()),
+                        allocation_mode: Some("not_applicable".to_string()),
+                        value_type: Some("ipv4".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "best-effort DPU ASN allocation",
+                    input: PolicySpecificFailureInput::BestEffortDpuAsn,
+                    expect: PolicySpecificFailureRecord {
+                        metadata_name: "dpu_asn_allocation_failed".to_string(),
+                        event_name: Some("dpu_asn_allocation_failed".to_string()),
+                        metric_name: Some(RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC.to_string()),
+                        level: tracing::Level::INFO,
+                        message: "Failed to allocate asn for dpu".to_string(),
+                        operation: Some("allocate".to_string()),
+                        failure: Some("exhausted".to_string()),
+                        failure_policy: Some("best_effort".to_string()),
+                        allocation_mode: Some("automatic".to_string()),
+                        value_type: Some("integer".to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |input| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match input {
+                    PolicySpecificFailureInput::Release => {
+                        emit(ResourcePoolReleaseFailed {
+                            operation: ResourcePoolOperation::Release,
+                            failure: ResourcePoolFailure::Database,
+                            failure_policy: ResourcePoolFailurePolicy::Required,
+                            allocation_mode: ResourcePoolAllocationMode::NotApplicable,
+                            value_type: ResourcePoolValueType::Ipv4,
+                            error: "database unavailable".to_string(),
+                            pool: "lo-ip".to_string(),
+                            value: "192.0.2.10".to_string(),
+                        });
+                    }
+                    PolicySpecificFailureInput::BestEffortDpuAsn => {
+                        let error: ResourcePoolDatabaseError = ResourcePoolError::Empty.into();
+                        emit_best_effort_dpu_asn_allocation_failure(
+                            ValueType::Integer,
+                            "dpu-1",
+                            &error,
+                        );
+                    }
+                });
+                assert_eq!(logs.len(), 1);
+                let log = &logs[0];
+                let operation = log.field("operation").map(str::to_string);
+                let failure = log.field("failure").map(str::to_string);
+                let failure_policy = log.field("failure_policy").map(str::to_string);
+                let allocation_mode = log.field("allocation_mode").map(str::to_string);
+                let value_type = log.field("value_type").map(str::to_string);
+                PolicySpecificFailureRecord {
+                    metadata_name: log.metadata_name.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    level: log.level,
+                    message: log.message.clone(),
+                    operation,
+                    failure,
+                    failure_policy,
+                    allocation_mode,
+                    value_type,
+                    counter_delta: metrics.counter_delta(
+                        RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC,
+                        &input.metric_labels(),
+                    ),
+                }
+            },
+        );
+    }
+
+    // `capture_logs_async` wraps only `release`, whose await uses this
+    // connection. No unrelated work runs while the connection is held.
+    #[allow(txn_held_across_await)]
+    #[crate::sqlx_test]
+    async fn release_database_failure_emits_at_database_boundary(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut connection = pool.acquire().await?;
+        // `sqlx_test` gives this case its own database. Hiding the table forces
+        // `release` through its production error boundary without affecting
+        // another test.
+        sqlx::query("ALTER TABLE resource_pool RENAME TO unavailable_resource_pool")
+            .execute(connection.as_mut())
+            .await?;
+
+        let resource_pool =
+            ResourcePool::<IpAddr>::new("release-test".to_string(), ValueType::Ipv4);
+        let value: IpAddr = "192.0.2.10".parse()?;
+        let metrics = MetricsCapture::start();
+        let (result, logs) =
+            capture_logs_async(release(&resource_pool, connection.as_mut(), value)).await;
+
+        let returned_error = result.expect_err("the renamed table must make release fail");
+        assert!(
+            returned_error
+                .to_string()
+                .contains("UPDATE resource_pool SET"),
+            "the returned error retains its query context"
+        );
+        let event_logs = logs
+            .iter()
+            .filter(|log| log.metadata_name == "resource_pool_release_failed")
+            .collect::<Vec<_>>();
+        assert_eq!(event_logs.len(), 1);
+        let log = event_logs[0];
+        assert_eq!(log.level, tracing::Level::ERROR);
+        assert_eq!(log.message, "Error releasing value to resource pool");
+        assert_eq!(
+            log.field("event_name"),
+            Some("resource_pool_release_failed")
+        );
+        assert_eq!(
+            log.field("metric_name"),
+            Some(RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC)
+        );
+        assert_eq!(log.field("failure_policy"), Some("required"));
+        assert_eq!(log.field("pool"), Some("release-test"));
+        assert_eq!(log.field("value"), Some("192.0.2.10"));
+        let logged_error = log.field("error").expect("release error context");
+        assert!(
+            logged_error.contains("relation \"resource_pool\" does not exist"),
+            "the Event retains the database cause"
+        );
+        assert!(
+            !logged_error.contains("UPDATE"),
+            "the Event omits the failed query"
+        );
+        assert!(
+            !logged_error.contains('\n'),
+            "the Event error remains single-line"
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC,
+                &[
+                    ("operation", "release"),
+                    ("failure", "database"),
+                    ("failure_policy", "required"),
+                    ("allocation_mode", "not_applicable"),
+                    ("value_type", "ipv4"),
+                ],
+            ),
+            1.0
+        );
+
+        Ok(())
+    }
 
     /// A single successful auto-assign `allocate` must cost exactly one database
     /// round-trip. It previously cost two: a full-pool `stats()` pre-scan ran

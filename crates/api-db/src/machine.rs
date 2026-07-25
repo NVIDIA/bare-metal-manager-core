@@ -1577,10 +1577,10 @@ pub async fn create(
             {
                 Ok(asn) => Some(asn as i64),
                 Err(e) => {
-                    tracing::info!(
-                        stable_machine_id = %stable_machine_id,
-                        error = %e,
-                        "Failed to allocate asn for dpu",
+                    crate::resource_pool::emit_best_effort_dpu_asn_allocation_failure(
+                        common_pools.ethernet.pool_fnn_asn.value_type,
+                        &stable_machine_id_string,
+                        &e,
                     );
                     None
                 }
@@ -2294,14 +2294,28 @@ pub async fn allocate_loopback_ip(
     .await
     {
         Ok(val) => Ok(val),
-        Err(crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
-            ResourcePoolError::Empty,
-        )) => {
-            tracing::error!(owner_id, pool = "lo-ip", "Pool exhausted, cannot allocate");
+        Err(
+            error @ crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+                ResourcePoolError::Empty,
+            ),
+        ) => {
+            crate::resource_pool::emit_allocation_failure(
+                common_pools.ethernet.pool_loopback_ip.value_type,
+                owner_id,
+                false,
+                "lo-ip",
+                &error,
+            );
             Err(DatabaseError::ResourceExhausted("pool lo-ip".to_string()))
         }
         Err(err) => {
-            tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
+            crate::resource_pool::emit_allocation_failure(
+                common_pools.ethernet.pool_loopback_ip.value_type,
+                owner_id,
+                false,
+                "lo-ip",
+                &err,
+            );
             Err(err.into())
         }
     }
@@ -2325,20 +2339,30 @@ pub async fn allocate_vpc_dpu_loopback(
     .await
     {
         Ok(val) => Ok(val),
-        Err(crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
-            resource_pool::ResourcePoolError::Empty,
-        )) => {
-            tracing::error!(
+        Err(
+            error @ crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+                resource_pool::ResourcePoolError::Empty,
+            ),
+        ) => {
+            crate::resource_pool::emit_allocation_failure(
+                common_pools.ethernet.pool_vpc_dpu_loopback_ip.value_type,
                 owner_id,
-                pool = "vpc-dpu-lo-ip",
-                "Pool exhausted, cannot allocate"
+                false,
+                "vpc-dpu-lo-ip",
+                &error,
             );
             Err(DatabaseError::ResourceExhausted(
                 "pool vpc-dpu-lo-ip".to_string(),
             ))
         }
         Err(err) => {
-            tracing::error!(owner_id, error = %err, pool = "lo-ip", "Error allocating from resource pool");
+            crate::resource_pool::emit_allocation_failure(
+                common_pools.ethernet.pool_vpc_dpu_loopback_ip.value_type,
+                owner_id,
+                false,
+                "vpc-dpu-lo-ip",
+                &err,
+            );
             Err(err.into())
         }
     }
@@ -2360,20 +2384,30 @@ pub async fn allocate_secondary_vtep_ip(
     .await
     {
         Ok(val) => Ok(val),
-        Err(crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
-            resource_pool::ResourcePoolError::Empty,
-        )) => {
-            tracing::error!(
+        Err(
+            error @ crate::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+                resource_pool::ResourcePoolError::Empty,
+            ),
+        ) => {
+            crate::resource_pool::emit_allocation_failure(
+                common_pools.ethernet.pool_secondary_vtep_ip.value_type,
                 owner_id,
-                pool = "secondary-vtep-ip",
-                "Pool exhausted, cannot allocate"
+                false,
+                "secondary-vtep-ip",
+                &error,
             );
             Err(DatabaseError::ResourceExhausted(
                 "pool secondary-vtep-ip".to_string(),
             ))
         }
         Err(err) => {
-            tracing::error!(owner_id, error = %err, pool = "secondary-vtep-ip", "Error allocating from resource pool");
+            crate::resource_pool::emit_allocation_failure(
+                common_pools.ethernet.pool_secondary_vtep_ip.value_type,
+                owner_id,
+                false,
+                "secondary-vtep-ip",
+                &err,
+            );
             Err(err.into())
         }
     }
@@ -2868,9 +2902,12 @@ pub fn count_healthy_unhealthy_host_machines(
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use std::net::IpAddr;
     use std::str::FromStr;
+    use std::sync::{Arc, Mutex};
 
+    use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
     use carbide_uuid::machine::{MachineId, MachineInterfaceId};
     use carbide_uuid::network::NetworkSegmentId;
     use model::allocation_type::AllocationType;
@@ -2879,6 +2916,104 @@ mod test {
     use model::machine::ManagedHostState;
     use model::machine::machine_search_config::MachineSearchConfig;
     use model::machine::topology::{DiscoveryData, TopologyData};
+    use model::resource_pool::common::{
+        CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
+        SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    };
+    use model::resource_pool::{ResourcePool, ValueType};
+    use tokio::sync::oneshot;
+
+    fn common_pools_without_seeded_values() -> CommonPools {
+        let (stop_sender, _stop_receiver) = oneshot::channel();
+        CommonPools {
+            ethernet: EthernetPools {
+                pool_loopback_ip: Arc::new(ResourcePool::new(
+                    LOOPBACK_IP.to_string(),
+                    ValueType::Ipv4,
+                )),
+                pool_vlan_id: Arc::new(ResourcePool::new(VLANID.to_string(), ValueType::Integer)),
+                pool_vni: Arc::new(ResourcePool::new(VNI.to_string(), ValueType::Integer)),
+                pool_vpc_vni: Arc::new(ResourcePool::new(VPC_VNI.to_string(), ValueType::Integer)),
+                pool_external_vpc_vni: Arc::new(ResourcePool::new(
+                    EXTERNAL_VPC_VNI.to_string(),
+                    ValueType::Integer,
+                )),
+                pool_dpa_vni: Arc::new(ResourcePool::new(DPA_VNI.to_string(), ValueType::Integer)),
+                pool_fnn_asn: Arc::new(ResourcePool::new(FNN_ASN.to_string(), ValueType::Integer)),
+                pool_vpc_dpu_loopback_ip: Arc::new(ResourcePool::new(
+                    VPC_DPU_LOOPBACK.to_string(),
+                    ValueType::Ipv4,
+                )),
+                pool_secondary_vtep_ip: Arc::new(ResourcePool::new(
+                    SECONDARY_VTEP_IP.to_string(),
+                    ValueType::Ipv4,
+                )),
+            },
+            infiniband: IbPools::default(),
+            pool_stats: Arc::new(Mutex::new(HashMap::new())),
+            _stop_sender: stop_sender,
+        }
+    }
+
+    // `capture_logs_async` wraps only `machine::create`, whose awaits all use
+    // this connection. No unrelated work runs while the connection is held.
+    #[allow(txn_held_across_await)]
+    #[crate::sqlx_test]
+    async fn dpu_creation_keeps_exhausted_fnn_asn_nonfatal(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        const RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC: &str =
+            "carbide_resource_pool_lifecycle_failures_total";
+
+        let common_pools = common_pools_without_seeded_values();
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")?;
+        let mut connection = pool.acquire().await?;
+        let metrics = MetricsCapture::start();
+
+        let (machine, logs) = capture_logs_async(super::create(
+            connection.as_mut(),
+            Some(&common_pools),
+            &dpu_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        ))
+        .await;
+        let machine = machine?;
+
+        assert_eq!(machine.asn, None);
+        let event_logs = logs
+            .iter()
+            .filter(|log| log.metadata_name == "dpu_asn_allocation_failed")
+            .collect::<Vec<_>>();
+        assert_eq!(event_logs.len(), 1);
+        let log = event_logs[0];
+        assert_eq!(log.level, tracing::Level::INFO);
+        assert_eq!(log.message, "Failed to allocate asn for dpu");
+        assert_eq!(
+            log.field("stable_machine_id"),
+            Some(dpu_id.to_string().as_str())
+        );
+        assert_eq!(log.field("failure"), Some("exhausted"));
+        assert_eq!(log.field("failure_policy"), Some("best_effort"));
+        assert_eq!(log.field("allocation_mode"), Some("automatic"));
+        assert_eq!(
+            metrics.counter_delta(
+                RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC,
+                &[
+                    ("operation", "allocate"),
+                    ("failure", "exhausted"),
+                    ("failure_policy", "best_effort"),
+                    ("allocation_mode", "automatic"),
+                    ("value_type", "integer"),
+                ],
+            ),
+            1.0
+        );
+
+        Ok(())
+    }
 
     /// The machine snapshot reports the BMC IP from the *live* `machine_interface_addresses`
     /// row, and reports `None` once that address is gone -- it must never fall back to the
