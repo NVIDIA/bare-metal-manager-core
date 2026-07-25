@@ -1285,21 +1285,24 @@ impl NvlPartitionMonitor {
             }
         }
 
-        let mut rack_id_to_resolved_endpoint = HashMap::new();
-        for rack_id in managed_host_snapshots_by_rack_id.keys() {
-            if let Some(endpoint_url) = nmx_c_endpoint::resolve_nmx_c_endpoint_url(
-                &mut txn,
-                nmx_c_endpoint::ManagedHostGroupType::Rack,
-                Some(rack_id),
-                None,
-                &self.config,
-            )
-            .await
-            .map_err(NvLinkManagerError::from)?
-            {
-                rack_id_to_resolved_endpoint.insert(rack_id.clone(), endpoint_url);
-            }
-        }
+        let rack_id_to_resolved_endpoint = if managed_host_snapshots_by_rack_id.is_empty() {
+            HashMap::new()
+        } else {
+            db::switch::find_ready_control_plane_configured_switch_endpoints(&mut txn)
+                .await
+                .map_err(NvLinkManagerError::from)?
+                .into_iter()
+                .filter(|row| managed_host_snapshots_by_rack_id.contains_key(&row.rack_id))
+                .map(|row| {
+                    let endpoint_url = nmx_c_endpoint::nmx_c_endpoint_url_from_nvos_ip(
+                        &row.nvos_ip,
+                        None,
+                        &self.config,
+                    );
+                    (row.rack_id, endpoint_url)
+                })
+                .collect()
+        };
 
         // Don't hold the transaction across unrelated awaits
         txn.commit().await?;
@@ -1495,7 +1498,7 @@ impl NvlPartitionMonitor {
                 .iter()
                 .map(|s| (s.host_snapshot.id, (*s).clone()))
                 .collect();
-        let machine_ids_in_domain: Vec<MachineId> =
+        let machine_ids_in_domain: HashSet<MachineId> =
             managed_host_snapshots_domain.keys().copied().collect();
         let mut nvlink_info_db_updates = Vec::new();
         for snapshot in snapshots {
@@ -3368,7 +3371,14 @@ mod machine_group_tests {
                     assert_eq!(pending[0].reason, reason, "{scenario}");
                     assert_eq!(pending[0].machine_ids, vec![machine_id], "{scenario}");
                 }
-                None => assert!(pending.is_empty(), "{scenario}"),
+                None => {
+                    assert!(pending.is_empty(), "{scenario}");
+                    assert_eq!(
+                        metrics.nmxc.endpoint,
+                        endpoint_url.expect("successful scenario has an endpoint"),
+                        "{scenario}"
+                    );
+                }
             }
         }
 
