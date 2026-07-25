@@ -1,4 +1,4 @@
-## Zalando postgres-operator (see helmfile.yaml for the version pin)
+## Zalando postgres-operator 1.15.1
 ## Reference: nico-external/manifests/nico-pg-operator-app/values.yaml
 
 configTarget: ConfigMap
