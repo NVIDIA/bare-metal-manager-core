@@ -622,7 +622,20 @@ _existing_postgres_instances="$(kubectl get postgresql nico-pg-cluster -n postgr
     -o jsonpath='{.spec.numberOfInstances}' 2>/dev/null || true)"
 _existing_synchronous_mode="$(kubectl get postgresql nico-pg-cluster -n postgres \
     -o jsonpath='{.spec.patroni.synchronous_mode}' 2>/dev/null || true)"
-if [[ "${_existing_postgres_instances}" == "1" && "${_existing_synchronous_mode}" == "true" ]]; then
+_existing_sync_waiters=0
+if [[ "${_existing_postgres_instances}" == "1" ]]; then
+    _existing_postgres_primary="$(kubectl get pods -n postgres \
+        -l application=spilo,cluster-name=nico-pg-cluster,spilo-role=master \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [[ -n "${_existing_postgres_primary}" ]]; then
+        _existing_sync_waiters="$(kubectl exec -n postgres -c postgres "${_existing_postgres_primary}" -- \
+            su postgres -c "psql -X -d postgres -tAc \"SELECT count(*) FROM pg_stat_activity WHERE wait_event = 'SyncRep'\"" \
+            2>/dev/null | tr -d '[:space:]' || true)"
+        _existing_sync_waiters="${_existing_sync_waiters:-0}"
+    fi
+fi
+if [[ "${_existing_postgres_instances}" == "1" && \
+      ( "${_existing_synchronous_mode}" == "true" || "${_existing_sync_waiters}" != "0" ) ]]; then
     echo "Recovering existing single-instance PostgreSQL cluster from synchronous replication"
     kubectl patch postgresql nico-pg-cluster -n postgres --type=merge \
         -p '{"spec":{"patroni":{"synchronous_mode":false,"synchronous_mode_strict":false}}}'
