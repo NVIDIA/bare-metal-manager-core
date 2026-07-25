@@ -159,6 +159,700 @@ pub(crate) struct ScoutStreamResponseDropped {
     pub error: String,
 }
 
+/// Which firmware-upgrade input is being downloaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum FirmwareDownloadKind {
+    Script,
+    Artifact,
+}
+
+/// What Scout will do after a failed firmware download attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum FirmwareDownloadNextAction {
+    Retry,
+    GiveUp,
+}
+
+/// A firmware download attempt failed.
+#[derive(Event)]
+#[event(
+    event_name = "scout_firmware_download_attempt_failed",
+    metric_name = "carbide_scout_firmware_download_attempt_failures_total",
+    component = "nico-scout",
+    log = warn,
+    metric = counter,
+    message = "[firmware_upgrade] download attempt failed; retrying",
+    describe = "Number of failed Scout firmware download attempts, by download kind and next action."
+)]
+pub(crate) struct ScoutFirmwareDownloadAttemptFailed {
+    #[label]
+    pub kind: FirmwareDownloadKind,
+    #[label]
+    pub next_action: FirmwareDownloadNextAction,
+    #[context(value)]
+    pub attempt: i64,
+    #[context]
+    pub url: String,
+    #[context]
+    pub error: String,
+    #[context(value)]
+    pub retry_delay_seconds: f64,
+}
+
+/// The bounded operation vocabulary for Scout's MLX failure counter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ScoutMlxOperation {
+    DeviceReportPublish,
+    InfoReport,
+    ObservationReport,
+    Reconciliation,
+    ProfileCompare,
+    LockdownStatus,
+    DeviceInfo,
+    RegistryShow,
+    ConfigQuery,
+    ConfigCompare,
+}
+
+/// Where an MLX operation failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ScoutMlxFailureStage {
+    Create,
+    Publish,
+    Decode,
+    Validate,
+    Discover,
+    Initialize,
+    Lookup,
+    Execute,
+    Serialize,
+}
+
+/// The bounded class of an MLX failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ScoutMlxFailureKind {
+    InvalidRequest,
+    NotFound,
+    Backend,
+    Serialization,
+    Rpc,
+}
+
+impl ScoutMlxFailureStage {
+    fn failure_kind(self) -> ScoutMlxFailureKind {
+        match self {
+            Self::Create | Self::Discover | Self::Initialize | Self::Execute => {
+                ScoutMlxFailureKind::Backend
+            }
+            Self::Publish => ScoutMlxFailureKind::Rpc,
+            Self::Decode | Self::Validate => ScoutMlxFailureKind::InvalidRequest,
+            Self::Lookup => ScoutMlxFailureKind::NotFound,
+            Self::Serialize => ScoutMlxFailureKind::Serialization,
+        }
+    }
+}
+
+// The operation, request, device, profile, registry, config, and
+// reconciliation families all feed `carbide_scout_mlx_failures_total`, but
+// their existing diagnostics need different context. Keep separate `Event`
+// structs so each log retains its fields without filling unrelated fields
+// with empty values.
+//
+// Named constructors own each valid (`operation`, `failure_stage`) pair and
+// derive `failure_kind` from the stage. That makes contradictory metric
+// series unrepresentable at call sites. The dynamic log and message matches
+// still have generic fallbacks: `emit()` is diagnostic plumbing and must not
+// panic if a future constructor reaches a pair its matching table does not
+// know yet.
+
+/// An MLX failure whose existing diagnostic only carries an error.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_operation_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = dynamic,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxOperationFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxOperationFailed {
+    fn new(
+        operation: ScoutMlxOperation,
+        failure_stage: ScoutMlxFailureStage,
+        error: String,
+    ) -> Self {
+        Self {
+            operation,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            error,
+        }
+    }
+
+    pub(crate) fn device_report_create(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::DeviceReportPublish,
+            ScoutMlxFailureStage::Create,
+            error,
+        )
+    }
+
+    pub(crate) fn device_report_publish(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::DeviceReportPublish,
+            ScoutMlxFailureStage::Publish,
+            error,
+        )
+    }
+
+    pub(crate) fn observation_report_publish(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ObservationReport,
+            ScoutMlxFailureStage::Publish,
+            error,
+        )
+    }
+
+    pub(crate) fn profile_compare_decode(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ProfileCompare,
+            ScoutMlxFailureStage::Decode,
+            error,
+        )
+    }
+
+    pub(crate) fn profile_compare_serialize(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ProfileCompare,
+            ScoutMlxFailureStage::Serialize,
+            error,
+        )
+    }
+
+    pub(crate) fn lockdown_status_initialize(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::LockdownStatus,
+            ScoutMlxFailureStage::Initialize,
+            error,
+        )
+    }
+
+    pub(crate) fn info_report_decode(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::InfoReport,
+            ScoutMlxFailureStage::Decode,
+            error,
+        )
+    }
+
+    pub(crate) fn info_report_execute(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::InfoReport,
+            ScoutMlxFailureStage::Execute,
+            error,
+        )
+    }
+}
+
+impl DynamicLog for ScoutMlxOperationFailed {
+    fn log_at(&self) -> LogAt {
+        match (self.operation, self.failure_stage) {
+            (
+                ScoutMlxOperation::DeviceReportPublish,
+                ScoutMlxFailureStage::Create | ScoutMlxFailureStage::Publish,
+            ) => LogAt::Level(tracing::Level::WARN),
+            (ScoutMlxOperation::ObservationReport, ScoutMlxFailureStage::Publish)
+            | (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Decode)
+            | (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Serialize)
+            | (ScoutMlxOperation::LockdownStatus, ScoutMlxFailureStage::Initialize)
+            | (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Decode)
+            | (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Execute) => {
+                LogAt::Level(tracing::Level::ERROR)
+            }
+            _ => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for ScoutMlxOperationFailed {
+    fn message(&self) -> &'static str {
+        match (self.operation, self.failure_stage) {
+            (ScoutMlxOperation::DeviceReportPublish, ScoutMlxFailureStage::Create) => {
+                "failed to create PublishMlxDeviceReportRequest"
+            }
+            (ScoutMlxOperation::DeviceReportPublish, ScoutMlxFailureStage::Publish) => {
+                "failed to publish PublishMlxDeviceReportRequest"
+            }
+            (ScoutMlxOperation::ObservationReport, ScoutMlxFailureStage::Publish) => {
+                "Error from publish_mlx_observation_report"
+            }
+            (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Decode) => {
+                "[scout_stream::mlx_device] failed to parse profile"
+            }
+            (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Serialize) => {
+                "[scout_stream::mlx_device] profile compare result failed to serialize"
+            }
+            (ScoutMlxOperation::LockdownStatus, ScoutMlxFailureStage::Initialize) => {
+                "[scout_stream::mlx_device] lockdown manager initialization failed"
+            }
+            (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Decode) => {
+                "[scout_stream::mlx_device] device report request failed to parse filters"
+            }
+            (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] device report generation failed"
+            }
+            _ => "Scout MLX operation failed",
+        }
+    }
+}
+
+/// An MLX request failed validation before it had additional context.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_request_rejected",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = dynamic,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxRequestRejected {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+}
+
+impl ScoutMlxRequestRejected {
+    fn new(operation: ScoutMlxOperation) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Validate;
+        Self {
+            operation,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+        }
+    }
+
+    pub(crate) fn profile_compare() -> Self {
+        Self::new(ScoutMlxOperation::ProfileCompare)
+    }
+
+    pub(crate) fn reconciliation() -> Self {
+        Self::new(ScoutMlxOperation::Reconciliation)
+    }
+}
+
+impl DynamicLog for ScoutMlxRequestRejected {
+    fn log_at(&self) -> LogAt {
+        match self.operation {
+            ScoutMlxOperation::ProfileCompare => LogAt::Off,
+            ScoutMlxOperation::Reconciliation => LogAt::Level(tracing::Level::ERROR),
+            _ => LogAt::Level(tracing::Level::WARN),
+        }
+    }
+}
+
+impl DynamicMessage for ScoutMlxRequestRejected {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            ScoutMlxOperation::ProfileCompare => "no serializable profile data in message",
+            ScoutMlxOperation::Reconciliation => "handle_mlxreport_action dev_pci_name empty",
+            _ => "Scout MLX request rejected",
+        }
+    }
+}
+
+/// An MLX device read failed.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_device_operation_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxDeviceOperationFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device_id: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxDeviceOperationFailed {
+    fn new(
+        operation: ScoutMlxOperation,
+        failure_stage: ScoutMlxFailureStage,
+        device_id: String,
+        error: String,
+    ) -> Self {
+        Self {
+            operation,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device_id,
+            error,
+        }
+    }
+
+    pub(crate) fn lockdown_status_execute(device_id: String, error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::LockdownStatus,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            error,
+        )
+    }
+
+    pub(crate) fn device_info_discover(device_id: String, error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::DeviceInfo,
+            ScoutMlxFailureStage::Discover,
+            device_id,
+            error,
+        )
+    }
+}
+
+impl DynamicMessage for ScoutMlxDeviceOperationFailed {
+    fn message(&self) -> &'static str {
+        match (self.operation, self.failure_stage) {
+            (ScoutMlxOperation::LockdownStatus, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] lockdown status check failed"
+            }
+            (ScoutMlxOperation::DeviceInfo, ScoutMlxFailureStage::Discover) => {
+                "[scout_stream::mlx_device] device info request failed"
+            }
+            _ => "[scout_stream::mlx_device] device operation failed",
+        }
+    }
+}
+
+/// A profile comparison failed against one device.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_profile_operation_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "[scout_stream::mlx_device] profile compare against device failed",
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxProfileOperationFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device_id: String,
+    #[context]
+    profile_name: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxProfileOperationFailed {
+    pub(crate) fn profile_compare_execute(
+        device_id: String,
+        profile_name: String,
+        error: String,
+    ) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Execute;
+        Self {
+            operation: ScoutMlxOperation::ProfileCompare,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device_id,
+            profile_name,
+            error,
+        }
+    }
+}
+
+/// A registry-show request named a registry Scout does not know.
+///
+/// Registry show preserves its existing error severity. Config query and
+/// comparison use the warning-level `Event` below for the same lookup failure.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_registry_lookup_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "[scout_stream::mlx_device] variable registry not found",
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxRegistryLookupFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    registry_name: String,
+}
+
+impl ScoutMlxRegistryLookupFailed {
+    pub(crate) fn registry_show_lookup(registry_name: String) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Lookup;
+        Self {
+            operation: ScoutMlxOperation::RegistryShow,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            registry_name,
+        }
+    }
+}
+
+/// A config read named a registry Scout does not know.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_config_registry_lookup_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = warn,
+    metric = counter,
+    message = "[scout_stream::mlx_device] config registry not found",
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxConfigRegistryLookupFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device_id: String,
+    #[context]
+    registry_name: String,
+}
+
+impl ScoutMlxConfigRegistryLookupFailed {
+    fn new(operation: ScoutMlxOperation, device_id: String, registry_name: String) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Lookup;
+        Self {
+            operation,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device_id,
+            registry_name,
+        }
+    }
+
+    pub(crate) fn config_query_lookup(device_id: String, registry_name: String) -> Self {
+        Self::new(ScoutMlxOperation::ConfigQuery, device_id, registry_name)
+    }
+
+    pub(crate) fn config_compare_lookup(device_id: String, registry_name: String) -> Self {
+        Self::new(ScoutMlxOperation::ConfigCompare, device_id, registry_name)
+    }
+}
+
+/// An MLX config read failed after registry lookup.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_config_operation_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxConfigOperationFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device_id: String,
+    #[context]
+    registry_name: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxConfigOperationFailed {
+    fn new(
+        operation: ScoutMlxOperation,
+        failure_stage: ScoutMlxFailureStage,
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self {
+            operation,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device_id,
+            registry_name,
+            error,
+        }
+    }
+
+    pub(crate) fn config_query_serialize(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigQuery,
+            ScoutMlxFailureStage::Serialize,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
+
+    pub(crate) fn config_query_execute(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigQuery,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
+
+    pub(crate) fn config_compare_serialize(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigCompare,
+            ScoutMlxFailureStage::Serialize,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
+
+    pub(crate) fn config_compare_execute(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigCompare,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
+}
+
+impl DynamicMessage for ScoutMlxConfigOperationFailed {
+    fn message(&self) -> &'static str {
+        match (self.operation, self.failure_stage) {
+            (ScoutMlxOperation::ConfigQuery, ScoutMlxFailureStage::Serialize) => {
+                "[scout_stream::mlx_device] config query result failed to serialize"
+            }
+            (ScoutMlxOperation::ConfigQuery, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] config query against device failed"
+            }
+            (ScoutMlxOperation::ConfigCompare, ScoutMlxFailureStage::Serialize) => {
+                "[scout_stream::mlx_device] config compare result failed to serialize"
+            }
+            (ScoutMlxOperation::ConfigCompare, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] config compare against device failed"
+            }
+            _ => "[scout_stream::mlx_device] config operation failed",
+        }
+    }
+}
+
+/// Scout could not reconcile one MLX command with its target device.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_reconciliation_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxReconciliationFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    pci_name: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxReconciliationFailed {
+    fn new(failure_stage: ScoutMlxFailureStage, pci_name: String, error: String) -> Self {
+        Self {
+            operation: ScoutMlxOperation::Reconciliation,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            pci_name,
+            error,
+        }
+    }
+
+    pub(crate) fn decode(pci_name: String, error: String) -> Self {
+        Self::new(ScoutMlxFailureStage::Decode, pci_name, error)
+    }
+
+    pub(crate) fn discover(pci_name: String, error: String) -> Self {
+        Self::new(ScoutMlxFailureStage::Discover, pci_name, error)
+    }
+}
+
+impl DynamicMessage for ScoutMlxReconciliationFailed {
+    fn message(&self) -> &'static str {
+        match self.failure_stage {
+            ScoutMlxFailureStage::Decode => "handle_mlxreport_action error decoding command",
+            ScoutMlxFailureStage::Discover => {
+                "handle_mlxreport_action error from discover_device::from_str"
+            }
+            _ => "handle_mlxreport_action failed",
+        }
+    }
+}
+
 /// Which storage cleanup path scout ran for a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
 pub(crate) enum StorageDeviceType {
@@ -246,6 +940,536 @@ mod tests {
     use carbide_test_support::{Check, check_values};
 
     use super::*;
+
+    #[test]
+    fn firmware_download_attempt_failures_share_one_bounded_metric() {
+        struct AttemptCase {
+            kind: FirmwareDownloadKind,
+            kind_label: &'static str,
+            next_action: FirmwareDownloadNextAction,
+            next_action_label: &'static str,
+            retry_delay_seconds: f64,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            counter_delta: f64,
+            level: tracing::Level,
+            message: String,
+            kind: Option<String>,
+            next_action: Option<String>,
+            attempt: Option<String>,
+            url: Option<String>,
+            error: Option<String>,
+            retry_delay_seconds: Option<String>,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "script attempt will retry",
+                    input: AttemptCase {
+                        kind: FirmwareDownloadKind::Script,
+                        kind_label: "script",
+                        next_action: FirmwareDownloadNextAction::Retry,
+                        next_action_label: "retry",
+                        retry_delay_seconds: 4.0,
+                    },
+                    expect: Observation {
+                        counter_delta: 1.0,
+                        level: tracing::Level::WARN,
+                        message: "[firmware_upgrade] download attempt failed; retrying".to_string(),
+                        kind: Some("script".to_string()),
+                        next_action: Some("retry".to_string()),
+                        attempt: Some("2".to_string()),
+                        url: Some("https://firmware.example/script.sh".to_string()),
+                        error: Some("HTTP 503".to_string()),
+                        retry_delay_seconds: Some("4".to_string()),
+                    },
+                },
+                Check {
+                    scenario: "artifact attempt will give up",
+                    input: AttemptCase {
+                        kind: FirmwareDownloadKind::Artifact,
+                        kind_label: "artifact",
+                        next_action: FirmwareDownloadNextAction::GiveUp,
+                        next_action_label: "give_up",
+                        retry_delay_seconds: 0.0,
+                    },
+                    expect: Observation {
+                        counter_delta: 1.0,
+                        level: tracing::Level::WARN,
+                        message: "[firmware_upgrade] download attempt failed; retrying".to_string(),
+                        kind: Some("artifact".to_string()),
+                        next_action: Some("give_up".to_string()),
+                        attempt: Some("2".to_string()),
+                        url: Some("https://firmware.example/image.bin".to_string()),
+                        error: Some("HTTP 503".to_string()),
+                        retry_delay_seconds: Some("0".to_string()),
+                    },
+                },
+            ],
+            |case| {
+                let metrics = MetricsCapture::start();
+                let url = match case.kind {
+                    FirmwareDownloadKind::Script => "https://firmware.example/script.sh",
+                    FirmwareDownloadKind::Artifact => "https://firmware.example/image.bin",
+                };
+                let logs = capture_logs(|| {
+                    emit(ScoutFirmwareDownloadAttemptFailed {
+                        kind: case.kind,
+                        next_action: case.next_action,
+                        attempt: 2,
+                        url: url.to_string(),
+                        error: "HTTP 503".to_string(),
+                        retry_delay_seconds: case.retry_delay_seconds,
+                    });
+                });
+                let log = &logs[0];
+
+                Observation {
+                    counter_delta: metrics.counter_delta(
+                        "carbide_scout_firmware_download_attempt_failures_total",
+                        &[
+                            ("kind", case.kind_label),
+                            ("next_action", case.next_action_label),
+                        ],
+                    ),
+                    level: log.level,
+                    message: log.message.clone(),
+                    kind: log.field("kind").map(str::to_string),
+                    next_action: log.field("next_action").map(str::to_string),
+                    attempt: log.field("attempt").map(str::to_string),
+                    url: log.field("url").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    retry_delay_seconds: log.field("retry_delay_seconds").map(str::to_string),
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn mlx_failure_stages_derive_one_failure_kind() {
+        check_values(
+            [
+                Check {
+                    scenario: "create failures come from the backend",
+                    input: ScoutMlxFailureStage::Create,
+                    expect: ScoutMlxFailureKind::Backend,
+                },
+                Check {
+                    scenario: "publish failures come from the RPC",
+                    input: ScoutMlxFailureStage::Publish,
+                    expect: ScoutMlxFailureKind::Rpc,
+                },
+                Check {
+                    scenario: "decode failures reject the request",
+                    input: ScoutMlxFailureStage::Decode,
+                    expect: ScoutMlxFailureKind::InvalidRequest,
+                },
+                Check {
+                    scenario: "validation failures reject the request",
+                    input: ScoutMlxFailureStage::Validate,
+                    expect: ScoutMlxFailureKind::InvalidRequest,
+                },
+                Check {
+                    scenario: "discovery failures come from the backend",
+                    input: ScoutMlxFailureStage::Discover,
+                    expect: ScoutMlxFailureKind::Backend,
+                },
+                Check {
+                    scenario: "initialization failures come from the backend",
+                    input: ScoutMlxFailureStage::Initialize,
+                    expect: ScoutMlxFailureKind::Backend,
+                },
+                Check {
+                    scenario: "lookup failures are not found",
+                    input: ScoutMlxFailureStage::Lookup,
+                    expect: ScoutMlxFailureKind::NotFound,
+                },
+                Check {
+                    scenario: "execution failures come from the backend",
+                    input: ScoutMlxFailureStage::Execute,
+                    expect: ScoutMlxFailureKind::Backend,
+                },
+                Check {
+                    scenario: "serialization failures keep their own class",
+                    input: ScoutMlxFailureStage::Serialize,
+                    expect: ScoutMlxFailureKind::Serialization,
+                },
+            ],
+            ScoutMlxFailureStage::failure_kind,
+        );
+    }
+
+    #[test]
+    fn mlx_dynamic_contracts_preserve_existing_severity_and_messages() {
+        #[derive(Clone, Copy)]
+        enum ContractCase {
+            DeviceReportCreate,
+            DeviceReportPublish,
+            ObservationReportPublish,
+            ProfileCompareDecode,
+            ProfileCompareSerialize,
+            LockdownStatusInitialize,
+            InfoReportDecode,
+            InfoReportExecute,
+            ProfileCompareRequest,
+            ReconciliationRequest,
+            LockdownStatusExecute,
+            DeviceInfoDiscover,
+            ConfigQuerySerialize,
+            ConfigQueryExecute,
+            ConfigCompareSerialize,
+            ConfigCompareExecute,
+            ReconciliationDecode,
+            ReconciliationDiscover,
+            OperationFallback,
+            RequestFallback,
+            DeviceFallback,
+            ConfigFallback,
+            ReconciliationFallback,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Contract {
+            log_at: LogAt,
+            message: &'static str,
+        }
+
+        fn contract<E>(event: &E) -> Contract
+        where
+            E: Event,
+        {
+            Contract {
+                log_at: event.log_at(),
+                message: event.message(),
+            }
+        }
+
+        let warn = |message| Contract {
+            log_at: LogAt::Level(tracing::Level::WARN),
+            message,
+        };
+        let error = |message| Contract {
+            log_at: LogAt::Level(tracing::Level::ERROR),
+            message,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "device report creation",
+                    input: ContractCase::DeviceReportCreate,
+                    expect: warn("failed to create PublishMlxDeviceReportRequest"),
+                },
+                Check {
+                    scenario: "device report publication",
+                    input: ContractCase::DeviceReportPublish,
+                    expect: warn("failed to publish PublishMlxDeviceReportRequest"),
+                },
+                Check {
+                    scenario: "observation report publication",
+                    input: ContractCase::ObservationReportPublish,
+                    expect: error("Error from publish_mlx_observation_report"),
+                },
+                Check {
+                    scenario: "profile decode",
+                    input: ContractCase::ProfileCompareDecode,
+                    expect: error("[scout_stream::mlx_device] failed to parse profile"),
+                },
+                Check {
+                    scenario: "profile result serialization",
+                    input: ContractCase::ProfileCompareSerialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] profile compare result failed to serialize",
+                    ),
+                },
+                Check {
+                    scenario: "lockdown manager initialization",
+                    input: ContractCase::LockdownStatusInitialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] lockdown manager initialization failed",
+                    ),
+                },
+                Check {
+                    scenario: "info report filter decode",
+                    input: ContractCase::InfoReportDecode,
+                    expect: error(
+                        "[scout_stream::mlx_device] device report request failed to parse filters",
+                    ),
+                },
+                Check {
+                    scenario: "info report execution",
+                    input: ContractCase::InfoReportExecute,
+                    expect: error("[scout_stream::mlx_device] device report generation failed"),
+                },
+                Check {
+                    scenario: "missing profile request",
+                    input: ContractCase::ProfileCompareRequest,
+                    expect: Contract {
+                        log_at: LogAt::Off,
+                        message: "no serializable profile data in message",
+                    },
+                },
+                Check {
+                    scenario: "empty reconciliation PCI request",
+                    input: ContractCase::ReconciliationRequest,
+                    expect: error("handle_mlxreport_action dev_pci_name empty"),
+                },
+                Check {
+                    scenario: "lockdown status execution",
+                    input: ContractCase::LockdownStatusExecute,
+                    expect: error("[scout_stream::mlx_device] lockdown status check failed"),
+                },
+                Check {
+                    scenario: "device information discovery",
+                    input: ContractCase::DeviceInfoDiscover,
+                    expect: error("[scout_stream::mlx_device] device info request failed"),
+                },
+                Check {
+                    scenario: "config query result serialization",
+                    input: ContractCase::ConfigQuerySerialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] config query result failed to serialize",
+                    ),
+                },
+                Check {
+                    scenario: "config query execution",
+                    input: ContractCase::ConfigQueryExecute,
+                    expect: error("[scout_stream::mlx_device] config query against device failed"),
+                },
+                Check {
+                    scenario: "config comparison result serialization",
+                    input: ContractCase::ConfigCompareSerialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] config compare result failed to serialize",
+                    ),
+                },
+                Check {
+                    scenario: "config comparison execution",
+                    input: ContractCase::ConfigCompareExecute,
+                    expect: error(
+                        "[scout_stream::mlx_device] config compare against device failed",
+                    ),
+                },
+                Check {
+                    scenario: "reconciliation command decode",
+                    input: ContractCase::ReconciliationDecode,
+                    expect: error("handle_mlxreport_action error decoding command"),
+                },
+                Check {
+                    scenario: "reconciliation device discovery",
+                    input: ContractCase::ReconciliationDiscover,
+                    expect: error("handle_mlxreport_action error from discover_device::from_str"),
+                },
+                Check {
+                    scenario: "unknown operation pair remains diagnostic",
+                    input: ContractCase::OperationFallback,
+                    expect: error("Scout MLX operation failed"),
+                },
+                Check {
+                    scenario: "unknown request operation remains diagnostic",
+                    input: ContractCase::RequestFallback,
+                    expect: warn("Scout MLX request rejected"),
+                },
+                Check {
+                    scenario: "unknown device pair remains diagnostic",
+                    input: ContractCase::DeviceFallback,
+                    expect: error("[scout_stream::mlx_device] device operation failed"),
+                },
+                Check {
+                    scenario: "unknown config pair remains diagnostic",
+                    input: ContractCase::ConfigFallback,
+                    expect: error("[scout_stream::mlx_device] config operation failed"),
+                },
+                Check {
+                    scenario: "unknown reconciliation stage remains diagnostic",
+                    input: ContractCase::ReconciliationFallback,
+                    expect: error("handle_mlxreport_action failed"),
+                },
+            ],
+            |case| match case {
+                ContractCase::DeviceReportCreate => contract(
+                    &ScoutMlxOperationFailed::device_report_create("failure".to_string()),
+                ),
+                ContractCase::DeviceReportPublish => contract(
+                    &ScoutMlxOperationFailed::device_report_publish("failure".to_string()),
+                ),
+                ContractCase::ObservationReportPublish => contract(
+                    &ScoutMlxOperationFailed::observation_report_publish("failure".to_string()),
+                ),
+                ContractCase::ProfileCompareDecode => contract(
+                    &ScoutMlxOperationFailed::profile_compare_decode("failure".to_string()),
+                ),
+                ContractCase::ProfileCompareSerialize => contract(
+                    &ScoutMlxOperationFailed::profile_compare_serialize("failure".to_string()),
+                ),
+                ContractCase::LockdownStatusInitialize => contract(
+                    &ScoutMlxOperationFailed::lockdown_status_initialize("failure".to_string()),
+                ),
+                ContractCase::InfoReportDecode => contract(
+                    &ScoutMlxOperationFailed::info_report_decode("failure".to_string()),
+                ),
+                ContractCase::InfoReportExecute => contract(
+                    &ScoutMlxOperationFailed::info_report_execute("failure".to_string()),
+                ),
+                ContractCase::ProfileCompareRequest => {
+                    contract(&ScoutMlxRequestRejected::profile_compare())
+                }
+                ContractCase::ReconciliationRequest => {
+                    contract(&ScoutMlxRequestRejected::reconciliation())
+                }
+                ContractCase::LockdownStatusExecute => {
+                    contract(&ScoutMlxDeviceOperationFailed::lockdown_status_execute(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::DeviceInfoDiscover => {
+                    contract(&ScoutMlxDeviceOperationFailed::device_info_discover(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ConfigQuerySerialize => {
+                    contract(&ScoutMlxConfigOperationFailed::config_query_serialize(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ConfigQueryExecute => {
+                    contract(&ScoutMlxConfigOperationFailed::config_query_execute(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ConfigCompareSerialize => {
+                    contract(&ScoutMlxConfigOperationFailed::config_compare_serialize(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ConfigCompareExecute => {
+                    contract(&ScoutMlxConfigOperationFailed::config_compare_execute(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ReconciliationDecode => {
+                    contract(&ScoutMlxReconciliationFailed::decode(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ReconciliationDiscover => {
+                    contract(&ScoutMlxReconciliationFailed::discover(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::OperationFallback => contract(&ScoutMlxOperationFailed::new(
+                    ScoutMlxOperation::ConfigQuery,
+                    ScoutMlxFailureStage::Create,
+                    "failure".to_string(),
+                )),
+                ContractCase::RequestFallback => contract(&ScoutMlxRequestRejected::new(
+                    ScoutMlxOperation::ConfigQuery,
+                )),
+                ContractCase::DeviceFallback => contract(&ScoutMlxDeviceOperationFailed::new(
+                    ScoutMlxOperation::ConfigQuery,
+                    ScoutMlxFailureStage::Create,
+                    "device".to_string(),
+                    "failure".to_string(),
+                )),
+                ContractCase::ConfigFallback => contract(&ScoutMlxConfigOperationFailed::new(
+                    ScoutMlxOperation::DeviceInfo,
+                    ScoutMlxFailureStage::Publish,
+                    "device".to_string(),
+                    "registry".to_string(),
+                    "failure".to_string(),
+                )),
+                ContractCase::ReconciliationFallback => {
+                    contract(&ScoutMlxReconciliationFailed::new(
+                        ScoutMlxFailureStage::Serialize,
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn mlx_request_rejections_count_with_existing_diagnostics() {
+        #[derive(Clone, Copy)]
+        enum RequestCase {
+            ProfileCompare,
+            Reconciliation,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            counter_delta: f64,
+            logs: Vec<(tracing::Level, String)>,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "missing profile data remains metric-only",
+                    input: RequestCase::ProfileCompare,
+                    expect: Observation {
+                        counter_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "empty reconciliation PCI retains its error",
+                    input: RequestCase::Reconciliation,
+                    expect: Observation {
+                        counter_delta: 1.0,
+                        logs: vec![(
+                            tracing::Level::ERROR,
+                            "handle_mlxreport_action dev_pci_name empty".to_string(),
+                        )],
+                    },
+                },
+            ],
+            |case| {
+                let (event, operation) = match case {
+                    RequestCase::ProfileCompare => (
+                        ScoutMlxRequestRejected::profile_compare(),
+                        "profile_compare",
+                    ),
+                    RequestCase::Reconciliation => {
+                        (ScoutMlxRequestRejected::reconciliation(), "reconciliation")
+                    }
+                };
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| emit(event));
+
+                Observation {
+                    counter_delta: metrics.counter_delta(
+                        "carbide_scout_mlx_failures_total",
+                        &[
+                            ("operation", operation),
+                            ("failure_stage", "validate"),
+                            ("failure_kind", "invalid_request"),
+                        ],
+                    ),
+                    logs: logs
+                        .into_iter()
+                        .map(|log| (log.level, log.message))
+                        .collect(),
+                }
+            },
+        );
+    }
 
     #[test]
     fn scout_action_maps_every_dispatchable_action() {

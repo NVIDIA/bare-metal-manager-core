@@ -232,15 +232,13 @@ async fn run_as_service(config: &Options) -> Result<(), eyre::Report> {
     match mlx_device::create_device_report_request(machine_id) {
         Ok(request) => match mlx_device::publish_mlx_device_report(config, request).await {
             Ok(response) => tracing::info!(?response, "received PublishMlxDeviceReportResponse",),
-            Err(e) => tracing::warn!(
-                error = ?e,
-                "failed to publish PublishMlxDeviceReportRequest",
-            ),
+            Err(e) => emit(metrics::ScoutMlxOperationFailed::device_report_publish(
+                format!("{e:?}"),
+            )),
         },
-        Err(e) => tracing::warn!(
-            error = ?e,
-            "failed to create PublishMlxDeviceReportRequest",
-        ),
+        Err(e) => emit(metrics::ScoutMlxOperationFailed::device_report_create(
+            format!("{e:?}"),
+        )),
     };
 
     let mut scout_stream_started = false;
@@ -578,11 +576,10 @@ async fn handle_mlxreport_action(
         .filter_map(|device_action| match DpaCommand::try_from(device_action) {
             Ok(command) => Some((device_action.pci_name.clone(), command)),
             Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    pci_name = %device_action.pci_name,
-                    "handle_mlxreport_action error decoding command",
-                );
+                emit(metrics::ScoutMlxReconciliationFailed::decode(
+                    device_action.pci_name.clone(),
+                    e,
+                ));
                 None
             }
         })
@@ -604,18 +601,17 @@ async fn handle_mlxreport_commands(
 
     for (dev_pci_name, dpa_cmd) in commands {
         if dev_pci_name.is_empty() {
-            tracing::error!("handle_mlxreport_action dev_pci_name empty");
+            emit(metrics::ScoutMlxRequestRejected::reconciliation());
             continue;
         }
 
         let dev = match discover_device(&dev_pci_name) {
             Ok(d) => d,
             Err(s) => {
-                tracing::error!(
-                    error = %s,
-                    pci_name = %dev_pci_name,
-                    "handle_mlxreport_action error from discover_device::from_str",
-                );
+                emit(metrics::ScoutMlxReconciliationFailed::discover(
+                    dev_pci_name,
+                    s,
+                ));
                 continue;
             }
         };
@@ -729,10 +725,7 @@ async fn handle_mlxreport_commands(
     match mlx_device::publish_mlx_observation_report(config, req).await {
         Ok(_resp) => (),
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "Error from publish_mlx_observation_report",
-            );
+            emit(metrics::ScoutMlxOperationFailed::observation_report_publish(e.to_string()));
         }
     }
 }

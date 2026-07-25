@@ -20,6 +20,7 @@ use ::rpc::protos::mlx_device::{
     PublishMlxDeviceReportRequest, PublishMlxDeviceReportResponse,
     PublishMlxObservationReportRequest, PublishMlxObservationReportResponse,
 };
+use carbide_instrument::emit;
 use carbide_uuid::machine::MachineId;
 use libmlx::device::discovery;
 use libmlx::device::report::MlxDeviceReport;
@@ -38,6 +39,11 @@ use scout::CarbideClientResult;
 
 use crate::cfg::Options;
 use crate::client;
+use crate::metrics::{
+    ScoutMlxConfigOperationFailed, ScoutMlxConfigRegistryLookupFailed,
+    ScoutMlxDeviceOperationFailed, ScoutMlxOperationFailed, ScoutMlxProfileOperationFailed,
+    ScoutMlxRegistryLookupFailed, ScoutMlxRequestRejected,
+};
 
 // create_device_report_request is a one stop shop to collect
 // Mellanox device data from the machine, create a report, convert
@@ -222,6 +228,7 @@ pub fn handle_profile_compare(
     );
 
     let Some(serializable_profile_pb) = request.serializable_profile else {
+        emit(ScoutMlxRequestRejected::profile_compare());
         return mlx_device_pb::MlxDeviceProfileCompareResponse {
             reply: Some(
                 mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -237,10 +244,9 @@ pub fn handle_profile_compare(
     let serializable_profile: SerializableProfile = match serializable_profile_pb.try_into() {
         Ok(profile) => profile,
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "[scout_stream::mlx_device] failed to parse profile",
-            );
+            emit(ScoutMlxOperationFailed::profile_compare_decode(
+                e.to_string(),
+            ));
             return mlx_device_pb::MlxDeviceProfileCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -271,10 +277,9 @@ pub fn handle_profile_compare(
                     ),
                 },
                 Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        "[scout_stream::mlx_device] profile compare result failed to serialize",
-                    );
+                    emit(ScoutMlxOperationFailed::profile_compare_serialize(
+                        e.to_string(),
+                    ));
                     mlx_device_pb::MlxDeviceProfileCompareResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -290,12 +295,11 @@ pub fn handle_profile_compare(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                profile_name = %request.profile_name,
-                error = %e,
-                "[scout_stream::mlx_device] profile compare against device failed",
-            );
+            emit(ScoutMlxProfileOperationFailed::profile_compare_execute(
+                request.device_id.clone(),
+                request.profile_name.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceProfileCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
@@ -440,10 +444,9 @@ pub fn handle_lockdown_status(
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "[scout_stream::mlx_device] lockdown manager initialization failed",
-            );
+            emit(ScoutMlxOperationFailed::lockdown_status_initialize(
+                e.to_string(),
+            ));
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -470,11 +473,10 @@ pub fn handle_lockdown_status(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                error = %e,
-                "[scout_stream::mlx_device] lockdown status check failed",
-            );
+            emit(ScoutMlxDeviceOperationFailed::lockdown_status_execute(
+                request.device_id.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -510,11 +512,10 @@ pub fn handle_info_device(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                error = %e,
-                "[scout_stream::mlx_device] device info request failed",
-            );
+            emit(ScoutMlxDeviceOperationFailed::device_info_discover(
+                request.device_id.clone(),
+                e.clone(),
+            ));
             mlx_device_pb::MlxDeviceInfoDeviceResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_info_device_response::Reply::Error(
@@ -538,10 +539,7 @@ pub fn handle_info_report(
         match libmlx::device::filters::DeviceFilterSet::try_from(filter_set_pb) {
             Ok(filters) => MlxDeviceReport::new().with_filter_set(filters),
             Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    "[scout_stream::mlx_device] device report request failed to parse filters",
-                );
+                emit(ScoutMlxOperationFailed::info_report_decode(e.to_string()));
                 return mlx_device_pb::MlxDeviceInfoReportResponse {
                     reply: Some(
                         mlx_device_pb::mlx_device_info_report_response::Reply::Error(
@@ -573,10 +571,7 @@ pub fn handle_info_report(
             }
         }
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "[scout_stream::mlx_device] device report generation failed",
-            );
+            emit(ScoutMlxOperationFailed::info_report_execute(e.clone()));
             mlx_device_pb::MlxDeviceInfoReportResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_info_report_response::Reply::Error(
@@ -632,10 +627,9 @@ pub fn handle_registry_show(
             }
         }
         None => {
-            tracing::error!(
-                registry_name = %request.registry_name,
-                "[scout_stream::mlx_device] variable registry not found",
-            );
+            emit(ScoutMlxRegistryLookupFailed::registry_show_lookup(
+                request.registry_name.clone(),
+            ));
             mlx_device_pb::MlxDeviceRegistryShowResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_registry_show_response::Reply::Error(
@@ -665,11 +659,10 @@ pub fn handle_config_query(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            tracing::warn!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                "[scout_stream::mlx_device] config registry not found",
-            );
+            emit(ScoutMlxConfigRegistryLookupFailed::config_query_lookup(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+            ));
             return mlx_device_pb::MlxDeviceConfigQueryResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_query_response::Reply::Error(
@@ -713,12 +706,11 @@ pub fn handle_config_query(
                     ),
                 },
                 Err(e) => {
-                    tracing::error!(
-                        device_id = %request.device_id,
-                        registry_name = %request.registry_name,
-                        error = %e,
-                        "[scout_stream::mlx_device] config query result failed to serialize",
-                    );
+                    emit(ScoutMlxConfigOperationFailed::config_query_serialize(
+                        request.device_id.clone(),
+                        request.registry_name.clone(),
+                        e.to_string(),
+                    ));
                     mlx_device_pb::MlxDeviceConfigQueryResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_config_query_response::Reply::Error(
@@ -737,12 +729,11 @@ pub fn handle_config_query(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                error = %e,
-                "[scout_stream::mlx_device] config query against device failed",
-            );
+            emit(ScoutMlxConfigOperationFailed::config_query_execute(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceConfigQueryResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_query_response::Reply::Error(
@@ -969,11 +960,10 @@ pub fn handle_config_compare(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            tracing::warn!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                "[scout_stream::mlx_device] config registry not found",
-            );
+            emit(ScoutMlxConfigRegistryLookupFailed::config_compare_lookup(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+            ));
             return mlx_device_pb::MlxDeviceConfigCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
@@ -1018,12 +1008,11 @@ pub fn handle_config_compare(
                     ),
                 },
                 Err(e) => {
-                    tracing::error!(
-                        device_id = %request.device_id,
-                        registry_name = %request.registry_name,
-                        error = %e,
-                        "[scout_stream::mlx_device] config compare result failed to serialize",
-                    );
+                    emit(ScoutMlxConfigOperationFailed::config_compare_serialize(
+                        request.device_id.clone(),
+                        request.registry_name.clone(),
+                        e.to_string(),
+                    ));
                     mlx_device_pb::MlxDeviceConfigCompareResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
@@ -1042,12 +1031,11 @@ pub fn handle_config_compare(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                error = %e,
-                "[scout_stream::mlx_device] config compare against device failed",
-            );
+            emit(ScoutMlxConfigOperationFailed::config_compare_execute(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceConfigCompareResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
@@ -1216,4 +1204,242 @@ fn load_and_compare_profile(
     let profile = serializable_profile.into_profile()?;
     let comparison_result = profile.compare(device_id, None)?;
     Ok(comparison_result)
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    const MLX_FAILURE_METRIC: &str = "carbide_scout_mlx_failures_total";
+    const DEVICE_ID: &str = "0000:01:00.0";
+    const REGISTRY: &str = "missing-registry";
+
+    #[derive(Clone, Copy)]
+    enum ReadFailure {
+        MissingProfile,
+        MissingRegistry,
+        QueryMissingRegistry,
+        CompareMissingRegistry,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EventObservation {
+        level: tracing::Level,
+        message: String,
+        event_name: String,
+        operation: Option<String>,
+        failure_stage: Option<String>,
+        failure_kind: Option<String>,
+        device_id: Option<String>,
+        registry_name: Option<String>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct HandlerObservation {
+        response_status: i32,
+        response_message: String,
+        events: Vec<EventObservation>,
+        counter_delta: f64,
+    }
+
+    impl ReadFailure {
+        fn metric_labels(self) -> [(&'static str, &'static str); 3] {
+            let operation = match self {
+                Self::MissingProfile => "profile_compare",
+                Self::MissingRegistry => "registry_show",
+                Self::QueryMissingRegistry => "config_query",
+                Self::CompareMissingRegistry => "config_compare",
+            };
+            let failure_stage = match self {
+                Self::MissingProfile => "validate",
+                _ => "lookup",
+            };
+            let failure_kind = match self {
+                Self::MissingProfile => "invalid_request",
+                _ => "not_found",
+            };
+            [
+                ("operation", operation),
+                ("failure_stage", failure_stage),
+                ("failure_kind", failure_kind),
+            ]
+        }
+
+        fn invoke(self) -> mlx_device_pb::MlxDeviceStreamError {
+            match self {
+                Self::MissingProfile => {
+                    let response =
+                        handle_profile_compare(mlx_device_pb::MlxDeviceProfileCompareRequest {
+                            device_id: DEVICE_ID.to_string(),
+                            profile_name: "default".to_string(),
+                            serializable_profile: None,
+                        });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_profile_compare_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing profile should return an error"),
+                    }
+                }
+                Self::MissingRegistry => {
+                    let response =
+                        handle_registry_show(mlx_device_pb::MlxDeviceRegistryShowRequest {
+                            registry_name: REGISTRY.to_string(),
+                        });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_registry_show_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing registry should return an error"),
+                    }
+                }
+                Self::QueryMissingRegistry => {
+                    let response =
+                        handle_config_query(mlx_device_pb::MlxDeviceConfigQueryRequest {
+                            device_id: DEVICE_ID.to_string(),
+                            registry_name: REGISTRY.to_string(),
+                            variables: Vec::new(),
+                        });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_config_query_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing query registry should return an error"),
+                    }
+                }
+                Self::CompareMissingRegistry => {
+                    let response =
+                        handle_config_compare(mlx_device_pb::MlxDeviceConfigCompareRequest {
+                            device_id: DEVICE_ID.to_string(),
+                            registry_name: REGISTRY.to_string(),
+                            assignments: Vec::new(),
+                        });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_config_compare_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing compare registry should return an error"),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn read_handlers_preserve_responses_and_classify_failures() {
+        let internal = mlx_device_pb::MlxDeviceStreamErrorStatus::Internal as i32;
+        let missing_config = || {
+            format!("config registry not found (device_id:{DEVICE_ID}, registry_name:{REGISTRY})")
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "profile comparison requires profile data",
+                    input: ReadFailure::MissingProfile,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: "no serializable profile data in message".to_string(),
+                        events: Vec::new(),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "registry show rejects an unknown registry",
+                    input: ReadFailure::MissingRegistry,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: format!("registry not found: {REGISTRY}"),
+                        events: vec![EventObservation {
+                            level: tracing::Level::ERROR,
+                            message: "[scout_stream::mlx_device] variable registry not found"
+                                .to_string(),
+                            event_name: "scout_mlx_registry_lookup_failed".to_string(),
+                            operation: Some("registry_show".to_string()),
+                            failure_stage: Some("lookup".to_string()),
+                            failure_kind: Some("not_found".to_string()),
+                            device_id: None,
+                            registry_name: Some(REGISTRY.to_string()),
+                        }],
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "config query rejects an unknown registry",
+                    input: ReadFailure::QueryMissingRegistry,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: missing_config(),
+                        events: vec![EventObservation {
+                            level: tracing::Level::WARN,
+                            message: "[scout_stream::mlx_device] config registry not found"
+                                .to_string(),
+                            event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
+                            operation: Some("config_query".to_string()),
+                            failure_stage: Some("lookup".to_string()),
+                            failure_kind: Some("not_found".to_string()),
+                            device_id: Some(DEVICE_ID.to_string()),
+                            registry_name: Some(REGISTRY.to_string()),
+                        }],
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "config comparison rejects an unknown registry",
+                    input: ReadFailure::CompareMissingRegistry,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: missing_config(),
+                        events: vec![EventObservation {
+                            level: tracing::Level::WARN,
+                            message: "[scout_stream::mlx_device] config registry not found"
+                                .to_string(),
+                            event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
+                            operation: Some("config_compare".to_string()),
+                            failure_stage: Some("lookup".to_string()),
+                            failure_kind: Some("not_found".to_string()),
+                            device_id: Some(DEVICE_ID.to_string()),
+                            registry_name: Some(REGISTRY.to_string()),
+                        }],
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |fixture| {
+                let metrics = MetricsCapture::start();
+                let mut response = mlx_device_pb::MlxDeviceStreamError {
+                    status: 0,
+                    message: String::new(),
+                };
+                let logs = capture_logs(|| response = fixture.invoke());
+                let events = logs
+                    .iter()
+                    .filter_map(|log| {
+                        let event_name = log.field("event_name")?;
+                        Some(EventObservation {
+                            level: log.level,
+                            message: log.message.clone(),
+                            event_name: event_name.to_string(),
+                            operation: log.field("operation").map(str::to_string),
+                            failure_stage: log.field("failure_stage").map(str::to_string),
+                            failure_kind: log.field("failure_kind").map(str::to_string),
+                            device_id: log.field("device_id").map(str::to_string),
+                            registry_name: log.field("registry_name").map(str::to_string),
+                        })
+                    })
+                    .collect();
+
+                HandlerObservation {
+                    response_status: response.status,
+                    response_message: response.message,
+                    events,
+                    counter_delta: metrics
+                        .counter_delta(MLX_FAILURE_METRIC, &fixture.metric_labels()),
+                }
+            },
+        );
+    }
 }
