@@ -206,12 +206,22 @@ pub(crate) enum ScoutMlxOperation {
     InfoReport,
     ObservationReport,
     Reconciliation,
+    ReconciliationLock,
+    ReconciliationUnlock,
+    ProfileSync,
     ProfileCompare,
+    ProfileApply,
+    ProfileReset,
+    LockdownLock,
+    LockdownUnlock,
     LockdownStatus,
     DeviceInfo,
     RegistryShow,
     ConfigQuery,
     ConfigCompare,
+    ConfigSet,
+    ConfigSync,
+    FirmwareFlash,
 }
 
 /// Where an MLX operation failed.
@@ -252,7 +262,7 @@ impl ScoutMlxFailureStage {
     }
 }
 
-// The operation, request, device, profile, registry, config, and
+// The operation, request, device, profile, registry, config, firmware, and
 // reconciliation families all feed `carbide_scout_mlx_failures_total`, but
 // their existing diagnostics need different context. Keep separate `Event`
 // structs so each log retains its fields without filling unrelated fields
@@ -274,7 +284,7 @@ impl ScoutMlxFailureStage {
     log = dynamic,
     metric = counter,
     message = dynamic,
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxOperationFailed {
     #[label]
@@ -333,10 +343,42 @@ impl ScoutMlxOperationFailed {
         )
     }
 
+    pub(crate) fn profile_sync_decode(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ProfileSync,
+            ScoutMlxFailureStage::Decode,
+            error,
+        )
+    }
+
     pub(crate) fn profile_compare_serialize(error: String) -> Self {
         Self::new(
             ScoutMlxOperation::ProfileCompare,
             ScoutMlxFailureStage::Serialize,
+            error,
+        )
+    }
+
+    pub(crate) fn profile_sync_serialize(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ProfileSync,
+            ScoutMlxFailureStage::Serialize,
+            error,
+        )
+    }
+
+    pub(crate) fn lockdown_lock_initialize(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::LockdownLock,
+            ScoutMlxFailureStage::Initialize,
+            error,
+        )
+    }
+
+    pub(crate) fn lockdown_unlock_initialize(error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::LockdownUnlock,
+            ScoutMlxFailureStage::Initialize,
             error,
         )
     }
@@ -373,14 +415,6 @@ impl DynamicLog for ScoutMlxOperationFailed {
                 ScoutMlxOperation::DeviceReportPublish,
                 ScoutMlxFailureStage::Create | ScoutMlxFailureStage::Publish,
             ) => LogAt::Level(tracing::Level::WARN),
-            (ScoutMlxOperation::ObservationReport, ScoutMlxFailureStage::Publish)
-            | (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Decode)
-            | (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Serialize)
-            | (ScoutMlxOperation::LockdownStatus, ScoutMlxFailureStage::Initialize)
-            | (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Decode)
-            | (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Execute) => {
-                LogAt::Level(tracing::Level::ERROR)
-            }
             _ => LogAt::Level(tracing::Level::ERROR),
         }
     }
@@ -398,15 +432,22 @@ impl DynamicMessage for ScoutMlxOperationFailed {
             (ScoutMlxOperation::ObservationReport, ScoutMlxFailureStage::Publish) => {
                 "Error from publish_mlx_observation_report"
             }
-            (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Decode) => {
-                "[scout_stream::mlx_device] failed to parse profile"
-            }
+            (
+                ScoutMlxOperation::ProfileCompare | ScoutMlxOperation::ProfileSync,
+                ScoutMlxFailureStage::Decode,
+            ) => "[scout_stream::mlx_device] failed to parse profile",
             (ScoutMlxOperation::ProfileCompare, ScoutMlxFailureStage::Serialize) => {
                 "[scout_stream::mlx_device] profile compare result failed to serialize"
             }
-            (ScoutMlxOperation::LockdownStatus, ScoutMlxFailureStage::Initialize) => {
-                "[scout_stream::mlx_device] lockdown manager initialization failed"
+            (ScoutMlxOperation::ProfileSync, ScoutMlxFailureStage::Serialize) => {
+                "[scout_stream::mlx_device] profile sync result failed to serialize"
             }
+            (
+                ScoutMlxOperation::LockdownLock
+                | ScoutMlxOperation::LockdownUnlock
+                | ScoutMlxOperation::LockdownStatus,
+                ScoutMlxFailureStage::Initialize,
+            ) => "[scout_stream::mlx_device] lockdown manager initialization failed",
             (ScoutMlxOperation::InfoReport, ScoutMlxFailureStage::Decode) => {
                 "[scout_stream::mlx_device] device report request failed to parse filters"
             }
@@ -427,7 +468,7 @@ impl DynamicMessage for ScoutMlxOperationFailed {
     log = dynamic,
     metric = counter,
     message = dynamic,
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxRequestRejected {
     #[label]
@@ -452,6 +493,10 @@ impl ScoutMlxRequestRejected {
         Self::new(ScoutMlxOperation::ProfileCompare)
     }
 
+    pub(crate) fn profile_sync() -> Self {
+        Self::new(ScoutMlxOperation::ProfileSync)
+    }
+
     pub(crate) fn reconciliation() -> Self {
         Self::new(ScoutMlxOperation::Reconciliation)
     }
@@ -460,7 +505,7 @@ impl ScoutMlxRequestRejected {
 impl DynamicLog for ScoutMlxRequestRejected {
     fn log_at(&self) -> LogAt {
         match self.operation {
-            ScoutMlxOperation::ProfileCompare => LogAt::Off,
+            ScoutMlxOperation::ProfileCompare | ScoutMlxOperation::ProfileSync => LogAt::Off,
             ScoutMlxOperation::Reconciliation => LogAt::Level(tracing::Level::ERROR),
             _ => LogAt::Level(tracing::Level::WARN),
         }
@@ -471,6 +516,7 @@ impl DynamicMessage for ScoutMlxRequestRejected {
     fn message(&self) -> &'static str {
         match self.operation {
             ScoutMlxOperation::ProfileCompare => "no serializable profile data in message",
+            ScoutMlxOperation::ProfileSync => "no serializable profile data in message",
             ScoutMlxOperation::Reconciliation => "handle_mlxreport_action dev_pci_name empty",
             _ => "Scout MLX request rejected",
         }
@@ -486,7 +532,7 @@ impl DynamicMessage for ScoutMlxRequestRejected {
     log = error,
     metric = counter,
     message = dynamic,
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxDeviceOperationFailed {
     #[label]
@@ -526,6 +572,24 @@ impl ScoutMlxDeviceOperationFailed {
         )
     }
 
+    pub(crate) fn lockdown_lock_execute(device_id: String, error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::LockdownLock,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            error,
+        )
+    }
+
+    pub(crate) fn lockdown_unlock_execute(device_id: String, error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::LockdownUnlock,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            error,
+        )
+    }
+
     pub(crate) fn device_info_discover(device_id: String, error: String) -> Self {
         Self::new(
             ScoutMlxOperation::DeviceInfo,
@@ -541,6 +605,12 @@ impl DynamicMessage for ScoutMlxDeviceOperationFailed {
         match (self.operation, self.failure_stage) {
             (ScoutMlxOperation::LockdownStatus, ScoutMlxFailureStage::Execute) => {
                 "[scout_stream::mlx_device] lockdown status check failed"
+            }
+            (ScoutMlxOperation::LockdownLock, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] lockdown lock failed"
+            }
+            (ScoutMlxOperation::LockdownUnlock, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] lockdown unlock failed"
             }
             (ScoutMlxOperation::DeviceInfo, ScoutMlxFailureStage::Discover) => {
                 "[scout_stream::mlx_device] device info request failed"
@@ -558,8 +628,8 @@ impl DynamicMessage for ScoutMlxDeviceOperationFailed {
     component = "nico-scout",
     log = error,
     metric = counter,
-    message = "[scout_stream::mlx_device] profile compare against device failed",
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    message = dynamic,
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxProfileOperationFailed {
     #[label]
@@ -592,6 +662,36 @@ impl ScoutMlxProfileOperationFailed {
             error,
         }
     }
+
+    pub(crate) fn profile_sync_execute(
+        device_id: String,
+        profile_name: String,
+        error: String,
+    ) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Execute;
+        Self {
+            operation: ScoutMlxOperation::ProfileSync,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device_id,
+            profile_name,
+            error,
+        }
+    }
+}
+
+impl DynamicMessage for ScoutMlxProfileOperationFailed {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            ScoutMlxOperation::ProfileCompare => {
+                "[scout_stream::mlx_device] profile compare against device failed"
+            }
+            ScoutMlxOperation::ProfileSync => {
+                "[scout_stream::mlx_device] profile sync to device failed"
+            }
+            _ => "[scout_stream::mlx_device] profile operation failed",
+        }
+    }
 }
 
 /// A registry-show request named a registry Scout does not know.
@@ -606,7 +706,7 @@ impl ScoutMlxProfileOperationFailed {
     log = error,
     metric = counter,
     message = "[scout_stream::mlx_device] variable registry not found",
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxRegistryLookupFailed {
     #[label]
@@ -640,7 +740,7 @@ impl ScoutMlxRegistryLookupFailed {
     log = warn,
     metric = counter,
     message = "[scout_stream::mlx_device] config registry not found",
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxConfigRegistryLookupFailed {
     #[label]
@@ -674,9 +774,17 @@ impl ScoutMlxConfigRegistryLookupFailed {
     pub(crate) fn config_compare_lookup(device_id: String, registry_name: String) -> Self {
         Self::new(ScoutMlxOperation::ConfigCompare, device_id, registry_name)
     }
+
+    pub(crate) fn config_set_lookup(device_id: String, registry_name: String) -> Self {
+        Self::new(ScoutMlxOperation::ConfigSet, device_id, registry_name)
+    }
+
+    pub(crate) fn config_sync_lookup(device_id: String, registry_name: String) -> Self {
+        Self::new(ScoutMlxOperation::ConfigSync, device_id, registry_name)
+    }
 }
 
-/// An MLX config read failed after registry lookup.
+/// An MLX configuration operation failed after registry lookup.
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_config_operation_failed",
@@ -685,7 +793,7 @@ impl ScoutMlxConfigRegistryLookupFailed {
     log = error,
     metric = counter,
     message = dynamic,
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxConfigOperationFailed {
     #[label]
@@ -775,6 +883,48 @@ impl ScoutMlxConfigOperationFailed {
             error,
         )
     }
+
+    pub(crate) fn config_set_execute(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigSet,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
+
+    pub(crate) fn config_sync_serialize(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigSync,
+            ScoutMlxFailureStage::Serialize,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
+
+    pub(crate) fn config_sync_execute(
+        device_id: String,
+        registry_name: String,
+        error: String,
+    ) -> Self {
+        Self::new(
+            ScoutMlxOperation::ConfigSync,
+            ScoutMlxFailureStage::Execute,
+            device_id,
+            registry_name,
+            error,
+        )
+    }
 }
 
 impl DynamicMessage for ScoutMlxConfigOperationFailed {
@@ -792,7 +942,192 @@ impl DynamicMessage for ScoutMlxConfigOperationFailed {
             (ScoutMlxOperation::ConfigCompare, ScoutMlxFailureStage::Execute) => {
                 "[scout_stream::mlx_device] config compare against device failed"
             }
+            (ScoutMlxOperation::ConfigSet, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] config set to device failed"
+            }
+            (ScoutMlxOperation::ConfigSync, ScoutMlxFailureStage::Serialize) => {
+                "[scout_stream::mlx_device] config sync result failed to serialize"
+            }
+            (ScoutMlxOperation::ConfigSync, ScoutMlxFailureStage::Execute) => {
+                "[scout_stream::mlx_device] config sync to device failed"
+            }
             _ => "[scout_stream::mlx_device] config operation failed",
+        }
+    }
+}
+
+/// Resetting one device's MLX configuration to its factory defaults failed.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_profile_reset_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "mlxconfig reset failed",
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxProfileResetFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxProfileResetFailed {
+    pub(crate) fn execute(device: String, error: String) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Execute;
+        Self {
+            operation: ScoutMlxOperation::ProfileReset,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device,
+            error,
+        }
+    }
+}
+
+/// Applying one tenant profile after its device reset failed.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_profile_apply_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "mlxconfig profile sync failed",
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxProfileApplyFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device: String,
+    #[context]
+    profile: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxProfileApplyFailed {
+    pub(crate) fn execute(device: String, profile: String, error: String) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Execute;
+        Self {
+            operation: ScoutMlxOperation::ProfileApply,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device,
+            profile,
+            error,
+        }
+    }
+}
+
+/// Scout could not initialize a firmware flasher for one MLX device.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_firmware_flasher_initialization_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "failed to create FirmwareFlasher",
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxFirmwareFlasherInitializationFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device: String,
+    #[context]
+    part_number: String,
+    #[context]
+    psid: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxFirmwareFlasherInitializationFailed {
+    pub(crate) fn new(device: String, part_number: String, psid: String, error: String) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Initialize;
+        Self {
+            operation: ScoutMlxOperation::FirmwareFlash,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device,
+            part_number,
+            psid,
+            error,
+        }
+    }
+}
+
+/// Scout initialized a firmware flasher, but applying its profile failed.
+#[derive(Event)]
+#[event(
+    event_name = "scout_mlx_firmware_flash_failed",
+    metric_name = "carbide_scout_mlx_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = "firmware flash failed",
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+)]
+pub(crate) struct ScoutMlxFirmwareFlashFailed {
+    #[label]
+    operation: ScoutMlxOperation,
+    #[label]
+    failure_stage: ScoutMlxFailureStage,
+    #[label]
+    failure_kind: ScoutMlxFailureKind,
+    #[context]
+    device: String,
+    #[context]
+    part_number: String,
+    #[context]
+    psid: String,
+    #[context]
+    firmware_url: String,
+    #[context]
+    target_version: String,
+    #[context]
+    error: String,
+}
+
+impl ScoutMlxFirmwareFlashFailed {
+    pub(crate) fn execute(
+        device: String,
+        part_number: String,
+        psid: String,
+        firmware_url: String,
+        target_version: String,
+        error: String,
+    ) -> Self {
+        let failure_stage = ScoutMlxFailureStage::Execute;
+        Self {
+            operation: ScoutMlxOperation::FirmwareFlash,
+            failure_stage,
+            failure_kind: failure_stage.failure_kind(),
+            device,
+            part_number,
+            psid,
+            firmware_url,
+            target_version,
+            error,
         }
     }
 }
@@ -803,10 +1138,10 @@ impl DynamicMessage for ScoutMlxConfigOperationFailed {
     event_name = "scout_mlx_reconciliation_failed",
     metric_name = "carbide_scout_mlx_failures_total",
     component = "nico-scout",
-    log = error,
+    log = dynamic,
     metric = counter,
     message = dynamic,
-    describe = "Number of Scout MLX observation and read failures, by operation, failure stage, and failure kind."
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
 pub(crate) struct ScoutMlxReconciliationFailed {
     #[label]
@@ -822,9 +1157,14 @@ pub(crate) struct ScoutMlxReconciliationFailed {
 }
 
 impl ScoutMlxReconciliationFailed {
-    fn new(failure_stage: ScoutMlxFailureStage, pci_name: String, error: String) -> Self {
+    fn new(
+        operation: ScoutMlxOperation,
+        failure_stage: ScoutMlxFailureStage,
+        pci_name: String,
+        error: String,
+    ) -> Self {
         Self {
-            operation: ScoutMlxOperation::Reconciliation,
+            operation,
             failure_stage,
             failure_kind: failure_stage.failure_kind(),
             pci_name,
@@ -833,20 +1173,68 @@ impl ScoutMlxReconciliationFailed {
     }
 
     pub(crate) fn decode(pci_name: String, error: String) -> Self {
-        Self::new(ScoutMlxFailureStage::Decode, pci_name, error)
+        Self::new(
+            ScoutMlxOperation::Reconciliation,
+            ScoutMlxFailureStage::Decode,
+            pci_name,
+            error,
+        )
     }
 
     pub(crate) fn discover(pci_name: String, error: String) -> Self {
-        Self::new(ScoutMlxFailureStage::Discover, pci_name, error)
+        Self::new(
+            ScoutMlxOperation::Reconciliation,
+            ScoutMlxFailureStage::Discover,
+            pci_name,
+            error,
+        )
+    }
+
+    pub(crate) fn lock(pci_name: String, error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ReconciliationLock,
+            ScoutMlxFailureStage::Execute,
+            pci_name,
+            error,
+        )
+    }
+
+    pub(crate) fn unlock(pci_name: String, error: String) -> Self {
+        Self::new(
+            ScoutMlxOperation::ReconciliationUnlock,
+            ScoutMlxFailureStage::Execute,
+            pci_name,
+            error,
+        )
+    }
+}
+
+impl DynamicLog for ScoutMlxReconciliationFailed {
+    fn log_at(&self) -> LogAt {
+        match (self.operation, self.failure_stage) {
+            (
+                ScoutMlxOperation::ReconciliationLock | ScoutMlxOperation::ReconciliationUnlock,
+                ScoutMlxFailureStage::Execute,
+            ) => LogAt::Level(tracing::Level::INFO),
+            _ => LogAt::Level(tracing::Level::ERROR),
+        }
     }
 }
 
 impl DynamicMessage for ScoutMlxReconciliationFailed {
     fn message(&self) -> &'static str {
-        match self.failure_stage {
-            ScoutMlxFailureStage::Decode => "handle_mlxreport_action error decoding command",
-            ScoutMlxFailureStage::Discover => {
+        match (self.operation, self.failure_stage) {
+            (ScoutMlxOperation::Reconciliation, ScoutMlxFailureStage::Decode) => {
+                "handle_mlxreport_action error decoding command"
+            }
+            (ScoutMlxOperation::Reconciliation, ScoutMlxFailureStage::Discover) => {
                 "handle_mlxreport_action error from discover_device::from_str"
+            }
+            (ScoutMlxOperation::ReconciliationLock, ScoutMlxFailureStage::Execute) => {
+                "handle_mlxreport_action error from lock_device"
+            }
+            (ScoutMlxOperation::ReconciliationUnlock, ScoutMlxFailureStage::Execute) => {
+                "handle_mlxreport_action error from unlock_device"
             }
             _ => "handle_mlxreport_action failed",
         }
@@ -1111,19 +1499,33 @@ mod tests {
             ObservationReportPublish,
             ProfileCompareDecode,
             ProfileCompareSerialize,
+            ProfileSyncDecode,
+            ProfileSyncSerialize,
             LockdownStatusInitialize,
+            LockdownLockInitialize,
+            LockdownUnlockInitialize,
             InfoReportDecode,
             InfoReportExecute,
             ProfileCompareRequest,
+            ProfileSyncRequest,
             ReconciliationRequest,
             LockdownStatusExecute,
+            LockdownLockExecute,
+            LockdownUnlockExecute,
             DeviceInfoDiscover,
+            ProfileCompareExecute,
+            ProfileSyncExecute,
             ConfigQuerySerialize,
             ConfigQueryExecute,
             ConfigCompareSerialize,
             ConfigCompareExecute,
+            ConfigSetExecute,
+            ConfigSyncSerialize,
+            ConfigSyncExecute,
             ReconciliationDecode,
             ReconciliationDiscover,
+            ReconciliationLock,
+            ReconciliationUnlock,
             OperationFallback,
             RequestFallback,
             DeviceFallback,
@@ -1153,6 +1555,10 @@ mod tests {
         };
         let error = |message| Contract {
             log_at: LogAt::Level(tracing::Level::ERROR),
+            message,
+        };
+        let info = |message| Contract {
+            log_at: LogAt::Level(tracing::Level::INFO),
             message,
         };
 
@@ -1186,8 +1592,34 @@ mod tests {
                     ),
                 },
                 Check {
+                    scenario: "profile sync decode",
+                    input: ContractCase::ProfileSyncDecode,
+                    expect: error("[scout_stream::mlx_device] failed to parse profile"),
+                },
+                Check {
+                    scenario: "profile sync result serialization",
+                    input: ContractCase::ProfileSyncSerialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] profile sync result failed to serialize",
+                    ),
+                },
+                Check {
                     scenario: "lockdown manager initialization",
                     input: ContractCase::LockdownStatusInitialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] lockdown manager initialization failed",
+                    ),
+                },
+                Check {
+                    scenario: "lockdown lock manager initialization",
+                    input: ContractCase::LockdownLockInitialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] lockdown manager initialization failed",
+                    ),
+                },
+                Check {
+                    scenario: "lockdown unlock manager initialization",
+                    input: ContractCase::LockdownUnlockInitialize,
                     expect: error(
                         "[scout_stream::mlx_device] lockdown manager initialization failed",
                     ),
@@ -1213,6 +1645,14 @@ mod tests {
                     },
                 },
                 Check {
+                    scenario: "missing profile sync request",
+                    input: ContractCase::ProfileSyncRequest,
+                    expect: Contract {
+                        log_at: LogAt::Off,
+                        message: "no serializable profile data in message",
+                    },
+                },
+                Check {
                     scenario: "empty reconciliation PCI request",
                     input: ContractCase::ReconciliationRequest,
                     expect: error("handle_mlxreport_action dev_pci_name empty"),
@@ -1223,9 +1663,31 @@ mod tests {
                     expect: error("[scout_stream::mlx_device] lockdown status check failed"),
                 },
                 Check {
+                    scenario: "lockdown lock execution",
+                    input: ContractCase::LockdownLockExecute,
+                    expect: error("[scout_stream::mlx_device] lockdown lock failed"),
+                },
+                Check {
+                    scenario: "lockdown unlock execution",
+                    input: ContractCase::LockdownUnlockExecute,
+                    expect: error("[scout_stream::mlx_device] lockdown unlock failed"),
+                },
+                Check {
                     scenario: "device information discovery",
                     input: ContractCase::DeviceInfoDiscover,
                     expect: error("[scout_stream::mlx_device] device info request failed"),
+                },
+                Check {
+                    scenario: "profile sync execution",
+                    input: ContractCase::ProfileSyncExecute,
+                    expect: error("[scout_stream::mlx_device] profile sync to device failed"),
+                },
+                Check {
+                    scenario: "profile comparison execution",
+                    input: ContractCase::ProfileCompareExecute,
+                    expect: error(
+                        "[scout_stream::mlx_device] profile compare against device failed",
+                    ),
                 },
                 Check {
                     scenario: "config query result serialization",
@@ -1254,6 +1716,23 @@ mod tests {
                     ),
                 },
                 Check {
+                    scenario: "config set execution",
+                    input: ContractCase::ConfigSetExecute,
+                    expect: error("[scout_stream::mlx_device] config set to device failed"),
+                },
+                Check {
+                    scenario: "config sync result serialization",
+                    input: ContractCase::ConfigSyncSerialize,
+                    expect: error(
+                        "[scout_stream::mlx_device] config sync result failed to serialize",
+                    ),
+                },
+                Check {
+                    scenario: "config sync execution",
+                    input: ContractCase::ConfigSyncExecute,
+                    expect: error("[scout_stream::mlx_device] config sync to device failed"),
+                },
+                Check {
                     scenario: "reconciliation command decode",
                     input: ContractCase::ReconciliationDecode,
                     expect: error("handle_mlxreport_action error decoding command"),
@@ -1262,6 +1741,16 @@ mod tests {
                     scenario: "reconciliation device discovery",
                     input: ContractCase::ReconciliationDiscover,
                     expect: error("handle_mlxreport_action error from discover_device::from_str"),
+                },
+                Check {
+                    scenario: "reconciliation lock execution",
+                    input: ContractCase::ReconciliationLock,
+                    expect: info("handle_mlxreport_action error from lock_device"),
+                },
+                Check {
+                    scenario: "reconciliation unlock execution",
+                    input: ContractCase::ReconciliationUnlock,
+                    expect: info("handle_mlxreport_action error from unlock_device"),
                 },
                 Check {
                     scenario: "unknown operation pair remains diagnostic",
@@ -1305,8 +1794,20 @@ mod tests {
                 ContractCase::ProfileCompareSerialize => contract(
                     &ScoutMlxOperationFailed::profile_compare_serialize("failure".to_string()),
                 ),
+                ContractCase::ProfileSyncDecode => contract(
+                    &ScoutMlxOperationFailed::profile_sync_decode("failure".to_string()),
+                ),
+                ContractCase::ProfileSyncSerialize => contract(
+                    &ScoutMlxOperationFailed::profile_sync_serialize("failure".to_string()),
+                ),
                 ContractCase::LockdownStatusInitialize => contract(
                     &ScoutMlxOperationFailed::lockdown_status_initialize("failure".to_string()),
+                ),
+                ContractCase::LockdownLockInitialize => contract(
+                    &ScoutMlxOperationFailed::lockdown_lock_initialize("failure".to_string()),
+                ),
+                ContractCase::LockdownUnlockInitialize => contract(
+                    &ScoutMlxOperationFailed::lockdown_unlock_initialize("failure".to_string()),
                 ),
                 ContractCase::InfoReportDecode => contract(
                     &ScoutMlxOperationFailed::info_report_decode("failure".to_string()),
@@ -1317,6 +1818,9 @@ mod tests {
                 ContractCase::ProfileCompareRequest => {
                     contract(&ScoutMlxRequestRejected::profile_compare())
                 }
+                ContractCase::ProfileSyncRequest => {
+                    contract(&ScoutMlxRequestRejected::profile_sync())
+                }
                 ContractCase::ReconciliationRequest => {
                     contract(&ScoutMlxRequestRejected::reconciliation())
                 }
@@ -1326,9 +1830,35 @@ mod tests {
                         "failure".to_string(),
                     ))
                 }
+                ContractCase::LockdownLockExecute => {
+                    contract(&ScoutMlxDeviceOperationFailed::lockdown_lock_execute(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::LockdownUnlockExecute => {
+                    contract(&ScoutMlxDeviceOperationFailed::lockdown_unlock_execute(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
                 ContractCase::DeviceInfoDiscover => {
                     contract(&ScoutMlxDeviceOperationFailed::device_info_discover(
                         "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ProfileSyncExecute => {
+                    contract(&ScoutMlxProfileOperationFailed::profile_sync_execute(
+                        "device".to_string(),
+                        "profile".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ProfileCompareExecute => {
+                    contract(&ScoutMlxProfileOperationFailed::profile_compare_execute(
+                        "device".to_string(),
+                        "profile".to_string(),
                         "failure".to_string(),
                     ))
                 }
@@ -1360,6 +1890,27 @@ mod tests {
                         "failure".to_string(),
                     ))
                 }
+                ContractCase::ConfigSetExecute => {
+                    contract(&ScoutMlxConfigOperationFailed::config_set_execute(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ConfigSyncSerialize => {
+                    contract(&ScoutMlxConfigOperationFailed::config_sync_serialize(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ConfigSyncExecute => {
+                    contract(&ScoutMlxConfigOperationFailed::config_sync_execute(
+                        "device".to_string(),
+                        "registry".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
                 ContractCase::ReconciliationDecode => {
                     contract(&ScoutMlxReconciliationFailed::decode(
                         "device".to_string(),
@@ -1368,6 +1919,16 @@ mod tests {
                 }
                 ContractCase::ReconciliationDiscover => {
                     contract(&ScoutMlxReconciliationFailed::discover(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    ))
+                }
+                ContractCase::ReconciliationLock => contract(&ScoutMlxReconciliationFailed::lock(
+                    "device".to_string(),
+                    "failure".to_string(),
+                )),
+                ContractCase::ReconciliationUnlock => {
+                    contract(&ScoutMlxReconciliationFailed::unlock(
                         "device".to_string(),
                         "failure".to_string(),
                     ))
@@ -1395,6 +1956,7 @@ mod tests {
                 )),
                 ContractCase::ReconciliationFallback => {
                     contract(&ScoutMlxReconciliationFailed::new(
+                        ScoutMlxOperation::Reconciliation,
                         ScoutMlxFailureStage::Serialize,
                         "device".to_string(),
                         "failure".to_string(),
@@ -1409,6 +1971,7 @@ mod tests {
         #[derive(Clone, Copy)]
         enum RequestCase {
             ProfileCompare,
+            ProfileSync,
             Reconciliation,
         }
 
@@ -1423,6 +1986,14 @@ mod tests {
                 Check {
                     scenario: "missing profile data remains metric-only",
                     input: RequestCase::ProfileCompare,
+                    expect: Observation {
+                        counter_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "missing profile sync data remains metric-only",
+                    input: RequestCase::ProfileSync,
                     expect: Observation {
                         counter_delta: 1.0,
                         logs: Vec::new(),
@@ -1446,6 +2017,9 @@ mod tests {
                         ScoutMlxRequestRejected::profile_compare(),
                         "profile_compare",
                     ),
+                    RequestCase::ProfileSync => {
+                        (ScoutMlxRequestRejected::profile_sync(), "profile_sync")
+                    }
                     RequestCase::Reconciliation => {
                         (ScoutMlxRequestRejected::reconciliation(), "reconciliation")
                     }
@@ -1465,6 +2039,183 @@ mod tests {
                     logs: logs
                         .into_iter()
                         .map(|log| (log.level, log.message))
+                        .collect(),
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn mlx_mutation_events_keep_context_out_of_metric_labels() {
+        #[derive(Clone, Copy)]
+        enum MutationCase {
+            ProfileReset,
+            ProfileApply,
+            FirmwareInitialize,
+            FirmwareExecute,
+        }
+
+        struct Expected {
+            operation: &'static str,
+            failure_stage: &'static str,
+            event_name: &'static str,
+            message: &'static str,
+            context: Vec<(&'static str, &'static str)>,
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            counter_delta: f64,
+            level: tracing::Level,
+            event_name: Option<String>,
+            message: String,
+            context: Vec<(String, String, Option<CapturedFieldKind>)>,
+        }
+
+        let expected = |case| match case {
+            MutationCase::ProfileReset => Expected {
+                operation: "profile_reset",
+                failure_stage: "execute",
+                event_name: "scout_mlx_profile_reset_failed",
+                message: "mlxconfig reset failed",
+                context: vec![("device", "device"), ("error", "failure")],
+            },
+            MutationCase::ProfileApply => Expected {
+                operation: "profile_apply",
+                failure_stage: "execute",
+                event_name: "scout_mlx_profile_apply_failed",
+                message: "mlxconfig profile sync failed",
+                context: vec![
+                    ("device", "device"),
+                    ("profile", "profile"),
+                    ("error", "failure"),
+                ],
+            },
+            MutationCase::FirmwareInitialize => Expected {
+                operation: "firmware_flash",
+                failure_stage: "initialize",
+                event_name: "scout_mlx_firmware_flasher_initialization_failed",
+                message: "failed to create FirmwareFlasher",
+                context: vec![
+                    ("device", "device"),
+                    ("part_number", "part-number"),
+                    ("psid", "psid"),
+                    ("error", "failure"),
+                ],
+            },
+            MutationCase::FirmwareExecute => Expected {
+                operation: "firmware_flash",
+                failure_stage: "execute",
+                event_name: "scout_mlx_firmware_flash_failed",
+                message: "firmware flash failed",
+                context: vec![
+                    ("device", "device"),
+                    ("part_number", "part-number"),
+                    ("psid", "psid"),
+                    ("firmware_url", "https://firmware.example/fw.bin"),
+                    ("target_version", "1.2.3"),
+                    ("error", "failure"),
+                ],
+            },
+        };
+        let expected_observation = |case| {
+            let expected = expected(case);
+            Observation {
+                counter_delta: 1.0,
+                level: tracing::Level::ERROR,
+                event_name: Some(expected.event_name.to_string()),
+                message: expected.message.to_string(),
+                context: expected
+                    .context
+                    .into_iter()
+                    .map(|(name, value)| {
+                        (
+                            name.to_string(),
+                            value.to_string(),
+                            Some(CapturedFieldKind::Debug),
+                        )
+                    })
+                    .collect(),
+            }
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "profile reset failure",
+                    input: MutationCase::ProfileReset,
+                    expect: expected_observation(MutationCase::ProfileReset),
+                },
+                Check {
+                    scenario: "profile apply failure",
+                    input: MutationCase::ProfileApply,
+                    expect: expected_observation(MutationCase::ProfileApply),
+                },
+                Check {
+                    scenario: "firmware flasher initialization failure",
+                    input: MutationCase::FirmwareInitialize,
+                    expect: expected_observation(MutationCase::FirmwareInitialize),
+                },
+                Check {
+                    scenario: "firmware flash execution failure",
+                    input: MutationCase::FirmwareExecute,
+                    expect: expected_observation(MutationCase::FirmwareExecute),
+                },
+            ],
+            |case| {
+                let expected = expected(case);
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match case {
+                    MutationCase::ProfileReset => emit(ScoutMlxProfileResetFailed::execute(
+                        "device".to_string(),
+                        "failure".to_string(),
+                    )),
+                    MutationCase::ProfileApply => emit(ScoutMlxProfileApplyFailed::execute(
+                        "device".to_string(),
+                        "profile".to_string(),
+                        "failure".to_string(),
+                    )),
+                    MutationCase::FirmwareInitialize => {
+                        emit(ScoutMlxFirmwareFlasherInitializationFailed::new(
+                            "device".to_string(),
+                            "part-number".to_string(),
+                            "psid".to_string(),
+                            "failure".to_string(),
+                        ))
+                    }
+                    MutationCase::FirmwareExecute => emit(ScoutMlxFirmwareFlashFailed::execute(
+                        "device".to_string(),
+                        "part-number".to_string(),
+                        "psid".to_string(),
+                        "https://firmware.example/fw.bin".to_string(),
+                        "1.2.3".to_string(),
+                        "failure".to_string(),
+                    )),
+                });
+                let log = &logs[0];
+
+                Observation {
+                    counter_delta: metrics.counter_delta(
+                        "carbide_scout_mlx_failures_total",
+                        &[
+                            ("operation", expected.operation),
+                            ("failure_stage", expected.failure_stage),
+                            ("failure_kind", "backend"),
+                        ],
+                    ),
+                    level: log.level,
+                    event_name: log.field("event_name").map(str::to_string),
+                    message: log.message.clone(),
+                    context: expected
+                        .context
+                        .iter()
+                        .map(|(name, _)| {
+                            (
+                                (*name).to_string(),
+                                log.field(name).unwrap().to_string(),
+                                log.field_kind(name),
+                            )
+                        })
                         .collect(),
                 }
             },

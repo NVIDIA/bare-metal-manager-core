@@ -630,11 +630,10 @@ async fn handle_mlxreport_commands(
                     report.observations.push(obs);
                 }
                 Err(e) => {
-                    tracing::info!(
-                        error = %e,
-                        pci_name = %dev_pci_name,
-                        "handle_mlxreport_action error from lock_device",
-                    );
+                    emit(metrics::ScoutMlxReconciliationFailed::lock(
+                        dev_pci_name,
+                        mlx_device::lockdown_error_context(&e, &key),
+                    ));
                 }
             },
             // ApplyFirmware attempts to apply the provided FirmwareFlasherProfile
@@ -707,11 +706,10 @@ async fn handle_mlxreport_commands(
                     report.observations.push(obs);
                 }
                 Err(e) => {
-                    tracing::info!(
-                        error = %e,
-                        pci_name = %dev_pci_name,
-                        "handle_mlxreport_action error from unlock_device",
-                    );
+                    emit(metrics::ScoutMlxReconciliationFailed::unlock(
+                        dev_pci_name,
+                        mlx_device::lockdown_error_context(&e, &key),
+                    ));
                 }
             },
         };

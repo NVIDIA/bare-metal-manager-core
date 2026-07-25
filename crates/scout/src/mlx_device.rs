@@ -25,8 +25,9 @@ use carbide_uuid::machine::MachineId;
 use libmlx::device::discovery;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::firmware::config::FirmwareFlasherProfile;
+use libmlx::firmware::credentials::Credentials;
 use libmlx::firmware::flasher::FirmwareFlasher;
-use libmlx::lockdown::error::MlxResult;
+use libmlx::lockdown::error::{MlxError, MlxResult};
 use libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
 use libmlx::profile::error::MlxProfileError;
 use libmlx::profile::serialization::SerializableProfile;
@@ -41,7 +42,9 @@ use crate::cfg::Options;
 use crate::client;
 use crate::metrics::{
     ScoutMlxConfigOperationFailed, ScoutMlxConfigRegistryLookupFailed,
-    ScoutMlxDeviceOperationFailed, ScoutMlxOperationFailed, ScoutMlxProfileOperationFailed,
+    ScoutMlxDeviceOperationFailed, ScoutMlxFirmwareFlashFailed,
+    ScoutMlxFirmwareFlasherInitializationFailed, ScoutMlxOperationFailed,
+    ScoutMlxProfileApplyFailed, ScoutMlxProfileOperationFailed, ScoutMlxProfileResetFailed,
     ScoutMlxRegistryLookupFailed, ScoutMlxRequestRejected,
 };
 
@@ -120,6 +123,166 @@ pub fn unlock_device(device_address: &str, key: &str) -> MlxResult<()> {
     Ok(())
 }
 
+pub(crate) fn lockdown_error_context(error: &MlxError, key: &str) -> String {
+    // Flint dry-run and command errors can echo the full invocation. Keep the
+    // diagnostic while removing any non-empty key that reached the tool.
+    let context = error.to_string();
+    match error {
+        MlxError::InvalidKey => context,
+        _ if key.is_empty() => context,
+        _ => context.replace(key, "REDACTED"),
+    }
+}
+
+struct LoggableFirmwareSource {
+    value: String,
+    source_forms: Vec<String>,
+}
+
+impl LoggableFirmwareSource {
+    fn new(raw: &str) -> Self {
+        let Ok(parsed) = reqwest::Url::parse(raw) else {
+            let scheme_length = ["http://", "https://", "ssh://"].iter().find_map(|scheme| {
+                raw.get(..scheme.len())
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+                    .then_some(scheme.len())
+            });
+            return Self {
+                value: if scheme_length.is_some() {
+                    "<invalid firmware source>".to_string()
+                } else {
+                    raw.to_string()
+                },
+                source_forms: scheme_length
+                    .is_some_and(|length| raw.len() > length)
+                    .then(|| raw.to_string())
+                    .into_iter()
+                    .collect(),
+            };
+        };
+
+        if parsed.host_str().is_none() {
+            return Self {
+                value: raw.to_string(),
+                source_forms: Vec::new(),
+            };
+        }
+
+        let mut source_forms = vec![raw.to_string(), parsed.to_string()];
+        for remove_fragment in [false, true] {
+            for remove_query in [false, true] {
+                let mut form = parsed.clone();
+                if remove_fragment {
+                    form.set_fragment(None);
+                }
+                if remove_query {
+                    form.set_query(None);
+                }
+                source_forms.push(form.to_string());
+
+                remove_url_credentials(&mut form);
+                source_forms.push(form.to_string());
+            }
+        }
+
+        let mut loggable = parsed;
+        remove_url_credentials(&mut loggable);
+        loggable.set_query(None);
+        loggable.set_fragment(None);
+        let value = loggable.to_string();
+
+        source_forms.retain(|form| !form.is_empty() && form != &value);
+        source_forms
+            .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+        source_forms.dedup();
+
+        Self {
+            value,
+            source_forms,
+        }
+    }
+
+    fn redact_from(&self, text: &str) -> String {
+        self.source_forms
+            .iter()
+            .fold(text.to_string(), |redacted, form| {
+                redacted.replace(form, &self.value)
+            })
+    }
+
+    fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
+fn remove_url_credentials(url: &mut reqwest::Url) {
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+}
+
+fn firmware_error_context(error: &str, profile: &FirmwareFlasherProfile) -> String {
+    let sources = std::iter::once(profile.flash_spec.firmware_url.as_str())
+        .chain(profile.flash_spec.device_conf_url.as_deref());
+    let redacted = sources.fold(error.to_string(), |text, source| {
+        LoggableFirmwareSource::new(source).redact_from(&text)
+    });
+
+    mask_secret_values(&redacted, firmware_credentials(profile))
+}
+
+fn firmware_credentials(profile: &FirmwareFlasherProfile) -> impl Iterator<Item = &str> {
+    profile
+        .flash_spec
+        .firmware_credentials
+        .iter()
+        .chain(profile.flash_spec.device_conf_credentials.iter())
+        .filter_map(|credentials| match credentials {
+            Credentials::BearerToken { token } => Some(token.as_str()),
+            Credentials::BasicAuth {
+                username: _,
+                password,
+            } => Some(password.as_str()),
+            Credentials::Header { name: _, value } => Some(value.as_str()),
+            Credentials::SshKey {
+                path: _,
+                passphrase,
+            } => passphrase.as_deref(),
+            Credentials::SshAgent => None,
+        })
+}
+
+fn mask_secret_values<'a>(text: &str, secrets: impl Iterator<Item = &'a str>) -> String {
+    // Merge touching matches before rendering them. Sequential replacement can
+    // leave part of either secret behind when two credential values overlap.
+    let mut ranges: Vec<(usize, usize)> = secrets
+        .filter(|secret| !secret.is_empty())
+        .flat_map(|secret| {
+            let secret = secret.as_bytes();
+            (0..=text.len().saturating_sub(secret.len()))
+                .filter(move |&start| text.as_bytes()[start..].starts_with(secret))
+                .map(move |start| (start, start + secret.len()))
+        })
+        .collect();
+    ranges.sort_unstable();
+
+    let mut redacted = String::with_capacity(text.len());
+    let mut cursor = 0;
+    let mut range_index = 0;
+    while range_index < ranges.len() {
+        let (start, mut end) = ranges[range_index];
+        range_index += 1;
+        while range_index < ranges.len() && ranges[range_index].0 <= end {
+            end = end.max(ranges[range_index].1);
+            range_index += 1;
+        }
+        redacted.push_str(&text[cursor..start]);
+        redacted.push_str("REDACTED");
+        cursor = end;
+    }
+    redacted.push_str(&text[cursor..]);
+    redacted
+}
+
 pub fn handle_profile_sync(
     request: mlx_device_pb::MlxDeviceProfileSyncRequest,
 ) -> mlx_device_pb::MlxDeviceProfileSyncResponse {
@@ -130,6 +293,7 @@ pub fn handle_profile_sync(
     );
 
     let Some(serializable_profile_pb) = request.serializable_profile else {
+        emit(ScoutMlxRequestRejected::profile_sync());
         return mlx_device_pb::MlxDeviceProfileSyncResponse {
             reply: Some(
                 mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -145,10 +309,7 @@ pub fn handle_profile_sync(
     let serializable_profile: SerializableProfile = match serializable_profile_pb.try_into() {
         Ok(profile) => profile,
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "[scout_stream::mlx_device] failed to parse profile",
-            );
+            emit(ScoutMlxOperationFailed::profile_sync_decode(e.to_string()));
             return mlx_device_pb::MlxDeviceProfileSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -179,10 +340,9 @@ pub fn handle_profile_sync(
                     ),
                 },
                 Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        "[scout_stream::mlx_device] profile sync result failed to serialize",
-                    );
+                    emit(ScoutMlxOperationFailed::profile_sync_serialize(
+                        e.to_string(),
+                    ));
                     mlx_device_pb::MlxDeviceProfileSyncResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -198,12 +358,11 @@ pub fn handle_profile_sync(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                profile_name = %request.profile_name,
-                error = %e,
-                "[scout_stream::mlx_device] profile sync to device failed",
-            );
+            emit(ScoutMlxProfileOperationFailed::profile_sync_execute(
+                request.device_id.clone(),
+                request.profile_name.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceProfileSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
@@ -326,10 +485,9 @@ pub fn handle_lockdown_lock(
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "[scout_stream::mlx_device] lockdown manager initialization failed",
-            );
+            emit(ScoutMlxOperationFailed::lockdown_lock_initialize(
+                e.to_string(),
+            ));
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -356,11 +514,10 @@ pub fn handle_lockdown_lock(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                error = %e,
-                "[scout_stream::mlx_device] lockdown lock failed",
-            );
+            emit(ScoutMlxDeviceOperationFailed::lockdown_lock_execute(
+                request.device_id.clone(),
+                lockdown_error_context(&e, &request.key),
+            ));
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -385,10 +542,9 @@ pub fn handle_lockdown_unlock(
     let manager = match LockdownManager::new() {
         Ok(m) => m,
         Err(e) => {
-            tracing::error!(
-                error = %e,
-                "[scout_stream::mlx_device] lockdown manager initialization failed",
-            );
+            emit(ScoutMlxOperationFailed::lockdown_unlock_initialize(
+                e.to_string(),
+            ));
             return mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -415,11 +571,10 @@ pub fn handle_lockdown_unlock(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                error = %e,
-                "[scout_stream::mlx_device] lockdown unlock failed",
-            );
+            emit(ScoutMlxDeviceOperationFailed::lockdown_unlock_execute(
+                request.device_id.clone(),
+                lockdown_error_context(&e, &request.key),
+            ));
             mlx_device_pb::MlxDeviceLockdownResponse {
                 reply: Some(mlx_device_pb::mlx_device_lockdown_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -765,11 +920,10 @@ pub fn handle_config_set(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            tracing::warn!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                "[scout_stream::mlx_device] config registry not found",
-            );
+            emit(ScoutMlxConfigRegistryLookupFailed::config_set_lookup(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+            ));
             return mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -813,12 +967,11 @@ pub fn handle_config_set(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                error = %e,
-                "[scout_stream::mlx_device] config set to device failed",
-            );
+            emit(ScoutMlxConfigOperationFailed::config_set_execute(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceConfigSetResponse {
                 reply: Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
                     mlx_device_pb::MlxDeviceStreamError {
@@ -849,11 +1002,10 @@ pub fn handle_config_sync(
     let registry = match registries::get(&request.registry_name) {
         Some(r) => r.clone(),
         None => {
-            tracing::warn!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                "[scout_stream::mlx_device] config registry not found",
-            );
+            emit(ScoutMlxConfigRegistryLookupFailed::config_sync_lookup(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+            ));
             return mlx_device_pb::MlxDeviceConfigSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
@@ -898,12 +1050,11 @@ pub fn handle_config_sync(
                     ),
                 },
                 Err(e) => {
-                    tracing::error!(
-                        device_id = %request.device_id,
-                        registry_name = %request.registry_name,
-                        error = %e,
-                        "[scout_stream::mlx_device] config sync result failed to serialize",
-                    );
+                    emit(ScoutMlxConfigOperationFailed::config_sync_serialize(
+                        request.device_id.clone(),
+                        request.registry_name.clone(),
+                        e.to_string(),
+                    ));
                     mlx_device_pb::MlxDeviceConfigSyncResponse {
                         reply: Some(
                             mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
@@ -922,12 +1073,11 @@ pub fn handle_config_sync(
             }
         }
         Err(e) => {
-            tracing::error!(
-                device_id = %request.device_id,
-                registry_name = %request.registry_name,
-                error = %e,
-                "[scout_stream::mlx_device] config sync to device failed",
-            );
+            emit(ScoutMlxConfigOperationFailed::config_sync_execute(
+                request.device_id.clone(),
+                request.registry_name.clone(),
+                e.to_string(),
+            ));
             mlx_device_pb::MlxDeviceConfigSyncResponse {
                 reply: Some(
                     mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
@@ -1062,6 +1212,12 @@ pub async fn apply_firmware(
     device: &str,
     profile: &FirmwareFlasherProfile,
 ) -> Option<FirmwareFlashReportPb> {
+    let firmware_url = LoggableFirmwareSource::new(&profile.flash_spec.firmware_url);
+    let device_conf_url = profile
+        .flash_spec
+        .device_conf_url
+        .as_deref()
+        .map(LoggableFirmwareSource::new);
     let firmware_credential_type = profile
         .flash_spec
         .firmware_credentials
@@ -1080,9 +1236,12 @@ pub async fn apply_firmware(
         device = %device,
         part_number = %profile.firmware_spec.part_number,
         psid = %profile.firmware_spec.psid,
-        firmware_url = %profile.flash_spec.firmware_url,
+        firmware_url = %firmware_url.as_str(),
         firmware_credential_type,
-        device_configuration_url = profile.flash_spec.device_conf_url.as_deref().unwrap_or("none"),
+        device_configuration_url = device_conf_url
+            .as_ref()
+            .map(LoggableFirmwareSource::as_str)
+            .unwrap_or("none"),
         device_configuration_credential_type = device_conf_credential_type,
         target_version = %profile.firmware_spec.version,
         "applying firmware"
@@ -1093,13 +1252,12 @@ pub async fn apply_firmware(
     let flasher = match FirmwareFlasher::new(device, &profile.firmware_spec) {
         Ok(f) => f,
         Err(e) => {
-            tracing::error!(
-                device = %device,
-                part_number = %profile.firmware_spec.part_number,
-                psid = %profile.firmware_spec.psid,
-                error = %e,
-                "failed to create FirmwareFlasher"
-            );
+            emit(ScoutMlxFirmwareFlasherInitializationFailed::new(
+                device.to_string(),
+                profile.firmware_spec.part_number.clone(),
+                profile.firmware_spec.psid.clone(),
+                firmware_error_context(&e.to_string(), profile),
+            ));
             return None;
         }
     };
@@ -1113,22 +1271,21 @@ pub async fn apply_firmware(
                 device = %device,
                 part_number = %profile.firmware_spec.part_number,
                 psid = %profile.firmware_spec.psid,
-                firmware_url = %profile.flash_spec.firmware_url,
+                firmware_url = %firmware_url.as_str(),
                 target_version = %profile.firmware_spec.version,
                 "firmware flash successful"
             );
             Some(result.into())
         }
         Err(e) => {
-            tracing::error!(
-                device = %device,
-                part_number = %profile.firmware_spec.part_number,
-                psid = %profile.firmware_spec.psid,
-                firmware_url = %profile.flash_spec.firmware_url,
-                target_version = %profile.firmware_spec.version,
-                error = %e,
-                "firmware flash failed"
-            );
+            emit(ScoutMlxFirmwareFlashFailed::execute(
+                device.to_string(),
+                profile.firmware_spec.part_number.clone(),
+                profile.firmware_spec.psid.clone(),
+                firmware_url.as_str().to_string(),
+                profile.firmware_spec.version.clone(),
+                firmware_error_context(&e.to_string(), profile),
+            ));
             None
         }
     }
@@ -1149,11 +1306,10 @@ pub(crate) fn apply_profile(
     // Always reset to factory defaults first.
     let applier = MlxConfigApplier::new(device);
     if let Err(e) = applier.reset_config() {
-        tracing::error!(
-            device = %device,
-            error = %e,
-            "mlxconfig reset failed"
-        );
+        emit(ScoutMlxProfileResetFailed::execute(
+            device.to_string(),
+            e.to_string(),
+        ));
         return (profile.map(|p| p.name), Some(false));
     }
     tracing::info!(device = %device, "mlxconfig reset to factory defaults");
@@ -1176,12 +1332,11 @@ pub(crate) fn apply_profile(
             (Some(name), Some(true))
         }
         Err(e) => {
-            tracing::error!(
-                device = %device,
-                profile = %name,
-                error = %e,
-                "mlxconfig profile sync failed"
-            );
+            emit(ScoutMlxProfileApplyFailed::execute(
+                device.to_string(),
+                name.clone(),
+                e.to_string(),
+            ));
             (Some(name), Some(false))
         }
     }
@@ -1210,6 +1365,7 @@ fn load_and_compare_profile(
 mod tests {
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
+    use libmlx::firmware::config::{FirmwareSpec, FlashOptions, FlashSpec};
 
     use super::*;
 
@@ -1218,11 +1374,14 @@ mod tests {
     const REGISTRY: &str = "missing-registry";
 
     #[derive(Clone, Copy)]
-    enum ReadFailure {
-        MissingProfile,
+    enum HandlerFailure {
+        MissingProfileCompare,
+        MissingProfileSync,
         MissingRegistry,
         QueryMissingRegistry,
         CompareMissingRegistry,
+        SetMissingRegistry,
+        SyncMissingRegistry,
     }
 
     #[derive(Debug, PartialEq)]
@@ -1245,20 +1404,23 @@ mod tests {
         counter_delta: f64,
     }
 
-    impl ReadFailure {
+    impl HandlerFailure {
         fn metric_labels(self) -> [(&'static str, &'static str); 3] {
             let operation = match self {
-                Self::MissingProfile => "profile_compare",
+                Self::MissingProfileCompare => "profile_compare",
+                Self::MissingProfileSync => "profile_sync",
                 Self::MissingRegistry => "registry_show",
                 Self::QueryMissingRegistry => "config_query",
                 Self::CompareMissingRegistry => "config_compare",
+                Self::SetMissingRegistry => "config_set",
+                Self::SyncMissingRegistry => "config_sync",
             };
             let failure_stage = match self {
-                Self::MissingProfile => "validate",
+                Self::MissingProfileCompare | Self::MissingProfileSync => "validate",
                 _ => "lookup",
             };
             let failure_kind = match self {
-                Self::MissingProfile => "invalid_request",
+                Self::MissingProfileCompare | Self::MissingProfileSync => "invalid_request",
                 _ => "not_found",
             };
             [
@@ -1270,7 +1432,7 @@ mod tests {
 
         fn invoke(self) -> mlx_device_pb::MlxDeviceStreamError {
             match self {
-                Self::MissingProfile => {
+                Self::MissingProfileCompare => {
                     let response =
                         handle_profile_compare(mlx_device_pb::MlxDeviceProfileCompareRequest {
                             device_id: DEVICE_ID.to_string(),
@@ -1282,6 +1444,20 @@ mod tests {
                             error,
                         )) => error,
                         _ => panic!("missing profile should return an error"),
+                    }
+                }
+                Self::MissingProfileSync => {
+                    let response =
+                        handle_profile_sync(mlx_device_pb::MlxDeviceProfileSyncRequest {
+                            device_id: DEVICE_ID.to_string(),
+                            profile_name: "default".to_string(),
+                            serializable_profile: None,
+                        });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_profile_sync_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing sync profile should return an error"),
                     }
                 }
                 Self::MissingRegistry => {
@@ -1324,12 +1500,38 @@ mod tests {
                         _ => panic!("missing compare registry should return an error"),
                     }
                 }
+                Self::SetMissingRegistry => {
+                    let response = handle_config_set(mlx_device_pb::MlxDeviceConfigSetRequest {
+                        device_id: DEVICE_ID.to_string(),
+                        registry_name: REGISTRY.to_string(),
+                        assignments: Vec::new(),
+                    });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_config_set_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing set registry should return an error"),
+                    }
+                }
+                Self::SyncMissingRegistry => {
+                    let response = handle_config_sync(mlx_device_pb::MlxDeviceConfigSyncRequest {
+                        device_id: DEVICE_ID.to_string(),
+                        registry_name: REGISTRY.to_string(),
+                        assignments: Vec::new(),
+                    });
+                    match response.reply {
+                        Some(mlx_device_pb::mlx_device_config_sync_response::Reply::Error(
+                            error,
+                        )) => error,
+                        _ => panic!("missing sync registry should return an error"),
+                    }
+                }
             }
         }
     }
 
     #[test]
-    fn read_handlers_preserve_responses_and_classify_failures() {
+    fn mlx_handlers_preserve_responses_and_classify_failures() {
         let internal = mlx_device_pb::MlxDeviceStreamErrorStatus::Internal as i32;
         let missing_config = || {
             format!("config registry not found (device_id:{DEVICE_ID}, registry_name:{REGISTRY})")
@@ -1339,7 +1541,17 @@ mod tests {
             [
                 Check {
                     scenario: "profile comparison requires profile data",
-                    input: ReadFailure::MissingProfile,
+                    input: HandlerFailure::MissingProfileCompare,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: "no serializable profile data in message".to_string(),
+                        events: Vec::new(),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "profile synchronization requires profile data",
+                    input: HandlerFailure::MissingProfileSync,
                     expect: HandlerObservation {
                         response_status: internal,
                         response_message: "no serializable profile data in message".to_string(),
@@ -1349,7 +1561,7 @@ mod tests {
                 },
                 Check {
                     scenario: "registry show rejects an unknown registry",
-                    input: ReadFailure::MissingRegistry,
+                    input: HandlerFailure::MissingRegistry,
                     expect: HandlerObservation {
                         response_status: internal,
                         response_message: format!("registry not found: {REGISTRY}"),
@@ -1369,7 +1581,7 @@ mod tests {
                 },
                 Check {
                     scenario: "config query rejects an unknown registry",
-                    input: ReadFailure::QueryMissingRegistry,
+                    input: HandlerFailure::QueryMissingRegistry,
                     expect: HandlerObservation {
                         response_status: internal,
                         response_message: missing_config(),
@@ -1389,7 +1601,7 @@ mod tests {
                 },
                 Check {
                     scenario: "config comparison rejects an unknown registry",
-                    input: ReadFailure::CompareMissingRegistry,
+                    input: HandlerFailure::CompareMissingRegistry,
                     expect: HandlerObservation {
                         response_status: internal,
                         response_message: missing_config(),
@@ -1399,6 +1611,46 @@ mod tests {
                                 .to_string(),
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_compare".to_string()),
+                            failure_stage: Some("lookup".to_string()),
+                            failure_kind: Some("not_found".to_string()),
+                            device_id: Some(DEVICE_ID.to_string()),
+                            registry_name: Some(REGISTRY.to_string()),
+                        }],
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "config set rejects an unknown registry",
+                    input: HandlerFailure::SetMissingRegistry,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: missing_config(),
+                        events: vec![EventObservation {
+                            level: tracing::Level::WARN,
+                            message: "[scout_stream::mlx_device] config registry not found"
+                                .to_string(),
+                            event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
+                            operation: Some("config_set".to_string()),
+                            failure_stage: Some("lookup".to_string()),
+                            failure_kind: Some("not_found".to_string()),
+                            device_id: Some(DEVICE_ID.to_string()),
+                            registry_name: Some(REGISTRY.to_string()),
+                        }],
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "config synchronization rejects an unknown registry",
+                    input: HandlerFailure::SyncMissingRegistry,
+                    expect: HandlerObservation {
+                        response_status: internal,
+                        response_message: missing_config(),
+                        events: vec![EventObservation {
+                            level: tracing::Level::WARN,
+                            message: "[scout_stream::mlx_device] config registry not found"
+                                .to_string(),
+                            event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
+                            operation: Some("config_sync".to_string()),
                             failure_stage: Some("lookup".to_string()),
                             failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
@@ -1440,6 +1692,190 @@ mod tests {
                         .counter_delta(MLX_FAILURE_METRIC, &fixture.metric_labels()),
                 }
             },
+        );
+    }
+
+    #[test]
+    fn lockdown_error_context_removes_valid_keys() {
+        struct RedactionCase {
+            error: MlxError,
+            key: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "dry-run commands do not retain the key",
+                    input: RedactionCase {
+                        error: MlxError::DryRun(
+                            "flint -d device hw_access enable deadbeef".to_string(),
+                        ),
+                        key: "deadbeef",
+                    },
+                    expect:
+                        "dry run - would have executed: flint -d device hw_access enable REDACTED"
+                            .to_string(),
+                },
+                Check {
+                    scenario: "tool output does not retain the key",
+                    input: RedactionCase {
+                        error: MlxError::CommandFailed("flint rejected key DEADBEEF".to_string()),
+                        key: "DEADBEEF",
+                    },
+                    expect: "command execution failed: flint rejected key REDACTED".to_string(),
+                },
+                Check {
+                    scenario: "invalid keys cannot rewrite ordinary diagnostics",
+                    input: RedactionCase {
+                        error: MlxError::InvalidKey,
+                        key: "a",
+                    },
+                    expect: "invalid key format or length".to_string(),
+                },
+            ],
+            |case| lockdown_error_context(&case.error, case.key),
+        );
+    }
+
+    fn firmware_profile(
+        firmware_url: &str,
+        firmware_credentials: Option<Credentials>,
+        device_conf_url: Option<&str>,
+        device_conf_credentials: Option<Credentials>,
+    ) -> FirmwareFlasherProfile {
+        FirmwareFlasherProfile {
+            firmware_spec: FirmwareSpec {
+                part_number: "part-number".to_string(),
+                psid: "psid".to_string(),
+                version: "1.2.3".to_string(),
+            },
+            flash_spec: FlashSpec {
+                firmware_url: firmware_url.to_string(),
+                firmware_credentials,
+                device_conf_url: device_conf_url.map(str::to_string),
+                device_conf_credentials,
+                verify_from_cache: false,
+                cache_dir: None,
+            },
+            flash_options: FlashOptions::default(),
+        }
+    }
+
+    #[test]
+    fn firmware_context_excludes_urls_and_credentials() {
+        const FIRMWARE_URL: &str =
+            "https://user:userinfo-secret@firmware.example/fw.bin?token=url-secret#download";
+        const DEVICE_CONF_URL: &str = "https://config.example/device.ini?token=config-secret#apply";
+        const BEARER: &str = "bearer-secret";
+        const PASSWORD: &str = "basic-password";
+
+        let profile = firmware_profile(
+            FIRMWARE_URL,
+            Some(Credentials::bearer_token(BEARER)),
+            Some(DEVICE_CONF_URL),
+            Some(Credentials::basic_auth("user", PASSWORD)),
+        );
+        let error = format!(
+            "firmware={FIRMWARE_URL}; config={DEVICE_CONF_URL}; bearer={BEARER}; password={PASSWORD}"
+        );
+        let context = firmware_error_context(&error, &profile);
+
+        assert_eq!(
+            LoggableFirmwareSource::new(FIRMWARE_URL).as_str(),
+            "https://firmware.example/fw.bin"
+        );
+        assert_eq!(
+            LoggableFirmwareSource::new(
+                "ftp://user:password@firmware.example/fw.bin?token=secret#download"
+            )
+            .as_str(),
+            "ftp://firmware.example/fw.bin"
+        );
+        let invalid_source = LoggableFirmwareSource::new("http://");
+        assert_eq!(invalid_source.as_str(), "<invalid firmware source>");
+        assert_eq!(
+            invalid_source.redact_from("upstream=http://other.example/fw.bin"),
+            "upstream=http://other.example/fw.bin"
+        );
+        assert_eq!(
+            context,
+            "firmware=https://firmware.example/fw.bin; \
+             config=https://config.example/device.ini; bearer=REDACTED; password=REDACTED"
+        );
+        for secret in [
+            "userinfo-secret",
+            "url-secret",
+            "config-secret",
+            BEARER,
+            PASSWORD,
+        ] {
+            assert!(!context.contains(secret));
+        }
+    }
+
+    #[test]
+    fn firmware_error_context_redacts_each_secret_credential_variant() {
+        #[derive(Clone, Copy)]
+        enum CredentialCase {
+            Bearer,
+            Basic,
+            Header,
+            SshPassphrase,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "bearer token",
+                    input: CredentialCase::Bearer,
+                    expect: "failure: REDACTED".to_string(),
+                },
+                Check {
+                    scenario: "basic password",
+                    input: CredentialCase::Basic,
+                    expect: "failure: REDACTED".to_string(),
+                },
+                Check {
+                    scenario: "custom header value",
+                    input: CredentialCase::Header,
+                    expect: "failure: REDACTED".to_string(),
+                },
+                Check {
+                    scenario: "SSH key passphrase",
+                    input: CredentialCase::SshPassphrase,
+                    expect: "failure: REDACTED".to_string(),
+                },
+            ],
+            |case| {
+                let (credentials, secret) = match case {
+                    CredentialCase::Bearer => {
+                        (Credentials::bearer_token("bearer-secret"), "bearer-secret")
+                    }
+                    CredentialCase::Basic => (
+                        Credentials::basic_auth("user", "basic-secret"),
+                        "basic-secret",
+                    ),
+                    CredentialCase::Header => (
+                        Credentials::header("X-Firmware-Token", "header-secret"),
+                        "header-secret",
+                    ),
+                    CredentialCase::SshPassphrase => (
+                        Credentials::ssh_key_with_passphrase("/key", "passphrase-secret"),
+                        "passphrase-secret",
+                    ),
+                };
+                let profile = firmware_profile("/firmware.bin", Some(credentials), None, None);
+
+                firmware_error_context(&format!("failure: {secret}"), &profile)
+            },
+        );
+    }
+
+    #[test]
+    fn firmware_secret_redaction_merges_overlapping_matches() {
+        assert_eq!(
+            mask_secret_values("prefix abcde suffix", ["abc", "cde"].into_iter()),
+            "prefix REDACTED suffix"
         );
     }
 }
