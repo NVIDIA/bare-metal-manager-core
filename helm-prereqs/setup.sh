@@ -801,6 +801,41 @@ if [[ "${_pg_cluster_ready}" != "true" ]]; then
 fi
 echo "nico-pg-cluster is Running"
 
+# Reconcile the databases declared on the Zalando PostgreSQL resource before
+# any NICo migration jobs run. The operator creates these asynchronously and a
+# cluster can report Running before every database has been created. This is
+# also needed when an existing PostgreSQL data volume is reused with an updated
+# database list.
+_PG_PRIMARY="$(kubectl get pods -n postgres -l application=spilo \
+    -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.spilo-role}{"\n"}{end}' \
+    2>/dev/null | awk '$2=="master"{print $1}' | head -1)"
+if [[ -z "${_PG_PRIMARY}" ]]; then
+    echo "ERROR: nico-pg-cluster has no Patroni primary pod" >&2
+    exit 1
+fi
+
+echo "Reconciling declared PostgreSQL databases..."
+while IFS='=' read -r _db_name _db_owner; do
+    [[ -n "${_db_name}" && -n "${_db_owner}" ]] || continue
+    if [[ ! "${_db_name}" =~ ^[A-Za-z0-9_.-]+$ || ! "${_db_owner}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        echo "ERROR: invalid PostgreSQL database or owner in nico-pg-cluster: ${_db_name}=${_db_owner}" >&2
+        exit 1
+    fi
+    if kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+        su postgres -c "psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname = '${_db_name}'\"" \
+        2>/dev/null | grep -qx '1'; then
+        echo "  database ${_db_name} already exists"
+        continue
+    fi
+    if ! kubectl exec -n postgres "${_PG_PRIMARY}" -- \
+        su postgres -c "createdb --owner='${_db_owner}' '${_db_name}'"; then
+        echo "ERROR: failed to create PostgreSQL database ${_db_name} owned by ${_db_owner}" >&2
+        exit 1
+    fi
+    echo "  database ${_db_name} created"
+done < <(kubectl get postgresql nico-pg-cluster -n postgres \
+    -o go-template='{{range $database, $owner := .spec.databases}}{{$database}}={{$owner}}{{"\n"}}{{end}}')
+
 # Install pg_trgm on nico_rest (needed by the nico-rest-db GIN index migration).
 # Zalando's preparedDatabases conflicts with the databases section, so we install
 # the extension directly after the cluster is ready. Idempotent: IF NOT EXISTS.
