@@ -718,6 +718,12 @@ for k, v in cm["data"].items():
         v_work = pre.rstrip("\n") + "\n" + post.lstrip("\n")
     else:
         v_work = v
+    # The sim lo-ip range may already be present — the site's values file can
+    # carry it (possibly as a MULTI-LINE ranges array). Only splice it into a
+    # SINGLE-LINE `ranges = [...]` when it is genuinely absent; otherwise leave
+    # the array untouched. The actual pool CAPACITY is guaranteed by the
+    # Phase 5 resource_pool DB widening regardless, so a no-op here is safe.
+    SIM_LO_PRESENT = "10.103.0.1" in v_work
     in_sec = ""
     for ln in v_work.splitlines():
         s = ln.strip()
@@ -729,7 +735,8 @@ for k, v in cm["data"].items():
             continue
         if s.startswith("[pools."):
             in_lo = (s == "[pools.lo-ip]")
-        if in_lo and s.startswith("ranges") and "10.103.0.1" not in ln:
+        if (in_lo and s.startswith("ranges") and not SIM_LO_PRESENT
+                and ln.rstrip().endswith("]")):
             r = ln.rstrip(); idx = r.rfind("]")
             ln = r[:idx] + SIM_LO + r[idx+1:]
         out.append(ln)
