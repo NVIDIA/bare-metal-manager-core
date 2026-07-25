@@ -2215,16 +2215,15 @@ async fn rms_get_switch_password_rotation_job_status(
 )]
 struct RmsSwitchCertificateJobStateUnrecognized;
 
-fn map_rms_configure_switch_certificate_job_state(state: &str) -> ConfigureSwitchCertificateState {
+fn map_rms_configure_switch_certificate_job_state(
+    state: &str,
+) -> Option<ConfigureSwitchCertificateState> {
     match state.to_ascii_lowercase().as_str() {
-        "queued" | "pending" => ConfigureSwitchCertificateState::Started,
-        "running" | "in_progress" | "active" => ConfigureSwitchCertificateState::InProgress,
-        "completed" | "success" | "done" => ConfigureSwitchCertificateState::Completed,
-        "failed" | "error" => ConfigureSwitchCertificateState::Failed,
-        _ => {
-            emit(RmsSwitchCertificateJobStateUnrecognized);
-            ConfigureSwitchCertificateState::InProgress
-        }
+        "queued" | "pending" => Some(ConfigureSwitchCertificateState::Started),
+        "running" | "in_progress" | "active" => Some(ConfigureSwitchCertificateState::InProgress),
+        "completed" | "success" | "done" => Some(ConfigureSwitchCertificateState::Completed),
+        "failed" | "error" => Some(ConfigureSwitchCertificateState::Failed),
+        _ => None,
     }
 }
 
@@ -2326,7 +2325,11 @@ async fn rms_get_configure_switch_certificate_job_status(
         });
     }
 
-    let state = map_rms_configure_switch_certificate_job_state(&response.state);
+    let state =
+        map_rms_configure_switch_certificate_job_state(&response.state).unwrap_or_else(|| {
+            emit(RmsSwitchCertificateJobStateUnrecognized);
+            ConfigureSwitchCertificateState::InProgress
+        });
     let error = if matches!(state, ConfigureSwitchCertificateState::Failed) {
         Some(
             (!response.error_message.is_empty())
@@ -2634,7 +2637,7 @@ impl ComputeTrayManager for RmsBackend {
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
-    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
     use carbide_test_support::{Check, check_values, value_scenarios};
     use carbide_uuid::machine::MachineId;
     use carbide_uuid::power_shelf::PowerShelfId;
@@ -2807,88 +2810,70 @@ mod tests {
         value_scenarios!(
             run = map_rms_configure_switch_certificate_job_state;
             "started" {
-                "queued" => ConfigureSwitchCertificateState::Started,
-                "pending" => ConfigureSwitchCertificateState::Started,
+                "queued" => Some(ConfigureSwitchCertificateState::Started),
+                "pending" => Some(ConfigureSwitchCertificateState::Started),
             }
 
             "in progress" {
-                "running" => ConfigureSwitchCertificateState::InProgress,
-                "in_progress" => ConfigureSwitchCertificateState::InProgress,
-                "active" => ConfigureSwitchCertificateState::InProgress,
+                "running" => Some(ConfigureSwitchCertificateState::InProgress),
+                "in_progress" => Some(ConfigureSwitchCertificateState::InProgress),
+                "active" => Some(ConfigureSwitchCertificateState::InProgress),
             }
 
             "completed" {
-                "completed" => ConfigureSwitchCertificateState::Completed,
-                "success" => ConfigureSwitchCertificateState::Completed,
-                "done" => ConfigureSwitchCertificateState::Completed,
+                "completed" => Some(ConfigureSwitchCertificateState::Completed),
+                "success" => Some(ConfigureSwitchCertificateState::Completed),
+                "done" => Some(ConfigureSwitchCertificateState::Completed),
             }
 
             "failed" {
-                "failed" => ConfigureSwitchCertificateState::Failed,
-                "error" => ConfigureSwitchCertificateState::Failed,
+                "failed" => Some(ConfigureSwitchCertificateState::Failed),
+                "error" => Some(ConfigureSwitchCertificateState::Failed),
             }
 
             "case insensitive" {
-                "RUNNING" => ConfigureSwitchCertificateState::InProgress,
+                "RUNNING" => Some(ConfigureSwitchCertificateState::InProgress),
+            }
+
+            "unrecognized" {
+                "waiting_for_reboot" => None,
+                "" => None,
             }
         );
     }
 
-    #[test]
-    fn unrecognized_switch_certificate_job_state_keeps_polling_and_counts_silently() {
+    #[tokio::test]
+    async fn unrecognized_switch_certificate_job_state_keeps_polling_and_counts_silently() {
         const METRIC: &str = "carbide_rms_switch_certificate_unrecognized_job_states_total";
 
-        #[derive(Debug, PartialEq)]
-        struct Observation {
-            mapped_state: ConfigureSwitchCertificateState,
-            log_count: usize,
-            counter_delta: f64,
-        }
+        let mock = MockRmsApi::new();
+        mock.enqueue_get_configure_switch_certificate_job_status(Ok(
+            MockRmsApi::configure_switch_certificate_job_status_ok("waiting_for_reboot"),
+        ))
+        .await;
 
-        check_values(
-            [
-                Check {
-                    scenario: "recognized state stays quiet",
-                    input: "running",
-                    expect: Observation {
-                        mapped_state: ConfigureSwitchCertificateState::InProgress,
-                        log_count: 0,
-                        counter_delta: 0.0,
-                    },
-                },
-                Check {
-                    scenario: "unknown state remains in progress",
-                    input: "waiting_for_reboot",
-                    expect: Observation {
-                        mapped_state: ConfigureSwitchCertificateState::InProgress,
-                        log_count: 0,
-                        counter_delta: 1.0,
-                    },
-                },
-                Check {
-                    scenario: "empty state remains in progress",
-                    input: "",
-                    expect: Observation {
-                        mapped_state: ConfigureSwitchCertificateState::InProgress,
-                        log_count: 0,
-                        counter_delta: 1.0,
-                    },
-                },
-            ],
-            |state| {
-                let metrics = MetricsCapture::start();
-                let mut mapped_state = None;
-                let logs = capture_logs(|| {
-                    mapped_state = Some(map_rms_configure_switch_certificate_job_state(state));
-                });
+        let metrics = MetricsCapture::start();
+        let (status, logs) = capture_logs_async(rms_get_configure_switch_certificate_job_status(
+            &mock,
+            "cert-job-1",
+        ))
+        .await;
+        let status = status.expect("unknown RMS state keeps certificate polling active");
 
-                Observation {
-                    mapped_state: mapped_state.expect("state was mapped"),
-                    log_count: logs.len(),
-                    counter_delta: metrics.counter_delta(METRIC, &[]),
-                }
-            },
+        assert_eq!(status.state, ConfigureSwitchCertificateState::InProgress);
+        assert!(status.error.is_none());
+        assert!(
+            logs.iter().all(|log| log.field("event_name")
+                != Some("rms_switch_certificate_job_state_unrecognized")),
+            "the polling fallback remains metric-only"
         );
+        assert_eq!(metrics.counter_delta(METRIC, &[]), 1.0);
+
+        let calls = mock
+            .get_configure_switch_certificate_job_status_calls()
+            .await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].job_id, "cert-job-1");
     }
 
     #[test]

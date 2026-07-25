@@ -157,21 +157,6 @@ impl SwitchSlotTrayPersistenceFailed {
     }
 }
 
-fn emit_switch_slot_tray_backend_response_failure(
-    error: Option<&str>,
-    switch_id: &SwitchId,
-    backend: &str,
-) {
-    let Some(error) = error else {
-        return;
-    };
-    emit(SwitchSlotTrayBackendLookupFailed::response(
-        error.to_string(),
-        switch_id,
-        backend,
-    ));
-}
-
 /// Handles the FetchInfo state for a switch.
 pub async fn handle_fetch_info(
     switch_id: &SwitchId,
@@ -195,11 +180,13 @@ pub async fn handle_fetch_info(
             {
                 Ok(results) => {
                     if let Some(result) = results.into_iter().next() {
-                        emit_switch_slot_tray_backend_response_failure(
-                            result.error.as_deref(),
-                            switch_id,
-                            component_manager.nv_switch.name(),
-                        );
+                        if let Some(error) = result.error.as_deref() {
+                            emit(SwitchSlotTrayBackendLookupFailed::response(
+                                error.to_string(),
+                                switch_id,
+                                component_manager.nv_switch.name(),
+                            ));
+                        }
                         let mut update_txn = ctx.services.db_pool.begin().await?;
                         if let Err(e) = db::switch::update_slot_and_tray(
                             &mut update_txn,
@@ -379,11 +366,11 @@ mod tests {
                         ));
                     }
                     FailureCase::BackendResponse => {
-                        emit_switch_slot_tray_backend_response_failure(
-                            Some(ERROR),
+                        emit(SwitchSlotTrayBackendLookupFailed::response(
+                            ERROR.to_string(),
                             &switch_id,
                             "rms",
-                        );
+                        ));
                     }
                     FailureCase::DatabaseUpdate => {
                         emit(SwitchSlotTrayPersistenceFailed::new(

@@ -16,6 +16,7 @@
  */
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
@@ -65,6 +66,9 @@ pub struct FabricMetrics {
     /// The endpoint that we use to interact with the fabric
     pub endpoints: Vec<String>,
     /// Error when trying to connect to the fabric
+    ///
+    /// TODO: Replace raw UFM errors with a bounded classification so distinct
+    /// error strings do not create separate dimensions.
     pub fabric_error: String,
     /// UFM version
     pub ufm_version: String,
@@ -182,7 +186,7 @@ pub(crate) struct IbFabricDataLoadFailed {
 }
 
 impl IbFabricDataLoadFailed {
-    pub(crate) fn build_client(fabric: String, endpoints: String, error: String) -> Self {
+    pub(crate) fn build_client(fabric: &str, endpoints: &[String], error: &dyn Display) -> Self {
         Self::new(
             IbMonitorPartialFailureStage::BuildClient,
             fabric,
@@ -191,7 +195,7 @@ impl IbFabricDataLoadFailed {
         )
     }
 
-    pub(crate) fn health_check(fabric: String, endpoints: String, error: String) -> Self {
+    pub(crate) fn health_check(fabric: &str, endpoints: &[String], error: &dyn Display) -> Self {
         Self::new(
             IbMonitorPartialFailureStage::HealthCheck,
             fabric,
@@ -200,7 +204,7 @@ impl IbFabricDataLoadFailed {
         )
     }
 
-    pub(crate) fn load_ports(fabric: String, endpoints: String, error: String) -> Self {
+    pub(crate) fn load_ports(fabric: &str, endpoints: &[String], error: &dyn Display) -> Self {
         Self::new(
             IbMonitorPartialFailureStage::LoadPorts,
             fabric,
@@ -209,7 +213,7 @@ impl IbFabricDataLoadFailed {
         )
     }
 
-    pub(crate) fn load_partitions(fabric: String, endpoints: String, error: String) -> Self {
+    pub(crate) fn load_partitions(fabric: &str, endpoints: &[String], error: &dyn Display) -> Self {
         Self::new(
             IbMonitorPartialFailureStage::LoadPartitions,
             fabric,
@@ -220,15 +224,15 @@ impl IbFabricDataLoadFailed {
 
     fn new(
         failure_stage: IbMonitorPartialFailureStage,
-        fabric: String,
-        endpoints: String,
-        error: String,
+        fabric: &str,
+        endpoints: &[String],
+        error: &dyn Display,
     ) -> Self {
         Self {
             failure_stage,
-            fabric,
-            endpoints,
-            error,
+            fabric: fabric.to_string(),
+            endpoints: endpoints.join(","),
+            error: error.to_string(),
         }
     }
 }
@@ -1131,33 +1135,30 @@ mod tests {
                     PartialFailureCase::ResolvePartition => "resolve_partition",
                 };
                 let metrics = MetricsCapture::start();
+                let endpoints = vec![
+                    "https://ufm-1".to_string(),
+                    "https://ufm-2".to_string(),
+                ];
+                let error = ERROR.to_string();
                 let logs = capture_logs(|| match case {
                     PartialFailureCase::BuildClient => {
                         emit(IbFabricDataLoadFailed::build_client(
-                            FABRIC.to_string(),
-                            ENDPOINTS.to_string(),
-                            ERROR.to_string(),
+                            FABRIC, &endpoints, &error,
                         ));
                     }
                     PartialFailureCase::HealthCheck => {
                         emit(IbFabricDataLoadFailed::health_check(
-                            FABRIC.to_string(),
-                            ENDPOINTS.to_string(),
-                            ERROR.to_string(),
+                            FABRIC, &endpoints, &error,
                         ));
                     }
                     PartialFailureCase::LoadPorts => {
                         emit(IbFabricDataLoadFailed::load_ports(
-                            FABRIC.to_string(),
-                            ENDPOINTS.to_string(),
-                            ERROR.to_string(),
+                            FABRIC, &endpoints, &error,
                         ));
                     }
                     PartialFailureCase::LoadPartitions => {
                         emit(IbFabricDataLoadFailed::load_partitions(
-                            FABRIC.to_string(),
-                            ENDPOINTS.to_string(),
-                            ERROR.to_string(),
+                            FABRIC, &endpoints, &error,
                         ));
                     }
                     PartialFailureCase::PreloadSkuInactiveDevices => {

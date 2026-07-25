@@ -211,29 +211,10 @@ pub(crate) async fn ensure_rack_exists(
     }
 }
 
-#[derive(Clone, Copy)]
-enum RmsLocationField {
-    SlotNumber,
-    TrayIndex,
-}
-
-fn rms_location_value(value: Option<u32>, field: RmsLocationField) -> Option<i32> {
-    let value = value?;
-    match i32::try_from(value) {
-        Ok(value) => Some(value),
-        Err(_) => {
-            let event = match field {
-                RmsLocationField::SlotNumber => {
-                    SiteExplorerMachineSlotTrayValueInvalid::slot_number(value)
-                }
-                RmsLocationField::TrayIndex => {
-                    SiteExplorerMachineSlotTrayValueInvalid::tray_index(value)
-                }
-            };
-            carbide_instrument::emit(event);
-            None
-        }
-    }
+fn rms_location_value(value: Option<u32>) -> Result<Option<i32>, u32> {
+    value
+        .map(|value| i32::try_from(value).map_err(|_| value))
+        .transpose()
 }
 
 /// Fetches `slot_number` and `tray_index` from RMS for one rack/node pair.
@@ -249,12 +230,20 @@ pub async fn fetch_slot_and_tray(
                 return (None, None);
             };
 
-            let slot_number = rms_location_value(
-                node_device_details.slot_number,
-                RmsLocationField::SlotNumber,
-            );
+            let slot_number =
+                rms_location_value(node_device_details.slot_number).unwrap_or_else(|value| {
+                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::slot_number(
+                        value,
+                    ));
+                    None
+                });
             let tray_index =
-                rms_location_value(node_device_details.tray_index, RmsLocationField::TrayIndex);
+                rms_location_value(node_device_details.tray_index).unwrap_or_else(|value| {
+                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::tray_index(
+                        value,
+                    ));
+                    None
+                });
 
             (slot_number, tray_index)
         }
@@ -4170,7 +4159,6 @@ fn health_reports_equal_ignoring_observed_at(
 
 #[cfg(test)]
 mod tests {
-    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
@@ -4179,91 +4167,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rms_location_values_keep_valid_and_absent_fields_without_failure_events() {
-        const METRIC: &str = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total";
-
-        #[derive(Clone, Copy)]
-        struct ConversionCase {
-            value: Option<u32>,
-            field: RmsLocationField,
-        }
-
-        #[derive(Debug, PartialEq)]
-        struct Observation {
-            converted: Option<i32>,
-            log_count: usize,
-            counter_delta: f64,
-        }
-
+    fn rms_location_value_preserves_valid_and_absent_values_and_returns_out_of_range_input() {
         check_values(
             [
                 Check {
-                    scenario: "valid slot number",
-                    input: ConversionCase {
-                        value: Some(42),
-                        field: RmsLocationField::SlotNumber,
-                    },
-                    expect: Observation {
-                        converted: Some(42),
-                        log_count: 0,
-                        counter_delta: 0.0,
-                    },
+                    scenario: "valid value",
+                    input: Some(42),
+                    expect: Ok(Some(42)),
                 },
                 Check {
-                    scenario: "absent tray index",
-                    input: ConversionCase {
-                        value: None,
-                        field: RmsLocationField::TrayIndex,
-                    },
-                    expect: Observation {
-                        converted: None,
-                        log_count: 0,
-                        counter_delta: 0.0,
-                    },
+                    scenario: "absent value",
+                    input: None,
+                    expect: Ok(None),
                 },
                 Check {
-                    scenario: "slot number outside i32",
-                    input: ConversionCase {
-                        value: Some(i32::MAX as u32 + 1),
-                        field: RmsLocationField::SlotNumber,
-                    },
-                    expect: Observation {
-                        converted: None,
-                        log_count: 1,
-                        counter_delta: 1.0,
-                    },
+                    scenario: "first value outside i32",
+                    input: Some(i32::MAX as u32 + 1),
+                    expect: Err(i32::MAX as u32 + 1),
                 },
                 Check {
-                    scenario: "tray index outside i32",
-                    input: ConversionCase {
-                        value: Some(u32::MAX),
-                        field: RmsLocationField::TrayIndex,
-                    },
-                    expect: Observation {
-                        converted: None,
-                        log_count: 1,
-                        counter_delta: 1.0,
-                    },
+                    scenario: "largest value outside i32",
+                    input: Some(u32::MAX),
+                    expect: Err(u32::MAX),
                 },
             ],
-            |ConversionCase { value, field }| {
-                let failure_stage_label = match field {
-                    RmsLocationField::SlotNumber => "slot_number_out_of_range",
-                    RmsLocationField::TrayIndex => "tray_index_out_of_range",
-                };
-                let metrics = MetricsCapture::start();
-                let mut converted = None;
-                let logs = capture_logs(|| {
-                    converted = rms_location_value(value, field);
-                });
-
-                Observation {
-                    converted,
-                    log_count: logs.len(),
-                    counter_delta: metrics
-                        .counter_delta(METRIC, &[("failure_stage", failure_stage_label)]),
-                }
-            },
+            rms_location_value,
         );
     }
 

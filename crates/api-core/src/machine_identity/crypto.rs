@@ -50,13 +50,23 @@ pub(crate) enum StoredMachineIdentitySecretKind {
     message = "tenant signing key decrypt failed",
     describe = "Number of stored machine identity secret decryption failures, by secret kind."
 )]
-struct MachineIdentitySigningKeyDecryptionFailed {
+pub(crate) struct MachineIdentitySigningKeyDecryptionFailed {
     #[label]
     secret_kind: StoredMachineIdentitySecretKind,
     #[context]
     organization_id: String,
     #[context]
     error: String,
+}
+
+impl MachineIdentitySigningKeyDecryptionFailed {
+    pub(crate) fn from_status(organization_id: &str, error: &Status) -> Self {
+        Self {
+            secret_kind: StoredMachineIdentitySecretKind::SigningKey,
+            organization_id: organization_id.to_string(),
+            error: error.message().to_string(),
+        }
+    }
 }
 
 /// A tenant's stored token-delegation authentication could not be decrypted.
@@ -70,7 +80,7 @@ struct MachineIdentitySigningKeyDecryptionFailed {
     message = "token delegation auth config decrypt failed",
     describe = "Number of stored machine identity secret decryption failures, by secret kind."
 )]
-struct MachineIdentityTokenDelegationAuthDecryptionFailed {
+pub(crate) struct MachineIdentityTokenDelegationAuthDecryptionFailed {
     #[label]
     secret_kind: StoredMachineIdentitySecretKind,
     #[context]
@@ -79,20 +89,14 @@ struct MachineIdentityTokenDelegationAuthDecryptionFailed {
     error: String,
 }
 
-pub(crate) fn emit_signing_key_decryption_failed(organization_id: &str, error: &Status) {
-    emit_stored_secret_decryption_failed(
-        StoredMachineIdentitySecretKind::SigningKey,
-        organization_id,
-        error,
-    );
-}
-
-pub(crate) fn emit_token_delegation_auth_decryption_failed(organization_id: &str, error: &Status) {
-    emit_stored_secret_decryption_failed(
-        StoredMachineIdentitySecretKind::TokenDelegationAuth,
-        organization_id,
-        error,
-    );
+impl MachineIdentityTokenDelegationAuthDecryptionFailed {
+    pub(crate) fn from_status(organization_id: &str, error: &Status) -> Self {
+        Self {
+            secret_kind: StoredMachineIdentitySecretKind::TokenDelegationAuth,
+            organization_id: organization_id.to_string(),
+            error: error.message().to_string(),
+        }
+    }
 }
 
 fn emit_stored_secret_decryption_failed(
@@ -101,20 +105,12 @@ fn emit_stored_secret_decryption_failed(
     error: &Status,
 ) {
     match secret_kind {
-        StoredMachineIdentitySecretKind::SigningKey => {
-            emit(MachineIdentitySigningKeyDecryptionFailed {
-                secret_kind,
-                organization_id: organization_id.to_string(),
-                error: error.message().to_string(),
-            });
-        }
-        StoredMachineIdentitySecretKind::TokenDelegationAuth => {
-            emit(MachineIdentityTokenDelegationAuthDecryptionFailed {
-                secret_kind,
-                organization_id: organization_id.to_string(),
-                error: error.message().to_string(),
-            });
-        }
+        StoredMachineIdentitySecretKind::SigningKey => emit(
+            MachineIdentitySigningKeyDecryptionFailed::from_status(organization_id, error),
+        ),
+        StoredMachineIdentitySecretKind::TokenDelegationAuth => emit(
+            MachineIdentityTokenDelegationAuthDecryptionFailed::from_status(organization_id, error),
+        ),
     }
 }
 

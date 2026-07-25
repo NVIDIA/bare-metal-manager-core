@@ -26,7 +26,7 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
-fn map_dpa_vni_allocation_failure(
+fn emit_and_map_dpa_vni_allocation_failure(
     source_pool: &resource_pool::ResourcePool<i32>,
     owner_id: &str,
     requested_vni: Option<i32>,
@@ -99,7 +99,9 @@ async fn allocate_dpa_vni(
         requested_vni,
     )
     .await
-    .map_err(|error| map_dpa_vni_allocation_failure(source_pool, owner_id, requested_vni, error))
+    .map_err(|error| {
+        emit_and_map_dpa_vni_allocation_failure(source_pool, owner_id, requested_vni, error)
+    })
 }
 
 pub(crate) async fn create(
@@ -220,7 +222,7 @@ mod tests {
     use model::spx_partition::NewSpxPartition;
     use tonic::Code;
 
-    use super::map_dpa_vni_allocation_failure;
+    use super::emit_and_map_dpa_vni_allocation_failure;
 
     const RESOURCE_POOL_LIFECYCLE_FAILURES_METRIC: &str =
         "carbide_resource_pool_lifecycle_failures_total";
@@ -423,7 +425,7 @@ mod tests {
                 let metrics = MetricsCapture::start();
                 let mut mapped_error = None;
                 let logs = capture_logs(|| {
-                    mapped_error = Some(map_dpa_vni_allocation_failure(
+                    mapped_error = Some(emit_and_map_dpa_vni_allocation_failure(
                         &source_pool,
                         OWNER_ID,
                         input.requested_vni,

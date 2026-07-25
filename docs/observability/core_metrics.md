@@ -52,6 +52,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dhcp_dropped_requests_total</td><td>counter</td><td>Number of DHCP packets dropped without a reply, by drop reason.</td></tr>
 <tr><td>carbide_dhcp_replies_sent_total</td><td>counter</td><td>Number of DHCP replies sent, by reply message type.</td></tr>
 <tr><td>carbide_dhcp_requests_total</td><td>counter</td><td>Number of DHCP packets received and decoded, by DHCP message type.</td></tr>
+<tr><td>carbide_dhcp_socket_setup_failures_total</td><td>counter</td><td>Number of DHCP socket setup failures, by operation and next action.</td></tr>
 <tr><td>carbide_dhcp_timestamp_file_failures_total</td><td>counter</td><td>Number of DHCP timestamp file failures, by operation</td></tr>
 <tr><td>carbide_dhcp_v6_replies_sent_total</td><td>counter</td><td>Number of DHCPv6 replies sent, by response message type.</td></tr>
 <tr><td>carbide_dns_negative_cache_hit_count_total</td><td>counter</td><td>Number of negative DNS cache hits, by response code</td></tr>
@@ -62,6 +63,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_dpa_monitor_iteration_latency_milliseconds</td><td>histogram</td><td>Time consumed for one monitor iteration</td></tr>
 <tr><td>carbide_dpa_monitor_operations_latency_milliseconds</td><td>histogram</td><td>Time consumed for one operation</td></tr>
 <tr><td>carbide_dpu_agent_report_total</td><td>counter</td><td>Number of DPU-agent report-loop iterations, by loop and outcome</td></tr>
+<tr><td>carbide_dpu_agent_service_restart_attempts_total</td><td>counter</td><td>Number of DPU-agent service restart attempts, by service and result.</td></tr>
 <tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>Number of DPU agents which have reported a certain version.</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>Number of DPUs which have reported a certain firmware version.</td></tr>
 <tr><td>carbide_dpu_remediation_executor_failures_total</td><td>counter</td><td>Number of DPU remediation executor failures, by failure stage.</td></tr>
@@ -251,6 +253,7 @@ This file contains a list of metrics exported by NVIDIA Infra Controller (NICo).
 <tr><td>carbide_site_explorer_update_explored_endpoints_count</td><td>gauge</td><td>Counts from the last update_explored_endpoints phase by kind</td></tr>
 <tr><td>carbide_spdm_evidence_collection_unexpected_task_states_total</td><td>counter</td><td>Number of unexpected SPDM evidence collection task states, by task state and next action.</td></tr>
 <tr><td>carbide_state_handler_wakeup_failures_total</td><td>counter</td><td>Number of times a machine&#39;s state handler could not be woken after an agent-reported event</td></tr>
+<tr><td>carbide_static_credential_watcher_failures_total</td><td>counter</td><td>Number of static credential watcher failures, by operation.</td></tr>
 <tr><td>carbide_switch_slot_tray_enrichment_failures_total</td><td>counter</td><td>Number of switch slot and tray enrichment failures, by failure stage.</td></tr>
 <tr><td>carbide_switches_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_switches in the system</td></tr>
 <tr><td>carbide_switches_health_overrides_count</td><td>gauge</td><td>Number of health overrides configured in the site</td></tr>

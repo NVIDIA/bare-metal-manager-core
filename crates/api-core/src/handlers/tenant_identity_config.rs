@@ -49,9 +49,9 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::machine_identity::require_machine_identity_site_enabled;
 use crate::machine_identity::{
-    ReencryptBlobOutcome, StoredMachineIdentitySecretKind, decrypt_token_delegation_encrypted_blob,
-    emit_token_delegation_auth_decryption_failed, machine_identity_encryption_secret,
-    reencrypt_ciphertext_if_needed,
+    MachineIdentityTokenDelegationAuthDecryptionFailed, ReencryptBlobOutcome,
+    StoredMachineIdentitySecretKind, decrypt_token_delegation_encrypted_blob,
+    machine_identity_encryption_secret, reencrypt_ciphertext_if_needed,
 };
 
 /// Decrypts DB ciphertext into [`TenantIdentityConfigDecrypted`]: `row` keeps envelope in
@@ -66,7 +66,12 @@ async fn tenant_identity_with_decrypted_token_delegation(
     )
     .await
     .inspect_err(|e| {
-        emit_token_delegation_auth_decryption_failed(cfg.organization_id.as_str(), e);
+        carbide_instrument::emit(
+            MachineIdentityTokenDelegationAuthDecryptionFailed::from_status(
+                cfg.organization_id.as_str(),
+                e,
+            ),
+        );
     })?;
     Ok(TenantIdentityConfigDecrypted {
         row: cfg,
