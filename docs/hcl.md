@@ -14,8 +14,6 @@ The sections below distinguish platforms maintained by NVIDIA from platforms con
 
 ### Hosts
 
-**Last Updated: February 20, 2026**
-
 | Host Machine                        | BMC/Management Firmware Version     | BIOS/UEFI Version   | Misc. Firmware Version (FPGA, CPLD, LXPM, etc.) |
 |-------------------------------------|-------------------------------------|---------------------|-------------------------------------------------|
 | GB200 NVL - Wiwynn                  | 25.06-2_NV_WW_02                    | 1.3.2GA             | 1.3.2GA                                         |
