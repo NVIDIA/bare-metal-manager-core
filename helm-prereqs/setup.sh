@@ -639,6 +639,13 @@ if [[ "${_existing_postgres_instances}" == "1" && \
     echo "Recovering existing single-instance PostgreSQL cluster from synchronous replication"
     kubectl patch postgresql nico-pg-cluster -n postgres --type=merge \
         -p '{"spec":{"patroni":{"synchronous_mode":false,"synchronous_mode_strict":false}}}'
+    if [[ -n "${_existing_postgres_primary:-}" && "${_existing_sync_waiters}" != "0" ]]; then
+        echo "Terminating ${_existing_sync_waiters} stale SyncRep backend(s)"
+        kubectl exec -n postgres -c postgres "${_existing_postgres_primary}" -- \
+            su postgres -c "psql -X -d postgres -v ON_ERROR_STOP=1 -c \
+                \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+                 WHERE pid <> pg_backend_pid() AND wait_event = 'SyncRep';\""
+    fi
     kubectl rollout restart deployment/postgres-operator -n postgres
     kubectl rollout status deployment/postgres-operator -n postgres --timeout=120s
 fi
