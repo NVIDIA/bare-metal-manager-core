@@ -1530,6 +1530,7 @@ async fn initialize_and_start_controllers<'a>(
                 nmx_cluster_switch_mtls_services: carbide_config
                     .rack_state_controller
                     .effective_nmx_cluster_switch_mtls_services_as_i32(),
+                firmware_object_fetcher: Arc::new(reqwest::Client::new()),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),

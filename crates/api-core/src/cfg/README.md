@@ -58,11 +58,11 @@ applicable.
 | `vpc_prefix_state_controller` | `VpcPrefixStateControllerConfig` | *(see below)* | `networking` | VPC prefix state controller timing. |
 | `ib_partition_state_controller` | `IbPartitionStateControllerConfig` | *(see below)* | `hardware` | IB partition state controller timing. |
 | `dpa_interface_state_controller` | `DpaInterfaceStateControllerConfig` | *(see below)* | `networking` | DPA interface state controller timing. |
-| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing. |
+| `rack_state_controller` | `RackStateControllerConfig` | *(see below)* | `hardware` | Rack state controller timing and optional firmware update during ingestion. |
 | `power_shelf_state_controller` | `PowerShelfStateControllerConfig` | *(see below)* | `hardware` | Power shelf state controller timing and optional rack firmware reprovisioning. |
 | `switch_state_controller` | `SwitchStateControllerConfig` | *(see below)* | `hardware` | Switch state controller timing. |
 | `spdm_state_controller` | `SpdmStateControllerConfig` | *(see below)* | `security` | SPDM state controller timing. |
-| `host_models` | `HashMap<String, Firmware>` | `{}` | `machines` | Maps host model identifiers to firmware definitions for BMC/UEFI/NIC upgrades. |
+| `host_models` | `HashMap<String, Firmware>` | `{}` | `machines` | Maps host model identifiers to firmware definitions. |
 | `firmware_global` | `FirmwareGlobal` | *(see below)* | `machines` | Global firmware update settings (see [FirmwareGlobal](#firmwareglobal)). |
 | `machine_updater` | `MachineUpdater` | *(see below)* | `machines` | Machine update policies (see [MachineUpdater](#machineupdater)). |
 | `max_find_by_ids` | `u32` | `100` | `server` | Max IDs accepted by `find_*_by_ids` APIs. |
@@ -179,6 +179,10 @@ power_shelf_backend = "rms"
 [rack_profiles.NVL72]
 product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72.firmware_object]
+url = "https://firmware.example.com/sot/nvl72.json"
+fetch_timeout = "30s"
 
 [rack_profiles.NVL72.rack_capabilities.compute]
 vendor = "NVIDIA"

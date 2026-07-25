@@ -2828,6 +2828,7 @@ dependencies = [
  "librms",
  "mac_address",
  "opentelemetry 0.32.0",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sqlx",

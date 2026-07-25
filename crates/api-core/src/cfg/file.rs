@@ -4484,6 +4484,27 @@ mod tests {
         for (_, entry) in config.host_models.iter() {
             assert_eq!(entry.vendor, bmc_vendor::BMCVendor::Dell);
         }
+
+        assert_eq!(
+            config
+                .rack_profiles
+                .rack_profiles
+                .get("NVL72")
+                .and_then(|profile| profile.firmware_object.as_ref())
+                .map(|firmware_object| firmware_object.url.as_str()),
+            Some("https://firmware.example.invalid/sot/nvl72.json")
+        );
+
+        assert_eq!(
+            config
+                .rack_profiles
+                .rack_profiles
+                .get("NVL72")
+                .and_then(|profile| profile.firmware_object.as_ref())
+                .map(|firmware_object| firmware_object.fetch_timeout),
+            Some(std::time::Duration::from_secs(45))
+        );
+
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
         assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);

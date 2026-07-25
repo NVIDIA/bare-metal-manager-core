@@ -50,6 +50,7 @@ use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
 use carbide_rack::rms_client::test_support::RmsSim;
 use carbide_rack_controller::config::RackConfig;
 use carbide_rack_controller::context::RackStateHandlerServices;
+use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
@@ -183,6 +184,10 @@ pub struct TestEnvOverrides {
     pub compute_allocation_enforcement: Option<ComputeAllocationEnforcement>,
     pub nmxc_simulator: Option<bool>,
     pub redfish_overrides: Option<RedfishOverrides>,
+
+    /// Optional firmware-object fetcher injected into the rack state handler.
+    pub firmware_object_fetcher: Option<Arc<dyn FirmwareObjectFetcher>>,
+
     pub nras_should_fail_parsing: Option<Arc<AtomicBool>>,
     pub vpc_prefixes_drain_period: Option<chrono::Duration>,
     pub dhcp_lease_expiry_handling: Option<bool>,
@@ -306,6 +311,10 @@ pub struct TestEnv {
     pub test_credential_manager: Arc<TestCredentialManager>,
     pub rms_sim: Arc<RmsSim>,
     pub test_component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
+
+    /// Firmware-object fetcher used by this environment's rack state handler.
+    pub firmware_object_fetcher: Arc<dyn FirmwareObjectFetcher>,
+
     pub drop_guard: DropGuard,
     // Background tasks are spawned here, hold it so they don't get dropped.
     pub join_set: JoinSet<()>,
@@ -377,6 +386,7 @@ impl TestEnv {
                 component_manager::config::switch_mtls_services_as_i32(
                     &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
                 ),
+            firmware_object_fetcher: self.firmware_object_fetcher.clone(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
         }
     }
@@ -1265,6 +1275,11 @@ pub async fn create_test_env_with_overrides(
     let test_meter = TestMeter::default();
     let credential_manager = Arc::new(TestCredentialManager::default());
 
+    let firmware_object_fetcher = overrides
+        .firmware_object_fetcher
+        .clone()
+        .unwrap_or_else(|| Arc::new(reqwest::Client::new()));
+
     let chained_reader = ChainedCredentialReader::from(vec![
         Box::new(test_static_credential_snapshot()) as Box<dyn CredentialReader>,
         Box::new(credential_manager.clone()),
@@ -1714,6 +1729,7 @@ pub async fn create_test_env_with_overrides(
                     component_manager::config::switch_mtls_services_as_i32(
                         &component_manager::config::effective_nmx_cluster_switch_mtls_services(&[]),
                     ),
+                firmware_object_fetcher: firmware_object_fetcher.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1858,6 +1874,7 @@ pub async fn create_test_env_with_overrides(
         test_credential_manager: credential_manager.clone(),
         rms_sim,
         test_component_manager,
+        firmware_object_fetcher,
         drop_guard: cancel_token.drop_guard(),
         join_set,
     }
