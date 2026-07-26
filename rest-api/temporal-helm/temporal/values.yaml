@@ -138,6 +138,8 @@ server:
 
   config:
     logLevel: "debug,info"
+    publicClient:
+      hostPort: temporal-frontend-headless.temporal.svc.cluster.local:7233
 
     # IMPORTANT: This value cannot be changed, once it's set.
     numHistoryShards: 512
@@ -281,9 +283,6 @@ server:
 
   worker:
     # replicaCount: 1
-    additionalEnv:
-      - name: TEMPORAL_ADDRESS
-        value: temporal-frontend-headless.temporal.svc.cluster.local:7233
     service:
       # type: ClusterIP
       port: 7239
