@@ -26,7 +26,6 @@ use std::time::Duration;
 use carbide_instrument::{Event, LabelValue};
 use http::Method;
 use metrics_endpoint::{MetricsEndpointConfig, MetricsSetup};
-use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -36,7 +35,7 @@ pub async fn start(
     cancellation_token: CancellationToken,
     join_set: &mut JoinSet<()>,
 ) -> io::Result<()> {
-    let listener = TcpListener::bind(&address).await?;
+    let listener = crate::net::bind_with_ipv4_fallback(address).await?;
     tracing::info!(metrics_address = %address, "Starting metrics listener");
 
     join_set

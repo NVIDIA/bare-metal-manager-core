@@ -1584,6 +1584,7 @@ dependencies = [
  "hyper-timeout",
  "hyper-util",
  "lazy_static",
+ "libc",
  "logfmt",
  "mac_address",
  "metrics-endpoint",
