@@ -647,6 +647,7 @@ Field reference (all under `[dpf]`):
 | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
 | `docker_image_pull_secret` | string | `dpf-pull-secret` | Pull Secret applied to every mandatory service except `dts` and `doca_hbn`. |
+| `dpu_agent_bootstrap_ca` | tagged table | `source = "legacy_download"` | Selects legacy download or mounted-object bootstrap trust for the DPU agent. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
 | `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |
 | `deployments.bf4_generic` | table | — | BF4 (generic) DPUDeployment config; opt-in, active only when present. |
@@ -659,6 +660,109 @@ Notes:
 - The DPF operator namespace (`dpf-operator-system`) and the kubeconfig used
   to talk to the host cluster are **not** configured here — carbide-api uses
   its in-cluster ServiceAccount and the fixed `dpf-operator-system` namespace.
+
+#### DPU Agent Bootstrap CA
+
+The containerized DPU agent has its own bootstrap policy. If the table is
+absent, its init container preserves the historical PXE download:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "legacy_download"
+# Optional. When set, this must be the full endpoint URL, not a PXE base URL.
+url = "http://carbide-pxe.forge/api/v0/tls/root_ca"
+```
+
+The URL override changes where the bundle is downloaded. It does not establish
+bootstrap trust by itself. HTTPS authenticates this fetch only when the shared
+DPU agent image already trusts the endpoint's certificate chain.
+
+Use the following configuration to project an operator-managed bundle into the
+init container:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "secret"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+Use the following equivalent ConfigMap configuration:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+The shared published DPU agent image does not contain a site-specific trust
+anchor, so DPF does not expose an `embedded` source. The `mounted` source
+validates and installs the projected bundle. It fails closed when the bundle is
+absent or invalid and never falls back to the legacy download. Upgrade the DPU
+agent image and NICo API before selecting `mounted`. If the table is absent,
+the chart renders the historical `init-container` invocation for rolling
+compatibility. Mounted mode requires the DPU agent chart's `certsDir` to remain
+at its default `/opt/forge`. The main container uses this fixed CA installation
+path too.
+
+The referenced object must exist in the `dpu-agent` workload namespace in every
+target DPU cluster. DPF does not propagate ConfigMaps, so create one in each
+cluster. To propagate a Secret from the host cluster, apply DPF's established
+label:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nico-bootstrap-ca-v1
+  namespace: dpf-operator-system
+  labels:
+    dpu.nvidia.com/image-pull-secret: ""
+type: Opaque
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    ...
+    -----END CERTIFICATE-----
+```
+
+The label name is historical. The CA is public and is not an image-pull
+credential. Confirm that the Secret has appeared in the target DPU cluster
+before enabling `mounted`.
+
+The NICo API reads changes under `[dpf]` only at startup. Updating only the
+contents of an object with the same name does not guarantee a pod restart or a
+newly installed CA. Use the following sequence for a mounted root rotation:
+
+1. Create a new versioned Secret or ConfigMap containing an overlap bundle with
+   both the old and new roots.
+2. Set `[dpf.dpu_agent_bootstrap_ca].name` to the new object name and restart
+   `carbide-api`.
+3. Wait for DPF to reconcile the service template and for every affected DPU
+   agent pod to roll and run its init container again.
+4. Verify that each pod installed the overlap bundle at
+   `/opt/forge/forge_root.pem` and can authenticate the NICo API certificate
+   chain.
+5. Rotate the NICo API certificate chain to one that terminates at the new root.
+   While the overlap bundle is installed, verify that every affected DPU agent
+   can authenticate the new server chain.
+6. Create another versioned object without the old root and repeat the
+   configuration, restart, reconciliation, and verification steps. Remove the
+   old objects only after that rollout succeeds.
+
+When pinning a root, verify that the NICo API serves the issuing intermediate
+certificate with its leaf. This policy controls trust-anchor selection. If each
+replacement intermediate chains to the pinned root and the server presents the
+complete chain, clients can validate leaf certificates across those rotations
+without replacing the bundle. If an intermediate chains to a different root,
+stage and verify an updated root bundle before rotating the server chain. TLS
+server certificate validation remains necessary even if the DPU agent no
+longer presents a client certificate for mutual TLS. It does not authenticate
+the preceding artifact or provisioning chain. Those inputs still require
+integrity protection and a trusted boot mechanism such as Secure Boot.
 
 ### 3.6. Mark hosts as DPF-managed in expected machines
 

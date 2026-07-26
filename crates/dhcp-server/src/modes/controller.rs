@@ -18,6 +18,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge::DhcpDiscovery;
+use carbide_dhcp_common::VendorClass;
 use lru::LruCache;
 use rpc::forge::DhcpRecord;
 use tokio::sync::Mutex;
@@ -28,7 +29,6 @@ use crate::Config;
 use crate::cache::{self, CacheEntry};
 use crate::errors::DhcpError;
 use crate::rpc::client::discover_dhcp;
-use crate::vendor_class::VendorClass;
 
 #[derive(Debug)]
 pub struct Controller {}

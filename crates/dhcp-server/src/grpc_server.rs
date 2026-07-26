@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
+use carbide_instrument::emit;
 use carbide_rpc_utils::dhcp::{
     DhcpConfig as ModelDhcpConfig, DhcpTimestamps, DhcpTimestampsFilePath,
     HostConfig as ModelHostConfig, InterfaceInfo as ModelInterfaceInfo,
@@ -37,6 +38,7 @@ use proto::{
 };
 
 use crate::errors::DhcpError;
+use crate::metrics::DhcpTimestampFileReadFailed;
 
 // ── Public control channel types ─────────────────────────────────────────────
 
@@ -215,7 +217,10 @@ impl DhcpServerControl for DhcpServerControlService {
     ) -> Result<Response<GetDhcpTimestampsResponse>, Status> {
         let mut ts = DhcpTimestamps::new(DhcpTimestampsFilePath::Hbn);
         if let Err(e) = ts.read() {
-            tracing::warn!(error = %e, "Failed to read DHCP timestamps file");
+            emit(DhcpTimestampFileReadFailed::new(
+                DhcpTimestampsFilePath::Hbn.path_str().to_string(),
+                e.to_string(),
+            ));
         }
         let entries = ts
             .into_iter()

@@ -19,6 +19,8 @@ use std::time::Duration;
 
 use eyre::WrapErr;
 
+use crate::instrumentation::OvsRestart;
+
 /// ovs-vswitchd is part of HBN. It handles network packets in user-space using DPDK
 /// (https://www.dpdk.org/). By default it uses 100% of a CPU core to poll for new packets, never
 /// yielding. Here we set it to yield the CPU for up to 100us if it's been idle recently.
@@ -79,6 +81,6 @@ pub async fn restart_ovs() -> eyre::Result<()> {
         );
     }
 
-    tracing::info!("Successfully restarted ovs-vswitchd.service");
+    OvsRestart::Succeeded.emit();
     Ok(())
 }

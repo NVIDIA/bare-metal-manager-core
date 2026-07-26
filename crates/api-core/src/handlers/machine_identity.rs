@@ -35,9 +35,10 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 use crate::machine_identity::{
-    Es256Signer, SignOptions, Signer, decrypt_machine_identity_ciphertext,
-    decrypt_token_delegation_encrypted_blob, token_delegation_credentials,
-    token_exchange_http_client, token_exchange_request,
+    Es256Signer, MachineIdentitySigningKeyDecryptionFailed,
+    MachineIdentityTokenDelegationAuthDecryptionFailed, SignOptions, Signer,
+    decrypt_machine_identity_ciphertext, decrypt_token_delegation_encrypted_blob,
+    token_delegation_credentials, token_exchange_http_client, token_exchange_request,
 };
 
 /// Shared gate for APIs that require site `[machine_identity].enabled` (identity admin + discovery).
@@ -193,11 +194,10 @@ pub(crate) async fn sign_machine_identity(
         decrypt_machine_identity_ciphertext(api.credential_manager.as_ref(), enc_key.as_str())
             .await
             .inspect_err(|e| {
-                tracing::error!(
-                    organization_id = %identity_row.organization_id.as_str(),
-                    error = %e.message(),
-                    "tenant signing key decrypt failed"
-                );
+                carbide_instrument::emit(MachineIdentitySigningKeyDecryptionFailed::from_status(
+                    identity_row.organization_id.as_str(),
+                    e,
+                ));
             })
             .map_err(|_| {
                 CarbideError::internal("stored signing key could not be decrypted".to_string())
@@ -243,10 +243,11 @@ pub(crate) async fn sign_machine_identity(
         )
         .await
         .inspect_err(|e| {
-            tracing::error!(
-                organization_id = %identity_row.organization_id.as_str(),
-                error = %e.message(),
-                "token delegation auth config decrypt failed"
+            carbide_instrument::emit(
+                MachineIdentityTokenDelegationAuthDecryptionFailed::from_status(
+                    identity_row.organization_id.as_str(),
+                    e,
+                ),
             );
         })?;
         let delegation_creds =

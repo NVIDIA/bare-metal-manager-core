@@ -310,9 +310,9 @@ async fn handle_dpf_provisioning(
 /// explicit per-step state rather than timestamp heuristics.
 ///
 /// Transitions:
-/// - `Off`: wait for `power_state == Off` + 30 s → issue On →
-///   `HandleReboot { On, now }`
-/// - `On`:  wait for `power_state == On`  + 30 s → `reboot_complete` →
+/// - `Off`: wait for `power_state == Off` + delay → persist
+///   `HandleReboot { On, 0 }`
+/// - `On`: wait for `power_state == On`  + delay → `reboot_complete` →
 ///   `WaitingForReady`
 async fn handle_dpf_handle_reboot(
     state: &ManagedHostStateSnapshot,
@@ -325,6 +325,8 @@ async fn handle_dpf_handle_reboot(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     const MAX_RETRIES: u32 = 3;
 
+    // Due to enqueue based event handling, On is triggered immedietely after Off while chassis is
+    // not able to process Off completely. So this time delay is needed.
     if super::wait(
         &state.host_snapshot.state.version.timestamp(),
         power_down_wait,
@@ -345,7 +347,6 @@ async fn handle_dpf_handle_reboot(
     match op {
         PerformPowerOperation::Off => {
             if power_state == libredfish::PowerState::Off {
-                handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
                 let next = transition_all_dpus_to_dpf_state(
                     DpfState::HandleReboot {
                         op: PerformPowerOperation::On,
@@ -391,12 +392,16 @@ async fn handle_dpf_handle_reboot(
                     state,
                 )?;
                 Ok(StateHandlerOutcome::transition(next))
-            } else if retry_count < MAX_RETRIES {
-                tracing::warn!(
-                    host = %state.host_snapshot.id,
-                    retry_count,
-                    "Host did not power on; retrying On"
-                );
+            } else if retry_count <= MAX_RETRIES {
+                // Zero means the On intent is durable but its initial command
+                // has not yet been issued. Later attempts are retries.
+                if retry_count > 0 {
+                    tracing::warn!(
+                        host = %state.host_snapshot.id,
+                        retry_count,
+                        "Host did not power on; retrying On"
+                    );
+                }
                 handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
                 let next = transition_all_dpus_to_dpf_state(
                     DpfState::HandleReboot {
@@ -431,10 +436,29 @@ async fn handle_dpf_waiting_for_ready(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let dpu_device_name = dpf_id(dpu_snapshot)?;
-    let current_phase = dpf_sdk
-        .get_dpu_phase(&dpu_device_name, &node_name)
-        .await
-        .map_err(dpf_error)?;
+    let current_phase = match dpf_sdk.get_dpu_phase(&dpu_device_name, &node_name).await {
+        Ok(phase) => phase,
+        // The operator briefly removes the old DPU CR before recreating a fresh one
+        // during reprovision; treat that window as "keep waiting" rather than erroring.
+        Err(DpfError::NotFound { .. }) => {
+            return Ok(StateHandlerOutcome::wait(
+                "DPU CR not yet recreated after reprovision".to_string(),
+            ));
+        }
+        Err(err) => return Err(dpf_error(err)),
+    };
+
+    // A DPU with a deletionTimestamp is a terminating old CR (get_dpu_phase maps that to
+    // Deleting; its status.phase is still stale, often Ready or Error). Do nothing until
+    // the operator has deleted it and created the fresh CR: don't release the maintenance
+    // hold, don't trigger a reboot, and don't read Ready/Error off it. This is what lets a
+    // reprovision of an *errored* DPU proceed instead of immediately re-failing on the old
+    // CR's stale Error phase.
+    if current_phase == DpuPhase::Deleting {
+        return Ok(StateHandlerOutcome::wait(
+            "DPU CR is being deleted (reprovision in progress); waiting for the new CR".to_string(),
+        ));
+    }
 
     dpf_sdk
         .release_maintenance_hold(&node_name)

@@ -31,6 +31,9 @@ Rotate the site-wide BMC root password, letting the server auto-generate a stron
 Rotate the host UEFI password to an explicit value:
     $ nico-admin-cli credential rotate --type=host-uefi --password=Str0ng-Explicit-Pw!
 
+Stage a site-wide NVOS target password after seeding current per-switch credentials:
+    $ nico-admin-cli credential rotate --type=nvos --password=MyNvosPassword-2026
+
 Rotate the SuperNIC lockdown IKM with an audit note:
     $ nico-admin-cli credential rotate --type=lockdown-ikm --reason=\"quarterly rotation\"
 

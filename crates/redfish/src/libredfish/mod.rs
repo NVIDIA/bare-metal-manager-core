@@ -31,12 +31,73 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
+use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
 use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::BmcAccessInfo;
 pub use error::RedfishClientCreationError;
 use libredfish::Redfish;
 use libredfish::model::service_root::RedfishVendor;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum DpuUefiPasswordSetupSkipReason {
+    BiosAttributesMissing,
+    BiosAttributesNotObject,
+    CurrentUefiPasswordMissing,
+}
+
+/// The DPU BIOS response cannot support replacing its factory UEFI password.
+///
+/// The response and all credentials stay out of both telemetry surfaces; the
+/// bounded reason is enough to identify the incompatible response form.
+#[derive(Event)]
+#[event(
+    event_name = "dpu_uefi_password_setup_skipped",
+    metric_name = "carbide_dpu_uefi_password_setup_skips_total",
+    component = "carbide-redfish",
+    log = warn,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of DPU UEFI password setup operations skipped, by reason."
+)]
+struct DpuUefiPasswordSetupSkipped {
+    #[label]
+    reason: DpuUefiPasswordSetupSkipReason,
+}
+
+impl DynamicMessage for DpuUefiPasswordSetupSkipped {
+    fn message(&self) -> &'static str {
+        match self.reason {
+            DpuUefiPasswordSetupSkipReason::BiosAttributesMissing => {
+                "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
+            }
+            DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject => {
+                "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
+            }
+            DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing => {
+                "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
+            }
+        }
+    }
+}
+
+fn emit_dpu_uefi_password_setup_skipped_if_needed(
+    bios_attrs: &std::collections::HashMap<String, serde_json::Value>,
+) -> bool {
+    let reason = match bios_attrs.get("Attributes") {
+        None => DpuUefiPasswordSetupSkipReason::BiosAttributesMissing,
+        Some(attrs) => match attrs.as_object() {
+            None => DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject,
+            Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
+                DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing
+            }
+            Some(_) => return false,
+        },
+    };
+
+    emit(DpuUefiPasswordSetupSkipped { reason });
+    true
+}
 
 pub fn new_pool(
     credential_reader: Arc<dyn CredentialReader>,
@@ -155,39 +216,14 @@ pub trait RedfishClientPool: Send + Sync + 'static {
                 .await
                 .map_err(RedfishClientCreationError::RedfishError)?;
 
-            //
-            // This should be changed to be an actual failure once we make it this far since we don't
-            // want to leave machines lying around in the datacenter without UEFI credentials.
-            //
-            // But adding logs here so that we know when it happens
-            //
-            match bios_attrs.get("Attributes") {
-                None => {
-                    tracing::warn!(
-                        "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
-                    );
-                    return Ok(None);
-                }
-                Some(attrs) => match attrs.as_object() {
-                    None => {
-                        tracing::warn!(
-                            "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
-                        );
-                        return Ok(None);
-                    }
-                    Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
-                        tracing::warn!(
-                            "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
-                        );
-                        return Ok(None);
-                    }
-                    _ => {
-                        tracing::info!(
-                            "BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting"
-                        );
-                    }
-                },
+            // Preserve the non-fatal return for now, but this should become a hard
+            // failure once callers can reject DPUs that retain factory credentials.
+            if emit_dpu_uefi_password_setup_skipped_if_needed(&bios_attrs) {
+                return Ok(None);
             }
+            tracing::info!(
+                "BIOS Attributes found, and contains CurrentUefiPassword, continuing with UEFI password setting"
+            );
 
             // Replace the DPU UEFI default password with the site default.
             // The current (factory) password is taken from the DpuUefi factory
@@ -196,7 +232,9 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             let credentials = self
                 .credential_reader()
                 .get_credentials(&CredentialKey::DpuUefi {
-                    credential_type: CredentialType::DpuHardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::Unknown,
+                    },
                 })
                 .await?
                 .unwrap_or(Credentials::UsernamePassword {
@@ -376,6 +414,84 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .map_err(RedfishClientCreationError::RedfishError)?;
 
         Ok(())
+    }
+
+    /// Rotate a BF4 DPU BMC's `service` account password using root credentials.
+    async fn set_bf4_dpu_service_password(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        root_credentials: Credentials,
+        new_password: String,
+    ) -> Result<(), RedfishClientCreationError> {
+        let (root_user, root_password) = match &root_credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        let client = self
+            .create_client(
+                host,
+                port,
+                RedfishAuth::Direct(root_user.clone(), root_password.clone()),
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        client
+            .change_password_by_id("service", new_password.as_str())
+            .await
+            .map_err(|err| redact_password(err, new_password.as_str()))
+            .map_err(|err| redact_password(err, root_password.as_str()))
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        Ok(())
+    }
+
+    /// Whether `credentials` currently authenticate against the BMC, without
+    /// changing anything.
+    ///
+    /// Credential rotation uses this for crash recovery: [`set_bmc_root_password`]
+    /// is a single synchronous change, so a crash after the hardware password
+    /// changed but before the rotation was recorded leaves the device already at
+    /// the rotate-TO value. Re-issuing the change would authenticate fine but set
+    /// the password to the value it already holds -- a same-value change some
+    /// BMCs reject with a password-reuse policy error, which would falsely
+    /// quarantine a device that is in fact converged. This probe lets the engine
+    /// detect "already at target" and converge without that same-value change.
+    ///
+    /// Reads the account collection (`AccountService/Accounts`) through an
+    /// uninitialized `Unknown` client. That endpoint is gated behind login on
+    /// every vendor, and -- unlike `/Systems` -- is served even by factory BMCs
+    /// that answer `403 PasswordChangeRequired` on other resources (the
+    /// [`set_bmc_root_password`] path already reads it to resolve the account id),
+    /// so it verifies authentication without tripping that trap.
+    ///
+    /// Returns `Ok(true)` when the credentials authenticate, `Ok(false)` when the
+    /// BMC rejects them as unauthorized (401/403), and `Err` for a transport or
+    /// other failure the caller should treat as a transient tick error.
+    ///
+    /// [`set_bmc_root_password`]: RedfishClientPool::set_bmc_root_password
+    async fn bmc_credentials_valid(
+        &self,
+        host: &str,
+        port: Option<u16>,
+        credentials: Credentials,
+    ) -> Result<bool, RedfishClientCreationError> {
+        let Credentials::UsernamePassword { username, password } = credentials;
+        let client = self
+            .create_client(
+                host,
+                port,
+                RedfishAuth::Direct(username, password),
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        match client.get_accounts().await {
+            Ok(_) => Ok(true),
+            Err(err) if err.is_unauthorized() => Ok(false),
+            Err(err) => Err(RedfishClientCreationError::RedfishError(err)),
+        }
     }
 
     /// Resolve the precise `RedfishVendor` of a BMC, for callers (e.g.
@@ -567,10 +683,133 @@ pub fn redact_passwords(
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
     use libredfish::PowerState;
 
     use super::*;
     use crate::libredfish::test_support::*;
+
+    #[derive(Debug, PartialEq)]
+    struct DpuUefiPasswordSetupObservation {
+        skipped: bool,
+        counter_deltas: [f64; 3],
+        log_count: usize,
+        level: Option<tracing::Level>,
+        metadata_name: Option<String>,
+        message: Option<String>,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        reason: Option<String>,
+    }
+
+    #[test]
+    fn dpu_uefi_password_setup_skips_only_incompatible_bios_attributes() {
+        const EVENT_NAME: &str = "dpu_uefi_password_setup_skipped";
+        const METRIC_NAME: &str = "carbide_dpu_uefi_password_setup_skips_total";
+
+        carbide_test_support::value_scenarios!(
+            run = |bios_attrs: serde_json::Value| {
+                let bios_attrs: std::collections::HashMap<String, serde_json::Value> =
+                    serde_json::from_value(bios_attrs).expect("valid test BIOS response");
+                let metrics = MetricsCapture::start();
+                let mut skipped = false;
+                let logs = capture_logs(|| {
+                    skipped = emit_dpu_uefi_password_setup_skipped_if_needed(&bios_attrs);
+                });
+                let logs = logs
+                    .into_iter()
+                    .filter(|log| log.field("event_name") == Some(EVENT_NAME))
+                    .collect::<Vec<_>>();
+                let log = logs.first();
+
+                DpuUefiPasswordSetupObservation {
+                    skipped,
+                    counter_deltas: [
+                        metrics.counter_delta(
+                            METRIC_NAME,
+                            &[("reason", "bios_attributes_missing")],
+                        ),
+                        metrics.counter_delta(
+                            METRIC_NAME,
+                            &[("reason", "bios_attributes_not_object")],
+                        ),
+                        metrics.counter_delta(
+                            METRIC_NAME,
+                            &[("reason", "current_uefi_password_missing")],
+                        ),
+                    ],
+                    log_count: logs.len(),
+                    level: log.map(|log| log.level),
+                    metadata_name: log.map(|log| log.metadata_name.clone()),
+                    message: log.map(|log| log.message.clone()),
+                    event_name: log
+                        .and_then(|log| log.field("event_name"))
+                        .map(str::to_string),
+                    metric_name: log
+                        .and_then(|log| log.field("metric_name"))
+                        .map(str::to_string),
+                    reason: log
+                        .and_then(|log| log.field("reason"))
+                        .map(str::to_string),
+                }
+            };
+            "incompatible BIOS attributes skip password setup" {
+                serde_json::json!({}) => DpuUefiPasswordSetupObservation {
+                    skipped: true,
+                    counter_deltas: [1.0, 0.0, 0.0],
+                    log_count: 1,
+                    level: Some(tracing::Level::WARN),
+                    metadata_name: Some(EVENT_NAME.to_string()),
+                    message: Some(
+                        "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting".to_string(),
+                    ),
+                    event_name: Some(EVENT_NAME.to_string()),
+                    metric_name: Some(METRIC_NAME.to_string()),
+                    reason: Some("bios_attributes_missing".to_string()),
+                },
+                serde_json::json!({"Attributes": []}) => DpuUefiPasswordSetupObservation {
+                    skipped: true,
+                    counter_deltas: [0.0, 1.0, 0.0],
+                    log_count: 1,
+                    level: Some(tracing::Level::WARN),
+                    metadata_name: Some(EVENT_NAME.to_string()),
+                    message: Some(
+                        "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting".to_string(),
+                    ),
+                    event_name: Some(EVENT_NAME.to_string()),
+                    metric_name: Some(METRIC_NAME.to_string()),
+                    reason: Some("bios_attributes_not_object".to_string()),
+                },
+                serde_json::json!({"Attributes": {"BootMode": "Uefi"}}) => DpuUefiPasswordSetupObservation {
+                    skipped: true,
+                    counter_deltas: [0.0, 0.0, 1.0],
+                    log_count: 1,
+                    level: Some(tracing::Level::WARN),
+                    metadata_name: Some(EVENT_NAME.to_string()),
+                    message: Some(
+                        "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting".to_string(),
+                    ),
+                    event_name: Some(EVENT_NAME.to_string()),
+                    metric_name: Some(METRIC_NAME.to_string()),
+                    reason: Some("current_uefi_password_missing".to_string()),
+                },
+            }
+
+            "compatible BIOS attributes continue password setup" {
+                serde_json::json!({"Attributes": {"CurrentUefiPassword": ""}}) => DpuUefiPasswordSetupObservation {
+                    skipped: false,
+                    counter_deltas: [0.0, 0.0, 0.0],
+                    log_count: 0,
+                    level: None,
+                    metadata_name: None,
+                    message: None,
+                    event_name: None,
+                    metric_name: None,
+                    reason: None,
+                },
+            }
+        );
+    }
 
     /// The mask covers the union of ALL matches, including a needle's
     /// self-overlapping matches (`aa` occurs at both offsets in `xaaay`) and
@@ -696,6 +935,28 @@ mod tests {
             .into_iter()
             .map(|call| call.vendor)
             .collect()
+    }
+
+    #[tokio::test]
+    async fn set_bf4_dpu_service_password_changes_service_account() {
+        let sim = RedfishSim::default();
+        sim.seed_user("root", "root_pass");
+        sim.seed_user("service", "Nvidia_12345!");
+
+        sim.set_bf4_dpu_service_password(
+            "127.0.0.1",
+            Some(443),
+            Credentials::new("root", "root_pass"),
+            "site_service_pass".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sim.user_password("service").as_deref(),
+            Some("site_service_pass")
+        );
+        assert_eq!(sim.user_password("root").as_deref(), Some("root_pass"));
     }
 
     #[tokio::test]
@@ -865,6 +1126,56 @@ mod tests {
                 RedfishClientCreationError::RedfishError(libredfish::RedfishError::MissingVendor)
             ),
             "expected MissingVendor, got {err:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn bmc_credentials_valid_true_when_password_matches() {
+        let sim = RedfishSim::default();
+        sim.set_enforce_auth(true);
+        sim.seed_user("root", "correct");
+
+        let valid = sim
+            .bmc_credentials_valid("127.0.0.1", Some(443), Credentials::new("root", "correct"))
+            .await
+            .expect("a matching credential must not raise a transport error");
+
+        assert!(valid, "the seeded password must authenticate");
+    }
+
+    #[tokio::test]
+    async fn bmc_credentials_valid_false_when_password_wrong() {
+        let sim = RedfishSim::default();
+        sim.set_enforce_auth(true);
+        sim.seed_user("root", "correct");
+
+        let valid = sim
+            .bmc_credentials_valid("127.0.0.1", Some(443), Credentials::new("root", "stale"))
+            .await
+            .expect("an unauthorized rejection must be reported as Ok(false), not an error");
+
+        assert!(!valid, "a wrong password must be reported as not valid");
+    }
+
+    #[tokio::test]
+    async fn bmc_credentials_valid_propagates_transport_error() {
+        let sim = RedfishSim::default();
+        sim.seed_user("root", "correct");
+        // A non-authentication failure (503) must surface as an error rather than
+        // being misread as a definitive "credentials are invalid" (Ok(false)).
+        sim.set_get_accounts_error(true);
+
+        let err = sim
+            .bmc_credentials_valid("127.0.0.1", Some(443), Credentials::new("root", "correct"))
+            .await
+            .expect_err("a non-auth transport failure must propagate as an error");
+
+        assert!(
+            matches!(
+                err,
+                RedfishClientCreationError::RedfishError(ref e) if !e.is_unauthorized()
+            ),
+            "expected a non-unauthorized RedfishError, got {err:?}",
         );
     }
 }

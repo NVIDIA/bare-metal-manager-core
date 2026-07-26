@@ -111,6 +111,8 @@ message NvmeDevice {
   string model = 1;
   string firmware_rev = 2;
   string serial = 3;
+  optional uint32 size_mb = 4;
+  optional string pci_path = 5;
 }
 
 message DmiData {

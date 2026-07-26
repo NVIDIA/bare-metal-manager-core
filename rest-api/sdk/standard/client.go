@@ -77,6 +77,8 @@ type APIClient struct {
 
 	IPBlockAPI *IPBlockAPIService
 
+	IPXETemplateAPI *IPXETemplateAPIService
+
 	InfiniBandPartitionAPI *InfiniBandPartitionAPIService
 
 	InfrastructureProviderAPI *InfrastructureProviderAPIService
@@ -108,6 +110,8 @@ type APIClient struct {
 	ServiceAccountAPI *ServiceAccountAPIService
 
 	SiteAPI *SiteAPIService
+
+	SiteExplorerAPI *SiteExplorerAPIService
 
 	SubnetAPI *SubnetAPIService
 
@@ -161,6 +165,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.HealthReportAPI = (*HealthReportAPIService)(&c.common)
 	c.HostFirmwareConfigAPI = (*HostFirmwareConfigAPIService)(&c.common)
 	c.IPBlockAPI = (*IPBlockAPIService)(&c.common)
+	c.IPXETemplateAPI = (*IPXETemplateAPIService)(&c.common)
 	c.InfiniBandPartitionAPI = (*InfiniBandPartitionAPIService)(&c.common)
 	c.InfrastructureProviderAPI = (*InfrastructureProviderAPIService)(&c.common)
 	c.InstanceAPI = (*InstanceAPIService)(&c.common)
@@ -177,6 +182,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.SSHKeyGroupAPI = (*SSHKeyGroupAPIService)(&c.common)
 	c.ServiceAccountAPI = (*ServiceAccountAPIService)(&c.common)
 	c.SiteAPI = (*SiteAPIService)(&c.common)
+	c.SiteExplorerAPI = (*SiteExplorerAPIService)(&c.common)
 	c.SubnetAPI = (*SubnetAPIService)(&c.common)
 	c.TaskAPI = (*TaskAPIService)(&c.common)
 	c.TenantAPI = (*TenantAPIService)(&c.common)

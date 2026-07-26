@@ -225,6 +225,38 @@ fn get_numa_node_from_syspath(syspath: Option<&Path>) -> Result<i32, HardwareEnu
     })
 }
 
+// Total capacity of an NVMe controller in MB, summed across its block
+// namespaces. The `size` sysattr on a block device is a count of 512-byte
+// sectors (1 MB == 2048 sectors). Returns None when no namespace size can be
+// read, so callers can treat size as "unknown" rather than zero.
+fn get_nvme_size_mb(context: &libudev::Context, controller: &Device) -> Option<u32> {
+    let mut enumerator = libudev::Enumerator::new(context).ok()?;
+    enumerator.match_subsystem("block").ok()?;
+    enumerator.match_parent(controller).ok()?;
+
+    let mut total_sectors = 0_u64;
+    let mut found_namespace = false;
+    for ns in enumerator.scan_devices().ok()? {
+        // Only whole-namespace disks. `match_parent` walks the full block
+        // subtree, so without this a partitioned drive would have its
+        // partition sizes summed on top of the namespace size, inflating
+        // the reported capacity.
+        if ns.property_value("DEVTYPE").and_then(|v| v.to_str()) != Some("disk") {
+            continue;
+        }
+        found_namespace = true;
+        let sectors = ns
+            .attribute_value("size")
+            .and_then(|v| v.to_str())
+            .and_then(|v| v.trim().parse::<u64>().ok())?;
+        total_sectors = total_sectors.checked_add(sectors)?;
+    }
+    if !found_namespace {
+        return None;
+    }
+    u32::try_from(total_sectors / 2048).ok()
+}
+
 // discovery all the non-DPU IB devices
 pub fn discovery_ibs() -> HardwareEnumerationResult<Vec<rpc_discovery::InfinibandInterface>> {
     let device_debug_log = |device: &Device| {
@@ -679,12 +711,17 @@ fn enumerate_hardware_inner(
             .filter(|v| !v.contains("virtual"))
             .is_some()
         {
+            let pci_path = convert_property_to_string(PCI_DEV_PATH, "", &device)
+                .ok()
+                .map(|v| v.to_string());
             nvmes.push(rpc_discovery::NvmeDevice {
                 model: convert_sysattr_to_string("model", &device)?.to_string(),
                 firmware_rev: convert_sysattr_to_string("firmware_rev", &device)?.to_string(),
                 serial: convert_sysattr_to_string("serial", &device)?
                     .trim()
                     .to_string(),
+                size_mb: get_nvme_size_mb(&context, &device),
+                pci_path,
             });
         }
     }

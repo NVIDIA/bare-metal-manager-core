@@ -48,13 +48,13 @@ enum BackendOutcome {
 }
 
 #[derive(Debug)]
-struct ReconciliationComputeTrayManager {
+pub(crate) struct ReconciliationComputeTrayManager {
     outcome: Mutex<BackendOutcome>,
     actions: Mutex<Vec<PowerAction>>,
 }
 
 impl ReconciliationComputeTrayManager {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             outcome: Mutex::new(BackendOutcome::Success),
             actions: Mutex::new(Vec::new()),
@@ -161,7 +161,9 @@ fn expected_action(operation: MachineMaintenanceOperation) -> PowerAction {
     }
 }
 
-fn component_manager(compute_tray: Arc<dyn ComputeTrayManager>) -> Arc<ComponentManager> {
+pub(crate) fn component_manager(
+    compute_tray: Arc<dyn ComputeTrayManager>,
+) -> Arc<ComponentManager> {
     Arc::new(ComponentManager::new(
         Arc::new(MockNvSwitchManager::default()),
         Arc::new(MockPowerShelfManager),
@@ -172,7 +174,7 @@ fn component_manager(compute_tray: Arc<dyn ComputeTrayManager>) -> Arc<Component
     ))
 }
 
-fn valid_credential_manager() -> Arc<dyn CredentialManager> {
+pub(crate) fn valid_credential_manager() -> Arc<dyn CredentialManager> {
     Arc::new(TestCredentialManager::new(Credentials::UsernamePassword {
         username: "root".into(),
         password: "password".into(),

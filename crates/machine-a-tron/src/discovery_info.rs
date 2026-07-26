@@ -262,10 +262,13 @@ fn hpe_proliant(host: &HostMachineInfo) -> DiscoveryInfo {
         machine_arch,
         nvme_devices: serials
             .into_iter()
-            .map(|serial| NvmeDevice {
+            .enumerate()
+            .map(|(index, serial)| NvmeDevice {
                 model: "VO001920KXPTN".into(),
                 firmware_rev: "HPK0".into(),
                 serial,
+                size_mb: Some(nvme_size_mb("VO001920KXPTN")),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -328,6 +331,8 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
                 firmware_rev: "LDDL4U2Q".into(),
                 serial: format!("BDFAKESERNUM{index}"),
+                size_mb: Some(nvme_size_mb("SAMSUNG MZTL63T8HFLT-00AW7")),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -379,10 +384,13 @@ fn lenovo_gb300(host: &HostMachineInfo) -> DiscoveryInfo {
         machine_arch,
         nvme_devices: storage
             .iter()
-            .map(|(model, firmware_rev, serial)| NvmeDevice {
+            .enumerate()
+            .map(|(index, (model, firmware_rev, serial))| NvmeDevice {
                 model: (*model).into(),
                 firmware_rev: (*firmware_rev).into(),
                 serial: (*serial).into(),
+                size_mb: Some(nvme_size_mb(model)),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -514,11 +522,15 @@ fn nvidia_dgx_h100(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "Micron_7450_MTFDKBG1T9TFR".into(),
                 firmware_rev: "E2MU200".into(),
                 serial: format!("MicronFAKESERNUM{index}"),
+                size_mb: Some(nvme_size_mb("Micron_7450_MTFDKBG1T9TFR")),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .chain((0..8).map(|index| NvmeDevice {
                 model: "KCM6DRUL3T84".into(),
                 firmware_rev: "0107".into(),
                 serial: format!("KCMFAKESERNUM{index}"),
+                size_mb: Some(nvme_size_mb("KCM6DRUL3T84")),
+                pci_path: Some(nvme_pci_path(index + 2)),
             }))
             .collect(),
         dmi_data: Some(DmiData {
@@ -654,6 +666,29 @@ fn memory_devices(count: usize, size_mb: u32, memory_type: &str) -> Vec<MemoryDe
             mem_type: Some(memory_type.into()),
         })
         .collect()
+}
+
+/// Mock NVMe capacity in MiB (matching what the real host enumeration reports),
+/// inferred from the capacity encoded in the model string (e.g. `…3T8…` = 3.84
+/// TB, otherwise 1.92 TB). Mock hosts must report a size so v5 SKU generation,
+/// which rejects drives with unknown size, can run against them.
+fn nvme_size_mb(model: &str) -> u32 {
+    if model.contains("3T8") {
+        3_662_840
+    } else {
+        1_831_420
+    }
+}
+
+/// Distinct fake sysfs DEVPATH for the Nth mock NVMe controller, mirroring the
+/// shape the real host enumeration reports (`…/nvme/nvmeN/nvmeNn1`). Each drive
+/// needs a unique PCI path so v5 SKU generation records one storage entry per
+/// drive.
+fn nvme_pci_path(index: usize) -> String {
+    format!(
+        "/devices/pci0000:00/0000:64:00.0/0000:{:02x}:00.0/nvme/nvme{index}/nvme{index}n1",
+        0x65 + index
+    )
 }
 
 fn gb200_gpus() -> Vec<Gpu> {

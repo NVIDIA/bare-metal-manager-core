@@ -148,11 +148,41 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
     let table_format = table.get_format();
     table_format.indent(10);
 
-    table.set_titles(Row::from(vec!["Model", "Count"]));
+    // Size (MiB) and PCI Patterns carry the per-drive constraints introduced in
+    // schema version 5; they render empty for older SKUs that don't set them.
+    // The size field is labeled MB in the API but is computed as MiB (1 unit =
+    // 2048 * 512-byte sectors); label the column MiB so the value reads true.
+    table.set_titles(Row::from(vec![
+        "Model",
+        "Count",
+        "Size (MiB)",
+        "PCI Patterns",
+    ]));
     for s in storage {
-        table.add_row(Row::from(vec![s.model, s.count.to_string()]));
+        table.add_row(Row::from(vec![
+            s.model,
+            s.count.to_string(),
+            format_size_range(s.min_size_mb, s.max_size_mb),
+            if s.pci_patterns.is_empty() {
+                String::new()
+            } else {
+                s.pci_patterns.join("\n")
+            },
+        ]));
     }
     table
+}
+
+// Render a storage size bound as "min-max" (matching SkuComponentStorage's
+// Display), using "*" for an open bound and an empty string when neither is set.
+fn format_size_range(min_size_mb: Option<u32>, max_size_mb: Option<u32>) -> String {
+    match (min_size_mb, max_size_mb) {
+        (None, None) => String::new(),
+        (min, max) => {
+            let bound = |v: Option<u32>| v.map_or_else(|| "*".to_string(), |n| n.to_string());
+            format!("{}-{}", bound(min), bound(max))
+        }
+    }
 }
 
 pub async fn show_skus_table(

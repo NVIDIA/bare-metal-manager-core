@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::network::NetworkSegmentId;
 use model::machine_interface::InterfaceType;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{
@@ -52,6 +53,91 @@ async fn create_static_assignments_segment(
     )
     .await?;
     txn.commit().await?;
+
+    Ok(())
+}
+
+async fn create_test_segment(
+    pool: &sqlx::PgPool,
+    name: &str,
+) -> Result<NetworkSegmentId, Box<dyn std::error::Error>> {
+    let segment_id = NetworkSegmentId::new();
+    let mut txn = db::Transaction::begin(pool).await?;
+    db::network_segment::persist(
+        NewNetworkSegment {
+            id: segment_id,
+            name: name.to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: Vec::new(),
+            vlan_id: None,
+            vni: None,
+            segment_type: NetworkSegmentType::HostInband,
+            can_stretch: Some(false),
+            allocation_strategy: AllocationStrategy::Reserved,
+        },
+        txn.as_pgconn(),
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    txn.commit().await?;
+
+    Ok(segment_id)
+}
+
+/// A MAC identifies one physical interface even when stale or transitional
+/// rows represent it on more than one segment. Site Explorer learns one
+/// vendor-native Redfish id for that interface, so `set_boot_interface_id`
+/// updates every row for the MAC rather than whichever segment happened to
+/// report first.
+#[crate::sqlx_test]
+async fn set_boot_interface_id_updates_every_segment_row_for_mac(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_a = create_test_segment(&pool, "boot-id-segment-a").await?;
+    let segment_b = create_test_segment(&pool, "boot-id-segment-b").await?;
+    let boot_mac: MacAddress = "7A:7B:7C:7D:7E:41".parse()?;
+    let other_mac: MacAddress = "7A:7B:7C:7D:7E:42".parse()?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let query = "
+INSERT INTO machine_interfaces
+    (segment_id, mac_address, primary_interface, hostname)
+VALUES
+    ($1, $2, false, 'boot-a'),
+    ($3, $2, false, 'boot-b'),
+    ($1, $4, false, 'other')";
+    sqlx::query(query)
+        .bind(segment_a)
+        .bind(boot_mac)
+        .bind(segment_b)
+        .bind(other_mac)
+        .execute(txn.as_pgconn())
+        .await?;
+
+    set_boot_interface_id(boot_mac, "NIC.Slot.7-1-1", txn.as_pgconn()).await?;
+
+    let boot_ids: Vec<Option<String>> = sqlx::query_scalar(
+        "SELECT boot_interface_id FROM machine_interfaces WHERE mac_address=$1 ORDER BY hostname",
+    )
+    .bind(boot_mac)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+    let other_id: Option<String> =
+        sqlx::query_scalar("SELECT boot_interface_id FROM machine_interfaces WHERE mac_address=$1")
+            .bind(other_mac)
+            .fetch_one(txn.as_pgconn())
+            .await?;
+
+    assert_eq!(
+        boot_ids,
+        vec![
+            Some("NIC.Slot.7-1-1".to_string()),
+            Some("NIC.Slot.7-1-1".to_string())
+        ]
+    );
+    assert_eq!(other_id, None, "a different MAC must remain unchanged");
 
     Ok(())
 }

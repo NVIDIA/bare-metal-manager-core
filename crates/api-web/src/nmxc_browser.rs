@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Base;
+use super::{Base, filters};
 
 #[derive(Template)]
 #[template(path = "nmxc_browser.html")]
@@ -125,3 +125,34 @@ pub async fn query(
 }
 
 impl super::Base for NmxcBrowser {}
+
+#[cfg(test)]
+mod tests {
+    use askama::Template;
+
+    use super::NmxcBrowser;
+
+    #[test]
+    fn rendered_response_preserves_large_integers_and_escapes_html() {
+        let browser = NmxcBrowser {
+            chassis_serial: "chassis".to_string(),
+            operation: "gpu_info".to_string(),
+            gpu_uid: u64::MAX.to_string(),
+            response: format!(
+                r#"{{"gpu_uid":{},"message":"<script>alert('xss')</script>"}}"#,
+                u128::MAX
+            ),
+            error: String::new(),
+            status_code: 200,
+            status_string: "OK".to_string(),
+            response_headers: Vec::new(),
+        };
+
+        let rendered = browser.render().unwrap();
+        assert!(rendered.contains("18446744073709551615"));
+        assert!(rendered.contains("340282366920938463463374607431768211455"));
+        assert!(rendered.contains("&#60;script&#62;alert("));
+        assert!(rendered.contains("&#60;/script&#62;"));
+        assert!(!rendered.contains("<script>alert('xss')</script>"));
+    }
+}

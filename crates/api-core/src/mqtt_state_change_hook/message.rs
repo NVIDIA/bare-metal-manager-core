@@ -53,9 +53,18 @@ impl ManagedHostStateMessage<'_> {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
     use model::machine::InstanceState;
 
     use super::*;
+
+    #[derive(Debug, PartialEq)]
+    struct ObservedMessage {
+        state: Option<String>,
+        has_instance_state: bool,
+        machine_id: Option<String>,
+        timestamp_is_rfc3339: bool,
+    }
 
     #[allow(deprecated)]
     fn test_machine_id() -> MachineId {
@@ -63,61 +72,62 @@ mod tests {
     }
 
     #[test]
-    fn test_ready_state_serialization() {
+    fn serialization_preserves_message_fields() {
         let machine_id = test_machine_id();
-        let state = ManagedHostState::Ready;
-        let timestamp = Utc::now();
+        check_values(
+            [
+                Check {
+                    scenario: "ready message includes the common fields",
+                    input: ManagedHostState::Ready,
+                    expect: ObservedMessage {
+                        state: Some("ready".to_string()),
+                        has_instance_state: false,
+                        machine_id: Some(machine_id.to_string()),
+                        timestamp_is_rfc3339: true,
+                    },
+                },
+                Check {
+                    scenario: "assigned message includes its nested instance state",
+                    input: ManagedHostState::Assigned {
+                        instance_state: InstanceState::Ready,
+                    },
+                    expect: ObservedMessage {
+                        state: Some("assigned".to_string()),
+                        has_instance_state: true,
+                        machine_id: Some(machine_id.to_string()),
+                        timestamp_is_rfc3339: true,
+                    },
+                },
+            ],
+            |state| {
+                let message = ManagedHostStateMessage {
+                    machine_id: &machine_id,
+                    managed_host_state: &state,
+                    timestamp: Utc::now(),
+                };
+                let json = message.to_json_bytes().unwrap();
+                let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
+                let managed_host_state = parsed.get("managed_host_state");
 
-        let message = ManagedHostStateMessage {
-            machine_id: &machine_id,
-            managed_host_state: &state,
-            timestamp,
-        };
-        let json = message.to_json_bytes().unwrap();
-        let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
-
-        let state_obj = parsed.get("managed_host_state").unwrap();
-        assert_eq!(state_obj.get("state").unwrap(), "ready");
-        assert!(parsed.get("machine_id").is_some());
-        assert!(parsed.get("timestamp").is_some());
-    }
-
-    #[test]
-    fn test_assigned_state_has_nested_fields() {
-        let machine_id = test_machine_id();
-        let state = ManagedHostState::Assigned {
-            instance_state: InstanceState::Ready,
-        };
-        let timestamp = Utc::now();
-
-        let message = ManagedHostStateMessage {
-            machine_id: &machine_id,
-            managed_host_state: &state,
-            timestamp,
-        };
-        let json = message.to_json_bytes().unwrap();
-        let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
-
-        let state_obj = parsed.get("managed_host_state").unwrap();
-        assert_eq!(state_obj.get("state").unwrap(), "assigned");
-        assert!(state_obj.get("instance_state").is_some());
-    }
-
-    #[test]
-    fn test_timestamp_is_rfc3339() {
-        let machine_id = test_machine_id();
-        let state = ManagedHostState::Ready;
-        let timestamp = Utc::now();
-
-        let message = ManagedHostStateMessage {
-            machine_id: &machine_id,
-            managed_host_state: &state,
-            timestamp,
-        };
-        let json = message.to_json_bytes().unwrap();
-        let parsed: serde_json::Value = serde_json::from_slice(&json).unwrap();
-
-        let ts = parsed.get("timestamp").unwrap().as_str().unwrap();
-        chrono::DateTime::parse_from_rfc3339(ts).expect("timestamp should be RFC 3339");
+                ObservedMessage {
+                    state: managed_host_state
+                        .and_then(|state| state.get("state"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    has_instance_state: managed_host_state
+                        .is_some_and(|state| state.get("instance_state").is_some()),
+                    machine_id: parsed
+                        .get("machine_id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    timestamp_is_rfc3339: parsed
+                        .get("timestamp")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|timestamp| {
+                            chrono::DateTime::parse_from_rfc3339(timestamp).is_ok()
+                        }),
+                }
+            },
+        );
     }
 }

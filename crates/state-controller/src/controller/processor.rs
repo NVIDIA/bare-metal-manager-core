@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ::db::DatabaseError;
+use config_version::Versioned;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
@@ -34,11 +35,16 @@ use crate::io::StateControllerIO;
 use crate::metrics::{
     IterationMetrics, MetricHolder, ObjectHandlerMetrics, StateProcessorMetricEmitter,
 };
+use crate::per_object::{ManualIntervention, PerObjectStateRecorder};
 use crate::state_change_emitter::{StateChangeEmitter, StateChangeEvent};
 use crate::state_handler::{
     FromStateHandlerResult, StateHandler, StateHandlerContext, StateHandlerContextObjects,
     StateHandlerError, StateHandlerOutcome,
 };
+
+/// The `missing` token used when an object's state row is gone from the
+/// database; the per-object metrics clear path matches on it.
+const MISSING_OBJECT_STATE: &str = "object_state";
 
 /// The `StateProcessor` is responsible for executing the state handler functions
 /// for all objects where state handling is requested.
@@ -57,6 +63,9 @@ pub(super) struct StateProcessor<IO: StateControllerIO> {
     >,
     pub(super) metric_emitter: Option<ProcessorMetricsEmitter>,
     pub(super) metric_holder: Arc<MetricHolder<IO>>,
+    /// When set, every processed object's state/SLA/manual-intervention is
+    /// recorded as per-object gauges.
+    pub(super) per_object_state: Option<PerObjectStateRecorder>,
 
     pub(super) object_metrics: HashMap<IO::ObjectId, CollectedMetrics<IO>>,
     pub(super) cancel_token: CancellationToken,
@@ -459,6 +468,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         let max_object_handling_time = self.iteration_config.max_object_handling_time;
         let metrics_emitter = self.metric_holder.emitter.clone();
         let state_change_emitter = self.state_change_emitter.clone();
+        let per_object_state = self.per_object_state.clone();
         let result_sender = self.task_sender.clone();
 
         let _join_handle = tokio::task::Builder::new()
@@ -474,6 +484,7 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
                         max_object_handling_time,
                         metrics_emitter,
                         state_change_emitter,
+                        per_object_state,
                     )
                     .await;
 
@@ -557,8 +568,13 @@ impl<IO: StateControllerIO> StateProcessor<IO> {
         // is a transient database error
         self.completed_objects.insert(task_result.object_id.clone());
         // If the state handler returned `Transition`, then run the handler again
-        // as soon as possible.
-        if allow_requeue && task_result.metrics.common.next_state.is_some() {
+        // as soon as possible. A transition that lost the optimistic version
+        // check is requeued too: the object must promptly re-read the state
+        // the concurrent writer committed.
+        if allow_requeue
+            && (task_result.metrics.common.next_state.is_some()
+                || task_result.metrics.common.transition_conflict)
+        {
             self.requeue_objects.insert(task_result.object_id.clone());
         }
 
@@ -610,6 +626,7 @@ async fn process_object<IO: StateControllerIO>(
     max_object_handling_time: std::time::Duration,
     metrics_emitter: Option<Arc<StateProcessorMetricEmitter<IO>>>,
     state_change_emitter: Arc<StateChangeEmitter<IO::ObjectId, IO::ControllerState>>,
+    per_object_state: Option<PerObjectStateRecorder>,
 ) -> ObjectHandlerMetrics<IO> {
     let mut metrics = ObjectHandlerMetrics::<IO>::default();
 
@@ -628,12 +645,13 @@ async fn process_object<IO: StateControllerIO>(
             .await?
             .ok_or_else(|| StateHandlerError::MissingData {
                 object_id: object_id.to_string(),
-                missing: "object_state",
+                missing: MISSING_OBJECT_STATE,
             })?;
         let controller_state = io
             .load_controller_state(&mut txn, &object_id, &snapshot)
             .await?;
         metrics.common.initial_state = Some(controller_state.value.clone());
+        metrics.common.state_entered_at = Some(controller_state.version.timestamp());
         // Unwrap uses a very large duration as default to show something is wrong
         metrics.common.time_in_state = chrono::Utc::now()
             .signed_duration_since(controller_state.version.timestamp())
@@ -642,6 +660,7 @@ async fn process_object<IO: StateControllerIO>(
 
         let state_sla = io.state_sla(&controller_state, &snapshot);
         metrics.common.time_in_state_above_sla = state_sla.time_in_state_above_sla;
+        metrics.common.sla = state_sla.sla;
 
         let mut pending_db_writes = DbWriteBatch::new();
         let mut ctx = StateHandlerContext {
@@ -679,6 +698,8 @@ async fn process_object<IO: StateControllerIO>(
         };
 
         let mut next_state = None;
+        let mut next_state_entered_at = None;
+        let mut next_state_sla = None;
         if let Ok(StateHandlerOutcome::Transition {
             next_state: next, ..
         }) = &handler_outcome
@@ -689,6 +710,12 @@ async fn process_object<IO: StateControllerIO>(
                 tracing::warn!(next_state = ?next, %object_id, "Transition to current state");
             }
             let new_version = controller_state.version.increment();
+            next_state_entered_at = Some(new_version.timestamp());
+            // Resolve the SLA of the state being entered, so the committing
+            // iteration publishes it without a one-iteration gap.
+            next_state_sla = io
+                .state_sla(&Versioned::new(next.clone(), new_version), &snapshot)
+                .sla;
             if io
                 .persist_controller_state(
                     &mut txn,
@@ -701,6 +728,17 @@ async fn process_object<IO: StateControllerIO>(
             {
                 io.persist_state_history(&mut txn, &object_id, new_version, next)
                     .await?;
+            } else {
+                // Optimistic-lock loss: a concurrent writer changed the state
+                // between load and persist, so this transition never happened
+                // — don't emit it, or the metrics/hooks would report a state
+                // the database doesn't hold. The object is still requeued
+                // (via the flag) to promptly act on the winner's state.
+                tracing::info!(state=?next, %object_id, "Transition skipped: state version changed concurrently");
+                metrics.common.transition_conflict = true;
+                next_state = None;
+                next_state_entered_at = None;
+                next_state_sla = None;
             }
         }
 
@@ -744,6 +782,10 @@ async fn process_object<IO: StateControllerIO>(
         // Only emit the next state as metric if the transaction was actually
         // committed and we are sure we reached the next state
         metrics.common.next_state = next_state;
+        if metrics.common.next_state.is_some() {
+            metrics.common.state_entered_at = next_state_entered_at;
+            metrics.common.sla = next_state_sla;
+        }
 
         handler_outcome
     })
@@ -766,6 +808,7 @@ async fn process_object<IO: StateControllerIO>(
         emitter.emit_object_counters_and_histograms(&metrics);
     }
 
+    let deleted = matches!(&result, Ok(Ok(StateHandlerOutcome::Deleted { .. })));
     let result = match result {
         Ok(Ok(_result)) => Ok(()),
         Ok(Err(err)) => Err(err),
@@ -782,6 +825,71 @@ async fn process_object<IO: StateControllerIO>(
     if let Err(e) = result {
         tracing::warn!(%object_id, initial_state = ?metrics.common.initial_state, error = ?e, "State handler error");
         metrics.common.error = Some(e);
+    }
+
+    // Record the object's state as per-object gauges: the committed
+    // post-transition state when this iteration transitioned, the observed
+    // state otherwise. Objects that no longer exist (deleted, or their state
+    // vanished from the database) have their series removed instead of
+    // lingering until hold-period eviction.
+    let object_gone = deleted
+        || matches!(
+            &metrics.common.error,
+            Some(StateHandlerError::MissingData {
+                missing: MISSING_OBJECT_STATE,
+                ..
+            })
+        );
+    if let Some(recorder) = &per_object_state {
+        if object_gone {
+            recorder.clear(&object_id.to_string());
+        } else if !metrics.common.transition_conflict
+            && let (Some(final_state), Some(entered)) = (
+                metrics
+                    .common
+                    .next_state
+                    .as_ref()
+                    .or(metrics.common.initial_state.as_ref()),
+                metrics.common.state_entered_at,
+            )
+        {
+            let (state, substate) = IO::metric_state_names(final_state);
+            let manual_intervention = match (
+                IO::manual_intervention_reason(final_state),
+                &metrics.common.error,
+            ) {
+                (Some(reason), _) => ManualIntervention::Required(reason),
+                (None, Some(error @ StateHandlerError::ManualInterventionRequired(_))) => {
+                    ManualIntervention::Required(error.metric_label())
+                }
+                // An SLA breach is a symptom, not an intervention trigger, and
+                // does not obscure the object's status.
+                (None, None) | (None, Some(StateHandlerError::TimeInStateAboveSla { .. })) => {
+                    ManualIntervention::NotRequired
+                }
+                // Any other error leaves the status undetermined this
+                // iteration: keep an existing series alive instead of
+                // flapping a stuck object out of alerts.
+                (None, Some(_)) => ManualIntervention::Unknown,
+            };
+            recorder.record(
+                &object_id.to_string(),
+                state,
+                substate,
+                entered,
+                metrics.common.sla,
+                manual_intervention,
+            );
+        } else {
+            // The object's current state is unknowable this iteration: either
+            // it could not be loaded (e.g. a DB error or timeout during
+            // load), or the optimistic version check failed — positive
+            // evidence a concurrent writer replaced the state this iteration
+            // observed. Keep existing series alive instead of asserting stale
+            // facts or letting triage alerts flap; the requeued/next pass
+            // records the current state.
+            recorder.touch(&object_id.to_string());
+        }
     }
 
     metrics

@@ -211,6 +211,8 @@ pub mod filters {
     use itertools::Itertools;
     use rpc::forge::OptionalRedfishActionResult;
 
+    pub use super::super::filters::pretty_json;
+
     #[askama::filter_fn]
     pub fn date_fmt(value: &rpc::Timestamp, _env: &dyn askama::Values) -> ::askama::Result<String> {
         super::date_fmt_inner(value)

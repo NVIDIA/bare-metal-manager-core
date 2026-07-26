@@ -22,6 +22,7 @@ use ::rpc::forge::{
     self as rpc, DpuExtensionServiceObservabilityConfig,
     DpuExtensionServiceObservabilityConfigLogging,
 };
+use carbide_instrument::testing::MetricsCapture;
 use carbide_secrets::credentials::{CredentialKey, Credentials};
 use config_version::ConfigVersion;
 use tonic::Request;
@@ -33,6 +34,8 @@ use crate::tests::common::api_fixtures::{TestEnv, create_managed_host, create_te
 const TEST_SERVICE_DATA: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27";
 const TEST_SERVICE_DATA_VERSION_2: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: version-2\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27";
 const TEST_SERVICE_DATA_VERSION_3: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: version-3\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27";
+const CREDENTIAL_CLEANUP_FAILURE_METRIC: &str =
+    "carbide_extension_service_credential_cleanup_failures_total";
 
 fn create_credential() -> rpc::DpuExtensionServiceCredential {
     rpc::DpuExtensionServiceCredential {
@@ -392,7 +395,13 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
         .await?
         .expect("creating an extension service should have created a credential");
 
-    // Try to create an identical extension service
+    let metrics = MetricsCapture::start();
+    env.test_credential_manager
+        .set_delete_credentials_failure(true);
+
+    // Try to create an identical extension service. The database rejects the
+    // duplicate after the new credential was stored, and this fixture makes
+    // the follow-up credential cleanup fail too.
     let create_resp_2 = env
         .api
         .create_dpu_extension_service(Request::new(requested_extension_service))
@@ -400,6 +409,13 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
     assert!(
         create_resp_2.is_err(),
         "creating a second identical extension service should have failed"
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            CREDENTIAL_CLEANUP_FAILURE_METRIC,
+            &[("operation", "create")],
+        ),
+        1.0,
     );
 
     let stored_credential_2 = env
@@ -578,6 +594,10 @@ async fn test_extension_service_update_failure(db_pool: sqlx::PgPool) -> Result<
         c
     };
 
+    let metrics = MetricsCapture::start();
+    env.test_credential_manager
+        .set_delete_credentials_failure(true);
+
     let update_response = env
         .api
         .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
@@ -594,6 +614,13 @@ async fn test_extension_service_update_failure(db_pool: sqlx::PgPool) -> Result<
     assert!(
         update_response.is_err(),
         "update_dpu_extension_service should have failed, got: {update_response:?}"
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            CREDENTIAL_CLEANUP_FAILURE_METRIC,
+            &[("operation", "update")],
+        ),
+        1.0,
     );
 
     let service_2_credentials_after =
@@ -1922,6 +1949,108 @@ async fn test_extension_service_create_update_delete_credential(
         .await;
     assert!(stored_credential.is_ok());
     assert!(stored_credential.unwrap().is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_extension_service_delete_credential_cleanup_failure(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool).await;
+    create_test_tenants(&env).await?;
+    let first_service_version =
+        create_test_extension_service(&env.api, "test-service", Some(create_credential())).await?;
+    let service_id = first_service_version.service_id.clone();
+    let first_version = first_service_version
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .parse::<ConfigVersion>()?;
+
+    let second_service_version = env
+        .api
+        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            service_name: None,
+            description: None,
+            data: TEST_SERVICE_DATA_VERSION_2.to_string(),
+            credential: Some(create_credential()),
+            observability: None,
+            if_version_ctr_match: Some(1),
+        }))
+        .await?
+        .into_inner();
+    let second_version = second_service_version
+        .latest_version_info
+        .as_ref()
+        .unwrap()
+        .version
+        .parse::<ConfigVersion>()?;
+    let first_credential_key = CredentialKey::ExtensionService {
+        service_id: service_id.clone(),
+        version: first_version.version_nr().to_string(),
+    };
+    let second_credential_key = CredentialKey::ExtensionService {
+        service_id: service_id.clone(),
+        version: second_version.version_nr().to_string(),
+    };
+    let first_credential_before = env
+        .api
+        .credential_manager
+        .get_credentials(&first_credential_key)
+        .await?;
+    let second_credential_before = env
+        .api
+        .credential_manager
+        .get_credentials(&second_credential_key)
+        .await?;
+
+    let metrics = MetricsCapture::start();
+    env.test_credential_manager
+        .set_delete_credentials_failure(true);
+
+    // The service version is committed as deleted before credential cleanup
+    // runs. A credential-store failure must be visible without turning the RPC
+    // into an error that suggests the database deletion can be retried.
+    let delete_response = env
+        .api
+        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+            service_id: service_id.clone(),
+            versions: vec![first_version.to_string(), second_version.to_string()],
+        }))
+        .await;
+
+    assert!(delete_response.is_ok());
+    assert_eq!(
+        metrics.counter_delta(
+            CREDENTIAL_CLEANUP_FAILURE_METRIC,
+            &[("operation", "delete")],
+        ),
+        2.0,
+    );
+
+    let find_response = env
+        .api
+        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+            service_ids: vec![service_id],
+        }))
+        .await?;
+    assert!(find_response.into_inner().services.is_empty());
+
+    let first_credential_after = env
+        .api
+        .credential_manager
+        .get_credentials(&first_credential_key)
+        .await?;
+    let second_credential_after = env
+        .api
+        .credential_manager
+        .get_credentials(&second_credential_key)
+        .await?;
+    assert_eq!(first_credential_after, first_credential_before);
+    assert_eq!(second_credential_after, second_credential_before);
 
     Ok(())
 }

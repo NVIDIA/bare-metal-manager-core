@@ -21,6 +21,7 @@ description = "Explorer of BMC of different vendors"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [[test]]
 name = "integration"
@@ -82,6 +83,7 @@ bmc-mock = { path = "../bmc-mock" }
 # Self dev-dependency so the crate's own integration tests get the test-support
 # helpers; applies only to test/bench targets, never the production library.
 bmc-explorer = { path = ".", features = ["test-support"] }
+carbide-test-support = { path = "../test-support" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

@@ -161,6 +161,7 @@ impl EnvBuilder {
             credential_manager: credential_manager
                 .unwrap_or_else(|| api.credential_manager().clone()),
             per_object_metrics_registry,
+            per_object_info: None,
         };
         let machine_controller = StateController::<MachineStateControllerIO>::builder()
             .database(pool, api.work_lock_manager_handle())

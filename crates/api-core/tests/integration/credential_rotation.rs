@@ -15,11 +15,16 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialType, CredentialWriter,
     Credentials, NicLockdownIkm,
 };
 use carbide_test_harness::prelude::*;
+use component_manager::component_manager::ComponentManager;
+use component_manager::mock::{MockComputeTrayManager, MockNvSwitchManager, MockPowerShelfManager};
+use mac_address::MacAddress;
 use rpc::forge::{
     CredentialRotationStatusRequest, RotateCredentialRequest, RotationCredentialType,
 };
@@ -27,6 +32,32 @@ use tonic::Code;
 
 async fn init(pool: PgPool) -> TestHarness {
     TestHarness::builder(pool).build().await
+}
+
+fn component_manager_with_nvos_rotation(supported: bool) -> Arc<ComponentManager> {
+    let nv_switch = if supported {
+        MockNvSwitchManager::default().with_password_rotation_enabled()
+    } else {
+        MockNvSwitchManager::default()
+    };
+
+    Arc::new(ComponentManager::new(
+        Arc::new(nv_switch),
+        Arc::new(MockPowerShelfManager),
+        Arc::new(MockComputeTrayManager),
+        false,
+        false,
+        false,
+    ))
+}
+
+async fn init_with_nvos_rotation(pool: PgPool) -> TestHarness {
+    TestHarness::builder(pool)
+        .with_api_builder_fn(|builder| {
+            builder.with_component_manager(component_manager_with_nvos_rotation(true))
+        })
+        .build()
+        .await
 }
 
 /// Pulls the password out of a stored credential, failing the test if the key
@@ -45,6 +76,42 @@ fn site_creds(password: &str) -> Credentials {
         username: String::new(),
         password: password.to_string(),
     }
+}
+
+async fn add_live_nvos_switch(
+    env: &TestHarness,
+    index: i32,
+    bmc_mac: &str,
+    nvos_username: Option<&str>,
+    nvos_password: Option<&str>,
+) -> MacAddress {
+    let switch = env.create_switch(index, index).await;
+    let mut txn = env.db_txn().await;
+
+    sqlx::query(
+        "INSERT INTO expected_switches \
+             (serial_number, bmc_mac_address, bmc_username, bmc_password, \
+              nvos_username, nvos_password) \
+         VALUES ($1, $2::macaddr, 'admin', 'password', $3, $4)",
+    )
+    .bind(format!("nvos-preflight-{index}"))
+    .bind(bmc_mac)
+    .bind(nvos_username)
+    .bind(nvos_password)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE switches SET bmc_mac_address = $1::macaddr WHERE id = $2")
+        .bind(bmc_mac)
+        .bind(switch.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+
+    bmc_mac.parse().unwrap()
 }
 
 #[sqlx_test]
@@ -192,29 +259,229 @@ async fn rotate_rejects_weak_explicit_password(pool: sqlx::PgPool) {
 }
 
 #[sqlx_test]
-async fn rotate_and_status_reject_nvos(pool: sqlx::PgPool) {
-    let env = init(pool).await;
+async fn first_nvos_rotation_publishes_verified_version_zero_target(pool: sqlx::PgPool) {
+    let env = init_with_nvos_rotation(pool).await;
 
-    let rotate_err = env
+    let password = "Nvos-Site-Target-0!";
+
+    let result = env
         .api()
         .rotate_credential(tonic::Request::new(RotateCredentialRequest {
             credential_type: RotationCredentialType::RotationNvos.into(),
-            password: None,
+            password: Some(password.to_string()),
             reason: None,
         }))
         .await
-        .expect_err("nvos rotation is unsupported in v1");
-    assert_eq!(rotate_err.code(), Code::FailedPrecondition);
+        .expect("nvos target staging should succeed")
+        .into_inner();
 
-    let status_err = env
+    assert_eq!(result.target_version, 0);
+
+    let versioned = stored_password(
+        env.api().credential_manager(),
+        &CredentialKey::switch_nvos_site_admin(0),
+    )
+    .await
+    .expect("v0 nvos site target must be written");
+
+    assert_eq!(versioned, password);
+
+    let per_device = stored_password(
+        env.api().credential_manager(),
+        &CredentialKey::SwitchNvosAdmin {
+            bmc_mac_address: "02:00:00:00:00:01".parse().unwrap(),
+        },
+    )
+    .await;
+
+    assert!(
+        per_device.is_none(),
+        "staging an nvos target must not overwrite per-device switch credentials"
+    );
+
+    let status = env
         .api()
         .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
             credential_type: RotationCredentialType::RotationNvos.into(),
             device_mac: None,
         }))
         .await
-        .expect_err("nvos status is unsupported in v1");
-    assert_eq!(status_err.code(), Code::FailedPrecondition);
+        .expect("nvos status should succeed")
+        .into_inner();
+
+    assert_eq!(status.target_version, 0);
+    assert_eq!(status.converged, 0);
+    assert_eq!(status.pending, 0);
+    assert_eq!(status.quarantined, 0);
+    assert!(status.complete);
+}
+
+#[sqlx_test]
+async fn nvos_rotation_rejects_malformed_expected_credentials(pool: sqlx::PgPool) {
+    let env = init_with_nvos_rotation(pool).await;
+    let bmc_mac = "02:00:00:00:00:51";
+
+    let stored_mac = add_live_nvos_switch(&env, 1, bmc_mac, Some("admin"), None).await;
+    env.api()
+        .credential_manager()
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: stored_mac,
+            },
+            &Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "stored-password".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let error = env
+        .api()
+        .rotate_credential(tonic::Request::new(RotateCredentialRequest {
+            credential_type: RotationCredentialType::RotationNvos.into(),
+            password: Some("Nvos-Site-Target-0!".to_string()),
+            reason: None,
+        }))
+        .await
+        .expect_err("malformed expected credentials must block target publication");
+
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert!(error.message().contains(bmc_mac));
+
+    assert!(
+        stored_password(
+            env.api().credential_manager(),
+            &CredentialKey::switch_nvos_site_admin(0),
+        )
+        .await
+        .is_none()
+    );
+}
+
+#[sqlx_test]
+async fn nvos_rotation_accepts_expected_or_stored_current_credentials(pool: sqlx::PgPool) {
+    let env = init_with_nvos_rotation(pool).await;
+
+    add_live_nvos_switch(
+        &env,
+        1,
+        "02:00:00:00:00:52",
+        Some("admin"),
+        Some("expected-password"),
+    )
+    .await;
+
+    let stored_mac = add_live_nvos_switch(&env, 2, "02:00:00:00:00:53", None, None).await;
+    env.api()
+        .credential_manager()
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: stored_mac,
+            },
+            &Credentials::UsernamePassword {
+                username: "admin".to_string(),
+                password: "stored-password".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let result = env
+        .api()
+        .rotate_credential(tonic::Request::new(RotateCredentialRequest {
+            credential_type: RotationCredentialType::RotationNvos.into(),
+            password: Some("Nvos-Site-Target-0!".to_string()),
+            reason: None,
+        }))
+        .await
+        .expect("either current credential source should allow rotation")
+        .into_inner();
+
+    assert_eq!(result.target_version, 0);
+}
+
+#[sqlx_test]
+async fn nvos_rotation_requires_supporting_component_manager(pool: sqlx::PgPool) {
+    let env = TestHarness::builder(pool)
+        .with_api_builder_fn(|builder| {
+            builder.with_component_manager(component_manager_with_nvos_rotation(false))
+        })
+        .build()
+        .await;
+
+    let err = env
+        .api()
+        .rotate_credential(tonic::Request::new(RotateCredentialRequest {
+            credential_type: RotationCredentialType::RotationNvos.into(),
+            password: Some("Nvos-Site-Target-0!".to_string()),
+            reason: None,
+        }))
+        .await
+        .expect_err("unsupported component-manager backend must block NVOS rotation");
+
+    assert_eq!(err.code(), Code::FailedPrecondition);
+
+    assert_eq!(
+        err.message(),
+        "NVOS rotation requires a component-manager switch backend that supports password rotation"
+    );
+}
+
+#[sqlx_test]
+async fn nvos_status_before_first_target_is_failed_precondition(pool: sqlx::PgPool) {
+    let env = init(pool).await;
+    let switch = env.create_switch(1, 1).await;
+    let bmc_mac = "02:00:00:00:00:41";
+    let mut txn = env.db_txn().await;
+
+    sqlx::query(
+        "INSERT INTO expected_switches \
+             (serial_number, bmc_mac_address, bmc_username, bmc_password) \
+         VALUES ('nvos-status-before-target', $1::macaddr, 'admin', 'password')",
+    )
+    .bind(bmc_mac)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+
+    sqlx::query("UPDATE switches SET bmc_mac_address = $1::macaddr WHERE id = $2")
+        .bind(bmc_mac)
+        .bind(switch.id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
+
+    txn.commit().await.unwrap();
+
+    for device_mac in [None, Some(bmc_mac.to_string())] {
+        let error = env
+            .api()
+            .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
+                credential_type: RotationCredentialType::RotationNvos.into(),
+                device_mac,
+            }))
+            .await
+            .expect_err("unpublished NVOS status must report a precondition");
+
+        assert_eq!(error.code(), Code::FailedPrecondition);
+
+        assert_eq!(
+            error.message(),
+            "no site-wide NVOS credential rotation target has been published"
+        );
+    }
+
+    let unknown = env
+        .api()
+        .get_credential_rotation_status(tonic::Request::new(CredentialRotationStatusRequest {
+            credential_type: RotationCredentialType::RotationNvos.into(),
+            device_mac: Some("02:00:00:00:00:42".to_string()),
+        }))
+        .await
+        .expect_err("unknown switch must remain not found");
+
+    assert_eq!(unknown.code(), Code::NotFound);
 }
 
 #[sqlx_test]

@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Authenticated HTTP proxy for talking to BMC's without sharing credentials"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "carbide-bmc-proxy"
