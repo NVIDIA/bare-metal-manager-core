@@ -34,6 +34,8 @@
 #   VAULT_STATUS_SLEEP_SECONDS — delay between status attempts (default: 5)
 #   VAULT_UNSEAL_ROUNDS        — full key-sequence retries per pod before
 #                                giving up (default: 3)
+#   VAULT_INIT_STABILIZE_SECONDS — delay before first-time initialization so
+#                                  certificate reload hooks can settle (default: 15)
 # =============================================================================
 set -euo pipefail
 
@@ -41,10 +43,12 @@ NAMESPACE="vault"
 VAULT_STATUS_RETRIES="${VAULT_STATUS_RETRIES:-36}"
 VAULT_STATUS_SLEEP_SECONDS="${VAULT_STATUS_SLEEP_SECONDS:-5}"
 VAULT_UNSEAL_ROUNDS="${VAULT_UNSEAL_ROUNDS:-3}"
+VAULT_INIT_STABILIZE_SECONDS="${VAULT_INIT_STABILIZE_SECONDS:-15}"
 
 if ! [[ "${VAULT_STATUS_RETRIES}" =~ ^[1-9][0-9]*$ ]] ||
-   ! [[ "${VAULT_UNSEAL_ROUNDS}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: VAULT_STATUS_RETRIES and VAULT_UNSEAL_ROUNDS must be positive integers." >&2
+   ! [[ "${VAULT_UNSEAL_ROUNDS}" =~ ^[1-9][0-9]*$ ]] ||
+   ! [[ "${VAULT_INIT_STABILIZE_SECONDS}" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Vault retry values must be positive integers and VAULT_INIT_STABILIZE_SECONDS must be a non-negative integer." >&2
     exit 1
 fi
 
@@ -120,6 +124,22 @@ echo "Vault initialized: ${INITIALIZED}"
 echo "Vault sealed:      ${SEALED}"
 
 if [[ "${INITIALIZED}" == "false" ]]; then
+    # vault-cert-reload can send SIGHUP shortly after the pod starts. If that
+    # races with `vault operator init`, Vault may persist its barrier keys but
+    # terminate the client before it returns the only copy of those keys.
+    # Wait for startup certificate reloads to settle, then check again before
+    # issuing the irreversible initialization request.
+    if (( VAULT_INIT_STABILIZE_SECONDS > 0 )); then
+        echo "Waiting ${VAULT_INIT_STABILIZE_SECONDS}s for Vault certificate reload hooks to settle..."
+        sleep "${VAULT_INIT_STABILIZE_SECONDS}"
+        VAULT_STATUS_JSON="$(_vault_status_json vault-0)"
+        INITIALIZED="$(echo "${VAULT_STATUS_JSON}" | jq -r '.initialized')"
+        if [[ "${INITIALIZED}" != "false" ]]; then
+            echo "ERROR: Vault became initialized during the stabilization wait; refusing to initialize without confirmed key capture." >&2
+            exit 1
+        fi
+    fi
+
     echo "Vault is not initialized. Initializing via vault-0..."
     kubectl exec -n "${NAMESPACE}" vault-0 -c vault -- \
         vault operator init -tls-skip-verify -key-shares=5 -key-threshold=3 -format=json \
