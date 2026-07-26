@@ -23,6 +23,7 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+arc-swap = { workspace = true }
 carbide-instrument-macros = { path = "../instrument-macros" }
 dashmap = { workspace = true }
 opentelemetry = { workspace = true }

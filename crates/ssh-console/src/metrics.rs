@@ -148,6 +148,8 @@ impl Default for MetricsState {
 }
 
 impl MetricsState {
+    /// Creates the ssh-console registry and installs its meter provider
+    /// process-wide so generated client RED metrics use the same registry.
     pub fn new() -> Self {
         let registry = prometheus::Registry::new();
         let exporter = opentelemetry_prometheus::exporter()
@@ -159,6 +161,11 @@ impl MetricsState {
         let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
             .with_reader(exporter)
             .build();
+
+        // Generated Forge clients use the global meter for RED
+        // instrumentation. Install the same provider here so those
+        // measurements reach this registry.
+        carbide_instrument::set_meter_provider(meter_provider.clone());
         let meter = meter_provider.meter("ssh-console");
 
         Self {
@@ -166,5 +173,73 @@ impl MetricsState {
             registry,
             _meter_provider: meter_provider,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::process::Command;
+
+    use super::*;
+
+    const CHILD_PROCESS_ENV: &str = "CARBIDE_SSH_CONSOLE_METRICS_TEST_CHILD";
+
+    #[test]
+    fn metrics_state_exports_global_red_metrics() {
+        if std::env::var_os(CHILD_PROCESS_ENV).is_some() {
+            assert_global_red_metrics_exported();
+            return;
+        }
+
+        // `MetricsState` installs a process-global provider. Keep that
+        // mutation in a child process so parallel unit tests cannot redirect
+        // its observation or inherit its provider.
+        let output = Command::new(std::env::current_exe().expect("current test executable"))
+            .args([
+                "--exact",
+                "metrics::tests::metrics_state_exports_global_red_metrics",
+                "--nocapture",
+            ])
+            .env(CHILD_PROCESS_ENV, "1")
+            .output()
+            .expect("run ssh-console metrics test child");
+
+        assert!(
+            output.status.success(),
+            "ssh-console metrics child failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+
+    fn assert_global_red_metrics_exported() {
+        let state = MetricsState::new();
+        carbide_instrument::red::record("ssh-console-test", "connect", "ok", 1.0);
+
+        let family = state
+            .registry
+            .gather()
+            .into_iter()
+            .find(|family| family.name() == "carbide_external_call_duration_milliseconds")
+            .expect("RED histogram should use the ssh-console registry");
+        let expected_labels = [
+            ("backend", "ssh-console-test"),
+            ("operation", "connect"),
+            ("outcome", "ok"),
+        ];
+        let metric = family
+            .get_metric()
+            .iter()
+            .find(|metric| {
+                expected_labels.iter().all(|(name, value)| {
+                    metric
+                        .get_label()
+                        .iter()
+                        .any(|label| label.name() == *name && label.value() == *value)
+                })
+            })
+            .expect("RED histogram should contain the recorded series");
+
+        assert_eq!(metric.get_histogram().get_sample_count(), 1);
     }
 }

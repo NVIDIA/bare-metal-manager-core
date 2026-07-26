@@ -514,10 +514,8 @@ pub async fn start_readiness_monitoring() {
 /// True once [`metrics_server`] has installed the global meter provider and
 /// stored the initialized metrics state.
 ///
-/// Event instruments resolve from the global meter once per event type on
-/// first emit, so emitting before the provider install would bind that event
-/// type to the no-op meter for the process lifetime. The gate also keeps an
-/// endpointless configuration recording nothing, as before.
+/// The gate keeps an endpointless configuration from recording Event metrics
+/// and preserves the service's existing metrics lifecycle.
 fn metrics_initialized() -> bool {
     CONFIG
         .read()
@@ -982,8 +980,7 @@ mod tests {
     /// strings map onto the bounded taxonomy (unknown ones bucket), the raw
     /// Kea message-type codes map onto their family-specific reply labels,
     /// and nothing records until `metrics_server` has initialized metrics --
-    /// the gate that also guarantees the global meter provider is installed
-    /// before the first emit.
+    /// the same gate used by the production FFI entry points.
     #[test]
     fn ffi_increments_gate_on_initialization_and_map_their_arguments() {
         let metrics = MetricsCapture::start();

@@ -63,7 +63,7 @@ pub(crate) fn setup_metrics(spancount_reader: Option<SpanCountReader>) -> eyre::
         )?)
         .build();
     // After this call `global::meter()` will be available
-    opentelemetry::global::set_meter_provider(meter_provider.clone());
+    carbide_instrument::set_meter_provider(meter_provider.clone());
     let meter = meter_provider.meter("carbide-api");
 
     register_spancount_gauge(&meter, spancount_reader);

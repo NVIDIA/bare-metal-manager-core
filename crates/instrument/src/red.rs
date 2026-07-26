@@ -30,28 +30,28 @@
 //! stream's lifetime.
 
 use std::fmt::Display;
-use std::sync::OnceLock;
 use std::time::Instant;
 
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Histogram;
 
+use crate::__private::InstrumentCache;
+
 /// The exposed name is `carbide_external_call_duration_milliseconds`; the
 /// exporter appends the unit suffix (the `carbide-instrument` convention).
 const INSTRUMENT_NAME: &str = "carbide_external_call_duration";
 
-fn histogram() -> &'static Histogram<f64> {
-    static HISTOGRAM: OnceLock<Histogram<f64>> = OnceLock::new();
-    HISTOGRAM.get_or_init(|| {
-        opentelemetry::global::meter("carbide-instrument")
-            .f64_histogram(INSTRUMENT_NAME)
-            .with_unit("ms")
-            .with_description(
-                "Duration of outbound calls by backend, operation, and outcome; the _count \
-                 series, split by outcome, gives the request and error rates.",
-            )
-            .build()
-    })
+static RED_HISTOGRAM: InstrumentCache<Histogram<f64>> = InstrumentCache::new();
+
+fn new_histogram() -> Histogram<f64> {
+    opentelemetry::global::meter("carbide-instrument")
+        .f64_histogram(INSTRUMENT_NAME)
+        .with_unit("ms")
+        .with_description(
+            "Duration of outbound calls by backend, operation, and outcome; the _count \
+             series, split by outcome, gives the request and error rates.",
+        )
+        .build()
 }
 
 /// Times `call`, records the RED histogram on every completion, and logs a
@@ -86,12 +86,14 @@ pub fn record(
     outcome: &'static str,
     elapsed_ms: f64,
 ) {
-    histogram().record(
-        elapsed_ms,
-        &[
-            KeyValue::new("backend", backend),
-            KeyValue::new("operation", operation),
-            KeyValue::new("outcome", outcome),
-        ],
-    );
+    RED_HISTOGRAM.with(new_histogram, |histogram| {
+        histogram.record(
+            elapsed_ms,
+            &[
+                KeyValue::new("backend", backend),
+                KeyValue::new("operation", operation),
+                KeyValue::new("outcome", outcome),
+            ],
+        );
+    });
 }

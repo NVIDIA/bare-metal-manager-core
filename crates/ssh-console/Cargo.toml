@@ -33,6 +33,7 @@ path = "src/main.rs"
 [dependencies]
 
 # local dependencies
+carbide-instrument = { path = "../instrument" }
 carbide-rpc = { path = "../rpc" }
 carbide-uuid = { path = "../uuid" }
 carbide-tls = { path = "../tls" }

@@ -2247,6 +2247,7 @@ dependencies = [
 name = "carbide-instrument"
 version = "0.0.0"
 dependencies = [
+ "arc-swap",
  "carbide-instrument",
  "carbide-instrument-macros",
  "carbide-test-support",
@@ -3168,6 +3169,7 @@ dependencies = [
  "bmc-vendor",
  "bytes",
  "carbide-api-test-helper",
+ "carbide-instrument",
  "carbide-machine-a-tron",
  "carbide-rpc",
  "carbide-ssh-console-mock-api-server",

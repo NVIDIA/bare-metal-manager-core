@@ -15,4 +15,7 @@
 # limitations under the License.
 #
 avoid-breaking-exported-api = false
+disallowed-methods = [
+  { path = "opentelemetry::global::set_meter_provider", reason = "use carbide_instrument::set_meter_provider so Event and RED caches follow provider changes" },
+]
 enum-variant-name-threshold = 2

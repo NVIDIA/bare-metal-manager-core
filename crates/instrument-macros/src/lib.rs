@@ -813,11 +813,13 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             #observation_fn
             #log_fn
 
-            fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
-                static INSTRUMENT: ::std::sync::OnceLock<
+            fn __instrument(&self) -> &'static ::carbide_instrument::__private::InstrumentCache<
+                ::carbide_instrument::__private::CachedInstrument,
+            > {
+                static INSTRUMENT: ::carbide_instrument::__private::InstrumentCache<
                     ::carbide_instrument::__private::CachedInstrument,
-                > = ::std::sync::OnceLock::new();
-                INSTRUMENT.get_or_init(::carbide_instrument::__private::new_instrument::<Self>)
+                > = ::carbide_instrument::__private::InstrumentCache::new();
+                &INSTRUMENT
             }
         }
     }

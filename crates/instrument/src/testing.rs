@@ -209,11 +209,14 @@ impl tracing::field::Visit for CaptureVisitor {
 
 /// A serialized window onto the process-global test meter.
 ///
-/// The first capture installs a Prometheus-backed meter provider as the
-/// global OpenTelemetry meter (instruments are cached per event type, so
-/// tests share one provider for the whole process); the mutex serializes
-/// metric-asserting tests, and deltas are measured against the snapshot taken
-/// at [`MetricsCapture::start`].
+/// Test binaries install a Prometheus-backed meter provider eagerly, and each
+/// capture reinstalls that same provider in case an earlier test replaced the
+/// global one. The mutex serializes metric-asserting tests, and deltas are
+/// measured against the snapshot taken at [`MetricsCapture::start`].
+///
+/// A test that installs another process-global provider must not run
+/// concurrently with a capture because its observations would use that
+/// provider until the next capture starts.
 pub struct MetricsCapture {
     _serialized: MutexGuard<'static, ()>,
     baseline: Snapshot,
@@ -224,7 +227,7 @@ impl MetricsCapture {
     pub fn start() -> Self {
         static SERIAL: Mutex<()> = Mutex::new(());
         let guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
-        let registry = test_registry();
+        let registry = install_test_meter();
         Self {
             _serialized: guard,
             baseline: snapshot(registry),
@@ -313,20 +316,23 @@ fn snapshot(registry: &prometheus::Registry) -> Snapshot {
 }
 
 /// Installs the test meter at test-binary load, before any test (and so any
-/// `emit()`) runs. Instruments are cached per event type on first emit, so a
-/// test that emits without a `MetricsCapture` must still find the real
-/// provider installed -- otherwise that event type would bind to the no-op
-/// global meter and later counter assertions would sit at zero.
+/// `emit()`) runs. The provider-lifecycle regression test disables this in its
+/// child process so it can exercise the real no-provider starting state.
 #[ctor::ctor(unsafe)]
 fn install_test_meter_eagerly() {
-    let _ = test_registry();
+    if std::env::var_os("CARBIDE_INSTRUMENT_DISABLE_EAGER_TEST_METER").is_none() {
+        let _ = install_test_meter();
+    }
 }
 
-/// The process-global test registry, installing the global meter provider on
-/// first use.
-fn test_registry() -> &'static prometheus::Registry {
-    static REGISTRY: OnceLock<prometheus::Registry> = OnceLock::new();
-    REGISTRY.get_or_init(|| {
+struct TestMetrics {
+    registry: prometheus::Registry,
+    provider: opentelemetry_sdk::metrics::SdkMeterProvider,
+}
+
+fn test_metrics() -> &'static TestMetrics {
+    static METRICS: OnceLock<TestMetrics> = OnceLock::new();
+    METRICS.get_or_init(|| {
         let registry = prometheus::Registry::new();
         let exporter = opentelemetry_prometheus::exporter()
             .with_registry(registry.clone())
@@ -337,7 +343,16 @@ fn test_registry() -> &'static prometheus::Registry {
         let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
             .with_reader(exporter)
             .build();
-        opentelemetry::global::set_meter_provider(provider);
-        registry
+        TestMetrics { registry, provider }
     })
+}
+
+fn install_test_meter() -> &'static prometheus::Registry {
+    let metrics = test_metrics();
+    crate::set_meter_provider(metrics.provider.clone());
+    &metrics.registry
+}
+
+fn test_registry() -> &'static prometheus::Registry {
+    &test_metrics().registry
 }

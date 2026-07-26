@@ -77,7 +77,7 @@ impl InstrumentationSingleton {
         // but if there are other OpenTelemetry users in our dependencies, let's
         // make sure they pick up our provider.
         if set_global_meter {
-            opentelemetry::global::set_meter_provider(meter_provider.clone());
+            carbide_instrument::set_meter_provider(meter_provider.clone());
         }
 
         Ok(InstrumentationSingleton {
@@ -166,8 +166,8 @@ mod tests {
     #[test]
     fn test_singleton_init_function() {
         // `false` keeps this construction test from replacing the process-global
-        // provider. Event instruments cache that provider on first use, and the
-        // `MetricsCapture` tests in this binary must keep reading the same one.
+        // provider while the `MetricsCapture` tests in this binary read the
+        // shared test registry.
         let _s = InstrumentationSingleton::try_init_for_dpu_agent(false).expect(
             "The instrumentaion singleton's initialization function must not return an error",
         );

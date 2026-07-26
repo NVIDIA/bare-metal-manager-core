@@ -247,7 +247,7 @@ pub fn new_metrics_setup(
 
     if set_global_meter {
         // After this call `global::meter()` will be available
-        opentelemetry::global::set_meter_provider(meter_provider.clone());
+        carbide_instrument::set_meter_provider(meter_provider.clone());
     }
 
     Ok(MetricsSetup {

@@ -115,7 +115,7 @@ pub fn init() -> eyre::Result<(Registry, HttpRequestMetrics)> {
         .with_resource(resource_attributes)
         .build();
 
-    opentelemetry::global::set_meter_provider(meter_provider);
+    carbide_instrument::set_meter_provider(meter_provider);
 
     Ok((prometheus_registry, HttpRequestMetrics { _private: () }))
 }

@@ -187,11 +187,39 @@
 //! struct Demo {}
 //! ```
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// The derive macros: `#[derive(Event)]` and `#[derive(LabelValue)]`.
 pub use carbide_instrument_macros::{Event, LabelValue};
 use opentelemetry::{KeyValue, StringValue};
+
+static METER_PROVIDER_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Installs the process-global OpenTelemetry meter provider used by Events.
+///
+/// NICo applications should use this instead of
+/// [`opentelemetry::global::set_meter_provider`]. Event and RED instruments
+/// stay bound to the provider that created them, so this also tells their
+/// caches to rebuild after the provider first becomes available or is later
+/// replaced. Metric observations made before the first call are not buffered;
+/// later observations use the installed provider normally.
+#[allow(clippy::disallowed_methods)]
+pub fn set_meter_provider<P>(new_provider: P)
+where
+    P: opentelemetry::metrics::MeterProvider + Send + Sync + 'static,
+{
+    opentelemetry::global::set_meter_provider(new_provider);
+
+    // OpenTelemetry binds each `Meter` to the provider active when it was
+    // created. Publish the generation only after the global provider changes,
+    // so a cache that sees the new value rebuilds from that provider.
+    METER_PROVIDER_GENERATION.fetch_add(1, Ordering::Release);
+}
+
+fn meter_provider_generation() -> u64 {
+    METER_PROVIDER_GENERATION.load(Ordering::Acquire)
+}
 
 /// Whether (and at which level) an event writes a log line.
 ///
@@ -339,51 +367,62 @@ pub trait Event {
     #[doc(hidden)]
     fn __log(&self, level: tracing::Level);
     #[doc(hidden)]
-    fn __instrument(&self) -> &'static __private::CachedInstrument;
+    fn __instrument(&self) -> &'static __private::InstrumentCache<__private::CachedInstrument>;
 }
 
 /// Emits an event: a log line and/or a metric, per the event's knobs.
 ///
-/// Never panics. The metric side resolves its instrument once per event type
-/// (a `OnceLock`) from the global OpenTelemetry meter -- install the meter
-/// provider at startup, before the first emit, as every NICo binary already
-/// does for its existing metrics.
+/// Never panics. The metric side caches its OpenTelemetry instrument per event
+/// type and refreshes it after [`set_meter_provider`] installs or replaces the
+/// global provider. An emit before provider setup still writes its configured
+/// log line, while its metric observation is dropped.
 pub fn emit<E: Event>(event: E) {
     if let LogAt::Level(level) = event.log_at() {
         event.__log(level);
     }
-    match event.__instrument() {
-        __private::CachedInstrument::Counter(counter) => {
-            counter.add(1, event.labels().as_ref());
-        }
-        __private::CachedInstrument::Histogram(histogram) => {
-            histogram.record(event.observation(), event.labels().as_ref());
-        }
-        __private::CachedInstrument::None => {}
+
+    if matches!(E::METRIC, MetricKind::None) {
+        return;
     }
+
+    event.__instrument().with(
+        __private::new_instrument::<E>,
+        |instrument| match instrument {
+            __private::CachedInstrument::Counter(counter) => {
+                counter.add(1, event.labels().as_ref());
+            }
+            __private::CachedInstrument::Histogram(histogram) => {
+                histogram.record(event.observation(), event.labels().as_ref());
+            }
+            __private::CachedInstrument::None => {}
+        },
+    );
 }
 
 /// `initialize_counter_series` exposes one Event counter label set at zero
 /// without writing the Event's log line. It uses the same cached instrument as
-/// [`emit`], so the global meter provider must already be installed before this
-/// call. Context fields are ignored; only the Event's bounded labels select the
+/// [`emit`]. A call before provider setup is dropped rather than buffered, and
+/// a later call after [`set_meter_provider`] registers the series normally.
+/// Context fields are ignored; only the Event's bounded labels select the
 /// series.
 ///
-/// Returns `false` without registering anything when `event` does not declare
-/// `metric = counter`.
+/// Returns `false` when `event` does not declare `metric = counter`. A `true`
+/// result reports the Event's metric kind; it does not mean a provider was
+/// installed or that the zero observation was exported.
 #[must_use = "a false result means the Event is not a counter"]
 pub fn initialize_counter_series<E: Event>(event: &E) -> bool {
     if !matches!(E::METRIC, MetricKind::Counter) {
         return false;
     }
 
-    match event.__instrument() {
-        __private::CachedInstrument::Counter(counter) => {
-            counter.add(0, event.labels().as_ref());
-            true
-        }
-        __private::CachedInstrument::Histogram(_) | __private::CachedInstrument::None => false,
-    }
+    event
+        .__instrument()
+        .with(__private::new_instrument::<E>, |instrument| {
+            if let __private::CachedInstrument::Counter(counter) = instrument {
+                counter.add(0, event.labels().as_ref());
+            }
+        });
+    true
 }
 
 /// The success-or-failure of an operation, as a bounded label.
@@ -424,11 +463,95 @@ pub mod testing;
 pub mod __private {
     //! Support for the derive-generated code; not a public API.
 
+    use std::sync::{Arc, Mutex};
+
+    use arc_swap::ArcSwapOption;
     pub use opentelemetry;
     pub use tracing;
 
-    /// The per-event-type instrument, resolved once and cached in a
-    /// `OnceLock` by the generated `__instrument()`.
+    struct Versioned<T> {
+        generation: u64,
+        instrument: T,
+    }
+
+    /// One provider-aware instrument cache generated for each Event type.
+    pub struct InstrumentCache<T> {
+        current: ArcSwapOption<Versioned<T>>,
+        refresh: Mutex<()>,
+    }
+
+    impl<T> InstrumentCache<T> {
+        /// Creates an empty cache suitable for a derive-generated static.
+        pub const fn new() -> Self {
+            Self {
+                current: ArcSwapOption::const_empty(),
+                refresh: Mutex::new(()),
+            }
+        }
+
+        /// Uses the instrument for the currently installed meter provider.
+        ///
+        /// Generation zero means no provider has been installed through
+        /// [`crate::set_meter_provider`], so the observation is dropped without
+        /// creating a permanent no-op handle. The refresh mutex is only used on
+        /// the first observation after a provider change; stable observations
+        /// take the lock-free path above it.
+        pub fn with(&self, build: impl Fn() -> T, record: impl FnOnce(&T)) {
+            let generation = crate::meter_provider_generation();
+            if generation == 0 {
+                return;
+            }
+
+            let current = self.current.load();
+            if let Some(current) = current
+                .as_ref()
+                .filter(|current| current.generation == generation)
+            {
+                record(&current.instrument);
+                return;
+            }
+            drop(current);
+
+            let _refresh = self.refresh.lock().unwrap_or_else(|p| p.into_inner());
+            loop {
+                let generation = crate::meter_provider_generation();
+                if generation == 0 {
+                    return;
+                }
+
+                let current = self.current.load();
+                if let Some(current) = current
+                    .as_ref()
+                    .filter(|current| current.generation == generation)
+                {
+                    record(&current.instrument);
+                    return;
+                }
+                drop(current);
+
+                let instrument = build();
+                if crate::meter_provider_generation() != generation {
+                    continue;
+                }
+
+                let current = Arc::new(Versioned {
+                    generation,
+                    instrument,
+                });
+                self.current.store(Some(current.clone()));
+                record(&current.instrument);
+                return;
+            }
+        }
+    }
+
+    impl<T> Default for InstrumentCache<T> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    /// The per-event-type instrument stored in the generated cache.
     pub enum CachedInstrument {
         Counter(opentelemetry::metrics::Counter<u64>),
         Histogram(opentelemetry::metrics::Histogram<f64>),

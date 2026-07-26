@@ -172,9 +172,8 @@ mod tests {
     fn metrics_setup_initializes_health_controller() {
         // Mirrors setup_metrics() without its global-meter install: the
         // process-wide test meter (installed at load by
-        // carbide_instrument::testing) owns instrument bindings for this
-        // binary's event tests, and swapping the global provider mid-run
-        // would steal first-emit bindings from them.
+        // carbide_instrument::testing) owns the registry used by this binary's
+        // Event tests, and this assertion only needs the health controller.
         let setup =
             metrics_endpoint::new_metrics_setup("carbide-bmc-proxy", "carbide-system", false)
                 .expect("metrics setup succeeds");
