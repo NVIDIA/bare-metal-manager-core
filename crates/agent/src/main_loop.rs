@@ -29,7 +29,6 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_instrument::{Outcome, emit};
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -57,7 +56,7 @@ use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
-    ReportLoop, ReportLoopCompleted, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
+    NetworkStatus, OvsRestart, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
 };
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -734,10 +733,11 @@ impl MainLoop {
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                tracing::error!(
-                    error = format!("{err:#}"),
-                    "Restarting OVS after admin network change"
-                );
+                OvsRestart::Retrying {
+                    error: format!("{err:#}"),
+                    managed_host_config_version: conf.managed_host_config_version.clone(),
+                }
+                .emit();
                 status_out.network_config_error = Some(err.to_string());
                 self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
                     managed_host_config_version: conf.managed_host_config_version.clone(),
@@ -1439,30 +1439,23 @@ pub async fn record_network_status(
     {
         Ok(client) => client,
         Err(err) => {
-            tracing::error!(
-                forge_api,
-                error = format!("{err:#}"),
-                "record_network_status: Could not connect to Forge API server. Will retry."
-            );
-            emit(ReportLoopCompleted {
-                report_loop: ReportLoop::NetworkStatus,
-                outcome: Outcome::Error,
-            });
+            NetworkStatus::ConnectionFailed {
+                forge_api: forge_api.to_string(),
+                error: format!("{err:#}"),
+            }
+            .emit();
             return;
         }
     };
     let request = tonic::Request::new(status);
     let result = client.record_dpu_network_status(request).await;
-    if let Err(err) = &result {
-        tracing::error!(
-            error = format!("{err:#}"),
-            "Error while executing the record_network_status gRPC call"
-        );
+    match &result {
+        Ok(_) => NetworkStatus::Succeeded.emit(),
+        Err(err) => NetworkStatus::RpcFailed {
+            error: format!("{err:#}"),
+        }
+        .emit(),
     }
-    emit(ReportLoopCompleted {
-        report_loop: ReportLoop::NetworkStatus,
-        outcome: Outcome::from(&result),
-    });
 }
 
 // Get the link type, carrier status, MTU, and whatever else for our uplinks

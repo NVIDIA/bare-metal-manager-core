@@ -139,6 +139,24 @@ impl DynamicLog for CallFinished {
 }
 ```
 
+When the per-case *wording* matters, not just the level, declare `message = dynamic`
+and implement `DynamicMessage`; the derive routes `Event::message()` through it:
+
+```rust
+impl DynamicMessage for CallFinished {
+    fn message(&self) -> &'static str {
+        match self.outcome {
+            Outcome::Error => "outbound call failed",
+            Outcome::Ok => "outbound call finished",
+        }
+    }
+}
+```
+
+The level and the message are independent: an event can pair a dynamic level with a static
+message, or the reverse. Prefer a static `message` plus a `#[label]` where the label already
+names the case. Use `message = dynamic` only when the wording says something the label does not.
+
 ## Outbound calls
 
 Every generated gRPC client method is already wrapped: it records
@@ -164,9 +182,17 @@ must be small and closed. The framework makes that structural instead of a revie
 - **`#[label]` fields must implement `LabelValue`**, which is derivable **only for
   fieldless enums**. A derived label value is the variant's snake_case name.
   `String` never implements it.
+- **A frozen metric label key that collides with a reserved Event-log field** can use the
+  narrow `#[label(name = "component")] publisher: PublishComponent` compatibility form.
+  `name` changes only the Prometheus label key; the generated log uses the Rust field name
+  (`publisher`). Use a bare `#[label]` everywhere else, and do not use this to rename
+  context or observation fields.
 - **`#[context]` fields take anything `Display`** and appear only when the Event emits a log
   line. This is where `machine_id`, addresses, and error text belong. A context field cannot
-  become a metric label.
+  become a metric label. Use **`#[context(value)]`** only for `bool`, `i64`, `f64`, or
+  `String` fields that must retain their native structured type instead of being rendered
+  through `Display`; convert other numeric widths only with a checked, lossless conversion.
+  When that cannot be guaranteed, keep the default `Display` formatting.
 - **Bounded-but-not-enumerated values** such as vendor strings or SKUs can go through a
   **manual `impl LabelValue` on a newtype** -- the deliberate, greppable escape hatch, and
   the place to justify boundedness at review. The deciding factor should be real boundedness *at the call
@@ -175,6 +201,27 @@ must be small and closed. The framework makes that structural instead of a revie
   in `#[context]` and count without it.
 - Per-object metric series remain the exception, and they stay on the opt-in,
   hold-time-bounded `PerObjectMetricsRegistry` -- not on event labels.
+
+### Per-object state endpoint
+
+State-controller object IDs are intentionally high-cardinality. Their current
+state, resolved SLA, intervention status, stable traits, and machine
+associations are therefore observable gauges on a dedicated, disabled-by-default
+Prometheus endpoint rather than event labels or the main `/metrics` endpoint.
+The metric catalog is:
+
+- `carbide_object_state_entered_timestamp_seconds`
+- `carbide_object_state_sla_seconds`
+- `carbide_object_manual_intervention_required`
+- `carbide_object_info`
+- `carbide_machine_dpu_info`
+- `carbide_machine_instance_info`
+
+Enable and select object types with
+`[observability.per_object_state_metrics]`. Scrape it slowly (normally
+60–120 seconds), and scrape both endpoints into the same Prometheus before
+joining these series with aggregate or health metrics.
+Refer to [Per-object state progress metrics](../operations/monitoring-health.md#per-object-state-progress-metrics) for more details.
 
 ## Histograms and observations
 
@@ -309,7 +356,9 @@ inspection.
 - **Reserved Event-log fields**: `message` is always reserved. Events that can log must
   also not declare payload fields named `msg`, `level`, `location`, `component`, `span_id`,
   `event_name`, or `metric_name`. Metric-only legacy labels remain allowed because renaming
-  a Prometheus label would break its metric contract.
+  a Prometheus label would break its metric contract. When such a metric-only Event gains a
+  log, preserve the label key with `#[label(name = "component")]` on a domain-specific Rust
+  field such as `publisher`; only the metric key is aliased.
 
 ## References
 

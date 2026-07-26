@@ -26,7 +26,7 @@ use chrono::TimeDelta;
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, TransactionVending};
-use metrics::DpaMonitorMetrics;
+use metrics::{DpaMonitorIterationFinished, DpaMonitorMetrics};
 use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState, DpaSearchConfig};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
@@ -113,19 +113,13 @@ impl DpaMonitor {
         let timer = PeriodicTimer::new(self.config.monitor_run_interval);
         loop {
             let mut tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(num_changes) => {
-                    if num_changes > 0 {
-                        // Decrease the interval if changes have been made.
-                        tick.set_interval(Duration::from_millis(1000));
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "DPA monitor error",
-                    );
-                }
+            // `run_single_iteration` records a failed pass before returning,
+            // so this loop only needs a successful result to adjust cadence.
+            if let Ok(num_changes) = self.run_single_iteration().await
+                && num_changes > 0
+            {
+                // Decrease the interval if changes have been made.
+                tick.set_interval(Duration::from_millis(1000));
             }
 
             tokio::select! {
@@ -152,6 +146,16 @@ impl DpaMonitor {
             .instrument(check_dpa_span.clone())
             .await;
         check_dpa_span.record("metrics", metrics.to_string());
+        check_dpa_span.in_scope(|| {
+            carbide_instrument::emit(DpaMonitorIterationFinished {
+                latency: metrics.recording_started_at.elapsed(),
+                error: result
+                    .as_ref()
+                    .err()
+                    .map(ToString::to_string)
+                    .unwrap_or_default(),
+            });
+        });
         self.metric_holder.update_metrics(metrics);
         result
     }

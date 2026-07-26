@@ -30,7 +30,7 @@ use crate::bmc::{BmcClient, FixedCredentialProvider};
 use crate::config::{StaticBmcEndpoint, StaticSwitchEndpointRole};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, BoxFuture, EndpointMetadata, EndpointSource, MachineData,
-    PowerShelfData, SwitchData, SwitchEndpointRole,
+    PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
 
 pub struct StaticEndpointSource {
@@ -120,7 +120,13 @@ impl StaticEndpointSource {
                     nmxt_enabled,
                 }))
             } else if let Some(machine) = &cfg.machine {
-                let machine_id = &machine.id;
+                let machine_id = machine.id.as_deref().and_then(|id| match id.parse() {
+                    Ok(machine_id) => Some(machine_id),
+                    Err(error) => {
+                        tracing::warn!(?error, ?id, "Invalid machine.id in static endpoint config");
+                        None
+                    }
+                });
                 let nvlink_domain_uuid =
                     machine.nvlink_domain_uuid.as_ref().and_then(
                         |id| match NvLinkDomainId::from_str(id) {
@@ -143,24 +149,15 @@ impl StaticEndpointSource {
                     .none_if_empty()
                     .map(str::to_string);
 
-                match machine_id.parse() {
-                    Ok(machine_id) => Some(EndpointMetadata::Machine(MachineData {
-                        machine_id,
-                        machine_serial: machine.serial.clone(),
-                        slot_number: machine.slot_number,
-                        tray_index: machine.tray_index,
-                        nvlink_domain_uuid,
-                        driver_version,
-                    })),
-                    Err(error) => {
-                        tracing::warn!(
-                            ?error,
-                            ?machine_id,
-                            "Invalid machine.id in static endpoint config"
-                        );
-                        None
-                    }
-                }
+                Some(EndpointMetadata::Machine(MachineData {
+                    machine_id,
+                    machine_serial: machine.serial.clone(),
+                    system_uuid: SharedSystemUuid::default(),
+                    slot_number: machine.slot_number,
+                    tray_index: machine.tray_index,
+                    nvlink_domain_uuid,
+                    driver_version,
+                }))
             } else {
                 None
             };
@@ -196,6 +193,7 @@ impl StaticEndpointSource {
                 addr,
                 metadata,
                 rack_id: cfg.rack_id.as_ref().map(|id| RackId::new(id.as_str())),
+                labels: cfg.labels.clone(),
                 bmc,
             };
             endpoints.push(Arc::new(endpoint));
@@ -292,6 +290,7 @@ mod tests {
                 power_shelf: None,
                 switch: None,
                 rack_id: None,
+                labels: Default::default(),
             },
             StaticBmcEndpoint {
                 ip: ip("10.0.0.2"),
@@ -303,6 +302,7 @@ mod tests {
                 power_shelf: None,
                 switch: None,
                 rack_id: None,
+                labels: Default::default(),
             },
         ];
 
@@ -338,6 +338,7 @@ mod tests {
                 nmxt_enabled: None,
             }),
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -375,6 +376,7 @@ mod tests {
             }),
             switch: None,
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -405,7 +407,7 @@ mod tests {
             username: "admin".to_string(),
             password: Some("pass".to_string()),
             machine: Some(StaticMachineEndpoint {
-                id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
+                id: Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string()),
                 serial: Some("MN-001".to_string()),
                 slot_number: Some(15),
                 tray_index: Some(5),
@@ -415,6 +417,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: Some("RACK_1".to_string()),
+            labels: std::collections::BTreeMap::from([("site".to_string(), "dev".to_string())]),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -428,9 +431,13 @@ mod tests {
                 .map(|rack_id| rack_id.as_str()),
             Some("RACK_1")
         );
+        assert_eq!(
+            endpoints[0].labels.get("site").map(String::as_str),
+            Some("dev")
+        );
         match &endpoints[0].metadata {
             Some(EndpointMetadata::Machine(machine)) => {
-                assert_eq!(machine.machine_id, machine_id);
+                assert_eq!(machine.machine_id, Some(machine_id));
                 assert_eq!(machine.machine_serial.as_deref(), Some("MN-001"));
                 assert_eq!(machine.slot_number, Some(15));
                 assert_eq!(machine.tray_index, Some(5));
@@ -450,7 +457,7 @@ mod tests {
             username: "admin".to_string(),
             password: Some("pass".to_string()),
             machine: Some(StaticMachineEndpoint {
-                id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string(),
+                id: Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0".to_string()),
                 serial: None,
                 slot_number: None,
                 tray_index: None,
@@ -460,6 +467,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);
@@ -486,6 +494,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: None,
+            labels: Default::default(),
         }];
 
         let source = StaticEndpointSource::from_config(&configs, &reqwest(), None, 10);

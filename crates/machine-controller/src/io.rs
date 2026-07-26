@@ -367,6 +367,18 @@ impl StateControllerIO for MachineStateControllerIO {
         }
     }
 
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        match state {
+            // A Failed state carrying NoError is not actionable by an operator.
+            ManagedHostState::Failed { details, .. }
+                if details.cause != model::machine::FailureCause::NoError =>
+            {
+                Some(details.cause.metric_label())
+            }
+            _ => None,
+        }
+    }
+
     fn state_sla(
         &self,
         state: &Versioned<Self::ControllerState>,

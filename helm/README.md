@@ -13,7 +13,7 @@ The chart is designed for production environments where NICo manages the full li
 | #  | Subchart | Description |
 |----|----------|-------------|
 | 1  | **nico-api** | Core API server (gRPC + REST). Manages machines, provisioning, networking, and firmware. Requires PostgreSQL and Vault. |
-| 2  | **nico-bmc-proxy** | Authenticating proxy for connecting to BMCs over HTTPS (Redfish). |
+| 2  | **nico-bmc-proxy** | Authenticating proxy for connecting to BMCs over HTTPS (Redfish). Required for DPS-based power provisioning. |
 | 3  | **nico-dhcp** | Kea DHCP server for bare-metal PXE boot and IP assignment. |
 | 4  | **nico-dns** | Authoritative DNS server (StatefulSet) for managed machines and VPCs. |
 | 5  | **nico-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. Disabled by default. |
@@ -124,6 +124,10 @@ Each subchart can be independently enabled or disabled. All core NICo services a
 ```yaml
 nico-api:
   enabled: true        # Core API -- usually always enabled
+nico-bmc-proxy:
+  enabled: true        # BMC proxy — required for DPS-based power provisioning;
+                       # disable only when an external BMC proxy is deployed
+                       # and wired separately
 nico-dhcp:
   enabled: true        # DHCP for PXE boot
 nico-dns:

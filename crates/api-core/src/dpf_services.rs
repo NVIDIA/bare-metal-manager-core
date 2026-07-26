@@ -49,9 +49,9 @@ pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbi
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
-pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "1.0.5";
+pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "3.4.0";
 pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
-pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.4.0-doca3.4.0";
 pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
 /// DHCP Service Definitions
@@ -63,7 +63,7 @@ pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
 /// DTS service definitions
 /// (DTS_SERVICE_NAME lives in carbide_dpf::types so the DPF SDK can wire its dependencies.)
 pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
-pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
+pub const DTS_SERVICE_HELM_VERSION: &str = "1.25.5";
 
 // DPU Agent Service Definitions
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "nico-dpu-agent";

@@ -71,11 +71,25 @@ vault:
   ## (forged/terraform/v2/modules/vault) writes via vault_kv_secret_v2.
   ## Set kvSeeds: [] to disable seeding.
   kvSeeds:
+    ## Legacy catch-all DPU BMC factory default (DpuModel::Unknown → path segment "root").
+    ## Used when no model-specific entry is configured or the DPU model cannot be identified.
     - path: "machines/all_dpus/factory_default/bmc-metadata-items/root"
       data:
         UsernamePassword:
           username: "root"
           password: "0penBmc"
+    ## Per-model DPU BMC factory-default OVERRIDES (optional).
+    ##
+    ## Not seeded by default: site-explorer already falls back to each model's
+    ## publicly-documented factory default in code (DpuModel::default_factory_credentials
+    ## — BlueField-4 = admin/0penBmc, earlier generations = root/0penBmc, matching the
+    ## "root" catch-all above). Only add a per-model entry here to override that default
+    ## for a site whose DPUs ship with a non-standard factory password.
+    # - path: "machines/all_dpus/factory_default/bmc-metadata-items/bf4"
+    #   data:
+    #     UsernamePassword:
+    #       username: "admin"
+    #       password: ""          # SITE SECRET: this site's BF4 factory password
     - path: "machines/all_dpus/factory_default/uefi-metadata-items/auth"
       data:
         UsernamePassword:

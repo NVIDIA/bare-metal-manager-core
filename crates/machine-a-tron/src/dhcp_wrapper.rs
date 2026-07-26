@@ -20,11 +20,15 @@ use std::sync::Arc;
 
 use bmc_mock::{HostHardwareType, MachineInfo};
 use carbide_uuid::machine::MachineInterfaceId;
+use dhcproto::v4::MessageType;
 use mac_address::MacAddress;
 use rpc::forge::ManagedHostNetworkConfigResponse;
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 use crate::api_client::{ApiClient, ClientApiError};
+use crate::config::{DhcpType, MachineATronConfig};
+use crate::dhcp_wrapper_udp::UdpDhcpClient;
+pub use crate::dhcp_wrapper_udp::UdpDhcpService;
 
 pub type DhcpRelayResult<T> = Result<T, DhcpRelayError>;
 
@@ -122,8 +126,44 @@ pub struct DhcpResponseInfo {
     pub ip_address: Ipv4Addr,
 }
 
-pub async fn request_ip(
-    api_client: ApiClient,
+#[derive(Clone, Debug)]
+pub enum DhcpClient {
+    Api(ApiClient),
+    UdpRelay(UdpDhcpClient),
+}
+
+impl DhcpClient {
+    pub async fn start(
+        config: &MachineATronConfig,
+        api_client: ApiClient,
+    ) -> eyre::Result<(Self, Option<UdpDhcpService>)> {
+        match config.dhcp {
+            DhcpType::Api {} => Ok((Self::Api(api_client), None)),
+            DhcpType::UdpRelay {
+                server_address,
+                listen_address,
+                advertise_address,
+            } => {
+                let (client, service) =
+                    UdpDhcpClient::start(server_address, listen_address, advertise_address).await?;
+                Ok((Self::UdpRelay(client), Some(service)))
+            }
+        }
+    }
+
+    pub async fn request_ip(
+        &self,
+        request_info: DhcpRequestInfo,
+    ) -> DhcpRelayResult<DhcpResponseInfo> {
+        match self {
+            Self::Api(api_client) => request_ip_from_api(api_client, request_info).await,
+            Self::UdpRelay(client) => client.request_ip(request_info).await,
+        }
+    }
+}
+
+async fn request_ip_from_api(
+    api_client: &ApiClient,
     request_info: DhcpRequestInfo,
 ) -> DhcpRelayResult<DhcpResponseInfo> {
     tracing::debug!(
@@ -177,6 +217,21 @@ pub enum DhcpRelayError {
     ClientApiError(#[from] ClientApiError),
     #[error("invalid DHCP record: {0}")]
     InvalidDhcpRecord(String),
+    #[error("invalid DHCP packet: {0}")]
+    InvalidDhcpPacket(String),
+    #[error("DHCP I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("DHCP transaction ID {0} is already active")]
+    TransactionCollision(u32),
+    #[error("timed out waiting for {expected_type:?} for DHCP transaction {xid}")]
+    ResponseTimeout {
+        xid: u32,
+        expected_type: MessageType,
+    },
+    #[error("DHCP response receiver stopped")]
+    ResponseReceiverStopped,
+    #[error("DHCP server returned NAK for transaction {0}")]
+    NegativeAcknowledgement(u32),
 }
 
 impl From<tonic::Status> for DhcpRelayError {

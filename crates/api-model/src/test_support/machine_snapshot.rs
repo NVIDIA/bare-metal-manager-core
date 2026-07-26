@@ -172,6 +172,8 @@ pub fn host_hardware_info() -> HardwareInfo {
                 model: "Dell Ent NVMe CM6 RI 3.84TB".to_string(),
                 firmware_rev: "2.2.0".to_string(),
                 serial: format!("Y2Q0A05DT2Q{i}"),
+                size_mb: None,
+                pci_path: None,
             })
             .collect(),
         dmi_data: Some(DmiData {

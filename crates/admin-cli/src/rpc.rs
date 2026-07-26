@@ -1176,6 +1176,8 @@ impl ApiClient {
                 reserve_first: 0,
                 free_ip_count: 1,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             segment_type: NetworkSegmentType::Tenant as i32,
             id: Some(id),
@@ -1251,6 +1253,8 @@ impl ApiClient {
                 // computed by the server, ignored on create
                 free_ip_count: 1,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             segment_type: NetworkSegmentType::HostInband as i32,
             id: Some(id),
@@ -1961,6 +1965,22 @@ impl ApiClient {
         Ok(self
             .0
             .update_instance_config(update_instance_request)
+            .await?)
+    }
+
+    pub async fn set_container_registry_credential(
+        &self,
+        registry: String,
+        username: String,
+        password: String,
+    ) -> CarbideCliResult<()> {
+        Ok(self
+            .0
+            .set_container_registry_credential(rpc::SetContainerRegistryCredentialRequest {
+                registry,
+                username,
+                password,
+            })
             .await?)
     }
 

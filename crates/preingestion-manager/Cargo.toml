@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Carbide Pre-ingestion Manager"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_preingestion_manager"
@@ -43,6 +44,7 @@ carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-harness = { path = "../test-harness" }
 carbide-test-support = { path = "../test-support" }
 carbide-uuid = { path = "../uuid" }
+libc = { workspace = true }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 tempfile = { workspace = true }
 

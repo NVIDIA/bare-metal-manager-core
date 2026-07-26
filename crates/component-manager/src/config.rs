@@ -51,8 +51,8 @@ pub struct ComponentManagerConfig {
 
     /// Enables the NVOS password-rotation backend capability.
     ///
-    /// End-to-end rotation remains unavailable until orchestration is implemented.
-    /// TODO: Remove this gate once end-to-end rotation is enabled by default.
+    /// Keep this rollout gate until every reachable RMS supports repeat-safe
+    /// current-to-target password convergence.
     #[serde(default)]
     pub nvos_password_rotation_enabled: bool,
 }
@@ -345,14 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn default_switch_mtls_services_matches_rms_defaults() {
-        assert_eq!(
-            effective_switch_mtls_services(&[]),
-            SwitchMtlsService::default_services()
-        );
-    }
-
-    #[test]
     fn default_nmx_cluster_switch_mtls_services_matches_scale_up_fabric() {
         assert_eq!(
             effective_nmx_cluster_switch_mtls_services(&[]),
@@ -368,10 +360,27 @@ mod tests {
     }
 
     #[test]
-    fn switch_mtls_services_empty_uses_all_supported_services() {
-        assert_eq!(
-            effective_switch_mtls_services(&[]),
-            SwitchMtlsService::default_services()
+    fn switch_mtls_services_use_defaults_only_when_empty() {
+        check_values(
+            [
+                Check {
+                    scenario: "empty configuration uses every supported service",
+                    input: Vec::new(),
+                    expect: SwitchMtlsService::default_services(),
+                },
+                Check {
+                    scenario: "configured services are preserved",
+                    input: vec![
+                        SwitchMtlsService::NvueApi,
+                        SwitchMtlsService::ScaleUpFabricManager,
+                    ],
+                    expect: vec![
+                        SwitchMtlsService::NvueApi,
+                        SwitchMtlsService::ScaleUpFabricManager,
+                    ],
+                },
+            ],
+            |services| effective_switch_mtls_services(&services),
         );
     }
 
@@ -390,13 +399,6 @@ mod tests {
         .unwrap();
         assert_eq!(
             cfg.switch_mtls_services,
-            vec![
-                SwitchMtlsService::NvueApi,
-                SwitchMtlsService::ScaleUpFabricManager,
-            ]
-        );
-        assert_eq!(
-            effective_switch_mtls_services(&cfg.switch_mtls_services),
             vec![
                 SwitchMtlsService::NvueApi,
                 SwitchMtlsService::ScaleUpFabricManager,

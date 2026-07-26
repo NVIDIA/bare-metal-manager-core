@@ -33,37 +33,6 @@ impl std::fmt::Display for Backend {
     }
 }
 
-/// Backend-neutral classification of a terminal password-rotation failure.
-///
-/// This classification supplies reconciliation context; it does not by itself
-/// determine whether retrying the password mutation is safe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SwitchPasswordRotationFailure {
-    /// The switch rejected the current credential.
-    Unauthenticated,
-
-    /// The backend rejected the request parameters.
-    InvalidArgument,
-
-    /// Another update prevented the password mutation from running.
-    UpdateInProgress,
-
-    /// Communication with the switch failed or returned an invalid response.
-    Communication,
-
-    /// The backend could not locate the target switch.
-    TargetNotFound,
-
-    /// The backend timed out while waiting for the password mutation.
-    TimedOut,
-
-    /// The backend reported an internal or otherwise unclassified failure.
-    Backend,
-
-    /// The backend returned an unset or unrecognized failure code.
-    Unknown,
-}
-
 /// Backend observation of a switch OS password-rotation job.
 ///
 /// This describes the backend job, not the credential state observed on the
@@ -72,7 +41,8 @@ pub enum SwitchPasswordRotationFailure {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SwitchPasswordRotationState {
     /// The backend cannot currently resolve the job. This does not establish
-    /// the mutation outcome and requires credential-state reconciliation.
+    /// the mutation outcome; callers must retain or fail the staged target
+    /// according to their recovery policy.
     NotFound,
 
     /// The backend returned a job state that cannot be classified.
@@ -85,10 +55,8 @@ pub enum SwitchPasswordRotationState {
     /// Callers may still need to promote and verify the staged credential.
     Completed,
 
-    /// The backend reports that the job terminated unsuccessfully. The failure
-    /// class does not by itself identify which credential currently
-    /// authenticates.
-    Failed(SwitchPasswordRotationFailure),
+    /// The backend reports that the job terminated unsuccessfully.
+    Failed,
 }
 
 /// Physical network identifiers for an NV-Switch, used to register with and
@@ -160,17 +128,18 @@ pub struct ConfigureSwitchCertificateJobStatus {
 ///
 /// Password rotation is split into capability discovery, submission, and
 /// observation. This keeps backend-specific job handling here while leaving
-/// retry safety and credential reconciliation to the orchestration layer.
+/// convergence persistence to the orchestration layer.
 #[async_trait::async_trait]
 pub trait NvSwitchManager: Send + Sync + Debug + 'static {
     fn name(&self) -> &str;
 
-    /// Reports whether this backend is configured to support OS password
-    /// rotation.
+    /// Reports whether this backend supports OS password rotation.
     ///
-    /// `false` means callers must not submit rotation work. `true` reports
-    /// configured capability, not current backend or switch health. The default
-    /// keeps existing backends disabled until they implement the full contract.
+    /// `false` means callers must not submit rotation work. `true` means an
+    /// unchanged request from the current password to the target password is
+    /// safe to repeat: a backend must either apply the target or recognize that
+    /// the target is already active. The default keeps existing backends
+    /// disabled until they implement this contract.
     fn supports_password_rotation(&self) -> bool {
         false
     }
@@ -221,22 +190,29 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         job_id: &str,
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError>;
 
-    /// Starts a rotation from the endpoint's current NVOS credential to
+    /// Converges the endpoint from its current NVOS credential to
     /// `next_password`.
     ///
-    /// On accepted submission, returns a backend job ID that can be passed to
-    /// [`Self::get_password_rotation_job_status`].
-    /// Job IDs are opaque: callers must preserve the exact value and must not
-    /// infer backend state from its contents. Implementations must not log
-    /// `next_password` or otherwise expose it outside the backend request.
+    /// Implementations must make repeated identical requests safe after a
+    /// controller or backend restart, including overlapping requests through
+    /// different backend replicas. If the endpoint authenticates with the current
+    /// password, apply the target. If it authenticates with the target, recognize
+    /// convergence without applying another password change.
+    ///
+    /// The returned job ID can be passed to
+    /// [`Self::get_password_rotation_job_status`] for an early completion
+    /// observation. It is opaque and transient: callers must not derive
+    /// credential state from it. Implementations must not log `next_password`
+    /// or otherwise expose it outside the backend request.
     ///
     /// If dispatch may have reached the backend but no job ID is available, the
     /// implementation returns [`ComponentManagerError::OperationOutcomeUnknown`].
-    /// Every other error guarantees that no password mutation was accepted.
-    /// Callers that cancel or time out this future before it returns must treat
-    /// the outcome as unknown unless they can prove dispatch did not occur. The
-    /// default implementation returns [`ComponentManagerError::Unsupported`].
-    async fn start_password_rotation(
+    /// Callers retain the exact staged current-to-target transition and retry it
+    /// later. [`ComponentManagerError::RejectedBeforeDispatch`] is reserved for
+    /// rejection that proves no mutation or job was accepted. The default
+    /// implementation returns
+    /// [`ComponentManagerError::Unsupported`].
+    async fn ensure_password_rotation(
         &self,
         _endpoint: &SwitchEndpoint,
         _next_password: &str,

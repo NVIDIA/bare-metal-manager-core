@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Admin web UI (HTML/askama) for the carbide-api server"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_api_web"
@@ -69,7 +70,7 @@ reqwest = { workspace = true, default-features = false, features = [
   "stream",
 ] }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
 sqlx = { workspace = true, features = [
   "runtime-tokio",
   "tls-rustls",
@@ -88,6 +89,7 @@ tonic = { workspace = true }
 tower-http = { workspace = true, features = [
   "add-extension",
   "auth",
+  "csrf",
   "normalize-path",
 ] }
 tracing = { workspace = true }

@@ -20,6 +20,7 @@ use carbide_ib_fabric::errors::IbError;
 use carbide_ib_fabric::ib::{
     GetPartitionOptions, IBFabric, IBFabricManager, IBFabricManagerConfig,
 };
+use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
 use carbide_uuid::infiniband::IBPartitionId;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
@@ -29,6 +30,61 @@ use state_controller::state_handler::{
 
 use crate::context::IBPartitionStateHandlerContextObjects;
 use crate::ufm_error;
+
+/// The controller states in which a persisted partition must already have a
+/// pkey.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum MissingPkeyControllerState {
+    Ready,
+    Deleting,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "ib_partition_pkey_missing",
+    metric_name = "carbide_ib_partition_pkey_missing_total",
+    component = "ib-partition-controller",
+    log = error,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of IB partitions missing a pkey, by controller state"
+)]
+struct IbPartitionPkeyMissing {
+    #[label]
+    controller_state: MissingPkeyControllerState,
+    #[context]
+    ib_partition_id: IBPartitionId,
+    #[context]
+    cause: String,
+}
+
+impl DynamicMessage for IbPartitionPkeyMissing {
+    fn message(&self) -> &'static str {
+        match self.controller_state {
+            MissingPkeyControllerState::Ready => "IB partition has no pkey while ready",
+            MissingPkeyControllerState::Deleting => "IB partition has no pkey while deleting",
+        }
+    }
+}
+
+fn missing_pkey_transition(
+    partition_id: IBPartitionId,
+    controller_state: MissingPkeyControllerState,
+) -> StateHandlerOutcome<IBPartitionControllerState> {
+    let cause = match controller_state {
+        MissingPkeyControllerState::Ready => "The pkey is None when IBPartition is ready",
+        MissingPkeyControllerState::Deleting => "The pkey is None when deleting an IBPartition.",
+    }
+    .to_string();
+
+    emit(IbPartitionPkeyMissing {
+        controller_state,
+        ib_partition_id: partition_id,
+        cause: cause.clone(),
+    });
+
+    StateHandlerOutcome::transition(IBPartitionControllerState::Error { cause })
+}
 
 /// The actual IBPartition State handler
 #[derive(Debug, Default, Clone)]
@@ -57,18 +113,10 @@ impl StateHandler for IBPartitionStateHandler {
 
             IBPartitionControllerState::Deleting => {
                 match state.status.as_ref().and_then(|s| s.pkey) {
-                    None => {
-                        let cause = "The pkey is None when deleting an IBPartition.";
-                        tracing::error!(
-                            ib_partition_id = %partition_id,
-                            cause = %cause,
-                            "IB partition has no pkey while deleting"
-                        );
-                        let new_state = IBPartitionControllerState::Error {
-                            cause: cause.to_string(),
-                        };
-                        Ok(StateHandlerOutcome::transition(new_state))
-                    }
+                    None => Ok(missing_pkey_transition(
+                        *partition_id,
+                        MissingPkeyControllerState::Deleting,
+                    )),
                     Some(pkey) => {
                         let ib_fabric =
                             connect_ib_fabric(ctx.services.ib_fabric_manager.as_ref()).await?;
@@ -144,20 +192,10 @@ impl StateHandler for IBPartitionStateHandler {
             }
 
             IBPartitionControllerState::Ready => match state.status.as_ref().and_then(|s| s.pkey) {
-                None => {
-                    let cause = "The pkey is None when IBPartition is ready";
-                    tracing::error!(
-                        ib_partition_id = %partition_id,
-                        cause = %cause,
-                        "IB partition has no pkey while ready"
-                    );
-
-                    Ok(StateHandlerOutcome::transition(
-                        IBPartitionControllerState::Error {
-                            cause: cause.to_string(),
-                        },
-                    ))
-                }
+                None => Ok(missing_pkey_transition(
+                    *partition_id,
+                    MissingPkeyControllerState::Ready,
+                )),
                 Some(pkey) => {
                     if state.is_marked_as_deleted() {
                         Ok(StateHandlerOutcome::transition(
@@ -298,6 +336,8 @@ mod tests {
     use std::collections::HashMap;
 
     use carbide_ib_fabric::ib::fakes::{CountingFabricManager, make_partition};
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::value_scenarios;
     use model::resource_pool::common::IbPools;
     use sqlx::PgPool;
     use state_controller::db_write_batch::DbWriteBatch;
@@ -340,6 +380,111 @@ mod tests {
             .await;
 
         (manager.build_count(), outcome)
+    }
+
+    #[derive(Clone, Copy)]
+    enum MissingPkeyCase {
+        Ready,
+        Deleting,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct MissingPkeyObservation {
+        builds: usize,
+        cause: String,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        controller_state: Option<String>,
+        counter_delta: f64,
+    }
+
+    fn observe_missing_pkey(case: MissingPkeyCase) -> MissingPkeyObservation {
+        const METRIC: &str = "carbide_ib_partition_pkey_missing_total";
+
+        let (controller_state, label) = match case {
+            MissingPkeyCase::Ready => (IBPartitionControllerState::Ready, "ready"),
+            MissingPkeyCase::Deleting => (IBPartitionControllerState::Deleting, "deleting"),
+        };
+        let partition = make_partition(None, false);
+        let partition_id = partition.id.to_string();
+        let metrics = MetricsCapture::start();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("test runtime");
+        let mut handler_result = None;
+        let logs = capture_logs(|| {
+            handler_result = Some(runtime.block_on(run_handler(controller_state, partition)));
+        });
+
+        let (builds, outcome) = handler_result.expect("handler ran");
+        let cause = match outcome.expect("handler succeeds") {
+            StateHandlerOutcome::Transition {
+                next_state: IBPartitionControllerState::Error { cause },
+                ..
+            } => cause,
+            _ => panic!("expected transition to Error"),
+        };
+        let event = logs
+            .iter()
+            .find(|log| log.metadata_name == "ib_partition_pkey_missing")
+            .expect("missing-pkey Event logged");
+        assert_eq!(event.field("ib_partition_id"), Some(partition_id.as_str()));
+
+        let other_label = match case {
+            MissingPkeyCase::Ready => "deleting",
+            MissingPkeyCase::Deleting => "ready",
+        };
+        assert_eq!(
+            metrics.counter_delta(METRIC, &[("controller_state", other_label)]),
+            0.0,
+            "only the current transition is counted"
+        );
+
+        MissingPkeyObservation {
+            builds,
+            cause,
+            level: event.level,
+            message: event.message.clone(),
+            event_name: event.field("event_name").map(str::to_string),
+            metric_name: event.field("metric_name").map(str::to_string),
+            controller_state: event.field("controller_state").map(str::to_string),
+            counter_delta: metrics.counter_delta(METRIC, &[("controller_state", label)]),
+        }
+    }
+
+    #[test]
+    fn missing_pkey_transitions_log_and_count_by_controller_state() {
+        const METRIC: &str = "carbide_ib_partition_pkey_missing_total";
+
+        value_scenarios!(observe_missing_pkey:
+            "partition is ready without a pkey" {
+                MissingPkeyCase::Ready => MissingPkeyObservation {
+                    builds: 0,
+                    cause: "The pkey is None when IBPartition is ready".to_string(),
+                    level: tracing::Level::ERROR,
+                    message: "IB partition has no pkey while ready".to_string(),
+                    event_name: Some("ib_partition_pkey_missing".to_string()),
+                    metric_name: Some(METRIC.to_string()),
+                    controller_state: Some("ready".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+
+            "partition is deleting without a pkey" {
+                MissingPkeyCase::Deleting => MissingPkeyObservation {
+                    builds: 0,
+                    cause: "The pkey is None when deleting an IBPartition.".to_string(),
+                    level: tracing::Level::ERROR,
+                    message: "IB partition has no pkey while deleting".to_string(),
+                    event_name: Some("ib_partition_pkey_missing".to_string()),
+                    metric_name: Some(METRIC.to_string()),
+                    controller_state: Some("deleting".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+        );
     }
 
     #[tokio::test]

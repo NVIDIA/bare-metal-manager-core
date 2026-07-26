@@ -16,7 +16,8 @@
  */
 use std::sync::Arc;
 
-use carbide_rack::rms_node_type::compute_node_type_for_profile;
+use carbide_instrument::emit;
+use carbide_rack::rms_node_type::compute_node_identity_for_profile;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
@@ -49,7 +50,7 @@ use crate::SiteExplorerConfig;
 use crate::errors::{SiteExplorerError, SiteExplorerResult};
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 use crate::managed_host::ManagedHost;
-use crate::metrics::SiteExplorationMetrics;
+use crate::metrics::{SiteExplorationMetrics, SiteExplorerMachineSlotTrayPersistenceFailed};
 
 /// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
@@ -329,7 +330,7 @@ impl MachineCreator {
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
             .await?;
 
-        let rms_node_type = if let (Some(rack_id), Some(_)) =
+        let rms_node_identity = if let (Some(rack_id), Some(_)) =
             (&expected_machine.data.rack_id, &self.rms_client)
         {
             let Some(rack_profile_id) = rack_profile_id.as_ref() else {
@@ -345,7 +346,7 @@ impl MachineCreator {
             };
 
             Some(
-                compute_node_type_for_profile(rack_profile)
+                compute_node_identity_for_profile(rack_profile)
                     .map_err(|error| SiteExplorerError::InvalidArgument(error.to_string()))?,
             )
         } else {
@@ -354,36 +355,37 @@ impl MachineCreator {
 
         txn.commit().await?;
 
-        if let (Some(rack_id), Some(rms_client), Some(node_type)) = (
+        if let (Some(rack_id), Some(rms_client), Some(node_identity)) = (
             &expected_machine.data.rack_id,
             &self.rms_client,
-            rms_node_type,
+            rms_node_identity,
         ) {
-            let request = rms::BatchGetNodeDeviceInfoRequest {
-                nodes: Some(rms::NodeSet {
-                    nodes: vec![rms::NodeInfo {
-                        node_id: host_machine_id.to_string(),
-                        rack_id: rack_id.to_string(),
-                        r#type: Some(node_type as i32),
-                        bmc_endpoint: Some(rms::Endpoint {
-                            interface: Some(rms::NetworkInterface {
-                                ip_address: explored_host.host_bmc_ip.to_string(),
-                                mac_address: expected_machine.bmc_mac_address.to_string(),
-                                host_name: None,
-                            }),
-                            port: 443,
-                            credentials: bmc_credentials.map(|(username, password)| {
-                                rms::Credentials {
-                                    auth: Some(rms::credentials::Auth::UserPass(
-                                        rms::UsernamePassword { username, password },
-                                    )),
-                                }
-                            }),
-                            dangerously_accept_invalid_certs: true,
-                        }),
-                        ..Default::default()
-                    }],
+            let mut node = rms::NodeInfo {
+                node_id: host_machine_id.to_string(),
+                rack_id: rack_id.to_string(),
+                r#type: None,
+                node_descriptor: None,
+                bmc_endpoint: Some(rms::Endpoint {
+                    interface: Some(rms::NetworkInterface {
+                        ip_address: explored_host.host_bmc_ip.to_string(),
+                        mac_address: expected_machine.bmc_mac_address.to_string(),
+                        host_name: None,
+                    }),
+                    port: 443,
+                    credentials: bmc_credentials.map(|(username, password)| rms::Credentials {
+                        auth: Some(rms::credentials::Auth::UserPass(rms::UsernamePassword {
+                            username,
+                            password,
+                        })),
+                    }),
                 }),
+                ..Default::default()
+            };
+
+            node_identity.apply_to_node_info(&mut node);
+
+            let request = rms::BatchGetNodeDeviceInfoRequest {
+                nodes: Some(rms::NodeSet { nodes: vec![node] }),
             };
             let (slot_number, tray_index) =
                 crate::fetch_slot_and_tray(rms_client.as_ref(), request).await;
@@ -396,13 +398,16 @@ impl MachineCreator {
             )
             .await
             {
-                tracing::warn!(
-                    error = %e,
-                    %host_machine_id,
-                    "Failed to update slot_number and tray_index for machine"
-                );
+                emit(SiteExplorerMachineSlotTrayPersistenceFailed::new(
+                    e.to_string(),
+                    host_machine_id.to_string(),
+                ));
+                update_txn
+                    .rollback_or_log("site-explorer slot and tray update after operation failure")
+                    .await;
+            } else {
+                update_txn.commit().await?;
             }
-            update_txn.commit().await?;
         }
 
         Ok(true)

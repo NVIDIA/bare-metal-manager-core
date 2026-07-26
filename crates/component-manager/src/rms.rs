@@ -19,10 +19,12 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
-use carbide_instrument::red;
+use carbide_instrument::{Event, emit, red};
 use carbide_rack::firmware_object::rms_access_token_or_noauth;
 use carbide_rack::rms_node_type::{
-    compute_node_type_for_profile, power_shelf_node_type_for_profile, switch_node_type_for_profile,
+    RmsNodeIdentity, compute_node_identity_for_profile,
+    firmware_object_component_filters_for_node_identities, power_shelf_node_identity_for_profile,
+    switch_node_identity_for_profile,
 };
 use carbide_secrets::credentials::Credentials;
 use carbide_uuid::rack::RackProfileId;
@@ -45,9 +47,8 @@ use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     Backend as NvSwitchBackend, ConfigureSwitchCertificateJobStatus, NvSwitchManager,
-    SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
-    SwitchPasswordRotationFailure, SwitchPasswordRotationState, SwitchPowerStateResult,
-    SwitchSlotAndTrayResult,
+    SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus, SwitchPasswordRotationState,
+    SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     Backend as PowerShelfBackend, PowerShelfComponentResult, PowerShelfEndpoint,
@@ -66,7 +67,7 @@ struct RmsIdentity {
 
 struct ResolvedRmsNode<'a> {
     identity: &'a RmsIdentity,
-    node_type: rms::NodeType,
+    node_identity: RmsNodeIdentity,
 }
 
 /// Role for MAC-keyed switch and power shelf lookups.
@@ -95,12 +96,9 @@ const RMS_IDENTITY_LOOKUP_ERROR: &str = "could not resolve RMS identity from dat
 
 /// Validates rack profile fields required by RMS component-manager backends.
 ///
-/// RMS requests use concrete node type variants, such as the product family
-/// and vendor-specific compute, switch, or power shelf type. NICo resolves
-/// those variants from rack profile product-family and vendor data. When an RMS
-/// backend is enabled, invalid or incomplete rack profile data would otherwise
-/// surface later as per-device power or firmware operation failures, so
-/// validate all configured profiles during startup.
+/// Descriptor-based RMS requests require a product family and the per-role
+/// vendor string. Startup validation checks those descriptor inputs without
+/// matching the hardware against a fixed enum.
 pub fn validate_rms_backend_rack_profiles(
     config: &ComponentManagerConfig,
     rack_profiles: &RackProfileConfig,
@@ -122,38 +120,20 @@ pub fn validate_rms_backend_rack_profiles(
 
     for (profile_id, profile) in &rack_profiles.rack_profiles {
         if compute_uses_rms {
-            require_rms_vendor(
-                profile_id,
-                "rack_capabilities.compute.vendor",
-                profile.rack_capabilities.compute.vendor.as_deref(),
-                "compute_tray_backend",
-            )?;
-            compute_node_type_for_profile(profile).map_err(|error| {
-                rms_node_type_config_error(profile_id, "compute", error.to_string())
+            compute_node_identity_for_profile(profile).map_err(|error| {
+                rms_node_descriptor_config_error(profile_id, "compute", error.to_string())
             })?;
         }
 
         if switch_uses_rms {
-            require_rms_vendor(
-                profile_id,
-                "rack_capabilities.switch.vendor",
-                profile.rack_capabilities.switch.vendor.as_deref(),
-                "nv_switch_backend",
-            )?;
-            switch_node_type_for_profile(profile).map_err(|error| {
-                rms_node_type_config_error(profile_id, "switch", error.to_string())
+            switch_node_identity_for_profile(profile).map_err(|error| {
+                rms_node_descriptor_config_error(profile_id, "switch", error.to_string())
             })?;
         }
 
         if power_shelf_uses_rms {
-            require_rms_vendor(
-                profile_id,
-                "rack_capabilities.power_shelf.vendor",
-                profile.rack_capabilities.power_shelf.vendor.as_deref(),
-                "power_shelf_backend",
-            )?;
-            power_shelf_node_type_for_profile(profile).map_err(|error| {
-                rms_node_type_config_error(profile_id, "power shelf", error.to_string())
+            power_shelf_node_identity_for_profile(profile).map_err(|error| {
+                rms_node_descriptor_config_error(profile_id, "power shelf", error.to_string())
             })?;
         }
     }
@@ -161,31 +141,13 @@ pub fn validate_rms_backend_rack_profiles(
     Ok(())
 }
 
-fn require_rms_vendor(
-    profile_id: &str,
-    field: &str,
-    vendor: Option<&str>,
-    backend_field: &str,
-) -> Result<(), ComponentManagerError> {
-    if vendor
-        .map(str::trim)
-        .is_some_and(|vendor| !vendor.is_empty())
-    {
-        return Ok(());
-    }
-
-    Err(ComponentManagerError::InvalidArgument(format!(
-        "rack profile {profile_id} {field} is required when {backend_field} is 'rms'"
-    )))
-}
-
-fn rms_node_type_config_error(
+fn rms_node_descriptor_config_error(
     profile_id: &str,
     role: &str,
     error: String,
 ) -> ComponentManagerError {
     ComponentManagerError::InvalidArgument(format!(
-        "rack profile {profile_id} cannot resolve RMS {role} node type: {error}"
+        "rack profile {profile_id} cannot build RMS {role} node descriptor: {error}"
     ))
 }
 
@@ -249,7 +211,7 @@ impl RmsBackend {
     ) -> Result<&'a RackProfile, ComponentManagerError> {
         let Some(rack_profile_id) = &identity.rack_profile_id else {
             return Err(ComponentManagerError::InvalidArgument(format!(
-                "rack {} has no rack_profile_id for RMS node type resolution",
+                "rack {} has no rack_profile_id for RMS node descriptor resolution",
                 identity.rack_id
             )));
         };
@@ -258,7 +220,7 @@ impl RmsBackend {
             .get(rack_profile_id.as_str())
             .ok_or_else(|| {
                 ComponentManagerError::InvalidArgument(format!(
-                    "rack profile {} is not configured for RMS node type resolution",
+                    "rack profile {} is not configured for RMS node descriptor resolution",
                     rack_profile_id
                 ))
             })
@@ -277,15 +239,16 @@ impl RmsBackend {
         let profile = self
             .rack_profile(identity)
             .map_err(|error| error.to_string())?;
-        let node_type = match role {
-            SwitchOrPowerShelfRole::PowerShelf => power_shelf_node_type_for_profile(profile),
-            SwitchOrPowerShelfRole::Switch => switch_node_type_for_profile(profile),
+
+        let node_identity = match role {
+            SwitchOrPowerShelfRole::PowerShelf => power_shelf_node_identity_for_profile(profile),
+            SwitchOrPowerShelfRole::Switch => switch_node_identity_for_profile(profile),
         }
         .map_err(|error| error.to_string())?;
 
         Ok(ResolvedRmsNode {
             identity,
-            node_type,
+            node_identity,
         })
     }
 
@@ -296,12 +259,13 @@ impl RmsBackend {
         let profile = self
             .rack_profile(&identity.identity)
             .map_err(|error| error.to_string())?;
-        let node_type =
-            compute_node_type_for_profile(profile).map_err(|error| error.to_string())?;
+
+        let node_identity =
+            compute_node_identity_for_profile(profile).map_err(|error| error.to_string())?;
 
         Ok(ResolvedRmsNode {
             identity: &identity.identity,
-            node_type,
+            node_identity,
         })
     }
 }
@@ -480,13 +444,12 @@ const POWER_SHELF_BMC_PORT: u32 = 443;
 /// RMS's inventory; power shelves do not expose a host endpoint.
 fn build_power_shelf_node_info(
     ep: &PowerShelfEndpoint,
-    identity: &RmsIdentity,
-    node_type: rms::NodeType,
+    resolved: &ResolvedRmsNode<'_>,
 ) -> rms::NodeInfo {
-    rms::NodeInfo {
-        node_id: identity.node_id.clone(),
-        rack_id: identity.rack_id.clone(),
-        r#type: Some(node_type as i32),
+    let mut node = rms::NodeInfo {
+        node_id: resolved.identity.node_id.clone(),
+        rack_id: resolved.identity.rack_id.clone(),
+        r#type: None,
         bmc_endpoint: Some(rms::Endpoint {
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.pmc_ip.to_string(),
@@ -495,10 +458,14 @@ fn build_power_shelf_node_info(
             }),
             port: POWER_SHELF_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.pmc_credentials)),
-            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: None,
-    }
+        node_descriptor: None,
+    };
+
+    resolved.node_identity.apply_to_node_info(&mut node);
+
+    node
 }
 
 #[async_trait::async_trait]
@@ -539,7 +506,8 @@ impl PowerShelfManager for RmsBackend {
                 }
             };
 
-            let device = build_power_shelf_node_info(ep, resolved.identity, resolved.node_type);
+            let device = build_power_shelf_node_info(ep, &resolved);
+
             let request = rms::BatchSetPowerStateRequest {
                 nodes: Some(rms::NodeSet {
                     nodes: vec![device],
@@ -612,14 +580,14 @@ impl PowerShelfManager for RmsBackend {
                 }
             };
 
-            let device = build_power_shelf_node_info(ep, resolved.identity, resolved.node_type);
+            let device = build_power_shelf_node_info(ep, &resolved);
+
             let request = match apply_firmware_object_request(
                 device,
-                resolved.identity,
+                &resolved,
                 target_version,
                 options,
-                resolved.node_type,
-                component_filters.clone(),
+                &component_filters,
             ) {
                 Ok(request) => request,
                 Err(e) => {
@@ -867,7 +835,8 @@ impl PowerShelfManager for RmsBackend {
                 }
             };
 
-            let device = build_power_shelf_node_info(ep, resolved.identity, resolved.node_type);
+            let device = build_power_shelf_node_info(ep, &resolved);
+
             let observed = query_rms_power_state(
                 self.client.as_ref(),
                 device,
@@ -929,14 +898,13 @@ fn credentials_to_rms(creds: &Credentials) -> rms::Credentials {
 /// details instead of RMS inventory.
 fn build_switch_node_info(
     ep: &SwitchEndpoint,
-    identity: &RmsIdentity,
-    node_type: rms::NodeType,
+    resolved: &ResolvedRmsNode<'_>,
     nvos_host_name: Option<String>,
 ) -> rms::NodeInfo {
-    rms::NodeInfo {
-        node_id: identity.node_id.clone(),
-        rack_id: identity.rack_id.clone(),
-        r#type: Some(node_type as i32),
+    let mut node = rms::NodeInfo {
+        node_id: resolved.identity.node_id.clone(),
+        rack_id: resolved.identity.rack_id.clone(),
+        r#type: None,
         bmc_endpoint: Some(rms::Endpoint {
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.bmc_ip.to_string(),
@@ -945,7 +913,6 @@ fn build_switch_node_info(
             }),
             port: SWITCH_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
-            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: Some(rms::Endpoint {
             interface: Some(rms::NetworkInterface {
@@ -955,9 +922,13 @@ fn build_switch_node_info(
             }),
             port: 0,
             credentials: Some(credentials_to_rms(&ep.nvos_credentials)),
-            dangerously_accept_invalid_certs: true,
         }),
-    }
+        node_descriptor: None,
+    };
+
+    resolved.node_identity.apply_to_node_info(&mut node);
+
+    node
 }
 
 /// Builds the host-only endpoint description required for password rotation.
@@ -966,11 +937,10 @@ fn build_switch_node_info(
 /// its credentials from crossing this backend boundary.
 fn build_switch_password_rotation_node_info(
     ep: &SwitchEndpoint,
-    identity: &RmsIdentity,
-    node_type: rms::NodeType,
+    resolved: &ResolvedRmsNode<'_>,
     nvos_host_name: Option<String>,
 ) -> rms::NodeInfo {
-    let node = build_switch_node_info(ep, identity, node_type, nvos_host_name);
+    let node = build_switch_node_info(ep, resolved, nvos_host_name);
 
     rms::NodeInfo {
         bmc_endpoint: None,
@@ -1119,11 +1089,10 @@ async fn query_rms_power_state(
 
 fn apply_firmware_object_request(
     device: rms::NodeInfo,
-    identity: &RmsIdentity,
+    resolved: &ResolvedRmsNode<'_>,
     config_json: &str,
     options: &FirmwareUpdateOptions,
-    node_type: rms::NodeType,
-    components: Vec<String>,
+    components: &[String],
 ) -> Result<rms::ApplyFirmwareObjectRequest, ComponentManagerError> {
     let access_token = Some(rms_access_token_or_noauth(options.access_token.as_deref()));
 
@@ -1133,14 +1102,14 @@ fn apply_firmware_object_request(
         ));
     }
 
-    let mut component_filters = HashMap::with_capacity(1);
-    component_filters.insert(
-        node_type as i32,
-        rms::FirmwareObjectComponentFilter { components },
-    );
+    let (component_filters, node_descriptor_component_filters) =
+        firmware_object_component_filters_for_node_identities(
+            components,
+            [&resolved.node_identity],
+        );
 
     Ok(rms::ApplyFirmwareObjectRequest {
-        rack_id: identity.rack_id.clone(),
+        rack_id: resolved.identity.rack_id.clone(),
         config_json: config_json.to_owned(),
         access_token,
         firmware_type: RMS_FIRMWARE_OBJECT_FIRMWARE_TYPE.to_owned(),
@@ -1150,6 +1119,7 @@ fn apply_firmware_object_request(
         }),
         force_update: options.force_update,
         component_filters,
+        node_descriptor_component_filters,
     })
 }
 
@@ -1229,18 +1199,15 @@ fn compute_tray_firmware_object_component_filters(
     }
 }
 
-/// Build the `rms::NodeInfo` describing a compute tray for inclusion in an
-/// RMS batch request. Compute trays expose only a BMC endpoint.
 fn build_compute_tray_node_info(
     ep: &ComputeTrayEndpoint,
-    identity: &RmsIdentity,
+    resolved: &ResolvedRmsNode<'_>,
     bmc_mac: MacAddress,
-    node_type: rms::NodeType,
 ) -> rms::NodeInfo {
-    rms::NodeInfo {
-        node_id: identity.node_id.clone(),
-        rack_id: identity.rack_id.clone(),
-        r#type: Some(node_type as i32),
+    let mut node = rms::NodeInfo {
+        node_id: resolved.identity.node_id.clone(),
+        rack_id: resolved.identity.rack_id.clone(),
+        r#type: None,
         bmc_endpoint: Some(rms::Endpoint {
             interface: Some(rms::NetworkInterface {
                 ip_address: ep.bmc_ip.to_string(),
@@ -1249,10 +1216,14 @@ fn build_compute_tray_node_info(
             }),
             port: COMPUTE_TRAY_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
-            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: None,
-    }
+        node_descriptor: None,
+    };
+
+    resolved.node_identity.apply_to_node_info(&mut node);
+
+    node
 }
 
 fn summarize_firmware_object_apply_response(
@@ -1426,6 +1397,53 @@ async fn query_tracked_firmware_job_status(
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct RmsSwitchSlotAndTrayObservation {
+    slot_number: Option<i32>,
+    tray_index: Option<i32>,
+    error: Option<String>,
+}
+
+fn rms_switch_location_value(value: Option<u32>) -> Result<Option<i32>, u32> {
+    value
+        .map(|value| i32::try_from(value).map_err(|_| value))
+        .transpose()
+}
+
+/// `classify_rms_switch_slot_and_tray` keeps each usable location field.
+/// Missing details and conversion failures become one diagnostic so the
+/// switch controller emits one `Event` without dropping the other valid field.
+fn classify_rms_switch_slot_and_tray(
+    details: Option<&rms::NodeDeviceInfo>,
+) -> RmsSwitchSlotAndTrayObservation {
+    let Some(details) = details else {
+        return RmsSwitchSlotAndTrayObservation {
+            slot_number: None,
+            tray_index: None,
+            error: Some("RMS returned no device info".to_string()),
+        };
+    };
+
+    let slot_number = rms_switch_location_value(details.slot_number);
+    let tray_index = rms_switch_location_value(details.tray_index);
+    let slot_number_out_of_range = slot_number.is_err();
+    let tray_index_out_of_range = tray_index.is_err();
+    let error = match (slot_number_out_of_range, tray_index_out_of_range) {
+        (false, false) => None,
+        (true, false) => Some("RMS returned slot_number outside the supported range".to_string()),
+        (false, true) => Some("RMS returned tray_index outside the supported range".to_string()),
+        (true, true) => {
+            Some("RMS returned slot_number and tray_index outside the supported range".to_string())
+        }
+    };
+
+    RmsSwitchSlotAndTrayObservation {
+        slot_number: slot_number.ok().flatten(),
+        tray_index: tray_index.ok().flatten(),
+        error,
+    }
+}
+
 #[async_trait::async_trait]
 impl NvSwitchManager for RmsBackend {
     fn name(&self) -> &str {
@@ -1469,12 +1487,9 @@ impl NvSwitchManager for RmsBackend {
                 }
             };
 
-            let device = build_switch_node_info(
-                ep,
-                resolved.identity,
-                resolved.node_type,
-                hostnames.get(&ep.nvos_mac).cloned(),
-            );
+            let device =
+                build_switch_node_info(ep, &resolved, hostnames.get(&ep.nvos_mac).cloned());
+
             let request = rms::BatchSetPowerStateRequest {
                 nodes: Some(rms::NodeSet {
                     nodes: vec![device],
@@ -1556,19 +1571,13 @@ impl NvSwitchManager for RmsBackend {
             let mut tracked_jobs = Vec::new();
 
             if include_firmware_object {
-                let device = build_switch_node_info(
-                    ep,
-                    resolved.identity,
-                    resolved.node_type,
-                    nvos_host_name.clone(),
-                );
+                let device = build_switch_node_info(ep, &resolved, nvos_host_name.clone());
                 match apply_firmware_object_request(
                     device,
-                    resolved.identity,
+                    &resolved,
                     bundle_version,
                     options,
-                    resolved.node_type,
-                    component_filters.clone(),
+                    &component_filters,
                 ) {
                     Ok(request) => match red::instrumented(
                         "rms",
@@ -1620,12 +1629,7 @@ impl NvSwitchManager for RmsBackend {
             }
 
             if include_system_image {
-                let device = build_switch_node_info(
-                    ep,
-                    resolved.identity,
-                    resolved.node_type,
-                    nvos_host_name,
-                );
+                let device = build_switch_node_info(ep, &resolved, nvos_host_name);
                 match apply_switch_system_image_request(
                     device,
                     resolved.identity,
@@ -1789,12 +1793,9 @@ impl NvSwitchManager for RmsBackend {
                 }
             };
 
-            let device = build_switch_node_info(
-                ep,
-                resolved.identity,
-                resolved.node_type,
-                hostnames.get(&ep.nvos_mac).cloned(),
-            );
+            let device =
+                build_switch_node_info(ep, &resolved, hostnames.get(&ep.nvos_mac).cloned());
+
             let observed = query_rms_power_state(
                 self.client.as_ref(),
                 device,
@@ -1841,12 +1842,9 @@ impl NvSwitchManager for RmsBackend {
                 }
             };
 
-            let device = build_switch_node_info(
-                ep,
-                resolved.identity,
-                resolved.node_type,
-                hostnames.get(&ep.nvos_mac).cloned(),
-            );
+            let device =
+                build_switch_node_info(ep, &resolved, hostnames.get(&ep.nvos_mac).cloned());
+
             let request = rms::BatchGetNodeDeviceInfoRequest {
                 nodes: Some(rms::NodeSet {
                     nodes: vec![device],
@@ -1876,25 +1874,13 @@ impl NvSwitchManager for RmsBackend {
                         continue;
                     }
 
-                    let Some(node_device_details) = info.node_device_details.first() else {
-                        results.push(SwitchSlotAndTrayResult {
-                            bmc_mac: ep.bmc_mac,
-                            slot_number: None,
-                            tray_index: None,
-                            error: None,
-                        });
-                        continue;
-                    };
-
+                    let observation =
+                        classify_rms_switch_slot_and_tray(info.node_device_details.first());
                     results.push(SwitchSlotAndTrayResult {
                         bmc_mac: ep.bmc_mac,
-                        slot_number: node_device_details
-                            .slot_number
-                            .and_then(|value| i32::try_from(value).ok()),
-                        tray_index: node_device_details
-                            .tray_index
-                            .and_then(|value| i32::try_from(value).ok()),
-                        error: None,
+                        slot_number: observation.slot_number,
+                        tray_index: observation.tray_index,
+                        error: observation.error,
                     });
                 }
                 Err(error) => {
@@ -1936,11 +1922,6 @@ impl NvSwitchManager for RmsBackend {
                 return Err(ComponentManagerError::Internal(error));
             }
         };
-        let Some(identity) = ids.get(&endpoint.bmc_mac) else {
-            return Err(ComponentManagerError::Internal(
-                "could not resolve RMS identity from database".into(),
-            ));
-        };
 
         let hostnames =
             resolve_switch_machine_interface_hostnames(&self.db, std::slice::from_ref(endpoint))
@@ -1948,8 +1929,7 @@ impl NvSwitchManager for RmsBackend {
 
         let device = build_switch_node_info(
             endpoint,
-            identity,
-            resolved.node_type,
+            &resolved,
             hostnames.get(&endpoint.nvos_mac).cloned(),
         );
         rms_configure_switch_certificate(self.client.as_ref(), device, domain_name, services).await
@@ -1964,7 +1944,7 @@ impl NvSwitchManager for RmsBackend {
     }
 
     #[instrument(skip(self, endpoint, next_password), fields(backend = "rms", bmc_mac = %endpoint.bmc_mac))]
-    async fn start_password_rotation(
+    async fn ensure_password_rotation(
         &self,
         endpoint: &SwitchEndpoint,
         next_password: &str,
@@ -1993,12 +1973,11 @@ impl NvSwitchManager for RmsBackend {
 
         let device = build_switch_password_rotation_node_info(
             endpoint,
-            resolved.identity,
-            resolved.node_type,
+            &resolved,
             hostnames.get(&endpoint.nvos_mac).cloned(),
         );
 
-        rms_start_switch_password_rotation(
+        rms_ensure_switch_password_rotation(
             self.client.as_ref(),
             device,
             &endpoint.nvos_credentials,
@@ -2016,12 +1995,12 @@ impl NvSwitchManager for RmsBackend {
     }
 }
 
-/// Submits a password rotation and preserves ambiguous dispatch outcomes.
+/// Submits one resumable password-convergence attempt.
 ///
-/// A returned job ID is the handle for later reconciliation. If submission may
-/// have reached the backend without one, this returns an unknown outcome rather
-/// than allowing a blind retry.
-async fn rms_start_switch_password_rotation(
+/// A returned job ID is the handle for later reconciliation. A successful RMS
+/// response without a job ID is not accepted as convergence evidence because
+/// older RMS builds used that shape for non-resumable synchronous work.
+async fn rms_ensure_switch_password_rotation(
     client: &dyn RmsApi,
     device: rms::NodeInfo,
     current_credentials: &Credentials,
@@ -2033,7 +2012,7 @@ async fn rms_start_switch_password_rotation(
     } = current_credentials;
 
     if username.is_empty() || current_password.is_empty() || next_password.is_empty() {
-        return Err(ComponentManagerError::InvalidArgument(
+        return Err(ComponentManagerError::RejectedBeforeDispatch(
             "switch password rotation requires non-empty username, current password, and next password"
                 .to_string(),
         ));
@@ -2057,7 +2036,7 @@ async fn rms_start_switch_password_rotation(
         RackManagerError::ApiInvocationError(status)
             if status.code() == tonic::Code::InvalidArgument =>
         {
-            ComponentManagerError::InvalidArgument(
+            ComponentManagerError::RejectedBeforeDispatch(
                 "RMS rejected the switch password rotation request".to_string(),
             )
         }
@@ -2079,34 +2058,17 @@ async fn rms_start_switch_password_rotation(
         )
     })?;
 
-    // A job ID is durable reconciliation evidence. Preserve it even when the
-    // aggregate admission status is pessimistic, then poll the exact job.
+    // A job ID enables early completion observation. NICo retains the exact
+    // current-to-target credential transition because RMS can lose this handle
+    // after a restart and safely resume the same request.
     if !batch.job_id.is_empty() {
         return Ok(batch.job_id);
     }
 
     Err(ComponentManagerError::OperationOutcomeUnknown(format!(
-        "RMS switch password rotation returned no job ID (status {}); reconcile credential state before retrying",
+        "RMS switch password rotation returned no job ID (status {}); the operation outcome is unknown",
         batch.status
     )))
-}
-
-/// Maps a backend terminal failure code to the backend-neutral failure class.
-fn map_rms_password_rotation_failure(error: i32) -> SwitchPasswordRotationFailure {
-    match rms::JobError::try_from(error) {
-        Ok(rms::JobError::Unauthenticated) => SwitchPasswordRotationFailure::Unauthenticated,
-        Ok(rms::JobError::InvalidArgument) => SwitchPasswordRotationFailure::InvalidArgument,
-        Ok(rms::JobError::UpdateInProgress) => SwitchPasswordRotationFailure::UpdateInProgress,
-        Ok(rms::JobError::ClientError)
-        | Ok(rms::JobError::ServerError)
-        | Ok(rms::JobError::InvalidResponse) => SwitchPasswordRotationFailure::Communication,
-        Ok(rms::JobError::Timeout) => SwitchPasswordRotationFailure::TimedOut,
-        Ok(rms::JobError::TargetNotFound) => SwitchPasswordRotationFailure::TargetNotFound,
-        Ok(rms::JobError::Internal)
-        | Ok(rms::JobError::Other)
-        | Ok(rms::JobError::FileNotFound) => SwitchPasswordRotationFailure::Backend,
-        Ok(rms::JobError::Unspecified) | Err(_) => SwitchPasswordRotationFailure::Unknown,
-    }
 }
 
 /// Maps a backend job record to the backend-neutral rotation state.
@@ -2116,9 +2078,7 @@ fn map_rms_password_rotation_state(job: &rms::JobStatus) -> SwitchPasswordRotati
             SwitchPasswordRotationState::Pending
         }
         Ok(rms::JobExecutionState::Completed) => SwitchPasswordRotationState::Completed,
-        Ok(rms::JobExecutionState::Failed) => {
-            SwitchPasswordRotationState::Failed(map_rms_password_rotation_failure(job.error_code))
-        }
+        Ok(rms::JobExecutionState::Failed) => SwitchPasswordRotationState::Failed,
         Ok(rms::JobExecutionState::Unspecified) | Err(_) => SwitchPasswordRotationState::Unknown,
     }
 }
@@ -2146,7 +2106,7 @@ fn summarize_password_rotation_jobs(
         job.parent_job_id.as_deref() == Some(job_id)
             && matches!(
                 map_rms_password_rotation_state(job),
-                SwitchPasswordRotationState::Failed(_)
+                SwitchPasswordRotationState::Failed
             )
     }) {
         return map_rms_password_rotation_state(failed);
@@ -2156,7 +2116,7 @@ fn summarize_password_rotation_jobs(
         job.job_id == job_id
             && matches!(
                 map_rms_password_rotation_state(job),
-                SwitchPasswordRotationState::Failed(_)
+                SwitchPasswordRotationState::Failed
             )
     }) {
         return map_rms_password_rotation_state(failed);
@@ -2241,13 +2201,29 @@ async fn rms_get_switch_password_rotation_job_status(
     }
 }
 
-fn map_rms_configure_switch_certificate_job_state(state: &str) -> ConfigureSwitchCertificateState {
+/// RMS may add certificate job states before Carbide knows about them. Count
+/// each fallback, but keep it metric-only because polling can see the same
+/// state indefinitely while waiting for RMS to move on.
+#[derive(Event)]
+#[event(
+    event_name = "rms_switch_certificate_job_state_unrecognized",
+    metric_name = "carbide_rms_switch_certificate_unrecognized_job_states_total",
+    component = "component-manager",
+    log = off,
+    metric = counter,
+    describe = "Number of unrecognized RMS switch certificate job states."
+)]
+struct RmsSwitchCertificateJobStateUnrecognized;
+
+fn map_rms_configure_switch_certificate_job_state(
+    state: &str,
+) -> Option<ConfigureSwitchCertificateState> {
     match state.to_ascii_lowercase().as_str() {
-        "queued" | "pending" => ConfigureSwitchCertificateState::Started,
-        "running" | "in_progress" | "active" => ConfigureSwitchCertificateState::InProgress,
-        "completed" | "success" | "done" => ConfigureSwitchCertificateState::Completed,
-        "failed" | "error" => ConfigureSwitchCertificateState::Failed,
-        _ => ConfigureSwitchCertificateState::InProgress,
+        "queued" | "pending" => Some(ConfigureSwitchCertificateState::Started),
+        "running" | "in_progress" | "active" => Some(ConfigureSwitchCertificateState::InProgress),
+        "completed" | "success" | "done" => Some(ConfigureSwitchCertificateState::Completed),
+        "failed" | "error" => Some(ConfigureSwitchCertificateState::Failed),
+        _ => None,
     }
 }
 
@@ -2349,7 +2325,11 @@ async fn rms_get_configure_switch_certificate_job_status(
         });
     }
 
-    let state = map_rms_configure_switch_certificate_job_state(&response.state);
+    let state =
+        map_rms_configure_switch_certificate_job_state(&response.state).unwrap_or_else(|| {
+            emit(RmsSwitchCertificateJobStateUnrecognized);
+            ConfigureSwitchCertificateState::InProgress
+        });
     let error = if matches!(state, ConfigureSwitchCertificateState::Failed) {
         Some(
             (!response.error_message.is_empty())
@@ -2407,12 +2387,8 @@ impl ComputeTrayManager for RmsBackend {
                 }
             };
 
-            let device = build_compute_tray_node_info(
-                ep,
-                resolved.identity,
-                identity.bmc_mac,
-                resolved.node_type,
-            );
+            let device = build_compute_tray_node_info(ep, &resolved, identity.bmc_mac);
+
             let request = rms::BatchSetPowerStateRequest {
                 nodes: Some(rms::NodeSet {
                     nodes: vec![device],
@@ -2489,19 +2465,14 @@ impl ComputeTrayManager for RmsBackend {
                 }
             };
 
-            let device = build_compute_tray_node_info(
-                ep,
-                resolved.identity,
-                identity.bmc_mac,
-                resolved.node_type,
-            );
+            let device = build_compute_tray_node_info(ep, &resolved, identity.bmc_mac);
+
             let request = match apply_firmware_object_request(
                 device,
-                resolved.identity,
+                &resolved,
                 target_version,
                 options,
-                resolved.node_type,
-                component_filters.clone(),
+                &component_filters,
             ) {
                 Ok(request) => request,
                 Err(e) => {
@@ -2666,7 +2637,8 @@ impl ComputeTrayManager for RmsBackend {
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
-    use carbide_test_support::value_scenarios;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
+    use carbide_test_support::{Check, check_values, value_scenarios};
     use carbide_uuid::machine::MachineId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
@@ -2680,6 +2652,11 @@ mod tests {
     use crate::compute_tray_manager::{ComputeTrayManager, ComputeTrayVendor};
     use crate::config::SwitchMtlsService;
     use crate::power_shelf_manager::PowerShelfVendor;
+
+    const KEY_ROLE: &str = "role";
+    const ROLE_COMPUTE: &str = "compute";
+    const ROLE_POWER_SHELF: &str = "power_shelf";
+    const ROLE_SWITCH: &str = "switch";
 
     #[async_trait::async_trait]
     impl RmsSwitchSystemImageStatusApi for MockRmsApi {
@@ -2752,27 +2729,151 @@ mod tests {
     }
 
     #[test]
+    fn switch_slot_and_tray_response_keeps_partial_values_and_one_diagnostic() {
+        let details = |slot_number, tray_index| {
+            Some(rms::NodeDeviceInfo {
+                slot_number,
+                tray_index,
+                ..Default::default()
+            })
+        };
+        check_values(
+            [
+                Check {
+                    scenario: "missing device details",
+                    input: None,
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: None,
+                        tray_index: None,
+                        error: Some("RMS returned no device info".to_string()),
+                    },
+                },
+                Check {
+                    scenario: "valid values",
+                    input: details(Some(12), Some(4)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: Some(12),
+                        tray_index: Some(4),
+                        error: None,
+                    },
+                },
+                Check {
+                    scenario: "absent optional field",
+                    input: details(Some(12), None),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: Some(12),
+                        tray_index: None,
+                        error: None,
+                    },
+                },
+                Check {
+                    scenario: "invalid slot keeps tray",
+                    input: details(Some(i32::MAX as u32 + 1), Some(4)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: None,
+                        tray_index: Some(4),
+                        error: Some(
+                            "RMS returned slot_number outside the supported range".to_string(),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "invalid tray keeps slot",
+                    input: details(Some(12), Some(u32::MAX)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: Some(12),
+                        tray_index: None,
+                        error: Some(
+                            "RMS returned tray_index outside the supported range".to_string(),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "invalid fields share one diagnostic",
+                    input: details(Some(u32::MAX), Some(u32::MAX)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: None,
+                        tray_index: None,
+                        error: Some(
+                            "RMS returned slot_number and tray_index outside the supported range"
+                                .to_string(),
+                        ),
+                    },
+                },
+            ],
+            |details| classify_rms_switch_slot_and_tray(details.as_ref()),
+        );
+    }
+
+    #[test]
     fn configure_switch_certificate_job_state_maps_rms_states() {
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("queued"),
-            ConfigureSwitchCertificateState::Started,
+        value_scenarios!(
+            run = map_rms_configure_switch_certificate_job_state;
+            "started" {
+                "queued" => Some(ConfigureSwitchCertificateState::Started),
+                "pending" => Some(ConfigureSwitchCertificateState::Started),
+            }
+
+            "in progress" {
+                "running" => Some(ConfigureSwitchCertificateState::InProgress),
+                "in_progress" => Some(ConfigureSwitchCertificateState::InProgress),
+                "active" => Some(ConfigureSwitchCertificateState::InProgress),
+            }
+
+            "completed" {
+                "completed" => Some(ConfigureSwitchCertificateState::Completed),
+                "success" => Some(ConfigureSwitchCertificateState::Completed),
+                "done" => Some(ConfigureSwitchCertificateState::Completed),
+            }
+
+            "failed" {
+                "failed" => Some(ConfigureSwitchCertificateState::Failed),
+                "error" => Some(ConfigureSwitchCertificateState::Failed),
+            }
+
+            "case insensitive" {
+                "RUNNING" => Some(ConfigureSwitchCertificateState::InProgress),
+            }
+
+            "unrecognized" {
+                "waiting_for_reboot" => None,
+                "" => None,
+            }
         );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("running"),
-            ConfigureSwitchCertificateState::InProgress,
+    }
+
+    #[tokio::test]
+    async fn unrecognized_switch_certificate_job_state_keeps_polling_and_counts_silently() {
+        const METRIC: &str = "carbide_rms_switch_certificate_unrecognized_job_states_total";
+
+        let mock = MockRmsApi::new();
+        mock.enqueue_get_configure_switch_certificate_job_status(Ok(
+            MockRmsApi::configure_switch_certificate_job_status_ok("waiting_for_reboot"),
+        ))
+        .await;
+
+        let metrics = MetricsCapture::start();
+        let (status, logs) = capture_logs_async(rms_get_configure_switch_certificate_job_status(
+            &mock,
+            "cert-job-1",
+        ))
+        .await;
+        let status = status.expect("unknown RMS state keeps certificate polling active");
+
+        assert_eq!(status.state, ConfigureSwitchCertificateState::InProgress);
+        assert!(status.error.is_none());
+        assert!(
+            logs.iter().all(|log| log.field("event_name")
+                != Some("rms_switch_certificate_job_state_unrecognized")),
+            "the polling fallback remains metric-only"
         );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("completed"),
-            ConfigureSwitchCertificateState::Completed,
-        );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("failed"),
-            ConfigureSwitchCertificateState::Failed,
-        );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("unknown"),
-            ConfigureSwitchCertificateState::InProgress,
-        );
+        assert_eq!(metrics.counter_delta(METRIC, &[]), 1.0);
+
+        let calls = mock
+            .get_configure_switch_certificate_job_status_calls()
+            .await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].job_id, "cert-job-1");
     }
 
     #[test]
@@ -2788,36 +2889,8 @@ mod tests {
                 rms::JobExecutionState::Queued => SwitchPasswordRotationState::Pending,
                 rms::JobExecutionState::Running => SwitchPasswordRotationState::Pending,
                 rms::JobExecutionState::Completed => SwitchPasswordRotationState::Completed,
-                rms::JobExecutionState::Failed => SwitchPasswordRotationState::Failed(
-                    SwitchPasswordRotationFailure::Unknown,
-                ),
+                rms::JobExecutionState::Failed => SwitchPasswordRotationState::Failed,
             }
-        );
-    }
-
-    #[test]
-    fn password_rotation_failure_maps_each_rms_class() {
-        value_scenarios!(run = |error: rms::JobError| map_rms_password_rotation_failure(error as i32);
-            "failures" {
-                rms::JobError::Unauthenticated => SwitchPasswordRotationFailure::Unauthenticated,
-                rms::JobError::InvalidArgument => SwitchPasswordRotationFailure::InvalidArgument,
-                rms::JobError::UpdateInProgress => SwitchPasswordRotationFailure::UpdateInProgress,
-                rms::JobError::ClientError => SwitchPasswordRotationFailure::Communication,
-                rms::JobError::ServerError => SwitchPasswordRotationFailure::Communication,
-                rms::JobError::InvalidResponse => SwitchPasswordRotationFailure::Communication,
-                rms::JobError::Timeout => SwitchPasswordRotationFailure::TimedOut,
-                rms::JobError::TargetNotFound => SwitchPasswordRotationFailure::TargetNotFound,
-                rms::JobError::Internal => SwitchPasswordRotationFailure::Backend,
-                rms::JobError::Other => SwitchPasswordRotationFailure::Backend,
-                rms::JobError::FileNotFound => SwitchPasswordRotationFailure::Backend,
-                rms::JobError::Unspecified => SwitchPasswordRotationFailure::Unknown,
-            }
-        );
-
-        assert_eq!(
-            map_rms_password_rotation_failure(i32::MAX),
-            SwitchPasswordRotationFailure::Unknown,
-            "future protobuf value"
         );
     }
 
@@ -2879,7 +2952,7 @@ mod tests {
                 SwitchPasswordRotationState::Pending,
             ),
             (
-                "specific child failure overrides generic parent",
+                "child failure overrides generic parent",
                 vec![
                     job(
                         "password-job",
@@ -2894,7 +2967,7 @@ mod tests {
                         rms::JobError::Unauthenticated,
                     ),
                 ],
-                SwitchPasswordRotationState::Failed(SwitchPasswordRotationFailure::Unauthenticated),
+                SwitchPasswordRotationState::Failed,
             ),
         ];
 
@@ -3130,6 +3203,46 @@ mod tests {
         }
     }
 
+    #[test]
+    fn validation_requires_product_family_and_enabled_role_vendors() {
+        let mut arbitrary_values = test_rms_profile();
+        arbitrary_values.product_family =
+            Some(RackProductFamily::Other("test-product-family".to_string()));
+
+        arbitrary_values.rack_capabilities.compute.vendor = Some("test-compute-vendor".to_string());
+        arbitrary_values.rack_capabilities.switch.vendor = Some("test-switch-vendor".to_string());
+        arbitrary_values.rack_capabilities.power_shelf.vendor =
+            Some("test-power-shelf-vendor".to_string());
+
+        let mut missing_vendor = arbitrary_values.clone();
+        missing_vendor.rack_capabilities.power_shelf.vendor = None;
+
+        let mut missing_product_family = arbitrary_values.clone();
+        missing_product_family.product_family = None;
+
+        let mut blank_product_family = arbitrary_values.clone();
+        blank_product_family.product_family = Some(RackProductFamily::Other(" \t ".to_string()));
+
+        value_scenarios!(run = |profile: RackProfile| {
+            let profiles = RackProfileConfig {
+                rack_profiles: [(TEST_RACK_PROFILE_ID.to_string(), profile)]
+                    .into_iter()
+                    .collect(),
+            };
+
+            validate_rms_backend_rack_profiles(&ComponentManagerConfig::default(), &profiles)
+                .is_ok()
+            };
+
+            "descriptor validation" {
+                arbitrary_values => true,
+                missing_vendor => false,
+                missing_product_family => false,
+                blank_product_family => false,
+            }
+        );
+    }
+
     /// Create a backend with a real DB pool seeded with test data.
     async fn make_backend(
         pool: &sqlx::PgPool,
@@ -3203,82 +3316,138 @@ mod tests {
         }
     }
 
-    fn component_filters_for(
-        request: &rms::ApplyFirmwareObjectRequest,
-        node_type: rms::NodeType,
-    ) -> &[String] {
-        &request
-            .component_filters
-            .get(&(node_type as i32))
-            .expect("component filters for node type")
-            .components
-    }
-
-    fn single_batch_set_power_state_node_type(
-        calls: &[rms::BatchSetPowerStateRequest],
-    ) -> Option<i32> {
-        let [call] = calls else {
-            return None;
-        };
-        let nodes = call.nodes.as_ref()?;
-        let [node] = nodes.nodes.as_slice() else {
-            return None;
-        };
-
-        node.r#type
-    }
-
-    #[test]
-    fn direct_rms_power_shelf_node_info_uses_concrete_node_type() {
-        let endpoint = make_ps_endpoint(PS_MAC_1);
-        let identity = RmsIdentity {
+    fn test_rms_identity() -> RmsIdentity {
+        RmsIdentity {
             node_id: "node-1".to_string(),
             rack_id: "rack-1".to_string(),
             rack_profile_id: None,
+        }
+    }
+
+    fn test_rms_profile() -> RackProfile {
+        let mut profile = RackProfile {
+            product_family: Some(RackProductFamily::Gb200),
+            ..Default::default()
         };
 
-        let node =
-            build_power_shelf_node_info(&endpoint, &identity, rms::NodeType::PowershelfGb300Delta);
+        profile.rack_capabilities.compute.vendor = Some("NVIDIA".to_string());
+        profile.rack_capabilities.switch.vendor = Some("NVIDIA".to_string());
+        profile.rack_capabilities.power_shelf.vendor = Some("LiteOn".to_string());
+
+        profile
+    }
+
+    fn component_filters_for(request: &rms::ApplyFirmwareObjectRequest) -> &[String] {
+        let [filter] = request.node_descriptor_component_filters.as_slice() else {
+            panic!("expected one descriptor component filter");
+        };
+
+        let descriptor = filter
+            .node_descriptor
+            .as_ref()
+            .expect("filter node descriptor");
+
+        let role = descriptor
+            .attributes
+            .get(KEY_ROLE)
+            .expect("filter node role");
+
+        let node_type = match role.as_str() {
+            ROLE_COMPUTE => rms::NodeType::ComputeGb200Nvidia,
+            ROLE_SWITCH => rms::NodeType::SwitchGb200Nvidia,
+            ROLE_POWER_SHELF => rms::NodeType::PowershelfGb200Liteon,
+            role => panic!("unexpected RMS node role {role}"),
+        };
+
+        let descriptor_components = filter
+            .component_filter
+            .as_ref()
+            .expect("descriptor component filter")
+            .components
+            .as_slice();
 
         assert_eq!(
-            node.r#type,
-            Some(rms::NodeType::PowershelfGb300Delta as i32)
+            request
+                .component_filters
+                .get(&(node_type as i32))
+                .map(|filter| filter.components.as_slice()),
+            Some(descriptor_components)
+        );
+
+        descriptor_components
+    }
+
+    fn assert_descriptor_node(node: &rms::NodeInfo, role: &str) {
+        let node_type = match role {
+            ROLE_COMPUTE => rms::NodeType::ComputeGb200Nvidia,
+            ROLE_SWITCH => rms::NodeType::SwitchGb200Nvidia,
+            ROLE_POWER_SHELF => rms::NodeType::PowershelfGb200Liteon,
+            role => panic!("unexpected RMS node role {role}"),
+        };
+
+        assert_eq!(node.r#type, Some(node_type as i32));
+
+        let descriptor = node.node_descriptor.as_ref().expect("node descriptor");
+
+        assert_eq!(
+            descriptor.attributes.get(KEY_ROLE).map(String::as_str),
+            Some(role)
         );
     }
 
     #[test]
-    fn direct_rms_switch_node_info_uses_concrete_node_type() {
-        let endpoint = make_sw_endpoint(SW_MAC_1);
-        let identity = RmsIdentity {
-            node_id: "node-1".to_string(),
-            rack_id: "rack-1".to_string(),
-            rack_profile_id: None,
+    fn direct_rms_power_shelf_node_info_uses_descriptor() {
+        let endpoint = make_ps_endpoint(PS_MAC_1);
+        let identity = test_rms_identity();
+        let profile = test_rms_profile();
+
+        let node_identity = power_shelf_node_identity_for_profile(&profile).unwrap();
+
+        let resolved = ResolvedRmsNode {
+            identity: &identity,
+            node_identity,
         };
 
-        let node =
-            build_switch_node_info(&endpoint, &identity, rms::NodeType::SwitchGb300Nvidia, None);
+        let node = build_power_shelf_node_info(&endpoint, &resolved);
 
-        assert_eq!(node.r#type, Some(rms::NodeType::SwitchGb300Nvidia as i32));
+        assert_descriptor_node(&node, ROLE_POWER_SHELF);
+    }
+
+    #[test]
+    fn direct_rms_switch_node_info_uses_descriptor() {
+        let endpoint = make_sw_endpoint(SW_MAC_1);
+        let identity = test_rms_identity();
+        let profile = test_rms_profile();
+
+        let node_identity = switch_node_identity_for_profile(&profile).unwrap();
+
+        let resolved = ResolvedRmsNode {
+            identity: &identity,
+            node_identity,
+        };
+
+        let node = build_switch_node_info(&endpoint, &resolved, None);
+
+        assert_descriptor_node(&node, ROLE_SWITCH);
     }
 
     #[test]
     fn password_rotation_node_info_excludes_bmc_credentials() {
         let endpoint = make_sw_endpoint(SW_MAC_1);
+        let identity = test_rms_identity();
+        let profile = test_rms_profile();
 
-        let identity = RmsIdentity {
-            node_id: "node-1".to_string(),
-            rack_id: "rack-1".to_string(),
-            rack_profile_id: None,
+        let node_identity = switch_node_identity_for_profile(&profile).unwrap();
+
+        let resolved = ResolvedRmsNode {
+            identity: &identity,
+            node_identity,
         };
 
-        let node = build_switch_password_rotation_node_info(
-            &endpoint,
-            &identity,
-            rms::NodeType::SwitchGb300Nvidia,
-            None,
-        );
+        let node = build_switch_password_rotation_node_info(&endpoint, &resolved, None);
 
         assert!(node.bmc_endpoint.is_none());
+        assert_descriptor_node(&node, ROLE_SWITCH);
 
         assert_eq!(
             node.host_endpoint
@@ -3295,20 +3464,25 @@ mod tests {
 
     #[test]
     fn direct_rms_firmware_object_json_request_defaults_missing_access_token_to_noauth() {
+        let identity = test_rms_identity();
+        let profile = test_rms_profile();
+
+        let node_identity = switch_node_identity_for_profile(&profile).unwrap();
+
+        let resolved = ResolvedRmsNode {
+            identity: &identity,
+            node_identity,
+        };
+
         let request = apply_firmware_object_request(
             rms::NodeInfo::default(),
-            &RmsIdentity {
-                node_id: "node-1".to_string(),
-                rack_id: "rack-1".to_string(),
-                rack_profile_id: None,
-            },
+            &resolved,
             r#"{"Id":"fw-json"}"#,
             &FirmwareUpdateOptions {
                 access_token: None,
                 force_update: false,
             },
-            rms::NodeType::SwitchGb200Nvidia,
-            Vec::new(),
+            &[],
         )
         .unwrap();
 
@@ -3319,7 +3493,7 @@ mod tests {
     }
 
     #[carbide_macros::sqlx_test]
-    async fn power_shelf_power_control_request_uses_profile_vendor_node_type(
+    async fn power_shelf_power_control_request_uses_descriptor(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let (mock, backend, _, ps1, _, _, _) = make_backend(&pool).await;
@@ -3338,10 +3512,16 @@ mod tests {
         assert!(results[0].success);
 
         let calls = mock.batch_set_power_state_calls().await;
-        assert_eq!(
-            single_batch_set_power_state_node_type(&calls),
-            Some(rms::NodeType::PowershelfGb200Liteon as i32)
-        );
+
+        let [call] = calls.as_slice() else {
+            panic!("expected one BatchSetPowerState request");
+        };
+
+        let [node] = call.nodes.as_ref().expect("request nodes").nodes.as_slice() else {
+            panic!("expected one node");
+        };
+
+        assert_descriptor_node(node, ROLE_POWER_SHELF);
 
         Ok(())
     }
@@ -3398,10 +3578,7 @@ mod tests {
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev0.node_id, ps1.to_string());
         assert_eq!(dev0.rack_id, rack_id.to_string());
-        assert_eq!(
-            dev0.r#type,
-            Some(rms::NodeType::PowershelfGb200Liteon as i32)
-        );
+        assert_descriptor_node(dev0, ROLE_POWER_SHELF);
         assert!(dev0.bmc_endpoint.is_some());
         assert!(dev0.host_endpoint.is_none());
         let dev1 = &calls[1].nodes.as_ref().unwrap().nodes[0];
@@ -3516,15 +3693,12 @@ mod tests {
         assert_eq!(calls[0].firmware_type, "prod");
         assert_eq!(calls[0].hardware_type, "any");
         assert!(calls[0].force_update);
-        let filters = component_filters_for(&calls[0], rms::NodeType::PowershelfGb200Liteon);
+        let filters = component_filters_for(&calls[0]);
         assert_eq!(filters, ["PowerShelfFW"]);
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev0.node_id, ps1.to_string());
         assert_eq!(dev0.rack_id, rack_id.to_string());
-        assert_eq!(
-            dev0.r#type,
-            Some(rms::NodeType::PowershelfGb200Liteon as i32)
-        );
+        assert_descriptor_node(dev0, ROLE_POWER_SHELF);
         assert!(dev0.bmc_endpoint.is_some());
 
         let jobs = backend.firmware_jobs.lock().unwrap();
@@ -3565,7 +3739,7 @@ mod tests {
         assert!(results[0].success);
 
         let calls = mock.apply_firmware_object_calls().await;
-        let filters = component_filters_for(&calls[0], rms::NodeType::PowershelfGb200Liteon);
+        let filters = component_filters_for(&calls[0]);
         assert_eq!(filters, ["PowerShelfFW"]);
     }
 
@@ -3929,11 +4103,12 @@ mod tests {
 
         let endpoint = make_sw_endpoint(SW_MAC_1);
 
-        let job_id = NvSwitchManager::start_password_rotation(&backend, &endpoint, "next-password")
-            .await
-            .expect("password rotation should start");
+        let started =
+            NvSwitchManager::ensure_password_rotation(&backend, &endpoint, "next-password")
+                .await
+                .expect("password rotation should start");
 
-        assert_eq!(job_id, "password-job-1");
+        assert_eq!(started, "password-job-1");
 
         let calls = mock.update_switch_system_password_calls().await;
 
@@ -3966,39 +4141,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sw_password_rotation_disabled_gate_sends_no_rms_request() {
-        let mock = Arc::new(MockRmsApi::new());
-
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://localhost/password-rotation-gate-test")
-            .expect("static test database URL should parse");
-
-        let backend = RmsBackend::new(
-            mock.clone(),
-            Some(mock.clone()),
-            pool,
-            Arc::new(rack_profile_config()),
-            false,
-        );
-
-        let endpoint = make_sw_endpoint(SW_MAC_1);
-
-        let result =
-            NvSwitchManager::start_password_rotation(&backend, &endpoint, "next-password").await;
-
-        assert!(!backend.supports_password_rotation());
-
-        assert!(matches!(
-            result,
-            Err(ComponentManagerError::Unsupported(message))
-                if message.contains("password rotation is disabled")
-        ));
-
-        assert!(mock.update_switch_system_password_calls().await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn sw_password_rotation_missing_parent_job_has_unknown_outcome() {
+    async fn sw_password_rotation_success_without_job_has_unknown_outcome() {
         let mock = MockRmsApi::new();
 
         mock.enqueue_update_switch_system_password(Ok(rms::UpdateSwitchSystemPasswordResponse {
@@ -4014,7 +4157,35 @@ mod tests {
             password: "current-password".to_string(),
         };
 
-        let result = rms_start_switch_password_rotation(
+        let result = rms_ensure_switch_password_rotation(
+            &mock,
+            rms::NodeInfo::default(),
+            &credentials,
+            "next-password",
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::OperationOutcomeUnknown(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_unspecified_without_job_has_unknown_outcome() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_update_switch_system_password(Ok(rms::UpdateSwitchSystemPasswordResponse {
+            response: Some(rms::NodeBatchResponse::default()),
+        }))
+        .await;
+
+        let credentials = Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "current-password".to_string(),
+        };
+
+        let result = rms_ensure_switch_password_rotation(
             &mock,
             rms::NodeInfo::default(),
             &credentials,
@@ -4047,7 +4218,7 @@ mod tests {
             password: "current-password".to_string(),
         };
 
-        let job_id = rms_start_switch_password_rotation(
+        let started = rms_ensure_switch_password_rotation(
             &mock,
             rms::NodeInfo::default(),
             &credentials,
@@ -4056,7 +4227,7 @@ mod tests {
         .await
         .expect("durable job ID should permit reconciliation");
 
-        assert_eq!(job_id, "password-job-1");
+        assert_eq!(started, "password-job-1");
 
         let calls = mock.update_switch_system_password_calls().await;
 
@@ -4079,7 +4250,7 @@ mod tests {
             password: "current-password".to_string(),
         };
 
-        let result = rms_start_switch_password_rotation(
+        let result = rms_ensure_switch_password_rotation(
             &mock,
             rms::NodeInfo::default(),
             &credentials,
@@ -4095,7 +4266,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sw_password_rotation_invalid_request_is_safe_to_retry() {
+    async fn sw_password_rotation_invalid_request_is_rejected_before_dispatch() {
         let mock = MockRmsApi::new();
 
         mock.enqueue_update_switch_system_password(Err(RackManagerError::ApiInvocationError(
@@ -4108,7 +4279,7 @@ mod tests {
             password: "current-password".to_string(),
         };
 
-        let result = rms_start_switch_password_rotation(
+        let result = rms_ensure_switch_password_rotation(
             &mock,
             rms::NodeInfo::default(),
             &credentials,
@@ -4118,8 +4289,37 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ComponentManagerError::InvalidArgument(message))
+            Err(ComponentManagerError::RejectedBeforeDispatch(message))
                 if message == "RMS rejected the switch password rotation request"
+        ));
+    }
+
+    #[tokio::test]
+    async fn sw_password_rotation_unimplemented_is_unsupported() {
+        let mock = MockRmsApi::new();
+
+        mock.enqueue_update_switch_system_password(Err(RackManagerError::ApiInvocationError(
+            tonic::Status::unimplemented("upgrade RMS"),
+        )))
+        .await;
+
+        let credentials = Credentials::UsernamePassword {
+            username: "admin".to_string(),
+            password: "current-password".to_string(),
+        };
+
+        let result = rms_ensure_switch_password_rotation(
+            &mock,
+            rms::NodeInfo::default(),
+            &credentials,
+            "next-password",
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(ComponentManagerError::Unsupported(message))
+                if message == "RMS does not support switch password rotation"
         ));
     }
 
@@ -4243,7 +4443,7 @@ mod tests {
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev0.node_id, sw1.to_string());
         assert_eq!(dev0.rack_id, rack_id.to_string());
-        assert_eq!(dev0.r#type, Some(rms::NodeType::SwitchGb200Nvidia as i32));
+        assert_descriptor_node(dev0, ROLE_SWITCH);
         assert!(dev0.bmc_endpoint.is_some());
         let dev1 = &calls[1].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev1.node_id, sw2.to_string());
@@ -4296,11 +4496,11 @@ mod tests {
         assert_eq!(calls[0].config_json, r#"{"Id":"fw-json"}"#);
         assert_eq!(calls[0].access_token.as_deref(), Some("token"));
         assert!(calls[0].force_update);
-        let filters = component_filters_for(&calls[0], rms::NodeType::SwitchGb200Nvidia);
+        let filters = component_filters_for(&calls[0]);
         assert_eq!(filters, ["BMC", "BIOS"]);
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev0.node_id, sw1.to_string());
-        assert_eq!(dev0.r#type, Some(rms::NodeType::SwitchGb200Nvidia as i32));
+        assert_descriptor_node(dev0, ROLE_SWITCH);
         assert!(dev0.bmc_endpoint.is_some());
         assert!(dev0.host_endpoint.is_some());
 
@@ -4385,7 +4585,7 @@ mod tests {
         assert_eq!(calls[0].rack_id, rack_id.to_string());
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev0.node_id, sw1.to_string());
-        assert_eq!(dev0.r#type, Some(rms::NodeType::SwitchGb200Nvidia as i32));
+        assert_descriptor_node(dev0, ROLE_SWITCH);
         assert!(dev0.bmc_endpoint.is_some());
         assert!(dev0.host_endpoint.is_some());
 
@@ -4636,7 +4836,7 @@ mod tests {
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
         assert_eq!(dev0.node_id, ct1.to_string());
         assert_eq!(dev0.rack_id, rack_id.to_string());
-        assert_eq!(dev0.r#type, Some(rms::NodeType::ComputeGb200Nvidia as i32));
+        assert_descriptor_node(dev0, ROLE_COMPUTE);
         assert!(dev0.bmc_endpoint.is_some());
         assert!(dev0.host_endpoint.is_none());
     }
@@ -4666,10 +4866,10 @@ mod tests {
         let calls = mock.apply_firmware_object_calls().await;
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].rack_id, rack_id.to_string());
-        let filters = component_filters_for(&calls[0], rms::NodeType::ComputeGb200Nvidia);
+        let filters = component_filters_for(&calls[0]);
         assert_eq!(filters, &["BMC".to_owned()]);
         let dev0 = &calls[0].nodes.as_ref().unwrap().nodes[0];
-        assert_eq!(dev0.r#type, Some(rms::NodeType::ComputeGb200Nvidia as i32));
+        assert_descriptor_node(dev0, ROLE_COMPUTE);
 
         let jobs = backend.firmware_jobs.lock().unwrap();
         assert_eq!(

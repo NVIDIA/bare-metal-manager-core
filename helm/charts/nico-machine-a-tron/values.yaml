@@ -161,13 +161,65 @@ machineDefaults:
   dpusInNicMode: false
 
 ## =============================================================================
-## Pod Configurations - One pod per config entry
+## MAC Address Pool - Standalone MACs for BMC and management interfaces
 ## =============================================================================
-## Each entry creates:
-##   - 1 Deployment (pod)
-##   - 1 ConfigMap with mat.toml
-##   - 1 Certificate
-##   - 1 internal Service
+## Allocates individual MACs for simulated machine interfaces:
+##   - Host BMC MAC (bmc_mac_address)
+##   - DPU BMC MAC (per DPU)
+##   - DPU Host MAC (representor interface, per DPU)
+##   - DPU OOB MAC (out-of-band management, per DPU)
+##   - NVOS MACs (for switches)
+##
+## Example: GB200 host with 2 DPUs needs ~7 MACs from this pool.
+##
+## Each pod gets a unique base to avoid collisions in multi-pod deployments.
+##
+## Format: 02:00:PP:XX:XX:XX
+##   - 02:00 = Locally administered prefix (required for virtual MACs)
+##   - PP    = Pod index (0x00, 0x01, 0x02, ...)
+##   - XX    = Host bits (allocated sequentially)
+##
+## Scale with hostBits=16:
+##   - 65K MACs per pod
+##   - Supports up to 256 pods
+##
+macAddressPool:
+  ## Enable auto-generation of per-pod MAC address pools.
+  ## Default: false (uses binary defaults from machine-a-tron: 02:00:00:00:00:00/24)
+  ## Set to true for multi-pod deployments to avoid MAC collisions.
+  enabled: false
+  ## Base prefix (first 2 bytes). Pod index added to byte 3.
+  basePrefix: "02:00"
+  ## Number of host bits per pod (16 = ~65K MACs per pod)
+  hostBits: 16
+
+## =============================================================================
+## HW MAC Address Ranges - Contiguous MAC blocks for network interface cards
+## =============================================================================
+## Allocates contiguous MAC address ranges for NICs that require sequential MACs:
+##   - ConnectX NICs (e.g., CX-8 needs 10 consecutive MACs)
+##   - Storage NICs (multiple MACs for storage interfaces)
+##   - Management NICs
+##
+## Real hardware has contiguous MAC blocks assigned at manufacturing.
+## This pool simulates that by allocating 256-MAC blocks (rangeHostBits=8).
+##
+## Each pod gets a unique range base derived from pod index.
+##
+## Format: 02:01:PP:XX:XX:XX where PP = pod index
+##
+hwMacAddressRanges:
+  ## Enable auto-generation of per-pod HW MAC ranges.
+  ## Default: false (uses binary defaults from machine-a-tron: 06:00:00:00:00:00/32/8)
+  ## Set to true for multi-pod deployments to avoid MAC collisions.
+  enabled: false
+  ## Base prefix (first 2 bytes). Pod index added to byte 3.
+  basePrefix: "02:01"
+  ## Total host bits (24 = 16M addresses in the range pool)
+  hostBits: 24
+  ## Bits per allocated range (8 = 256 MACs per range allocation)
+  rangeHostBits: 8
+
 ##   - N ClusterIP BMC services (when bmcServices.enabled)
 ##
 ## SCALE: Use /22 CIDR per pod = 1021 usable IPs = ~14 racks worth of BMCs

@@ -20,6 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 
 use bytes::Bytes;
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, emit};
 use carbide_metrics_utils::OtelView;
 use http_body_util::Full;
 use hyper::header::{CONTENT_LENGTH, CONTENT_TYPE};
@@ -111,6 +112,62 @@ enum EncodeError {
     /// A collector or observable callback panicked during `gather()`/encode; the encoder
     /// thread caught the unwind and stayed alive to serve later scrapes.
     Panicked,
+}
+
+/// Why a `/metrics` scrape failed to return an exposition, as a bounded low-cardinality
+/// label for [`MetricsScrapeFailed`]. Each variant maps to one failure branch of the
+/// handler (and its HTTP status): `EncoderBusy` → 503, all others → 500.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum ScrapeOutcome {
+    /// The encoder queue was full; the scrape was shed (503).
+    EncoderBusy,
+    /// The encoder thread was gone, so nothing could be enqueued (500).
+    EncoderGone,
+    /// The Prometheus text encoder returned an error (500).
+    EncodeFailed,
+    /// A collector/observable callback panicked during gather/encode (500).
+    EncoderPanicked,
+    /// The encoder dropped the reply without answering, e.g. during shutdown (500).
+    ReplyDropped,
+}
+
+/// Counts `/metrics` scrape failures by outcome, alongside the existing per-branch logs.
+/// Meta-observability: it surfaces a busy or erroring encoder on the next successful
+/// scrape, where aggregatable/alertable counters beat logs alone.
+#[derive(Event)]
+#[event(
+    event_name = "metrics_scrape_failed",
+    metric_name = "carbide_metrics_scrape_failures_total",
+    component = "metrics-endpoint",
+    metric = counter,
+    log = dynamic,
+    message = dynamic,
+    describe = "Number of /metrics scrape failures, by outcome."
+)]
+struct MetricsScrapeFailed {
+    #[label]
+    outcome: ScrapeOutcome,
+}
+
+impl DynamicLog for MetricsScrapeFailed {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            ScrapeOutcome::EncoderBusy => LogAt::Level(tracing::Level::WARN),
+            _ => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for MetricsScrapeFailed {
+    fn message(&self) -> &'static str {
+        match self.outcome {
+            ScrapeOutcome::EncoderBusy => "metrics encoder busy; shedding scrape with 503",
+            ScrapeOutcome::EncoderGone => "metrics encoder thread is gone; cannot encode metrics",
+            ScrapeOutcome::EncodeFailed => "failed to encode metrics",
+            ScrapeOutcome::EncoderPanicked => "metrics encoder caught a panic while encoding",
+            ScrapeOutcome::ReplyDropped => "metrics encoder dropped the reply without responding",
+        }
+    }
 }
 
 /// The reply channel a scrape hands to the encoder thread. The thread sends the encoded
@@ -447,14 +504,18 @@ async fn handle_metrics_request<B>(
                 Err(TrySendError::Full(_)) => {
                     // The single encoder is already busy with a backlog; shed this
                     // scrape rather than pile on more work.
-                    tracing::warn!("metrics encoder busy; shedding scrape with 503");
+                    emit(MetricsScrapeFailed {
+                        outcome: ScrapeOutcome::EncoderBusy,
+                    });
                     return Ok(Response::builder()
                         .status(503)
                         .body(Full::new(Bytes::from("metrics encoder busy")))
                         .unwrap());
                 }
                 Err(TrySendError::Disconnected(_)) => {
-                    tracing::error!("metrics encoder thread is gone; cannot encode metrics");
+                    emit(MetricsScrapeFailed {
+                        outcome: ScrapeOutcome::EncoderGone,
+                    });
                     return Ok(Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
@@ -469,15 +530,19 @@ async fn handle_metrics_request<B>(
                     .header(CONTENT_LENGTH, buffer.len())
                     .body(Full::new(Bytes::from(buffer)))
                     .unwrap(),
-                Ok(Err(EncodeError::Encode(err))) => {
-                    tracing::error!(error = %err, "failed to encode metrics");
+                Ok(Err(EncodeError::Encode(_err))) => {
+                    emit(MetricsScrapeFailed {
+                        outcome: ScrapeOutcome::EncodeFailed,
+                    });
                     Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
                         .unwrap()
                 }
                 Ok(Err(EncodeError::Panicked)) => {
-                    tracing::error!("metrics encoder caught a panic while encoding");
+                    emit(MetricsScrapeFailed {
+                        outcome: ScrapeOutcome::EncoderPanicked,
+                    });
                     Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
@@ -487,7 +552,9 @@ async fn handle_metrics_request<B>(
                     // The encoder thread dropped the reply without answering — it was told
                     // to stop (shutdown) or otherwise went away. Distinct from a busy or
                     // already-gone encoder above.
-                    tracing::error!("metrics encoder dropped the reply without responding");
+                    emit(MetricsScrapeFailed {
+                        outcome: ScrapeOutcome::ReplyDropped,
+                    });
                     Response::builder()
                         .status(500)
                         .body(Full::new(Bytes::from("Failed to encode metrics")))
@@ -530,11 +597,34 @@ async fn handle_metrics_request<B>(
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    use carbide_instrument::testing::MetricsCapture;
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::metrics;
     use prometheus::{Encoder, TextEncoder};
 
     use super::*;
+
+    /// The `EncodeFailed` outcome (a `TextEncoder` error) cannot be triggered
+    /// deterministically through the handler — the text encoder does not error on a valid
+    /// registry, and there is no seam to inject a failure — so its emit wiring is covered
+    /// here directly. The other four outcomes are driven through `handle_metrics_request`
+    /// in the tests below.
+    #[test]
+    fn encode_failed_outcome_emits_counter() {
+        let metrics = MetricsCapture::start();
+
+        emit(MetricsScrapeFailed {
+            outcome: ScrapeOutcome::EncodeFailed,
+        });
+
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_metrics_scrape_failures_total",
+                &[("outcome", "encode_failed")]
+            ),
+            1.0,
+        );
+    }
 
     /// This test mostly mimics the test setup above and checks whether
     /// the prometheus opentelemetry stack will only report the most recent
@@ -1019,12 +1109,23 @@ mod tests {
             run_metrics_endpoint_with_listener(&config, server_token, listener).await
         });
 
+        let metrics = MetricsCapture::start();
+
         // First scrape trips the collector panic. The encoder thread catches the unwind
         // and answers 500 instead of dying.
         let (headers, _body) = scrape_metrics(addr).await;
         assert!(
             headers.starts_with("http/1.1 500"),
             "panicking scrape should be 500, got headers:\n{headers}"
+        );
+        // The panic branch records the `encoder_panicked` outcome before replying.
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_metrics_scrape_failures_total",
+                &[("outcome", "encoder_panicked")]
+            ),
+            1.0,
+            "panicking scrape should increment the encoder_panicked counter once"
         );
 
         // The thread survived, so a subsequent scrape on the same server succeeds.
@@ -1045,19 +1146,23 @@ mod tests {
             .expect("metrics server exited cleanly");
     }
 
-    /// The `/metrics` handler maps a full queue to `503` and a disconnected encoder to
-    /// `500`, exercised directly against `handle_metrics_request` with a channel we control
-    /// — no live server or encoder thread.
+    /// Drive `handle_metrics_request` through its channel-controllable failure branches with
+    /// a queue we manipulate — no live server or encoder thread — and assert each maps to
+    /// the expected status *and* increments `carbide_metrics_scrape_failures_total` once
+    /// under the matching `outcome` label. This guards the handler's emit wiring, not just
+    /// that `emit` works. (`EncodeFailed` is covered separately; see
+    /// `encode_failed_outcome_emits_counter`.)
     #[tokio::test]
-    async fn test_handle_metrics_request_queue_backpressure() {
+    async fn test_handle_metrics_request_failure_outcomes() {
         // The encoder sender under test, plus any receiver that must stay alive for the
-        // call (`None` means it was dropped, disconnecting the channel).
+        // call (`None` means it was dropped or handed to a drainer thread).
         type EncoderChannel = (SyncSender<Item>, Option<std::sync::mpsc::Receiver<Item>>);
 
         struct Case {
             name: &'static str,
             setup: fn() -> EncoderChannel,
             expected_status: u16,
+            outcome: &'static str,
         }
 
         let cases = [
@@ -1070,6 +1175,7 @@ mod tests {
                     (tx, Some(rx))
                 },
                 expected_status: 503,
+                outcome: "encoder_busy",
             },
             Case {
                 name: "encoder gone -> 500",
@@ -1079,8 +1185,27 @@ mod tests {
                     (tx, None)
                 },
                 expected_status: 500,
+                outcome: "encoder_gone",
+            },
+            Case {
+                name: "reply dropped -> 500",
+                setup: || {
+                    let (tx, rx) = sync_channel::<Item>(1);
+                    // Accept the enqueued Work and drop its reply channel without answering,
+                    // so the handler's `reply_rx.await` resolves to `Err` (reply dropped).
+                    std::thread::spawn(move || {
+                        if let Ok(Item::Work(reply_tx)) = rx.recv() {
+                            drop(reply_tx);
+                        }
+                    });
+                    (tx, None)
+                },
+                expected_status: 500,
+                outcome: "reply_dropped",
             },
         ];
+
+        let metrics = MetricsCapture::start();
 
         for case in cases {
             let (encoder_tx, _rx_guard) = (case.setup)();
@@ -1102,6 +1227,15 @@ mod tests {
                 response.status().as_u16(),
                 case.expected_status,
                 "case: {}",
+                case.name
+            );
+            assert_eq!(
+                metrics.counter_delta(
+                    "carbide_metrics_scrape_failures_total",
+                    &[("outcome", case.outcome)]
+                ),
+                1.0,
+                "case: {} should increment its outcome counter exactly once",
                 case.name
             );
             // `_rx_guard` (kept for the full-queue case) stays alive until here so the

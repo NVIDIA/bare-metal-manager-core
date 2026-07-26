@@ -339,6 +339,7 @@ impl TestEnv {
             component_manager: self.test_component_manager.clone(),
             credential_manager: self.test_credential_manager.clone(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
+            per_object_info: None,
         }
     }
 
@@ -1548,6 +1549,7 @@ pub async fn create_test_env_with_overrides(
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                per_object_info: None,
             }
             .into(),
         )
@@ -1741,11 +1743,9 @@ pub async fn create_test_env_with_overrides(
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
         test_meter.meter(),
-        api.endpoint_explorer.clone(),
-        Arc::new(config.get_firmware_config()),
+        api.endpoint_exploration_service.clone(),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
-        api.endpoint_exploration_locks.clone(),
         site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),

@@ -27,7 +27,8 @@ use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::machine::{
     DpfState, DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, Machine,
-    ManagedHostState, ManagedHostStateSnapshot, ReprovisionState, StateMachineArea,
+    ManagedHostState, ManagedHostStateSnapshot, PerformPowerOperation, ReprovisionState,
+    StateMachineArea,
 };
 use state_controller::state_handler::{
     ExternalServiceError, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -305,23 +306,35 @@ async fn handle_dpf_provisioning(
     Ok(StateHandlerOutcome::transition(next))
 }
 
-/// Power-cycle the host for a DPF reboot request. ForceOff then On across
-/// iterations; calls `reboot_complete` as soon as the On command is issued.
-async fn handle_dpf_reboot(
+/// Handle `DpfState::HandleReboot`: drive a DPF-requested power cycle using
+/// explicit per-step state rather than timestamp heuristics.
+///
+/// Transitions:
+/// - `Off`: wait for `power_state == Off` + delay → persist
+///   `HandleReboot { On, 0 }`
+/// - `On`: wait for `power_state == On`  + delay → `reboot_complete` →
+///   `WaitingForReady`
+async fn handle_dpf_handle_reboot(
     state: &ManagedHostStateSnapshot,
-    dpu_snapshot: &Machine,
-    waiting_phase_detail: &Option<String>,
-    current_phase: &DpuPhase,
+    op: &PerformPowerOperation,
+    retry_count: u32,
     node_name: &str,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
+    power_down_wait: chrono::Duration,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    let reboot_already_requested = state
-        .host_snapshot
-        .status
-        .last_reboot_requested
-        .as_ref()
-        .is_some_and(|r| r.time > state.host_snapshot.state.version.timestamp());
+    const MAX_RETRIES: u32 = 3;
+
+    // Due to enqueue based event handling, On is triggered immedietely after Off while chassis is
+    // not able to process Off completely. So this time delay is needed.
+    if super::wait(
+        &state.host_snapshot.state.version.timestamp(),
+        power_down_wait,
+    ) {
+        return Ok(StateHandlerOutcome::wait(
+            "waiting for power transition delay".into(),
+        ));
+    }
 
     let power_state = {
         let redfish_client = ctx
@@ -331,23 +344,85 @@ async fn handle_dpf_reboot(
         host_power_state(redfish_client.as_ref()).await?
     };
 
-    if !reboot_already_requested && power_state != libredfish::PowerState::Off {
-        handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
-    } else if power_state == libredfish::PowerState::Off {
-        handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
-        dpf_sdk
-            .reboot_complete(node_name)
-            .await
-            .map_err(dpf_error)?;
+    match op {
+        PerformPowerOperation::Off => {
+            if power_state == libredfish::PowerState::Off {
+                let next = transition_all_dpus_to_dpf_state(
+                    DpfState::HandleReboot {
+                        op: PerformPowerOperation::On,
+                        retry_count: 0,
+                    },
+                    state,
+                )?;
+                Ok(StateHandlerOutcome::transition(next))
+            } else if retry_count < MAX_RETRIES {
+                tracing::warn!(
+                    host = %state.host_snapshot.id,
+                    retry_count,
+                    "Host did not power off; retrying ForceOff"
+                );
+                handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
+                let next = transition_all_dpus_to_dpf_state(
+                    DpfState::HandleReboot {
+                        op: PerformPowerOperation::Off,
+                        retry_count: retry_count + 1,
+                    },
+                    state,
+                )?;
+                Ok(StateHandlerOutcome::transition(next))
+            } else {
+                tracing::error!(
+                    host = %state.host_snapshot.id,
+                    max_retries = MAX_RETRIES,
+                    "Host did not power off after max retries; manual intervention required"
+                );
+                Err(StateHandlerError::ManualInterventionRequired(
+                    "host did not power off; manual intervention required".into(),
+                ))
+            }
+        }
+        PerformPowerOperation::On => {
+            if power_state == libredfish::PowerState::On {
+                dpf_sdk
+                    .reboot_complete(node_name)
+                    .await
+                    .map_err(dpf_error)?;
+                let next = transition_all_dpus_to_dpf_state(
+                    DpfState::WaitingForReady { phase_detail: None },
+                    state,
+                )?;
+                Ok(StateHandlerOutcome::transition(next))
+            } else if retry_count <= MAX_RETRIES {
+                // Zero means the On intent is durable but its initial command
+                // has not yet been issued. Later attempts are retries.
+                if retry_count > 0 {
+                    tracing::warn!(
+                        host = %state.host_snapshot.id,
+                        retry_count,
+                        "Host did not power on; retrying On"
+                    );
+                }
+                handler_host_power_control(state, ctx, SystemPowerControl::On).await?;
+                let next = transition_all_dpus_to_dpf_state(
+                    DpfState::HandleReboot {
+                        op: PerformPowerOperation::On,
+                        retry_count: retry_count + 1,
+                    },
+                    state,
+                )?;
+                Ok(StateHandlerOutcome::transition(next))
+            } else {
+                tracing::error!(
+                    host = %state.host_snapshot.id,
+                    max_retries = MAX_RETRIES,
+                    "Host did not power on after max retries; manual intervention required"
+                );
+                Err(StateHandlerError::ManualInterventionRequired(
+                    "host did not power on; manual intervention required".into(),
+                ))
+            }
+        }
     }
-
-    update_phase_detail_or_wait(
-        state,
-        &dpu_snapshot.id,
-        waiting_phase_detail,
-        current_phase,
-        "Power cycling host for DPF reboot",
-    )
 }
 
 /// Handle DpfState::WaitingForReady: release hold, reboot handling,
@@ -361,10 +436,29 @@ async fn handle_dpf_waiting_for_ready(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let dpu_device_name = dpf_id(dpu_snapshot)?;
-    let current_phase = dpf_sdk
-        .get_dpu_phase(&dpu_device_name, &node_name)
-        .await
-        .map_err(dpf_error)?;
+    let current_phase = match dpf_sdk.get_dpu_phase(&dpu_device_name, &node_name).await {
+        Ok(phase) => phase,
+        // The operator briefly removes the old DPU CR before recreating a fresh one
+        // during reprovision; treat that window as "keep waiting" rather than erroring.
+        Err(DpfError::NotFound { .. }) => {
+            return Ok(StateHandlerOutcome::wait(
+                "DPU CR not yet recreated after reprovision".to_string(),
+            ));
+        }
+        Err(err) => return Err(dpf_error(err)),
+    };
+
+    // A DPU with a deletionTimestamp is a terminating old CR (get_dpu_phase maps that to
+    // Deleting; its status.phase is still stale, often Ready or Error). Do nothing until
+    // the operator has deleted it and created the fresh CR: don't release the maintenance
+    // hold, don't trigger a reboot, and don't read Ready/Error off it. This is what lets a
+    // reprovision of an *errored* DPU proceed instead of immediately re-failing on the old
+    // CR's stale Error phase.
+    if current_phase == DpuPhase::Deleting {
+        return Ok(StateHandlerOutcome::wait(
+            "DPU CR is being deleted (reprovision in progress); waiting for the new CR".to_string(),
+        ));
+    }
 
     dpf_sdk
         .release_maintenance_hold(&node_name)
@@ -376,16 +470,15 @@ async fn handle_dpf_waiting_for_ready(
         .await
         .map_err(dpf_error)?
     {
-        return handle_dpf_reboot(
+        handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
+        let next = transition_all_dpus_to_dpf_state(
+            DpfState::HandleReboot {
+                op: PerformPowerOperation::Off,
+                retry_count: 0,
+            },
             state,
-            dpu_snapshot,
-            waiting_phase_detail,
-            &current_phase,
-            &node_name,
-            ctx,
-            dpf_sdk,
-        )
-        .await;
+        )?;
+        return Ok(StateHandlerOutcome::transition(next));
     }
 
     if current_phase == carbide_dpf::DpuPhase::Error {
@@ -500,6 +593,7 @@ pub async fn handle_dpf_state(
     dpf_state: &DpfState,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
+    power_down_wait: chrono::Duration,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let deployment_type = dpf_sdk
@@ -536,6 +630,18 @@ pub async fn handle_dpf_state(
         DpfState::Provisioning => handle_dpf_provisioning(state, dpf_sdk).await,
         DpfState::WaitingForReady { phase_detail } => {
             handle_dpf_waiting_for_ready(state, dpu_snapshot, phase_detail, ctx, dpf_sdk).await
+        }
+        DpfState::HandleReboot { op, retry_count } => {
+            handle_dpf_handle_reboot(
+                state,
+                op,
+                *retry_count,
+                &node_name,
+                ctx,
+                dpf_sdk,
+                power_down_wait,
+            )
+            .await
         }
         DpfState::DeviceReady => handle_dpf_device_ready(state),
         DpfState::Reprovisioning => {

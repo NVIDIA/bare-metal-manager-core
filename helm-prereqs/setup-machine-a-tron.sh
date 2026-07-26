@@ -58,6 +58,26 @@
 #    hostCount + hostCount*dpuPerHostCount. Overflowing the OOB pool yields
 #    "No IP addresses left in prefix ..." and machines never register.
 #
+#  * DPF simulation (Phase 4b): runs by default ONLY when the nico-core
+#    config enables DPF ([dpf] enabled = true; site config overrides global) —
+#    a simulation site with DPF enabled but no operator parks every host in
+#    dpuinit forever. GUARDRAIL: hard-fails if the real DPF operator is
+#    deployed (both would drive DPU.status.phase); bypass everything with
+#    --skip-dpf-sim. The phase deploys dev/k8s/dpf-sim-controller (namespace,
+#    DPF CRDs, RBAC, Deployment; see its README), grants nico-api its
+#    DPF-namespace Role (nico-api-dpf), and sets
+#    CARBIDE_API_ALLOW_INSECURE_DISCOVERY=true on nico-api — post-#3561 cores
+#    resolve DiscoverMachine callers by source IP, which every simulated
+#    machine shares, so without the flag all agent discovery fails and
+#    dpuinit parks at waitingfornetworkconfig.
+#
+#  * SVI IPs on the simulated prefixes (Phase 5, scale mode): the host
+#    network-config builder under FNN requires network_prefixes.svi_ip on L2
+#    segments; without it get_managed_host_network_config fails with
+#    "SVI IP is not allocated" and hosts never leave dpuinit. The segment
+#    seeding sets svi_ip = gateway, and backfills rows created before this
+#    script did so.
+#
 #  * machine_interfaces_deletion singleton (Phase 10 check): the
 #    machine_dhcp_records VIEW inner-joins the singleton row id=1. If it is ever
 #    deleted (e.g. by manual lease cleanup) the view returns zero rows and
@@ -102,12 +122,18 @@
 #                          Default: <repo>/helm/charts/nico-machine-a-tron
 #   VALUES_FILE            Base values template.
 #                          Default: <this dir>/values/machine-a-tron.yaml
+#   DPF_SIM_IMAGE          dpf-sim-controller image ref for Phase 4b. Default:
+#                          ${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}
+#   DPF_SIM_IMAGE_TAG      Tag for the derived default above. Default: latest
+#   DPF_NAMESPACE          DPF namespace (must match the site config).
+#                          Default: dpf-operator-system
 #
 # Usage:
 #   export KUBECONFIG=/path/to/kubeconfig
 #   ./setup-machine-a-tron.sh            # prompt before deploy
 #   ./setup-machine-a-tron.sh -y         # non-interactive
 #   ./setup-machine-a-tron.sh --skip-nico-core-config   # don't touch nico-core
+#   ./setup-machine-a-tron.sh --skip-dpf-sim  # no DPF simulator / RBAC / flag
 # =============================================================================
 
 set -euo pipefail
@@ -179,8 +205,15 @@ SCALE_MACHINES_CREATED_PER_RUN="${SCALE_MACHINES_CREATED_PER_RUN:-40}"
 
 CHART_DIR="${CHART_DIR:-${REPO_ROOT}/helm/charts/nico-machine-a-tron}"
 
+# --- DPF simulation (Phase 4b) ------------------------------------------------
+DPF_NAMESPACE="${DPF_NAMESPACE:-dpf-operator-system}"
+DPF_SIM_DIR="${DPF_SIM_DIR:-${REPO_ROOT}/dev/k8s/dpf-sim-controller}"
+DPF_SIM_IMAGE="${DPF_SIM_IMAGE:-}"
+DPF_SIM_IMAGE_TAG="${DPF_SIM_IMAGE_TAG:-latest}"
+
 ASSUME_YES=false
 SKIP_NICO_CORE_CONFIG=false
+SKIP_DPF_SIM=false
 CM_JSON=""
 MERGED_VALUES=""
 cleanup() { rm -f "$CM_JSON" "$MERGED_VALUES" 2>/dev/null || true; }
@@ -191,7 +224,8 @@ for arg in "$@"; do
         -y|--yes) ASSUME_YES=true ;;
         --scale) MAT_MODE="scale" ;;
         --skip-nico-core-config) SKIP_NICO_CORE_CONFIG=true ;;
-        -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -110; exit 0 ;;
+        --skip-dpf-sim) SKIP_DPF_SIM=true ;;
+        -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -130; exit 0 ;;
         *) echo "Unknown argument: $arg" >&2; exit 2 ;;
     esac
 done
@@ -402,6 +436,152 @@ _seed_uefi "machines/all_dpus/site_default/uefi-metadata-items/auth"  "$UEFI_DPU
 _seed_uefi "machines/all_hosts/site_default/uefi-metadata-items/auth" "$UEFI_HOST_PASSWORD"
 
 # =============================================================================
+# Phase 4b — DPF operator simulator (default ON; bypass with --skip-dpf-sim)
+# =============================================================================
+phase "Phase 4b — DPF operator simulator"
+# The simulator deploys by default ONLY when the nico-core config actually
+# enables DPF ([dpf] enabled = true, site config overriding global) — on a
+# non-DPF site there is nothing for it to drive, and auto-deploying DPF
+# machinery there would be a nasty surprise on a production cluster.
+_toml_dpf_enabled() {   # $1 = toml text → prints the [dpf] enabled value, "" if absent
+    printf '%s\n' "$1" | grep -vE '^[[:space:]]*#' | awk '
+        /^\[dpf\]/        {in_dpf=1; next}
+        /^\[/             {in_dpf=0}
+        in_dpf && /^[[:space:]]*enabled[[:space:]]*=/ {
+            gsub(/[[:space:]]/,""); sub(/^enabled=/,""); print; exit }'
+}
+_cm_key() {   # $1=configmap $2=key → prints the key data, "" if absent
+    kubectl get cm "$1" -n "$NICO_SYSTEM_NS" -o jsonpath="{.data.$2}" 2>/dev/null || true
+}
+DPF_ENABLED=""
+for _src in \
+    "nico-api-site-config-files nico-api-site-config\.toml" \
+    "nico-api-site-config-files carbide-api-site-config\.toml" \
+    "nico-api-config-files nico-api-config\.toml" \
+    "nico-api-config-files carbide-api-config\.toml"; do
+    # first hit wins: site config overrides global
+    [[ -n "$DPF_ENABLED" ]] && break
+    DPF_ENABLED="$(_toml_dpf_enabled "$(_cm_key $_src)")"
+done
+
+if $SKIP_DPF_SIM; then
+    warn "--skip-dpf-sim: not deploying the simulator. Hosts on a [dpf]-enabled"
+    warn "  site will park in dpuinit unless a real DPF operator (or a"
+    warn "  separately-deployed simulator) drives DPU.status.phase."
+elif [[ "$DPF_ENABLED" != "true" ]]; then
+    ok "DPF is not enabled in the nico-core config ([dpf] enabled = ${DPF_ENABLED:-absent}) — nothing to simulate, skipping"
+else
+    # GUARDRAIL: never beside a real operator — both would drive
+    # DPU.status.phase and fight. If the real DPF stack is deployed, this is
+    # not a simulation-only cluster: refuse loudly rather than risk it.
+    _REAL_DPF="$(kubectl get deploy -n "$DPF_NAMESPACE" -o name 2>/dev/null \
+        | grep -vE 'deployment.apps/dpf-sim-controller$' | grep -E 'dpf.*operator|operator.*dpf' || true)"
+    if [[ -n "$_REAL_DPF" ]]; then
+        die "the real DPF operator is deployed in ${DPF_NAMESPACE} (${_REAL_DPF#deployment.apps/}).
+       The DPF simulator must NOT run beside it — both drive DPU.status.phase.
+       To bring up the simulator, remove the real DPF operator first (this must
+       be a simulation-only cluster); to keep the real operator, re-run with
+       --skip-dpf-sim."
+    fi
+    command -v make >/dev/null 2>&1 || die "make is required for the simulator deploy (or pass --skip-dpf-sim)"
+    [[ -d "$DPF_SIM_DIR" ]] || die "simulator module not found at ${DPF_SIM_DIR} (or pass --skip-dpf-sim)"
+    if [[ -z "$DPF_SIM_IMAGE" ]]; then
+        [[ -n "${NICO_IMAGE_REGISTRY:-}" ]] \
+            || die "set DPF_SIM_IMAGE (or NICO_IMAGE_REGISTRY) for the dpf-sim-controller image, or pass --skip-dpf-sim"
+        DPF_SIM_IMAGE="${NICO_IMAGE_REGISTRY}/dpf-sim-controller:${DPF_SIM_IMAGE_TAG}"
+    fi
+
+    kubectl get ns "$DPF_NAMESPACE" >/dev/null 2>&1 || kubectl create ns "$DPF_NAMESPACE" >/dev/null
+    _DPF_PULL_ARGS=()
+    if [[ -n "${REGISTRY_PULL_SECRET:-}" ]]; then
+        kubectl -n "$DPF_NAMESPACE" create secret docker-registry dpf-sim-pull \
+            --docker-server="${DPF_SIM_IMAGE%%/*}" \
+            --docker-username="$REGISTRY_PULL_USERNAME" \
+            --docker-password="$REGISTRY_PULL_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+        _DPF_PULL_ARGS=(PULL_SECRET=dpf-sim-pull)
+    fi
+    # `make deploy` = DPF CRDs (waits for Established) + RBAC + Deployment +
+    # rollout; everything idempotent. Keep the log for failure triage.
+    _DPF_LOG="$(mktemp)"
+    if ! make -C "$DPF_SIM_DIR" deploy IMG="$DPF_SIM_IMAGE" DPF_NAMESPACE="$DPF_NAMESPACE" ${_DPF_PULL_ARGS[@]+"${_DPF_PULL_ARGS[@]}"} >"$_DPF_LOG" 2>&1; then
+        tail -8 "$_DPF_LOG" >&2; rm -f "$_DPF_LOG"
+        die "simulator deploy failed (make -C ${DPF_SIM_DIR} deploy)"
+    fi
+    rm -f "$_DPF_LOG"
+    ok "dpf-sim-controller deployed: ${DPF_SIM_IMAGE} in ${DPF_NAMESPACE}"
+
+    # nico-api needs access to the DPF namespace for the DPF SDK (mirrors
+    # helm/charts/nico-api/templates/dpf-rbac.yaml on the setup-dpf-install
+    # branch, which is not on main yet — drop this once the chart ships it).
+    kubectl apply -f - <<NICOAPIDPF >/dev/null
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nico-api-dpf
+  namespace: ${DPF_NAMESPACE}
+rules:
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["bfbs", "bluefieldsoftwares", "dpudevices", "dpunodes"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["dpus"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["dpunodemaintenances"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["dpuflavors"]
+    verbs: ["get", "create"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["dpusets"]
+    verbs: ["get"]
+  - apiGroups: ["provisioning.dpu.nvidia.com"]
+    resources: ["dpuclusters"]
+    verbs: ["get", "list"]
+  - apiGroups: ["svc.dpu.nvidia.com"]
+    resources: ["dpudeployments", "dpuservices", "dpuservicechains", "dpuserviceinterfaces", "dpuservicetemplates", "dpuserviceconfigurations", "dpuservicenads"]
+    verbs: ["get", "list", "create", "patch", "delete"]
+  - apiGroups: ["operator.dpu.nvidia.com"]
+    resources: ["dpfoperatorconfigs"]
+    verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nico-api-dpf
+  namespace: ${DPF_NAMESPACE}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nico-api-dpf
+subjects:
+  - kind: ServiceAccount
+    name: nico-api
+    namespace: ${NICO_SYSTEM_NS}
+NICOAPIDPF
+    ok "nico-api-dpf Role/RoleBinding applied in ${DPF_NAMESPACE}"
+
+    # Post-#3561 cores resolve DiscoverMachine callers by TCP source IP; every
+    # simulated machine shares the MAT pod IP, so without this flag all agent
+    # discovery fails ("machine_interface for discovery IP not found") and
+    # dpuinit parks at waitingfornetworkconfig. Only set + restart when it is
+    # not already true — re-runs must not bounce a healthy nico-api.
+    _INSECURE_NOW="$(kubectl get deploy nico-api -n "$NICO_SYSTEM_NS" \
+        -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CARBIDE_API_ALLOW_INSECURE_DISCOVERY")].value}' 2>/dev/null || true)"
+    if [[ "$_INSECURE_NOW" != "true" ]]; then
+        info "enabling CARBIDE_API_ALLOW_INSECURE_DISCOVERY on nico-api (one-time restart)"
+        kubectl -n "$NICO_SYSTEM_NS" set env deployment/nico-api CARBIDE_API_ALLOW_INSECURE_DISCOVERY=true >/dev/null
+        kubectl -n "$NICO_SYSTEM_NS" rollout status deployment/nico-api --timeout=300s >/dev/null \
+            || warn "nico-api rollout did not complete in time; continuing"
+    fi
+    ok "allow_insecure_discovery enabled on nico-api (test-env only; see #3561)"
+fi
+
+# =============================================================================
 # Phase 5 — configure nico-core site config for the selected mode
 #   override: set site_explorer.bmc_proxy (GOTCHA: field name; FQDN required)
 #   scale:    REMOVE bmc_proxy, add simulated networks + throughput knobs
@@ -524,14 +704,33 @@ PY
             FROM network_segments ns
             WHERE ns.network_segment_type::text ILIKE '${typ}' LIMIT 1;" >/dev/null \
             || die "failed to create segment ${name} (no ${typ} template segment?)"
-        psql_q "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved)
-            SELECT id, '${pfx}'::cidr, '${gw}'::inet, ${rsv}
+        # svi_ip = gateway: the FNN host network-config builder requires an
+        # SVI IP on L2 segments — without it get_managed_host_network_config
+        # fails with "SVI IP is not allocated" and hosts park in dpuinit at
+        # waitingfornetworkconfig.
+        psql_q "INSERT INTO network_prefixes (segment_id, prefix, gateway, num_reserved, svi_ip)
+            SELECT id, '${pfx}'::cidr, '${gw}'::inet, ${rsv}, '${gw}'::inet
             FROM network_segments WHERE name='${name}';" >/dev/null \
             || die "failed to add prefix ${pfx} to segment ${name}"
-        ok "segment ${name} created: ${pfx} (gw ${gw}, reserved ${rsv})"
+        ok "segment ${name} created: ${pfx} (gw ${gw}, svi ${gw}, reserved ${rsv})"
     }
     _ensure_segment "simulated-oob"   "underlay" "$SCALE_OOB_PREFIX"   "$SCALE_OOB_GW"   "$SCALE_RESERVE"
     _ensure_segment "simulated-admin" "admin"    "$SCALE_ADMIN_PREFIX" "$SCALE_ADMIN_GW" "$SCALE_RESERVE"
+    # Backfill segments created before this script seeded svi_ip (or created
+    # by config-driven bootstrap, which leaves it NULL).
+    _SVI_FIXED="$(psql_q "WITH fixed AS (
+            UPDATE network_prefixes np SET svi_ip = np.gateway
+            FROM network_segments ns
+            WHERE ns.id = np.segment_id
+              AND ns.name IN ('simulated-oob','simulated-admin')
+              AND np.svi_ip IS NULL
+            RETURNING 1)
+        SELECT count(*) FROM fixed;" || echo 0)"
+    if [[ "${_SVI_FIXED:-0}" != "0" ]]; then
+        ok "backfilled svi_ip on ${_SVI_FIXED} simulated prefix(es)"
+    else
+        ok "simulated prefixes already carry svi_ip"
+    fi
 
     # --- widen the lo-ip resource pool ---------------------------------------
     # Machine creation allocates one loopback IP per machine from resource_pool
@@ -554,6 +753,38 @@ PY
         ok "lo-ip pool: $(psql_count "SELECT count(*) FROM resource_pool WHERE name='lo-ip' AND allocated IS NULL;") free"
     else
         ok "lo-ip pool has ${_LO_FREE} free addresses"
+    fi
+
+    # --- widen the fnn-asn resource pool --------------------------------------
+    # Under FNN every DPU is assigned an ASN from the fnn-asn pool; site
+    # templates seed a tiny range (dev sites: ~94) that a fleet exhausts
+    # instantly, after which every get_managed_host_network_config fails with
+    # "FNN configured but DPU ... has not been assigned an ASN" and all hosts
+    # park at waitingfornetworkconfig. Same seed-once caveat as lo-ip: rows
+    # must be inserted directly. Extend contiguously from the pool's own max
+    # (4-byte private ASN space, nowhere near the 4294967294 ceiling on dev
+    # pools). Skipped when the site has no fnn-asn pool (non-FNN site).
+    _ASN_NEED=$(( HOST_COUNT * DPU_PER_HOST ))
+    _ASN_FREE="$(psql_count "SELECT count(*) FROM resource_pool WHERE name='fnn-asn' AND allocated IS NULL;")"
+    _ASN_TOTAL="$(psql_count "SELECT count(*) FROM resource_pool WHERE name='fnn-asn';")"
+    if (( _ASN_TOTAL == 0 )); then
+        ok "no fnn-asn pool on this site (non-FNN) — skipping"
+    elif (( _ASN_FREE < _ASN_NEED )); then
+        info "widening fnn-asn pool (${_ASN_FREE} free < ${_ASN_NEED} needed, one per DPU)"
+        psql_q "INSERT INTO resource_pool (name, value, value_type, auto_assign, state, state_version, created)
+            SELECT 'fnn-asn', (b.mx + g)::text, 'integer', true,
+                   '{\\\"state\\\":\\\"free\\\"}'::jsonb, b.sv, now()
+            FROM (SELECT max(value::bigint) AS mx,
+                         (SELECT state_version FROM resource_pool WHERE name='fnn-asn' LIMIT 1) AS sv
+                  FROM resource_pool WHERE name='fnn-asn') b,
+                 generate_series(1, $(( _ASN_NEED * 2 ))) g
+            WHERE b.mx IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM resource_pool rp
+                              WHERE rp.name='fnn-asn' AND rp.value = (b.mx + g)::text);" >/dev/null \
+            || die "failed to widen fnn-asn pool"
+        ok "fnn-asn pool: $(psql_count "SELECT count(*) FROM resource_pool WHERE name='fnn-asn' AND allocated IS NULL;") free"
+    else
+        ok "fnn-asn pool has ${_ASN_FREE} free ASNs"
     fi
 else
     CM_JSON="$(mktemp)"
@@ -682,6 +913,23 @@ if [[ "$SINGLETON" != "1" ]]; then
 else
     ok "machine_interfaces_deletion singleton present"
 fi
+# Surface any auto-assign resource pool that is already dry — an exhausted
+# pool fails machine creation or network-config generation with errors that
+# do not name the pool (e.g. "has not been assigned an ASN"), and allocation
+# failures at creation time are permanent until an operator backfills. lo-ip
+# and fnn-asn are widened automatically above; anything else dry needs a look.
+_DRY_POOLS="$(psql_q "SELECT string_agg(name || ' (' || total || ' total)', ', ')
+    FROM (SELECT name, count(*) AS total FROM resource_pool
+          WHERE auto_assign GROUP BY name
+          HAVING count(*) FILTER (WHERE allocated IS NULL) = 0) dry;" || true)"
+if [[ -n "${_DRY_POOLS// /}" ]]; then
+    warn "auto-assign pools with ZERO free entries: ${_DRY_POOLS}"
+    warn "  → allocations from these will fail silently at machine creation;"
+    warn "    widen them (resource_pool INSERT) before ingesting a fleet"
+else
+    ok "no auto-assign resource pool is exhausted"
+fi
+
 ORPHANS="$(psql_count "SELECT count(*) FROM machine_interfaces mi WHERE NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = mi.machine_id);")"
 MACHINES_NOW="$(psql_count "SELECT count(*) FROM machines;")"
 if [[ "${ORPHANS:-0}" -gt 0 && "${MACHINES_NOW:-0}" == "0" ]]; then

@@ -34,7 +34,7 @@ async fn test_create_operating_system_ipxe(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "test-ipxe-os".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: Some("inline iPXE OS".to_string()),
                 is_active: true,
                 allow_override: true,
@@ -51,7 +51,7 @@ async fn test_create_operating_system_ipxe(pool: PgPool) {
 
     let os = resp.into_inner();
     assert_eq!(os.name, "test-ipxe-os");
-    assert_eq!(os.tenant_organization_id, "test-org");
+    assert_eq!(os.tenant_organization_id.as_deref(), Some("test-org"));
     assert_eq!(os.r#type, OperatingSystemType::OsTypeIpxe as i32);
     assert_eq!(os.description.as_deref(), Some("inline iPXE OS"));
     assert!(os.is_active);
@@ -76,7 +76,7 @@ async fn test_create_operating_system_requires_name(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -104,13 +104,73 @@ async fn test_create_operating_system_requires_variant(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "test-os".to_string(),
-                tenant_organization_id: "test-org".to_string(),
+                tenant_organization_id: Some("test-org".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
                 phone_home_enabled: false,
                 user_data: None,
                 ipxe_script: None,
+                ipxe_template_id: None,
+                ipxe_template_parameters: vec![],
+                ipxe_template_artifacts: vec![],
+            },
+        ))
+        .await;
+
+    assert!(resp.is_err());
+    assert_eq!(resp.unwrap_err().code(), Code::InvalidArgument);
+}
+
+#[sqlx_test]
+async fn test_create_operating_system_allows_omitted_org(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
+
+    let resp = env
+        .api()
+        .create_operating_system(tonic::Request::new(
+            rpc::forge::CreateOperatingSystemRequest {
+                id: None,
+                name: "no-org-os".to_string(),
+                tenant_organization_id: None,
+                description: None,
+                is_active: true,
+                allow_override: true,
+                phone_home_enabled: false,
+                user_data: None,
+                ipxe_script: Some("chain http://example.com".to_string()),
+                ipxe_template_id: None,
+                ipxe_template_parameters: vec![],
+                ipxe_template_artifacts: vec![],
+            },
+        ))
+        .await
+        .unwrap();
+
+    let os = resp.into_inner();
+    assert_eq!(os.name, "no-org-os");
+    // An omitted org round-trips as an absent (None) wire field, not "".
+    assert!(os.tenant_organization_id.is_none());
+    assert!(os.id.is_some());
+}
+
+#[sqlx_test]
+async fn test_create_operating_system_rejects_empty_org(pool: PgPool) {
+    let env = TestHarness::builder(pool).build().await;
+
+    let resp = env
+        .api()
+        .create_operating_system(tonic::Request::new(
+            rpc::forge::CreateOperatingSystemRequest {
+                id: None,
+                name: "empty-org-os".to_string(),
+                tenant_organization_id: Some("".to_string()),
+                description: None,
+                is_active: true,
+                allow_override: true,
+                phone_home_enabled: false,
+                user_data: None,
+                ipxe_script: Some("chain http://example.com".to_string()),
                 ipxe_template_id: None,
                 ipxe_template_parameters: vec![],
                 ipxe_template_artifacts: vec![],
@@ -132,7 +192,7 @@ async fn test_get_operating_system(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "get-test-os".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -186,7 +246,7 @@ async fn test_update_operating_system(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "original-name".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: Some("original desc".to_string()),
                 is_active: true,
                 allow_override: false,
@@ -248,7 +308,7 @@ async fn test_delete_operating_system(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "delete-test-os".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -290,7 +350,7 @@ async fn test_find_operating_system_ids(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "find-os-1".to_string(),
-                tenant_organization_id: "find-org".to_string(),
+                tenant_organization_id: Some("find-org".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -312,7 +372,7 @@ async fn test_find_operating_system_ids(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "find-os-2".to_string(),
-                tenant_organization_id: "find-org".to_string(),
+                tenant_organization_id: Some("find-org".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -356,7 +416,7 @@ async fn test_find_operating_systems_by_ids(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "by-id-os-1".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -450,7 +510,7 @@ async fn create_os_with_artifacts(env: &TestHarness) -> OperatingSystemId {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "artifact-test-os".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -586,7 +646,7 @@ async fn test_set_artifacts_cached_url_ordered_duplicate_names(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "dup-kernel-os".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -888,7 +948,7 @@ async fn test_create_strips_cached_url(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "strip-test".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -941,7 +1001,7 @@ async fn test_create_with_cached_only_sets_provisioning(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "provision-test".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -1251,7 +1311,7 @@ async fn test_create_operating_system_with_explicit_id(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: Some(id_proto),
                 name: "explicit-id-os".to_string(),
-                tenant_organization_id: "org1".to_string(),
+                tenant_organization_id: Some("org1".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,
@@ -1280,7 +1340,7 @@ async fn test_deleted_os_not_returned_by_find_ids(pool: PgPool) {
             rpc::forge::CreateOperatingSystemRequest {
                 id: None,
                 name: "soon-deleted-os".to_string(),
-                tenant_organization_id: "del-org".to_string(),
+                tenant_organization_id: Some("del-org".to_string()),
                 description: None,
                 is_active: true,
                 allow_override: true,

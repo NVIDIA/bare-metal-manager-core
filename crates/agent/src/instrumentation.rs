@@ -27,47 +27,512 @@ use tower::ServiceBuilder;
 use tracing::Span;
 
 pub mod config;
+use carbide_instrument::Outcome;
 use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
-/// One iteration of a DPU-agent report loop, recorded by `{report_loop,
-/// outcome}`. A pure counter: the failure detail stays on the existing
-/// call-site log, so this event never logs and carries no context of its own.
-///
-/// The loop's outbound Forge RPC is already RED-metered by the generated
-/// client, so this counter sits one level up -- it captures the whole
-/// iteration, including the pre-RPC build/connect failures and the raw FMDS
-/// push that the per-RPC metric never sees.
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "dpu_agent_report_loop_completed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
-)]
-pub struct ReportLoopCompleted {
-    #[label]
-    pub report_loop: ReportLoop,
-    #[label]
-    pub outcome: carbide_instrument::Outcome,
+/// LLDP and OVS expose one enum per restart flow, while the private Event
+/// structs keep each existing log level, message, and field set intact. Every
+/// variant still updates the shared counter with the same labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum RestartedService {
+    Lldpd,
+    OvsVswitchd,
 }
 
-/// The DPU-agent report loops that emit [`ReportLoopCompleted`]. The label
-/// field is named `report_loop` because `loop` is a keyword.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
-pub enum ReportLoop {
+enum ServiceRestartResult {
+    Succeeded,
+    Retrying,
+    Failed,
+}
+
+pub(crate) enum LldpdRestart {
+    Succeeded { attempt: u8 },
+    Retrying { error: String, attempt: u8 },
+    Failed { error: String, attempt_count: u8 },
+}
+
+pub(crate) enum OvsRestart {
+    Succeeded,
+    Retrying {
+        error: String,
+        managed_host_config_version: String,
+    },
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_lldpd_restart_succeeded",
+    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
+    component = "forge-dpu-agent",
+    log = info,
+    metric = counter,
+    message = "Restarted lldpd service",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+struct LldpdRestartSucceeded {
+    #[label]
+    service: RestartedService,
+    #[label]
+    result: ServiceRestartResult,
+    #[context(value)]
+    attempt: i64,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_lldpd_restart_retrying",
+    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
+    component = "forge-dpu-agent",
+    log = warn,
+    metric = counter,
+    message = "Couldn't restart lldpd service, retrying",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+struct LldpdRestartRetrying {
+    #[label]
+    service: RestartedService,
+    #[label]
+    result: ServiceRestartResult,
+    #[context]
+    error: String,
+    #[context(value)]
+    attempt: i64,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_lldpd_restart_failed",
+    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Couldn't restart lldpd service",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+struct LldpdRestartFailed {
+    #[label]
+    service: RestartedService,
+    #[label]
+    result: ServiceRestartResult,
+    #[context]
+    error: String,
+    #[context(value)]
+    attempt_count: i64,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_ovs_restart_succeeded",
+    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
+    component = "forge-dpu-agent",
+    log = info,
+    metric = counter,
+    message = "Successfully restarted ovs-vswitchd.service",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+struct OvsRestartSucceeded {
+    #[label]
+    service: RestartedService,
+    #[label]
+    result: ServiceRestartResult,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_ovs_restart_retrying",
+    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Restarting OVS after admin network change",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+struct OvsRestartRetrying {
+    #[label]
+    service: RestartedService,
+    #[label]
+    result: ServiceRestartResult,
+    #[context(value)]
+    error: String,
+    #[context(value)]
+    managed_host_config_version: String,
+}
+
+impl LldpdRestart {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded { attempt } => {
+                carbide_instrument::emit(LldpdRestartSucceeded {
+                    service: RestartedService::Lldpd,
+                    result: ServiceRestartResult::Succeeded,
+                    attempt: i64::from(attempt),
+                });
+            }
+            Self::Retrying { error, attempt } => {
+                carbide_instrument::emit(LldpdRestartRetrying {
+                    service: RestartedService::Lldpd,
+                    result: ServiceRestartResult::Retrying,
+                    error,
+                    attempt: i64::from(attempt),
+                });
+            }
+            Self::Failed {
+                error,
+                attempt_count,
+            } => {
+                carbide_instrument::emit(LldpdRestartFailed {
+                    service: RestartedService::Lldpd,
+                    result: ServiceRestartResult::Failed,
+                    error,
+                    attempt_count: i64::from(attempt_count),
+                });
+            }
+        }
+    }
+}
+
+impl OvsRestart {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded => {
+                carbide_instrument::emit(OvsRestartSucceeded {
+                    service: RestartedService::OvsVswitchd,
+                    result: ServiceRestartResult::Succeeded,
+                });
+            }
+            Self::Retrying {
+                error,
+                managed_host_config_version,
+            } => {
+                carbide_instrument::emit(OvsRestartRetrying {
+                    service: RestartedService::OvsVswitchd,
+                    result: ServiceRestartResult::Retrying,
+                    error,
+                    managed_host_config_version,
+                });
+            }
+        }
+    }
+}
+
+/// `ReportLoop` labels one full agent reporting iteration rather than one
+/// outbound RPC. That boundary also counts pre-RPC build and conversion
+/// failures, plus the external FMDS push that generated-client RED metrics do
+/// not see.
+///
+/// The label enum stays private so each caller-facing report variant fixes the
+/// only valid `{report_loop, outcome}` pair before emitting its Event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
+enum ReportLoop {
     Inventory,
     ConfigFetch,
     FmdsPush,
     NetworkStatus,
 }
 
+pub(crate) enum InventoryReport {
+    Succeeded,
+    Failed,
+}
+
+pub(crate) enum ConfigFetch {
+    Succeeded,
+    Failed {
+        error: String,
+        retry_interval_seconds: f64,
+    },
+    NotFound {
+        machine_id: String,
+    },
+}
+
+pub(crate) enum FmdsPush {
+    Succeeded,
+    Failed { error: String, fmds_address: String },
+}
+
+pub(crate) enum NetworkStatus {
+    Succeeded,
+    ConnectionFailed { forge_api: String, error: String },
+    RpcFailed { error: String },
+}
+
+/// `InventoryReportSucceeded` records the inventory loop's successful
+/// completion and owns its DEBUG diagnostic. The other successful loops are
+/// metric-only.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_inventory_report_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = debug,
+    metric = counter,
+    message = "Successfully updated machine inventory",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct InventoryReportSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+/// `InventoryReportFailed` counts an inventory error without logging it.
+/// `machine_inventory_updater::single_run` returns the same error to the
+/// main-loop scheduler, which owns the diagnostic.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_inventory_report_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct InventoryReportFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_config_fetch_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct ConfigFetchSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_config_fetch_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Failed to fetch the latest configuration. Will retry",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct ConfigFetchFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+    #[context(value)]
+    retry_interval_seconds: f64,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_config_not_found",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = warn,
+    metric = counter,
+    message = "DPU not found",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct ConfigNotFound {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    machine_id: String,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_fmds_push_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct FmdsPushSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_fmds_push_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Failed to send config update to external FMDS",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct FmdsPushFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+    #[context]
+    fmds_address: String,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_network_status_succeeded",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = off,
+    metric = counter,
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct NetworkStatusSucceeded {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_network_status_connection_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "record_network_status: Could not connect to Forge API server. Will retry.",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct NetworkStatusConnectionFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    forge_api: String,
+    #[context]
+    error: String,
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_network_status_rpc_failed",
+    metric_name = "carbide_dpu_agent_report_total",
+    component = "forge-dpu-agent",
+    log = error,
+    metric = counter,
+    message = "Error while executing the record_network_status gRPC call",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct NetworkStatusRpcFailed {
+    #[label]
+    report_loop: ReportLoop,
+    #[label]
+    outcome: Outcome,
+    #[context]
+    error: String,
+}
+
+impl InventoryReport {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded => carbide_instrument::emit(InventoryReportSucceeded {
+                report_loop: ReportLoop::Inventory,
+                outcome: Outcome::Ok,
+            }),
+            Self::Failed => carbide_instrument::emit(InventoryReportFailed {
+                report_loop: ReportLoop::Inventory,
+                outcome: Outcome::Error,
+            }),
+        }
+    }
+}
+
+impl ConfigFetch {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded => carbide_instrument::emit(ConfigFetchSucceeded {
+                report_loop: ReportLoop::ConfigFetch,
+                outcome: Outcome::Ok,
+            }),
+            Self::Failed {
+                error,
+                retry_interval_seconds,
+            } => carbide_instrument::emit(ConfigFetchFailed {
+                report_loop: ReportLoop::ConfigFetch,
+                outcome: Outcome::Error,
+                error,
+                retry_interval_seconds,
+            }),
+            Self::NotFound { machine_id } => carbide_instrument::emit(ConfigNotFound {
+                report_loop: ReportLoop::ConfigFetch,
+                outcome: Outcome::Error,
+                machine_id,
+            }),
+        }
+    }
+}
+
+impl FmdsPush {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded => carbide_instrument::emit(FmdsPushSucceeded {
+                report_loop: ReportLoop::FmdsPush,
+                outcome: Outcome::Ok,
+            }),
+            Self::Failed {
+                error,
+                fmds_address,
+            } => carbide_instrument::emit(FmdsPushFailed {
+                report_loop: ReportLoop::FmdsPush,
+                outcome: Outcome::Error,
+                error,
+                fmds_address,
+            }),
+        }
+    }
+}
+
+impl NetworkStatus {
+    pub(crate) fn emit(self) {
+        match self {
+            Self::Succeeded => carbide_instrument::emit(NetworkStatusSucceeded {
+                report_loop: ReportLoop::NetworkStatus,
+                outcome: Outcome::Ok,
+            }),
+            Self::ConnectionFailed { forge_api, error } => {
+                carbide_instrument::emit(NetworkStatusConnectionFailed {
+                    report_loop: ReportLoop::NetworkStatus,
+                    outcome: Outcome::Error,
+                    forge_api,
+                    error,
+                });
+            }
+            Self::RpcFailed { error } => carbide_instrument::emit(NetworkStatusRpcFailed {
+                report_loop: ReportLoop::NetworkStatus,
+                outcome: Outcome::Error,
+                error,
+            }),
+        }
+    }
+}
+
 pub struct AgentMetricsState {
     meter: Meter,
-    http_counter: Counter<u64>,
-    http_req_latency_histogram: Histogram<f64>,
 }
 
 impl AgentMetricsState {
@@ -120,21 +585,7 @@ impl AgentMetricsState {
 }
 
 pub fn create_metrics(meter: Meter) -> Arc<AgentMetricsState> {
-    let http_counter = meter
-        .u64_counter("http_requests")
-        .with_description("Number of HTTP requests made.")
-        .build();
-    let http_req_latency_histogram: Histogram<f64> = meter
-        .f64_histogram("request_latency")
-        .with_description("HTTP request latency")
-        .with_unit("ms")
-        .build();
-
-    Arc::new(AgentMetricsState {
-        meter,
-        http_counter,
-        http_req_latency_histogram,
-    })
+    Arc::new(AgentMetricsState { meter })
 }
 
 pub struct NetworkMonitorMetricsState {
@@ -288,36 +739,782 @@ impl NetworkMonitorMetricsState {
     }
 }
 
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_http_request_started",
+    metric_name = "http_requests_total",
+    metric_name_unchecked,
+    component = "forge-dpu-agent",
+    log = info,
+    metric = counter,
+    message = "HTTP request started",
+    describe = "Number of HTTP requests made."
+)]
+struct DpuAgentHttpRequestStarted {
+    #[context]
+    method: String,
+    #[context]
+    request_path: String,
+}
+
+impl DpuAgentHttpRequestStarted {
+    fn new(request: &Request<AxumBody>) -> Self {
+        Self {
+            method: request.method().to_string(),
+            request_path: request.uri().path().to_string(),
+        }
+    }
+}
+
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "dpu_agent_http_response_generated",
+    metric_name = "request_latency_milliseconds",
+    metric_name_unchecked,
+    component = "forge-dpu-agent",
+    log = info,
+    metric = histogram,
+    message = "HTTP response generated",
+    describe = "HTTP request latency"
+)]
+struct DpuAgentHttpResponseGenerated {
+    #[context(value)]
+    latency_milliseconds: f64,
+    #[observation]
+    latency: Duration,
+}
+
+impl DpuAgentHttpResponseGenerated {
+    fn new(latency: Duration) -> Self {
+        Self {
+            latency_milliseconds: latency.as_secs_f64() * 1000.0,
+            latency,
+        }
+    }
+}
+
+/// `WithTracingLayer` keeps `AgentMetricsState` in its public API for existing
+/// callers. The HTTP Events resolve their instruments through the global meter
+/// provider, so the implementation does not need to read the handle.
 pub trait WithTracingLayer {
     fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router;
 }
 
 impl WithTracingLayer for Router {
-    fn with_tracing_layer(self, metrics: Arc<AgentMetricsState>) -> Router {
-        let metrics_copy = metrics.clone();
+    fn with_tracing_layer(self, _metrics: Arc<AgentMetricsState>) -> Router {
         let layer = tower_http::trace::TraceLayer::new_for_http()
             .on_request(move |request: &Request<AxumBody>, _span: &Span| {
-                metrics.http_counter.add(1, &[]);
-                tracing::info!(
-                    method = %request.method(),
-                    request_path = %request.uri().path(),
-                    "HTTP request started"
-                )
+                carbide_instrument::emit(DpuAgentHttpRequestStarted::new(request));
             })
             .on_response(
                 move |_response: &Response<AxumBody>, latency: Duration, _span: &Span| {
-                    // TODO revisit time units
-                    metrics_copy
-                        .http_req_latency_histogram
-                        .record(latency.as_secs_f64() * 1000.0, &[]);
-
-                    tracing::info!(
-                        latency_milliseconds = latency.as_secs_f64() * 1000.0,
-                        "HTTP response generated"
-                    )
+                    carbide_instrument::emit(DpuAgentHttpResponseGenerated::new(latency));
                 },
             );
 
         self.layer(ServiceBuilder::new().layer(layer))
+    }
+}
+
+#[cfg(test)]
+mod report_loop_tests {
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    const REPORT_METRIC: &str = "carbide_dpu_agent_report_total";
+
+    struct EventCase {
+        emit: fn(),
+        report_loop: &'static str,
+        outcome: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EventObservation {
+        metric_delta: f64,
+        logs: Vec<LogShape>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct LogShape {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        fields: Vec<(String, String)>,
+        retry_interval_kind: Option<CapturedFieldKind>,
+    }
+
+    fn expected_log(
+        metadata_name: &str,
+        level: tracing::Level,
+        message: &str,
+        report_loop: &str,
+        outcome: &str,
+        context: &[(&str, &str)],
+        retry_interval_kind: Option<CapturedFieldKind>,
+    ) -> Vec<LogShape> {
+        let mut fields = vec![
+            ("event_name".to_string(), metadata_name.to_string()),
+            ("metric_name".to_string(), REPORT_METRIC.to_string()),
+            ("report_loop".to_string(), report_loop.to_string()),
+            ("outcome".to_string(), outcome.to_string()),
+        ];
+        fields.extend(
+            context
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string())),
+        );
+
+        vec![LogShape {
+            metadata_name: metadata_name.to_string(),
+            level,
+            message: message.to_string(),
+            fields,
+            retry_interval_kind,
+        }]
+    }
+
+    fn observe_event(case: EventCase) -> EventObservation {
+        let EventCase {
+            emit,
+            report_loop,
+            outcome,
+        } = case;
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(emit)
+            .into_iter()
+            .map(|log| {
+                let retry_interval_kind = log.field_kind("retry_interval_seconds");
+                LogShape {
+                    metadata_name: log.metadata_name,
+                    level: log.level,
+                    message: log.message,
+                    fields: log.fields,
+                    retry_interval_kind,
+                }
+            })
+            .collect();
+
+        EventObservation {
+            metric_delta: metrics.counter_delta(
+                REPORT_METRIC,
+                &[("report_loop", report_loop), ("outcome", outcome)],
+            ),
+            logs,
+        }
+    }
+
+    #[test]
+    fn semantic_events_preserve_the_loop_outcome_matrix_and_log_shapes() {
+        const MACHINE_ID: &str = "fm100000000000000000000000000000000000000000000000000000000000";
+
+        check_values(
+            [
+                Check {
+                    scenario: "inventory success logs at debug",
+                    input: EventCase {
+                        emit: || InventoryReport::Succeeded.emit(),
+                        report_loop: "inventory",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_inventory_report_succeeded",
+                            tracing::Level::DEBUG,
+                            "Successfully updated machine inventory",
+                            "inventory",
+                            "ok",
+                            &[],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "inventory failure remains metric-only",
+                    input: EventCase {
+                        emit: || InventoryReport::Failed.emit(),
+                        report_loop: "inventory",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "config fetch success remains metric-only",
+                    input: EventCase {
+                        emit: || ConfigFetch::Succeeded.emit(),
+                        report_loop: "config_fetch",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "config fetch failure retains retry context",
+                    input: EventCase {
+                        emit: || {
+                            ConfigFetch::Failed {
+                                error: "config failed".to_string(),
+                                retry_interval_seconds: 30.5,
+                            }
+                            .emit()
+                        },
+                        report_loop: "config_fetch",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_config_fetch_failed",
+                            tracing::Level::ERROR,
+                            "Failed to fetch the latest configuration. Will retry",
+                            "config_fetch",
+                            "error",
+                            &[
+                                ("error", "config failed"),
+                                ("retry_interval_seconds", "30.5"),
+                            ],
+                            Some(CapturedFieldKind::F64),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "FMDS success remains metric-only",
+                    input: EventCase {
+                        emit: || FmdsPush::Succeeded.emit(),
+                        report_loop: "fmds_push",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "FMDS failure retains address context",
+                    input: EventCase {
+                        emit: || {
+                            FmdsPush::Failed {
+                                error: "FMDS failed".to_string(),
+                                fmds_address: "http://fmds:50051".to_string(),
+                            }
+                            .emit()
+                        },
+                        report_loop: "fmds_push",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_fmds_push_failed",
+                            tracing::Level::ERROR,
+                            "Failed to send config update to external FMDS",
+                            "fmds_push",
+                            "error",
+                            &[
+                                ("error", "FMDS failed"),
+                                ("fmds_address", "http://fmds:50051"),
+                            ],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "network status success remains metric-only",
+                    input: EventCase {
+                        emit: || NetworkStatus::Succeeded.emit(),
+                        report_loop: "network_status",
+                        outcome: "ok",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: Vec::new(),
+                    },
+                },
+                Check {
+                    scenario: "network status RPC failure retains error context",
+                    input: EventCase {
+                        emit: || {
+                            NetworkStatus::RpcFailed {
+                                error: "RPC failed".to_string(),
+                            }
+                            .emit()
+                        },
+                        report_loop: "network_status",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_network_status_rpc_failed",
+                            tracing::Level::ERROR,
+                            "Error while executing the record_network_status gRPC call",
+                            "network_status",
+                            "error",
+                            &[("error", "RPC failed")],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "missing config retains machine context",
+                    input: EventCase {
+                        emit: || {
+                            ConfigFetch::NotFound {
+                                machine_id: MACHINE_ID.to_string(),
+                            }
+                            .emit()
+                        },
+                        report_loop: "config_fetch",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_config_not_found",
+                            tracing::Level::WARN,
+                            "DPU not found",
+                            "config_fetch",
+                            "error",
+                            &[("machine_id", MACHINE_ID)],
+                            None,
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "network connection failure retains endpoint context",
+                    input: EventCase {
+                        emit: || {
+                            NetworkStatus::ConnectionFailed {
+                                forge_api: "https://forge:50051".to_string(),
+                                error: "connection refused".to_string(),
+                            }
+                            .emit()
+                        },
+                        report_loop: "network_status",
+                        outcome: "error",
+                    },
+                    expect: EventObservation {
+                        metric_delta: 1.0,
+                        logs: expected_log(
+                            "dpu_agent_network_status_connection_failed",
+                            tracing::Level::ERROR,
+                            "record_network_status: Could not connect to Forge API server. Will retry.",
+                            "network_status",
+                            "error",
+                            &[
+                                ("forge_api", "https://forge:50051"),
+                                ("error", "connection refused"),
+                            ],
+                            None,
+                        ),
+                    },
+                },
+            ],
+            observe_event,
+        );
+    }
+}
+
+#[cfg(test)]
+mod service_restart_tests {
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+
+    const RESTART_METRIC: &str = "carbide_dpu_agent_service_restart_attempts_total";
+
+    struct RestartCase {
+        emit: fn(),
+        service: &'static str,
+        result: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct RestartObservation {
+        counter_delta: f64,
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        service: Option<String>,
+        result: Option<String>,
+        error: Option<String>,
+        error_kind: Option<CapturedFieldKind>,
+        attempt: Option<String>,
+        attempt_kind: Option<CapturedFieldKind>,
+        attempt_count: Option<String>,
+        attempt_count_kind: Option<CapturedFieldKind>,
+        managed_host_config_version: Option<String>,
+        managed_host_config_version_kind: Option<CapturedFieldKind>,
+    }
+
+    fn observe_restart(case: RestartCase) -> RestartObservation {
+        let metrics = MetricsCapture::start();
+        let mut logs = capture_logs(case.emit);
+        assert_eq!(logs.len(), 1, "one restart attempt writes one result");
+        let log = logs.pop().expect("the service restart log");
+        let field = |name: &str| log.field(name).map(str::to_owned);
+
+        RestartObservation {
+            counter_delta: metrics.counter_delta(
+                RESTART_METRIC,
+                &[("service", case.service), ("result", case.result)],
+            ),
+            level: log.level,
+            metadata_name: log.metadata_name.clone(),
+            message: log.message.clone(),
+            service: field("service"),
+            result: field("result"),
+            error: field("error"),
+            error_kind: log.field_kind("error"),
+            attempt: field("attempt"),
+            attempt_kind: log.field_kind("attempt"),
+            attempt_count: field("attempt_count"),
+            attempt_count_kind: log.field_kind("attempt_count"),
+            managed_host_config_version: field("managed_host_config_version"),
+            managed_host_config_version_kind: log.field_kind("managed_host_config_version"),
+        }
+    }
+
+    fn expected_restart(
+        diagnostic: (tracing::Level, &str, &str),
+        service: &str,
+        result: &str,
+        error: Option<(&str, CapturedFieldKind)>,
+        attempt: Option<u8>,
+        attempt_count: Option<u8>,
+        managed_host_config_version: Option<&str>,
+    ) -> RestartObservation {
+        let (level, metadata_name, message) = diagnostic;
+        let (error, error_kind) = error
+            .map(|(value, kind)| (Some(value.to_string()), Some(kind)))
+            .unwrap_or_default();
+        RestartObservation {
+            counter_delta: 1.0,
+            level,
+            metadata_name: metadata_name.to_string(),
+            message: message.to_string(),
+            service: Some(service.to_string()),
+            result: Some(result.to_string()),
+            error,
+            error_kind,
+            attempt: attempt.map(|value| value.to_string()),
+            attempt_kind: attempt.map(|_| CapturedFieldKind::I64),
+            attempt_count: attempt_count.map(|value| value.to_string()),
+            attempt_count_kind: attempt_count.map(|_| CapturedFieldKind::I64),
+            managed_host_config_version: managed_host_config_version.map(str::to_string),
+            managed_host_config_version_kind: managed_host_config_version
+                .map(|_| CapturedFieldKind::String),
+        }
+    }
+
+    #[test]
+    fn service_restart_attempts_keep_the_existing_diagnostics() {
+        check_values(
+            [
+                Check {
+                    scenario: "lldpd restart succeeds",
+                    input: RestartCase {
+                        emit: || LldpdRestart::Succeeded { attempt: 2 }.emit(),
+                        service: "lldpd",
+                        result: "succeeded",
+                    },
+                    expect: expected_restart(
+                        (
+                            tracing::Level::INFO,
+                            "dpu_agent_lldpd_restart_succeeded",
+                            "Restarted lldpd service",
+                        ),
+                        "lldpd",
+                        "succeeded",
+                        None,
+                        Some(2),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "lldpd restart will retry",
+                    input: RestartCase {
+                        emit: || {
+                            LldpdRestart::Retrying {
+                                error: "service busy".to_string(),
+                                attempt: 1,
+                            }
+                            .emit()
+                        },
+                        service: "lldpd",
+                        result: "retrying",
+                    },
+                    expect: expected_restart(
+                        (
+                            tracing::Level::WARN,
+                            "dpu_agent_lldpd_restart_retrying",
+                            "Couldn't restart lldpd service, retrying",
+                        ),
+                        "lldpd",
+                        "retrying",
+                        Some(("service busy", CapturedFieldKind::Debug)),
+                        Some(1),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "lldpd restart exhausts its retries",
+                    input: RestartCase {
+                        emit: || {
+                            LldpdRestart::Failed {
+                                error: "service busy".to_string(),
+                                attempt_count: 3,
+                            }
+                            .emit()
+                        },
+                        service: "lldpd",
+                        result: "failed",
+                    },
+                    expect: expected_restart(
+                        (
+                            tracing::Level::ERROR,
+                            "dpu_agent_lldpd_restart_failed",
+                            "Couldn't restart lldpd service",
+                        ),
+                        "lldpd",
+                        "failed",
+                        Some(("service busy", CapturedFieldKind::Debug)),
+                        None,
+                        Some(3),
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "OVS restart succeeds",
+                    input: RestartCase {
+                        emit: || OvsRestart::Succeeded.emit(),
+                        service: "ovs_vswitchd",
+                        result: "succeeded",
+                    },
+                    expect: expected_restart(
+                        (
+                            tracing::Level::INFO,
+                            "dpu_agent_ovs_restart_succeeded",
+                            "Successfully restarted ovs-vswitchd.service",
+                        ),
+                        "ovs_vswitchd",
+                        "succeeded",
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "OVS restart enters backoff",
+                    input: RestartCase {
+                        emit: || {
+                            OvsRestart::Retrying {
+                                error: "restarting OVS: timed out".to_string(),
+                                managed_host_config_version: "version-42".to_string(),
+                            }
+                            .emit()
+                        },
+                        service: "ovs_vswitchd",
+                        result: "retrying",
+                    },
+                    expect: expected_restart(
+                        (
+                            tracing::Level::ERROR,
+                            "dpu_agent_ovs_restart_retrying",
+                            "Restarting OVS after admin network change",
+                        ),
+                        "ovs_vswitchd",
+                        "retrying",
+                        Some(("restarting OVS: timed out", CapturedFieldKind::String)),
+                        None,
+                        None,
+                        Some("version-42"),
+                    ),
+                },
+            ],
+            observe_restart,
+        );
+    }
+}
+
+#[cfg(test)]
+mod http_request_tests {
+    use axum::body::Body;
+    use axum::http::{Request as HttpRequest, StatusCode};
+    use axum::routing::get;
+    use carbide_instrument::emit;
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
+    use tower::ServiceExt;
+
+    use super::*;
+
+    const REQUEST_METRIC: &str = "http_requests_total";
+    const LATENCY_METRIC: &str = "request_latency_milliseconds";
+
+    enum EventCase {
+        Request,
+        Response,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct EventObservation {
+        request_delta: f64,
+        latency_count_delta: u64,
+        latency_sum_delta: f64,
+        logs: Vec<LogObservation>,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct LogObservation {
+        metadata_name: String,
+        level: tracing::Level,
+        message: String,
+        fields: Vec<(String, String)>,
+        method_kind: Option<CapturedFieldKind>,
+        request_path_kind: Option<CapturedFieldKind>,
+        latency_kind: Option<CapturedFieldKind>,
+    }
+
+    fn observe_event(case: EventCase) -> EventObservation {
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| match case {
+            EventCase::Request => emit(DpuAgentHttpRequestStarted {
+                method: "GET".to_string(),
+                request_path: "/latest/meta-data".to_string(),
+            }),
+            EventCase::Response => emit(DpuAgentHttpResponseGenerated::new(Duration::from_micros(
+                12_500,
+            ))),
+        })
+        .into_iter()
+        .map(|log| LogObservation {
+            method_kind: log.field_kind("method"),
+            request_path_kind: log.field_kind("request_path"),
+            latency_kind: log.field_kind("latency_milliseconds"),
+            metadata_name: log.metadata_name,
+            level: log.level,
+            message: log.message,
+            fields: log.fields,
+        })
+        .collect();
+
+        EventObservation {
+            request_delta: metrics.counter_delta(REQUEST_METRIC, &[]),
+            latency_count_delta: metrics.histogram_count_delta(LATENCY_METRIC, &[]),
+            latency_sum_delta: metrics.histogram_sum_delta(LATENCY_METRIC, &[]),
+            logs,
+        }
+    }
+
+    #[test]
+    fn http_events_preserve_metrics_and_structured_logs() {
+        check_values(
+            [
+                Check {
+                    scenario: "request start increments the legacy counter and logs request context",
+                    input: EventCase::Request,
+                    expect: EventObservation {
+                        request_delta: 1.0,
+                        latency_count_delta: 0,
+                        latency_sum_delta: 0.0,
+                        logs: vec![LogObservation {
+                            metadata_name: "dpu_agent_http_request_started".to_string(),
+                            level: tracing::Level::INFO,
+                            message: "HTTP request started".to_string(),
+                            fields: vec![
+                                (
+                                    "event_name".to_string(),
+                                    "dpu_agent_http_request_started".to_string(),
+                                ),
+                                ("metric_name".to_string(), REQUEST_METRIC.to_string()),
+                                ("method".to_string(), "GET".to_string()),
+                                ("request_path".to_string(), "/latest/meta-data".to_string()),
+                            ],
+                            method_kind: Some(CapturedFieldKind::Debug),
+                            request_path_kind: Some(CapturedFieldKind::Debug),
+                            latency_kind: None,
+                        }],
+                    },
+                },
+                Check {
+                    scenario: "response completion records milliseconds and logs native latency",
+                    input: EventCase::Response,
+                    expect: EventObservation {
+                        request_delta: 0.0,
+                        latency_count_delta: 1,
+                        latency_sum_delta: 12.5,
+                        logs: vec![LogObservation {
+                            metadata_name: "dpu_agent_http_response_generated".to_string(),
+                            level: tracing::Level::INFO,
+                            message: "HTTP response generated".to_string(),
+                            fields: vec![
+                                (
+                                    "event_name".to_string(),
+                                    "dpu_agent_http_response_generated".to_string(),
+                                ),
+                                ("metric_name".to_string(), LATENCY_METRIC.to_string()),
+                                ("latency_milliseconds".to_string(), "12.5".to_string()),
+                            ],
+                            method_kind: None,
+                            request_path_kind: None,
+                            latency_kind: Some(CapturedFieldKind::F64),
+                        }],
+                    },
+                },
+            ],
+            observe_event,
+        );
+    }
+
+    #[test]
+    fn tracing_layer_emits_one_start_and_completion_event_per_request() {
+        let metrics = MetricsCapture::start();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        let logs = capture_logs(|| {
+            runtime.block_on(async {
+                let metrics_state = create_metrics(opentelemetry::global::meter("test"));
+                let router = Router::new()
+                    .route("/health", get(|| async { StatusCode::NO_CONTENT }))
+                    .with_tracing_layer(metrics_state);
+                let response = router
+                    .oneshot(
+                        HttpRequest::builder()
+                            .uri("/health")
+                            .body(Body::empty())
+                            .expect("test request should build"),
+                    )
+                    .await
+                    .expect("test request should complete");
+                assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            });
+        });
+
+        assert_eq!(metrics.counter_delta(REQUEST_METRIC, &[]), 1.0);
+        assert_eq!(metrics.histogram_count_delta(LATENCY_METRIC, &[]), 1);
+        assert_eq!(
+            logs.iter()
+                .map(|log| log.metadata_name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "dpu_agent_http_request_started",
+                "dpu_agent_http_response_generated",
+            ]
+        );
     }
 }

@@ -17,8 +17,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// RackHardwareType identifies the hardware type of a rack.
 /// This is a flexible string-based type to allow new hardware types
@@ -65,23 +67,114 @@ impl From<&str> for RackHardwareType {
     }
 }
 
-/// RackProductFamily identifies the product family shared by rack components.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "text", rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+/// Identifies the product family shared by rack components.
+///
+/// String parsing trims outer whitespace, recognizes the lowercase
+/// `gb200` and `gb300` values, and preserves other non-empty identifiers in
+/// [`RackProductFamily::Other`]. Named variants retain existing API behavior;
+/// the open-ended variant lets descriptor-based backends accept new product
+/// families without a NICo release.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RackProductFamily {
     /// GB200 rack hardware.
     Gb200,
+
     /// GB300 rack hardware.
     Gb300,
+
+    /// A non-empty product-family identifier not represented by a named variant.
+    ///
+    /// The original spelling is preserved after outer whitespace is removed.
+    Other(String),
+}
+
+impl RackProductFamily {
+    /// Returns the product-family identifier sent to descriptor-based backends.
+    ///
+    /// Named variants use their canonical lowercase value. Values stored in
+    /// [`RackProductFamily::Other`] retain their original spelling with outer
+    /// whitespace removed.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Gb200 => "gb200",
+            Self::Gb300 => "gb300",
+            Self::Other(value) => value.trim(),
+        }
+    }
 }
 
 impl fmt::Display for RackProductFamily {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RackProductFamily::Gb200 => write!(f, "gb200"),
-            RackProductFamily::Gb300 => write!(f, "gb300"),
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned for an empty rack product-family identifier.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("rack product family must not be empty")]
+pub struct RackProductFamilyParseError;
+
+impl FromStr for RackProductFamily {
+    type Err = RackProductFamilyParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let value = value.trim();
+
+        if value.is_empty() {
+            return Err(RackProductFamilyParseError);
         }
+
+        Ok(match value {
+            "gb200" => Self::Gb200,
+            "gb300" => Self::Gb300,
+            value => Self::Other(value.to_string()),
+        })
+    }
+}
+
+impl Serialize for RackProductFamily {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RackProductFamily {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(D::Error::custom)
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for RackProductFamily {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for RackProductFamily {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str(), buf)
+    }
+}
+
+impl sqlx::Decode<'_, sqlx::Postgres> for RackProductFamily {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        let value = <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        value.parse().map_err(Into::into)
     }
 }
 
@@ -365,7 +458,7 @@ count = 9
 count = 8
 
 [NVL36]
-product_family = "gb200"
+product_family = "test-product-family"
 
 [NVL36.rack_capabilities.compute]
 count = 9
@@ -388,7 +481,12 @@ count = 2
         );
 
         let nvl36 = config.get("NVL36").unwrap();
-        assert_eq!(nvl36.product_family, Some(RackProductFamily::Gb200));
+
+        assert_eq!(
+            nvl36.product_family,
+            Some(RackProductFamily::Other("test-product-family".to_string()))
+        );
+
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
@@ -607,6 +705,13 @@ count = 2
             "gb300 round-trips" {
                 RackProductFamily::Gb300 => Yields(("\"gb300\"".to_string(), RackProductFamily::Gb300)),
             }
+
+            "arbitrary family round-trips" {
+                RackProductFamily::Other("test-product-family".to_string()) => Yields((
+                    "\"test-product-family\"".to_string(),
+                    RackProductFamily::Other("test-product-family".to_string()),
+                )),
+            }
         );
     }
 
@@ -620,6 +725,10 @@ count = 2
 
             "gb300" {
                 RackProductFamily::Gb300 => "gb300".to_string(),
+            }
+
+            "arbitrary family" {
+                RackProductFamily::Other(" test-product-family ".to_string()) => "test-product-family".to_string(),
             }
         );
     }
@@ -636,12 +745,16 @@ count = 2
                 "\"gb300\"" => Yields(RackProductFamily::Gb300),
             }
 
-            "unknown product family" {
-                "\"gb400\"" => Fails,
+            "arbitrary product family" {
+                "\"test-product-family\"" => Yields(RackProductFamily::Other("test-product-family".to_string())),
             }
 
-            "wrong case" {
-                "\"GB200\"" => Fails,
+            "arbitrary product family preserves case" {
+                "\"GB200\"" => Yields(RackProductFamily::Other("GB200".to_string())),
+            }
+
+            "empty product family" {
+                "\"  \"" => Fails,
             }
         );
     }

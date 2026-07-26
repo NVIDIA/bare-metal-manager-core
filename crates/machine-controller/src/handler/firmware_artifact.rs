@@ -104,333 +104,154 @@ fn firmware_artifact_url(
 mod tests {
     use std::path::PathBuf;
 
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
     use super::*;
 
     const FIRMWARE_DOWNLOAD_CACHE_DIRECTORY: &str = "/mnt/persistence/fw/download-cache";
+    const FIRMWARE_DIRECTORY: &str = "/opt/nico/firmware";
+    const PXE_PUBLIC_BASE_URL: &str = "http://carbide-pxe.forge:8080/";
 
-    #[test]
-    fn resolves_files_artifact_with_url_and_filename() {
-        let firmware = firmware_with_files(vec![FirmwareFileArtifact {
-            filename: Some("/opt/nico/firmware/fw.bin".to_string()),
-            url: Some("https://firmware.example.invalid/fw.bin".to_string()),
-            sha256: "abc123".to_string(),
-        }]);
+    struct ResolutionInput {
+        firmware: FirmwareEntry,
+        pos: u32,
+    }
 
-        let artifact =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 0)
-                .unwrap();
+    struct ScoutInput {
+        filename: Option<&'static str>,
+        url: Option<&'static str>,
+    }
 
-        assert!(
-            artifact
-                .local_path
-                .starts_with(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY)
-        );
-        assert_eq!(artifact.local_path.file_name().unwrap(), "fw.bin");
-        assert_eq!(
-            artifact.source,
-            ResolvedFirmwareArtifactSource::Remote {
-                url: "https://firmware.example.invalid/fw.bin".to_string(),
-                sha256: "abc123".to_string(),
-            }
-        );
+    #[derive(Debug, PartialEq, Eq)]
+    enum ComparableError {
+        Generic(String),
+        Other(String),
     }
 
     #[test]
-    fn derives_files_artifact_filename_from_url_when_filename_is_missing() {
-        let firmware = firmware_with_files(vec![FirmwareFileArtifact {
-            filename: None,
-            url: Some("https://firmware.example.invalid/path/fw_image.bin".to_string()),
-            sha256: "abc123".to_string(),
-        }]);
-
-        let artifact =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 0)
-                .unwrap();
-
-        assert!(
-            artifact
-                .local_path
-                .starts_with(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY)
-        );
-        assert_eq!(artifact.local_path.file_name().unwrap(), "fw_image.bin");
-        assert_eq!(
-            artifact
-                .local_path
-                .parent()
-                .unwrap()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .len(),
-            64
-        );
-    }
-
-    #[test]
-    fn resolves_files_artifact_by_index() {
-        let firmware = firmware_with_files(vec![
-            FirmwareFileArtifact {
-                filename: Some("/opt/nico/firmware/first.bin".to_string()),
-                url: Some("https://firmware.example.invalid/first.bin".to_string()),
-                sha256: "first-sha".to_string(),
-            },
-            FirmwareFileArtifact {
-                filename: Some("/opt/nico/firmware/second.bin".to_string()),
-                url: Some("https://firmware.example.invalid/second.bin".to_string()),
-                sha256: "second-sha".to_string(),
-            },
-        ]);
-
-        let artifact =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 1)
-                .unwrap();
-
-        assert!(
-            artifact
-                .local_path
-                .starts_with(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY)
-        );
-        assert_eq!(artifact.local_path.file_name().unwrap(), "second.bin");
-        assert_eq!(
-            artifact.source,
-            ResolvedFirmwareArtifactSource::Remote {
-                url: "https://firmware.example.invalid/second.bin".to_string(),
-                sha256: "second-sha".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn resolves_files_artifact_without_url_as_local_file() {
-        let firmware = firmware_with_files(vec![FirmwareFileArtifact {
-            filename: Some("/opt/nico/firmware/fw.bin".to_string()),
-            url: None,
-            sha256: "abc123".to_string(),
-        }]);
-
-        let artifact =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 0)
-                .unwrap();
-
-        assert_eq!(
-            artifact.local_path,
-            PathBuf::from("/opt/nico/firmware/fw.bin")
-        );
-        assert_eq!(artifact.source, ResolvedFirmwareArtifactSource::Local);
-    }
-
-    #[test]
-    fn files_artifact_index_out_of_range_is_an_error() {
-        let firmware = firmware_with_files(vec![FirmwareFileArtifact {
-            filename: Some("/opt/nico/firmware/fw.bin".to_string()),
-            url: None,
-            sha256: "abc123".to_string(),
-        }]);
-
-        let error =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 1)
-                .unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("has no files[] artifact at index 1")
-        );
-    }
-
-    #[test]
-    fn files_artifact_without_filename_or_url_is_an_error() {
-        let firmware = firmware_with_files(vec![FirmwareFileArtifact {
-            filename: None,
-            url: None,
-            sha256: "abc123".to_string(),
-        }]);
-
-        let error =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 0)
-                .unwrap_err();
-
-        assert!(error.to_string().contains("has no filename or URL"));
-    }
-
-    #[test]
-    fn files_artifact_url_without_filename_is_an_error() {
-        let firmware = firmware_with_files(vec![FirmwareFileArtifact {
-            filename: None,
-            url: Some("https://firmware.example.invalid/".to_string()),
-            sha256: "abc123".to_string(),
-        }]);
-
-        let error =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 0)
-                .unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("URL does not include a filename")
-        );
-    }
-
-    #[test]
-    fn legacy_firmware_ignores_top_level_url_and_resolves_as_local_source() {
-        let firmware = FirmwareEntry {
-            version: "1.0".to_string(),
-            filename: None,
-            filenames: vec![
-                "/opt/nico/firmware/first.bin".to_string(),
-                "/opt/nico/firmware/second.bin".to_string(),
+    fn resolve_firmware_artifact_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "shared files artifact delegates successfully",
+                    input: ResolutionInput {
+                        firmware: firmware_with_files(vec![file(
+                            Some("/opt/nico/firmware/fw.bin"),
+                            None,
+                        )]),
+                        pos: 0,
+                    },
+                    expect: Yields(local_artifact("/opt/nico/firmware/fw.bin")),
+                },
+                Case {
+                    scenario: "shared resolver error maps to generic error",
+                    input: ResolutionInput {
+                        firmware: firmware_with_files(vec![file(None, None)]),
+                        pos: 0,
+                    },
+                    expect: FailsWith(ComparableError::Generic(
+                        "firmware version 1.0 files[] artifact at index 0 has no filename or URL"
+                            .to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "legacy artifact selects indexed filename and remains local",
+                    input: ResolutionInput {
+                        firmware: FirmwareEntry {
+                            version: "1.0".to_string(),
+                            filenames: vec![
+                                "/opt/nico/firmware/first.bin".to_string(),
+                                "/opt/nico/firmware/second.bin".to_string(),
+                            ],
+                            url: Some("https://firmware.example.invalid/legacy.bin".to_string()),
+                            checksum: Some("legacy-sha".to_string()),
+                            ..FirmwareEntry::default()
+                        },
+                        pos: 1,
+                    },
+                    expect: Yields(local_artifact("/opt/nico/firmware/second.bin")),
+                },
             ],
-            url: Some("https://firmware.example.invalid/legacy.bin".to_string()),
-            checksum: Some("legacy-sha".to_string()),
-            ..FirmwareEntry::default()
-        };
-
-        let artifact =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 1)
-                .unwrap();
-
-        assert_eq!(
-            artifact.local_path,
-            PathBuf::from("/opt/nico/firmware/second.bin")
-        );
-        assert_eq!(artifact.source, ResolvedFirmwareArtifactSource::Local);
-    }
-
-    #[test]
-    fn legacy_firmware_without_url_resolves_as_local_source() {
-        let firmware = FirmwareEntry {
-            version: "1.0".to_string(),
-            filename: Some("/opt/nico/firmware/fw.bin".to_string()),
-            url: None,
-            checksum: None,
-            ..FirmwareEntry::default()
-        };
-
-        let artifact =
-            resolve_firmware_artifact(Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY), &firmware, 0)
-                .unwrap();
-
-        assert_eq!(
-            artifact.local_path,
-            PathBuf::from("/opt/nico/firmware/fw.bin")
-        );
-        assert_eq!(artifact.source, ResolvedFirmwareArtifactSource::Local);
-    }
-
-    #[test]
-    fn resolve_scout_file_artifact_uses_direct_url_when_url_and_filename_are_set() {
-        let artifact = FirmwareFileArtifact {
-            filename: Some("/opt/nico/firmware/nvidia/fw.bin".to_string()),
-            url: Some("https://firmware.example.invalid/fw.bin".to_string()),
-            sha256: "abc123".to_string(),
-        };
-
-        let file_artifact = resolve_scout_file_artifact(
-            "http://carbide-pxe.forge:8080",
-            Path::new("/opt/nico/firmware"),
-            &artifact,
-        )
-        .expect("artifact should resolve");
-
-        assert_eq!(file_artifact.url, "https://firmware.example.invalid/fw.bin");
-        assert_eq!(file_artifact.sha256, "abc123");
-    }
-
-    #[test]
-    fn resolve_scout_file_artifact_uses_pxe_url_for_filename_without_url() {
-        let artifact = FirmwareFileArtifact {
-            filename: Some("/opt/nico/firmware/nvidia/fw.bin".to_string()),
-            url: None,
-            sha256: "abc123".to_string(),
-        };
-
-        let file_artifact = resolve_scout_file_artifact(
-            "http://carbide-pxe.forge:8080/",
-            Path::new("/opt/nico/firmware"),
-            &artifact,
-        )
-        .expect("artifact should resolve");
-
-        assert_eq!(
-            file_artifact.url,
-            "http://carbide-pxe.forge:8080/public/firmware/nvidia/fw.bin"
-        );
-        assert_eq!(file_artifact.sha256, "abc123");
-    }
-
-    #[test]
-    fn resolve_scout_file_artifact_uses_direct_url_without_filename() {
-        let artifact = FirmwareFileArtifact {
-            filename: None,
-            url: Some("https://firmware.example.invalid/fw.bin".to_string()),
-            sha256: "abc123".to_string(),
-        };
-
-        let file_artifact = resolve_scout_file_artifact(
-            "http://carbide-pxe.forge:8080",
-            Path::new("/opt/nico/firmware"),
-            &artifact,
-        )
-        .expect("artifact should resolve");
-
-        assert_eq!(file_artifact.url, "https://firmware.example.invalid/fw.bin");
-        assert_eq!(file_artifact.sha256, "abc123");
-    }
-
-    #[test]
-    fn resolve_scout_file_artifact_requires_filename_or_url() {
-        let artifact = FirmwareFileArtifact {
-            filename: None,
-            url: None,
-            sha256: "abc123".to_string(),
-        };
-
-        let error = resolve_scout_file_artifact(
-            "http://carbide-pxe.forge:8080",
-            Path::new("/opt/nico/firmware"),
-            &artifact,
-        )
-        .unwrap_err();
-
-        assert!(
-            error
-                .to_string()
-                .contains("scout firmware artifact has no filename or URL")
+            |ResolutionInput { firmware, pos }| {
+                resolve_firmware_artifact(
+                    Path::new(FIRMWARE_DOWNLOAD_CACHE_DIRECTORY),
+                    &firmware,
+                    pos,
+                )
+                .map_err(comparable_error)
+            },
         );
     }
 
     #[test]
-    fn resolve_scout_file_artifact_rejects_unsafe_filename_paths() {
-        let unsafe_cases = [
-            (
-                // A sibling directory with the same string prefix is not inside the firmware root.
-                "/opt/nico/firmware2/nvidia/dgxh100/cx7/cx7.bin",
-                "is outside firmware directory /opt/nico/firmware",
-            ),
-            (
-                // A path under the firmware root still cannot traverse back out with `..`.
-                "/opt/nico/firmware/../cx7.bin",
-                "contains unsafe path components",
-            ),
-        ];
-
-        for (filename, expected_error) in unsafe_cases {
-            let artifact = FirmwareFileArtifact {
-                filename: Some(filename.to_string()),
-                url: None,
-                sha256: "abc123".to_string(),
-            };
-
-            let error = resolve_scout_file_artifact(
-                "http://carbide-pxe.forge:8080",
-                Path::new("/opt/nico/firmware"),
-                &artifact,
-            )
-            .unwrap_err();
-
-            assert!(error.to_string().contains(expected_error));
-        }
+    fn resolve_scout_file_artifact_cases() {
+        check_cases(
+            [
+                Case {
+                    scenario: "URL takes precedence over filename",
+                    input: ScoutInput {
+                        filename: Some("/opt/nico/firmware/nvidia/fw.bin"),
+                        url: Some("https://firmware.example.invalid/fw.bin"),
+                    },
+                    expect: Yields(scout_artifact(
+                        "https://firmware.example.invalid/fw.bin",
+                    )),
+                },
+                Case {
+                    scenario: "filename becomes PXE public URL",
+                    input: ScoutInput {
+                        filename: Some("/opt/nico/firmware/nvidia/fw.bin"),
+                        url: None,
+                    },
+                    expect: Yields(scout_artifact(
+                        "http://carbide-pxe.forge:8080/public/firmware/nvidia/fw.bin",
+                    )),
+                },
+                Case {
+                    scenario: "filename and URL are missing",
+                    input: ScoutInput {
+                        filename: None,
+                        url: None,
+                    },
+                    expect: FailsWith(ComparableError::Generic(
+                        "scout firmware artifact has no filename or URL".to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "same-prefix sibling is outside firmware directory",
+                    input: ScoutInput {
+                        filename: Some(
+                            "/opt/nico/firmware2/nvidia/dgxh100/cx7/cx7.bin",
+                        ),
+                        url: None,
+                    },
+                    expect: FailsWith(ComparableError::Generic(
+                        "firmware artifact path /opt/nico/firmware2/nvidia/dgxh100/cx7/cx7.bin is outside firmware directory /opt/nico/firmware"
+                            .to_string(),
+                    )),
+                },
+                Case {
+                    scenario: "parent traversal is unsafe",
+                    input: ScoutInput {
+                        filename: Some("/opt/nico/firmware/../cx7.bin"),
+                        url: None,
+                    },
+                    expect: FailsWith(ComparableError::Generic(
+                        "firmware artifact path /opt/nico/firmware/../cx7.bin contains unsafe path components"
+                            .to_string(),
+                    )),
+                },
+            ],
+            |ScoutInput { filename, url }| {
+                resolve_scout_file_artifact(
+                    PXE_PUBLIC_BASE_URL,
+                    Path::new(FIRMWARE_DIRECTORY),
+                    &file(filename, url),
+                )
+                .map_err(comparable_error)
+            },
+        );
     }
 
     fn firmware_with_files(files: Vec<FirmwareFileArtifact>) -> FirmwareEntry {
@@ -438,6 +259,35 @@ mod tests {
             version: "1.0".to_string(),
             files,
             ..FirmwareEntry::default()
+        }
+    }
+
+    fn file(filename: Option<&str>, url: Option<&str>) -> FirmwareFileArtifact {
+        FirmwareFileArtifact {
+            filename: filename.map(str::to_string),
+            url: url.map(str::to_string),
+            sha256: "abc123".to_string(),
+        }
+    }
+
+    fn local_artifact(path: &str) -> ResolvedFirmwareArtifact {
+        ResolvedFirmwareArtifact {
+            local_path: PathBuf::from(path),
+            source: ResolvedFirmwareArtifactSource::Local,
+        }
+    }
+
+    fn scout_artifact(url: &str) -> FileArtifact {
+        FileArtifact {
+            url: url.to_string(),
+            sha256: "abc123".to_string(),
+        }
+    }
+
+    fn comparable_error(error: StateHandlerError) -> ComparableError {
+        match error {
+            StateHandlerError::GenericError(error) => ComparableError::Generic(error.to_string()),
+            error => ComparableError::Other(error.to_string()),
         }
     }
 }

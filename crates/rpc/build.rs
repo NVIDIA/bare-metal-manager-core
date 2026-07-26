@@ -798,6 +798,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .field_attribute("SkuComponentStorage.vendor", "#[serde(default)]")
         .field_attribute("SkuComponentStorage.capacity_mb", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.min_size_mb", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.max_size_mb", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.pci_patterns", "#[serde(default)]")
         .type_attribute(
             "SkuComponentTpm",
             "#[derive(serde::Serialize, serde::Deserialize)]",
@@ -1009,6 +1012,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.DeviceCredentialRotationStatus",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.GetContainerRegistryCredentialRequest",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.GetContainerRegistryCredentialResponse",
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(

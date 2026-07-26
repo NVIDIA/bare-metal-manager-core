@@ -27,6 +27,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::downloader::*;
 
+const ARTIFACT_UNAVAILABLE_METRIC: &str = "carbide_firmware_artifact_unavailable_total";
 const DOWNLOAD_DURATION_METRIC: &str = "carbide_firmware_download_duration_seconds";
 
 #[test]
@@ -226,6 +227,170 @@ async fn test_available_fetch_failure_counts() -> Result<(), std::io::Error> {
 
     assert!(!filename.exists());
     Ok(())
+}
+
+#[test]
+fn artifact_unavailable_events_preserve_log_contracts_and_count_reasons() {
+    #[derive(Clone, Copy)]
+    enum Fixture {
+        MissingUrl,
+        StaleCacheRemovalFailed,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Contract {
+        event_name: String,
+        message: String,
+        metric_name: Option<String>,
+        reason: Option<String>,
+        firmware_path: Option<String>,
+        filename: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    let metrics = MetricsCapture::start();
+    check_values(
+        [
+            Check {
+                scenario: "missing URL retains firmware_path context",
+                input: Fixture::MissingUrl,
+                expect: Contract {
+                    event_name: "firmware_artifact_missing_url".to_string(),
+                    message: "Firmware artifact is missing and has no URL".to_string(),
+                    metric_name: Some(ARTIFACT_UNAVAILABLE_METRIC.to_string()),
+                    reason: Some("missing_url".to_string()),
+                    firmware_path: Some("\"/firmware/missing.fwpkg\"".to_string()),
+                    filename: None,
+                    error: None,
+                    counter_delta: 1.0,
+                },
+            },
+            Check {
+                scenario: "stale cache removal failure retains filename and error context",
+                input: Fixture::StaleCacheRemovalFailed,
+                expect: Contract {
+                    event_name: "firmware_stale_cached_artifact_removal_failed".to_string(),
+                    message: "Failed to remove stale cached firmware artifact".to_string(),
+                    metric_name: Some(ARTIFACT_UNAVAILABLE_METRIC.to_string()),
+                    reason: Some("stale_cache_removal_failed".to_string()),
+                    firmware_path: None,
+                    filename: Some("/firmware/stale.fwpkg".to_string()),
+                    error: Some("read-only filesystem".to_string()),
+                    counter_delta: 1.0,
+                },
+            },
+        ],
+        |fixture| {
+            let reason = match fixture {
+                Fixture::MissingUrl => "missing_url",
+                Fixture::StaleCacheRemovalFailed => "stale_cache_removal_failed",
+            };
+            let logs = capture_logs(|| match fixture {
+                Fixture::MissingUrl => emit(FirmwareArtifactMissingUrl {
+                    reason: ArtifactUnavailableReason::MissingUrl,
+                    firmware_path: format!("{:?}", Path::new("/firmware/missing.fwpkg")),
+                }),
+                Fixture::StaleCacheRemovalFailed => {
+                    emit(FirmwareStaleCachedArtifactRemovalFailed {
+                        reason: ArtifactUnavailableReason::StaleCacheRemovalFailed,
+                        filename: "/firmware/stale.fwpkg".to_string(),
+                        error: "read-only filesystem".to_string(),
+                    });
+                }
+            });
+
+            assert_eq!(logs.len(), 1, "one event should own the error log");
+            assert_eq!(logs[0].level, tracing::Level::ERROR);
+            Contract {
+                event_name: logs[0].metadata_name.clone(),
+                message: logs[0].message.clone(),
+                metric_name: logs[0].field("metric_name").map(str::to_string),
+                reason: logs[0].field("reason").map(str::to_string),
+                firmware_path: logs[0].field("firmware_path").map(str::to_string),
+                filename: logs[0].field("filename").map(str::to_string),
+                error: logs[0].field("error").map(str::to_string),
+                counter_delta: metrics
+                    .counter_delta(ARTIFACT_UNAVAILABLE_METRIC, &[("reason", reason)]),
+            }
+        },
+    );
+}
+
+#[test]
+fn unavailable_absent_artifact_without_url_counts_the_blocker() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let filename = temp_dir.path().join("missing.fwpkg");
+    let downloader = FirmwareDownloader::new();
+    let metrics = MetricsCapture::start();
+
+    let logs = capture_logs(|| {
+        assert!(!downloader.available(&filename, "", ""));
+    });
+
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].metadata_name, "firmware_artifact_missing_url");
+    assert_eq!(
+        logs[0].message,
+        "Firmware artifact is missing and has no URL"
+    );
+    assert_eq!(
+        logs[0].field("firmware_path"),
+        Some(format!("{filename:?}").as_str())
+    );
+    assert_eq!(
+        metrics.counter_delta(ARTIFACT_UNAVAILABLE_METRIC, &[("reason", "missing_url")]),
+        1.0,
+    );
+    assert!(!filename.exists());
+}
+
+#[test]
+fn unavailable_stale_artifact_removal_failure_counts_the_blocker() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let filename = temp_dir.path().join("stale.fwpkg");
+    std::fs::create_dir(&filename).unwrap();
+    let downloader = FirmwareDownloader::new();
+    let metrics = MetricsCapture::start();
+
+    let logs = capture_logs(|| {
+        assert!(!downloader.available(
+            &filename,
+            "https://firmware.example/stale.fwpkg",
+            "expected-checksum",
+        ));
+    });
+
+    assert!(logs.iter().any(|log| {
+        log.message == "Cached firmware artifact failed checksum verification"
+            && log.level == tracing::Level::WARN
+    }));
+    let unavailable = logs
+        .iter()
+        .find(|log| log.metadata_name == "firmware_stale_cached_artifact_removal_failed")
+        .expect("removal failure should emit an unavailable-artifact event");
+    assert_eq!(unavailable.level, tracing::Level::ERROR);
+    assert_eq!(
+        unavailable.message,
+        "Failed to remove stale cached firmware artifact"
+    );
+    assert_eq!(
+        unavailable.field("filename"),
+        Some(filename.to_string_lossy().as_ref())
+    );
+    assert!(
+        unavailable
+            .field("error")
+            .is_some_and(|error| !error.is_empty())
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            ARTIFACT_UNAVAILABLE_METRIC,
+            &[("reason", "stale_cache_removal_failed")],
+        ),
+        1.0,
+    );
+    assert!(filename.is_dir());
 }
 
 /// The label vocabulary is the dashboard contract: every download outcome

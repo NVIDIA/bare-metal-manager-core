@@ -19,6 +19,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use common::api_fixtures::TestEnv;
 use db::{self, ObjectColumnFilter};
@@ -26,7 +27,10 @@ use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
-use model::site_explorer::{Chassis, EndpointExplorationError, EndpointExplorationReport};
+use model::machine_boot_interface::MachineBootInterfaceTarget;
+use model::site_explorer::{
+    Chassis, EndpointExplorationError, EndpointExplorationReport, MachineSetupStatus,
+};
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
@@ -744,32 +748,215 @@ fn endpoint_explore_call_count(env: &TestEnv, bmc_ip: IpAddr) -> usize {
         .lock()
         .unwrap()
         .iter()
-        .filter(|called_ip| **called_ip == bmc_ip)
+        .filter(|call| call.ip_address == bmc_ip)
         .count()
 }
 
+fn endpoint_explore_target(env: &TestEnv, bmc_ip: IpAddr) -> Option<BootInterfaceTarget> {
+    env.endpoint_explorer
+        .explore_endpoint_calls
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|call| call.ip_address == bmc_ip)
+        .unwrap_or_else(|| panic!("expected endpoint {bmc_ip} to have been explored"))
+        .boot_interface
+        .clone()
+}
+
+fn boot_interface_target_cases(
+    endpoint: &model::site_explorer::ExploredEndpoint,
+) -> Vec<(&'static str, Option<BootInterfaceTarget>)> {
+    let pair = endpoint
+        .boot_interface()
+        .expect("managed-host fixture should retain a complete boot-interface pair");
+    let mac_address = pair.mac_address;
+
+    vec![
+        ("complete pair", Some(BootInterfaceTarget::Pair(pair))),
+        (
+            "legacy MAC only",
+            Some(BootInterfaceTarget::MacOnly(mac_address)),
+        ),
+        ("no target", None),
+    ]
+}
+
+async fn set_endpoint_boot_interface_target(
+    env: &TestEnv,
+    bmc_ip: IpAddr,
+    target: Option<&BootInterfaceTarget>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (mac_address, interface_id) = match target {
+        Some(BootInterfaceTarget::Pair(boot_interface)) => (
+            Some(boot_interface.mac_address),
+            Some(boot_interface.interface_id.as_str()),
+        ),
+        Some(BootInterfaceTarget::MacOnly(mac_address)) => (Some(*mac_address), None),
+        None => (None, None),
+    };
+
+    let mut txn = env.pool.begin().await?;
+    sqlx::query(
+        "UPDATE explored_endpoints
+         SET boot_interface_mac = $1, boot_interface_id = $2
+         WHERE address = $3",
+    )
+    .bind(mac_address)
+    .bind(interface_id)
+    .bind(bmc_ip)
+    .execute(&mut *txn)
+    .await?;
+    txn.commit().await?;
+
+    Ok(())
+}
+
+fn report_with_evaluated_boot_interface(
+    mut report: EndpointExplorationReport,
+    target: Option<&BootInterfaceTarget>,
+) -> EndpointExplorationReport {
+    report.machine_setup_status = Some(MachineSetupStatus {
+        is_done: true,
+        diffs: Vec::new(),
+        evaluated_boot_interface: target.map(MachineBootInterfaceTarget::from),
+    });
+    report
+}
+
+async fn prepare_endpoint_exploration_case(
+    env: &TestEnv,
+    bmc_ip: IpAddr,
+    target: Option<&BootInterfaceTarget>,
+) -> Result<model::site_explorer::ExploredEndpoint, Box<dyn std::error::Error>> {
+    set_endpoint_boot_interface_target(env, bmc_ip, target).await?;
+    let endpoint = explored_endpoint(env, bmc_ip).await?;
+    let report = report_with_evaluated_boot_interface(endpoint.report.clone(), target);
+    env.endpoint_explorer
+        .insert_endpoint_result(bmc_ip, Ok(report));
+    env.endpoint_explorer
+        .explore_endpoint_calls
+        .lock()
+        .unwrap()
+        .clear();
+
+    Ok(endpoint)
+}
+
 #[sqlx_test]
-async fn test_refresh_endpoint_report_bumps_report_version(
+async fn test_refresh_endpoint_report_correlates_each_boot_interface_target(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
     let bmc_ip = host_bmc_ip(&env, &mh).await?;
-    let initial_version = explored_endpoint(&env, bmc_ip).await?.report_version;
+    let initial = explored_endpoint(&env, bmc_ip).await?;
+    for (scenario, target) in boot_interface_target_cases(&initial) {
+        let baseline = prepare_endpoint_exploration_case(&env, bmc_ip, target.as_ref()).await?;
+        let baseline_version = baseline.report_version;
+        let expected_evaluated_target = target.as_ref().map(MachineBootInterfaceTarget::from);
 
-    env.api
-        .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
-            ip_address: bmc_ip.to_string(),
-        }))
-        .await?;
+        env.api
+            .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+                ip_address: bmc_ip.to_string(),
+            }))
+            .await?;
 
-    let refreshed = explored_endpoint(&env, bmc_ip).await?;
-    assert!(
-        refreshed.report_version.version_nr() > initial_version.version_nr(),
-        "refresh should bump report version from {} to a newer version, got {}",
-        initial_version.version_nr(),
-        refreshed.report_version.version_nr()
-    );
+        let refreshed = explored_endpoint(&env, bmc_ip).await?;
+        assert!(
+            refreshed.report_version.version_nr() > baseline_version.version_nr(),
+            "{scenario}: refresh should bump report version from {} to a newer version, got {}",
+            baseline_version.version_nr(),
+            refreshed.report_version.version_nr()
+        );
+        assert_eq!(
+            endpoint_explore_target(&env, bmc_ip),
+            target,
+            "{scenario}: explicit refresh should evaluate the target stored with the endpoint"
+        );
+        let status = refreshed
+            .report
+            .machine_setup_status
+            .expect("mock report should include machine setup status");
+        assert_eq!(
+            status.evaluated_boot_interface, expected_evaluated_target,
+            "{scenario}: the persisted status and evaluated target should come from the same report update"
+        );
+    }
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_ad_hoc_explore_uses_stored_boot_interface_target(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let initial = explored_endpoint(&env, bmc_ip).await?;
+    for (scenario, target) in boot_interface_target_cases(&initial) {
+        prepare_endpoint_exploration_case(&env, bmc_ip, target.as_ref()).await?;
+
+        let response = env
+            .api
+            .explore(Request::new(rpc::forge::BmcEndpointRequest {
+                ip_address: bmc_ip.to_string(),
+                mac_address: None,
+            }))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            endpoint_explore_target(&env, bmc_ip),
+            target,
+            "{scenario}: ad-hoc exploration should evaluate the target stored with the endpoint"
+        );
+        assert!(
+            response.machine_setup_status.is_some(),
+            "{scenario}: ad-hoc exploration should return the machine setup observation"
+        );
+    }
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_periodic_exploration_uses_stored_boot_interface_target(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let initial = explored_endpoint(&env, bmc_ip).await?;
+    for (scenario, target) in boot_interface_target_cases(&initial) {
+        let expected_evaluated_target = target.as_ref().map(MachineBootInterfaceTarget::from);
+        prepare_endpoint_exploration_case(&env, bmc_ip, target.as_ref()).await?;
+
+        env.api
+            .re_explore_endpoint(Request::new(rpc::forge::ReExploreEndpointRequest {
+                ip_address: bmc_ip.to_string(),
+                if_version_match: None,
+            }))
+            .await?;
+        env.run_site_explorer_iteration().await;
+
+        assert_eq!(
+            endpoint_explore_target(&env, bmc_ip),
+            target,
+            "{scenario}: periodic exploration should evaluate the target stored with the endpoint"
+        );
+        let status = explored_endpoint(&env, bmc_ip)
+            .await?
+            .report
+            .machine_setup_status
+            .expect("mock report should include machine setup status");
+        assert_eq!(
+            status.evaluated_boot_interface, expected_evaluated_target,
+            "{scenario}: periodic exploration should persist the correlated observation"
+        );
+    }
 
     Ok(())
 }
@@ -800,11 +987,15 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
     let bmc_ip = host_bmc_ip(&env, &mh).await?;
-    let _endpoint_lock = env
-        .api
-        .endpoint_exploration_locks
-        .try_claim(bmc_ip)
-        .expect("test should be able to claim the endpoint exploration lock");
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let first_refresh = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
 
     let err = env
         .api
@@ -813,6 +1004,9 @@ async fn test_refresh_endpoint_report_rejects_duplicate_refresh(
         }))
         .await
         .unwrap_err();
+
+    blocker.release();
+    first_refresh.await??;
 
     assert_eq!(err.code(), tonic::Code::AlreadyExists);
     assert!(
@@ -838,19 +1032,93 @@ async fn test_refresh_endpoint_report_lock_blocks_periodic_probe(
         }))
         .await?;
 
-    let calls_before = endpoint_explore_call_count(&env, bmc_ip);
-    let _endpoint_lock = env
-        .api
-        .endpoint_exploration_locks
-        .try_claim(bmc_ip)
-        .expect("test should be able to claim the endpoint exploration lock");
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let refresh = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
+    let calls_while_refreshing = endpoint_explore_call_count(&env, bmc_ip);
 
     env.run_site_explorer_iteration().await;
 
     assert_eq!(
         endpoint_explore_call_count(&env, bmc_ip),
-        calls_before,
+        calls_while_refreshing,
         "periodic site explorer probe should be skipped while refresh lock is held"
+    );
+
+    blocker.release();
+    refresh.await??;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_refresh_endpoint_report_rejects_concurrent_report_update(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let baseline = explored_endpoint(&env, bmc_ip).await?;
+
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let refresh = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
+
+    let mut concurrent_report = baseline.report.clone();
+    concurrent_report.model = Some("concurrent update".to_string());
+    let concurrent_target = MachineBootInterfaceTarget::MacOnly("02:00:00:00:00:77".parse()?);
+    concurrent_report.machine_setup_status = Some(MachineSetupStatus {
+        is_done: false,
+        diffs: Vec::new(),
+        evaluated_boot_interface: Some(concurrent_target.clone()),
+    });
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::explored_endpoints::try_update(
+            bmc_ip,
+            baseline.report_version,
+            &concurrent_report,
+            baseline.waiting_for_explorer_refresh,
+            &mut txn,
+        )
+        .await?,
+        "concurrent report update should succeed"
+    );
+    txn.commit().await?;
+    let concurrent = explored_endpoint(&env, bmc_ip).await?;
+
+    blocker.release();
+    let error = refresh.await?.unwrap_err();
+
+    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+    let final_endpoint = explored_endpoint(&env, bmc_ip).await?;
+    assert_eq!(
+        final_endpoint.report_version, concurrent.report_version,
+        "stale refresh must not overwrite the concurrent report"
+    );
+    assert_eq!(
+        final_endpoint.report.model.as_deref(),
+        Some("concurrent update")
+    );
+    assert_eq!(
+        final_endpoint
+            .report
+            .machine_setup_status
+            .and_then(|status| status.evaluated_boot_interface),
+        Some(concurrent_target),
+        "stale refresh must not replace the target correlated with the concurrent report"
     );
 
     Ok(())
@@ -863,6 +1131,27 @@ async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;
     let bmc_ip = host_bmc_ip(&env, &mh).await?;
+    let mut initial = explored_endpoint(&env, bmc_ip).await?;
+    let preserved_target = initial
+        .boot_interface_target()
+        .expect("managed-host fixture should retain a boot-interface target");
+    initial.report.machine_setup_status = Some(MachineSetupStatus {
+        is_done: true,
+        diffs: Vec::new(),
+        evaluated_boot_interface: Some(preserved_target.clone()),
+    });
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::explored_endpoints::try_update(
+            bmc_ip,
+            initial.report_version,
+            &initial.report,
+            initial.waiting_for_explorer_refresh,
+            &mut txn,
+        )
+        .await?
+    );
+    txn.commit().await?;
     let initial_version = explored_endpoint(&env, bmc_ip).await?.report_version;
     env.endpoint_explorer.insert_endpoint_result(
         bmc_ip,
@@ -885,6 +1174,14 @@ async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
     assert!(
         refreshed.report.last_exploration_error.is_some(),
         "failed refresh should persist the exploration error"
+    );
+    assert_eq!(
+        refreshed
+            .report
+            .machine_setup_status
+            .and_then(|status| status.evaluated_boot_interface),
+        Some(preserved_target),
+        "failed refresh should preserve the last successful target-correlated observation"
     );
 
     Ok(())
@@ -930,11 +1227,15 @@ async fn test_refresh_endpoint_report_lock_is_per_endpoint(
     let bmc_ip_a = host_bmc_ip(&env, &mh_a).await?;
     let bmc_ip_b = host_bmc_ip(&env, &mh_b).await?;
     let initial_version_b = explored_endpoint(&env, bmc_ip_b).await?.report_version;
-    let _endpoint_lock = env
-        .api
-        .endpoint_exploration_locks
-        .try_claim(bmc_ip_a)
-        .expect("test should be able to claim the endpoint exploration lock");
+    let blocker = env.endpoint_explorer.block_next_exploration();
+    let api = env.api.clone();
+    let refresh_a = tokio::spawn(async move {
+        api.refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
+            ip_address: bmc_ip_a.to_string(),
+        }))
+        .await
+    });
+    blocker.wait_until_started().await;
 
     env.api
         .refresh_endpoint_report(Request::new(rpc::forge::RefreshEndpointReportRequest {
@@ -947,6 +1248,9 @@ async fn test_refresh_endpoint_report_lock_is_per_endpoint(
         refreshed_b.report_version.version_nr() > initial_version_b.version_nr(),
         "lock for endpoint {bmc_ip_a} should not block refresh for endpoint {bmc_ip_b}"
     );
+
+    blocker.release();
+    refresh_a.await??;
 
     Ok(())
 }

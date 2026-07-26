@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-//! Tests for DPF SDK initialization object creation.
+//! Tests for DPF SDK initialization resources and lookup behavior.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -28,6 +29,7 @@ use crate::crds::bfbs_generated::BFB;
 use crate::crds::bluefieldsoftwares_generated::BlueFieldSoftware;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
+use crate::crds::dpus_generated::{DPU, DpuStatusPhase};
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
 use crate::crds::dpuservicenads_generated::DPUServiceNAD;
@@ -35,7 +37,7 @@ use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, BlueFieldSoftwareRepository, DpfOperatorConfigRepository,
-    DpuDeploymentRepository, DpuFlavorRepository, DpuServiceConfigurationRepository,
+    DpuDeploymentRepository, DpuFlavorRepository, DpuRepository, DpuServiceConfigurationRepository,
     DpuServiceInterfaceRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
     K8sConfigRepository,
 };
@@ -60,6 +62,7 @@ struct InitializationMock {
     bfbs: Arc<DashMap<String, BFB>>,
     bluefield_softwares: Arc<DashMap<String, BlueFieldSoftware>>,
     flavors: Arc<DashMap<String, DPUFlavor>>,
+    dpus: Arc<DashMap<String, DPU>>,
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
     service_configs: Arc<DashMap<String, DPUServiceConfiguration>>,
@@ -139,6 +142,50 @@ impl DpuFlavorRepository for InitializationMock {
     async fn create(&self, f: &DPUFlavor) -> Result<DPUFlavor, DpfError> {
         self.flavors.insert(resource_key(f), f.clone());
         Ok(f.clone())
+    }
+}
+
+#[async_trait]
+impl DpuRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPU>, DpfError> {
+        Ok(self.dpus.get(&ns_key(ns, name)).map(|dpu| dpu.clone()))
+    }
+
+    async fn list(&self, ns: &str, _label_selector: Option<&str>) -> Result<Vec<DPU>, DpfError> {
+        let prefix = format!("{ns}/");
+        Ok(self
+            .dpus
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+
+    async fn patch_status(
+        &self,
+        _name: &str,
+        _ns: &str,
+        _patch: serde_json::Value,
+    ) -> Result<(), DpfError> {
+        Ok(())
+    }
+
+    async fn delete(&self, name: &str, ns: &str) -> Result<(), DpfError> {
+        self.dpus.remove(&ns_key(ns, name));
+        Ok(())
+    }
+
+    fn watch<F, Fut>(
+        &self,
+        _ns: &str,
+        _label_selector: Option<&str>,
+        _handler: F,
+    ) -> impl Future<Output = ()> + Send + 'static
+    where
+        F: Fn(Arc<DPU>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), DpfError>> + Send + 'static,
+    {
+        futures::future::pending()
     }
 }
 
@@ -397,4 +444,67 @@ async fn test_create_initialization_objects_bluefield_software() {
     assert!(deployment.spec.dpus.bfb.is_none());
 
     drop(sdk);
+}
+
+/// Verifies a missing referenced template fails the complete inventory lookup
+/// so callers cannot mistake an incomplete operator view for current state.
+#[tokio::test]
+async fn service_versions_fail_when_referenced_template_is_missing() {
+    let mock = InitializationMock::default();
+    let dpu_name = "node-host-device-dpu";
+    let mut dpu = super::helpers::make_dpu(
+        TEST_NS,
+        dpu_name,
+        "device-dpu",
+        "node-host",
+        DpuStatusPhase::Ready,
+    );
+    dpu.metadata.labels = Some(BTreeMap::from([(
+        "svc.dpu.nvidia.com/owned-by-dpudeployment".to_string(),
+        format!("{TEST_NS}_deployment"),
+    )]));
+    mock.dpus.insert(resource_key(&dpu), dpu);
+
+    // Resolve one service before encountering the absent template to exercise
+    // the partial-result path that must now be rejected.
+    let services = vec![
+        ServiceDefinition::new("a-present", "repo", "chart", "1.0.0"),
+        ServiceDefinition::new("z-missing", "repo", "chart", "2.0.0"),
+    ];
+    let deployment = crate::sdk::build_deployment(
+        &services,
+        "deployment",
+        &crate::sdk::DpuProvisioningSource::Bfb("bfb".to_string()),
+        "flavor",
+        TEST_NS,
+        &[],
+        BTreeMap::new(),
+        "",
+    );
+    DpuDeploymentRepository::apply(&mock, &deployment)
+        .await
+        .unwrap();
+    DpuServiceTemplateRepository::apply(
+        &mock,
+        &crate::sdk::build_service_template(&services[0], TEST_NS, ""),
+    )
+    .await
+    .unwrap();
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock, TEST_NS, String::new())
+        .build_without_resources()
+        .await
+        .unwrap();
+
+    // The missing reference invalidates the whole snapshot rather than
+    // returning only the service whose template was available.
+    let error = sdk
+        .get_service_versions_for_dpu(dpu_name)
+        .await
+        .expect_err("missing referenced template must fail inventory lookup");
+    let DpfError::InvalidState(message) = error else {
+        panic!("expected invalid state, got {error}");
+    };
+    assert!(message.contains(
+        "DPUServiceTemplate z-missing not found for service z-missing in DPUDeployment deployment"
+    ));
 }

@@ -711,8 +711,10 @@ dependencies = [
 
 [tasks.test-release-container-services]
 workspace = false
-dependencies = [
-  "test-flow",
+command = "cargo"
+args = [
+  "test",
+  "--profile=ci-tests",
 ]
 
 [tasks.build-and-test-release-container-services]

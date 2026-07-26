@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use ::rpc::measured_boot::FromGrpc;
 use askama::Template;
-use axum::extract::{Path as AxumPath, Query as AxumQuery, State as AxumState};
+use axum::extract::{Form, Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse};
 use carbide_api_core::Api;
 use carbide_uuid::measured_boot::MeasurementReportId;
@@ -381,7 +381,7 @@ pub async fn show_attestation_summary(AxumState(state): AxumState<Arc<Api>>) -> 
 
 pub async fn submit_report_promotion(
     AxumState(state): AxumState<Arc<Api>>,
-    AxumQuery(params): AxumQuery<HashMap<String, String>>,
+    Form(params): Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let mut pcr_registers_to_promote: String = String::new();
     let mut first_element: bool = true;

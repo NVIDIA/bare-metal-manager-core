@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -30,6 +30,7 @@ pub struct TestCredentialManager {
     credentials: Mutex<HashMap<String, Credentials>>,
     fallback_credentials: Option<Credentials>,
     pub set_credentials_sleep_time_ms: AtomicU32,
+    delete_credentials_failure: AtomicBool,
 }
 
 impl TestCredentialManager {
@@ -40,7 +41,15 @@ impl TestCredentialManager {
             credentials: Mutex::new(HashMap::new()),
             fallback_credentials: Some(fallback_credentials),
             set_credentials_sleep_time_ms: Default::default(),
+            delete_credentials_failure: Default::default(),
         }
+    }
+
+    /// Makes `delete_credentials` return an error without removing the stored
+    /// credential.
+    pub fn set_delete_credentials_failure(&self, fail: bool) {
+        self.delete_credentials_failure
+            .store(fail, atomic::Ordering::Release);
     }
 }
 
@@ -61,6 +70,14 @@ impl CredentialReader for TestCredentialManager {
 
 #[async_trait]
 impl CredentialWriter for TestCredentialManager {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        let credentials = self.credentials.lock().await;
+        Ok(credentials.get(key.to_key_str().as_ref()).cloned())
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -101,6 +118,15 @@ impl CredentialWriter for TestCredentialManager {
     }
 
     async fn delete_credentials(&self, key: &CredentialKey) -> Result<(), SecretsError> {
+        if self
+            .delete_credentials_failure
+            .load(atomic::Ordering::Acquire)
+        {
+            return Err(SecretsError::GenericError(eyre::eyre!(
+                "test credential delete failure"
+            )));
+        }
+
         let mut data = self.credentials.lock().await;
         let _ = data.remove(key.to_key_str().as_ref());
 
@@ -109,3 +135,36 @@ impl CredentialWriter for TestCredentialManager {
 }
 
 impl CredentialManager for TestCredentialManager {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn writer_readback_ignores_reader_fallback() {
+        let fallback = Credentials::UsernamePassword {
+            username: "fallback".to_string(),
+            password: "fallback-password".to_string(),
+        };
+
+        let manager = TestCredentialManager::new(fallback);
+        let key = CredentialKey::switch_nvos_site_admin(1);
+
+        assert_eq!(
+            manager.get_credentials_from_writer(&key).await.unwrap(),
+            None
+        );
+
+        let persisted = Credentials::UsernamePassword {
+            username: "nvos-admin".to_string(),
+            password: "target-password".to_string(),
+        };
+
+        manager.set_credentials(&key, &persisted).await.unwrap();
+
+        assert_eq!(
+            manager.get_credentials_from_writer(&key).await.unwrap(),
+            Some(persisted)
+        );
+    }
+}

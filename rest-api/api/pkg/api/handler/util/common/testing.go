@@ -119,6 +119,12 @@ func TestSetupSchema(t *testing.T, dbSession *cdb.Session) {
 	// create Operating System Site Association table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.OperatingSystemSiteAssociation)(nil))
 	assert.Nil(t, err)
+	// create iPXE Template table
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.IpxeTemplate)(nil))
+	assert.Nil(t, err)
+	// create iPXE Template Site Association table (must be after IpxeTemplate due to foreign key)
+	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.IpxeTemplateSiteAssociation)(nil))
+	assert.Nil(t, err)
 	// create Machine table
 	err = dbSession.DB.ResetModel(context.Background(), (*cdbm.Machine)(nil))
 	assert.Nil(t, err)

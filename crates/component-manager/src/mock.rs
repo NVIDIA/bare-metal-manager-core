@@ -13,7 +13,8 @@ use crate::compute_tray_manager::{
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     ConfigureSwitchCertificateJobStatus, NvSwitchManager, SwitchComponentResult, SwitchEndpoint,
-    SwitchFirmwareUpdateStatus, SwitchPowerStateResult, SwitchSlotAndTrayResult,
+    SwitchFirmwareUpdateStatus, SwitchPasswordRotationState, SwitchPowerStateResult,
+    SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
@@ -21,12 +22,18 @@ use crate::power_shelf_manager::{
 };
 use crate::types::FirmwareUpdateOptions;
 
+/// Configurable switch backend used by component-manager and controller tests.
 #[derive(Debug, Clone, Default)]
 pub struct MockNvSwitchManager {
     certificate_job_status: Option<ConfigureSwitchCertificateJobStatus>,
+    password_rotation_enabled: bool,
+    password_rotation_start_result: Option<MockPasswordRotationStartResult>,
+    password_rotation_job_status_result: Option<MockPasswordRotationJobStatusResult>,
+    expected_password_rotation_password: Option<String>,
 }
 
 impl MockNvSwitchManager {
+    /// Returns a mock configured with a certificate job status.
     pub fn with_certificate_job_status(
         mut self,
         status: ConfigureSwitchCertificateJobStatus,
@@ -34,12 +41,80 @@ impl MockNvSwitchManager {
         self.certificate_job_status = Some(status);
         self
     }
+
+    /// Enables the mock's password-rotation capability.
+    pub fn with_password_rotation_enabled(mut self) -> Self {
+        self.password_rotation_enabled = true;
+        self
+    }
+
+    /// Makes password-rotation submission return `job_id`.
+    pub fn with_password_rotation_job(mut self, job_id: impl Into<String>) -> Self {
+        self.password_rotation_start_result =
+            Some(MockPasswordRotationStartResult::Job(job_id.into()));
+
+        self
+    }
+
+    /// Makes password-rotation submission report an ambiguous outcome.
+    pub fn with_password_rotation_outcome_unknown(mut self, message: impl Into<String>) -> Self {
+        self.password_rotation_start_result = Some(
+            MockPasswordRotationStartResult::OutcomeUnknown(message.into()),
+        );
+
+        self
+    }
+
+    /// Sets the status returned when a password-rotation job is polled.
+    pub fn with_password_rotation_job_status(
+        mut self,
+        status: SwitchPasswordRotationState,
+    ) -> Self {
+        self.password_rotation_job_status_result =
+            Some(MockPasswordRotationJobStatusResult::Status(status));
+
+        self
+    }
+
+    /// Makes password-rotation polling fail without observing the job.
+    pub fn with_password_rotation_job_status_unavailable(
+        mut self,
+        message: impl Into<String>,
+    ) -> Self {
+        self.password_rotation_job_status_result = Some(
+            MockPasswordRotationJobStatusResult::Unavailable(message.into()),
+        );
+
+        self
+    }
+
+    /// Requires submissions to carry the supplied target password.
+    pub fn with_expected_password_rotation_password(mut self, password: impl Into<String>) -> Self {
+        self.expected_password_rotation_password = Some(password.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
+enum MockPasswordRotationStartResult {
+    Job(String),
+    OutcomeUnknown(String),
+}
+
+#[derive(Debug, Clone)]
+enum MockPasswordRotationJobStatusResult {
+    Status(SwitchPasswordRotationState),
+    Unavailable(String),
 }
 
 #[async_trait::async_trait]
 impl NvSwitchManager for MockNvSwitchManager {
     fn name(&self) -> &str {
         "mock-nsm"
+    }
+
+    fn supports_password_rotation(&self) -> bool {
+        self.password_rotation_enabled
     }
 
     async fn power_control(
@@ -121,6 +196,7 @@ impl NvSwitchManager for MockNvSwitchManager {
             })
             .collect())
     }
+
     async fn configure_switch_certificate(
         &self,
         _endpoint: &SwitchEndpoint,
@@ -141,6 +217,47 @@ impl NvSwitchManager for MockNvSwitchManager {
                 state: ConfigureSwitchCertificateState::Completed,
                 error: None,
             }))
+    }
+
+    async fn ensure_password_rotation(
+        &self,
+        _endpoint: &SwitchEndpoint,
+        next_password: &str,
+    ) -> Result<String, ComponentManagerError> {
+        if !self.password_rotation_enabled {
+            return Err(ComponentManagerError::Unsupported(
+                "mock switch password rotation is disabled".to_string(),
+            ));
+        }
+
+        if let Some(expected) = &self.expected_password_rotation_password
+            && next_password != expected
+        {
+            return Err(ComponentManagerError::RejectedBeforeDispatch(
+                "mock switch password rotation received unexpected target password".to_string(),
+            ));
+        }
+
+        match self.password_rotation_start_result.as_ref() {
+            Some(MockPasswordRotationStartResult::Job(job_id)) => Ok(job_id.clone()),
+            Some(MockPasswordRotationStartResult::OutcomeUnknown(message)) => Err(
+                ComponentManagerError::OperationOutcomeUnknown(message.clone()),
+            ),
+            None => Ok("mock-switch-password-job".to_string()),
+        }
+    }
+
+    async fn get_password_rotation_job_status(
+        &self,
+        _job_id: &str,
+    ) -> Result<SwitchPasswordRotationState, ComponentManagerError> {
+        match self.password_rotation_job_status_result.as_ref() {
+            Some(MockPasswordRotationJobStatusResult::Status(status)) => Ok(*status),
+            Some(MockPasswordRotationJobStatusResult::Unavailable(message)) => {
+                Err(ComponentManagerError::Unavailable(message.clone()))
+            }
+            None => Ok(SwitchPasswordRotationState::Completed),
+        }
     }
 }
 

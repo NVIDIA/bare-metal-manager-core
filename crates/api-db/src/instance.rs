@@ -1286,7 +1286,7 @@ mod tests {
                 id: None,
                 name: "soft-deleted-os".to_string(),
                 description: None,
-                org: "test-org".to_string(),
+                org: Some("test-org".to_string()),
                 type_: model::operating_system_definition::OS_TYPE_IPXE.to_string(),
                 status: operating_system::OS_STATUS_READY.to_string(),
                 is_active: true,

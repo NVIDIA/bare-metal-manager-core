@@ -320,6 +320,54 @@ hooks:
         dev/deployment/devspace/setup-rest-integration.sh
 
 profiles:
+  - name: dsx-exchange
+    patches:
+      - op: add
+        path: deployments.dsx-exchange
+        value:
+          namespace: ${LOCAL_DEV_NAMESPACE}
+          helm:
+            chart:
+              name: nats
+              version: "2.12.6"
+              repo: https://nats-io.github.io/k8s/helm/charts/
+            values:
+              fullnameOverride: dsx-exchange
+              config:
+                cluster:
+                  enabled: false
+                jetstream:
+                  enabled: true
+                  fileStore:
+                    enabled: true
+                    maxSize: 256Mi
+                    pvc:
+                      enabled: false
+                  memoryStore:
+                    enabled: true
+                    maxSize: 64Mi
+                mqtt:
+                  enabled: true
+                  port: 1883
+                  merge:
+                    stream_replicas: 1
+                    consumer_memory_storage: true
+              container:
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 500m
+                    memory: 512Mi
+              natsBox:
+                enabled: false
+              podDisruptionBudget:
+                enabled: false
+      - op: add
+        path: deployments.carbide-local.helm.values.nico-api
+        value:
+          dsxExchangeEventBusConfig: '{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}'
   - name: core-only
     patches:
       - op: remove

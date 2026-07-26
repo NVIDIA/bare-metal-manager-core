@@ -21,6 +21,7 @@ description = "Helpers to launch carbide-api for integration testing"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "api_test_helper"
@@ -31,6 +32,7 @@ carbide-instrument = { path = "../instrument" }
 # [local-dependencies]
 async-trait = { workspace = true }
 bmc-mock = { path = "../bmc-mock" }
+bmc-vendor = { path = "../bmc-vendor" }
 carbide-api = { path = "../api", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-version = { path = "../version" }

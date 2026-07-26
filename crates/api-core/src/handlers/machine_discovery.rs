@@ -122,11 +122,15 @@ pub(crate) async fn discover_machine(
     // Who's discovery info is this? DiscoverMachine is an anonymous call, and so normally we should
     // look it up ourselves from the client IP. But that isn't feasible in integration tests, so
     // config.allow_insecure_discovery lets the caller pass a machine_interface_id.
-    let caller_interface = if let Some(interface_id) = machine_discovery_info.machine_interface_id
-        && api.runtime_config.allow_insecure_discovery
-    {
+    let caller_interface = if api.runtime_config.allow_insecure_discovery {
+        let interface_id = machine_discovery_info.machine_interface_id.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "machine_interface_id is required for insecure discovery".to_string(),
+            )
+        })?;
         let interface = db::machine_interface::find_one(&mut txn, interface_id).await?;
         tracing::warn!(
+            machine_interface_id = %interface_id,
             "Allowing insecure discovery: trusting caller-provided machine_interface_id. This is for integration tests only and must not be done in production."
         );
         interface
@@ -136,7 +140,40 @@ pub(crate) async fn discover_machine(
                 "could not determine client IP address for discovery".to_string(),
             )
         })?;
-        db::machine_interface::find_for_update_by_ip(&mut txn, remote_ip).await?
+
+        if let Some(interface) =
+            db::machine_interface::find_optional_for_update_by_ip(&mut txn, remote_ip).await?
+        {
+            // Caller is an un-allocated machine with no instance
+            interface
+        } else {
+            // Caller may be an allocated instance running scout (e.g. for machine validation). We
+            // need the machine_interface_id in the payload to know which interface to use. We will
+            // check it against the caller's IP to make sure it belongs to instance on the same
+            // machine.
+            let machine_interface_id = machine_discovery_info.machine_interface_id.ok_or_else(|| {
+                CarbideError::InvalidArgument(
+                    "no machine_interface found for client IP address, and no machine_interface_id was provided".to_string(),
+                )
+            })?;
+            db::machine_interface::find_for_update_if_matches_instance_ip(
+                &mut txn,
+                machine_interface_id,
+                remote_ip,
+            )
+            .await?
+            .ok_or_else(|| {
+                tracing::error!(
+                    %machine_interface_id,
+                    %remote_ip,
+                    "potential machine impersonation attempt: caller provided machine_interface_id does not belong to this remote IP"
+                );
+                CarbideError::PermissionDeniedError(
+                    "selected interface and discovery source IP do not belong to the same host"
+                        .to_string(),
+                )
+            })?
+        }
     };
 
     let site_explorer_creates_machines = api

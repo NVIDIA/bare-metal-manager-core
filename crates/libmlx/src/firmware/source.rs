@@ -487,7 +487,7 @@ mod tests {
 #[cfg(test)]
 mod coverage_tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, Check, scenarios, value_scenarios};
+    use carbide_test_support::{Case, Check, check_cases_async, scenarios, value_scenarios};
 
     use super::*;
 
@@ -561,6 +561,43 @@ mod coverage_tests {
             expect: Yields(()),
         }
         .check(|url| FirmwareSource::from_url(url).map(|_| ()).map_err(drop));
+    }
+
+    #[tokio::test]
+    async fn local_source_resolution_cases() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let work_dir = temp_dir.path().to_path_buf();
+        let present_path = work_dir.join("firmware.bin");
+        let missing_path = work_dir.join("missing.bin");
+        tokio::fs::write(&present_path, b"firmware").await.unwrap();
+
+        check_cases_async(
+            [
+                Case {
+                    scenario: "an existing local source resolves to itself",
+                    input: FirmwareSource::local(present_path.clone()),
+                    expect: Yields(present_path),
+                },
+                Case {
+                    scenario: "a missing local source reports its exact path",
+                    input: FirmwareSource::local(missing_path.clone()),
+                    expect: FailsWith(missing_path),
+                },
+            ],
+            |source| {
+                let work_dir = work_dir.clone();
+                async move {
+                    source
+                        .resolve(&work_dir)
+                        .await
+                        .map_err(|error| match error {
+                            FirmwareError::FileNotFound(path) => path,
+                            error => panic!("unexpected local source error: {error:?}"),
+                        })
+                }
+            },
+        )
+        .await;
     }
 
     // parse_ssh_url splits an SCP-style ssh:// URL into (host, username,
