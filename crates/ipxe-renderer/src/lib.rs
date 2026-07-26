@@ -1345,15 +1345,12 @@ mod tests {
     #[test]
     fn test_unreplaced_placeholders() {
         let renderer = DefaultIpxeScriptRenderer::new();
-        let mut ipxeos = create_test_ipxeos();
-        // Remove the required parameter to cause unreplaced placeholder
-        ipxeos.parameters.clear();
-        ipxeos.hash = renderer.hash(&ipxeos);
 
-        // Validation will fail first, but let's test the unreplaced check by using a template
-        // that doesn't require this param
-        ipxeos.ipxe_template_id = "ea756ddd-add3-5e42-a202-44bfc2d5aac2".to_string();
-        ipxeos.parameters = vec![]; // Missing image_url
+        // render() never reaches the placeholder check -- required-parameter validation
+        // rejects the script first, which this test's own comment used to admit while
+        // asserting nothing more than "some error came back". Pin that rejection for real...
+        let mut ipxeos = create_test_ipxeos();
+        ipxeos.parameters.clear();
         ipxeos.hash = renderer.hash(&ipxeos);
 
         let reserved_params = vec![
@@ -1367,9 +1364,26 @@ mod tests {
             },
         ];
 
-        let result = renderer.render(&ipxeos, &reserved_params);
-        // Will fail on required parameter validation first
-        assert!(result.is_err());
+        assert!(matches!(
+            renderer.render(&ipxeos, &reserved_params),
+            Err(IpxeScriptError::RequiredParameterMissing(_))
+        ));
+
+        // ...and then reach `check_unreplaced_placeholders` directly, because nothing else
+        // in the suite does. Without this, `UnreplacedPlaceholders` is a variant we build
+        // and never assert.
+        let err = renderer
+            .check_unreplaced_placeholders("#!ipxe\nkernel {{image_url}} initrd={{initrd}}\n")
+            .expect_err("leftover {{...}} placeholders should be rejected");
+        assert!(matches!(
+            err,
+            IpxeScriptError::UnreplacedPlaceholders(ref found)
+                if found == "{{image_url}}, {{initrd}}"
+        ));
+
+        renderer
+            .check_unreplaced_placeholders("#!ipxe\nkernel http://pxe.local/vmlinuz\n")
+            .expect("a fully substituted script has nothing left to flag");
     }
 
     #[test]

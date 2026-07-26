@@ -39,7 +39,7 @@ use crate::HealthError;
 use crate::bmc::{BmcClient, BoxFuture, CredentialProvider};
 use crate::endpoint::{
     BmcAddr, BmcCredentials, BmcEndpoint, EndpointMetadata, EndpointSource, MachineData,
-    PowerShelfData, SwitchData, SwitchEndpointRole,
+    PowerShelfData, SharedSystemUuid, SwitchData, SwitchEndpointRole,
 };
 
 /// [`ApiEndpointSource`].
@@ -290,9 +290,11 @@ pub struct ApiEndpointSource {
     bmc_client_cache: Mutex<HashMap<MacAddress, CachedBmcClient>>,
 }
 
+#[derive(Clone)]
 struct CachedBmcClient {
     client: Arc<BmcClient>,
     kind: ApiCredentialKind,
+    system_uuid: SharedSystemUuid,
 }
 
 impl ApiEndpointSource {
@@ -484,6 +486,7 @@ impl ApiEndpointSource {
                     .as_ref()
                     .and_then(|info| info.dmi_data.as_ref())
                     .map(|dmi| dmi.chassis_serial.clone()),
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: machine
                     .placement_in_rack
                     .as_ref()
@@ -588,7 +591,7 @@ impl ApiEndpointSource {
         rack_id: Option<RackId>,
         credential_kind: ApiCredentialKind,
     ) -> Result<Arc<BmcEndpoint>, HealthError> {
-        let bmc = {
+        let cached = {
             let mut cache = self.bmc_client_cache.lock().expect("cache mutex poisoned");
             cache_or_create_bmc_client(&mut cache, addr.mac, credential_kind, |kind| {
                 let provider: Arc<dyn CredentialProvider> = Arc::new(ApiCredentialProvider {
@@ -604,11 +607,16 @@ impl ApiEndpointSource {
                 )?))
             })?
         };
+        let mut metadata = metadata;
+        if let Some(EndpointMetadata::Machine(machine)) = metadata.as_mut() {
+            machine.system_uuid = cached.system_uuid;
+        }
         Ok(Arc::new(BmcEndpoint {
             addr,
             metadata,
             rack_id,
-            bmc,
+            labels: Default::default(),
+            bmc: cached.client,
         }))
     }
 }
@@ -618,7 +626,7 @@ fn cache_or_create_bmc_client(
     mac: MacAddress,
     credential_kind: ApiCredentialKind,
     make_client: impl FnOnce(ApiCredentialKind) -> Result<Arc<BmcClient>, HealthError>,
-) -> Result<Arc<BmcClient>, HealthError> {
+) -> Result<CachedBmcClient, HealthError> {
     if let Some(existing) = cache.get(&mac) {
         if existing.kind != credential_kind {
             return Err(HealthError::GenericError(format!(
@@ -629,18 +637,17 @@ fn cache_or_create_bmc_client(
                 credential_kind.tag(),
             )));
         }
-        return Ok(existing.client.clone());
+        return Ok(existing.clone());
     }
 
     let client = make_client(credential_kind.clone())?;
-    cache.insert(
-        mac,
-        CachedBmcClient {
-            client: client.clone(),
-            kind: credential_kind,
-        },
-    );
-    Ok(client)
+    let cached = CachedBmcClient {
+        client,
+        kind: credential_kind,
+        system_uuid: SharedSystemUuid::default(),
+    };
+    cache.insert(mac, cached.clone());
+    Ok(cached)
 }
 
 /// Returns the machine-level GPU driver version derived from discovery data.
@@ -840,8 +847,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn cache_returns_existing_client_on_matching_kind() {
+    #[tokio::test]
+    async fn cache_returns_existing_client_on_matching_kind() {
         let mut cache: HashMap<MacAddress, CachedBmcClient> = HashMap::new();
         let factory_calls = AtomicUsize::new(0);
 
@@ -860,9 +867,20 @@ mod tests {
             .expect("cache hit");
 
         assert!(
-            Arc::ptr_eq(&first, &second),
+            Arc::ptr_eq(&first.client, &second.client),
             "cache hit must reuse the same BmcClient Arc — otherwise every \
              iteration of discovery rebuilds the session and re-fetches creds"
+        );
+        let system_uuid = uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632");
+        first
+            .system_uuid
+            .get_or_try_init(|| async { Ok::<_, std::convert::Infallible>(Some(system_uuid)) })
+            .await
+            .expect("infallible UUID initialization");
+        assert_eq!(
+            second.system_uuid.get(),
+            Some(system_uuid),
+            "cache hit must reuse machine UUID state across discovery iterations"
         );
         assert_eq!(
             factory_calls.load(Ordering::SeqCst),

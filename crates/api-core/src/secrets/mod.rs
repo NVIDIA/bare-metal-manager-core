@@ -375,6 +375,13 @@ impl CredentialReader for PostgresCredentialManager {
 
 #[async_trait]
 impl CredentialWriter for PostgresCredentialManager {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        CredentialReader::get_credentials(self, key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,

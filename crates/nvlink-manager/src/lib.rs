@@ -97,12 +97,40 @@ fn managed_host_chassis_serial(snapshot: &ManagedHostStateSnapshot) -> Option<St
         })
 }
 
-fn rack_id_from_chassis_snapshots(
-    chassis_snapshots: &[&ManagedHostStateSnapshot],
-) -> Option<RackId> {
-    chassis_snapshots
-        .iter()
-        .find_map(|snapshot| snapshot.host_snapshot.rack_id.clone())
+type ManagedHostsByChassisSerial<'a> = HashMap<String, Vec<&'a ManagedHostStateSnapshot>>;
+type ManagedHostsByRackId<'a> = HashMap<RackId, Vec<&'a ManagedHostStateSnapshot>>;
+
+/// Groups managed hosts for monitor work.
+///
+/// Hosts with a `rack_id` are rack-scoped only. Hosts without a `rack_id` are
+/// grouped using chassis serial.
+fn group_managed_hosts_by_group_type(
+    snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
+) -> (ManagedHostsByChassisSerial<'_>, ManagedHostsByRackId<'_>) {
+    let by_chassis_serial: ManagedHostsByChassisSerial<'_> =
+        snapshots
+            .iter()
+            .fold(HashMap::new(), |mut acc, (_machine_id, snapshot)| {
+                if snapshot.host_snapshot.rack_id.is_some() {
+                    return acc;
+                }
+                if let Some(serial) = managed_host_chassis_serial(snapshot) {
+                    acc.entry(serial).or_default().push(snapshot);
+                }
+                acc
+            });
+
+    let by_rack_id: ManagedHostsByRackId<'_> =
+        snapshots
+            .iter()
+            .fold(HashMap::new(), |mut acc, (_machine_id, snapshot)| {
+                if let Some(rack_id) = snapshot.host_snapshot.rack_id.clone() {
+                    acc.entry(rack_id).or_default().push(snapshot);
+                }
+                acc
+            });
+
+    (by_chassis_serial, by_rack_id)
 }
 
 fn domain_uuid_from_nmx_c_hello(
@@ -1070,14 +1098,28 @@ struct CheckPartitionsInput {
     nvlink_info_db_updates: Vec<(MachineId, MachineNvLinkInfo)>,
 }
 
-/// Work queued when NMX-C cannot be used for a chassis and observations must be cleared.
+/// Work queued when NMX-C cannot be used for a machine group and observations must be cleared.
 struct PendingNullNvlinkObservation {
-    /// Chassis serial for the machines whose observations will be cleared.
-    chassis_serial: String,
+    /// Chassis serial or rack id for the group whose observations will be cleared.
+    group_id: String,
+    /// Whether `group_id` is a chassis serial or rack id.
+    group_type: nmx_c_endpoint::ManagedHostGroupType,
     /// Failure reason recorded in partition-monitor metrics.
     reason: ChassisNmxCUnreachableReason,
-    /// Host machines on the chassis that will receive a null `nvlink_status_observation`.
+    /// Host machines in the group that will receive a null `nvlink_status_observation`.
     machine_ids: Vec<MachineId>,
+}
+
+/// Shared inputs for processing one chassis- or rack-scoped NMX-C monitor group.
+struct ProcessMachineGroupInput<'a> {
+    group_id: &'a str,
+    group_type: nmx_c_endpoint::ManagedHostGroupType,
+    snapshots: &'a [&'a ManagedHostStateSnapshot],
+    endpoint_url: Option<&'a str>,
+    all_managed_host_snapshots: &'a HashMap<MachineId, ManagedHostStateSnapshot>,
+    machine_nvlink_info: &'a mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
+    db_nvl_partitions: &'a [NvlPartition],
+    db_nvl_logical_partitions: &'a [LogicalPartition],
 }
 
 impl NvlPartitionMonitor {
@@ -1217,18 +1259,8 @@ impl NvlPartitionMonitor {
         )
         .await?;
 
-        let managed_host_snapshots_by_chassis_serial: HashMap<
-            String,
-            Vec<&ManagedHostStateSnapshot>,
-        > = managed_host_snapshots.iter().fold(
-            HashMap::new(),
-            |mut acc, (_machine_id, snapshot)| {
-                if let Some(serial) = managed_host_chassis_serial(snapshot) {
-                    acc.entry(serial).or_default().push(snapshot);
-                }
-                acc
-            },
-        );
+        let (managed_host_snapshots_by_chassis_serial, managed_host_snapshots_by_rack_id) =
+            group_managed_hosts_by_group_type(&managed_host_snapshots);
 
         let db_nvl_partitions =
             db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All).await?;
@@ -1238,12 +1270,12 @@ impl NvlPartitionMonitor {
                 .await?;
 
         let mut chassis_serial_to_resolved_endpoint = HashMap::new();
-        for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
-            let rack_id = rack_id_from_chassis_snapshots(chassis_snapshots);
+        for chassis_serial in managed_host_snapshots_by_chassis_serial.keys() {
             if let Some(endpoint_url) = nmx_c_endpoint::resolve_nmx_c_endpoint_url(
                 &mut txn,
-                rack_id.as_ref(),
-                chassis_serial,
+                nmx_c_endpoint::ManagedHostGroupType::Chassis,
+                None,
+                Some(chassis_serial),
                 &self.config,
             )
             .await
@@ -1252,6 +1284,25 @@ impl NvlPartitionMonitor {
                 chassis_serial_to_resolved_endpoint.insert(chassis_serial.clone(), endpoint_url);
             }
         }
+
+        let rack_id_to_resolved_endpoint = if managed_host_snapshots_by_rack_id.is_empty() {
+            HashMap::new()
+        } else {
+            db::switch::find_ready_control_plane_configured_switch_endpoints(&mut txn)
+                .await
+                .map_err(NvLinkManagerError::from)?
+                .into_iter()
+                .filter(|row| managed_host_snapshots_by_rack_id.contains_key(&row.rack_id))
+                .map(|row| {
+                    let endpoint_url = nmx_c_endpoint::nmx_c_endpoint_url_from_nvos_ip(
+                        &row.nvos_ip,
+                        None,
+                        &self.config,
+                    );
+                    (row.rack_id, endpoint_url)
+                })
+                .collect()
+        };
 
         // Don't hold the transaction across unrelated awaits
         txn.commit().await?;
@@ -1263,179 +1314,48 @@ impl NvlPartitionMonitor {
         let mut pending_null_nvlink_observations = Vec::new();
 
         for (chassis_serial, chassis_snapshots) in &managed_host_snapshots_by_chassis_serial {
-            let Some(endpoint_url) = chassis_serial_to_resolved_endpoint.get(chassis_serial) else {
-                tracing::warn!(
-                    %chassis_serial,
-                    "No NMX-C endpoint for chassis (switch NVOS IP or nvlink_nmxc_endpoints mapping); skipping partition monitor work"
-                );
-                Self::queue_null_nvlink_status_observation(
-                    &mut pending_null_nvlink_observations,
-                    chassis_serial,
-                    chassis_snapshots,
-                    ChassisNmxCUnreachableReason::NoEndpoint,
-                );
-                continue;
-            };
-
-            let nmxc_endpoint = match Endpoint::new(endpoint_url) {
-                Ok(ep) => ep,
-                Err(e) => {
-                    tracing::warn!(
-                        %chassis_serial,
-                        endpoint = %endpoint_url,
-                        error = %e,
-                        "Invalid NMX-C endpoint URI; skipping partition monitor work for this chassis"
-                    );
-                    Self::queue_null_nvlink_status_observation(
-                        &mut pending_null_nvlink_observations,
-                        chassis_serial,
-                        chassis_snapshots,
-                        ChassisNmxCUnreachableReason::InvalidEndpointUri,
-                    );
-                    continue;
-                }
-            };
-
-            let mut nmxc_client = match self.nmxc_client_pool.create_client(nmxc_endpoint).await {
-                Ok(c) => c,
-                Err(e) => {
-                    tracing::warn!(
-                        %chassis_serial,
-                        endpoint = %endpoint_url,
-                        error = %e,
-                        "Failed to create NMX-C client; skipping partition monitor work for this chassis"
-                    );
-                    Self::queue_null_nvlink_status_observation(
-                        &mut pending_null_nvlink_observations,
-                        chassis_serial,
-                        chassis_snapshots,
-                        ChassisNmxCUnreachableReason::ClientCreateFailed,
-                    );
-                    continue;
-                }
-            };
-            let hello = match nmxc_client.hello(NMX_C_GATEWAY_ID).await {
-                Ok(hello) => hello,
-                Err(e) => {
-                    tracing::warn!(
-                        %chassis_serial,
-                        endpoint = %endpoint_url,
-                        error = %e,
-                        "NMX-C hello failed; skipping partition monitor work for this chassis"
-                    );
-                    Self::queue_null_nvlink_status_observation(
-                        &mut pending_null_nvlink_observations,
-                        chassis_serial,
-                        chassis_snapshots,
-                        ChassisNmxCUnreachableReason::HelloFailed,
-                    );
-                    continue;
-                }
-            };
-            let domain_uuid = match domain_uuid_from_nmx_c_hello(&hello) {
-                Ok(domain_uuid) => domain_uuid,
-                Err(e) => {
-                    tracing::warn!(
-                        %chassis_serial,
-                        endpoint = %endpoint_url,
-                        error = %e,
-                        "Failed to parse domain UUID from NMX-C hello; skipping partition monitor work for this chassis"
-                    );
-                    Self::queue_null_nvlink_status_observation(
-                        &mut pending_null_nvlink_observations,
-                        chassis_serial,
-                        chassis_snapshots,
-                        ChassisNmxCUnreachableReason::DomainUuidParseFailed,
-                    );
-                    continue;
-                }
-            };
-
-            // Endpoint + component versions for this chassis, so the metric-read failures below log them.
-            metrics.nmxc.endpoint = endpoint_url.clone();
-            metrics.nmxc.version = hello
-                .components_ver
-                .iter()
-                .map(|kv| format!("{}={}", kv.key, kv.value))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            // Filter managed host snapshots, nvlink info, and DB partitions for this chassis.
-            let mut managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =
-                chassis_snapshots
-                    .iter()
-                    .map(|s| (s.host_snapshot.id, (*s).clone()))
-                    .collect();
-            let machine_ids_in_domain: Vec<MachineId> =
-                managed_host_snapshots_domain.keys().copied().collect();
-            let nvlink_info_db_updates = populate_machine_nvlink_info_if_needed(
-                &mut machine_nvlink_info,
-                &managed_host_snapshots,
-                chassis_serial,
-                &machine_ids_in_domain,
-                domain_uuid,
-            );
-            if !nvlink_info_db_updates.is_empty() {
-                tracing::info!(
-                    %chassis_serial,
-                    %domain_uuid,
-                    machine_ids = ?nvlink_info_db_updates.iter().map(|(id, _)| id).collect::<Vec<_>>(),
-                    "Populated machine nvlink_info from NMX-C hello"
-                );
-                for (machine_id, nvlink_info) in &nvlink_info_db_updates {
-                    if let Some(snapshot) = managed_host_snapshots_domain.get_mut(machine_id) {
-                        snapshot.host_snapshot.status.nvlink_info = Some(nvlink_info.clone());
-                    }
-                }
-            }
-            let machine_nvlink_info_domain: HashMap<MachineId, Option<MachineNvLinkInfo>> =
-                machine_nvlink_info
-                    .iter()
-                    .filter(|(id, _)| machine_ids_in_domain.contains(id))
-                    .map(|(k, v)| (*k, v.clone()))
-                    .collect();
-            let domain_uuids: HashSet<NvLinkDomainId> = machine_nvlink_info_domain
-                .values()
-                .filter_map(|info| info.as_ref().map(|info| info.domain_uuid))
-                .collect();
-            let db_nvl_partitions_domain: Vec<NvlPartition> = db_nvl_partitions
-                .iter()
-                .filter(|p| domain_uuids.contains(&p.domain_uuid))
-                .cloned()
-                .collect();
-
-            let num_completed = match self
-                .check_partitions_and_apply_nmx_c_operations(
-                    nmxc_client.as_mut(),
-                    metrics,
-                    domain_uuid,
-                    CheckPartitionsInput {
-                        db_nvl_logical_partitions: db_nvl_logical_partitions.clone(),
-                        db_nvl_partitions: db_nvl_partitions_domain,
-                        machine_nvlink_info: machine_nvlink_info_domain,
-                        managed_host_snapshots: managed_host_snapshots_domain,
-                        nvlink_info_db_updates,
+            total_completed_operations += self
+                .process_nmx_c_partition_monitor_group(
+                    ProcessMachineGroupInput {
+                        group_id: chassis_serial,
+                        group_type: nmx_c_endpoint::ManagedHostGroupType::Chassis,
+                        snapshots: chassis_snapshots,
+                        endpoint_url: chassis_serial_to_resolved_endpoint
+                            .get(chassis_serial)
+                            .map(String::as_str),
+                        all_managed_host_snapshots: &managed_host_snapshots,
+                        machine_nvlink_info: &mut machine_nvlink_info,
+                        db_nvl_partitions: &db_nvl_partitions,
+                        db_nvl_logical_partitions: &db_nvl_logical_partitions,
                     },
+                    metrics,
+                    &mut pending_null_nvlink_observations,
                 )
-                .await
-            {
-                Ok(num_completed) => num_completed,
-                Err(e) => {
-                    tracing::warn!(
-                        %chassis_serial,
-                        error = %e,
-                        "Partition monitor work failed for chassis; queuing null nvlink status observations"
-                    );
-                    Self::queue_null_nvlink_status_observation(
-                        &mut pending_null_nvlink_observations,
-                        chassis_serial,
-                        chassis_snapshots,
-                        ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed,
-                    );
-                    0
-                }
-            };
-            total_completed_operations += num_completed;
+                .await;
+        }
+
+        // A rack is one NVLink domain, so all hosts in the rack are reconciled
+        // through the same NMX-C endpoint and hello response.
+        for (rack_id, rack_snapshots) in &managed_host_snapshots_by_rack_id {
+            let rack_id_str = rack_id.to_string();
+            total_completed_operations += self
+                .process_nmx_c_partition_monitor_group(
+                    ProcessMachineGroupInput {
+                        group_id: &rack_id_str,
+                        group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
+                        snapshots: rack_snapshots,
+                        endpoint_url: rack_id_to_resolved_endpoint
+                            .get(rack_id)
+                            .map(String::as_str),
+                        all_managed_host_snapshots: &managed_host_snapshots,
+                        machine_nvlink_info: &mut machine_nvlink_info,
+                        db_nvl_partitions: &db_nvl_partitions,
+                        db_nvl_logical_partitions: &db_nvl_logical_partitions,
+                    },
+                    metrics,
+                    &mut pending_null_nvlink_observations,
+                )
+                .await;
         }
 
         self.record_null_nvlink_status_observations(&pending_null_nvlink_observations, metrics)
@@ -1444,6 +1364,225 @@ impl NvlPartitionMonitor {
         metrics.num_completed_operations = total_completed_operations;
 
         Ok(total_completed_operations)
+    }
+
+    /// Connects to NMX-C for one chassis- or rack-scoped host group and reconciles partitions.
+    async fn process_nmx_c_partition_monitor_group(
+        &self,
+        input: ProcessMachineGroupInput<'_>,
+        metrics: &mut NvlPartitionMonitorMetrics,
+        pending_null_nvlink_observations: &mut Vec<PendingNullNvlinkObservation>,
+    ) -> usize {
+        let ProcessMachineGroupInput {
+            group_id,
+            group_type,
+            snapshots,
+            endpoint_url,
+            all_managed_host_snapshots,
+            machine_nvlink_info,
+            db_nvl_partitions,
+            db_nvl_logical_partitions,
+        } = input;
+        let group_type_label = group_type.as_str();
+
+        let Some(endpoint_url) = endpoint_url else {
+            tracing::warn!(
+                group_id,
+                group_type = group_type_label,
+                "No NMX-C endpoint (switch NVOS IP or nvlink_nmxc_endpoints mapping); skipping partition monitor work"
+            );
+            Self::queue_null_nvlink_status_observation(
+                pending_null_nvlink_observations,
+                group_id,
+                group_type,
+                snapshots,
+                ChassisNmxCUnreachableReason::NoEndpoint,
+            );
+            return 0;
+        };
+
+        let nmxc_endpoint = match Endpoint::new(endpoint_url) {
+            Ok(ep) => ep,
+            Err(e) => {
+                tracing::warn!(
+                    group_id,
+                    group_type = group_type_label,
+                    endpoint = %endpoint_url,
+                    error = %e,
+                    "Invalid NMX-C endpoint URI; skipping partition monitor work"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    pending_null_nvlink_observations,
+                    group_id,
+                    group_type,
+                    snapshots,
+                    ChassisNmxCUnreachableReason::InvalidEndpointUri,
+                );
+                return 0;
+            }
+        };
+
+        let mut nmxc_client = match self.nmxc_client_pool.create_client(nmxc_endpoint).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    group_id,
+                    group_type = group_type_label,
+                    endpoint = %endpoint_url,
+                    error = %e,
+                    "Failed to create NMX-C client; skipping partition monitor work"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    pending_null_nvlink_observations,
+                    group_id,
+                    group_type,
+                    snapshots,
+                    ChassisNmxCUnreachableReason::ClientCreateFailed,
+                );
+                return 0;
+            }
+        };
+        let hello = match nmxc_client.hello(NMX_C_GATEWAY_ID).await {
+            Ok(hello) => hello,
+            Err(e) => {
+                tracing::warn!(
+                    group_id,
+                    group_type = group_type_label,
+                    endpoint = %endpoint_url,
+                    error = %e,
+                    "NMX-C hello failed; skipping partition monitor work"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    pending_null_nvlink_observations,
+                    group_id,
+                    group_type,
+                    snapshots,
+                    ChassisNmxCUnreachableReason::HelloFailed,
+                );
+                return 0;
+            }
+        };
+        let domain_uuid = match domain_uuid_from_nmx_c_hello(&hello) {
+            Ok(domain_uuid) => domain_uuid,
+            Err(e) => {
+                tracing::warn!(
+                    group_id,
+                    group_type = group_type_label,
+                    endpoint = %endpoint_url,
+                    error = %e,
+                    "Failed to parse domain UUID from NMX-C hello; skipping partition monitor work"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    pending_null_nvlink_observations,
+                    group_id,
+                    group_type,
+                    snapshots,
+                    ChassisNmxCUnreachableReason::DomainUuidParseFailed,
+                );
+                return 0;
+            }
+        };
+
+        // Endpoint + component versions for this group, so the metric-read failures below log them.
+        metrics.nmxc.endpoint = endpoint_url.to_string();
+        metrics.nmxc.version = hello
+            .components_ver
+            .iter()
+            .map(|kv| format!("{}={}", kv.key, kv.value))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        // Filter managed host snapshots, nvlink info, and DB partitions for this group.
+        let mut managed_host_snapshots_domain: HashMap<MachineId, ManagedHostStateSnapshot> =
+            snapshots
+                .iter()
+                .map(|s| (s.host_snapshot.id, (*s).clone()))
+                .collect();
+        let machine_ids_in_domain: HashSet<MachineId> =
+            managed_host_snapshots_domain.keys().copied().collect();
+        let mut nvlink_info_db_updates = Vec::new();
+        for snapshot in snapshots {
+            // The chassis serial number should always be available from hardware_info.
+            let Some(chassis_serial) = managed_host_chassis_serial(snapshot) else {
+                tracing::warn!(
+                    group_id,
+                    group_type = group_type_label,
+                    machine_id = %snapshot.host_snapshot.id,
+                    "Skipping nvlink_info population; chassis serial unavailable"
+                );
+                continue;
+            };
+            nvlink_info_db_updates.extend(populate_machine_nvlink_info_if_needed(
+                machine_nvlink_info,
+                all_managed_host_snapshots,
+                &chassis_serial,
+                &[snapshot.host_snapshot.id],
+                domain_uuid,
+            ));
+        }
+        if !nvlink_info_db_updates.is_empty() {
+            tracing::info!(
+                group_id,
+                group_type = group_type_label,
+                %domain_uuid,
+                machine_ids = ?nvlink_info_db_updates.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                "Populated machine nvlink_info from NMX-C hello"
+            );
+            for (machine_id, nvlink_info) in &nvlink_info_db_updates {
+                if let Some(snapshot) = managed_host_snapshots_domain.get_mut(machine_id) {
+                    snapshot.host_snapshot.status.nvlink_info = Some(nvlink_info.clone());
+                }
+            }
+        }
+        let machine_nvlink_info_domain: HashMap<MachineId, Option<MachineNvLinkInfo>> =
+            machine_nvlink_info
+                .iter()
+                .filter(|(id, _)| machine_ids_in_domain.contains(id))
+                .map(|(k, v)| (*k, v.clone()))
+                .collect();
+        let domain_uuids: HashSet<NvLinkDomainId> = machine_nvlink_info_domain
+            .values()
+            .filter_map(|info| info.as_ref().map(|info| info.domain_uuid))
+            .collect();
+        let db_nvl_partitions_domain: Vec<NvlPartition> = db_nvl_partitions
+            .iter()
+            .filter(|p| domain_uuids.contains(&p.domain_uuid))
+            .cloned()
+            .collect();
+
+        match self
+            .check_partitions_and_apply_nmx_c_operations(
+                nmxc_client.as_mut(),
+                metrics,
+                domain_uuid,
+                CheckPartitionsInput {
+                    db_nvl_logical_partitions: db_nvl_logical_partitions.to_vec(),
+                    db_nvl_partitions: db_nvl_partitions_domain,
+                    machine_nvlink_info: machine_nvlink_info_domain,
+                    managed_host_snapshots: managed_host_snapshots_domain,
+                    nvlink_info_db_updates,
+                },
+            )
+            .await
+        {
+            Ok(num_completed) => num_completed,
+            Err(e) => {
+                tracing::warn!(
+                    group_id,
+                    group_type = group_type_label,
+                    error = %e,
+                    "Partition monitor work failed; queuing null nvlink status observations"
+                );
+                Self::queue_null_nvlink_status_observation(
+                    pending_null_nvlink_observations,
+                    group_id,
+                    group_type,
+                    snapshots,
+                    ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed,
+                );
+                0
+            }
+        }
     }
 
     /// Fetches partition list from NMX-C, checks for needed create/update/delete operations,
@@ -1774,11 +1913,13 @@ impl NvlPartitionMonitor {
                                             gpu_ctx.partition_nmx_c_id =
                                                 nmxc_partition.partition_id.unwrap_or_default();
                                         } else {
-                                            // An omitted GPU config means this GPU should remain in its holding partition.
+                                            // An omitted GPU config means this GPU should remain
+                                            // in its holding partition.
                                             gpu_action = GpuAction::NoOp;
                                         }
                                     } else {
-                                        // The monitor cannot safely preserve membership in an unrecognized partition.
+                                        // The monitor cannot safely preserve membership in an
+                                        // unrecognized partition.
                                         tracing::warn!(
                                             gpu_guid = nvlink_gpu.guid,
                                             nmx_c_partition_id = partition_id,
@@ -2127,16 +2268,17 @@ impl NvlPartitionMonitor {
         Ok(())
     }
 
-    /// Queues machines on `chassis_serial` for a batched null `nvlink_status_observation` write.
+    /// Queues machines in a machine group for a batched null `nvlink_status_observation` write.
     ///
     /// Entries are flushed in one transaction by [`Self::record_null_nvlink_status_observations`].
     fn queue_null_nvlink_status_observation(
         pending: &mut Vec<PendingNullNvlinkObservation>,
-        chassis_serial: &str,
-        chassis_snapshots: &[&ManagedHostStateSnapshot],
+        group_id: &str,
+        group_type: nmx_c_endpoint::ManagedHostGroupType,
+        snapshots: &[&ManagedHostStateSnapshot],
         reason: ChassisNmxCUnreachableReason,
     ) {
-        let machine_ids: Vec<MachineId> = chassis_snapshots
+        let machine_ids: Vec<MachineId> = snapshots
             .iter()
             .map(|snapshot| snapshot.host_snapshot.id)
             .collect();
@@ -2144,13 +2286,14 @@ impl NvlPartitionMonitor {
             return;
         }
         pending.push(PendingNullNvlinkObservation {
-            chassis_serial: chassis_serial.to_string(),
+            group_id: group_id.to_string(),
+            group_type,
             reason,
             machine_ids,
         });
     }
 
-    /// Clears `nvlink_status_observation` for all queued chassis in one transaction and updates metrics.
+    /// Clears `nvlink_status_observation` for all queued machine groups in one transaction and updates metrics.
     async fn record_null_nvlink_status_observations(
         &self,
         pending: &[PendingNullNvlinkObservation],
@@ -2188,10 +2331,11 @@ impl NvlPartitionMonitor {
 
         for entry in pending {
             tracing::info!(
-                chassis_serial = %entry.chassis_serial,
+                group_id = %entry.group_id,
+                group_type = entry.group_type.as_str(),
                 reason = ?entry.reason,
                 machine_ids = ?entry.machine_ids,
-                "Posted null nvlink status observations because NMX-C is unreachable for chassis"
+                "Posted null nvlink status observations because NMX-C is unreachable for machine group"
             );
         }
         Ok(())
@@ -2915,5 +3059,331 @@ mod health_aggregation_tests {
         assert!(parts.iter().any(|(a, v)| a.contains("health=\"healthy\"")
             && a.contains("nvlink_domain_uuid=\"domA\"")
             && v == "1"));
+    }
+}
+
+#[cfg(test)]
+mod machine_group_tests {
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+    use std::sync::Arc;
+
+    use carbide_macros::sqlx_test;
+    use carbide_test_support::{Check, check_values};
+    use carbide_utils::test_support::test_meter::TestMeter;
+    use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
+    use carbide_uuid::nvlink::NvLinkDomainId;
+    use carbide_uuid::rack::RackId;
+    use model::hardware_info::MachineNvLinkInfo;
+    use model::machine::{HostHealthConfig, ManagedHostStateSnapshot};
+    use model::test_support::machine_snapshot::managed_host_state_snapshot;
+    use tokio::task::JoinSet;
+
+    use super::{
+        ChassisNmxCUnreachableReason, NvLinkConfig, NvlPartitionMonitor,
+        NvlPartitionMonitorMetrics, PendingNullNvlinkObservation, ProcessMachineGroupInput,
+        group_managed_hosts_by_group_type, nmx_c_endpoint,
+    };
+    use crate::nvlink::test_support::NmxcSimClient;
+
+    #[derive(Clone, Debug)]
+    struct HostSpec {
+        id_byte: u8,
+        chassis_serial: Option<&'static str>,
+        rack_id: Option<&'static str>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct GroupingSummary {
+        chassis: BTreeMap<String, BTreeSet<u8>>,
+        racks: BTreeMap<String, BTreeSet<u8>>,
+    }
+
+    fn machine_id(byte: u8) -> MachineId {
+        MachineId::new(MachineIdSource::Tpm, [byte; 32], MachineType::Host)
+    }
+
+    fn snapshot(spec: &HostSpec) -> ManagedHostStateSnapshot {
+        let mut snapshot = managed_host_state_snapshot();
+        snapshot.host_snapshot.id = machine_id(spec.id_byte);
+        snapshot.host_snapshot.rack_id = spec.rack_id.map(RackId::new);
+        snapshot.host_snapshot.status.hardware_info = None;
+        snapshot.host_snapshot.status.nvlink_info =
+            spec.chassis_serial.map(|serial| MachineNvLinkInfo {
+                domain_uuid: NvLinkDomainId::nil(),
+                chassis_serial: serial.to_string(),
+                gpus: vec![],
+            });
+        snapshot
+    }
+
+    fn summarize(hosts: &[HostSpec]) -> GroupingSummary {
+        let snapshots: HashMap<MachineId, ManagedHostStateSnapshot> = hosts
+            .iter()
+            .map(|spec| {
+                let snapshot = snapshot(spec);
+                (snapshot.host_snapshot.id, snapshot)
+            })
+            .collect();
+        let id_bytes: HashMap<MachineId, u8> = hosts
+            .iter()
+            .map(|spec| (machine_id(spec.id_byte), spec.id_byte))
+            .collect();
+
+        let (by_chassis, by_rack) = group_managed_hosts_by_group_type(&snapshots);
+
+        let chassis = by_chassis
+            .into_iter()
+            .map(|(serial, members)| {
+                let ids = members
+                    .into_iter()
+                    .map(|snapshot| id_bytes[&snapshot.host_snapshot.id])
+                    .collect();
+                (serial, ids)
+            })
+            .collect();
+        let racks = by_rack
+            .into_iter()
+            .map(|(rack_id, members)| {
+                let ids = members
+                    .into_iter()
+                    .map(|snapshot| id_bytes[&snapshot.host_snapshot.id])
+                    .collect();
+                (rack_id.to_string(), ids)
+            })
+            .collect();
+        GroupingSummary { chassis, racks }
+    }
+
+    #[test]
+    fn groups_hosts_by_chassis_or_rack() {
+        check_values(
+            [
+                Check {
+                    scenario: "chassis only",
+                    input: vec![HostSpec {
+                        id_byte: 1,
+                        chassis_serial: Some("CHASSIS-A"),
+                        rack_id: None,
+                    }],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::from([("CHASSIS-A".to_string(), BTreeSet::from([1]))]),
+                        racks: BTreeMap::new(),
+                    },
+                },
+                Check {
+                    scenario: "rack only even with chassis serial",
+                    input: vec![HostSpec {
+                        id_byte: 2,
+                        chassis_serial: Some("CHASSIS-A"),
+                        rack_id: Some("rack-1"),
+                    }],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::new(),
+                        racks: BTreeMap::from([("rack-1".to_string(), BTreeSet::from([2]))]),
+                    },
+                },
+                Check {
+                    scenario: "mixed chassis and rack hosts are disjoint",
+                    input: vec![
+                        HostSpec {
+                            id_byte: 3,
+                            chassis_serial: Some("CHASSIS-A"),
+                            rack_id: None,
+                        },
+                        HostSpec {
+                            id_byte: 4,
+                            chassis_serial: Some("CHASSIS-B"),
+                            rack_id: Some("rack-1"),
+                        },
+                    ],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::from([("CHASSIS-A".to_string(), BTreeSet::from([3]))]),
+                        racks: BTreeMap::from([("rack-1".to_string(), BTreeSet::from([4]))]),
+                    },
+                },
+                Check {
+                    scenario: "no serial and no rack is dropped",
+                    input: vec![HostSpec {
+                        id_byte: 5,
+                        chassis_serial: None,
+                        rack_id: None,
+                    }],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::new(),
+                        racks: BTreeMap::new(),
+                    },
+                },
+                Check {
+                    scenario: "same chassis two hosts",
+                    input: vec![
+                        HostSpec {
+                            id_byte: 6,
+                            chassis_serial: Some("CHASSIS-A"),
+                            rack_id: None,
+                        },
+                        HostSpec {
+                            id_byte: 7,
+                            chassis_serial: Some("CHASSIS-A"),
+                            rack_id: None,
+                        },
+                    ],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::from([(
+                            "CHASSIS-A".to_string(),
+                            BTreeSet::from([6, 7]),
+                        )]),
+                        racks: BTreeMap::new(),
+                    },
+                },
+                Check {
+                    scenario: "same rack two chassis",
+                    input: vec![
+                        HostSpec {
+                            id_byte: 8,
+                            chassis_serial: Some("CHASSIS-A"),
+                            rack_id: Some("rack-1"),
+                        },
+                        HostSpec {
+                            id_byte: 9,
+                            chassis_serial: Some("CHASSIS-B"),
+                            rack_id: Some("rack-1"),
+                        },
+                    ],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::new(),
+                        racks: BTreeMap::from([("rack-1".to_string(), BTreeSet::from([8, 9]))]),
+                    },
+                },
+                Check {
+                    scenario: "empty chassis serial is treated as missing",
+                    input: vec![HostSpec {
+                        id_byte: 10,
+                        chassis_serial: Some("   "),
+                        rack_id: None,
+                    }],
+                    expect: GroupingSummary {
+                        chassis: BTreeMap::new(),
+                        racks: BTreeMap::new(),
+                    },
+                },
+            ],
+            |hosts| summarize(&hosts),
+        );
+    }
+
+    #[sqlx_test]
+    async fn processes_rack_group_and_queues_endpoint_failures(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut join_set = JoinSet::new();
+        let work_lock_manager =
+            db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
+        let test_meter = TestMeter::default();
+        let monitor = NvlPartitionMonitor::new(
+            pool,
+            Arc::new(NmxcSimClient::default()),
+            test_meter.meter(),
+            NvLinkConfig::default(),
+            HostHealthConfig::default(),
+            work_lock_manager,
+        );
+
+        let domain_uuid: NvLinkDomainId = "ffffffff-ffff-ffff-ffff-ffffffffffff".parse()?;
+        let mut managed_snapshot = snapshot(&HostSpec {
+            id_byte: 11,
+            chassis_serial: Some("CHASSIS-A"),
+            rack_id: Some("rack-1"),
+        });
+        managed_snapshot
+            .host_snapshot
+            .status
+            .nvlink_info
+            .as_mut()
+            .expect("test snapshot has nvlink info")
+            .domain_uuid = domain_uuid;
+        let machine_id = managed_snapshot.host_snapshot.id;
+        let all_snapshots = HashMap::from([(machine_id, managed_snapshot)]);
+        let rack_snapshots = vec![
+            all_snapshots
+                .get(&machine_id)
+                .expect("test snapshot is present"),
+        ];
+        let machine_nvlink_info = all_snapshots[&machine_id]
+            .host_snapshot
+            .status
+            .nvlink_info
+            .clone();
+
+        let cases = [
+            (
+                "successful endpoint",
+                Some("http://nmxc.example:9370"),
+                None,
+                1,
+            ),
+            (
+                "missing endpoint",
+                None,
+                Some(ChassisNmxCUnreachableReason::NoEndpoint),
+                0,
+            ),
+            (
+                "invalid endpoint",
+                Some("not a valid uri"),
+                Some(ChassisNmxCUnreachableReason::InvalidEndpointUri),
+                0,
+            ),
+        ];
+
+        for (scenario, endpoint_url, expected_reason, expected_machines_scanned) in cases {
+            let mut metrics = NvlPartitionMonitorMetrics::new();
+            let mut pending: Vec<PendingNullNvlinkObservation> = Vec::new();
+            let mut machine_nvlink_info =
+                HashMap::from([(machine_id, machine_nvlink_info.clone())]);
+
+            let completed = monitor
+                .process_nmx_c_partition_monitor_group(
+                    ProcessMachineGroupInput {
+                        group_id: "rack-1",
+                        group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
+                        snapshots: &rack_snapshots,
+                        endpoint_url,
+                        all_managed_host_snapshots: &all_snapshots,
+                        machine_nvlink_info: &mut machine_nvlink_info,
+                        db_nvl_partitions: &[],
+                        db_nvl_logical_partitions: &[],
+                    },
+                    &mut metrics,
+                    &mut pending,
+                )
+                .await;
+
+            assert_eq!(completed, 0, "{scenario}");
+            assert_eq!(
+                metrics.num_machines_scanned, expected_machines_scanned,
+                "{scenario}"
+            );
+            match expected_reason {
+                Some(reason) => {
+                    assert_eq!(pending.len(), 1, "{scenario}");
+                    assert_eq!(pending[0].group_id, "rack-1", "{scenario}");
+                    assert_eq!(pending[0].group_type.as_str(), "rack", "{scenario}");
+                    assert_eq!(pending[0].reason, reason, "{scenario}");
+                    assert_eq!(pending[0].machine_ids, vec![machine_id], "{scenario}");
+                }
+                None => {
+                    assert!(pending.is_empty(), "{scenario}");
+                    assert_eq!(
+                        metrics.nmxc.endpoint,
+                        endpoint_url.expect("successful scenario has an endpoint"),
+                        "{scenario}"
+                    );
+                }
+            }
+        }
+
+        drop(monitor);
+        join_set.shutdown().await;
+        Ok(())
     }
 }

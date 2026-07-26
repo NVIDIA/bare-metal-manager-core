@@ -93,7 +93,6 @@ pub(crate) use errors::CarbideResult;
 
 pub use crate::api::{Api, DefaultCredential};
 pub use crate::auth::AuthContext;
-pub use crate::cfg::command_line::{Command, Options};
 use crate::cfg::file::ToolLink;
 pub use crate::errors::CarbideError;
 pub use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;

@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Integration tests for carbide-api"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [dev-dependencies]
 # [local-dependencies]

@@ -648,12 +648,13 @@ pub(crate) async fn explore(
             .map(ExpectedEntity::PowerShelf)
     };
 
-    // Look up boot_interface_mac from existing explored endpoint if available
+    // Use the same stored boot-interface target as periodic exploration.
     let mut txn = api.txn_begin().await?;
-    let boot_interface_mac = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
+    let boot_interface = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
         .await?
         .first()
-        .and_then(|ep| ep.boot_interface_mac);
+        .and_then(|ep| ep.boot_interface_target())
+        .map(Into::into);
     txn.commit().await?;
 
     let report = api
@@ -663,7 +664,7 @@ pub(crate) async fn explore(
             &machine_interface,
             expected.as_ref(),
             None,
-            boot_interface_mac,
+            boot_interface.as_ref(),
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;

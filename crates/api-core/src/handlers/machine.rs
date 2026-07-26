@@ -35,27 +35,32 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-// TODO(#2991, @spydaNVIDIA): avoid holding this transaction while the
-// credential reader may perform a remote Vault request. Keep the allowance on
-// this small helper rather than the full force-delete handler.
-#[allow(txn_held_across_await)]
+/// Resolve the host UEFI credential to authenticate a *clear* with while
+/// force-deleting a machine, keyed by the password the device currently holds
+/// (see `host_uefi_clear_credential_key`). Best effort: any failure returns
+/// `None`, so the force-delete skips the clear rather than aborting.
+///
+/// Resolve the key while the txn is open, commit, then read the secret -- the
+/// remote reader (Vault) request must not run while we hold the connection.
 async fn resolve_host_uefi_clear_credentials(
     api: &Api,
     bmc_mac_address: mac_address::MacAddress,
 ) -> Option<Credentials> {
-    match api.txn_begin().await {
-        Ok(mut txn) => {
-            let credentials = crate::handlers::uefi::host_uefi_clear_credentials(
-                &mut txn,
-                api.redfish_pool.credential_reader(),
-                bmc_mac_address,
-            )
-            .await;
-            let _ = txn.commit().await;
-            credentials.ok()
-        }
-        Err(_) => None,
+    let mut txn = api.txn_begin().await.ok()?;
+    let key =
+        crate::handlers::uefi::host_uefi_clear_credential_key(&mut txn, bmc_mac_address).await;
+    if let Err(err) = txn.commit().await {
+        tracing::warn!(
+            %bmc_mac_address,
+            error = %err,
+            "Failed to commit while resolving host UEFI clear credentials; skipping clear"
+        );
+        return None;
     }
+    let clear_key = key.ok()?;
+    crate::handlers::uefi::read_uefi_credentials(api.redfish_pool.credential_reader(), &clear_key)
+        .await
+        .ok()
 }
 
 pub(crate) async fn find_machine_ids(

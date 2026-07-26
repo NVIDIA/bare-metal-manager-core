@@ -1942,10 +1942,10 @@ pub async fn allocate_svi_ip(
 
 /// Find a single machine_interface by IP, while locking the machine_interfaces and
 /// machine_interface_addresses rows via FOR UPDATE.
-pub async fn find_for_update_by_ip(
+pub async fn find_optional_for_update_by_ip(
     txn: &mut PgConnection,
     remote_ip: IpAddr,
-) -> Result<MachineInterfaceSnapshot, DatabaseError> {
+) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
     let query = r#"
         SELECT mi.id
         FROM machine_interface_addresses mia
@@ -1960,13 +1960,59 @@ pub async fn find_for_update_by_ip(
         .map_err(|e| DatabaseError::query(query, e))?;
 
     match interface_ids.as_slice() {
-        [] => Err(DatabaseError::NotFoundError {
-            kind: "machine_interface for discovery IP",
-            id: remote_ip.to_string(),
-        }),
-        [(interface_id,)] => find_one(txn, *interface_id).await,
+        [] => Ok(None),
+        [(interface_id,)] => find_one(txn, *interface_id).await.map(Some),
         _ => Err(DatabaseError::internal(format!(
             "multiple machine interfaces map to discovery IP {remote_ip}"
+        ))),
+    }
+}
+
+/// Find a single machine_interface by IP, while locking the machine_interfaces and
+/// machine_interface_addresses rows via FOR UPDATE.
+pub async fn find_for_update_by_ip(
+    txn: &mut PgConnection,
+    remote_ip: IpAddr,
+) -> Result<MachineInterfaceSnapshot, DatabaseError> {
+    find_optional_for_update_by_ip(txn, remote_ip)
+        .await?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "machine_interface for discovery IP",
+            id: remote_ip.to_string(),
+        })
+}
+
+/// Find and lock an interface only when an allocated instance IP belongs to the same machine.
+///
+/// The source address, instance, and interface ownership are resolved in one query so the
+/// caller-provided interface ID is only a selector within the source-derived machine. All three
+/// rows remain locked for the caller's transaction.
+pub async fn find_for_update_if_matches_instance_ip(
+    txn: &mut PgConnection,
+    interface_id: MachineInterfaceId,
+    remote_ip: IpAddr,
+) -> Result<Option<MachineInterfaceSnapshot>, DatabaseError> {
+    static QUERY: &str = concat!(
+        machine_interface_snapshot_query!(),
+        r#"
+        JOIN instances i ON i.machine_id = mi.machine_id
+        JOIN instance_addresses ia ON ia.instance_id = i.id
+        WHERE mi.id = $1 AND ia.address = $2::inet
+        FOR UPDATE OF mi, i, ia
+        "#,
+    );
+    let mut interfaces: Vec<MachineInterfaceSnapshot> = sqlx::query_as(QUERY)
+        .bind(interface_id)
+        .bind(remote_ip)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(QUERY, e))?;
+
+    match interfaces.len() {
+        0 => Ok(None),
+        1 => Ok(interfaces.pop()),
+        _ => Err(DatabaseError::internal(format!(
+            "multiple instances map discovery IP {remote_ip} to interface {interface_id}"
         ))),
     }
 }

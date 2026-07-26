@@ -20,29 +20,34 @@
 //! `RotateCredential` *stages* a site-wide rotation: it writes the rotate-TO
 //! secret at the next version and then publishes the new `target_version` with a
 //! compare-and-set. The current site-wide credential is defined by
-//! `sitewide_credential_rotation.target_version` -- consumers resolve the live
-//! version from that table rather than from a fixed unversioned path -- so the
-//! CAS bump is what makes the new version current (table-driven contract). This
-//! holds for every family (BMC, Host/DPU UEFI, lockdown IKM); a rotation never
-//! writes an unversioned alias. It does **not** converge existing devices --
-//! that is the rotation engine's job (a later change) -- so immediately after a
-//! rotate every device reads as "pending" until the engine lands.
-//! `GetCredentialRotationStatus` reports that convergence.
-//!
-//! NVOS is rejected for now. Its target row remains absent until the first
-//! versioned target secret has been stored and verified; API exposure remains
-//! disabled until the end-to-end NVOS rotation path is activated.
+//! `sitewide_credential_rotation.target_version`; consumers resolve the live
+//! version from that table rather than from a fixed unversioned path. A rotation
+//! never writes an unversioned alias. The handler publishes a target only after
+//! its immutable secret has been written and read back. Device convergence is
+//! owned by each credential family's writer or rotation controller.
 
 use ::rpc::forge as rpc;
 use carbide_authn::middleware::Principal;
-use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials, NicLockdownIkm};
+use carbide_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialReader, Credentials, NicLockdownIkm,
+};
+use carbide_switch_controller::io::SwitchStateControllerIO;
 use mac_address::MacAddress;
+use model::switch::SwitchSearchFilter;
+use state_controller::io::StateControllerIO;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::Api;
 
 type RotationType = db::credential_rotation::CredentialRotationType;
+
+/// Non-secret request context stored with a published rotation target.
+#[derive(serde::Serialize)]
+struct RotationRequestMeta {
+    reason: Option<String>,
+    initiator: Vec<String>,
+}
 
 /// Narrows a non-negative DB `integer` to the proto `uint32`, surfacing the
 /// (impossible, given the column CHECKs) negative/overflow case as an internal
@@ -74,8 +79,7 @@ fn initiator_identifiers<T>(request: &Request<T>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Maps the proto rotation family onto the DB enum, rejecting `nvos` (not yet
-/// managed; see the module docs) and an unknown wire value.
+/// Maps a specific proto rotation family onto its database representation.
 fn to_rotation_type(credential_type: i32) -> Result<RotationType, CarbideError> {
     let parsed = rpc::RotationCredentialType::try_from(credential_type).map_err(|_| {
         CarbideError::NotFoundError {
@@ -88,11 +92,7 @@ fn to_rotation_type(credential_type: i32) -> Result<RotationType, CarbideError> 
         rpc::RotationCredentialType::RotationHostUefi => Ok(RotationType::HostUefi),
         rpc::RotationCredentialType::RotationDpuUefi => Ok(RotationType::DpuUefi),
         rpc::RotationCredentialType::RotationLockdownIkm => Ok(RotationType::LockdownIkm),
-        rpc::RotationCredentialType::RotationNvos => Err(CarbideError::FailedPrecondition(
-            "NVOS rotation is not supported yet: the end-to-end NVOS rotation path \
-             remains disabled"
-                .to_string(),
-        )),
+        rpc::RotationCredentialType::RotationNvos => Ok(RotationType::Nvos),
         // The proto3 zero value. Rejected rather than defaulted so a caller that
         // omits the family never silently rotates BMC (the most sensitive one).
         rpc::RotationCredentialType::Unspecified => Err(CarbideError::InvalidArgument(
@@ -105,11 +105,8 @@ fn to_rotation_type(credential_type: i32) -> Result<RotationType, CarbideError> 
 /// (`.../v{N}`): the rotation stages version N's secret here and consumers read
 /// it back by version. Which version is "current" is resolved from
 /// `sitewide_credential_rotation.target_version`, not from any fixed path -- the
-/// table-driven contract. Every family is fully table-driven (BMC, Host/DPU
-/// UEFI, lockdown IKM): a rotation only writes the versioned secret and bumps
-/// the target, never an unversioned alias. Consumers resolve the live key via
-/// the per-family helpers ([`BmcCredentialType::site_wide_root`],
-/// [`CredentialKey::host_uefi_site_default`], [`CredentialKey::dpu_uefi_site_default`]).
+/// table-driven contract. Consumers resolve the live key via the per-family
+/// helpers rather than depending on a concrete secrets backend.
 fn versioned_rotation_key(rotation_type: RotationType, version: u32) -> CredentialKey {
     match rotation_type {
         RotationType::Bmc => CredentialKey::BmcCredentials {
@@ -120,11 +117,15 @@ fn versioned_rotation_key(rotation_type: RotationType, version: u32) -> Credenti
         RotationType::LockdownIkm => CredentialKey::NicLockdownIkm {
             credential_type: NicLockdownIkm::SiteWide { version },
         },
-        // nvos is rejected in `to_rotation_type` before we ever build keys.
-        RotationType::Nvos => unreachable!("nvos is rejected before key construction"),
+        RotationType::Nvos => CredentialKey::switch_nvos_site_admin(version),
     }
 }
 
+/// Stores and publishes the next site-wide credential target.
+///
+/// The versioned credential is created and read back before its database target
+/// is published. Existing targets advance through a version CAS; NVOS publishes
+/// version zero through a row-absence CAS when initialized for the first time.
 pub(crate) async fn rotate_credential(
     api: &Api,
     request: Request<rpc::RotateCredentialRequest>,
@@ -134,7 +135,28 @@ pub(crate) async fn rotate_credential(
     // request (the extensions, including the AuthContext, live on the envelope).
     let initiator = initiator_identifiers(&request);
     let req = request.into_inner();
-    let rotation_type = to_rotation_type(req.credential_type)?;
+    let credential_type = req.credential_type;
+    let rotation_type = to_rotation_type(credential_type)?;
+
+    // Check if the backend supports NVOS password rotation.
+    if rotation_type == RotationType::Nvos {
+        let Some(component_manager) = api.component_manager.as_ref() else {
+            return Err(CarbideError::FailedPrecondition(
+                "NVOS rotation requires component manager to be configured".to_string(),
+            )
+            .into());
+        };
+
+        if !component_manager.nv_switch.supports_password_rotation() {
+            return Err(CarbideError::FailedPrecondition(
+                "NVOS rotation requires a component-manager switch backend that supports password rotation"
+                    .to_string(),
+            )
+            .into());
+        }
+
+        require_nvos_credential_sources(api).await?;
+    }
 
     // Resolve the rotate-TO password: an operator-supplied password is validated
     // against the same policy the generator guarantees; otherwise we
@@ -155,19 +177,31 @@ pub(crate) async fn rotate_credential(
         password,
     };
 
-    // Read the current target so we know the version to stage at (current + 1).
-    // Every supported type has a backfilled target row.
+    // Existing targets advance by one. NVOS is initialized at version zero only
+    // after that immutable secret has been stored and read back below.
     let mut txn = api.txn_begin().await?;
     let current = db::credential_rotation::current_target_version(&mut txn, rotation_type).await?;
+
     txn.commit().await?;
-    let current = current.ok_or_else(|| {
-        CarbideError::FailedPrecondition(format!(
-            "no site-wide rotation target exists for {rotation_type:?}"
-        ))
-    })?;
-    let next_version = u32::try_from(current + 1).map_err(|e| {
+
+    let next_version_i32 = match current {
+        Some(current) => current.checked_add(1).ok_or_else(|| {
+            CarbideError::internal(format!(
+                "rotation target version {current} cannot be advanced"
+            ))
+        })?,
+        None if rotation_type == RotationType::Nvos => 0,
+        None => {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "no site-wide rotation target exists for {rotation_type:?}"
+            ))
+            .into());
+        }
+    };
+
+    let next_version = u32::try_from(next_version_i32).map_err(|e| {
         CarbideError::internal(format!(
-            "rotation target version {current} + 1 overflows: {e}"
+            "rotation target version {next_version_i32} is not representable: {e}"
         ))
     })?;
 
@@ -189,32 +223,55 @@ pub(crate) async fn rotate_credential(
     )
     .await?;
 
-    // Publish the new target with a compare-and-set against the version we read.
-    // `None` means another rotation advanced the target first; surface that as a
-    // precondition failure so the operator re-checks status and retries rather
-    // than assume this rotation took effect.
-    let request_meta = serde_json::json!({ "reason": req.reason, "initiator": initiator });
+    let request_meta = serde_json::to_value(RotationRequestMeta {
+        reason: req.reason,
+        initiator,
+    })
+    .map_err(|e| {
+        CarbideError::internal(format!(
+            "failed to serialize rotation request metadata: {e}"
+        ))
+    })?;
+
+    // Publish last. Existing rows use a version CAS; initial NVOS publication
+    // uses row absence as its CAS.
     let mut txn = api.txn_begin().await?;
-    let staged = db::credential_rotation::set_next_target_version(
-        &mut txn,
-        rotation_type,
-        current,
-        request_meta,
-    )
-    .await?;
+
+    let staged = match current {
+        Some(current) => {
+            db::credential_rotation::set_next_target_version(
+                &mut txn,
+                rotation_type,
+                current,
+                request_meta,
+            )
+            .await?
+        }
+        None => {
+            db::credential_rotation::set_initial_target_version(
+                &mut txn,
+                rotation_type,
+                request_meta,
+            )
+            .await?
+        }
+    };
+
     let staged = staged.ok_or_else(|| {
         CarbideError::ConcurrentModificationError(
             "credential rotation",
-            format!(
-                "the site-wide target for {rotation_type:?} advanced past version {current} \
-                 during this rotation"
-            ),
+            format!("the site-wide target for {rotation_type:?} changed during this rotation"),
         )
     })?;
+
+    if rotation_type == RotationType::Nvos {
+        enqueue_nvos_rotation_switches(&mut txn).await?;
+    }
+
     txn.commit().await?;
 
     Ok(Response::new(rpc::RotateCredentialResult {
-        credential_type: req.credential_type,
+        credential_type,
         target_version: u32::try_from(staged.target_version).map_err(|e| {
             CarbideError::internal(format!(
                 "staged target version {} is not representable: {e}",
@@ -225,8 +282,92 @@ pub(crate) async fn rotate_credential(
     }))
 }
 
-/// Writes the rotate-TO secret at its versioned path, returning the value now
-/// stored there.
+/// Rejects target publication when a live switch currently has no credential source.
+///
+/// Reconciliation remains authoritative if a credential source changes after
+/// this point-in-time check.
+async fn require_nvos_credential_sources(api: &Api) -> Result<(), CarbideError> {
+    let mut txn = api.txn_begin().await?;
+    let gaps = db::credential_rotation::nvos_credential_source_gaps(&mut txn).await?;
+
+    txn.commit().await?;
+
+    let mut missing = Vec::new();
+
+    for (switch_id, bmc_mac_address, malformed_expected_credentials) in gaps {
+        let Some(bmc_mac_address) = bmc_mac_address else {
+            missing.push(format!("{switch_id} (BMC MAC unavailable)"));
+            continue;
+        };
+
+        if malformed_expected_credentials {
+            missing.push(format!(
+                "{bmc_mac_address} (expected-switch NVOS credentials are partial or empty)"
+            ));
+            continue;
+        }
+
+        let credentials = api
+            .credential_manager
+            .get_credentials(&CredentialKey::SwitchNvosAdmin { bmc_mac_address })
+            .await
+            .map_err(|error| {
+                CarbideError::internal(format!(
+                    "failed to check current NVOS credential for {bmc_mac_address}: {error}"
+                ))
+            })?;
+
+        if !matches!(
+            credentials,
+            Some(Credentials::UsernamePassword { username, password })
+                if !username.is_empty() && !password.is_empty()
+        ) {
+            missing.push(bmc_mac_address.to_string());
+        }
+    }
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(CarbideError::FailedPrecondition(format!(
+            "NVOS rotation requires current credentials for all live switches; missing \
+             credential source for {}",
+            missing.join(", ")
+        )))
+    }
+}
+
+/// Wakes live switches after publishing a new NVOS target.
+///
+/// Enqueuing in the publication transaction gives Ready switches a prompt pass;
+/// the controller's periodic scan remains the fallback for an already queued
+/// switch whose concurrent pass did not observe this commit.
+async fn enqueue_nvos_rotation_switches(
+    txn: &mut sqlx::PgConnection,
+) -> Result<usize, db::DatabaseError> {
+    let switch_ids = db::switch::find_ids(
+        &mut *txn,
+        SwitchSearchFilter {
+            deleted: model::DeletedFilter::Exclude,
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    let queued_objects: Vec<String> = switch_ids
+        .into_iter()
+        .map(|switch_id| switch_id.to_string())
+        .collect();
+
+    state_controller::controller::db::queue_objects(
+        txn,
+        SwitchStateControllerIO::DB_QUEUED_OBJECTS_TABLE_NAME,
+        &queued_objects,
+    )
+    .await
+}
+
+/// Writes the rotate-TO secret at its versioned path and verifies writer readback.
 ///
 /// `create_credentials` is create-only (write-once per version). A failure means
 /// either the slot is already populated -- a concurrent rotation, or a prior
@@ -246,34 +387,78 @@ async fn stage_versioned_secret(
     new_credentials: &Credentials,
     operator_supplied_password: bool,
     next_version: u32,
-) -> Result<Credentials, CarbideError> {
-    match api
+) -> Result<(), CarbideError> {
+    let staged = match api
         .credential_manager
         .create_credentials(versioned_key, new_credentials)
         .await
     {
-        Ok(()) => Ok(new_credentials.clone()),
-        Err(create_err) => match api.credential_manager.get_credentials(versioned_key).await {
+        Ok(()) => new_credentials.clone(),
+        Err(create_err) => match api
+            .credential_manager
+            .get_credentials_from_writer(versioned_key)
+            .await
+        {
             Ok(Some(existing)) => {
                 if operator_supplied_password && existing != *new_credentials {
-                    Err(CarbideError::ConcurrentModificationError(
+                    return Err(CarbideError::ConcurrentModificationError(
                         "credential rotation",
                         format!(
                             "rotate-to version {next_version} is already staged with a \
                              different password"
                         ),
-                    ))
-                } else {
-                    Ok(existing)
+                    ));
                 }
+
+                existing
             }
-            _ => Err(CarbideError::internal(format!(
-                "failed to stage the rotate-to secret at version {next_version}: {create_err:?}"
-            ))),
+            _ => {
+                return Err(CarbideError::internal(format!(
+                    "failed to stage the rotate-to secret at version {next_version}: {create_err:?}"
+                )));
+            }
         },
+    };
+
+    let persisted = api
+        .credential_manager
+        .get_credentials_from_writer(versioned_key)
+        .await
+        .map_err(|e| {
+            CarbideError::internal(format!(
+                "failed to read back the rotate-to secret at version {next_version}: {e:?}"
+            ))
+        })?;
+
+    if persisted.as_ref() != Some(&staged) {
+        return Err(CarbideError::internal(format!(
+            "rotate-to secret readback did not match version {next_version}"
+        )));
     }
+
+    let effective = api
+        .credential_manager
+        .get_credentials(versioned_key)
+        .await
+        .map_err(|e| {
+            CarbideError::internal(format!(
+                "failed to read the effective rotate-to secret at version {next_version}: {e:?}"
+            ))
+        })?;
+
+    if effective.as_ref() != Some(&staged) {
+        return Err(CarbideError::internal(format!(
+            "effective rotate-to secret readback did not match version {next_version}"
+        )));
+    }
+
+    Ok(())
 }
 
+/// Reports site-wide or per-device progress toward a credential target.
+///
+/// NVOS status is evaluated over live switches, including switches whose
+/// per-device convergence row has not been established yet.
 pub(crate) async fn get_credential_rotation_status(
     api: &Api,
     request: Request<rpc::CredentialRotationStatusRequest>,
@@ -289,7 +474,11 @@ pub(crate) async fn get_credential_rotation_status(
     }
 
     let mut txn = api.txn_begin().await?;
-    let status = db::credential_rotation::rotation_status(&mut txn, rotation_type).await?;
+
+    let status = db::credential_rotation::rotation_status(&mut txn, rotation_type)
+        .await
+        .map_err(CarbideError::from)?;
+
     txn.commit().await?;
 
     Ok(Response::new(rpc::CredentialRotationStatusResult {
@@ -327,8 +516,11 @@ async fn device_rotation_status_response(
     })?;
 
     let mut txn = api.txn_begin().await?;
-    let status =
-        db::credential_rotation::device_rotation_status(&mut txn, rotation_type, mac).await?;
+
+    let status = db::credential_rotation::device_rotation_status(&mut txn, rotation_type, mac)
+        .await
+        .map_err(CarbideError::from)?;
+
     txn.commit().await?;
 
     let status = status.ok_or(CarbideError::NotFoundError {

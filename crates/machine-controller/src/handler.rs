@@ -3852,26 +3852,18 @@ impl DpuMachineStateHandler {
             return Ok(false);
         }
 
-        let dpf_sdk = self.dpf_sdk.as_deref().ok_or_else(|| {
-            StateHandlerError::InvalidState(
-                "DPF-managed machine reached DPU platform configuration without DPF configured"
-                    .to_string(),
-            )
-        })?;
-
-        let deployment_type = dpf_sdk
-            .deployment_type_for_dpu(dpu_snapshot)
-            .map_err(|error| {
-                StateHandlerError::InvalidState(format!(
-                    "failed to determine DPF deployment type for DPU {}: {error}",
-                    dpu_snapshot.id
-                ))
+        let product = dpu_snapshot
+            .status
+            .hardware_info
+            .as_ref()
+            .and_then(|x| x.dmi_data.as_ref())
+            .map(|x| x.product_name.to_uppercase())
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: dpu_snapshot.id.to_string(),
+                missing: "product_name in topology",
             })?;
 
-        Ok(matches!(
-            deployment_type,
-            carbide_dpf::DpuDeploymentType::Bf4Generic
-        ))
+        Ok(product.contains("B4") || product.contains("BLUEFIELD-4"))
     }
 
     async fn is_secure_boot_disabled(
@@ -4314,45 +4306,51 @@ impl DpuMachineStateHandler {
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 )
                 .await?;
-                if let Err(e) = ctx
+                let credentials_updated = match ctx
                     .services
                     .redfish_client_pool
                     .uefi_setup(dpu_redfish_client.as_ref(), true, dpu_uefi_credentials)
                     .await
                 {
-                    let msg = format!(
-                        "Failed to run uefi_setup call failed for DPU {}: {}",
-                        dpu_snapshot.id, e
-                    );
-                    tracing::warn!(
-                        machine_id = %dpu_snapshot.id,
-                        error = %e,
-                        "Failed to run uefi_setup for DPU",
-                    );
-                    let reboot_status = trigger_reboot_if_needed(
+                    Err(e) => {
+                        let msg = format!(
+                            "Failed to run uefi_setup call failed for DPU {}: {}",
+                            dpu_snapshot.id, e
+                        );
+                        tracing::warn!(
+                            machine_id = %dpu_snapshot.id,
+                            error = %e,
+                            "Failed to run uefi_setup for DPU",
+                        );
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
+
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )));
+                    }
+                    // BIOS does not expose a UEFI password field (e.g. BF4); skip
+                    // the restart and convergence record — nothing was staged.
+                    Ok(None) => false,
+                    // Password staged through Redfish BIOS settings; restart to commit.
+                    Ok(Some(_)) => true,
+                };
+
+                if credentials_updated {
+                    handler_restart_dpu(
                         dpu_snapshot,
-                        state,
-                        None,
-                        &self.reachability_params,
                         ctx,
+                        state.host_snapshot.config.dpf.used_for_ingestion,
                     )
                     .await?;
-
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
-                        dpu_snapshot.id
-                    )));
                 }
-
-                // The UEFI password is staged through Redfish BIOS settings,
-                // so retain the restart even when BF4 skips platform setup and
-                // BIOS verification.
-                handler_restart_dpu(
-                    dpu_snapshot,
-                    ctx,
-                    state.host_snapshot.config.dpf.used_for_ingestion,
-                )
-                .await?;
 
                 let next_state = if dpf_managed_bf4 {
                     DpuInitState::WaitingForNetworkConfig
@@ -4361,27 +4359,30 @@ impl DpuMachineStateHandler {
                 }
                 .next_state(&state.managed_state, dpu_machine_id)?;
 
-                // The DPU's UEFI password is now the site-wide value (just set via
-                // uefi_setup above): record dpu_uefi convergence so the rotation
-                // engine tracks this DPU from ingestion onward (mirrors the
-                // backfill, which keys DPU UEFI by the DPU BMC MAC). The MAC was
-                // validated as a precondition at the top of this state. Committed
-                // with the state transition below.
-                let mut txn = ctx.services.db_pool.begin().await?;
-                db::credential_rotation::record_device_converged(
-                    &mut txn,
-                    dpu_bmc_mac,
-                    db::credential_rotation::CredentialRotationType::DpuUefi,
-                )
-                .await
-                .map_err(|e| {
-                    StateHandlerError::GenericError(eyre!(
-                        "record dpu_uefi credential rotation convergence failed: {}",
-                        e
-                    ))
-                })?;
-
-                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
+                if credentials_updated {
+                    // The DPU's UEFI password is now the site-wide value (just set via
+                    // uefi_setup above): record dpu_uefi convergence so the rotation
+                    // engine tracks this DPU from ingestion onward (mirrors the
+                    // backfill, which keys DPU UEFI by the DPU BMC MAC). The MAC was
+                    // validated as a precondition at the top of this state. Committed
+                    // with the state transition below.
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::credential_rotation::record_device_converged(
+                        &mut txn,
+                        dpu_bmc_mac,
+                        db::credential_rotation::CredentialRotationType::DpuUefi,
+                    )
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "record dpu_uefi credential rotation convergence failed: {}",
+                            e
+                        ))
+                    })?;
+                    Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
+                } else {
+                    Ok(StateHandlerOutcome::transition(next_state))
+                }
             }
 
             DpuInitState::PollingBiosSetup => {

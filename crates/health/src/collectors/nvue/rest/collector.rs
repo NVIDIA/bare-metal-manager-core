@@ -1260,6 +1260,7 @@ mod tests {
             collector_type: COLLECTOR_NAME,
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         };
 
         NvueRestCollector {

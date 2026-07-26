@@ -16,13 +16,16 @@ pub enum ComponentManagerError {
     #[error("unsupported operation: {0}")]
     Unsupported(String),
 
+    /// The backend rejected a mutating request before accepting any work.
+    #[error("operation rejected before dispatch: {0}")]
+    RejectedBeforeDispatch(String),
+
     /// A mutating request may have reached the backend, but no job handle is
-    /// available. Callers must reconcile observed credential state
-    /// instead of retrying the mutation directly.
+    /// available. Callers must preserve the staged target until their
+    /// reconciliation policy decides whether it is safe to retry.
     ///
-    /// For [`crate::nv_switch_manager::NvSwitchManager::start_password_rotation`],
-    /// every other error guarantees that the backend did not accept the password
-    /// mutation and the caller may release any staged submission marker.
+    /// For [`crate::nv_switch_manager::NvSwitchManager::ensure_password_rotation`],
+    /// callers retain the exact current-to-target request and retry it later.
     #[error("operation outcome unknown: {0}")]
     OperationOutcomeUnknown(String),
 

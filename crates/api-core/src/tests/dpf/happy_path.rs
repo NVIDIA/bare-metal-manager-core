@@ -33,7 +33,8 @@ use tonic::Request;
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, create_managed_host_with_dpf, create_test_env_with_overrides, get_config,
+    TestEnvOverrides, create_managed_host_with_dpf, create_managed_host_with_dpf_bf4,
+    create_test_env_with_overrides, get_config,
 };
 
 fn default_mock(deployment_type: DpuDeploymentType) -> MockDpfOperations {
@@ -112,7 +113,7 @@ async fn assert_bf4_skips_platform_configuration(pool: sqlx::PgPool, enable_secu
     .await;
     let redfish_timepoint = env.redfish_sim.timepoint();
 
-    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf(&env))
+    let mh = timeout(TEST_TIMEOUT, create_managed_host_with_dpf_bf4(&env))
         .await
         .expect("timed out during BF4 initial provisioning");
 

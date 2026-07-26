@@ -96,6 +96,9 @@ impl PrometheusSink {
         if let Some(machine_id) = context.machine_id() {
             labels.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
         }
+        if let Some(system_uuid) = context.system_uuid() {
+            labels.push((Cow::Borrowed("system_uuid"), system_uuid.to_string()));
+        }
         if let Some(switch_id) = context.switch_id() {
             labels.push((Cow::Borrowed("switch_id"), switch_id.to_string()));
         }
@@ -204,6 +207,12 @@ impl DataSink for PrometheusSink {
             }
             CollectorEvent::Metric(sample) => match self.get_or_create_stream_metrics(context) {
                 Ok(stream_metrics) => {
+                    let mut labels = sample.labels.clone();
+                    for (name, value) in context.labels() {
+                        if labels.iter().all(|(existing, _)| existing.as_ref() != name) {
+                            labels.push((Cow::Owned(name.clone()), value.clone()));
+                        }
+                    }
                     stream_metrics.record(
                         GaugeReading::new(
                             Self::metric_reading_key(sample),
@@ -212,7 +221,7 @@ impl DataSink for PrometheusSink {
                             sample.unit.clone(),
                             sample.value,
                         )
-                        .with_labels(sample.labels.clone()),
+                        .with_labels(labels),
                     );
                 }
                 Err(error) => {
@@ -274,6 +283,7 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
             },
             collector_type: "sensor_collector",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: Some(
                     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
@@ -281,6 +291,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: Some("MN-001".to_string()),
+                system_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")).into(),
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(NvLinkDomainId::nil()),
@@ -301,6 +312,10 @@ mod tests {
             Some("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0")
         );
         assert_eq!(label_value("serial_number"), Some("MN-001"));
+        assert_eq!(
+            label_value("system_uuid"),
+            Some("4c4c4544-0044-4710-8052-cac04f4b4632")
+        );
         assert_eq!(label_value("rack_id"), Some("RACK_1"));
         assert_eq!(label_value("machine_slot_number"), Some("15"));
         assert_eq!(label_value("machine_tray_index"), Some("5"));
@@ -322,6 +337,7 @@ mod tests {
                 mac: MacAddress::from_str("11:22:33:44:55:66").unwrap(),
             },
             collector_type: "switch_collector",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-001".to_string(),

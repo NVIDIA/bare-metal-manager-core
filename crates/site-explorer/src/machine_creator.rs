@@ -16,6 +16,7 @@
  */
 use std::sync::Arc;
 
+use carbide_instrument::emit;
 use carbide_rack::rms_node_type::compute_node_identity_for_profile;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
@@ -49,7 +50,7 @@ use crate::SiteExplorerConfig;
 use crate::errors::{SiteExplorerError, SiteExplorerResult};
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 use crate::managed_host::ManagedHost;
-use crate::metrics::SiteExplorationMetrics;
+use crate::metrics::{SiteExplorationMetrics, SiteExplorerMachineSlotTrayPersistenceFailed};
 
 /// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
@@ -397,13 +398,16 @@ impl MachineCreator {
             )
             .await
             {
-                tracing::warn!(
-                    error = %e,
-                    %host_machine_id,
-                    "Failed to update slot_number and tray_index for machine"
-                );
+                emit(SiteExplorerMachineSlotTrayPersistenceFailed::new(
+                    e.to_string(),
+                    host_machine_id.to_string(),
+                ));
+                update_txn
+                    .rollback_or_log("site-explorer slot and tray update after operation failure")
+                    .await;
+            } else {
+                update_txn.commit().await?;
             }
-            update_txn.commit().await?;
         }
 
         Ok(true)

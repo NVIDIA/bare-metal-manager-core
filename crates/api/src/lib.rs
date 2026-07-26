@@ -31,10 +31,12 @@
 //! This crate owns process bootstrap and exports [`run`] so that the
 //! `carbide-api` binary and integration tests have one stable entrypoint.
 
+mod command_line;
 mod logging;
 mod metrics;
 mod resources;
 mod run;
 
-pub use carbide_api_core::{AdminUiRoutesBuilder, Command, Options};
+pub use carbide_api_core::AdminUiRoutesBuilder;
+pub use command_line::{Command, Options};
 pub use run::run;

@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-pub mod command_line;
 pub mod file;
 pub mod load;
 pub mod provenance;

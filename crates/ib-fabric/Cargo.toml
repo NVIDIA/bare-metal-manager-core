@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Carbide IB fabric"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_ib_fabric"

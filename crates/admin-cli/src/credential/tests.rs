@@ -387,6 +387,7 @@ fn rotate_maps_to_proto() {
         req.credential_type,
         RotationCredentialType::RotationBmc as i32
     );
+
     assert!(req.password.is_none());
 }
 
@@ -451,8 +452,7 @@ fn rotation_credential_kind_to_proto() {
         RotationCredentialType::from(RotationCredentialKind::DpuUefi),
         RotationCredentialType::RotationDpuUefi
     ));
-    // NVOS maps through even though the server rejects it today (FailedPrecondition
-    // until REQ-6); the CLI exposes it so support is a pure server-side change.
+
     assert!(matches!(
         RotationCredentialType::from(RotationCredentialKind::Nvos),
         RotationCredentialType::RotationNvos
@@ -510,8 +510,7 @@ fn uefi_credential_type_value_enum() {
 }
 
 // rotation_credential_kind_value_enum ensures RotationCredentialKind parses from
-// kebab-case strings, including nvos (which the CLI exposes so the server can
-// return its FailedPrecondition rather than arg parsing rejecting it outright).
+// kebab-case strings.
 #[test]
 fn rotation_credential_kind_value_enum() {
     use clap::ValueEnum;
