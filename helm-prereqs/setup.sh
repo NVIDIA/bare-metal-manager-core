@@ -809,7 +809,7 @@ helm template nico-prereqs . \
     --set imagePullSecrets.ngcNicoPull="${REGISTRY_PULL_SECRET:-}" \
     --show-only templates/site-root-certificate.yaml \
     --show-only templates/vault-tls-certs.yaml \
-    | kubectl apply --server-side --field-manager=helm -f -
+    | kubectl apply --server-side --field-manager=helm --force-conflicts -f -
 
 kubectl wait --for=condition=Ready certificate/site-root \
     -n "${CERT_MANAGER_NS}" --timeout=120s
