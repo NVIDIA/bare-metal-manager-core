@@ -106,9 +106,16 @@ level=WARN component=nico-api span_id=0x4f... event_name=power_control_failed me
 carbide_power_control_total{backend="rms",outcome="error"} 1
 ```
 
-Install the meter provider at startup **before the first emit** (every NICo binary
-already does, for its existing metrics); instruments resolve from the global meter once
-per event type.
+Install the process-global meter provider with `carbide_instrument::set_meter_provider`.
+Use this wrapper instead of `opentelemetry::global::set_meter_provider`: it notifies
+cached instruments after installation or replacement, and workspace Clippy disallows
+bypassing it. NICo binaries normally install the provider at startup before operational
+traffic, but Event and outbound-call rate/error/duration (RED) instrument caches also
+follow later provider changes. A metric observation before the first provider installation
+is dropped rather than buffered; the Event's configured log line still emits, and later
+metric observations use the installed provider normally. An observation that overlaps
+provider replacement might reach either provider, while later observations use the
+replacement.
 
 ## Log and metric options
 
@@ -309,8 +316,10 @@ with the semantics in attributes. The generated code:
 
 - Builds labels as a fixed-size array (no heap allocation on emit) with enum values
   rendering as `&'static str`
-- Caches the OTel instrument in a per-event-type `OnceLock` -- a metric-only emit is an
-  atomic load plus an `add()`
+- Caches the OTel instrument per Event type and refreshes it after provider installation
+  or replacement. Once the provider is stable, the cached-instrument lookup is two
+  lock-free loads; a metric-only emit then materializes the fixed-size label array above
+  and calls `add()`.
 - Emits the log via `tracing::event!` with real static field names, so `logfmt`, the
   admin-UI log stream, and every other subscriber layer see an ordinary tracing event in
   the surrounding span. Its tracing metadata name and structured `event_name` field are the
