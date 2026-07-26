@@ -16,10 +16,17 @@
  */
 
 use metrics_endpoint::MetricsSetup;
-use tracing_subscriber::Layer;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry::{KeyValue, global};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{Layer, filter};
+
+use crate::config::TracingConfig;
 
 #[derive(thiserror::Error, Debug)]
 pub enum SetupError {
@@ -33,24 +40,79 @@ pub enum SetupError {
 
 pub type SetupResult<T> = Result<T, SetupError>;
 
-pub fn setup_logging(debug: bool) -> SetupResult<()> {
-    // Default log level if RUST_LOG is not set
+/// Owns the OTLP tracer provider for the lifetime of the process. The batch
+/// span processor only exports on its own schedule, so the provider has to be
+/// shut down explicitly at exit or the final batch is dropped.
+pub struct TracingGuard(Option<opentelemetry_sdk::trace::SdkTracerProvider>);
+
+impl TracingGuard {
+    /// Flushes and shuts down the OTLP exporter. `SdkTracerProvider::shutdown`
+    /// blocks the calling thread for up to five seconds waiting on the batch
+    /// processor's worker, so it must not run on a runtime worker.
+    pub async fn shutdown(self) {
+        let Some(provider) = self.0 else {
+            return;
+        };
+
+        match tokio::task::spawn_blocking(move || provider.shutdown()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "failed to flush OpenTelemetry spans on shutdown");
+            }
+            Err(error) => {
+                tracing::warn!(%error, "OpenTelemetry shutdown task failed");
+            }
+        }
+    }
+}
+
+pub fn setup_logging(debug: bool, tracing_config: &TracingConfig) -> SetupResult<TracingGuard> {
+    // W3C propagation must be installed before any inbound extract or outbound inject (#2438).
+    // Without it, OpenTelemetry's default propagator is a no-op.
+    global::set_text_map_propagator(TraceContextPropagator::new());
+
     let default_log_level = if debug {
         LevelFilter::DEBUG
     } else {
         LevelFilter::INFO
     };
 
-    // Ignore certain spans and events from 3rd party frameworks
     let log_filter = dep_log_filter(
         EnvFilter::builder()
             .with_default_directive(default_log_level.into())
             .from_env()?,
     );
 
+    let tracing_enabled = debug || tracing_config.enabled;
+    let trace_filter = filter::filter_fn(move |metadata: &tracing::Metadata<'_>| {
+        tracing_enabled && should_accept_span_or_event(metadata)
+    })
+    .with_max_level_hint(default_log_level);
+
+    let endpoint = std::env::var(opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)
+        .ok()
+        .or_else(|| tracing_config.otlp_endpoint.clone());
+
+    // Span export is a diagnostic aid, not part of the proxy's contract, so a
+    // rejected endpoint degrades to no tracing rather than failing startup and
+    // cutting off BMC access. The subscriber does not exist yet, so the failure
+    // is carried past initialization and reported below.
+    let (tracer_provider, exporter_error) = match endpoint.as_deref().map(build_span_exporter) {
+        None => (None, None),
+        Some(Ok(exporter)) => (Some(build_tracer_provider(exporter)), None),
+        Some(Err(error)) => (None, Some(error)),
+    };
+
+    let maybe_otel_tracing_layer = tracer_provider.as_ref().map(|provider| {
+        tracing_opentelemetry::layer()
+            .with_tracer(provider.tracer("carbide-bmc-proxy"))
+            .with_filter(trace_filter)
+    });
+
     let log_events = carbide_instrument::LogEventsMetric::new("nico-bmc-proxy");
     tracing_subscriber::registry()
         .with(log_events.layer().with_filter(log_filter.clone()))
+        .with(maybe_otel_tracing_layer)
         .with(
             logfmt::layer()
                 .with_event_fields([logfmt::EventField::with_default(
@@ -61,8 +123,51 @@ pub fn setup_logging(debug: bool) -> SetupResult<()> {
         )
         .try_init()?;
 
-    tracing::info!(configured_log_level = %LevelFilter::current(), "current log level");
-    Ok(())
+    tracing::info!(
+        configured_log_level = %LevelFilter::current(),
+        tracing_enabled,
+        "current log level"
+    );
+
+    if let Some(error) = exporter_error {
+        tracing::warn!(
+            %error,
+            endpoint = endpoint.as_deref().unwrap_or_default(),
+            "OpenTelemetry span export disabled; proxy continues without tracing"
+        );
+    }
+
+    Ok(TracingGuard(tracer_provider))
+}
+
+fn build_span_exporter(
+    endpoint: &str,
+) -> Result<opentelemetry_otlp::SpanExporter, opentelemetry_otlp::ExporterBuildError> {
+    opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_protocol(opentelemetry_otlp::Protocol::Grpc)
+        .with_endpoint(endpoint)
+        .build()
+}
+
+fn build_tracer_provider(
+    exporter: opentelemetry_otlp::SpanExporter,
+) -> opentelemetry_sdk::trace::SdkTracerProvider {
+    opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            Resource::builder()
+                .with_attributes([KeyValue::new("service.name", "carbide-bmc-proxy")])
+                .build(),
+        )
+        .build()
+}
+
+/// Tokio runtime spans are not closed reliably; exporting them would leak memory.
+fn should_accept_span_or_event(metadata: &tracing::Metadata<'_>) -> bool {
+    !metadata
+        .module_path()
+        .is_some_and(|path| path.starts_with("tokio"))
 }
 
 pub fn setup_metrics() -> SetupResult<MetricsSetup> {
@@ -166,6 +271,31 @@ mod tests {
                 FilterCase::UserOverrideDoesNotAffectHyperCap => false,
             }
         );
+    }
+
+    // The tonic channel is built lazily on the ambient runtime, so the
+    // accepted-endpoint case needs a runtime even though nothing connects.
+    #[tokio::test]
+    async fn span_exporter_build_validates_endpoint_eagerly() {
+        value_scenarios!(
+            run = |endpoint| build_span_exporter(endpoint).is_ok();
+            "well-formed collector endpoint is accepted" {
+                "http://otel-collector.observability.svc.cluster.local:4317" => true,
+            }
+
+            "malformed endpoint is rejected at build time rather than at first export" {
+                "http://otel collector:4317" => false,
+            }
+        );
+    }
+
+    #[test]
+    fn should_accept_span_or_event_accepts_application_spans() {
+        assert!(should_accept_span_or_event(
+            tracing::info_span!(target: "carbide_bmc_proxy", "bmc_proxy_request")
+                .metadata()
+                .unwrap()
+        ));
     }
 
     #[test]
