@@ -789,9 +789,16 @@ no restart required.
 carbide-api first starts. For a Vault-backed site:
 
 ```bash
-echo '{"UsernamePassword":{"username":"root","password":"<password>"}}' \
+read -rs -p 'Site-wide BMC root password: ' BMC_ROOT_PASSWORD && echo
+printf '{"UsernamePassword":{"username":"root","password":"%s"}}' \
+  "${BMC_ROOT_PASSWORD}" \
   | vault kv put <kv-mount>/machines/bmc/site/root -
+unset BMC_ROOT_PASSWORD
 ```
+
+`read -rs` keeps the password off the terminal and out of shell history, and
+`printf` is a shell builtin, so the value never appears in a process argument
+list.
 
 Until the credential is set, DPU provisioning cannot proceed and Site Explorer
 does not run: it requires this credential plus the host and DPU UEFI site
