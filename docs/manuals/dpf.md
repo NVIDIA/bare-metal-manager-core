@@ -780,10 +780,19 @@ Configure it either through the API or by seeding the credential store directly.
 nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
 ```
 
-carbide-api starts whether or not the credential is present. While it is
-missing, carbide-api logs a warning and leaves `bmc-shared-password` unwritten;
-it writes the Secret on the next refresh tick after the credential is set, with
-no restart required.
+`nico-admin-cli` takes the password only as an argument, so it lands in shell
+history and in the process argument list. Run it from a shell with history
+disabled, or use the seeding path below, which avoids both.
+
+This works on a site that is already running: when a BMC password refresh
+interval is configured, carbide-api starts whether or not the credential is
+present. While it is missing it logs a warning and leaves
+`bmc-shared-password` unwritten, then writes the Secret on the next refresh
+tick after the credential is set, with no restart required.
+
+Without a refresh interval there is nothing to retry the read, so a missing
+credential is fatal to startup and must be seeded before carbide-api first
+runs, as below.
 
 **By seeding the credential store**, to have the credential in place before
 carbide-api first starts. For a Vault-backed site:

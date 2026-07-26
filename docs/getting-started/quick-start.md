@@ -580,6 +580,13 @@ nico-admin-cli -a <api-url> credential add-uefi --kind=host --password='<passwor
 nico-admin-cli -a <api-url> credential add-uefi --kind=dpu --password='<password>'
 ```
 
+<Warning>
+`nico-admin-cli` accepts these passwords only as command-line arguments, so each
+one lands in your shell history and is visible in the process argument list
+while the command runs. Run them from a shell with history disabled, and clear
+any history file that captured them.
+</Warning>
+
 Site Explorer requires all three — the site-wide BMC root and both the `host`
 and `dpu` UEFI site defaults. It checks them before contacting any BMC and fails
 each iteration with `MissingCredentials` while any one is missing.
