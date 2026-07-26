@@ -38,46 +38,23 @@ fn assert_same_profile(got: &SerializableProfile, want: &SerializableProfile) {
     assert_eq!(got.config.len(), want.config.len());
 }
 
-// to_proto mirrors the TryInto conversion: each YAML config value is serialized to a
-// trimmed string. The real conversion lives in the crate; the tests re-create it so
-// they can assert the wire shape independently.
+// to_proto hands the profile to the crate's own conversion, `impl
+// TryFrom<&SerializableProfile> for SerializableMlxConfigProfilePb`. These helpers used to
+// re-create that conversion here so the tests could assert the wire shape independently --
+// but re-creating it meant the real impl was never exercised by anything, which is the
+// opposite of what these tests are for.
 fn to_proto(profile: &SerializableProfile) -> SerializableMlxConfigProfilePb {
-    let config = profile
-        .config
-        .iter()
-        .map(|(key, yaml_value)| {
-            let value_str = serde_yaml::to_string(yaml_value).expect("Should serialize YAML value");
-            (key.clone(), value_str.trim().to_string())
-        })
-        .collect();
-
-    SerializableMlxConfigProfilePb {
-        name: profile.name.clone(),
-        registry_name: profile.registry_name.clone(),
-        description: profile.description.clone(),
-        config,
-    }
+    profile
+        .try_into()
+        .expect("a profile built in these tests should convert to its protobuf form")
 }
 
-// from_proto mirrors the TryFrom conversion: each stringified config value is parsed
-// back into a YAML value.
+// from_proto is the same idea in the other direction, through `impl
+// TryFrom<SerializableMlxConfigProfilePb> for SerializableProfile`.
 fn from_proto(proto: SerializableMlxConfigProfilePb) -> SerializableProfile {
-    let config = proto
-        .config
-        .into_iter()
-        .map(|(key, value_str)| {
-            let yaml_value: serde_yaml::Value =
-                serde_yaml::from_str(&value_str).expect("Should parse YAML value");
-            (key, yaml_value)
-        })
-        .collect();
-
-    SerializableProfile {
-        name: proto.name,
-        registry_name: proto.registry_name,
-        description: proto.description,
-        config,
-    }
+    proto
+        .try_into()
+        .expect("a protobuf built in these tests should convert back to a profile")
 }
 
 #[test]
