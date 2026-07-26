@@ -139,7 +139,7 @@ server:
   config:
     logLevel: "debug,info"
     publicClient:
-      hostPort: temporal-frontend-headless.temporal.svc.cluster.local:7233
+      hostPort: temporal-frontend-headless.temporal.svc.cluster.local.:7233
 
     # IMPORTANT: This value cannot be changed, once it's set.
     numHistoryShards: 512
