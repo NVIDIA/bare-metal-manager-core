@@ -20,7 +20,7 @@
 //! the IPv6 unspecified address.
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use tokio::net::TcpListener;
 
@@ -35,7 +35,8 @@ use tokio::net::TcpListener;
 /// Whether a failed bind on `address` should be retried on the
 /// equivalent IPv4 unspecified address, rather than treated as fatal.
 fn should_retry_as_ipv4(address: &SocketAddr, err: &io::Error) -> bool {
-    address.is_ipv6() && err.raw_os_error() == Some(libc::EAFNOSUPPORT)
+    address.ip() == IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        && err.raw_os_error() == Some(libc::EAFNOSUPPORT)
 }
 
 pub async fn bind_with_ipv4_fallback(address: SocketAddr) -> io::Result<TcpListener> {
@@ -94,6 +95,12 @@ mod tests {
                 name: "ipv6 address, non-OS error -- should not retry",
                 address: ipv6_addr,
                 err: io::Error::new(io::ErrorKind::Other, "some other error"),
+                expect_retry: false,
+            },
+            Case {
+                name: "ipv6 loopback address, EAFNOSUPPORT -- should not retry",
+                address: "[::1]:1079".parse().unwrap(),
+                err: io::Error::from_raw_os_error(libc::EAFNOSUPPORT),
                 expect_retry: false,
             },
         ];
