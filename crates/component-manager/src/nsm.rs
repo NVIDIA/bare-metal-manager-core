@@ -224,7 +224,7 @@ impl NvSwitchManager for NsmSwitchBackend {
         Ok(results)
     }
 
-    #[instrument(skip(self), fields(backend = "nsm"))]
+    #[instrument(skip(self, _options), fields(backend = "nsm"))]
     async fn queue_firmware_updates(
         &self,
         endpoints: &[SwitchEndpoint],

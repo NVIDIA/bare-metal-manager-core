@@ -1,0 +1,21 @@
+use tracing::info;
+
+fn request(url: &str, machine_id: &str) {
+    info!(
+        "http.url" = %url,
+        %machine_id,
+        "request received",
+    );
+}
+
+#[tracing::instrument(fields(machine_id = %machine_id))]
+fn instrumented(machine_id: &str) {}
+
+#[derive(carbide_instrument::Event)]
+#[event(event_name = "fixture_event", component = "xtask", message = "fixture event")]
+struct FixtureEvent {
+    #[label]
+    stage: Stage,
+    #[context]
+    error: Error,
+}

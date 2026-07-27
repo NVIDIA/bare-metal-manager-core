@@ -19,25 +19,29 @@
 
 use std::fmt;
 
-/// The grammar required for stable event identities.
-pub const EVENT_NAME_REQUIREMENT: &str = "event_name must be non-empty ASCII lower_snake_case, start with a letter, and contain no empty segments";
+mod fields;
+pub use fields::*;
 
-/// Log field names owned by tracing metadata or the logfmt rendering layer.
+/// Field names owned by the Event log schema or formatter.
 ///
-/// `message` is owned by the Event API for every declaration. An instrumented
-/// event that can log must not declare a label or context field with any of
-/// the remaining names. Metric-only events have no log surface, so their
-/// existing metric label names remain valid.
+/// New code should query [`is_reserved_field`] for the surface it is
+/// validating. This compatibility view contains the current
+/// [`FieldSurface::InstrumentedEventLog`] set.
+#[deprecated(note = "use RESERVED_FIELDS or is_reserved_field for a specific surface")]
 pub const EVENT_LOG_RESERVED_FIELDS: &[&str] = &[
-    "message",
-    "msg",
+    "component",
+    "event_name",
     "level",
     "location",
-    "component",
-    "span_id",
-    "event_name",
+    "message",
     "metric_name",
+    "msg",
+    "span_id",
+    "span_name",
 ];
+
+/// The grammar required for stable event identities.
+pub const EVENT_NAME_REQUIREMENT: &str = "event_name must be non-empty ASCII lower_snake_case, start with a letter, and contain no empty segments";
 
 /// The error returned when an event identity does not follow the shared
 /// [`EVENT_NAME_REQUIREMENT`].
@@ -83,7 +87,7 @@ pub fn validate_event_name(name: &str) -> Result<(), InvalidEventName> {
 
 /// Returns whether `field_name` is owned by the Event log schema or formatter.
 pub fn is_event_log_reserved_field(field_name: &str) -> bool {
-    EVENT_LOG_RESERVED_FIELDS.contains(&field_name)
+    is_reserved_field(field_name, FieldSurface::InstrumentedEventLog)
 }
 
 #[cfg(test)]
@@ -164,9 +168,23 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn event_log_reserved_fields_are_centralized() {
-        for field_name in EVENT_LOG_RESERVED_FIELDS {
-            assert!(is_event_log_reserved_field(field_name), "{field_name}");
+        let expected = RESERVED_FIELDS
+            .iter()
+            .filter(|field| is_reserved_field(field.name, FieldSurface::InstrumentedEventLog))
+            .map(|field| field.name)
+            .collect::<Vec<_>>();
+        assert_eq!(EVENT_LOG_RESERVED_FIELDS, expected);
+
+        for field in RESERVED_FIELDS {
+            let expected = is_reserved_field(field.name, FieldSurface::InstrumentedEventLog);
+            assert_eq!(
+                is_event_log_reserved_field(field.name),
+                expected,
+                "{}",
+                field.name
+            );
         }
         assert!(!is_event_log_reserved_field("machine_id"));
     }

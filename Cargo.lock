@@ -13294,6 +13294,7 @@ dependencies = [
  "clap",
  "eyre",
  "proc-macro2",
+ "serde_json",
  "similar 3.1.1",
  "sqlx",
  "syn 2.0.117",

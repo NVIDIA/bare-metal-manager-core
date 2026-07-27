@@ -128,7 +128,7 @@ pub(crate) struct StateHandlerWakeupFailed {
     #[context]
     pub(crate) machine_id: MachineId,
     #[context]
-    pub(crate) err: String,
+    pub(crate) error: String,
 }
 
 #[cfg(test)]
@@ -230,7 +230,7 @@ mod tests {
                 carbide_instrument::emit(StateHandlerWakeupFailed {
                     trigger,
                     machine_id,
-                    err: "enqueue failed".to_string(),
+                    error: "enqueue failed".to_string(),
                 });
             }
         });
@@ -251,7 +251,7 @@ mod tests {
             Some("reboot_completed".to_string())
         );
         assert_eq!(field(&logs[0], "machine_id"), Some(machine_id.to_string()));
-        assert_eq!(field(&logs[0], "err"), Some("enqueue failed".to_string()));
+        assert_eq!(field(&logs[0], "error"), Some("enqueue failed".to_string()));
 
         for label in [
             "reboot_completed",

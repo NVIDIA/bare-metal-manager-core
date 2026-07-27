@@ -232,7 +232,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
             .collect()
     }
 
-    #[instrument(skip(self), fields(backend = "psm"))]
+    #[instrument(skip(self, _options), fields(backend = "psm"))]
     async fn update_firmware(
         &self,
         endpoints: &[PowerShelfEndpoint],

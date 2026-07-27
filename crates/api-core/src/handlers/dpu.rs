@@ -1105,7 +1105,7 @@ pub(crate) async fn record_dpu_network_status(
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::DpuNetworkStatus,
             machine_id: dpu_machine_id,
-            err: err.to_string(),
+            error: err.to_string(),
         });
     }
 
@@ -1129,7 +1129,7 @@ async fn wakeup_host_state_handler_by_dpu_id(
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::DpuNetworkStatus,
             machine_id: *host_machine_id,
-            err: err.to_string(),
+            error: err.to_string(),
         });
     }
 

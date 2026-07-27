@@ -44,5 +44,8 @@ sqlx = { workspace = true, features = [
 ] }
 tokio = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [lints]
 workspace = true

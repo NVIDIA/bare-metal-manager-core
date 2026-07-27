@@ -129,7 +129,7 @@ pub(crate) async fn cleanup_machine_completed(
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::CleanupCompleted,
             machine_id,
-            err: err.to_string(),
+            error: err.to_string(),
         });
     }
 
@@ -470,7 +470,7 @@ pub(crate) async fn reboot_completed(
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::RebootCompleted,
             machine_id,
-            err: err.to_string(),
+            error: err.to_string(),
         });
     }
 

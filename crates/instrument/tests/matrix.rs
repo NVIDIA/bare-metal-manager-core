@@ -87,6 +87,31 @@ fn both_sides_from_one_emit() {
     );
 }
 
+#[test]
+fn raw_identifier_uses_its_rendered_field_name() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_raw_identifier",
+        component = "matrix-test",
+        log = info,
+        message = "raw identifier fired"
+    )]
+    struct RawIdentifier {
+        #[context]
+        r#type: String,
+    }
+
+    let logs = capture_logs(|| {
+        emit(RawIdentifier {
+            r#type: "firmware".to_string(),
+        });
+    });
+
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].field("type"), Some("firmware"));
+    assert_eq!(logs[0].field("r#type"), None);
+}
+
 /// Counter initialization needs to expose the series without pretending the
 /// Event happened. The first real `emit` must therefore move the same series
 /// from zero to one and write exactly one log line.

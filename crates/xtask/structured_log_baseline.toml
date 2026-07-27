@@ -1,0 +1,756 @@
+# Managed by `cargo xtask check-structured-logs --update-baseline`.
+# New entries keep a TODO reason until somebody reviews why they remain.
+
+schema_version = 1
+
+[[exception]]
+path = "crates/admin-cli/src/boot_override/get/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/devenv/config/apply/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Unable to apply devenv config, error: {err}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/devenv/config/apply/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Unable to parse devconfig file, nothing was written to db. Error: {err}; String read: {file_str}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu/agent_upgrade_policy/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Policy is now: {policy}. Update succeeded? {}."
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu/agent_upgrade_policy/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{policy}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu_remediation/approve/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Approved remediation with id: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu_remediation/create/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Created remediation with id: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu_remediation/create/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Error reading script file for dpu remediation: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu_remediation/disable/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Disabled remediation with id: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu_remediation/enable/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Enabled remediation with id: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/dpu_remediation/revoke/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Revoked remediation with id: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/allocate/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "  Created: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/allocate/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Batch allocate failed: {}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/allocate/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Batch allocate was successful. Created {} instances."
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/allocate/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "allocate failed with {} "
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/allocate/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "allocate was successful. Created instance: {:?} "
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_ib_config/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-ib-config failed with {} "
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_ib_config/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-ib-config was successful. Updated instance: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_nvlink_config/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-nvlink-config failed with {} "
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_nvlink_config/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-nvlink-config was successful. Updated instance: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_os/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-os failed with {} "
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_os/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-os was successful. Updated instance: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_spx_config/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-spx-config failed with {} "
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/instance/update_spx_config/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "update-spx-config was successful. Updated instance: {:?}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/redfish/cmds.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "BOSS Controller ID: {}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/redfish/cmds.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Host RSHIM is {}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/redfish/cmds.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "JID: {}"
+count = 2
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/redfish/cmds.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "successfully configured BIOS job {job_id} to set {} first in the server's boot order"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/redfish/cmds.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "successfully set {} first in the server's boot order"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/redfish/cmds.rs"
+surface = "plain_tracing_event"
+rule = "missing_message"
+subject = "info"
+count = 1
+reason = "This existing admin CLI call writes a field-only event; add stable human-readable text in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/rpc.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{}"
+count = 2
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/site_explorer/copy_bfb_to_dpu_rshim/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "BFB recovery triggered for {}. Track progress via: site-explorer get-report endpoint {}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/sku/bulk_update_metadata/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Error reading file {} line {current_line}: {e}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/sku/bulk_update_metadata/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "No SKU ID at line {current_line}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/sku/bulk_update_metadata/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{e}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/ssh/copy_bfb/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Could not query exploration report, defaulting to non-BF2: {e}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/admin-cli/src/ssh/get_rshim_status/cmd.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{is_rshim_enabled}"
+count = 1
+reason = "This existing admin CLI call uses tracing for human-facing command output; move its runtime values to fields in a focused CLI logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/duppet/log.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{}{}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/duppet/sync.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "  {:<10} {}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/hbn.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/nvue.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "config hack to replace platform: {stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/nvue.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "nl2doca restart: {stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/nvue.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "nv config apply: {stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/nvue.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "nv config detach: {stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/nvue.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "nv config diff: {config_diff_stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/agent/src/nvue.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "nv config replace: {stdout}"
+count = 1
+reason = "This existing agent diagnostic preserves human-formatted subprocess or synchronization output; move its runtime values to fields in a focused agent logging cleanup."
+
+[[exception]]
+path = "crates/api-test-helper/src/grpcurl.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "grpcurl respose: {response}"
+count = 1
+reason = "This existing test helper prints subprocess output for command diagnostics; migrate it separately from the production logging contract."
+
+[[exception]]
+path = "crates/api-test-helper/src/grpcurl.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "grpcurl {endpoint} STDERR: {}"
+count = 1
+reason = "This existing test helper prints subprocess output for command diagnostics; migrate it separately from the production logging contract."
+
+[[exception]]
+path = "crates/api-test-helper/src/grpcurl.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "grpcurl {endpoint} STDOUT: {response}"
+count = 1
+reason = "This existing test helper prints subprocess output for command diagnostics; migrate it separately from the production logging contract."
+
+[[exception]]
+path = "crates/api-test-helper/src/metrics.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "curl {endpoint} STDERR: {}"
+count = 1
+reason = "This existing test helper prints subprocess output for command diagnostics; migrate it separately from the production logging contract."
+
+[[exception]]
+path = "crates/api-test-helper/src/metrics.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "curl {endpoint} STDOUT: {response}"
+count = 1
+reason = "This existing test helper prints subprocess output for command diagnostics; migrate it separately from the production logging contract."
+
+[[exception]]
+path = "crates/api-web/src/lib.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{BASIC_AUTH_PASSWORD_ENV} is not configured; generated a temporary WebUI Basic Auth password for this process. This password is not persisted and changes on every launch. Configure a permanent password by setting {BASIC_AUTH_PASSWORD_ENV} to a non-empty value."
+count = 1
+reason = "The interpolated value is a compile-time environment-variable name, so this message is stable at runtime; the source checker cannot prove that distinction."
+
+[[exception]]
+path = "crates/api-web/src/state_history.rs"
+surface = "plain_tracing_event"
+rule = "unsupported_syntax"
+subject = "could not resolve static field name from `$ id_log_field`"
+count = 1
+reason = "Each invocation supplies a reviewed canonical identifier field, but the source checker sees this macro metavariable before expansion and cannot resolve it."
+
+[[exception]]
+path = "crates/dpu-remediation/src/remediation.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = """
+Remediation stderr:
+{}"""
+count = 1
+reason = "This existing diagnostic preserves multiline remediation subprocess output; move the stream content to a field in a focused cleanup."
+
+[[exception]]
+path = "crates/dpu-remediation/src/remediation.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = """
+Remediation stdout:
+{}"""
+count = 1
+reason = "This existing diagnostic preserves multiline remediation subprocess output; move the stream content to a field in a focused cleanup."
+
+[[exception]]
+path = "crates/host-support/src/hardware_enumeration.rs"
+surface = "plain_tracing_event"
+rule = "unsupported_syntax"
+subject = "could not resolve static field name from `$ msg`"
+count = 1
+reason = "Each invocation supplies a literal retry message, but the source checker sees this macro metavariable before expansion and cannot prove that it occupies the message position."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "BMC log message: {}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "BMC vendor does not support checking lockdown status for {host_machine_id}."
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "DPU {} OS install task {} submitted."
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "DPU {} OS install task {}: {:#?}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Error fetching lockdown status for {host_machine_id} during machine_setup check: {e}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = """
+Host config:
+Boot order:
+{}
+{}"""
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Host reboot failed with error: {err}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Install BFB on {:#?} completed"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Issued force-restart for DPU {} after {} failed verifications"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Issued force-restart for host {} after {} failed verifications"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Lockdown is enabled for {host_machine_id} during machine_setup, disabling now."
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "ManagedHost {} is in Failed state with machine/cause {}/{}. Failed at: {}, Ignoring."
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "No DPU snapshot found for host {}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Releasing network resources for instance {}: addresses: {:?}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Restart verified for DPU {}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Restart verified for host {}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Set DPU use_admin_network_changed flag for dpu {}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "could not reboot dpu {}: {e}"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "transitioning legacy {} host {} to UefiSetupState::UnlockHost while it is in ManagedHostState::Ready so that the BIOS password can be configured"
+count = 1
+reason = "This existing machine-controller diagnostic predates the structured-message contract; move its runtime values to fields in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "missing_message"
+subject = "error"
+count = 2
+reason = "This existing machine-controller call uses legacy fields without a separate tracing message; add stable text in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "missing_message"
+subject = "info"
+count = 1
+reason = "This existing machine-controller call uses legacy fields without a separate tracing message; add stable text in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "missing_message"
+subject = "warn"
+count = 2
+reason = "This existing machine-controller call uses legacy fields without a separate tracing message; add stable text in a focused call-site cleanup."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "reserved_field"
+subject = "component"
+count = 3
+reason = "This existing machine-controller call writes formatter-owned legacy keys directly; normalize it after checking downstream log queries."
+
+[[exception]]
+path = "crates/machine-controller/src/handler.rs"
+surface = "plain_tracing_event"
+rule = "reserved_field"
+subject = "msg"
+count = 5
+reason = "This existing machine-controller call writes formatter-owned legacy keys directly; normalize it after checking downstream log queries."
+
+[[exception]]
+path = "crates/preingestion-manager/src/lib.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Upgrade script {address2} STDERR {line}"
+count = 1
+reason = "This existing preingestion diagnostic embeds streamed upgrade-script output; move the stream content to fields in a focused cleanup."
+
+[[exception]]
+path = "crates/preingestion-manager/src/lib.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Upgrade script {address} {line}"
+count = 1
+reason = "This existing preingestion diagnostic embeds streamed upgrade-script output; move the stream content to fields in a focused cleanup."
+
+[[exception]]
+path = "crates/pxe/src/middleware/logging.rs"
+surface = "span"
+rule = "invalid_field_name"
+subject = "request_headers_content-length"
+count = 1
+reason = "This existing PXE span key preserves an HTTP header name with its hyphen; rename it after checking downstream log queries."
+
+[[exception]]
+path = "crates/pxe/src/middleware/logging.rs"
+surface = "span"
+rule = "invalid_field_name"
+subject = "request_headers_user-agent"
+count = 1
+reason = "This existing PXE span key preserves an HTTP header name with its hyphen; rename it after checking downstream log queries."
+
+[[exception]]
+path = "crates/pxe/src/middleware/logging.rs"
+surface = "span"
+rule = "invalid_field_name"
+subject = "response_headers_content-length"
+count = 1
+reason = "This existing PXE span key preserves an HTTP header name with its hyphen; rename it after checking downstream log queries."
+
+[[exception]]
+path = "crates/scout/src/firmware_upgrade.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "[firmware_upgrade] stderr: {stderr}"
+count = 1
+reason = "This existing Scout diagnostic embeds runtime or subprocess details in the message; move them to fields in a focused Scout logging cleanup."
+
+[[exception]]
+path = "crates/scout/src/firmware_upgrade.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "[firmware_upgrade] stdout: {stdout}"
+count = 1
+reason = "This existing Scout diagnostic embeds runtime or subprocess details in the message; move them to fields in a focused Scout logging cleanup."
+
+[[exception]]
+path = "crates/scout/src/main.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Metrics endpoint error: {e}"
+count = 1
+reason = "This existing Scout diagnostic embeds runtime or subprocess details in the message; move them to fields in a focused Scout logging cleanup."
+
+[[exception]]
+path = "crates/scout/src/main.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "Spawning metrics endpoint on {}"
+count = 1
+reason = "This existing Scout diagnostic embeds runtime or subprocess details in the message; move them to fields in a focused Scout logging cleanup."
+
+[[exception]]
+path = "crates/site-explorer/src/machine_creator.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "BUG: {msg}"
+count = 1
+reason = "This existing helper forwards caller-supplied diagnostic text; replace it with stable categories and structured fields in a focused API cleanup."
+
+[[exception]]
+path = "crates/site-explorer/src/machine_creator.rs"
+surface = "plain_tracing_event"
+rule = "interpolated_message"
+subject = "{msg}"
+count = 1
+reason = "This existing helper forwards caller-supplied diagnostic text; replace it with stable categories and structured fields in a focused API cleanup."
+
+[[exception]]
+path = "crates/sqlx-query-tracing/src/lib.rs"
+surface = "plain_tracing_event"
+rule = "missing_message"
+subject = "event"
+count = 1
+reason = "This SQLx tracing adapter intentionally emits query metadata as a field-only event; it has no separate human-readable message today."
+
+[[exception]]
+path = "crates/state-controller/src/lib.rs"
+surface = "plain_tracing_event"
+rule = "unsupported_syntax"
+subject = "could not resolve static field name from `$ ($ arg) +`"
+count = 1
+reason = "This assertion helper forwards caller-supplied tracing tokens only in non-test builds, so the source checker cannot resolve the generated fields before expansion."

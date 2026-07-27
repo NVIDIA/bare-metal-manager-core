@@ -121,6 +121,7 @@ cargo make clippy              # Clippy linter (warnings = errors)
 cargo make carbide-lints       # Custom lints (requires nightly setup)
 cargo make check-format-nightly # Check rustfmt formatting
 cargo make check-event-names    # Validate production Event identity uniqueness
+cargo make check-structured-logs # Reject new high-confidence structured-log violations
 cargo make check-workspace-deps # Validate dependency declarations in Cargo.toml
 cargo make check-licenses      # Validate no restricted licenses introduced
 cargo make check-bans          # Check for banned dependencies

@@ -18,7 +18,9 @@ mod error_message_case;
 mod event_names;
 mod isolated_package_builds;
 mod metric_docs;
+mod source_graph;
 mod squash_migrations;
+mod structured_logs;
 mod workspace_deps;
 
 use clap::Parser;
@@ -31,6 +33,16 @@ enum Xtask {
         about = "Check that production instrumented Events have unique event_name identities"
     )]
     CheckEventNames,
+    #[clap(
+        name = "check-structured-logs",
+        about = "Check production tracing fields and messages against the reviewed baseline"
+    )]
+    CheckStructuredLogs(CheckStructuredLogs),
+    #[clap(
+        name = "inventory-structured-logs",
+        about = "Inventory production tracing and instrumented Event fields"
+    )]
+    InventoryStructuredLogs(InventoryStructuredLogs),
     #[clap(
         name = "check-workspace-deps",
         about = "Check for any dependency versions defined in crate-level Cargo.toml's instead of the workspace root"
@@ -88,10 +100,31 @@ struct CheckWorkspaceDeps {
     fix: bool,
 }
 
+#[derive(Parser, Debug)]
+struct CheckStructuredLogs {
+    #[clap(
+        long,
+        help = "Rewrite the baseline from the current findings; new entries retain a TODO reason until reviewed"
+    )]
+    update_baseline: bool,
+}
+
+#[derive(Parser, Debug)]
+struct InventoryStructuredLogs {
+    #[clap(long, value_enum, default_value_t = structured_logs::InventoryFormat::Json)]
+    format: structured_logs::InventoryFormat,
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     match Xtask::parse() {
         Xtask::CheckEventNames => event_names::check()?,
+        Xtask::CheckStructuredLogs(CheckStructuredLogs { update_baseline }) => {
+            structured_logs::check(update_baseline)?
+        }
+        Xtask::InventoryStructuredLogs(InventoryStructuredLogs { format }) => {
+            structured_logs::inventory(format)?
+        }
         Xtask::CheckWorkspaceDeps(CheckWorkspaceDeps { fix }) => {
             workspace_deps::check(fix)?.report_and_exit()
         }

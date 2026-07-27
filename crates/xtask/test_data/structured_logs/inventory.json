@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "files_scanned": 1,
+  "field_aggregates": [
+    {"source_name":"error","rendered_name":"error","count":1,"surfaces":["instrumented_event_log"],"metric_label":false,"formats":["display"],"guidance":"Error: Normalize incidental bindings such as e and err to error. instrumented_event_log: Allowed."},
+    {"source_name":"http.url","rendered_name":"http_url","count":1,"surfaces":["plain_tracing_event"],"metric_label":false,"formats":["display"],"guidance":"ExternalSemanticConvention: OpenTelemetry HTTP URL. plain_tracing_event: Unspecified."},
+    {"source_name":"machine_id","rendered_name":"machine_id","count":2,"surfaces":["plain_tracing_event","span"],"metric_label":false,"formats":["display"],"guidance":"Identifier family: Derive the default key from the concrete identifier type."},
+    {"source_name":"stage","rendered_name":"stage","count":2,"surfaces":["instrumented_event_log","metric_label"],"metric_label":true,"formats":["display"],"guidance":""}
+  ],
+  "message_aggregates": [
+    {"macro":"info","kind":"static","count":1,"text":"request received"}
+  ],
+  "fields": [
+    {"path":"fixture.rs","line":5,"column":9,"surface":"plain_tracing_event","source_name":"http.url","rendered_name":"http_url","format":"display","source":"info"},
+    {"path":"fixture.rs","line":6,"column":9,"surface":"plain_tracing_event","source_name":"machine_id","rendered_name":"machine_id","format":"display","source":"info"},
+    {"path":"fixture.rs","line":11,"column":30,"surface":"span","source_name":"machine_id","rendered_name":"machine_id","format":"display","source":"#[instrument]"},
+    {"path":"fixture.rs","line":18,"column":5,"surface":"instrumented_event_log","source_name":"stage","rendered_name":"stage","format":"display","source":"FixtureEvent"},
+    {"path":"fixture.rs","line":18,"column":5,"surface":"metric_label","source_name":"stage","rendered_name":"stage","format":"display","source":"FixtureEvent"},
+    {"path":"fixture.rs","line":20,"column":5,"surface":"instrumented_event_log","source_name":"error","rendered_name":"error","format":"display","source":"FixtureEvent"}
+  ],
+  "messages": [
+    {"path":"fixture.rs","line":4,"column":5,"macro":"info","kind":"static","text":"request received"}
+  ],
+  "unsupported": [
+  ],
+  "findings": [
+  ]
+}

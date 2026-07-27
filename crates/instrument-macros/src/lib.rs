@@ -19,7 +19,7 @@
 //! `#[derive(LabelValue)]`. See the `carbide-instrument` crate documentation
 //! for the model and usage; these macros are re-exported from there.
 
-use carbide_observability_schema::{is_event_log_reserved_field, validate_event_name};
+use carbide_observability_schema::{FieldSurface, is_reserved_field, validate_event_name};
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Field, Fields, Ident, LitStr, Meta};
@@ -363,7 +363,7 @@ fn label_metric_name(field: &Field) -> syn::Result<String> {
         .expect("label field was classified above");
 
     match &attr.meta {
-        Meta::Path(_) => validate_metric_label_name(ident.to_string(), ident.span()),
+        Meta::Path(_) => validate_metric_label_name(source_field_name(ident), ident.span()),
         Meta::List(_) => {
             let mut name: Option<LitStr> = None;
             attr.parse_nested_meta(|meta| {
@@ -389,8 +389,14 @@ fn label_metric_name(field: &Field) -> syn::Result<String> {
     }
 }
 
+fn source_field_name(ident: &Ident) -> String {
+    let name = ident.to_string();
+    name.strip_prefix("r#").unwrap_or(&name).to_string()
+}
+
 fn validate_event_log_field(log: LogSpec, kind: FieldKind, ident: &Ident) -> syn::Result<()> {
-    if ident == "message" {
+    let field_name = source_field_name(ident);
+    if field_name == "message" {
         return Err(syn::Error::new_spanned(
             ident,
             "`message` is reserved for the event message; pick another field name",
@@ -398,12 +404,12 @@ fn validate_event_log_field(log: LogSpec, kind: FieldKind, ident: &Ident) -> syn
     }
     if log != LogSpec::Off
         && matches!(kind, FieldKind::Label | FieldKind::Context(_))
-        && is_event_log_reserved_field(&ident.to_string())
+        && is_reserved_field(&field_name, FieldSurface::InstrumentedEventLog)
     {
         return Err(syn::Error::new_spanned(
             ident,
             format!(
-                "`{ident}` is reserved by Event-generated logs or the log formatter; choose a \
+                "`{field_name}` is reserved by Event-generated logs or the log formatter; choose a \
                  domain-specific field name"
             ),
         ));
@@ -655,7 +661,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let label_names: Vec<&str> = labels.iter().map(|(_, name)| name.as_str()).collect();
     let context_names: Vec<String> = contexts
         .iter()
-        .map(|(ident, _)| ident.to_string())
+        .map(|(ident, _)| source_field_name(ident))
         .collect();
 
     // `log = dynamic` keeps the trait's nominal LOG and routes the decision
@@ -711,13 +717,17 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         log_fields.push(quote! { metric_name = #metric_name });
     }
     log_fields.extend(label_idents.iter().map(|ident| {
+        let field_name = LitStr::new(&source_field_name(ident), ident.span());
         quote! {
-            #ident = ::carbide_instrument::LabelValue::label_value(&self.#ident).as_str()
+            #field_name = ::carbide_instrument::LabelValue::label_value(&self.#ident).as_str()
         }
     }));
-    log_fields.extend(contexts.iter().map(|(ident, mode)| match mode {
-        ContextMode::Display => quote! { #ident = %self.#ident },
-        ContextMode::Value => quote! { #ident = self.#ident },
+    log_fields.extend(contexts.iter().map(|(ident, mode)| {
+        let field_name = LitStr::new(&source_field_name(ident), ident.span());
+        match mode {
+            ContextMode::Display => quote! { #field_name = %self.#ident },
+            ContextMode::Value => quote! { #field_name = self.#ident },
+        }
     }));
 
     let context_values =
@@ -864,7 +874,7 @@ mod tests {
 
     use super::{
         ContextMode, FieldKind, LogSpec, classify_field, expand_event, snake_case,
-        validate_event_log_field,
+        source_field_name, validate_event_log_field,
     };
 
     fn expansion_error(source: &str) -> String {
@@ -948,9 +958,16 @@ mod tests {
 
     #[test]
     fn reserved_fields_apply_only_to_the_log_surface() {
-        for field_name in carbide_observability_schema::EVENT_LOG_RESERVED_FIELDS {
+        for field in carbide_observability_schema::RESERVED_FIELDS {
+            let field_name = field.name;
+            if !carbide_observability_schema::is_reserved_field(
+                field_name,
+                carbide_observability_schema::FieldSurface::InstrumentedEventLog,
+            ) {
+                continue;
+            }
             let ident = Ident::new(field_name, Span::call_site());
-            if *field_name == "message" {
+            if field_name == "message" {
                 for kind in [
                     FieldKind::Label,
                     FieldKind::Context(ContextMode::Display),
@@ -980,6 +997,29 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn raw_reserved_event_field_is_rejected() {
+        let error = expansion_error(
+            r#"
+            #[event(event_name = "demo", component = "demo", message = "demo")]
+            struct Demo {
+                #[context]
+                r#event_name: String,
+            }
+            "#,
+        );
+        assert!(
+            error.contains("`event_name` is reserved by Event-generated logs"),
+            "expected the rendered raw identifier to be reserved, got `{error}`"
+        );
+    }
+
+    #[test]
+    fn raw_event_field_uses_its_rendered_name() {
+        let ident = Ident::new_raw("type", Span::call_site());
+        assert_eq!(source_field_name(&ident), "type");
     }
 
     #[test]

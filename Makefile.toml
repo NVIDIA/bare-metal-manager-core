@@ -585,6 +585,7 @@ dependencies = [
   "lint-error-messages",
   "check-format-nightly",
   "check-event-names",
+  "check-structured-logs",
   "check-workspace-deps",
   "check-metric-docs",
   "check-licenses",
@@ -839,6 +840,11 @@ script = [
 workspace = false
 description = "Check that production instrumented Events have unique event_name identities"
 script = ["cargo --quiet xtask check-event-names"]
+
+[tasks.check-structured-logs]
+workspace = false
+description = "Check new production tracing fields and messages against the structured-log contract"
+script = ["cargo --quiet xtask check-structured-logs"]
 
 [tasks.check-metric-docs]
 workspace = false

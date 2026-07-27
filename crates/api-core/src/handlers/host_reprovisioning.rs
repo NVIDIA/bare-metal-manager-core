@@ -244,7 +244,7 @@ pub async fn report_scout_firmware_upgrade_status(
         carbide_instrument::emit(StateHandlerWakeupFailed {
             trigger: WakeupTrigger::ScoutFirmwareUpgradeStatus,
             machine_id,
-            err: err.to_string(),
+            error: err.to_string(),
         });
     }
 

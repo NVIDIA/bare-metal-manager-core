@@ -1438,6 +1438,10 @@ jobs:
 
       - name: Check instrumented event names
         run: cargo xtask check-event-names
+
+      - name: Check structured logs
+        run: cargo xtask check-structured-logs
+
       - name: Check metric docs
         run: cargo xtask check-metric-docs
 
