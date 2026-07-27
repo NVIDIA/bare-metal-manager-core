@@ -21,7 +21,7 @@ use model::test_support::ManagedHostConfig;
 use rpc::forge;
 use rpc::forge::forge_server::Forge;
 
-use crate::test_support::fixture_config::ManagedHostConfigExt as _;
+use crate::test_support::fixture_config::{FixtureDefault as _, ManagedHostConfigExt as _};
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
@@ -106,6 +106,54 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
             "Expected zero-DPU host to reject set_primary_dpu with FailedPrecondition, got: {result:?}"
         ),
     };
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_set_primary_dpu_revalidates_attachment_during_locked_handoff(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(2))
+            .await?;
+    let host_id = host.host_snapshot.id;
+    let interface = host
+        .host_snapshot
+        .status
+        .interfaces
+        .iter()
+        .find(|interface| interface.attached_dpu_machine_id.is_some())
+        .expect("managed host should have a DPU-backed interface");
+    let expected_dpu_machine_id = interface
+        .attached_dpu_machine_id
+        .expect("selected test interface should be DPU-backed");
+
+    // Model topology changing after the alias resolves its DPU but before the
+    // core transaction locks and reloads the selected interface.
+    sqlx::query("UPDATE machine_interfaces SET attached_dpu_machine_id = NULL WHERE id = $1")
+        .bind(interface.id)
+        .execute(&env.pool)
+        .await?;
+
+    let error = crate::handlers::managed_host::set_primary_interface_core(
+        &env.api,
+        host_id,
+        interface.id,
+        Some(expected_dpu_machine_id),
+        false,
+        None,
+    )
+    .await
+    .expect_err("the locked handoff should reject a detached DPU interface");
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert!(
+        error
+            .message()
+            .contains(&expected_dpu_machine_id.to_string()),
+        "the error should identify the DPU whose attachment changed: {error}",
+    );
 
     Ok(())
 }

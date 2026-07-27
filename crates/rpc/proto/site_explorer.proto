@@ -319,11 +319,12 @@ message Inventory {
 message MachineSetupStatus {
   bool is_done = 1;
   repeated MachineSetupDiff diffs = 2;
-  // The logical boot-interface target NICo asked the backend to assess. A
-  // backend may match with a subset (NvRedfish currently uses the MAC) while
-  // retaining Pair identity. Reports written before target capture leave this
-  // unset.
+  // The logical boot-interface target NICo asked the pair-aware verifier to
+  // assess. Reports written before target capture leave this unset.
   MachineBootInterfaceTarget evaluated_boot_interface = 3;
+  // Version of the verification semantics that produced this status. Reports
+  // written before versioned verification leave this as zero.
+  uint32 verification_version = 4;
 }
 
 // The logical boot-interface target NICo asked a Redfish backend to assess. It

@@ -33,17 +33,20 @@ use db::ObjectFilter;
 use db::sku::CURRENT_SKU_VERSION;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{ExpectedHostNic, ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{LoadSnapshotOptions, Machine};
+use model::machine_boot_interface::MachineBootInterface;
 use model::metadata::Metadata;
+use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{
     BlueFieldOperatingMode, Chassis, ComputerSystem, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, ExploredDpu, ExploredManagedHost, NetworkAdapter,
     PreingestionState, UefiDevicePath,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
-use rpc::forge::GetSiteExplorationRequest;
+use rpc::forge::forge_server::Forge;
+use rpc::forge::{GetSiteExplorationRequest, SetPrimaryInterfaceRequest};
 use rpc::site_explorer::ExploredDpu as RpcExploredDpu;
 use tonic::Request;
 
@@ -1448,8 +1451,18 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
     txn.commit().await?;
     assert_eq!(explored.len(), 3);
     let mut versions = Vec::new();
+    let mut versions_without_boot_target_barriers = Vec::new();
+    let mut boot_target_barriers = 0;
     for report in &explored {
         versions.push(report.report_version.version_nr());
+        let boot_target_barrier = if report.boot_interface_target().is_some() {
+            1
+        } else {
+            0
+        };
+        boot_target_barriers += boot_target_barrier;
+        versions_without_boot_target_barriers
+            .push(report.report_version.version_nr() - boot_target_barrier);
         assert_eq!(report.report.endpoint_type, EndpointType::Bmc);
         match report.address.to_string() {
             a if a == machines[0].ip => {
@@ -1475,9 +1488,15 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
             _ => panic!("No other endpoints should be discovered"),
         }
     }
-    // Four iterations perform eight scans. The oldest-first scheduler does not
-    // guarantee an even distribution, but every endpoint should be refreshed.
-    assert_eq!(versions.iter().sum::<u64>(), 8);
+    // Four iterations perform eight scans. Normalize the one version barrier
+    // on every endpoint that selected an inferred boot target before checking
+    // the exact scan count without assuming how the oldest-first scheduler
+    // distributed those scans.
+    assert!(
+        (1..=2).contains(&boot_target_barriers),
+        "one or both managed hosts should have selected an inferred boot target",
+    );
+    assert_eq!(versions_without_boot_target_barriers.iter().sum::<u64>(), 8);
     assert!(versions.iter().all(|version| *version >= 2));
 
     let report = fetch_exploration_report(api).await;
@@ -1809,8 +1828,15 @@ async fn test_site_explorer_audit_exploration_results(
     txn.commit().await?;
     assert_eq!(explored.len(), 7);
 
+    let mut boot_target_barriers = 0;
     for report in &explored {
-        assert_eq!(report.report_version.version_nr(), 2);
+        let expected_version = if report.boot_interface_target().is_some() {
+            boot_target_barriers += 1;
+            3
+        } else {
+            2
+        };
+        assert_eq!(report.report_version.version_nr(), expected_version);
         let guard = explorer.endpoint_explorer().reports.lock().unwrap();
         let res = guard.get(&report.address).unwrap().as_ref();
         if res.is_err() {
@@ -1827,6 +1853,10 @@ async fn test_site_explorer_audit_exploration_results(
             assert_eq!(res.unwrap().service, report.report.service);
         }
     }
+    assert_eq!(
+        boot_target_barriers, 1,
+        "the managed host's inferred boot target should create one version barrier",
+    );
 
     // Retrieve the report via gRPC
     let report = fetch_exploration_report(env.api()).await;
@@ -2557,6 +2587,275 @@ async fn test_fetch_host_primary_interface_mac(
             .unwrap(),
         expected_mac,
     );
+    Ok(())
+}
+
+/// A managed-DPU host may explicitly boot from an integrated NIC. Site
+/// Explorer must keep the host in the managed-DPU flow, seed the declared NIC
+/// as a cross-store primary prediction with its declared segment, preserve
+/// that selection through first-lease promotion, and then defer to a later
+/// explicit API selection.
+#[sqlx_test]
+async fn test_managed_dpu_host_uses_declared_integrated_boot_nic(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let domain = env.test_harness.test_domain().await;
+    let admin_segment = env
+        .test_harness
+        .network_controller()
+        .create_admin_segment(&domain)
+        .await;
+
+    let mock_host = ManagedHostConfig::default();
+    let dpu = mock_host.get_and_assert_single_dpu().clone();
+    let integrated_nic = *mock_host
+        .non_dpu_macs
+        .first()
+        .expect("the fixture host should expose an integrated NIC");
+    let integrated_boot_interface = MachineBootInterface {
+        mac_address: integrated_nic,
+        interface_id: "NIC.Embedded.1-1-1".to_string(),
+    };
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: mock_host.bmc_mac_address,
+            data: ExpectedMachineData {
+                serial_number: mock_host.serial.clone(),
+                host_nics: vec![ExpectedHostNic {
+                    mac_address: integrated_nic,
+                    network_segment_type: Some(NetworkSegmentType::Admin),
+                    primary: Some(true),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut host_bmc = env.new_machine(&mock_host.bmc_mac_address.to_string(), "SomeVendor");
+    let mut dpu_bmc = env.new_machine(&dpu.bmc_mac_address.to_string(), "NVIDIA/BF/BMC");
+    host_bmc.discover_dhcp(env.api()).await?;
+    dpu_bmc.discover_dhcp(env.api()).await?;
+    let host_bmc_ip: IpAddr = host_bmc.ip.parse()?;
+    let dpu_bmc_ip: IpAddr = dpu_bmc.ip.parse()?;
+
+    let explorer = env.test_site_explorer(SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        retained_boot_interface_window: None,
+        explorations_per_run: 10,
+        concurrent_explorations: 1,
+        run_interval: Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    });
+    explorer.insert_endpoints(
+        mock_host
+            .exploration_results(Some(host_bmc_ip), &[(0, dpu_bmc_ip)])?
+            .into_endpoints(),
+    );
+
+    explorer.run_single_iteration().await?;
+    let mut txn = env.pool.begin().await?;
+    for address in [host_bmc_ip, dpu_bmc_ip] {
+        db::explored_endpoints::set_preingestion_complete(address, &mut txn).await?;
+    }
+    txn.commit().await?;
+    explorer.run_single_iteration().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let host_machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &host_bmc_ip)
+        .await?
+        .expect("the declared integrated NIC must not exclude the managed host");
+    assert!(
+        host_machine_id.machine_type().is_predicted_host(),
+        "the pre-first-lease control path should operate on Site Explorer's predicted host",
+    );
+    let prediction = db::predicted_machine_interface::find_by_mac_address(&mut txn, integrated_nic)
+        .await?
+        .expect("the integrated NIC should remain predicted until its first lease");
+    assert_eq!(prediction.machine_id, host_machine_id);
+    assert!(prediction.primary_interface);
+    assert_eq!(
+        prediction.expected_network_segment_type,
+        NetworkSegmentType::Admin,
+        "the prediction should retain the declared segment",
+    );
+
+    let interfaces = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
+        .await?
+        .remove(&host_machine_id)
+        .expect("the managed host should own its DPU-backed interface");
+    let dpu_interface = interfaces
+        .iter()
+        .find(|interface| interface.attached_dpu_machine_id.is_some())
+        .expect("the managed host should retain its DPU-backed interface")
+        .clone();
+    let dpu_machine_id = dpu_interface
+        .attached_dpu_machine_id
+        .expect("the DPU-backed interface should identify its DPU");
+    assert!(
+        !dpu_interface.addresses.is_empty(),
+        "the initially selected DPU link should own its admin address",
+    );
+    let initial_host_network_version =
+        db::machine::get_network_config(txn.as_mut(), &host_machine_id)
+            .await?
+            .version;
+    let initial_dpu_network_version =
+        db::machine::get_network_config(txn.as_mut(), &dpu_machine_id)
+            .await?
+            .version;
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    assert_eq!(
+        endpoint.boot_interface(),
+        Some(integrated_boot_interface.clone()),
+        "the declared primary prediction should outrank the interim DPU row",
+    );
+    txn.rollback().await?;
+
+    // The first integrated-NIC lease materializes the prediction. Promotion
+    // must atomically move primary ownership, clean up the now-dormant DPU
+    // admin link, and publish the new network configuration to the group.
+    env.api()
+        .discover_dhcp(
+            rpc::forge::DhcpDiscovery::builder(integrated_nic, admin_segment.relay_address)
+                .vendor_string("Bluefield")
+                .tonic_request(),
+        )
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::predicted_machine_interface::find_by_mac_address(&mut txn, integrated_nic)
+            .await?
+            .is_none(),
+        "the first lease should consume the integrated-NIC prediction",
+    );
+    let integrated_interface =
+        db::machine_interface::find_by_mac_address(txn.as_mut(), integrated_nic)
+            .await?
+            .into_iter()
+            .find(|interface| interface.machine_id == Some(host_machine_id))
+            .expect("the first lease should promote the integrated NIC");
+    assert!(
+        integrated_interface.primary_interface,
+        "the declared integrated NIC should promote as primary",
+    );
+    assert_eq!(
+        integrated_interface.boot_interface(),
+        Some(integrated_boot_interface.clone()),
+        "promotion should retain the exact Redfish boot-interface pair",
+    );
+    let promoted_dpu_interface =
+        db::machine_interface::find_one(txn.as_mut(), dpu_interface.id).await?;
+    assert!(
+        !promoted_dpu_interface.primary_interface,
+        "promotion should demote the prior DPU primary",
+    );
+    assert!(
+        promoted_dpu_interface.addresses.is_empty(),
+        "the dormant DPU admin link must not retain DHCP addresses",
+    );
+    let promoted_host_network_version =
+        db::machine::get_network_config(txn.as_mut(), &host_machine_id)
+            .await?
+            .version;
+    let promoted_dpu_network_version =
+        db::machine::get_network_config(txn.as_mut(), &dpu_machine_id)
+            .await?
+            .version;
+    assert_eq!(
+        promoted_host_network_version.version_nr(),
+        initial_host_network_version.version_nr() + 1,
+        "promotion should publish the host's changed network configuration",
+    );
+    assert_eq!(
+        promoted_dpu_network_version, promoted_host_network_version,
+        "promotion should advance every machine in the host group together",
+    );
+    assert_ne!(
+        promoted_dpu_network_version, initial_dpu_network_version,
+        "promotion should advance the DPU network configuration",
+    );
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    assert_eq!(
+        endpoint.boot_interface(),
+        Some(integrated_boot_interface.clone()),
+        "first-lease promotion must preserve the endpoint's exact target",
+    );
+    txn.rollback().await?;
+
+    explorer.run_single_iteration().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let integrated_interface =
+        db::machine_interface::find_one(txn.as_mut(), integrated_interface.id).await?;
+    let promoted_dpu_interface =
+        db::machine_interface::find_one(txn.as_mut(), dpu_interface.id).await?;
+    assert!(integrated_interface.primary_interface);
+    assert!(!promoted_dpu_interface.primary_interface);
+    assert!(promoted_dpu_interface.addresses.is_empty());
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    assert_eq!(
+        endpoint.boot_interface(),
+        Some(integrated_boot_interface),
+        "a later exploration must preserve the promoted integrated target",
+    );
+    txn.rollback().await?;
+
+    // ExpectedMachine.primary seeds ingestion-time intent. Once the host
+    // exists, an explicit API selection is the source of truth; Site Explorer
+    // must not reapply the declaration on later steady-state passes.
+    env.api()
+        .set_primary_interface(Request::new(SetPrimaryInterfaceRequest {
+            host_machine_id: Some(host_machine_id),
+            interface_id: Some(dpu_interface.id),
+            reboot: false,
+        }))
+        .await?;
+    explorer.run_single_iteration().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let integrated_interface =
+        db::machine_interface::find_one(txn.as_mut(), integrated_interface.id).await?;
+    assert!(
+        !integrated_interface.primary_interface,
+        "explicit selection should demote the integrated interface",
+    );
+    let selected_dpu_interface =
+        db::machine_interface::find_one(txn.as_mut(), dpu_interface.id).await?;
+    assert!(selected_dpu_interface.primary_interface);
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    assert_eq!(
+        endpoint.boot_interface(),
+        selected_dpu_interface.boot_interface(),
+        "a later Site Explorer pass must preserve the explicit API selection",
+    );
+    txn.rollback().await?;
+
     Ok(())
 }
 

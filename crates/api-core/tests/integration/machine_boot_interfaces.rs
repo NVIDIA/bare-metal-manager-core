@@ -17,9 +17,9 @@
 
 //! `GetMachineBootInterfaces` gathers one machine's boot-interface view from
 //! all four stores -- owned interface rows, predictions, the explored endpoint
-//! default, and the retained post-deletion pairs -- and reports the effective
-//! boot interface plus a divergence flag. These tests seed the stores for one
-//! host and assert the gathered view.
+//! evaluation target, and the retained post-deletion pairs -- and reports the
+//! effective boot interface plus a divergence flag. These tests seed the
+//! stores for one host and assert the gathered view.
 
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::{
@@ -57,9 +57,9 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
     // topology, and explored endpoints -- stores 1 and 3.
     let host_id = host.host.id;
 
-    // Read the owned rows the host ended up with: the primary is the effective
-    // boot interface `pick_boot_interface` selects, and we reuse its MAC to
-    // seed a retained record (store 4).
+    // Read the owned rows the host ended up with. We reuse its primary MAC to
+    // seed the explored and retained stores while a declared prediction tests
+    // the cross-store precedence.
     let primary_mac = {
         let mut txn = env.db_txn().await;
         let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
@@ -73,14 +73,14 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
             .expect("a DPU host has a primary interface")
             .mac_address
     };
-    // A DPU host's primary carries a boot-interface id; seed a known one so the
-    // effective-pick contract is asserted against a concrete value -- a regression
-    // to no id then fails loudly instead of defaulting the assertion away.
+    // Give the owned primary a known boot-interface id so the report proves
+    // that store's complete pair survives alongside the selected prediction.
     let primary_boot_id = "NIC.Primary.1-1-1";
 
-    // Store 2: a prediction for this host, flagged primary, on a MAC that is
-    // NOT the owned effective pick -- two disagreeing boot-MAC signals, so the
-    // view must flag divergence.
+    // Store 2: a declared primary prediction for a different MAC. It is the
+    // effective selection until its first lease promotes it, while the
+    // explored endpoint still names the owned primary, so the view must flag
+    // divergence.
     let predicted_mac: MacAddress = "aa:bb:cc:dd:ee:01".parse()?;
     // Store 4: a retained pair on the primary's MAC, aged well past any window.
     // `find_records_by_macs` ignores the window, so the troubleshooting view
@@ -99,18 +99,17 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         )
         .await?;
 
-        // Seed the owned primary's boot-interface id so the effective pick has a
-        // concrete value to assert.
+        // Seed the owned primary's boot-interface id so its reported store has
+        // a concrete value to assert.
         db::machine_interface::set_boot_interface_id(primary_mac, primary_boot_id, txn.as_mut())
             .await?;
 
         // Store 3: give the host's explored BMC endpoint a recorded boot
         // interface so the explored-endpoint store has concrete data to
         // surface. Resolve the BMC IP the same way the handler does (machine ->
-        // BMC pairs -> explored endpoint at that address) and set its default to
-        // the owned primary -- naming the same boot NIC, so it adds no new
-        // distinct boot-MAC signal and leaves the divergence verdict to the
-        // conflicting prediction.
+        // BMC pairs -> explored endpoint at that address) and leave its
+        // evaluation target on the owned primary. That recorded target now
+        // disagrees with the declared prediction selected above.
         let bmc_ip: std::net::IpAddr =
             db::machine_topology::find_machine_bmc_pairs_by_machine_id(txn.as_mut(), vec![host_id])
                 .await?
@@ -186,7 +185,7 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         .explored_endpoints
         .iter()
         .find(|e| e.boot_interface_mac.as_deref() == Some(primary_mac.to_string().as_str()))
-        .expect("the host's explored endpoint default should be reported");
+        .expect("the host's explored endpoint evaluation target should be reported");
     assert_eq!(
         reported_explored.boot_interface_id.as_deref(),
         Some(primary_boot_id),
@@ -206,22 +205,24 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
         "the retained record should carry recorded_at"
     );
 
-    // Effective pick: the owned primary's MAC.
+    // Effective pick: declared primary intent remains authoritative until its
+    // first DHCP lease promotes the prediction into an owned row.
     assert_eq!(
         report.effective_boot_interface_mac.as_deref(),
-        Some(primary_mac.to_string().as_str()),
-        "the effective boot interface is the owned primary"
+        Some(predicted_mac.to_string().as_str()),
+        "the declared primary prediction should outrank the interim owned primary"
     );
     assert_eq!(
         report.effective_boot_interface_id.as_deref(),
-        Some(primary_boot_id),
-        "the effective boot interface id is the primary row's captured boot-interface id"
+        Some("NIC.Predicted.1-1-1"),
+        "the effective boot interface id should come from the selected prediction"
     );
 
-    // Divergence: the predicted primary disagrees with the owned pick.
+    // Divergence: the endpoint evaluation target still names the owned
+    // primary, while the selected prediction names a different MAC.
     assert!(
         report.divergent,
-        "a predicted primary on a different MAC than the owned pick is a divergence"
+        "the selected prediction and endpoint evaluation target should diverge"
     );
 
     // Every owned row reports its `machine_interfaces` row id, so a candidate
@@ -235,22 +236,26 @@ async fn test_get_machine_boot_interfaces_gathers_all_four_stores(
     );
 
     // The default pick (primary flag masked) names one of the machine's own
-    // non-underlay rows. Its exact identity is the selection logic's business
+    // boot-capable rows. Its exact identity is the selection logic's business
     // (unit-tested in api-model); here we assert the wiring.
     let default_mac = report
         .default_boot_interface
         .as_ref()
         .map(|b| b.mac_address.as_str())
-        .expect("a host with non-underlay rows has a default pick");
+        .expect("a host with boot-capable rows has a default pick");
     let default_row = report
         .machine_interfaces
         .iter()
         .find(|i| i.mac_address == default_mac)
         .expect("the default pick names an owned row");
-    assert_ne!(
-        default_row.network_segment_type.as_deref(),
-        Some(NetworkSegmentType::Underlay.to_string().as_str()),
-        "the default pick never lands on an underlay row"
+    assert!(
+        [
+            NetworkSegmentType::Admin.to_string(),
+            NetworkSegmentType::HostInband.to_string(),
+        ]
+        .iter()
+        .any(|segment_type| default_row.network_segment_type.as_ref() == Some(segment_type)),
+        "the default pick lands on an Admin or HostInband row"
     );
 
     // The predicted pick is the seeded primary-flagged prediction, id and all.

@@ -618,7 +618,10 @@ impl MachineCreator {
                     NewPredictedMachineInterface {
                         machine_id,
                         mac_address,
-                        expected_network_segment_type: NetworkSegmentType::HostInband,
+                        expected_network_segment_type: predicted_network_segment_type(
+                            machine_data,
+                            mac_address,
+                        ),
                         boot_interface_id,
                         primary_interface: is_primary,
                     },
@@ -632,11 +635,10 @@ impl MachineCreator {
     }
 
     /// Owns a declared integrated (non-DPU) host NIC as a managed-DPU host's
-    /// HostInband boot interface, so a host with managed DPUs can still boot from
-    /// an integrated NIC. The NIC carries `primary` into `machine_interfaces` on
-    /// its first DHCP; the DPUs stay explored and linked, and their admin links
-    /// go dormant in `reconcile_admin_addresses_for_host` once this NIC is the
-    /// primary.
+    /// boot interface, so a host with managed DPUs can still boot from an
+    /// integrated NIC. The prediction retains the declared Admin or HostInband
+    /// segment and preserves `primary` in `machine_interfaces` on its first
+    /// DHCP; the DPUs stay explored and linked.
     ///
     /// Mirrors the host-NIC ownership in `create_zero_dpu_machine`, but for the
     /// one declared NIC reached from the managed-DPU path. No-op when nothing is
@@ -649,9 +651,14 @@ impl MachineCreator {
         report: &EndpointExplorationReport,
         machine_data: Option<&ExpectedMachineData>,
     ) -> SiteExplorerResult<()> {
-        let Some(declared_mac) = machine_data.and_then(|data| data.declared_primary_mac()) else {
+        let Some(declared_nic) = machine_data.and_then(ExpectedMachineData::declared_primary_nic)
+        else {
             return Ok(());
         };
+        let declared_mac = declared_nic.mac_address;
+        let expected_network_segment_type = declared_nic
+            .resolved_network_segment_type()
+            .unwrap_or(NetworkSegmentType::HostInband);
 
         if let Some(existing) = db::machine_interface::find_by_mac_address(&mut *txn, declared_mac)
             .await?
@@ -709,9 +716,9 @@ impl MachineCreator {
             return Ok(());
         }
 
-        // Not yet leased: mint a HostInband prediction carrying primary, so the
-        // NIC is adopted and made primary on its first DHCP (the promotion demotes
-        // the interim DPU primary).
+        // Not yet leased: mint a prediction with the declared segment and
+        // primary intent, so first-lease promotion adopts the NIC without
+        // losing either.
         let boot_interface_id = report
             .find_interface_id_for_mac(declared_mac)
             .map(|id| id.to_string());
@@ -719,7 +726,7 @@ impl MachineCreator {
             NewPredictedMachineInterface {
                 machine_id: host_machine_id,
                 mac_address: declared_mac,
-                expected_network_segment_type: NetworkSegmentType::HostInband,
+                expected_network_segment_type,
                 boot_interface_id,
                 primary_interface: true,
             },
@@ -728,7 +735,8 @@ impl MachineCreator {
         .await?;
         tracing::info!(
             declared_mac_address = %declared_mac, %host_machine_id,
-            "Minted HostInband boot-NIC prediction for managed-DPU host's declared integrated primary",
+            %expected_network_segment_type,
+            "Minted boot-NIC prediction for managed-DPU host's declared integrated primary",
         );
         Ok(())
     }
@@ -1162,4 +1170,23 @@ fn host_mac_addresses_for_predicted_machine(
             })
             .unwrap_or_default(),
     }
+}
+
+/// Keep a declared NIC's segment intent attached to its prediction.
+///
+/// Redfish can expose interfaces that are not present in `ExpectedMachine`, so
+/// undeclared NICs retain the existing HostInband default. API validation
+/// limits a declared primary to Admin or HostInband.
+fn predicted_network_segment_type(
+    machine_data: Option<&ExpectedMachineData>,
+    mac_address: MacAddress,
+) -> NetworkSegmentType {
+    machine_data
+        .and_then(|data| {
+            data.host_nics
+                .iter()
+                .find(|nic| nic.mac_address == mac_address)
+        })
+        .and_then(|nic| nic.resolved_network_segment_type())
+        .unwrap_or(NetworkSegmentType::HostInband)
 }

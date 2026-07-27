@@ -373,6 +373,7 @@ impl From<MachineSetupStatus> for rpc::site_explorer::MachineSetupStatus {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
+            verification_version: machine_setup_status.verification_version,
             evaluated_boot_interface: machine_setup_status
                 .evaluated_boot_interface
                 .map(Into::into),
@@ -461,7 +462,10 @@ mod tests {
     use chrono::{DateTime, TimeZone as _, Utc};
     use model::firmware::FirmwareComponentType;
     use model::machine_boot_interface::MachineBootInterface;
-    use model::site_explorer::{EndpointExplorationError, EndpointType, PreingestionState};
+    use model::site_explorer::{
+        EndpointExplorationError, EndpointType, MACHINE_SETUP_VERIFICATION_VERSION,
+        PreingestionState,
+    };
     use prost::Message;
 
     use super::*;
@@ -1223,6 +1227,7 @@ mod tests {
                 MachineSetupStatus {
                     is_done: true,
                     diffs: Vec::new(),
+                    verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                     evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
                         MachineBootInterface {
                             mac_address,
@@ -1232,6 +1237,7 @@ mod tests {
                 } => rpc::site_explorer::MachineSetupStatus {
                     is_done: true,
                     diffs: Vec::new(),
+                    verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                     evaluated_boot_interface: Some(
                         rpc::site_explorer::MachineBootInterfaceTarget {
                             target: Some(
@@ -1251,10 +1257,12 @@ mod tests {
                 MachineSetupStatus {
                     is_done: false,
                     diffs: Vec::new(),
+                    verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                     evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac_address)),
                 } => rpc::site_explorer::MachineSetupStatus {
                     is_done: false,
                     diffs: Vec::new(),
+                    verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                     evaluated_boot_interface: Some(
                         rpc::site_explorer::MachineBootInterfaceTarget {
                             target: Some(
@@ -1370,6 +1378,7 @@ mod tests {
                     expected: "PXE".to_string(),
                     actual: "Disk".to_string(),
                 }],
+                verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                 evaluated_boot_interface: None,
             }),
             secure_boot_status: Some(SecureBootStatus { is_enabled: true }),

@@ -55,6 +55,10 @@ impl TestContext {
             .build()
             .await
             .0;
+        site_explorer
+            .run_single_iteration()
+            .await
+            .expect("Site Explorer iteration should succeed");
         Self { env, mh }
     }
 }

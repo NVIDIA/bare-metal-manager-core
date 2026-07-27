@@ -71,11 +71,11 @@ impl MachineBootInterface {
 ///
 /// Newer endpoint records retain the complete [`MachineBootInterface`] pair.
 /// Older records may only have the MAC, which remains a valid selector but
-/// must stay distinguishable from a pair. A backend may match with only the
-/// identifiers its read path supports -- NvRedfish currently uses the MAC --
-/// while this value keeps the `Pair` identity NICo requested. The state
-/// controller can therefore compare the logical target with its current target
-/// before trusting the associated setup status.
+/// must stay distinguishable from a pair. Site Explorer passes this target to
+/// the same LibRedfish vendor implementation used to apply boot configuration,
+/// then records the exact value it evaluated. The state controller compares
+/// that value with the current desired target before trusting the associated
+/// setup status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum MachineBootInterfaceTarget {

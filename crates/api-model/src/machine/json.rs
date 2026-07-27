@@ -35,9 +35,10 @@ use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::spx::MachineSpxStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
-    Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineConfig,
-    MachineInterfaceSnapshot, MachineLastRebootRequested, MachineMaintenanceRequest, MachineStatus,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    BootConfigSynchronizationRequest, Dpf, FailureDetails, HostProfile, HostReprovisionRequest,
+    Machine, MachineConfig, MachineInterfaceSnapshot, MachineLastRebootRequested,
+    MachineMaintenanceRequest, MachineStatus, ManagedHostState, ReprovisionRequest,
+    UpgradeDecision,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -75,6 +76,8 @@ pub struct MachineSnapshotPgJson {
     pub reprovisioning_requested: Option<ReprovisionRequest>,
     pub host_reprovisioning_requested: Option<HostReprovisionRequest>,
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
+    pub boot_interface_selection_version: String,
+    pub boot_config_synchronization_requested: Option<BootConfigSynchronizationRequest>,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -236,6 +239,14 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             host_profile: value.host_profile,
             rack_fw_details: value.rack_fw_details,
             machine_maintenance_requested: value.machine_maintenance_requested,
+            boot_interface_selection_version: value
+                .boot_interface_selection_version
+                .parse()
+                .map_err(|e| sqlx::error::Error::ColumnDecode {
+                    index: "boot_interface_selection_version".to_string(),
+                    source: Box::new(e),
+                })?,
+            boot_config_synchronization_requested: value.boot_config_synchronization_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }

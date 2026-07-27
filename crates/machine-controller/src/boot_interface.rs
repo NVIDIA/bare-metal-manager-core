@@ -17,63 +17,68 @@
 //! Resolving how to target a host's boot interface for Redfish setup calls.
 
 use carbide_redfish::boot_interface::BootInterfaceTarget;
-use mac_address::MacAddress;
-use model::machine::{ManagedHostStateSnapshot, pick_boot_prediction};
-use model::machine_boot_interface::MachineBootInterface;
+use carbide_uuid::machine::MachineInterfaceId;
+use model::machine::{
+    BootInterfaceCandidate, MachineInterfaceSnapshot, ManagedHostStateSnapshot,
+    pick_boot_interface_candidate,
+};
 use model::predicted_machine_interface::PredictedMachineInterface;
 
-/// Resolve how to target this host's boot interface for Redfish setup calls.
+/// A selected boot-interface target and whether it already has an owned row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedBootInterface {
+    pub machine_interface_id: Option<MachineInterfaceId>,
+    pub target: BootInterfaceTarget,
+}
+
+/// Resolve the host's selected boot interface across owned rows and pending
+/// predictions.
 ///
-/// The host's own `machine_interface` row wins the moment it exists: when that
-/// row has a captured `boot_interface_id`, the full pair is supplied to
-/// `libredfish` in one operation; otherwise the target contains only the MAC.
-/// Both identifiers come from the same row, so the pair cannot name a different
-/// interface than the MAC.
+/// The shared candidate picker lets a declared primary prediction outrank an
+/// interim owned row until the declared NIC takes its first lease. Otherwise an
+/// owned row wins, with a sole non-primary prediction used only when no row is
+/// selectable. A captured Redfish interface id completes the target pair; until
+/// then the target contains only the selected MAC.
 ///
-/// Before that first DHCP lease creates a row -- the window a zero-DPU or
-/// NIC-mode host sits in, since it gets no primary row at ingestion -- the host's
-/// `predictions` answer instead, via `pick_boot_prediction` (the declared
-/// primary, else the sole non-underlay prediction). The predicted MAC and
-/// recorded id form the same pair the real row will hold once the lease promotes
-/// it.
+/// `machine_interface_id` remains `None` for a prediction, allowing the durable
+/// synchronization state to notice first-lease promotion and retarget to the
+/// newly owned row.
+pub fn resolved_boot_interface(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    predictions: &[PredictedMachineInterface],
+) -> Option<ResolvedBootInterface> {
+    resolved_boot_interface_from_stores(&mh_snapshot.host_snapshot.status.interfaces, predictions)
+}
+
+/// Resolve from freshly loaded owned rows and predictions.
 ///
-/// Returns `None` only when the host has no boot interface at all -- no row and
-/// no usable prediction (e.g. only the BMC has been discovered, or several
-/// predictions with no declared primary).
+/// Transactional callers use this after locking both stores so first-lease
+/// promotion cannot leave them resolving against an older machine snapshot.
+pub fn resolved_boot_interface_from_stores(
+    interfaces: &[MachineInterfaceSnapshot],
+    predictions: &[PredictedMachineInterface],
+) -> Option<ResolvedBootInterface> {
+    pick_boot_interface_candidate(interfaces, predictions).map(resolved_from_candidate)
+}
+
+fn resolved_from_candidate(candidate: BootInterfaceCandidate<'_>) -> ResolvedBootInterface {
+    let mac_address = candidate.mac_address();
+    ResolvedBootInterface {
+        machine_interface_id: candidate.machine_interface_id(),
+        target: candidate.boot_interface().map_or(
+            BootInterfaceTarget::MacOnly(mac_address),
+            BootInterfaceTarget::Pair,
+        ),
+    }
+}
+
+/// Resolve only the Redfish target for callers that do not need to distinguish
+/// a pending prediction from an owned interface.
 pub fn boot_interface_target(
     mh_snapshot: &ManagedHostStateSnapshot,
     predictions: &[PredictedMachineInterface],
 ) -> Option<BootInterfaceTarget> {
-    boot_interface_target_from(
-        mh_snapshot.boot_interface(),
-        mh_snapshot.boot_interface_mac(),
-        predictions,
-    )
-}
-
-/// The boot-target decision, split out from the snapshot lookup so it can be
-/// unit-tested directly without constructing a full `ManagedHostStateSnapshot`
-/// -- the same split `pick_boot_interface_mac`/`_pair` use in api-model. The
-/// host's own row wins (its captured pair, else its MAC alone); only when it
-/// owns no boot row does the predicted boot interface answer.
-fn boot_interface_target_from(
-    row_pair: Option<MachineBootInterface>,
-    row_mac: Option<MacAddress>,
-    predictions: &[PredictedMachineInterface],
-) -> Option<BootInterfaceTarget> {
-    if let Some(pair) = row_pair {
-        return Some(BootInterfaceTarget::Pair(pair));
-    }
-    if let Some(mac) = row_mac {
-        return Some(BootInterfaceTarget::MacOnly(mac));
-    }
-    // No real row yet -- fall back to the host's predicted boot interface.
-    pick_boot_prediction(predictions).map(|prediction| {
-        prediction.boot_interface().map_or(
-            BootInterfaceTarget::MacOnly(prediction.mac_address),
-            BootInterfaceTarget::Pair,
-        )
-    })
+    resolved_boot_interface(mh_snapshot, predictions).map(|resolved| resolved.target)
 }
 
 /// What a Redfish boot step should do with a host's boot interface.
@@ -83,11 +88,11 @@ fn boot_interface_target_from(
 /// after the host comes up, so until then it has no boot interface to resolve --
 /// the controller should wait, not fail. A host with managed DPUs always has its
 /// DPU-facing primary set at promotion, so a missing boot interface there is a
-/// genuine fault.
+/// configuration fault.
 #[derive(Debug)]
 pub enum BootInterfaceResolution {
     /// The boot interface resolved; target it.
-    Ready(BootInterfaceTarget),
+    Ready(ResolvedBootInterface),
     /// A zero-DPU host with no boot interface yet -- neither a real row nor a
     /// usable prediction -- so wait for its boot NIC to appear.
     AwaitingNic,
@@ -102,7 +107,7 @@ pub fn resolve_boot_interface(
     predictions: &[PredictedMachineInterface],
 ) -> BootInterfaceResolution {
     classify_boot_interface(
-        boot_interface_target(mh_snapshot, predictions),
+        resolved_boot_interface(mh_snapshot, predictions),
         mh_snapshot.has_managed_dpus(),
     )
 }
@@ -110,7 +115,7 @@ pub fn resolve_boot_interface(
 /// The decision behind [`resolve_boot_interface`], split out from the snapshot
 /// lookup so it can be unit-tested directly.
 fn classify_boot_interface(
-    boot_interface: Option<BootInterfaceTarget>,
+    boot_interface: Option<ResolvedBootInterface>,
     has_managed_dpus: bool,
 ) -> BootInterfaceResolution {
     match boot_interface {
@@ -123,6 +128,7 @@ fn classify_boot_interface(
 #[cfg(test)]
 mod tests {
     use mac_address::MacAddress;
+    use model::machine_boot_interface::MachineBootInterface;
     use model::network_segment::NetworkSegmentType;
 
     use super::*;
@@ -140,55 +146,31 @@ mod tests {
         }
     }
 
-    // The host's own row wins over any prediction: a captured id gives the pair.
     #[test]
-    fn boot_target_prefers_the_owned_row_over_predictions() {
-        let pair = MachineBootInterface {
-            mac_address: "10:00:00:00:00:01".parse().unwrap(),
-            interface_id: "NIC.Slot.5-1".to_string(),
-        };
+    fn predicted_pair_keeps_its_pending_row_identity() {
+        let prediction = prediction("20:00:00:00:00:01", Some("NIC.Embedded.1-1-1"));
         assert_eq!(
-            boot_interface_target_from(
-                Some(pair.clone()),
-                Some("10:00:00:00:00:01".parse().unwrap()),
-                &[prediction("20:00:00:00:00:01", Some("NIC.Embedded.1-1-1"))],
-            ),
-            Some(BootInterfaceTarget::Pair(pair)),
+            resolved_from_candidate(BootInterfaceCandidate::Prediction(&prediction)),
+            ResolvedBootInterface {
+                machine_interface_id: None,
+                target: BootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address: "20:00:00:00:00:01".parse().unwrap(),
+                    interface_id: "NIC.Embedded.1-1-1".to_string(),
+                }),
+            },
         );
     }
 
-    // No owned row yet: the predicted boot interface answers (pre-first-lease),
-    // as a full pair when the prediction carries the Redfish id.
     #[test]
-    fn boot_target_falls_back_to_the_prediction_before_the_first_lease() {
+    fn prediction_without_an_id_targets_only_its_mac() {
+        let prediction = prediction("20:00:00:00:00:01", None);
         assert_eq!(
-            boot_interface_target_from(
-                None,
-                None,
-                &[prediction("20:00:00:00:00:01", Some("NIC.Embedded.1-1-1"))],
-            ),
-            Some(BootInterfaceTarget::Pair(MachineBootInterface {
-                mac_address: "20:00:00:00:00:01".parse().unwrap(),
-                interface_id: "NIC.Embedded.1-1-1".to_string(),
-            })),
+            resolved_from_candidate(BootInterfaceCandidate::Prediction(&prediction)),
+            ResolvedBootInterface {
+                machine_interface_id: None,
+                target: BootInterfaceTarget::MacOnly("20:00:00:00:00:01".parse().unwrap(),),
+            },
         );
-    }
-
-    // A prediction with no captured id targets the MAC alone.
-    #[test]
-    fn boot_target_prediction_without_id_is_mac_only() {
-        assert_eq!(
-            boot_interface_target_from(None, None, &[prediction("20:00:00:00:00:01", None)]),
-            Some(BootInterfaceTarget::MacOnly(
-                "20:00:00:00:00:01".parse().unwrap()
-            )),
-        );
-    }
-
-    // No row and no usable prediction: nothing to target, so the caller waits.
-    #[test]
-    fn boot_target_is_none_without_row_or_prediction() {
-        assert_eq!(boot_interface_target_from(None, None, &[]), None);
     }
 
     #[test]
@@ -213,7 +195,10 @@ mod tests {
 
     #[test]
     fn classify_uses_the_resolved_interface_when_present() {
-        let target = BootInterfaceTarget::MacOnly(MacAddress::new([0, 0, 0, 0, 0, 1]));
+        let target = ResolvedBootInterface {
+            machine_interface_id: None,
+            target: BootInterfaceTarget::MacOnly(MacAddress::new([0, 0, 0, 0, 0, 1])),
+        };
         assert!(matches!(
             classify_boot_interface(Some(target), false),
             BootInterfaceResolution::Ready(_)

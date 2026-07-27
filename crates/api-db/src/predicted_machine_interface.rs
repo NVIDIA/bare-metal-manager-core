@@ -96,6 +96,78 @@ pub async fn find_by_machine_id(
     find_by(txn, ObjectColumnFilter::One(MachineIdColumn, machine_id)).await
 }
 
+pub async fn find_by_id(
+    txn: &mut PgConnection,
+    id: uuid::Uuid,
+) -> Result<Option<PredictedMachineInterface>, DatabaseError> {
+    let query = "SELECT * FROM predicted_machine_interfaces WHERE id = $1";
+    sqlx::query_as(query)
+        .bind(id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Locks every predicted interface currently associated with a machine.
+///
+/// Callers take an explored-endpoint lock first when needed, followed by the
+/// machine lock and then this one. A following [`find_by_machine_id`] sees a
+/// target that prediction updates and promotion cannot change until the
+/// transaction completes.
+pub async fn lock_for_machine(
+    txn: &mut PgConnection,
+    machine_id: carbide_uuid::machine::MachineId,
+) -> Result<(), DatabaseError> {
+    let query =
+        "SELECT id FROM predicted_machine_interfaces WHERE machine_id = $1 ORDER BY id FOR UPDATE";
+    sqlx::query_scalar::<_, uuid::Uuid>(query)
+        .bind(machine_id)
+        .fetch_all(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Locks predictions for the supplied MACs in row-id order.
+///
+/// Site Explorer takes owned-interface locks first, then this lock, matching
+/// first-lease promotion and explicit selection.
+pub async fn lock_for_mac_addresses(
+    txn: &mut PgConnection,
+    mac_addresses: &[MacAddress],
+) -> Result<(), DatabaseError> {
+    if mac_addresses.is_empty() {
+        return Ok(());
+    }
+    let query = "SELECT id FROM predicted_machine_interfaces WHERE mac_address = ANY($1) ORDER BY id FOR UPDATE";
+    sqlx::query_scalar::<_, uuid::Uuid>(query)
+        .bind(mac_addresses)
+        .fetch_all(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Clears pending primary designations after an operator selects an owned row.
+///
+/// Callers lock the machine and its predictions first. The predictions remain
+/// available for identity and first-lease adoption, but no longer outrank the
+/// operator-selected interface in cross-store boot resolution.
+pub async fn clear_primary_for_machine(
+    txn: &mut PgConnection,
+    machine_id: carbide_uuid::machine::MachineId,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE predicted_machine_interfaces \
+                 SET primary_interface = false \
+                 WHERE machine_id = $1 AND primary_interface = true";
+    sqlx::query(query)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn find_by_mac_address(
     txn: &mut PgConnection,
     mac_address: MacAddress,

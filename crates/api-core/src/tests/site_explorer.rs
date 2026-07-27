@@ -29,7 +29,8 @@ use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostStateSnapshot;
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::site_explorer::{
-    Chassis, EndpointExplorationError, EndpointExplorationReport, MachineSetupStatus,
+    Chassis, EndpointExplorationError, EndpointExplorationReport,
+    MACHINE_SETUP_VERIFICATION_VERSION, MachineSetupStatus,
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::forge_server::Forge;
@@ -820,6 +821,7 @@ fn report_with_evaluated_boot_interface(
     report.machine_setup_status = Some(MachineSetupStatus {
         is_done: true,
         diffs: Vec::new(),
+        verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
         evaluated_boot_interface: target.map(MachineBootInterfaceTarget::from),
     });
     report
@@ -1082,6 +1084,7 @@ async fn test_refresh_endpoint_report_rejects_concurrent_report_update(
     concurrent_report.machine_setup_status = Some(MachineSetupStatus {
         is_done: false,
         diffs: Vec::new(),
+        verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
         evaluated_boot_interface: Some(concurrent_target.clone()),
     });
     let mut txn = env.pool.begin().await?;
@@ -1138,6 +1141,7 @@ async fn test_refresh_endpoint_report_failure_persists_error_and_bumps_version(
     initial.report.machine_setup_status = Some(MachineSetupStatus {
         is_done: true,
         diffs: Vec::new(),
+        verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
         evaluated_boot_interface: Some(preserved_target.clone()),
     });
     let mut txn = env.pool.begin().await?;

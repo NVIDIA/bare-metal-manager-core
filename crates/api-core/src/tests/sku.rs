@@ -1227,45 +1227,26 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
         db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
-        let mut state = machine.current_state().clone();
+        handle_inventory_update(&pool, &env, &mh).await;
 
-        for _ in 0..20 {
-            env.run_machine_state_controller_iteration().await;
-            state = get_machine_state(&pool, &mh).await;
-            assert!(!matches!(
-                state,
-                ManagedHostState::Validation {
-                    validation_state: ValidationState::MachineValidation {
-                        machine_validation: MachineValidatingState::MachineValidating { .. }
-                    }
-                }
-            ));
-            if state == ManagedHostState::Ready {
-                break;
-            }
-            if matches!(
-                state,
-                ManagedHostState::BomValidating {
-                    bom_validating_state: BomValidating::UpdatingInventory(..)
-                }
-            ) {
-                let mut txn = pool.begin().await?;
-
-                db::machine::update_discovery_time(&machine.id, &mut txn)
-                    .await
-                    .unwrap();
-                txn.commit().await.unwrap();
-            }
-        }
-
-        assert_eq!(state, ManagedHostState::Ready);
+        env.run_machine_state_controller_iteration_until_state_condition(
+            &machine_id,
+            20,
+            |machine| {
+                assert!(!matches!(
+                    machine.current_state(),
+                    ManagedHostState::Validation { .. }
+                ));
+                machine.current_state() == &ManagedHostState::Ready
+            },
+        )
+        .await;
 
         Ok(())
     }
@@ -1365,11 +1346,7 @@ pub mod tests {
             |machine| {
                 assert!(!matches!(
                     machine.current_state(),
-                    ManagedHostState::Validation {
-                        validation_state: ValidationState::MachineValidation {
-                            machine_validation: MachineValidatingState::MachineValidating { .. }
-                        }
-                    }
+                    ManagedHostState::Validation { .. }
                 ));
                 matches!(
                     machine.current_state(),
@@ -1382,25 +1359,19 @@ pub mod tests {
         .await;
         mh.host().forge_agent_control().await;
 
-        let mut state = get_machine_state(&pool, &mh).await;
-        for _ in 0..3 {
-            env.run_machine_state_controller_iteration().await;
+        env.run_machine_state_controller_iteration_until_state_condition(
+            &machine_id,
+            3,
+            |machine| {
+                assert!(!matches!(
+                    machine.current_state(),
+                    ManagedHostState::Validation { .. }
+                ));
+                machine.current_state() == &ManagedHostState::Ready
+            },
+        )
+        .await;
 
-            state = get_machine_state(&pool, &mh).await;
-            assert!(!matches!(
-                state,
-                ManagedHostState::Validation {
-                    validation_state: ValidationState::MachineValidation {
-                        machine_validation: MachineValidatingState::MachineValidating { .. }
-                    }
-                }
-            ));
-            if state == ManagedHostState::Ready {
-                break;
-            }
-        }
-
-        assert_eq!(state, ManagedHostState::Ready);
         Ok(())
     }
 

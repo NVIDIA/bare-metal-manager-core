@@ -21,7 +21,12 @@ use carbide_redfish::libredfish::RedfishClientPool as _;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use carbide_utils::redfish::BmcAccessInfo;
-use model::machine::{MachineMaintenanceOperation, ManagedHostState};
+use config_version::ConfigVersion;
+use model::machine::{
+    BootConfigSynchronizationState, BootConfigSynchronizationTarget, MachineMaintenanceOperation,
+    ManagedHostState,
+};
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerState;
 use model::test_support::ManagedHostConfig;
 use rpc::forge::{
@@ -170,6 +175,64 @@ async fn desired_on_polls_powered_off_machine(
     assert_eq!(power_options[0].desired_power_state, PowerState::On);
     assert_eq!(power_options[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn boot_config_synchronization_waits_for_desired_host_power(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let TestContext { mut env, mh } = TestContext::init(pool).await;
+    let bmc_access_info = mh.bmc_access_info().await;
+    let sim = env.redfish_sim.client_by_info(&bmc_access_info).await?;
+    let target = BootConfigSynchronizationTarget {
+        machine_interface_id: None,
+        boot_interface: MachineBootInterfaceTarget::MacOnly("02:00:00:00:00:01".parse()?),
+        selection_version: ConfigVersion::initial(),
+    };
+    let states = [
+        BootConfigSynchronizationState::Initialize { target: None },
+        BootConfigSynchronizationState::WaitingForInitialObservation {
+            target: target.clone(),
+            minimum_report_version: ConfigVersion::invalid(),
+        },
+        BootConfigSynchronizationState::PrepareHost { target },
+    ];
+
+    for synchronization_state in states {
+        let state = ManagedHostState::BootConfigSynchronization {
+            synchronization_state,
+            synchronization_retry_count: 0,
+        };
+        mh.advance_state(state.clone()).await;
+        sim.power(libredfish::SystemPowerControl::ForceOff).await?;
+        assert_eq!(sim.get_power_state().await?, libredfish::PowerState::Off);
+        mh.set_next_power_poll_now().await;
+
+        let mut txn = env.test_harness.db_txn().await;
+        let power_options = db::power_options::get_all(&mut txn).await?;
+        let off_counter = power_options[0].last_fetched_off_counter;
+        txn.rollback().await?;
+
+        env.run_single_iteration().await;
+
+        let machine = mh.host.machine().await;
+        assert_eq!(
+            machine.state.value, state,
+            "boot-interface work must wait while desired host power is not satisfied",
+        );
+        let mut txn = env.test_harness.db_txn().await;
+        let power_options = db::power_options::get_all(&mut txn).await?;
+        assert_eq!(power_options[0].desired_power_state, PowerState::On);
+        assert_eq!(power_options[0].last_fetched_power_state, PowerState::Off);
+        assert_eq!(
+            power_options[0].last_fetched_off_counter,
+            off_counter + 1,
+            "the synchronization state must process host power before Redfish boot work",
+        );
+        txn.rollback().await?;
+    }
 
     Ok(())
 }
@@ -365,14 +428,21 @@ async fn queued_power_off_runs_when_power_manager_gates_desired_off(
     );
 
     // Second iteration reconciles the PowerOff against the (succeeding) backend,
-    // clears the request, and returns the host to Ready -- confirming the queued
-    // operation runs to completion, not just that it entered Maintenance.
+    // clears the request, and enters the pre-Ready boot-config gate. This
+    // confirms the queued operation runs to completion, not just that it entered
+    // Maintenance.
     env.run_single_iteration().await;
 
     let machine = mh.host.machine().await;
     assert!(
-        matches!(machine.state.value, ManagedHostState::Ready),
-        "expected Ready after the PowerOff completes, got {:?}",
+        matches!(
+            machine.state.value,
+            ManagedHostState::BootConfigSynchronization {
+                synchronization_state: BootConfigSynchronizationState::Initialize { target: None },
+                synchronization_retry_count: 0,
+            }
+        ),
+        "expected boot-config synchronization after the PowerOff completes, got {:?}",
         machine.state.value,
     );
     assert!(

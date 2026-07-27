@@ -1673,6 +1673,13 @@ pub struct Inventory {
     pub release_date: Option<String>,
 }
 
+/// Current semantics for newly produced machine-setup observations.
+pub const MACHINE_SETUP_VERIFICATION_VERSION: u32 = 1;
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
 /// The result of one Redfish machine-setup check.
 ///
 /// `is_done` and `diffs` mirror the vendor result. The evaluated boot interface
@@ -1684,11 +1691,16 @@ pub struct Inventory {
 pub struct MachineSetupStatus {
     pub is_done: bool,
     pub diffs: Vec<MachineSetupDiff>,
+    /// Version of the verification semantics that produced this status.
+    ///
+    /// Reports written before the pair-aware LibRedfish verifier omit this
+    /// field and deserialize as zero, so they cannot satisfy synchronization
+    /// after an upgrade.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub verification_version: u32,
     /// The logical boot-interface target NICo asked the backend to assess.
     ///
-    /// This does not claim that the backend used every identifier in the
-    /// target: a backend may match with a subset (NvRedfish currently uses the
-    /// MAC) while retaining the requested `Pair` identity. This lives inside
+    /// The pair-aware verifier receives this exact target. This lives inside
     /// `MachineSetupStatus` so the report's versioned JSON stores the
     /// observation and its target together. Reports written before target
     /// capture leave it as `None`, which tells a later controller not to treat
@@ -2681,6 +2693,7 @@ mod tests {
                 MachineSetupStatus {
                     is_done: true,
                     diffs: Vec::new(),
+                    verification_version: 0,
                     evaluated_boot_interface: None,
                 } => (
                     serde_json::json!({
@@ -2690,6 +2703,7 @@ mod tests {
                     MachineSetupStatus {
                         is_done: true,
                         diffs: Vec::new(),
+                        verification_version: 0,
                         evaluated_boot_interface: None,
                     },
                 ),
@@ -2699,6 +2713,7 @@ mod tests {
                 MachineSetupStatus {
                     is_done: false,
                     diffs: Vec::new(),
+                    verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                     evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
                         MachineBootInterface {
                             mac_address: mac,
@@ -2709,6 +2724,7 @@ mod tests {
                     serde_json::json!({
                         "IsDone": false,
                         "Diffs": [],
+                        "VerificationVersion": MACHINE_SETUP_VERIFICATION_VERSION,
                         "EvaluatedBootInterface": {
                             "Pair": {
                                 "MacAddress": "02:00:00:00:00:01",
@@ -2719,6 +2735,7 @@ mod tests {
                     MachineSetupStatus {
                         is_done: false,
                         diffs: Vec::new(),
+                        verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                         evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
                             MachineBootInterface {
                                 mac_address: mac,
@@ -2733,11 +2750,13 @@ mod tests {
                 MachineSetupStatus {
                     is_done: true,
                     diffs: Vec::new(),
+                    verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                     evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac)),
                 } => (
                     serde_json::json!({
                         "IsDone": true,
                         "Diffs": [],
+                        "VerificationVersion": MACHINE_SETUP_VERIFICATION_VERSION,
                         "EvaluatedBootInterface": {
                             "MacOnly": "02:00:00:00:00:01",
                         },
@@ -2745,6 +2764,7 @@ mod tests {
                     MachineSetupStatus {
                         is_done: true,
                         diffs: Vec::new(),
+                        verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
                         evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac)),
                     },
                 ),
@@ -2754,6 +2774,7 @@ mod tests {
         let legacy: MachineSetupStatus = serde_json::from_str(r#"{"IsDone":true,"Diffs":[]}"#)
             .expect("reports written before target capture still deserialize");
         assert_eq!(legacy.evaluated_boot_interface, None);
+        assert_eq!(legacy.verification_version, 0);
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

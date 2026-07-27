@@ -24,7 +24,7 @@ use std::str::FromStr;
 
 use carbide_uuid::dpa_interface::DpaInterfaceId;
 use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineType};
+use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use carbide_uuid::machine_validation::MachineValidationId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use chrono::{DateTime, Utc};
@@ -48,10 +48,11 @@ use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, DpuInfoStatusObservation, DpuOsOperationalState, DpuRepresentorStatus,
-    FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, MachineMaintenanceOperation, MachineValidationContext,
-    ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    BootConfigSynchronizationRequest, Dpf, DpuInfo, DpuInfoStatusObservation,
+    DpuOsOperationalState, DpuRepresentorStatus, FailureDetails, HostProfile, Machine,
+    MachineInterfaceSnapshot, MachineLastRebootRequested, MachineLastRebootRequestedMode,
+    MachineMaintenanceOperation, MachineValidationContext, ManagedHostState, ReprovisionRequest,
+    UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -228,7 +229,19 @@ pub async fn advance(
     // Get current version
     let version = version.unwrap_or_else(|| machine.state.version.increment());
 
-    // Store history of machine state changes.
+    let _id: (String,) = sqlx::query_as(
+            "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
+        )
+        .bind(version)
+        .bind(sqlx::types::Json(state))
+        .bind(machine.id.to_string())
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::new("update machines state", e))?;
+
+    // Persist history after locking the machine row. The compare-and-swap
+    // writer uses the same order so concurrent state writers cannot invert
+    // the machine-row and per-object history locks.
     crate::state_history::persist(
         txn,
         crate::state_history::StateHistoryTableId::Machine,
@@ -237,16 +250,6 @@ pub async fn advance(
         version,
     )
     .await?;
-
-    let _id: (String,) = sqlx::query_as(
-            "UPDATE machines SET controller_state_version=$1, controller_state=$2 WHERE id=$3 RETURNING id",
-        )
-        .bind(version)
-        .bind(sqlx::types::Json(state))
-        .bind(machine.id.to_string())
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("update machines state", e))?;
 
     Ok(true)
 }
@@ -1489,6 +1492,16 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         };
     }
 
+    // Lock the machine before its history rows, matching every state writer.
+    // Otherwise stable-ID promotion can hold history rows while waiting for a
+    // state writer that already holds the machine row.
+    let query = "SELECT id FROM machines WHERE id=$1 FOR UPDATE";
+    sqlx::query_scalar::<_, MachineId>(query)
+        .bind(current_machine_id)
+        .fetch_one(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
     // Update the machine state and health history to account for the rename
     crate::state_history::update_object_ids(
         txn,
@@ -2174,6 +2187,52 @@ pub async fn update_state(
     Ok(())
 }
 
+/// Updates a managed host state only when its controller version still matches.
+///
+/// The state controller and API-triggered lifecycle handoffs share this
+/// compare-and-swap path so a handler result computed from an older snapshot
+/// cannot overwrite a newer state. Associated DPU rows and state history are
+/// updated only after the host comparison succeeds.
+pub async fn update_state_if_version_matches(
+    txn: &mut PgConnection,
+    host_id: &MachineId,
+    old_version: ConfigVersion,
+    new_version: ConfigVersion,
+    new_state: &ManagedHostState,
+) -> Result<bool, DatabaseError> {
+    let query = "UPDATE machines \
+                 SET controller_state_version = $1, controller_state = $2 \
+                 WHERE id = $3 AND controller_state_version = $4 \
+                 RETURNING id";
+    let updated = sqlx::query_as::<_, MachineId>(query)
+        .bind(new_version)
+        .bind(sqlx::types::Json(new_state))
+        .bind(host_id)
+        .bind(old_version)
+        .fetch_optional(&mut *txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+        .is_some();
+    if !updated {
+        return Ok(false);
+    }
+
+    crate::state_history::persist(
+        txn,
+        crate::state_history::StateHistoryTableId::Machine,
+        host_id,
+        new_state,
+        new_version,
+    )
+    .await?;
+
+    for dpu in find_dpus_by_host_machine_id(txn, host_id).await? {
+        advance(&dpu, txn, new_state, Some(new_version)).await?;
+    }
+
+    Ok(true)
+}
+
 pub async fn update_machine_validation_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,
@@ -2630,6 +2689,139 @@ pub async fn clear_machine_maintenance_requested(
         .await
         .map_err(|e| DatabaseError::new("clear_machine_maintenance_requested", e))?;
     Ok(())
+}
+
+/// Locks a machine's selected boot-interface generation.
+///
+/// Boot-interface writers take endpoint and machine-interface locks before
+/// this machine-row lock, matching Scout discovery's interface-before-machine
+/// order. The returned version remains current until the surrounding
+/// transaction commits or rolls back.
+pub async fn lock_boot_interface_selection_version(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<ConfigVersion> {
+    let query = "SELECT boot_interface_selection_version FROM machines WHERE id = $1 FOR UPDATE";
+    let version: String = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    version.parse().map_err(|e| {
+        DatabaseError::internal(format!(
+            "invalid boot-interface selection version for machine {machine_id}: {e}"
+        ))
+    })
+}
+
+/// Persists a selected boot-interface generation and its assigned-host
+/// authorization while the machine row is locked by
+/// [`lock_boot_interface_selection_version`].
+pub async fn set_boot_config_synchronization_request(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    current_selection_version: ConfigVersion,
+    interface_id: MachineInterfaceId,
+    selection_changed: bool,
+    authorize_synchronization: bool,
+    initiator: Option<String>,
+) -> DatabaseResult<ConfigVersion> {
+    let selection_version = if selection_changed {
+        current_selection_version.increment()
+    } else {
+        current_selection_version
+    };
+    let request = authorize_synchronization.then(|| BootConfigSynchronizationRequest {
+        interface_id,
+        selection_version,
+        requested_at: Utc::now(),
+        initiator,
+    });
+
+    let query = "UPDATE machines \
+                 SET boot_interface_selection_version = $2, \
+                     boot_config_synchronization_requested = $3 \
+                 WHERE id = $1 AND boot_interface_selection_version = $4 \
+                 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(selection_version)
+        .bind(request.map(sqlx::types::Json))
+        .bind(current_selection_version)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(selection_version)
+}
+
+/// Locks and validates the exact assigned-host synchronization authorization.
+///
+/// A controller transition uses this lock in the same transaction as its
+/// state compare-and-swap so a concurrent API request cannot revoke or replace
+/// the authorization between validation and state persistence.
+pub async fn lock_boot_config_synchronization_request(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    interface_id: MachineInterfaceId,
+    selection_version: ConfigVersion,
+) -> DatabaseResult<bool> {
+    let query = "SELECT id FROM machines \
+                 WHERE id = $1 \
+                   AND boot_config_synchronization_requested->>'interface_id' = $2 \
+                   AND boot_config_synchronization_requested->>'selection_version' = $3 \
+                 FOR UPDATE";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(interface_id.to_string())
+        .bind(selection_version.version_string())
+        .fetch_optional(txn)
+        .await
+        .map(|row| row.is_some())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Clears an assigned-host synchronization authorization only when it still
+/// names the exact selected interface generation being handled.
+pub async fn consume_boot_config_synchronization_request(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+    interface_id: MachineInterfaceId,
+    selection_version: ConfigVersion,
+) -> DatabaseResult<bool> {
+    let query = "UPDATE machines \
+                 SET boot_config_synchronization_requested = NULL \
+                 WHERE id = $1 \
+                   AND boot_config_synchronization_requested->>'interface_id' = $2 \
+                   AND boot_config_synchronization_requested->>'selection_version' = $3 \
+                 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(interface_id.to_string())
+        .bind(selection_version.version_string())
+        .fetch_optional(txn)
+        .await
+        .map(|row| row.is_some())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Clears authorization left by an assigned lifecycle before an unassigned
+/// host becomes Ready again.
+pub async fn clear_boot_config_synchronization_request(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<bool> {
+    let query = "UPDATE machines \
+                 SET boot_config_synchronization_requested = NULL \
+                 WHERE id = $1 \
+                   AND boot_config_synchronization_requested IS NOT NULL \
+                 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_optional(txn)
+        .await
+        .map(|row| row.is_some())
+        .map_err(|e| DatabaseError::query(query, e))
 }
 
 pub async fn update_dpu_asns(

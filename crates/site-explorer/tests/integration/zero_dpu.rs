@@ -30,6 +30,7 @@ use model::expected_machine::{
     ExpectedHostNic, ExpectedMachine, ExpectedMachineData, HostDpuPolicy,
 };
 use model::machine_boot_interface::MachineBootInterface;
+use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
 
 struct ZeroDpuEnv {
@@ -785,6 +786,7 @@ async fn test_zero_dpu_declared_primary_promotes_as_primary(
                 host_nics: vec![
                     ExpectedHostNic {
                         mac_address: primary_nic,
+                        network_segment_type: Some(NetworkSegmentType::HostInband),
                         primary: Some(true),
                         ..Default::default()
                     },
@@ -858,6 +860,11 @@ async fn test_zero_dpu_declared_primary_promotes_as_primary(
         predicted_primary.primary_interface,
         "the declared NIC's prediction should carry the primary intent"
     );
+    assert_eq!(
+        predicted_primary.expected_network_segment_type,
+        NetworkSegmentType::HostInband,
+        "the prediction should retain the declared host-inband segment",
+    );
     let predicted_other = db::predicted_machine_interface::find_by_mac_address(&mut txn, other_nic)
         .await?
         .expect("the non-declared NIC should have a prediction");
@@ -902,6 +909,93 @@ async fn test_zero_dpu_declared_primary_promotes_as_primary(
         primary_row.machine_id, other_row.machine_id,
         "both NICs should belong to the same host"
     );
+
+    // Once the host is managed, its selected row owns the endpoint target.
+    // Keep the endpoint on the declared default while selecting the other row,
+    // then verify the next Site Explorer pass follows the managed selection
+    // instead of restoring its inferred default.
+    let mut txn = env.pool.begin().await?;
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    db::explored_endpoints::set_boot_interface_target(
+        host_bmc_ip,
+        &endpoint
+            .boot_interface_target()
+            .expect("the endpoint should have a target"),
+        &mut txn,
+    )
+    .await?;
+    db::machine_interface::demote_primary_interfaces_for_machine(
+        &primary_row.machine_id.expect("the host should be managed"),
+        &mut txn,
+    )
+    .await?;
+    db::machine_interface::set_primary_interface(&other_row.id, true, &mut txn).await?;
+    txn.commit().await?;
+
+    env.site_explorer.run_single_iteration().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    assert_eq!(
+        endpoint.boot_interface(),
+        Some(MachineBootInterface {
+            mac_address: other_nic,
+            interface_id: "NIC.Embedded.2-1-1".to_string(),
+        }),
+        "Site Explorer must preserve the managed host's selected primary interface",
+    );
+    txn.rollback().await?;
+
+    // A stale primary flag on an ineligible segment must not let Site Explorer
+    // replace the controller-owned target. The shared resolver falls back to
+    // the remaining HostInband row.
+    let mut txn = env.pool.begin().await?;
+    let query = "UPDATE machine_interfaces SET segment_id = $1 WHERE id = $2";
+    sqlx::query(query)
+        .bind(env.underlay_segment.id)
+        .bind(primary_row.id)
+        .execute(txn.as_mut())
+        .await?;
+    db::machine_interface::demote_primary_interfaces_for_machine(
+        &primary_row.machine_id.expect("the host should be managed"),
+        &mut txn,
+    )
+    .await?;
+    db::machine_interface::set_primary_interface(&primary_row.id, true, &mut txn).await?;
+    db::explored_endpoints::set_boot_interface_default(
+        host_bmc_ip,
+        &MachineBootInterface {
+            mac_address: primary_nic,
+            interface_id: "NIC.Embedded.1-1-1".to_string(),
+        },
+        &mut txn,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let mut txn = env.pool.begin().await?;
+    let endpoint = db::explored_endpoints::find_all_by_ip(host_bmc_ip, &mut txn)
+        .await?
+        .into_iter()
+        .next()
+        .expect("the host endpoint should exist");
+    assert_eq!(
+        endpoint.boot_interface(),
+        Some(MachineBootInterface {
+            mac_address: other_nic,
+            interface_id: "NIC.Embedded.2-1-1".to_string(),
+        }),
+        "an ineligible primary row must not replace the controller-owned target",
+    );
+    txn.rollback().await?;
 
     Ok(())
 }

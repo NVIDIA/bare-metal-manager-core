@@ -384,9 +384,10 @@ service Forge {
   rpc ClearMachineBootOverride(common.MachineInterfaceId) returns (google.protobuf.Empty);
 
   // Gather one machine's boot-interface view from every store that records it
-  // (owned interface rows, predictions, the explored endpoint default, and the
-  // retained post-deletion pairs), plus the effective boot interface the
-  // system would select. Read-only; built for troubleshooting and verification.
+  // (owned interface rows, predictions, the explored endpoint evaluation
+  // target, and the retained post-deletion pairs), plus the effective boot
+  // interface the system would select. Read-only; built for troubleshooting
+  // and verification.
   rpc GetMachineBootInterfaces(GetMachineBootInterfacesRequest) returns (GetMachineBootInterfacesResponse);
 
   // Get Network topology
@@ -8340,12 +8341,24 @@ message RemediationApplicationStatus {
 message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
+  // Ready unassigned hosts begin synchronization immediately; hosts in other
+  // unassigned states begin when they next reach the Ready gate. For assigned
+  // hosts, false defers applying the selection and clears pending
+  // authorization before synchronization starts; once it has started, the
+  // request fails until synchronization finishes. True authorizes applying
+  // this exact selection now. The controller restarts only when required.
   bool reboot=3;
 }
 
 message SetPrimaryInterfaceRequest {
   common.MachineId host_machine_id = 1;
   common.MachineInterfaceId interface_id = 2;
+  // Ready unassigned hosts begin synchronization immediately; hosts in other
+  // unassigned states begin when they next reach the Ready gate. For assigned
+  // hosts, false defers applying the selection and clears pending
+  // authorization before synchronization starts; once it has started, the
+  // request fails until synchronization finishes. True authorizes applying
+  // this exact selection now. The controller restarts only when required.
   bool reboot = 3;
 }
 
@@ -9317,10 +9330,10 @@ message PredictedBootInterface {
   optional string network_segment_type = 4;
 }
 
-// An `explored_endpoints` row's boot interface: site-explorer's per-cycle
-// automatic pick for a BMC endpoint, used only for endpoints no machine owns.
+// An `explored_endpoints` row's boot-interface evaluation target: an inferred
+// default before the endpoint is owned and the managed selection afterward.
 message ExploredBootInterface {
-  // BMC endpoint address this explored default was recorded against.
+  // BMC endpoint address this evaluation target was recorded against.
   string address = 1;
   optional string boot_interface_mac = 2;
   optional string boot_interface_id = 3;
@@ -9345,30 +9358,34 @@ message GetMachineBootInterfacesResponse {
   repeated RetainedBootInterface retained_interfaces = 5;
 
   // The boot interface MAC the system would select for this machine right now,
-  // applying `pick_boot_interface` to the owned `machine_interfaces` rows.
-  // Absent when there is no owned candidate yet.
+  // applying `pick_boot_interface_candidate` across the owned
+  // `machine_interfaces` rows and pending `predicted_machine_interfaces`.
+  // Absent when neither store yields a boot-capable candidate.
   optional string effective_boot_interface_mac = 6;
-  // The fully-populated effective boot interface id (MAC + Redfish id), when
-  // the selected row has its interface id captured. Absent otherwise.
+  // The vendor-native Redfish interface id for the effective candidate, when
+  // captured on the selected owned row or prediction. Absent when the
+  // candidate has no captured id, or when there is no effective candidate.
   optional string effective_boot_interface_id = 7;
 
   // True when the stores do not all agree on the boot MAC -- a signal worth a
-  // closer look during troubleshooting (e.g. the explored default points at a
-  // different NIC than the effective owned pick, or a predicted primary
-  // disagrees). See the handler for the exact comparison.
+  // closer look during troubleshooting (e.g. the endpoint evaluation target
+  // points at a different NIC than the effective cross-store selection, or
+  // primary predictions disagree). See the handler for the exact comparison.
   bool divergent = 8;
 
   // What the automatic selection would choose if no row were flagged primary
-  // -- `pick_boot_interface`'s fallback of the lowest-MAC non-underlay row.
-  // Comparing this against the effective pick shows whether a primary
-  // designation is overriding the automatic choice. Absent when no managed
-  // row qualifies; `interface_id` absent until captured for that NIC.
+  // -- `pick_boot_interface`'s fallback of the lowest-MAC host-boot row
+  // (Admin or HostInband). Comparing this against the effective pick shows
+  // whether a primary designation is overriding the automatic choice. Absent
+  // when no owned row is boot-capable; `interface_id` absent until captured
+  // for that NIC.
   MachineBootInterface default_boot_interface = 9;
 
   // The prediction `pick_boot_prediction` would boot from for a machine still
-  // waiting on its first DHCP lease: the declared primary, else the sole
-  // non-underlay prediction. Absent when there are no predictions or when the
-  // pick refuses to guess among several undeclared NICs.
+  // waiting on its first DHCP lease: the declared boot-capable primary, else
+  // the sole boot-capable prediction (Admin or HostInband). Absent when there
+  // is no boot-capable prediction or when the pick refuses to guess among
+  // several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
 }
 

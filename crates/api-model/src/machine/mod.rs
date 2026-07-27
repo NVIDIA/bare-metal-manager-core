@@ -42,7 +42,7 @@ use super::StateSla;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
-use super::machine_boot_interface::MachineBootInterface;
+use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
@@ -258,14 +258,14 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 /// without constructing a full `ManagedHostStateSnapshot`.
 ///
 /// Ordering:
-/// 1. Any interface with `primary_interface == true` wins. This is the
-///    path operators can drive explicitly via `ExpectedHostNic.primary`,
+/// 1. Any boot-capable interface with `primary_interface == true` wins. This
+///    is the path operators can drive explicitly via `ExpectedHostNic.primary`,
 ///    in the case of zero DPU hosts, and is also how hosts with DPU(s)
 ///    end up with a boot MAC automatically during site-explorer ingestion.
-/// 2. If there's no primary interface, the interface outside the management
-///    segment with the "smallest" MAC address wins -- mainly so we can
-///    have some sense of a stable MAC for zero-DPU hosts where no operator
-///    explicitly declared a primary NIC (and ingestion didn't assign one either).
+/// 2. If there's no eligible primary interface, the boot-capable interface
+///    with the "smallest" MAC address wins -- mainly so we can have a stable
+///    MAC for zero-DPU hosts where no operator explicitly declared a primary
+///    NIC (and ingestion didn't assign one either).
 /// 3. `None` -- This is the "I don't have any candidate interfaces yet" case,
 ///    so it's on the caller to figure out. What this usually means is the
 ///    caller passes `boot_interface_mac: None` to machine_setup, and then
@@ -277,16 +277,19 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 pub fn pick_boot_interface(
     interfaces: &[MachineInterfaceSnapshot],
 ) -> Option<&MachineInterfaceSnapshot> {
-    // The primary wins!
-    if let Some(primary) = interfaces.iter().find(|x| x.primary_interface) {
+    // The eligible primary wins.
+    if let Some(primary) = interfaces
+        .iter()
+        .find(|interface| interface.primary_interface && interface.supports_host_boot())
+    {
         return Some(primary);
     }
-    // ..no primary, so lets try to find *some* interface.
+    // No eligible primary, so use the deterministic eligible fallback.
     pick_default_boot_interface(interfaces)
 }
 
 /// What [`pick_boot_interface`] falls back to when no row is flagged primary:
-/// the lowest-MAC non-underlay interface (ordering rationale in its docs).
+/// the lowest-MAC host-boot interface (ordering rationale in its docs).
 ///
 /// Public so the admin boot-interface view can report this pick alongside the
 /// effective one: comparing the two shows whether a primary designation is
@@ -296,8 +299,8 @@ pub fn pick_default_boot_interface(
 ) -> Option<&MachineInterfaceSnapshot> {
     interfaces
         .iter()
-        .filter(|x| x.network_segment_type != Some(NetworkSegmentType::Underlay))
-        .min_by_key(|x| x.mac_address)
+        .filter(|interface| interface.supports_host_boot())
+        .min_by_key(|interface| interface.mac_address)
 }
 
 fn pick_boot_interface_mac(
@@ -319,9 +322,10 @@ fn pick_boot_interface_pair(
 /// its first DHCP lease creates a real `machine_interfaces` row. Mirrors
 /// `pick_boot_interface`'s precedence, one step down -- predictions, not rows:
 ///
-/// 1. A prediction flagged `primary_interface` wins -- the declared
-///    `ExpectedHostNic.primary`, recorded onto the prediction at minting.
-/// 2. Otherwise the sole non-underlay prediction. With several and none
+/// 1. A boot-capable prediction flagged `primary_interface` wins -- the
+///    declared `ExpectedHostNic.primary`, recorded onto the prediction at
+///    minting.
+/// 2. Otherwise the sole boot-capable prediction. With several and none
 ///    declared primary the boot NIC is unknowable (e.g. a host whose report
 ///    lists SuperNICs alongside the boot NIC), so this returns `None` rather
 ///    than guess against whichever NIC happens to sort first.
@@ -333,18 +337,84 @@ fn pick_boot_interface_pair(
 pub fn pick_boot_prediction(
     predictions: &[PredictedMachineInterface],
 ) -> Option<&PredictedMachineInterface> {
-    // The declared primary wins, exactly as in `pick_boot_interface`.
-    if let Some(primary) = predictions.iter().find(|p| p.primary_interface) {
+    if let Some(primary) = pick_primary_boot_prediction(predictions) {
         return Some(primary);
     }
-    // Otherwise only a sole non-underlay prediction is unambiguous.
-    let mut non_underlay = predictions
-        .iter()
-        .filter(|p| p.expected_network_segment_type != NetworkSegmentType::Underlay);
-    match (non_underlay.next(), non_underlay.next()) {
+    // Otherwise only a sole eligible prediction is unambiguous.
+    let mut eligible = predictions.iter().filter(|prediction| {
+        prediction
+            .expected_network_segment_type
+            .supports_host_boot()
+    });
+    match (eligible.next(), eligible.next()) {
         (Some(only), None) => Some(only),
         _ => None,
     }
+}
+
+fn pick_primary_boot_prediction(
+    predictions: &[PredictedMachineInterface],
+) -> Option<&PredictedMachineInterface> {
+    predictions.iter().find(|prediction| {
+        prediction.primary_interface
+            && prediction
+                .expected_network_segment_type
+                .supports_host_boot()
+    })
+}
+
+/// The source selected for a host's desired boot interface.
+#[derive(Debug, Clone, Copy)]
+pub enum BootInterfaceCandidate<'a> {
+    /// A materialized interface owned by the host.
+    Interface(&'a MachineInterfaceSnapshot),
+    /// A declared interface still waiting for its first DHCP lease.
+    Prediction(&'a PredictedMachineInterface),
+}
+
+impl BootInterfaceCandidate<'_> {
+    pub fn mac_address(&self) -> MacAddress {
+        match self {
+            Self::Interface(interface) => interface.mac_address,
+            Self::Prediction(prediction) => prediction.mac_address,
+        }
+    }
+
+    pub fn boot_interface(&self) -> Option<MachineBootInterface> {
+        match self {
+            Self::Interface(interface) => interface.boot_interface(),
+            Self::Prediction(prediction) => prediction.boot_interface(),
+        }
+    }
+
+    pub fn machine_interface_id(&self) -> Option<MachineInterfaceId> {
+        match self {
+            Self::Interface(interface) => Some(interface.id),
+            Self::Prediction(_) => None,
+        }
+    }
+}
+
+/// Select the boot interface across materialized rows and pending predictions.
+///
+/// A boot-capable primary prediction is declared intent that has not
+/// materialized yet, so it outranks an interim or fallback row. This is how a
+/// managed-DPU host can target its declared integrated HostInband NIC before
+/// that NIC's first lease; promotion deletes the prediction and the new row
+/// then becomes authoritative. Without that declaration, an owned row wins.
+/// A non-primary prediction is used only when no row is selectable and it is
+/// the sole boot-capable prediction.
+pub fn pick_boot_interface_candidate<'a>(
+    interfaces: &'a [MachineInterfaceSnapshot],
+    predictions: &'a [PredictedMachineInterface],
+) -> Option<BootInterfaceCandidate<'a>> {
+    if let Some(prediction) = pick_primary_boot_prediction(predictions) {
+        return Some(BootInterfaceCandidate::Prediction(prediction));
+    }
+    if let Some(interface) = pick_boot_interface(interfaces) {
+        return Some(BootInterfaceCandidate::Interface(interface));
+    }
+    pick_boot_prediction(predictions).map(BootInterfaceCandidate::Prediction)
 }
 
 impl ManagedHostStateSnapshot {
@@ -402,13 +472,13 @@ impl ManagedHostStateSnapshot {
     /// For hosts with DPUs, this is the DPU-facing "primary" `machine_interface`,
     /// flagged as `primary_interface: true` during site-explorer ingestion.
     ///
-    /// For zero-DPU hosts, the `primary_interface` flag is not (yet) set at
-    /// ingestion time, so this method "falls back" to the first non-underlay
-    /// `machine_interface` (i.e. not the BMC) sorted deterministically by MAC.
+    /// For zero-DPU hosts without a declared primary, this method falls back to
+    /// the first Admin or HostInband `machine_interface`, sorted
+    /// deterministically by MAC.
     ///
-    /// Returns `None` if the host has no non-underlay interfaces yet -- e.g.
-    /// only the BMC has been discovered, or the host's primary NIC hasn't
-    /// DHCP'd yet.
+    /// Returns `None` if the host has no boot-capable interfaces yet -- e.g.
+    /// only the BMC or tenant-facing NICs have been discovered, or the host's
+    /// primary NIC hasn't DHCP'd yet.
     ///
     /// This helper exists to centralize the boot MAC selection logic that used
     /// to be duplicated at every state controller callsite needing to pass a MAC
@@ -811,6 +881,14 @@ pub struct Machine {
     /// [`ManagedHostState::Maintenance`] to execute the requested operation.
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
 
+    /// Identifies the current selected boot interface, including repeated
+    /// selections that return to an earlier interface.
+    pub boot_interface_selection_version: ConfigVersion,
+
+    /// Authorizes machine-controller to apply the selected boot interface while
+    /// the host is assigned. Unassigned hosts synchronize automatically.
+    pub boot_config_synchronization_requested: Option<BootConfigSynchronizationRequest>,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -1158,6 +1236,16 @@ pub enum ManagedHostState {
     },
     /// Host is Ready for instance creation.
     Ready,
+
+    /// The selected boot interface is being synchronized with host Redfish
+    /// before the host becomes available for assignment.
+    BootConfigSynchronization {
+        synchronization_state: BootConfigSynchronizationState,
+        /// Number of complete synchronization passes retried after a fresh
+        /// final observation still reported a mismatch.
+        #[serde(default)]
+        synchronization_retry_count: u32,
+    },
 
     /// Host is executing an operator-requested maintenance operation.
     Maintenance {
@@ -2063,6 +2151,15 @@ pub enum InstanceState {
     WaitingForExtensionServicesConfig,
     WaitingForRebootToReady,
     Ready,
+    /// An operator authorized the selected boot interface to be applied to this
+    /// assigned host.
+    BootConfigSynchronization {
+        synchronization_state: BootConfigSynchronizationState,
+        /// Number of complete synchronization passes retried after a fresh
+        /// final observation still reported a mismatch.
+        #[serde(default)]
+        synchronization_retry_count: u32,
+    },
     HostPlatformConfiguration {
         platform_config_state: HostPlatformConfigurationState,
     },
@@ -2132,6 +2229,144 @@ pub enum UnlockHostState {
     DisableLockdown,
     RebootHost,
     WaitForUefiBoot,
+}
+
+/// A durable authorization to apply the selected boot interface to an assigned
+/// host.
+///
+/// The selection version prevents an older request for interface A from being
+/// reused after a later A-to-B-to-A selection sequence.
+///
+/// `api-db` queries the serialized `interface_id` and `selection_version`
+/// fields directly; their JSON names are part of the database contract.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct BootConfigSynchronizationRequest {
+    pub interface_id: MachineInterfaceId,
+    pub selection_version: ConfigVersion,
+    pub requested_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initiator: Option<String>,
+}
+
+/// The exact selected interface and generation being synchronized.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct BootConfigSynchronizationTarget {
+    /// `None` is valid before a predicted boot interface has taken its first
+    /// lease and become a machine-interface row.
+    pub machine_interface_id: Option<MachineInterfaceId>,
+    pub boot_interface: MachineBootInterfaceTarget,
+    pub selection_version: ConfigVersion,
+}
+
+/// What to do after restoring BMC lockdown on an interrupted synchronization.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "completion", rename_all = "lowercase")]
+pub enum BootConfigSynchronizationCompletion {
+    /// The selected row gained or refreshed its Redfish interface identity.
+    Retarget {
+        target: BootConfigSynchronizationTarget,
+    },
+    /// Resume synchronization after a safety cleanup interrupted Redfish work.
+    ResumeSynchronization {
+        target: Option<BootConfigSynchronizationTarget>,
+    },
+    /// The selected interface changed while Redfish work was in progress.
+    TargetChanged,
+    /// An assigned instance needs to resume higher-priority Ready-state work.
+    /// The pinned target identifies the authorization that should survive a
+    /// temporary interruption.
+    ReturnToReady {
+        target: BootConfigSynchronizationTarget,
+    },
+    /// An unassigned maintenance request takes precedence over synchronization.
+    Maintenance {
+        operation: MachineMaintenanceOperation,
+    },
+    /// A machine or DPU failure detected outside the synchronization driver.
+    MachineFailed {
+        machine_id: MachineId,
+        details: FailureDetails,
+    },
+    /// A terminal host-configuration failure must be recorded after lockdown
+    /// is restored.
+    Failed { error: String },
+    /// A terminal stage error must be surfaced only after lockdown is restored.
+    ManualInterventionRequired { error: String },
+}
+
+/// Restart-safe progress for synchronizing a selected boot interface.
+///
+/// Both unassigned and assigned parent states use this state. The parent
+/// decides whether synchronization is automatic or requires an exact durable
+/// authorization, while these phases keep the Redfish sequence identical.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum BootConfigSynchronizationState {
+    Initialize {
+        /// Assigned synchronization pins the exact target that was authorized.
+        /// Unassigned lifecycle gates leave this empty and resolve the current
+        /// target when the state first runs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<BootConfigSynchronizationTarget>,
+    },
+    WaitingForInitialObservation {
+        target: BootConfigSynchronizationTarget,
+        minimum_report_version: ConfigVersion,
+    },
+    PrepareHost {
+        target: BootConfigSynchronizationTarget,
+    },
+    UnlockHost {
+        target: BootConfigSynchronizationTarget,
+        #[serde(default)]
+        unlock_host_state: UnlockHostState,
+    },
+    CheckHostConfig {
+        target: BootConfigSynchronizationTarget,
+    },
+    ConfigureBios {
+        target: BootConfigSynchronizationTarget,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    WaitingForBiosJob {
+        target: BootConfigSynchronizationTarget,
+        bios_config_info: BiosConfigInfo,
+    },
+    PollingBiosSetup {
+        target: BootConfigSynchronizationTarget,
+        #[serde(default)]
+        retry_count: u32,
+    },
+    SetBootOrder {
+        target: BootConfigSynchronizationTarget,
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    /// Restores lockdown before leaving work that may have disabled it.
+    RestoreLockdown {
+        completion: BootConfigSynchronizationCompletion,
+    },
+    LockHost {
+        target: BootConfigSynchronizationTarget,
+    },
+    WaitingForFinalObservation {
+        target: BootConfigSynchronizationTarget,
+        minimum_report_version: ConfigVersion,
+    },
+}
+
+impl BootConfigSynchronizationState {
+    /// Whether this phase may already have changed host Redfish or power.
+    ///
+    /// Before this boundary an assigned authorization can be withdrawn without
+    /// racing an external effect. Once preparation starts, the controller must
+    /// finish its cleanup path before accepting a non-disruptive cancellation.
+    pub fn host_changes_started(&self) -> bool {
+        !matches!(
+            self,
+            Self::Initialize { .. } | Self::WaitingForInitialObservation { .. }
+        )
+    }
 }
 
 /// Struct to store information if Reprovision is requested.
@@ -2206,9 +2441,35 @@ impl Display for MachineState {
     }
 }
 
+impl Display for BootConfigSynchronizationState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let phase = match self {
+            Self::Initialize { .. } => "Initialize",
+            Self::WaitingForInitialObservation { .. } => "WaitingForInitialObservation",
+            Self::PrepareHost { .. } => "PrepareHost",
+            Self::UnlockHost { .. } => "UnlockHost",
+            Self::CheckHostConfig { .. } => "CheckHostConfig",
+            Self::ConfigureBios { .. } => "ConfigureBios",
+            Self::WaitingForBiosJob { .. } => "WaitingForBiosJob",
+            Self::PollingBiosSetup { .. } => "PollingBiosSetup",
+            Self::SetBootOrder { .. } => "SetBootOrder",
+            Self::RestoreLockdown { .. } => "RestoreLockdown",
+            Self::LockHost { .. } => "LockHost",
+            Self::WaitingForFinalObservation { .. } => "WaitingForFinalObservation",
+        };
+        f.write_str(phase)
+    }
+}
+
 impl Display for InstanceState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+        match self {
+            Self::BootConfigSynchronization {
+                synchronization_state,
+                ..
+            } => write!(f, "BootConfigSynchronization/{synchronization_state}"),
+            _ => std::fmt::Debug::fmt(self, f),
+        }
     }
 }
 
@@ -2345,6 +2606,10 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::BootConfigSynchronization {
+                synchronization_state,
+                ..
+            } => write!(f, "BootConfigSynchronization/{synchronization_state}"),
             ManagedHostState::Maintenance { operation } => {
                 write!(f, "Maintenance({operation:?})")
             }
@@ -2440,6 +2705,10 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::BootConfigSynchronization {
+                synchronization_state,
+                ..
+            } => format!("BootConfigSynchronization/{synchronization_state}"),
             ManagedHostState::Maintenance { operation } => {
                 format!("Maintenance({operation:?})")
             }
@@ -2536,6 +2805,13 @@ pub struct MachineInterfaceSnapshot {
 }
 
 impl MachineInterfaceSnapshot {
+    /// Whether this interface belongs to a segment that can boot the host.
+    pub fn supports_host_boot(&self) -> bool {
+        self.network_segment_type
+            .as_ref()
+            .is_some_and(NetworkSegmentType::supports_host_boot)
+    }
+
     /// This row's [`MachineBootInterface`]: its MAC plus its captured Redfish
     /// interface id. `None` until site-explorer has recorded the id from an
     /// exploration report.
@@ -2642,11 +2918,17 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::BootConfigSynchronization { .. } => {
+            StateSla::with_sla(slas::BOOT_CONFIG_SYNCHRONIZATION, time_in_state)
+        }
         ManagedHostState::Maintenance { .. } => {
             StateSla::with_sla(slas::MAINTENANCE, time_in_state)
         }
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Ready => StateSla::no_sla(),
+            InstanceState::BootConfigSynchronization { .. } => {
+                StateSla::with_sla(slas::BOOT_CONFIG_SYNCHRONIZATION, time_in_state)
+            }
             InstanceState::BootingWithDiscoveryImage { retry } => {
                 if retry.count > 1 {
                     StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
@@ -3523,6 +3805,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn boot_config_synchronization_display_uses_only_the_phase() {
+        let target = BootConfigSynchronizationTarget {
+            machine_interface_id: Some(MachineInterfaceId::from(uuid::Uuid::nil())),
+            boot_interface: MachineBootInterfaceTarget::from_parts(
+                Some(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
+                Some("NIC.Integrated.1-1-1".to_string()),
+            )
+            .unwrap(),
+            selection_version: ConfigVersion::invalid(),
+        };
+        let synchronization_state = BootConfigSynchronizationState::PrepareHost { target };
+        assert_eq!(synchronization_state.to_string(), "PrepareHost");
+
+        let unassigned = ManagedHostState::BootConfigSynchronization {
+            synchronization_state: synchronization_state.clone(),
+            synchronization_retry_count: 2,
+        };
+        assert_eq!(
+            unassigned.to_string(),
+            "BootConfigSynchronization/PrepareHost",
+        );
+
+        let assigned = ManagedHostState::Assigned {
+            instance_state: InstanceState::BootConfigSynchronization {
+                synchronization_state,
+                synchronization_retry_count: 2,
+            },
+        };
+        assert_eq!(
+            assigned.to_string(),
+            "Assigned/BootConfigSynchronization/PrepareHost",
+        );
+    }
+
+    #[test]
+    fn boot_config_synchronization_request_preserves_database_json_keys() {
+        let request = BootConfigSynchronizationRequest {
+            interface_id: MachineInterfaceId::from(uuid::Uuid::nil()),
+            selection_version: ConfigVersion::invalid(),
+            requested_at: DateTime::default(),
+            initiator: None,
+        };
+        let serialized = serde_json::to_value(request).unwrap();
+        let object = serialized
+            .as_object()
+            .expect("boot-config synchronization request should serialize as a JSON object");
+
+        assert_eq!(object.len(), 3);
+        assert!(object.contains_key("interface_id"));
+        assert!(object.contains_key("selection_version"));
+        assert!(object.contains_key("requested_at"));
+    }
+
     // The remaining `ManagedHostState` JSON blobs each deserialize to a specific
     // variant; the parsed value (PartialEq) is the whole assertion.
     #[test]
@@ -3533,6 +3869,26 @@ mod tests {
 
         scenarios!(
             run = |s| serde_json::from_str::<ManagedHostState>(s).map_err(drop);
+            "unassigned boot-config synchronization, default retry count" {
+                r#"{"state":"bootconfigsynchronization","synchronization_state":{"state":"initialize","target":null}}"# => Yields(ManagedHostState::BootConfigSynchronization {
+                    synchronization_state: BootConfigSynchronizationState::Initialize {
+                        target: None,
+                    },
+                    synchronization_retry_count: 0,
+                }),
+            }
+
+            "assigned boot-config synchronization, default retry count" {
+                r#"{"state":"assigned","instance_state":{"state":"bootconfigsynchronization","synchronization_state":{"state":"initialize","target":null}}}"# => Yields(ManagedHostState::Assigned {
+                    instance_state: InstanceState::BootConfigSynchronization {
+                        synchronization_state: BootConfigSynchronizationState::Initialize {
+                            target: None,
+                        },
+                        synchronization_retry_count: 0,
+                    },
+                }),
+            }
+
             "assigned booting with discovery image, default retry" {
                 r#"{"state":"assigned","instance_state":{"state":"bootingwithdiscoveryimage"}}"# => Yields(ManagedHostState::Assigned {
                     instance_state: InstanceState::BootingWithDiscoveryImage {
@@ -4121,11 +4477,11 @@ mod tests {
     }
 
     // This is our zero DPU fallback case -- no interface is flagged primary,
-    // so pick the lowest-MAC non-underlay interface. Verifies (a) the underlay
+    // so pick the lowest-MAC host-boot interface. Verifies (a) the underlay
     // BMC interface is excluded, and (b) ordering is deterministic across
-    // multiple non-underlay candidates.
+    // multiple eligible candidates.
     #[test]
-    fn pick_boot_interface_mac_falls_back_to_lowest_non_underlay_mac_when_no_primary() {
+    fn pick_boot_interface_mac_falls_back_to_lowest_eligible_mac_when_no_primary() {
         let bmc_mac = "01:00:00:00:00:01"; // numerically lowest, but BMC!
         let onboard_mac_lo = "10:00:00:00:00:01";
         let onboard_mac_hi = "20:00:00:00:00:01";
@@ -4161,22 +4517,43 @@ mod tests {
         assert_eq!(
             pick_default_boot_interface(&interfaces).map(|i| i.mac_address),
             Some(lower_mac.parse().unwrap()),
-            "the default pick masks the primary flag and takes the lowest non-underlay MAC"
+            "the default pick masks the primary flag and takes the lowest eligible MAC"
         );
     }
 
-    // Underlay rows are never default-pick candidates, and an all-underlay set
-    // yields no default at all.
+    // Tenant, Underlay, and untyped rows are never host-boot candidates.
     #[test]
-    fn pick_default_boot_interface_excludes_underlay_rows() {
-        let underlay_mac = "01:00:00:00:00:01";
-        let interfaces = vec![build_mock_interface(
-            underlay_mac,
-            false,
+    fn pick_boot_interface_excludes_ineligible_segments() {
+        for segment_type in [
+            Some(NetworkSegmentType::Tenant),
             Some(NetworkSegmentType::Underlay),
-        )];
+            None,
+        ] {
+            let interfaces = vec![build_mock_interface(
+                "01:00:00:00:00:01",
+                true,
+                segment_type,
+            )];
 
-        assert!(pick_default_boot_interface(&interfaces).is_none());
+            assert!(pick_boot_interface(&interfaces).is_none());
+            assert!(pick_default_boot_interface(&interfaces).is_none());
+        }
+    }
+
+    // A stale or malformed primary flag cannot make a workload segment the
+    // desired Redfish target; selection falls back to an eligible host NIC.
+    #[test]
+    fn pick_boot_interface_ignores_an_ineligible_primary() {
+        let eligible_mac = "10:00:00:00:00:01";
+        let interfaces = vec![
+            build_mock_interface("01:00:00:00:00:01", true, Some(NetworkSegmentType::Tenant)),
+            build_mock_interface(eligible_mac, false, Some(NetworkSegmentType::HostInband)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface(&interfaces).map(|interface| interface.mac_address),
+            Some(eligible_mac.parse().unwrap()),
+        );
     }
 
     // boot_interface() derives the full pair from the SAME primary row that the
@@ -4246,9 +4623,9 @@ mod tests {
         );
     }
 
-    // With no declared primary, a sole non-underlay prediction is unambiguous.
+    // With no declared primary, a sole eligible prediction is unambiguous.
     #[test]
-    fn pick_boot_prediction_returns_the_sole_non_underlay_prediction() {
+    fn pick_boot_prediction_returns_the_sole_eligible_prediction() {
         let predictions = vec![
             build_mock_prediction("01:00:00:00:00:01", false, NetworkSegmentType::Underlay),
             build_mock_prediction("10:00:00:00:00:01", false, NetworkSegmentType::HostInband),
@@ -4259,7 +4636,7 @@ mod tests {
         );
     }
 
-    // Several non-underlay predictions and none declared primary: the boot NIC
+    // Several eligible predictions and none declared primary: the boot NIC
     // is unknowable, so refuse to guess rather than program boot order against
     // whichever sorts first (the Gigawatt SuperNIC safety case).
     #[test]
@@ -4271,15 +4648,78 @@ mod tests {
         assert!(pick_boot_prediction(&predictions).is_none());
     }
 
-    // Underlay predictions are never a boot candidate on their own.
+    // Tenant and Underlay predictions are never boot candidates, even when
+    // declared primary.
     #[test]
-    fn pick_boot_prediction_ignores_underlay_only_predictions() {
-        let predictions = vec![build_mock_prediction(
-            "01:00:00:00:00:01",
-            false,
-            NetworkSegmentType::Underlay,
+    fn pick_boot_prediction_ignores_ineligible_predictions() {
+        for segment_type in [NetworkSegmentType::Tenant, NetworkSegmentType::Underlay] {
+            let predictions = vec![build_mock_prediction(
+                "01:00:00:00:00:01",
+                true,
+                segment_type,
+            )];
+            assert!(pick_boot_prediction(&predictions).is_none());
+        }
+    }
+
+    #[test]
+    fn primary_prediction_outranks_an_interim_owned_primary() {
+        let interfaces = vec![build_mock_interface(
+            "10:00:00:00:00:01",
+            true,
+            Some(NetworkSegmentType::Admin),
         )];
-        assert!(pick_boot_prediction(&predictions).is_none());
+        let predictions = vec![build_mock_prediction(
+            "20:00:00:00:00:01",
+            true,
+            NetworkSegmentType::HostInband,
+        )];
+
+        assert!(matches!(
+            pick_boot_interface_candidate(&interfaces, &predictions),
+            Some(BootInterfaceCandidate::Prediction(prediction))
+                if prediction.mac_address == "20:00:00:00:00:01".parse().unwrap()
+        ));
+    }
+
+    #[test]
+    fn owned_interface_outranks_a_non_primary_prediction() {
+        let interfaces = vec![build_mock_interface(
+            "10:00:00:00:00:01",
+            false,
+            Some(NetworkSegmentType::HostInband),
+        )];
+        let predictions = vec![build_mock_prediction(
+            "20:00:00:00:00:01",
+            false,
+            NetworkSegmentType::HostInband,
+        )];
+
+        assert!(matches!(
+            pick_boot_interface_candidate(&interfaces, &predictions),
+            Some(BootInterfaceCandidate::Interface(interface))
+                if interface.mac_address == "10:00:00:00:00:01".parse().unwrap()
+        ));
+    }
+
+    #[test]
+    fn sole_prediction_answers_when_no_owned_interface_is_selectable() {
+        let interfaces = vec![build_mock_interface(
+            "10:00:00:00:00:01",
+            true,
+            Some(NetworkSegmentType::Underlay),
+        )];
+        let predictions = vec![build_mock_prediction(
+            "20:00:00:00:00:01",
+            false,
+            NetworkSegmentType::HostInband,
+        )];
+
+        assert!(matches!(
+            pick_boot_interface_candidate(&interfaces, &predictions),
+            Some(BootInterfaceCandidate::Prediction(prediction))
+                if prediction.mac_address == "20:00:00:00:00:01".parse().unwrap()
+        ));
     }
 
     // Check the case  where only the BMC has been discovered so far (which

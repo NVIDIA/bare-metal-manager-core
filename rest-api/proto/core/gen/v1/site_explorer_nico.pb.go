@@ -2179,13 +2179,14 @@ type MachineSetupStatus struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	IsDone bool                   `protobuf:"varint,1,opt,name=is_done,json=isDone,proto3" json:"is_done,omitempty"`
 	Diffs  []*MachineSetupDiff    `protobuf:"bytes,2,rep,name=diffs,proto3" json:"diffs,omitempty"`
-	// The logical boot-interface target NICo asked the backend to assess. A
-	// backend may match with a subset (NvRedfish currently uses the MAC) while
-	// retaining Pair identity. Reports written before target capture leave this
-	// unset.
+	// The logical boot-interface target NICo asked the pair-aware verifier to
+	// assess. Reports written before target capture leave this unset.
 	EvaluatedBootInterface *MachineBootInterfaceTarget `protobuf:"bytes,3,opt,name=evaluated_boot_interface,json=evaluatedBootInterface,proto3" json:"evaluated_boot_interface,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Version of the verification semantics that produced this status. Reports
+	// written before versioned verification leave this as zero.
+	VerificationVersion uint32 `protobuf:"varint,4,opt,name=verification_version,json=verificationVersion,proto3" json:"verification_version,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *MachineSetupStatus) Reset() {
@@ -2237,6 +2238,13 @@ func (x *MachineSetupStatus) GetEvaluatedBootInterface() *MachineBootInterfaceTa
 		return x.EvaluatedBootInterface
 	}
 	return nil
+}
+
+func (x *MachineSetupStatus) GetVerificationVersion() uint32 {
+	if x != nil {
+		return x.VerificationVersion
+	}
+	return 0
 }
 
 // The logical boot-interface target NICo asked a Redfish backend to assess. It
@@ -3018,11 +3026,12 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\f_descriptionB\n" +
 	"\n" +
 	"\b_versionB\x0f\n" +
-	"\r_release_date\"\xc9\x01\n" +
+	"\r_release_date\"\xfc\x01\n" +
 	"\x12MachineSetupStatus\x12\x17\n" +
 	"\ais_done\x18\x01 \x01(\bR\x06isDone\x125\n" +
 	"\x05diffs\x18\x02 \x03(\v2\x1f.site_explorer.MachineSetupDiffR\x05diffs\x12c\n" +
-	"\x18evaluated_boot_interface\x18\x03 \x01(\v2).site_explorer.MachineBootInterfaceTargetR\x16evaluatedBootInterface\"\x82\x01\n" +
+	"\x18evaluated_boot_interface\x18\x03 \x01(\v2).site_explorer.MachineBootInterfaceTargetR\x16evaluatedBootInterface\x121\n" +
+	"\x14verification_version\x18\x04 \x01(\rR\x13verificationVersion\"\x82\x01\n" +
 	"\x1aMachineBootInterfaceTarget\x12=\n" +
 	"\x04pair\x18\x01 \x01(\v2'.site_explorer.MachineBootInterfacePairH\x00R\x04pair\x12\x1b\n" +
 	"\bmac_only\x18\x02 \x01(\tH\x00R\amacOnlyB\b\n" +

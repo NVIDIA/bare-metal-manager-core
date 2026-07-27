@@ -18,9 +18,10 @@
 //! Set a machine's boot interface by promoting the chosen interface to the
 //! machine's primary -- the designation `pick_boot_interface` keys on. A thin
 //! front for the same `SetPrimaryInterface` RPC behind
-//! `managed-host set-primary-interface`: the server updates the BMC boot
-//! order first, then moves the primary flag. The only client-side work is
-//! resolving an operator-entered MAC to its managed interface row.
+//! `managed-host set-primary-interface`: the server commits the selected row
+//! and machine-controller synchronizes Redfish from that desired state. The
+//! only client-side work is resolving an operator-entered MAC to its managed
+//! interface row.
 
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineInterfaceId;

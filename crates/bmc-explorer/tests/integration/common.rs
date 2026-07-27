@@ -26,9 +26,14 @@ use bmc_mock::test_support::axum_http_client::Error as TestBmcError;
 
 pub fn error_classifier(err: &<TestBmc as nv_redfish::Bmc>::Error) -> Option<ErrorClass> {
     match err {
-        TestBmcError::InvalidResponse { status, .. } => match *status {
+        TestBmcError::InvalidResponse { status, text, .. } => match *status {
             StatusCode::NOT_FOUND => Some(ErrorClass::NotFound),
             StatusCode::INTERNAL_SERVER_ERROR => Some(ErrorClass::InternalServerError),
+            StatusCode::BAD_REQUEST
+                if text.contains("PropertyUnknown") && text.contains("BootOrder") =>
+            {
+                Some(ErrorClass::BootOrderPropertyUnknown)
+            }
             _ => None,
         },
         _ => None,

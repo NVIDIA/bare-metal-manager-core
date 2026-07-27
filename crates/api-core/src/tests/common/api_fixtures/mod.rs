@@ -19,6 +19,7 @@
 
 use std::collections::HashMap;
 use std::default::Default;
+use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -93,9 +94,10 @@ use model::hardware_info::{HardwareInfo, TpmEkCertificate};
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
 use model::machine::capabilities::MachineCapabilityType;
 use model::machine::{
-    FailureDetails, Machine, MachineLastRebootRequested, MachineValidatingState, ManagedHostState,
-    ValidationState,
+    BootConfigSynchronizationState, FailureDetails, InstanceState, Machine,
+    MachineLastRebootRequested, MachineValidatingState, ManagedHostState, ValidationState,
 };
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::metadata::Metadata;
 use model::network_security_group;
 use model::rack_type::{
@@ -104,6 +106,9 @@ use model::rack_type::{
 };
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
+use model::site_explorer::{
+    MACHINE_SETUP_VERIFICATION_VERSION, MachineSetupDiff, MachineSetupStatus,
+};
 use model::tenant::TenantOrganizationId;
 use model::test_support::dpu::{DPU_BF3_INFO_JSON, DPU_BF4_INFO_JSON};
 use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
@@ -312,6 +317,32 @@ pub struct TestEnv {
 }
 
 impl TestEnv {
+    pub fn register_boot_config_observation(
+        &self,
+        bmc_ip: IpAddr,
+        target: MachineBootInterfaceTarget,
+        is_done: bool,
+        diffs: Vec<MachineSetupDiff>,
+    ) {
+        let report = self
+            .endpoint_explorer
+            .reports
+            .lock()
+            .unwrap()
+            .get(&bmc_ip)
+            .cloned()
+            .expect("host exploration report should be registered");
+        let mut report = report.expect("host exploration report should be successful");
+        report.machine_setup_status = Some(MachineSetupStatus {
+            is_done,
+            diffs,
+            verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
+            evaluated_boot_interface: Some(target),
+        });
+        self.endpoint_explorer
+            .insert_endpoint_result(bmc_ip, Ok(report));
+    }
+
     /// Returns the default admin network segment used by most tests.
     pub fn admin_segment(&self) -> NetworkSegmentId {
         *self
@@ -423,6 +454,7 @@ impl TestEnv {
                 ManagedHostState::HostInit { machine_state: mc }
             }
             ManagedHostState::Ready => state.clone(),
+            ManagedHostState::BootConfigSynchronization { .. } => state.clone(),
             ManagedHostState::Maintenance { .. } => state.clone(),
             ManagedHostState::Assigned { .. } => state.clone(),
             ManagedHostState::WaitingForCleanup { .. } => state.clone(),
@@ -518,7 +550,11 @@ impl TestEnv {
         max_iterations: u32,
         state_check: impl Fn(&Machine) -> bool,
     ) -> ManagedHostState {
-        for _ in 0..max_iterations {
+        const MAX_BOOT_CONFIG_SYNCHRONIZATION_ITERATIONS: u32 = 20;
+
+        let mut iterations = 0;
+        let mut boot_config_synchronization_iterations = 0;
+        while iterations < max_iterations {
             self.machine_state_controller
                 .lock()
                 .await
@@ -539,6 +575,58 @@ impl TestEnv {
 
             if state_check(&machine) {
                 return machine.state.value;
+            }
+
+            let boot_config_synchronization_state = match machine.current_state() {
+                ManagedHostState::BootConfigSynchronization {
+                    synchronization_state,
+                    ..
+                }
+                | ManagedHostState::Assigned {
+                    instance_state:
+                        InstanceState::BootConfigSynchronization {
+                            synchronization_state,
+                            ..
+                        },
+                } => Some(synchronization_state),
+                _ => None,
+            };
+            let boot_config_observation = match boot_config_synchronization_state {
+                Some(
+                    BootConfigSynchronizationState::WaitingForInitialObservation { target, .. }
+                    | BootConfigSynchronizationState::WaitingForFinalObservation { target, .. },
+                ) => machine
+                    .status
+                    .bmc_info
+                    .ip
+                    .map(|bmc_ip| (bmc_ip, target.boot_interface.clone())),
+                _ => None,
+            };
+            drop(txn);
+
+            if boot_config_synchronization_state.is_some() {
+                boot_config_synchronization_iterations += 1;
+                assert!(
+                    boot_config_synchronization_iterations
+                        <= MAX_BOOT_CONFIG_SYNCHRONIZATION_ITERATIONS,
+                    "Boot-interface synchronization did not complete after \
+                     {MAX_BOOT_CONFIG_SYNCHRONIZATION_ITERATIONS} fixture iterations"
+                );
+
+                if let Some((bmc_ip, target)) = boot_config_observation {
+                    // MockEndpointExplorer replays the report registered during
+                    // discovery. Keep that report aligned with the target that
+                    // a live explorer receives before it reads from Redfish.
+                    self.register_boot_config_observation(bmc_ip, target, true, Vec::new());
+                }
+
+                // The production controller waits on Site Explorer's persisted
+                // observation. Run the observer between synchronization ticks
+                // so fixture-created hosts can cross the same Ready gate.
+                self.run_site_explorer_iteration().await;
+            } else {
+                boot_config_synchronization_iterations = 0;
+                iterations += 1;
             }
         }
         let mut txn = self.pool.begin().await.unwrap();

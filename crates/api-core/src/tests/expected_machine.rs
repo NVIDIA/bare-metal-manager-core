@@ -2489,6 +2489,117 @@ async fn test_add_rejects_multiple_primary_host_nics(
     Ok(())
 }
 
+/// A declared boot NIC must use one of the two segments that can reach the
+/// host boot path.
+#[crate::sqlx_test]
+async fn test_add_rejects_primary_host_nic_on_ineligible_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (index, segment_type) in [
+        rpc::forge::NetworkSegmentType::Tenant,
+        rpc::forge::NetworkSegmentType::Underlay,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let result = env
+            .api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: None,
+                bmc_mac_address: format!("9A:9B:9C:9D:A0:{index:02X}"),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: format!("EM-INVALID-BOOT-SEGMENT-{index}"),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    network_segment_type: Some(segment_type as i32),
+                    mac_address: format!("9A:9B:9C:9D:A1:{index:02X}"),
+                    nic_type: None,
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                }],
+                ..Default::default()
+            }))
+            .await;
+
+        let error = result.expect_err("ineligible primary host NIC should be rejected");
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert!(error.message().contains("host boot interface"));
+    }
+
+    Ok(())
+}
+
+/// Batch updates use the same boot-interface validation as single-object
+/// writes, so they cannot persist a primary declaration that the resolver
+/// would later ignore.
+#[crate::sqlx_test]
+async fn test_batch_update_rejects_primary_host_nic_on_ineligible_segment(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let id = Uuid::new_v4();
+    let base = rpc::forge::ExpectedMachine {
+        id: Some(rpc::common::Uuid {
+            value: id.to_string(),
+        }),
+        bmc_mac_address: "9A:9B:9C:9D:A2:00".to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "EM-BATCH-INVALID-BOOT-SEGMENT".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        ..Default::default()
+    };
+    env.api
+        .add_expected_machine(tonic::Request::new(base.clone()))
+        .await?;
+
+    let error = env
+        .api
+        .update_expected_machines(tonic::Request::new(
+            rpc::forge::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(rpc::forge::ExpectedMachineList {
+                    expected_machines: vec![rpc::forge::ExpectedMachine {
+                        host_nics: vec![rpc::forge::ExpectedHostNic {
+                            network_segment_type: Some(
+                                rpc::forge::NetworkSegmentType::Underlay as i32,
+                            ),
+                            mac_address: "9A:9B:9C:9D:A2:01".to_string(),
+                            primary: Some(true),
+                            ..Default::default()
+                        }],
+                        ..base.clone()
+                    }],
+                }),
+                accept_partial_results: false,
+            },
+        ))
+        .await
+        .expect_err("batch update should reject an ineligible primary boot NIC");
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert!(error.message().contains("host boot interface"));
+
+    let stored = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: String::new(),
+            id: Some(rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+        }))
+        .await?
+        .into_inner();
+    assert!(
+        stored.host_nics.is_empty(),
+        "a rejected batch update must leave the stored declaration unchanged",
+    );
+
+    Ok(())
+}
+
 /// The declared primary survives whichever order its NICs DHCP in: leasing the
 /// non-primary NIC first, then the declared primary, still lands the declared
 /// primary as `primary_interface` and the other as non-primary.

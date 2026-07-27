@@ -42,8 +42,9 @@ pub enum Cmd {
         long_about = "Gather the boot-interface view for one machine from all four stores and \
             print them together: the managed `machine_interfaces` rows (authoritative for a \
             managed machine), `predicted_machine_interfaces` (pre-first-lease candidates), \
-            the `explored_endpoints` default (for endpoints without a machine), and the \
-            retained post-deletion pairs (including stale records). Also reports the \
+            the `explored_endpoints` evaluation target (an inferred default before ownership \
+            and the managed selection afterward), and the retained post-deletion pairs \
+            (including stale records). Also reports the \
             effective boot interface the system would select and flags when the stores \
             disagree. Read-only."
     )]
@@ -53,10 +54,11 @@ pub enum Cmd {
         long_about = "List every NIC that could be the boot interface for a machine -- the \
             managed `machine_interfaces` rows and the pre-first-lease predictions -- and \
             mark the picks among them: `current` (what resolution targets now: the primary \
-            interface if one is set, else the lowest-MAC non-underlay interface), `default` \
+            boot-capable interface if one is set, else the lowest-MAC boot-capable interface), `default` \
             (what the automatic selection would choose if no primary interface were set), \
-            and `explored` (the default site-explorer recorded for the BMC endpoint of the \
-            machine). Underlay rows are listed but marked ineligible. Every pick is computed \
+            and `explored` (the evaluation target stored for the BMC endpoint of the machine). \
+            Only Admin and HostInband rows are eligible for operator selection; other \
+            rows are listed but marked ineligible. Every pick is computed \
             server-side by the same selection code the machine-controller acts on. Read-only."
     )]
     Candidates(candidates::Args),
@@ -64,10 +66,16 @@ pub enum Cmd {
         about = "Set the boot interface for a machine (promotes it to the primary interface)",
         long_about = "Make an interface the boot interface for a machine by promoting it to \
             the primary interface -- the designation every boot flow keys on. This is the \
-            same operation as `managed-host set-primary-interface`: the BMC boot order is \
-            updated first, then the primary flag moves in the database. The interface can be \
-            named by machine-interface UUID or by MAC address; a MAC must match exactly one \
-            managed interface row on the machine."
+            same operation as `managed-host set-primary-interface`: the selected interface and \
+            synchronization target are committed together, then machine-controller applies any \
+            required BMC changes. Unassigned hosts synchronize automatically. For an assigned \
+            host, `--reboot` applies the selection now and restarts only if required; without it, \
+            applying the selection is deferred and pending authorization is canceled before \
+            synchronization starts. Once synchronization has started, wait for it to finish \
+            before changing the selection without `--reboot`. The \
+            interface can be named by machine-interface \
+            UUID or by MAC address; a MAC must match exactly one managed interface row on the \
+            machine."
     )]
     Set(set::Args),
 }

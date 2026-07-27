@@ -106,7 +106,7 @@ pub(crate) async fn add(
         data: db_data,
     };
 
-    validate_expected_machine_for_insert(&machine)?;
+    validate_expected_machine(&machine)?;
 
     let mut txn = api.txn_begin().await?;
     db::expected_machine::create(&mut txn, machine).await?;
@@ -116,13 +116,12 @@ pub(crate) async fn add(
     Ok(tonic::Response::new(()))
 }
 
-/// Validate the ExpectedMachine payload prior to insert.
-/// Shared between the `add` gRPC handler and the
-/// `expected_machines.json` import flow.
-pub(crate) fn validate_expected_machine_for_insert(
-    machine: &ExpectedMachine,
-) -> Result<(), CarbideError> {
-    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+/// Validates an ExpectedMachine payload before it is persisted.
+///
+/// Shared by the single-object, batch, and `expected_machines.json` paths so
+/// every write accepts the same boot-interface and BMC allocation semantics.
+pub(crate) fn validate_expected_machine(machine: &ExpectedMachine) -> Result<(), CarbideError> {
+    validate_primary_host_nic(&machine.data.host_nics)?;
     machine
         .data
         .bmc_ip_allocation
@@ -133,9 +132,9 @@ pub(crate) fn validate_expected_machine_for_insert(
 }
 
 /// Create missing expected_machines that aren't already in the database,
-/// calling `validate_expected_machine_for_insert` for each new entry. This is currently
+/// calling `validate_expected_machine` for each new entry. This is currently
 /// purely used by the expected_machines.json import path only, but lives
-/// here so it can re-leverage `validate_expected_machine_for_insert` and share the
+/// here so it can re-leverage `validate_expected_machine` and share the
 /// same validation codepath as the API handler.
 pub(crate) async fn create_missing_from(
     txn: &mut sqlx::PgConnection,
@@ -156,7 +155,7 @@ pub(crate) async fn create_missing_from(
             );
             continue;
         }
-        validate_expected_machine_for_insert(expected_machine)?;
+        validate_expected_machine(expected_machine)?;
         db::expected_machine::create(&mut *txn, expected_machine.clone()).await?;
     }
 
@@ -223,12 +222,7 @@ pub(crate) async fn update(
         data,
     };
 
-    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
-    machine
-        .data
-        .bmc_ip_allocation
-        .validate(machine.data.bmc_ip_address.is_some())
-        .map_err(|msg| CarbideError::InvalidArgument(msg.to_string()))?;
+    validate_expected_machine(&machine)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -351,23 +345,35 @@ pub(crate) async fn delete_all(
     Ok(tonic::Response::new(()))
 }
 
-/// Rejects an ExpectedMachine payload that declares more than one host NIC
-/// with `primary: true`, returning an InvalidArgument if found.
-fn validate_at_most_one_primary_host_nic(
-    host_nics: &[ExpectedHostNic],
-) -> Result<(), CarbideError> {
+/// Validate the one host NIC an ExpectedMachine may declare for boot.
+fn validate_primary_host_nic(host_nics: &[ExpectedHostNic]) -> Result<(), CarbideError> {
     let primaries: Vec<_> = host_nics
         .iter()
         .filter(|n| n.primary == Some(true))
-        .map(|n| n.mac_address.to_string())
         .collect();
     if primaries.len() > 1 {
         return Err(CarbideError::InvalidArgument(format!(
             "at most one host_nic may be flagged primary=true, got {}: {}",
             primaries.len(),
-            primaries.join(", ")
+            primaries
+                .iter()
+                .map(|nic| nic.mac_address.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         )));
     }
+
+    if let Some(primary) = primaries.first()
+        && let Some(segment_type) = primary.resolved_network_segment_type()
+        && !segment_type.supports_host_boot()
+    {
+        return Err(CarbideError::InvalidArgument(format!(
+            "host_nic {} is flagged primary=true with segment type {segment_type}; a host boot \
+             interface must use the admin or host_inband segment",
+            primary.mac_address,
+        )));
+    }
+
     Ok(())
 }
 
@@ -435,7 +441,7 @@ async fn create_expected_machine(
         data: db_data,
     };
 
-    validate_expected_machine_for_insert(&expected_machine)?;
+    validate_expected_machine(&expected_machine)?;
     db::expected_machine::create(txn, expected_machine).await?;
 
     Ok(())
@@ -457,6 +463,8 @@ async fn update_expected_machine(
         bmc_mac_address: parsed_mac,
         data,
     };
+
+    validate_expected_machine(&expected_machine)?;
 
     if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
         update_preallocated_machine_interface(

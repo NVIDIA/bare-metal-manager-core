@@ -17,11 +17,14 @@
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use db::{self};
+use model::hardware_info::HardwareInfo;
 use model::machine::ManagedHostState;
+use model::machine::machine_id::from_hardware_info;
 use model::state_history::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
+use crate::tests::common::api_fixtures::dpu::create_dpu_machine;
 
 #[crate::sqlx_test]
 async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
@@ -224,6 +227,206 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .unwrap();
 
     assert!(!rpc_history.records.is_empty());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_machine_state_writers_lock_row_before_history(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let machine = db::machine::find_one(
+        &env.pool,
+        &host_machine_id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("managed host should exist");
+
+    // Hold the machine row while a second transaction starts a normal state
+    // write. That writer must block before it reaches the history trigger's
+    // per-object advisory lock.
+    let mut blocker = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(blocker.as_mut())
+        .await?;
+    sqlx::query("SELECT id FROM machines WHERE id = $1 FOR UPDATE")
+        .bind(host_machine_id)
+        .fetch_one(blocker.as_mut())
+        .await?;
+    let independent_history_version =
+        ConfigVersion::new(machine.current_version().version_nr() + 100);
+    let writer_pool = env.pool.clone();
+    let (writer_pid_tx, writer_pid_rx) = tokio::sync::oneshot::channel();
+    let writer = tokio::spawn(async move {
+        let mut txn = writer_pool.begin().await.unwrap();
+        let writer_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(txn.as_mut())
+            .await
+            .unwrap();
+        writer_pid_tx.send(writer_pid).unwrap();
+        db::machine::advance(&machine, txn.as_mut(), &ManagedHostState::Ready, None)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+    });
+    let writer_pid = writer_pid_rx.await?;
+
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting_on_row: bool = sqlx::query_scalar("SELECT $2 = ANY(pg_blocking_pids($1))")
+                .bind(writer_pid)
+                .bind(blocker_pid)
+                .fetch_one(&env.pool)
+                .await
+                .unwrap();
+            if waiting_on_row {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("machine state writer should block on the held machine row");
+
+    // A history write in the row-owning transaction must remain possible. If
+    // the other writer took history first, these two transactions deadlock.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        db::state_history::persist(
+            blocker.as_mut(),
+            db::state_history::StateHistoryTableId::Machine,
+            &host_machine_id,
+            &ManagedHostState::Ready,
+            independent_history_version,
+        ),
+    )
+    .await
+    .expect("machine-row ownership should not be blocked by a later history writer")?;
+    blocker.commit().await?;
+    writer.await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_stable_id_sync_locks_machine_before_history(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let stable_machine_id = from_hardware_info(&HardwareInfo::from(&host_config))?;
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+    let mut txn = env.pool.begin().await?;
+    let predicted_host = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+        .await?
+        .expect("DPU should have a predicted host");
+    txn.commit().await?;
+    assert!(predicted_host.id.machine_type().is_predicted_host());
+
+    // Fill retention so the next history insert must touch rows that a
+    // concurrent stable-ID promotion would rename.
+    let mut txn = env.pool.begin().await?;
+    sqlx::query(
+        "INSERT INTO machine_state_history (object_id, state, state_version) \
+         SELECT $1, to_jsonb(sequence), $2 \
+         FROM generate_series(1, 250) AS sequence",
+    )
+    .bind(predicted_host.id.to_string())
+    .bind(ConfigVersion::initial())
+    .execute(txn.as_mut())
+    .await?;
+    txn.commit().await?;
+
+    // Hold the machine row and let stable-ID promotion reach that lock. A
+    // correctly ordered promotion has not touched history yet, so this
+    // transaction can complete a normal state write without deadlocking.
+    let mut blocker = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(blocker.as_mut())
+        .await?;
+    sqlx::query("SELECT id FROM machines WHERE id = $1 FOR UPDATE")
+        .bind(predicted_host.id)
+        .fetch_one(blocker.as_mut())
+        .await?;
+
+    let rename_pool = env.pool.clone();
+    let current_machine_id = predicted_host.id;
+    let (rename_pid_tx, rename_pid_rx) = tokio::sync::oneshot::channel();
+    let rename = tokio::spawn(async move {
+        let mut txn = rename_pool.begin().await.unwrap();
+        let rename_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(txn.as_mut())
+            .await
+            .unwrap();
+        rename_pid_tx.send(rename_pid).unwrap();
+        let renamed = db::machine::try_sync_stable_id_with_current_machine_id_for_host(
+            txn.as_mut(),
+            &Some(current_machine_id),
+            &stable_machine_id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(renamed, stable_machine_id);
+        txn.commit().await.unwrap();
+    });
+    let rename_pid = rename_pid_rx.await?;
+
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let blocked_by_writer: bool =
+                sqlx::query_scalar("SELECT $2 = ANY(pg_blocking_pids($1))")
+                    .bind(rename_pid)
+                    .bind(blocker_pid)
+                    .fetch_one(&env.pool)
+                    .await
+                    .unwrap();
+            if blocked_by_writer {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("stable-ID promotion should block on the held machine row");
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        db::machine::advance(
+            &predicted_host,
+            blocker.as_mut(),
+            &ManagedHostState::Ready,
+            None,
+        ),
+    )
+    .await
+    .expect("machine state writing must not deadlock with stable-ID promotion")?;
+    blocker.commit().await?;
+    tokio::time::timeout(std::time::Duration::from_secs(10), rename)
+        .await
+        .expect("stable-ID promotion should finish after the state writer commits")?;
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::machine::find_one(
+            txn.as_mut(),
+            &predicted_host.id,
+            model::machine::machine_search_config::MachineSearchConfig::default(),
+        )
+        .await?
+        .is_none()
+    );
+    assert!(
+        db::machine::find_one(
+            txn.as_mut(),
+            &stable_machine_id,
+            model::machine::machine_search_config::MachineSearchConfig::default(),
+        )
+        .await?
+        .is_some()
+    );
 
     Ok(())
 }

@@ -21,7 +21,8 @@ use config_version::ConfigVersion;
 use const_format::concatcp;
 use mac_address::MacAddress;
 use model::firmware::FirmwareComponentType;
-use model::machine_boot_interface::MachineBootInterface;
+use model::machine::pick_boot_interface_candidate;
+use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use model::site_explorer::{
     EndpointExplorationReport, ExploredEndpoint, InitialBmcResetPhase, InitialResetPhase,
     PowerDrainState, PreingestionState, TimeSyncResetPhase,
@@ -62,6 +63,13 @@ struct DbExploredEndpoint {
     /// The MAC address of the boot interface (primary interface) for this host endpoint
     boot_interface_mac: Option<MacAddress>,
     /// The vendor-native Redfish interface id of the boot interface
+    boot_interface_id: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct LockedBootInterfaceTarget {
+    report_version: ConfigVersion,
+    boot_interface_mac: Option<MacAddress>,
     boot_interface_id: Option<String>,
 }
 
@@ -151,6 +159,37 @@ pub async fn find_by_ips(
         .await
         .map(|endpoints| endpoints.into_iter().map(Into::into).collect())
         .map_err(|e| DatabaseError::new("explored_endpoints::find_by_ips", e))
+}
+
+/// Finds and locks one endpoint for a transaction that will also update its
+/// managed machine interfaces.
+///
+/// Call this before locking `machine_interfaces` so boot-interface writers use
+/// the same endpoint-before-interface lock order as Site Explorer.
+pub async fn find_by_ip_for_update(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<ExploredEndpoint, DatabaseError> {
+    find_by_ip_for_update_optional(address, txn)
+        .await?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "explored endpoint",
+            id: address.to_string(),
+        })
+}
+
+/// Finds and locks one endpoint when its absence is an expected wait state.
+pub async fn find_by_ip_for_update_optional(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<Option<ExploredEndpoint>, DatabaseError> {
+    let query = "SELECT * FROM explored_endpoints WHERE address = $1 FOR UPDATE";
+    let endpoint = sqlx::query_as::<_, DbExploredEndpoint>(query)
+        .bind(address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(endpoint.map(Into::into))
 }
 
 /// Fetches explored DPU endpoints whose reported system serial number is in
@@ -891,20 +930,186 @@ pub async fn set_pause_remediation(
     Ok(())
 }
 
+/// Stores a complete boot-interface pair through the same version barrier as
+/// [`set_boot_interface_target`].
 pub async fn set_boot_interface(
     address: IpAddr,
     boot_interface: &MachineBootInterface,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let query = "UPDATE explored_endpoints SET boot_interface_mac = $1, boot_interface_id = $2 WHERE address = $3";
-    sqlx::query(query)
-        .bind(boot_interface.mac_address)
-        .bind(&boot_interface.interface_id)
+    set_boot_interface_target(
+        address,
+        &MachineBootInterfaceTarget::Pair(boot_interface.clone()),
+        txn,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Stores the endpoint's desired boot-interface target.
+///
+/// The endpoint row is locked before its target is compared or updated. A
+/// target change increments the report version and requests another
+/// exploration, making the returned version a baseline that the next
+/// correlated observation must exceed.
+pub async fn set_boot_interface_target(
+    address: IpAddr,
+    target: &MachineBootInterfaceTarget,
+    txn: &mut PgConnection,
+) -> Result<ConfigVersion, DatabaseError> {
+    let locked = lock_boot_interface_target(address, txn).await?;
+    update_boot_interface_target(address, target, locked, false, txn).await
+}
+
+/// Requests a fresh observation of `target`, even when the endpoint already
+/// stores that target.
+///
+/// The returned post-update version is the baseline for deciding whether a
+/// later report was produced in response to this request.
+pub async fn request_boot_interface_observation(
+    address: IpAddr,
+    target: &MachineBootInterfaceTarget,
+    txn: &mut PgConnection,
+) -> Result<ConfigVersion, DatabaseError> {
+    let locked = lock_boot_interface_target(address, txn).await?;
+    update_boot_interface_target(address, target, locked, true, txn).await
+}
+
+/// Persists Site Explorer's inferred boot interface until a managed machine's
+/// selected interface owns the endpoint target.
+///
+/// The endpoint, materialized interfaces, machine selection version, and
+/// predictions are locked in that order before resolving the same cross-store
+/// candidate used by the API and machine controller. An operator selection
+/// therefore cannot be overwritten by a stale inferred default, while a
+/// declared primary prediction can become the target before its first lease.
+pub async fn set_boot_interface_default(
+    address: IpAddr,
+    inferred_default: &MachineBootInterface,
+    txn: &mut PgConnection,
+) -> Result<ConfigVersion, DatabaseError> {
+    let locked = lock_boot_interface_target(address, txn).await?;
+    let stored_target = MachineBootInterfaceTarget::from_parts(
+        locked.boot_interface_mac,
+        locked.boot_interface_id.clone(),
+    );
+    let machine_id =
+        crate::machine_topology::find_machine_id_by_bmc_ip(&mut *txn, &address.to_string()).await?;
+
+    let target = match machine_id {
+        Some(machine_id) => {
+            crate::machine_interface::lock_for_machine(txn, machine_id).await?;
+            crate::machine::lock_boot_interface_selection_version(txn, machine_id).await?;
+            crate::predicted_machine_interface::lock_for_machine(txn, machine_id).await?;
+
+            let interfaces = crate::machine_interface::find_by_machine_ids(txn, &[machine_id])
+                .await?
+                .remove(&machine_id)
+                .unwrap_or_default();
+            let predictions =
+                crate::predicted_machine_interface::find_by_machine_id(txn, &machine_id).await?;
+            let Some(primary) = pick_boot_interface_candidate(&interfaces, &predictions) else {
+                // A zero-DPU host can legitimately rely on the fallback
+                // selection before and after its first in-band lease. Its
+                // controller-owned endpoint target must remain unchanged.
+                tracing::debug!(
+                    %machine_id,
+                    bmc_ip_address = %address,
+                    "Managed host has no boot-capable primary interface row; preserving its endpoint boot-interface target",
+                );
+                return Ok(locked.report_version);
+            };
+            let mac_address = primary.mac_address();
+            let interface_id = primary
+                .boot_interface()
+                .map(|boot_interface| boot_interface.interface_id);
+
+            match MachineBootInterfaceTarget::from_parts(Some(mac_address), interface_id)
+                .expect("a machine interface always has a MAC address")
+            {
+                MachineBootInterfaceTarget::MacOnly(_)
+                    if inferred_default.mac_address == mac_address =>
+                {
+                    MachineBootInterfaceTarget::Pair(inferred_default.clone())
+                }
+                MachineBootInterfaceTarget::MacOnly(_) => stored_target
+                    .filter(|stored| match stored {
+                        MachineBootInterfaceTarget::Pair(boot_interface) => {
+                            boot_interface.mac_address == mac_address
+                        }
+                        MachineBootInterfaceTarget::MacOnly(stored_mac_address) => {
+                            *stored_mac_address == mac_address
+                        }
+                    })
+                    .unwrap_or(MachineBootInterfaceTarget::MacOnly(mac_address)),
+                target @ MachineBootInterfaceTarget::Pair(_) => target,
+            }
+        }
+        None => MachineBootInterfaceTarget::Pair(inferred_default.clone()),
+    };
+
+    update_boot_interface_target(address, &target, locked, false, txn).await
+}
+
+async fn lock_boot_interface_target(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<LockedBootInterfaceTarget, DatabaseError> {
+    let query = "SELECT version AS report_version, boot_interface_mac, boot_interface_id \
+                 FROM explored_endpoints WHERE address = $1 FOR UPDATE";
+    sqlx::query_as(query)
         .bind(address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "explored endpoint",
+            id: address.to_string(),
+        })
+}
+
+async fn update_boot_interface_target(
+    address: IpAddr,
+    target: &MachineBootInterfaceTarget,
+    locked: LockedBootInterfaceTarget,
+    force_observation: bool,
+    txn: &mut PgConnection,
+) -> Result<ConfigVersion, DatabaseError> {
+    let current =
+        MachineBootInterfaceTarget::from_parts(locked.boot_interface_mac, locked.boot_interface_id);
+    if !force_observation && current.as_ref() == Some(target) {
+        return Ok(locked.report_version);
+    }
+
+    let (mac_address, interface_id) = match target {
+        MachineBootInterfaceTarget::Pair(boot_interface) => (
+            boot_interface.mac_address,
+            Some(boot_interface.interface_id.as_str()),
+        ),
+        MachineBootInterfaceTarget::MacOnly(mac_address) => (*mac_address, None),
+    };
+    let new_version = locked.report_version.increment();
+    let query = "UPDATE explored_endpoints \
+                 SET version = $1, boot_interface_mac = $2, boot_interface_id = $3, \
+                     waiting_for_explorer_refresh = true, exploration_requested = true \
+                 WHERE address = $4 AND version = $5";
+    let result = sqlx::query(query)
+        .bind(new_version)
+        .bind(mac_address)
+        .bind(interface_id)
+        .bind(address)
+        .bind(locked.report_version)
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
-    Ok(())
+    if result.rows_affected() != 1 {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "ExploredEndpoint",
+            locked.report_version.version_string(),
+        ));
+    }
+
+    Ok(new_version)
 }
 
 pub async fn set_pause_ingestion_and_poweron(
@@ -1007,5 +1212,99 @@ mod count_preingest_tests {
         assert_eq!(rows.len(), 2, "two endpoints are installing firmware");
         assert_eq!(count, 2, "count agrees with the row count");
         assert_eq!(count, rows.len() as i64);
+    }
+}
+
+#[cfg(test)]
+mod boot_interface_target_tests {
+    use super::*;
+
+    const ADDRESS: IpAddr = IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 2, 1));
+
+    async fn endpoint(txn: &mut PgConnection) -> ExploredEndpoint {
+        find_all_by_ip(ADDRESS, txn)
+            .await
+            .expect("query endpoint")
+            .into_iter()
+            .next()
+            .expect("seeded endpoint")
+    }
+
+    async fn clear_observation_request(txn: &mut PgConnection) {
+        sqlx::query(
+            "UPDATE explored_endpoints \
+             SET waiting_for_explorer_refresh = false, exploration_requested = false \
+             WHERE address = $1",
+        )
+        .bind(ADDRESS)
+        .execute(txn)
+        .await
+        .expect("clear observation request");
+    }
+
+    #[crate::sqlx_test]
+    async fn target_changes_and_forced_observations_create_version_barriers(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.expect("begin transaction");
+        let stale_report = EndpointExplorationReport::default();
+        insert(ADDRESS, &stale_report, false, &mut txn)
+            .await
+            .expect("seed endpoint");
+        let initial_version = find_by_ip_for_update(ADDRESS, &mut txn)
+            .await
+            .expect("lock endpoint")
+            .report_version;
+        let boot_interface = MachineBootInterface {
+            mac_address: "02:00:00:00:02:01".parse().expect("valid MAC"),
+            interface_id: "NIC.Slot.2-1-1".to_string(),
+        };
+        let pair = MachineBootInterfaceTarget::Pair(boot_interface.clone());
+
+        let pair_baseline = set_boot_interface_target(ADDRESS, &pair, &mut txn)
+            .await
+            .expect("set complete target");
+        assert!(
+            !try_update(ADDRESS, initial_version, &stale_report, false, &mut txn,)
+                .await
+                .expect("reject stale report"),
+            "a report using the pre-target version must lose its compare-and-swap update",
+        );
+        let stored_pair = endpoint(&mut txn).await;
+        assert!(pair_baseline.version_nr() > initial_version.version_nr());
+        assert_eq!(stored_pair.report_version, pair_baseline);
+        assert_eq!(stored_pair.boot_interface_target(), Some(pair.clone()));
+        assert!(stored_pair.waiting_for_explorer_refresh);
+        assert!(stored_pair.exploration_requested);
+
+        clear_observation_request(&mut txn).await;
+        let unchanged_baseline = set_boot_interface_target(ADDRESS, &pair, &mut txn)
+            .await
+            .expect("retain complete target");
+        let unchanged = endpoint(&mut txn).await;
+        assert_eq!(unchanged_baseline, pair_baseline);
+        assert!(!unchanged.waiting_for_explorer_refresh);
+        assert!(!unchanged.exploration_requested);
+
+        let forced_baseline = request_boot_interface_observation(ADDRESS, &pair, &mut txn)
+            .await
+            .expect("request fresh observation");
+        let forced = endpoint(&mut txn).await;
+        assert!(forced_baseline.version_nr() > pair_baseline.version_nr());
+        assert_eq!(forced.report_version, forced_baseline);
+        assert_eq!(forced.boot_interface_target(), Some(pair));
+        assert!(forced.waiting_for_explorer_refresh);
+        assert!(forced.exploration_requested);
+
+        clear_observation_request(&mut txn).await;
+        let mac_only =
+            MachineBootInterfaceTarget::MacOnly("02:00:00:00:02:02".parse().expect("valid MAC"));
+        let mac_only_baseline = set_boot_interface_target(ADDRESS, &mac_only, &mut txn)
+            .await
+            .expect("set MAC-only target");
+        let stored_mac_only = endpoint(&mut txn).await;
+        assert!(mac_only_baseline.version_nr() > forced_baseline.version_nr());
+        assert_eq!(stored_mac_only.report_version, mac_only_baseline);
+        assert_eq!(stored_mac_only.boot_interface_target(), Some(mac_only));
+        assert!(stored_mac_only.waiting_for_explorer_refresh);
+        assert!(stored_mac_only.exploration_requested);
     }
 }

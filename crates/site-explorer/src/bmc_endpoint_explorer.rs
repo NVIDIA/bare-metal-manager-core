@@ -35,6 +35,7 @@ use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     BlueFieldOperatingMode, EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
+    MACHINE_SETUP_VERIFICATION_VERSION,
 };
 use sqlx::PgPool;
 
@@ -320,7 +321,7 @@ impl BmcEndpointExplorer {
                     .await;
                 let nvredfish = self
                     .redfish_client
-                    .nv_generate_exploration_report(bmc_ip_address, credentials, boot_interface)
+                    .nv_generate_raw_exploration_report(bmc_ip_address, credentials, boot_interface)
                     .await;
                 match (&libredfish, &nvredfish) {
                     (Ok(report), Ok(nv_report)) => warn_report_diff(report, nv_report),
@@ -1658,9 +1659,14 @@ fn warn_report_diff(report1: &EndpointExplorationReport, report2: &EndpointExplo
     } else if let Some(r1) = &report1.machine_setup_status
         && let Some(r2) = &report2.machine_setup_status
     {
-        // Both backends should retain the same logical target. Keep the target
-        // in this comparison so future backend changes cannot hide a mismatch.
-        if r1.is_done != r2.is_done || r1.evaluated_boot_interface != r2.evaluated_boot_interface {
+        // Compare target correlation only when both backends implement that
+        // verification contract. The legacy NvRedfish report is intentionally
+        // version 0 and targetless, so treating its missing target as a
+        // disagreement would make every targeted CompareResult probe warn.
+        let target_mismatch = r1.verification_version >= MACHINE_SETUP_VERIFICATION_VERSION
+            && r2.verification_version >= MACHINE_SETUP_VERIFICATION_VERSION
+            && r1.evaluated_boot_interface != r2.evaluated_boot_interface;
+        if r1.is_done != r2.is_done || target_mismatch {
             tracing::warn!(
                 libredfish_machine_setup_status = ?r1,
                 nvredfish_machine_setup_status = ?r2,
@@ -1770,17 +1776,19 @@ mod tests {
     use carbide_test_support::{Case, check_cases_async, value_scenarios};
     use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
     use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
-    use model::site_explorer::MachineSetupStatus;
+    use model::site_explorer::{MACHINE_SETUP_VERIFICATION_VERSION, MachineSetupStatus};
 
     use super::*;
 
     fn report_with_evaluated_target(
+        verification_version: u32,
         evaluated_boot_interface: Option<MachineBootInterfaceTarget>,
     ) -> EndpointExplorationReport {
         EndpointExplorationReport {
             machine_setup_status: Some(MachineSetupStatus {
                 is_done: true,
                 diffs: Vec::new(),
+                verification_version,
                 evaluated_boot_interface,
             }),
             ..Default::default()
@@ -1796,34 +1804,68 @@ mod tests {
         });
         let mac_only = MachineBootInterfaceTarget::MacOnly(mac_address);
 
-        value_scenarios!(run = |(libredfish_target, nvredfish_target)| {
-            let libredfish_report = report_with_evaluated_target(libredfish_target);
-            let nvredfish_report = report_with_evaluated_target(nvredfish_target);
+        value_scenarios!(run = |(libredfish_version, libredfish_target, nvredfish_version, nvredfish_target)| {
+            let libredfish_report =
+                report_with_evaluated_target(libredfish_version, libredfish_target);
+            let nvredfish_report =
+                report_with_evaluated_target(nvredfish_version, nvredfish_target);
             capture_logs(|| warn_report_diff(&libredfish_report, &nvredfish_report))
                 .into_iter()
                 .map(|log| log.message)
                 .collect::<Vec<_>>()
         };
             "same evaluated pair does not warn" {
-                (Some(pair.clone()), Some(pair)) => Vec::<String>::new(),
+                (
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    Some(pair.clone()),
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    Some(pair),
+                ) => Vec::<String>::new(),
             }
 
             "pair and MAC-only targets warn" {
-                (Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
-                    mac_address,
-                    interface_id: "NIC.Slot.7-1-1".to_string(),
-                })), Some(mac_only)) => vec!["machine setup statuses are not equal".to_string()],
+                (
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    Some(mac_only),
+                ) => vec!["machine setup statuses are not equal".to_string()],
             }
 
             "two targetless statuses do not warn" {
-                (None, None) => Vec::<String>::new(),
+                (
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    None,
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    None,
+                ) => Vec::<String>::new(),
             }
 
-            "pair and targetless statuses warn" {
-                (Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
-                    mac_address,
-                    interface_id: "NIC.Slot.7-1-1".to_string(),
-                })), None) => vec!["machine setup statuses are not equal".to_string()],
+            "correlation-capable pair and targetless statuses warn" {
+                (
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    None,
+                ) => vec!["machine setup statuses are not equal".to_string()],
+            }
+
+            "legacy targetless NvRedfish status does not warn" {
+                (
+                    MACHINE_SETUP_VERIFICATION_VERSION,
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+                    0,
+                    None,
+                ) => Vec::<String>::new(),
             }
         );
     }

@@ -260,6 +260,24 @@ async fn assert_dpu_reprovision_host_boot_repair(
     terminal_machine
 }
 
+async fn assert_dpu_reprovision_finishes_ready(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    dpu_machine: &TestMachine,
+) {
+    mh.host().forge_agent_control().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.id,
+        4,
+        ManagedHostState::Ready,
+    )
+    .await;
+
+    let mut txn = env.db_txn().await;
+    let dpu = dpu_machine.db_machine(&mut txn).await;
+    assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
+}
+
 async fn prepare_dpu_reprovision_host_boot_check(
     env: &TestEnv,
     mh: &TestManagedHost,
@@ -460,9 +478,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
         }
     ));
 
-    let _response = mh.host().forge_agent_control().await;
-    let dpu = dpu_machine.next_iteration_machine(&env).await;
-    assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
+    assert_dpu_reprovision_finishes_ready(&env, &mh, &dpu_machine).await;
 }
 
 #[crate::sqlx_test]
@@ -856,9 +872,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
         }
     ));
 
-    let _response = mh.host().forge_agent_control().await;
-    let dpu = dpu_machine.next_iteration_machine(&env).await;
-    assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
+    assert_dpu_reprovision_finishes_ready(&env, &mh, &dpu_machine).await;
 }
 
 #[crate::sqlx_test]
@@ -1901,10 +1915,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
         }
     ));
 
-    let _response = mh.host().forge_agent_control().await;
-
-    let dpu = dpu_machine.next_iteration_machine(&env).await;
-    assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
+    assert_dpu_reprovision_finishes_ready(&env, &mh, &dpu_machine).await;
 }
 
 #[crate::sqlx_test]
@@ -2052,9 +2063,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
         }
     ));
 
-    mh.host().forge_agent_control().await;
-    let dpu = dpu_machine.next_iteration_machine(&env).await;
-    assert!(matches!(dpu.current_state(), &ManagedHostState::Ready));
+    assert_dpu_reprovision_finishes_ready(&env, &mh, &dpu_machine).await;
 }
 
 #[crate::sqlx_test]

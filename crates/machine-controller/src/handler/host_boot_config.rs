@@ -47,6 +47,7 @@ use super::{
     are_dpus_up_trigger_reboot_if_needed, is_dpu_observed_since, load_boot_predictions,
     log_host_config, require_boot_interface, set_host_boot_order, trigger_reboot_if_needed,
 };
+use crate::boot_interface::boot_interface_target;
 use crate::context::MachineStateHandlerContextObjects;
 
 /// Runtime projection of the persisted BIOS and boot-order states shared by
@@ -109,6 +110,57 @@ pub(super) enum HostBootConfigDpuFreshness {
     CurrentHostState,
     /// Require observations newer than the most recent host reboot request.
     SinceLastHostRebootRequest,
+}
+
+/// Where a shared host boot-config stage gets the Redfish target it acts on.
+///
+/// Existing lifecycle states continue resolving their current selection at
+/// each stage. Durable boot-config synchronization instead supplies the exact
+/// target persisted in its state so first-lease promotion or prediction
+/// deletion cannot redirect an in-flight Redfish operation.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(super) enum HostBootInterfaceSource {
+    ResolveSelected,
+    Pinned(BootInterfaceTarget),
+}
+
+impl HostBootInterfaceSource {
+    pub(super) async fn resolve_optional(
+        &self,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        mh_snapshot: &ManagedHostStateSnapshot,
+    ) -> Result<Option<BootInterfaceTarget>, StateHandlerError> {
+        match self {
+            Self::ResolveSelected => {
+                let predictions = load_boot_predictions(ctx, mh_snapshot).await?;
+                Ok(self.select(boot_interface_target(mh_snapshot, &predictions)))
+            }
+            Self::Pinned(_) => Ok(self.select(None)),
+        }
+    }
+
+    pub(super) async fn resolve_required<W>(
+        &self,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        mh_snapshot: &ManagedHostStateSnapshot,
+        activity: &str,
+        wait: impl FnOnce(String) -> W,
+    ) -> Result<RequiredBootInterface<W>, StateHandlerError> {
+        match self {
+            Self::Pinned(target) => Ok(RequiredBootInterface::Ready(target.clone())),
+            Self::ResolveSelected => {
+                let predictions = load_boot_predictions(ctx, mh_snapshot).await?;
+                require_boot_interface(mh_snapshot, &predictions, activity, wait)
+            }
+        }
+    }
+
+    fn select(&self, selected: Option<BootInterfaceTarget>) -> Option<BootInterfaceTarget> {
+        match self {
+            Self::ResolveSelected => selected,
+            Self::Pinned(target) => Some(target.clone()),
+        }
+    }
 }
 
 /// Actual host boot settings read from Redfish.
@@ -176,6 +228,7 @@ pub(super) async fn check_host_boot_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     dpu_freshness: HostBootConfigDpuFreshness,
+    boot_interface_source: HostBootInterfaceSource,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<HostBootConfigCheckOutcome, StateHandlerError> {
     if should_wait_for_dpus_before_host_boot_config(
@@ -191,13 +244,15 @@ pub(super) async fn check_host_boot_config(
         ));
     }
 
-    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
-    let boot_interface = match require_boot_interface(
-        mh_snapshot,
-        &predictions,
-        "configuring boot",
-        HostBootConfigCheckOutcome::Wait,
-    )? {
+    let boot_interface = match boot_interface_source
+        .resolve_required(
+            ctx,
+            mh_snapshot,
+            "configuring boot",
+            HostBootConfigCheckOutcome::Wait,
+        )
+        .await?
+    {
         RequiredBootInterface::Ready(target) => target,
         RequiredBootInterface::Wait(outcome) => return Ok(outcome),
     };
@@ -248,15 +303,20 @@ pub(super) async fn run_host_boot_config_stage(
     reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
+    boot_interface_source: HostBootInterfaceSource,
     stage: HostBootConfigStage,
 ) -> Result<HostBootConfigOutcome, StateHandlerError> {
     match stage {
         HostBootConfigStage::ConfigureBios { retry_count } => {
+            let boot_interface = boot_interface_source
+                .resolve_optional(ctx, mh_snapshot)
+                .await?;
             match configure_host_bios(
                 ctx,
                 reachability_params,
                 redfish_client,
                 mh_snapshot,
+                boot_interface.as_ref(),
                 retry_count,
             )
             .await?
@@ -301,13 +361,15 @@ pub(super) async fn run_host_boot_config_stage(
             }
         }
         HostBootConfigStage::PollingBiosSetup { retry_count } => {
-            let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+            let boot_interface = boot_interface_source
+                .resolve_optional(ctx, mh_snapshot)
+                .await?;
             match advance_polling_bios_setup(
                 redfish_client,
                 mh_snapshot,
                 retry_count,
                 &ctx.services.site_config.machine_state_controller,
-                &predictions,
+                boot_interface.as_ref(),
             )
             .await?
             {
@@ -342,6 +404,7 @@ pub(super) async fn run_host_boot_config_stage(
                 reachability_params,
                 redfish_client,
                 mh_snapshot,
+                &boot_interface_source,
                 set_boot_order_info,
             )
             .await?
@@ -390,7 +453,7 @@ fn set_boot_order_info(retry_count: u32) -> SetBootOrderInfo {
     }
 }
 
-/// Carry one bounded convergence budget when boot-order work discovers that
+/// Use one bounded convergence budget when boot-order work discovers that
 /// BIOS must be repaired again. Existing owner states already persist this
 /// counter through both phases, so no serialized wrapper is required.
 fn next_boot_config_retry_count(retry_count: u32, max_retries: u32) -> Option<u32> {
@@ -463,7 +526,9 @@ async fn should_wait_for_dpus_before_host_boot_config(
 
 #[cfg(test)]
 mod tests {
+    use carbide_redfish::boot_interface::BootInterfaceTarget;
     use carbide_test_support::value_scenarios;
+    use mac_address::MacAddress;
 
     use super::*;
 
@@ -538,6 +603,22 @@ mod tests {
                     retry_count: 4,
                     max_retries: 1,
                 } => None,
+            }
+        );
+    }
+
+    #[test]
+    fn pinned_boot_interface_ignores_the_current_selection() {
+        let pinned = BootInterfaceTarget::MacOnly(MacAddress::new([0, 0, 0, 0, 0, 0x0a]));
+        let current = BootInterfaceTarget::MacOnly(MacAddress::new([0, 0, 0, 0, 0, 0x0b]));
+        let source = HostBootInterfaceSource::Pinned(pinned.clone());
+
+        value_scenarios!(run = |selected| source.select(selected);
+            "a different current target cannot redirect the stage" {
+                Some(current) => Some(pinned.clone()),
+            }
+            "a missing current target cannot erase the pinned target" {
+                None => Some(pinned),
             }
         );
     }

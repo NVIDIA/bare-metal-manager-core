@@ -484,6 +484,42 @@ pub async fn find_by_machine_ids(
     )
 }
 
+/// Locks every interface row currently owned by a machine.
+///
+/// Callers that also update an explored endpoint lock that endpoint first.
+/// Re-reading with [`find_by_machine_ids`] after this call gives the selected
+/// interface state that remains stable for the transaction.
+pub async fn lock_for_machine(txn: &mut PgConnection, machine_id: MachineId) -> DatabaseResult<()> {
+    let query = "SELECT id FROM machine_interfaces WHERE machine_id = $1 ORDER BY id FOR UPDATE";
+    sqlx::query_scalar::<_, MachineInterfaceId>(query)
+        .bind(machine_id)
+        .fetch_all(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Locks every interface row for the supplied MACs in row-id order.
+///
+/// Batch writers use this before updating per-MAC boot metadata so they cannot
+/// deadlock with a concurrent path that locks all rows for one machine.
+pub async fn lock_for_mac_addresses(
+    txn: &mut PgConnection,
+    mac_addresses: &[MacAddress],
+) -> DatabaseResult<()> {
+    if mac_addresses.is_empty() {
+        return Ok(());
+    }
+    let query =
+        "SELECT id FROM machine_interfaces WHERE mac_address = ANY($1) ORDER BY id FOR UPDATE";
+    sqlx::query_scalar::<_, MachineInterfaceId>(query)
+        .bind(mac_addresses)
+        .fetch_all(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 /// Counts the machine interfaces bound to a given segment.
 ///
 /// Keep this predicate in sync with
@@ -1905,9 +1941,21 @@ pub async fn lock_network_segments_exclusive(
 /// Later acquisitions of the same locks in the same transaction (reconcile's
 /// own pass) are no-ops.
 pub async fn lock_all_admin_segments(txn: &mut PgConnection) -> DatabaseResult<()> {
-    let segment_ids =
+    lock_network_segments_and_all_admin_segments(txn, &[]).await
+}
+
+/// Advisory-lock the supplied segments and every admin segment as one sorted
+/// set. Promotion uses this before taking interface or machine row locks: its
+/// exact DHCP segment may not be admin, while the resulting primary change can
+/// still make DPU-backed admin links dormant.
+pub async fn lock_network_segments_and_all_admin_segments(
+    txn: &mut PgConnection,
+    segment_ids: &[NetworkSegmentId],
+) -> DatabaseResult<()> {
+    let mut all_segment_ids =
         db_network_segment::list_segment_ids(&mut *txn, Some(NetworkSegmentType::Admin)).await?;
-    lock_network_segments_exclusive(txn, &segment_ids).await
+    all_segment_ids.extend_from_slice(segment_ids);
+    lock_network_segments_exclusive(txn, &all_segment_ids).await
 }
 
 pub async fn allocate_svi_ip(
@@ -2128,10 +2176,43 @@ pub async fn move_predicted_machine_interface_to_machine(
         relay_ip_address = %relay_ip,
         "Got DHCP from predicted machine interface, moving to machine"
     );
+
     let Some(network_segment) = crate::network_segment::for_relay(txn, relay_ip).await? else {
         return Err(DatabaseError::internal(format!(
             "No network segment defined for relay address: {relay_ip}"
         )));
+    };
+
+    // Serialize first-lease promotion with interface selection and address
+    // allocation using the repository-wide order: segment advisory lock,
+    // owned interfaces, machine row, then predictions. Reload after the locks
+    // so a selection that cleared this prediction's primary flag cannot be
+    // overwritten from the caller's stale snapshot.
+    if predicted_machine_interface.primary_interface {
+        lock_network_segments_and_all_admin_segments(
+            txn,
+            std::slice::from_ref(&network_segment.id),
+        )
+        .await?;
+    } else {
+        lock_network_segments_exclusive(txn, std::slice::from_ref(&network_segment.id)).await?;
+    }
+    lock_for_machine(txn, predicted_machine_interface.machine_id).await?;
+    crate::machine::lock_boot_interface_selection_version(
+        txn,
+        predicted_machine_interface.machine_id,
+    )
+    .await?;
+    crate::predicted_machine_interface::lock_for_machine(
+        txn,
+        predicted_machine_interface.machine_id,
+    )
+    .await?;
+    let Some(predicted_machine_interface) =
+        crate::predicted_machine_interface::find_by_id(txn, predicted_machine_interface.id).await?
+    else {
+        // A concurrent first lease already promoted this prediction.
+        return Ok(());
     };
 
     if network_segment.config.segment_type
@@ -2272,7 +2353,16 @@ pub async fn move_predicted_machine_interface_to_machine(
         .await?;
     }
 
-    crate::predicted_machine_interface::delete(predicted_machine_interface, txn).await?;
+    crate::predicted_machine_interface::delete(&predicted_machine_interface, txn).await?;
+
+    if predicted_machine_interface.primary_interface {
+        reconcile_admin_addresses_after_boot_interface_selection(
+            txn,
+            &predicted_machine_interface.machine_id,
+            true,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -2403,7 +2493,7 @@ pub async fn reconcile_admin_addresses_for_host(
     // from a non-admin primary (a HostInband integrated NIC on a managed-DPU host)
     // has no primary in the admin set, which is valid, not broken: every DPU
     // admin link is then dormant and only gets cleaned up below. A host with no
-    // primary interface at all is the genuine error.
+    // primary interface at all is the configuration error.
     let primary_to_repair = match interfaces
         .iter()
         .position(|interface| interface.primary_interface)
@@ -2602,6 +2692,56 @@ pub async fn reconcile_admin_addresses_for_host(
 
     txn.commit().await?;
     Ok(active_config_changed)
+}
+
+/// Reconciles admin address ownership after a boot-interface selection and
+/// publishes the resulting network configuration to the host group and any
+/// assigned instance.
+///
+/// `selection_changed` matters even when reconciliation only removes addresses
+/// from dormant DPU links: the selected interface itself is part of the
+/// externally visible network configuration. Callers must acquire every admin
+/// segment advisory lock before taking interface or machine row locks.
+pub async fn reconcile_admin_addresses_after_boot_interface_selection(
+    txn: &mut PgConnection,
+    host_machine_id: &MachineId,
+    selection_changed: bool,
+) -> DatabaseResult<()> {
+    let active_config_changed = reconcile_admin_addresses_for_host(txn, host_machine_id).await?;
+    if !selection_changed && !active_config_changed {
+        return Ok(());
+    }
+
+    let (network_config, network_config_version) =
+        crate::machine::get_network_config(&mut *txn, host_machine_id)
+            .await?
+            .take();
+    if !crate::machine::try_update_network_config(
+        txn,
+        host_machine_id,
+        network_config_version,
+        &network_config,
+    )
+    .await?
+    {
+        return Err(DatabaseError::ConcurrentModificationError(
+            "machine",
+            network_config_version.to_string(),
+        ));
+    }
+
+    if let Some(instance) = crate::instance::find_by_machine_id(txn, host_machine_id).await? {
+        crate::instance::update_network_config(
+            txn,
+            instance.id,
+            instance.network_config_version,
+            &instance.config.network,
+            true,
+        )
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// Finds host-owned admin interfaces and locks the interface rows.

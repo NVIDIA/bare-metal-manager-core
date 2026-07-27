@@ -18,9 +18,9 @@
 //! One machine's boot-interface view, gathered from every store that records
 //! it. This is a read-only troubleshooting projection: it reports the four
 //! places a host's boot interface can live -- owned `machine_interfaces` rows,
-//! `predicted_machine_interfaces`, the `explored_endpoints` default, and the
-//! post-deletion `retained_boot_interfaces` pairs -- alongside the effective
-//! boot interface the system would select via `pick_boot_interface`, and a
+//! `predicted_machine_interfaces`, the `explored_endpoints` evaluation target,
+//! and the post-deletion `retained_boot_interfaces` pairs -- alongside the effective
+//! boot interface the system would select via `pick_boot_interface_candidate`, and a
 //! divergence flag for when the stores disagree about which NIC boots.
 
 use std::collections::BTreeSet;
@@ -35,9 +35,8 @@ use crate::handlers::utils::convert_and_log_machine_id;
 /// Gather the boot-interface view for one machine across all four stores.
 ///
 /// All four stores are read within a single read transaction. The effective
-/// boot interface is the same
-/// `pick_boot_interface` selection every other flow acts on, applied to the
-/// owned `machine_interfaces` rows.
+/// boot interface uses the same cross-store candidate selection as the
+/// controller and admin Redfish flows.
 pub(crate) async fn get_machine_boot_interfaces(
     api: &Api,
     request: Request<rpc::GetMachineBootInterfacesRequest>,
@@ -60,8 +59,9 @@ pub(crate) async fn get_machine_boot_interfaces(
     let predicted_interfaces =
         db::predicted_machine_interface::find_by_machine_id(txn.as_mut(), &machine_id).await?;
 
-    // Store 3: the explored endpoint default. The machine's BMC IP(s) map it to
-    // the explored endpoints site-explorer recorded a default against.
+    // Store 3: the explored endpoint evaluation target. The machine's BMC
+    // IP(s) map it to the endpoint where the inferred pre-ownership default or
+    // managed selection is stored.
     let bmc_pairs =
         db::machine_topology::find_machine_bmc_pairs_by_machine_id(txn.as_mut(), vec![machine_id])
             .await?;
@@ -105,12 +105,12 @@ pub(crate) async fn get_machine_boot_interfaces(
 
     txn.commit().await?;
 
-    // The effective boot interface: `pick_boot_interface` over the owned rows
-    // (primary wins, else the lowest-MAC non-underlay NIC). This is what the
-    // controller and admin actions resolve.
-    let effective = model::machine::pick_boot_interface(&owned_interfaces);
-    let effective_mac = effective.map(|i| i.mac_address);
-    let effective_boot_interface = effective.and_then(|i| i.boot_interface());
+    // A declared primary prediction can answer before first-lease promotion;
+    // otherwise the owned row selection wins.
+    let effective =
+        model::machine::pick_boot_interface_candidate(&owned_interfaces, &predicted_interfaces);
+    let effective_mac = effective.map(|candidate| candidate.mac_address());
+    let effective_boot_interface = effective.and_then(|candidate| candidate.boot_interface());
 
     // The default pick: the same selection with the primary flag masked --
     // what the automation would choose if nothing were declared. Reported so
@@ -131,12 +131,11 @@ pub(crate) async fn get_machine_boot_interfaces(
         predicted_pick.and_then(|p| p.boot_interface()),
     );
 
-    // Divergence: do the stores agree on which MAC boots this machine? We
-    // compare the boot-MAC signals each store offers -- the effective owned
-    // pick, every explored endpoint's recorded default, and any predicted NIC
-    // flagged primary -- and flag a disagreement when more than one distinct
-    // MAC turns up. (Retained rows are post-deletion history, shown for context
-    // but not part of the agreement check.) A single signal, or none, is not a
+    // Divergence: do the active boot-MAC signals agree? We compare the
+    // effective cross-store pick, every explored endpoint's evaluation target,
+    // and each primary prediction. More than one distinct MAC is a
+    // disagreement. Retained rows are post-deletion history, shown for context
+    // but not part of the comparison. A single signal, or none, is not a
     // divergence.
     let mut boot_macs: BTreeSet<MacAddress> = BTreeSet::new();
     if let Some(mac) = effective_mac {

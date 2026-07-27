@@ -142,7 +142,7 @@ struct ReconciliationCase {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ResultingState {
-    Ready,
+    BootConfigSynchronization,
     Failed,
 }
 
@@ -274,7 +274,11 @@ async fn reconcile(
     env.run_single_iteration().await;
     let machine = host.host.machine().await;
     let resulting_state = match machine.state.value {
-        ManagedHostState::Ready => ResultingState::Ready,
+        ManagedHostState::BootConfigSynchronization {
+            synchronization_state:
+                model::machine::BootConfigSynchronizationState::Initialize { target: None },
+            synchronization_retry_count: 0,
+        } => ResultingState::BootConfigSynchronization,
         ManagedHostState::Failed { .. } => ResultingState::Failed,
         other => return Err(format!("unexpected resulting state: {other:?}")),
     };
@@ -314,7 +318,7 @@ fn backend_cases() -> Vec<Case<ReconciliationCase, Observation, String>> {
                     expect: Outcome::Yields(Observation {
                         request_cleared: true,
                         resulting_state: if succeeds {
-                            ResultingState::Ready
+                            ResultingState::BootConfigSynchronization
                         } else {
                             ResultingState::Failed
                         },

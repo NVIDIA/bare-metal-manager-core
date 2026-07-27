@@ -281,6 +281,7 @@ fn host_interfaces(machine_id: MachineId) -> Vec<MachineInterfaceSnapshot> {
             };
             let segment_type = match i {
                 0 => None,
+                1 | 2 => Some(NetworkSegmentType::Admin),
                 3 | 4 => Some(NetworkSegmentType::HostInband),
                 _ => Some(NetworkSegmentType::Tenant),
             };
@@ -362,6 +363,8 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
 
     MachineSnapshotPgJson {
         machine_maintenance_requested: None,
+        boot_interface_selection_version: config_version(1).version_string(),
+        boot_config_synchronization_requested: None,
         id: machine_id,
         rack_id: Some("rack-bench-01".parse().expect("valid rack id")),
         created: fixture_time(0),

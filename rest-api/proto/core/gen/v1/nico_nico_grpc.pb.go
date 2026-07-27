@@ -800,9 +800,10 @@ type ForgeClient interface {
 	SetMachineBootOverride(ctx context.Context, in *MachineBootOverride, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ClearMachineBootOverride(ctx context.Context, in *MachineInterfaceId, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Gather one machine's boot-interface view from every store that records it
-	// (owned interface rows, predictions, the explored endpoint default, and the
-	// retained post-deletion pairs), plus the effective boot interface the
-	// system would select. Read-only; built for troubleshooting and verification.
+	// (owned interface rows, predictions, the explored endpoint evaluation
+	// target, and the retained post-deletion pairs), plus the effective boot
+	// interface the system would select. Read-only; built for troubleshooting
+	// and verification.
 	GetMachineBootInterfaces(ctx context.Context, in *GetMachineBootInterfacesRequest, opts ...grpc.CallOption) (*GetMachineBootInterfacesResponse, error)
 	// Get Network topology
 	GetNetworkTopology(ctx context.Context, in *NetworkTopologyRequest, opts ...grpc.CallOption) (*NetworkTopologyData, error)
@@ -6300,9 +6301,10 @@ type ForgeServer interface {
 	SetMachineBootOverride(context.Context, *MachineBootOverride) (*emptypb.Empty, error)
 	ClearMachineBootOverride(context.Context, *MachineInterfaceId) (*emptypb.Empty, error)
 	// Gather one machine's boot-interface view from every store that records it
-	// (owned interface rows, predictions, the explored endpoint default, and the
-	// retained post-deletion pairs), plus the effective boot interface the
-	// system would select. Read-only; built for troubleshooting and verification.
+	// (owned interface rows, predictions, the explored endpoint evaluation
+	// target, and the retained post-deletion pairs), plus the effective boot
+	// interface the system would select. Read-only; built for troubleshooting
+	// and verification.
 	GetMachineBootInterfaces(context.Context, *GetMachineBootInterfacesRequest) (*GetMachineBootInterfacesResponse, error)
 	// Get Network topology
 	GetNetworkTopology(context.Context, *NetworkTopologyRequest) (*NetworkTopologyData, error)

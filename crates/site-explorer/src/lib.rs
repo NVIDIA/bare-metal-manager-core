@@ -1695,6 +1695,17 @@ impl SiteExplorer {
                         dpus_explored_for_host.insert(0, dpu);
                     }
                     is_sorted = true;
+                } else if declared_primary == Some(mac_address) {
+                    // An explicitly declared integrated NIC is a valid host
+                    // boot target even though it is not one of the managed
+                    // DPUs' host PFs. Keep the DPUs in their deterministic
+                    // fallback order; machine creation owns the declared NIC
+                    // separately as a prediction or materialized row.
+                    tracing::info!(
+                        %mac_address,
+                        host_bmc_ip_address = %ep.address,
+                        "Using declared non-DPU host boot interface",
+                    );
                 } else if !dpus_explored_for_host.is_empty() {
                     let all_mac = dpus_explored_for_host
                         .iter()
@@ -1782,10 +1793,27 @@ impl SiteExplorer {
         )
         .await?;
 
-        // Persist boot interface MACs for host endpoints
+        // Persist inferred boot-interface defaults for host endpoints. The DB
+        // helper locks each endpoint before checking whether a managed
+        // machine's selected primary interface now owns the target.
         for (address, boot_interface) in &boot_interfaces {
-            db::explored_endpoints::set_boot_interface(*address, boot_interface, &mut txn).await?;
+            db::explored_endpoints::set_boot_interface_default(*address, boot_interface, &mut txn)
+                .await?;
         }
+
+        // Lock every row this batch may update in one stable order. The
+        // managed-host defaults above already established the shared
+        // endpoint-before-interface order; this also covers complete NICs from
+        // reports that did not produce a managed-host default this cycle.
+        let mut boot_interface_macs = nic_boot_interfaces
+            .iter()
+            .map(|boot_interface| boot_interface.mac_address)
+            .collect_vec();
+        boot_interface_macs.sort_unstable();
+        boot_interface_macs.dedup();
+        db::machine_interface::lock_for_mac_addresses(&mut txn, &boot_interface_macs).await?;
+        db::predicted_machine_interface::lock_for_mac_addresses(&mut txn, &boot_interface_macs)
+            .await?;
 
         // Record each host NIC's Redfish id on its machine_interfaces row so the
         // primary-flagged row is the host's complete boot interface (MAC + id).

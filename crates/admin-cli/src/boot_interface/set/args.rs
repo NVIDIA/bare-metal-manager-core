@@ -32,7 +32,7 @@ Set it by machine-interface UUID (exact, works even with duplicate MACs):
     $ nico-admin-cli boot-interface set 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
-Set and reboot the host so the new boot order takes effect immediately:
+Apply the selection while the host is assigned (restarts only if required):
     $ nico-admin-cli boot-interface set 12345678-1234-5678-90ab-cdef01234567 \
     00:11:22:33:44:55 --reboot
 
@@ -43,7 +43,10 @@ pub struct Args {
     pub machine: MachineId,
     #[clap(help = "The interface to boot from -- a machine-interface UUID or a MAC address")]
     pub interface: InterfaceSelector,
-    #[clap(long, help = "Reboot the host after the update")]
+    #[clap(
+        long,
+        help = "On an assigned host, authorize applying this exact selection now; the controller restarts only if required. Without the flag, defer applying it and clear pending authorization before synchronization starts; once it has started, wait for it to finish. Ready unassigned hosts begin synchronization immediately; hosts in other unassigned states begin when they next reach the Ready gate"
+    )]
     pub reboot: bool,
 }
 

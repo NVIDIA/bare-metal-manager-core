@@ -18,8 +18,9 @@
 //! Render one machine's boot-interface view (the `GetMachineBootInterfaces`
 //! RPC) as an ASCII table, JSON, or YAML. The view gathers the four stores a
 //! host's boot interface can live in -- managed interface rows, predictions, the
-//! explored endpoint default, and the retained post-deletion pairs -- plus the
-//! effective boot interface the system would select and a divergence flag.
+//! explored endpoint evaluation target, and the retained post-deletion pairs
+//! -- plus the effective boot interface the system would select and a
+//! divergence flag.
 
 use std::fmt::Write as _;
 
@@ -224,12 +225,9 @@ fn render_tables(report: &BootInterfacesReport) -> String {
     }
     let _ = write!(out, "{predicted}");
 
-    // Store 3: explored endpoint default (machine-less default; shown for the
-    // machine's BMC endpoints).
-    let _ = writeln!(
-        out,
-        "\nexplored_endpoints (default for endpoints without a machine):"
-    );
+    // Store 3: the endpoint evaluation target: an inferred default before
+    // ownership and the managed selection afterward.
+    let _ = writeln!(out, "\nexplored_endpoints (evaluation target):");
     let mut explored = Table::new();
     explored.set_titles(Row::new(
         [
@@ -340,7 +338,7 @@ mod tests {
         // Section labels.
         assert!(table.contains("machine_interfaces (managed rows):"));
         assert!(table.contains("predicted_machine_interfaces:"));
-        assert!(table.contains("explored_endpoints"));
+        assert!(table.contains("explored_endpoints (evaluation target):"));
         assert!(table.contains("retained_boot_interfaces"));
 
         // The boot_interface_id of the managed row.

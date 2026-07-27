@@ -885,10 +885,9 @@ impl<'a> MockExploredHost<'a> {
             return self;
         }
 
-        // Zero-DPU hosts skip the WaitForDPUUp lockdown state and land
-        // directly in BomValidating (see `has_managed_dpus` short-circuit in
-        // `LockdownState::TimeWaitForDPUDown`). There are no DPUs to
-        // signal as configured, so skip the network_configured handshake.
+        // Zero-DPU hosts skip the DPU down/up waits and poll the lockdown
+        // result from the first reboot. There are no DPUs to signal as
+        // configured, so skip the `network_configured` handshake.
         if !self.dpu_machine_ids.is_empty() {
             // We use carbide-dpu-agent health reporting as a signal that
             // DPU has rebooted.

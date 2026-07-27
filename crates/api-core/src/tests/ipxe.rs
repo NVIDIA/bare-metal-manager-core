@@ -26,7 +26,8 @@ use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::machine::{
-    CleanupContext, DpuInitState, HostReprovisionState, MachineState, ManagedHostState,
+    BootConfigSynchronizationState, CleanupContext, DpuInitState, HostReprovisionState,
+    InstanceState, MachineState, ManagedHostState,
 };
 use model::test_support::ManagedHostConfig;
 use rpc::forge::CloudInitInstructionsRequest;
@@ -343,6 +344,25 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
 
     move_machine_to_needed_state(
         host_id,
+        &ManagedHostState::BootConfigSynchronization {
+            synchronization_state: BootConfigSynchronizationState::Initialize { target: None },
+            synchronization_retry_count: 0,
+        },
+        &env.pool,
+    )
+    .await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        host_interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
+    assert!(instructions.pxe_script.contains("x86_64/scout.efi"));
+
+    move_machine_to_needed_state(
+        host_id,
         &ManagedHostState::HostReprovision {
             reprovision_state: HostReprovisionState::WaitingForManualUpgrade {
                 manual_upgrade_started: Utc::now(),
@@ -401,11 +421,36 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         .build()
         .await;
 
+    move_machine_to_needed_state(
+        mh.host().id,
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::BootConfigSynchronization {
+                synchronization_state: BootConfigSynchronizationState::Initialize { target: None },
+                synchronization_retry_count: 0,
+            },
+        },
+        &env.pool,
+    )
+    .await;
+
     let instructions = host_interface
         .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
         .await;
 
     assert_eq!(instructions.pxe_script, "SomeRandomiPxe".to_string());
+
+    let instructions = host_interface
+        .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
+        .await;
+
+    assert!(
+        instructions
+            .pxe_script
+            .contains("Current state: Assigned/BootConfigSynchronization/Initialize")
+    );
+    assert!(instructions.pxe_script.contains(
+        "This state assumes an OS is provisioned and will exit into the OS in 5 seconds."
+    ));
 }
 
 #[crate::sqlx_test]

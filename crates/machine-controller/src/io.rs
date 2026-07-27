@@ -129,17 +129,23 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut PgConnection,
         object_id: &Self::ObjectId,
-        _old_version: ConfigVersion,
-        _new_version: ConfigVersion,
+        old_version: ConfigVersion,
+        new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
-        db::machine::update_state(txn, object_id, new_state).await?;
-        Ok(true)
+        db::machine::update_state_if_version_matches(
+            txn,
+            object_id,
+            old_version,
+            new_version,
+            new_state,
+        )
+        .await
     }
 
     /// State history for machines (including DPUs) is persisted internally by
-    /// `db::machine::advance()` inside `update_state`, so this is actually a
-    /// no-op for now.
+    /// `db::machine::update_state_if_version_matches`, so this is a no-op for
+    /// now.
     // TODO(chet): Pull this in as well.
     async fn persist_state_history(
         &self,
@@ -220,6 +226,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 }
                 InstanceState::WaitingForRebootToReady => "waitingforreboottoready",
                 InstanceState::Ready => "ready",
+                InstanceState::BootConfigSynchronization { .. } => "bootconfigsynchronization",
                 InstanceState::BootingWithDiscoveryImage { .. } => "bootingwithdiscoveryimage",
                 InstanceState::SwitchToAdminNetwork => "switchtoadminnetwork",
                 InstanceState::WaitingForNetworkReconfig => "waitingfornetworkreconfig",
@@ -299,6 +306,7 @@ impl StateControllerIO for MachineStateControllerIO {
                 ("hostnotready", machine_state_name(machine_state))
             }
             ManagedHostState::Ready => ("ready", ""),
+            ManagedHostState::BootConfigSynchronization { .. } => ("bootconfigsynchronization", ""),
             ManagedHostState::Maintenance { operation } => {
                 let op = match operation {
                     MachineMaintenanceOperation::PowerOn => "power_on",

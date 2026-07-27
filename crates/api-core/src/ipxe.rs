@@ -468,6 +468,7 @@ exit ||
 
         let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
+            | ManagedHostState::BootConfigSynchronization { .. }
             | ManagedHostState::HostInit { .. }
             | ManagedHostState::BomValidating { .. }
             | ManagedHostState::Measuring {
@@ -508,7 +509,7 @@ exit ||
                 machine.id.machine_type(),
             ),
             ManagedHostState::Assigned { instance_state } => match instance_state {
-                InstanceState::Ready => {
+                InstanceState::Ready | InstanceState::BootConfigSynchronization { .. } => {
                     let instance = db::instance::find_by_machine_id(txn, &machine_id)
                         .await?
                         .ok_or(CarbideError::NotFoundError {

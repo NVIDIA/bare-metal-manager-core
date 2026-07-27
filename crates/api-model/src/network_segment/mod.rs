@@ -267,6 +267,15 @@ impl NetworkSegmentType {
             NetworkSegmentType::Tenant | NetworkSegmentType::HostInband
         )
     }
+
+    /// Whether a host interface on this segment can be selected for boot.
+    ///
+    /// Host operating-system boot uses either the DPU-served Admin overlay or
+    /// a plain NIC on HostInband. Underlay is reserved for infrastructure
+    /// endpoints, and Tenant segments serve assigned workload traffic.
+    pub fn supports_host_boot(&self) -> bool {
+        matches!(self, Self::Admin | Self::HostInband)
+    }
 }
 
 /// Controls how IP addresses are assigned via DHCP on a network segment,
@@ -478,6 +487,27 @@ mod tests {
         NetworkSegmentControllerState::Deleting {
             deletion_state: NetworkSegmentDeletionState::DrainAllocatedIps { delete_at },
         }
+    }
+
+    #[test]
+    fn only_host_management_segments_support_host_boot() {
+        value_scenarios!(run = |segment: NetworkSegmentType| segment.supports_host_boot();
+            "Admin" {
+                NetworkSegmentType::Admin => true,
+            }
+
+            "HostInband" {
+                NetworkSegmentType::HostInband => true,
+            }
+
+            "Underlay" {
+                NetworkSegmentType::Underlay => false,
+            }
+
+            "Tenant" {
+                NetworkSegmentType::Tenant => false,
+            }
+        );
     }
 
     fn dbdelete_state() -> NetworkSegmentControllerState {

@@ -73,18 +73,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
         system: ComputerSystem<B>,
         config: &Config<'_, B>,
     ) -> Result<Self, Error<B>> {
-        let boot_options = if let Some(collection) = system
-            .boot_options()
-            .await
-            .map_err(Error::nv_redfish("boot options"))?
-        {
-            collection
-                .members()
-                .await
-                .map_err(Error::nv_redfish("boot options members"))?
-        } else {
-            vec![]
-        };
+        let boot_options = Self::fetch_boot_options(&system, config).await?;
 
         let bios = Self::fetch_bios(&system, config).await?;
 
@@ -114,6 +103,38 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             oem_nvidia_bluefield,
             secure_boot,
         })
+    }
+
+    async fn fetch_boot_options(
+        system: &ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Vec<BootOption<B>>, Error<B>> {
+        let collection = match system.boot_options().await {
+            Ok(collection) => collection,
+            Err(error) if unsupported_standard_boot_options(&error, config) => {
+                tracing::warn!(
+                    "BMC rejected the standard BootOptions resource; continuing inventory \
+                     without standard boot options"
+                );
+                return Ok(Vec::new());
+            }
+            Err(error) => return Err(Error::nv_redfish("boot options")(error)),
+        };
+        let Some(collection) = collection else {
+            return Ok(Vec::new());
+        };
+
+        match collection.members().await {
+            Ok(options) => Ok(options),
+            Err(error) if unsupported_standard_boot_options(&error, config) => {
+                tracing::warn!(
+                    "BMC rejected the standard BootOptions collection; continuing inventory \
+                     without standard boot options"
+                );
+                Ok(Vec::new())
+            }
+            Err(error) => Err(Error::nv_redfish("boot options members")(error)),
+        }
     }
 
     async fn fetch_bios(
@@ -589,6 +610,18 @@ fn is_uefi_tree_child(
     }
 }
 
+fn unsupported_standard_boot_options<B: Bmc>(
+    error: &nv_redfish::Error<B>,
+    config: &Config<'_, B>,
+) -> bool {
+    matches!(
+        error,
+        nv_redfish::Error::Bmc(error)
+            if (config.explore.error_classifier)(error)
+                == Some(ErrorClass::BootOrderPropertyUnknown)
+    )
+}
+
 fn pcie_device_to_model<B: Bmc>(
     hw_type: Option<hw::HwType>,
     dev: &PcieDevice<B>,
@@ -656,4 +689,106 @@ fn pcie_device_to_model<B: Bmc>(
                 .unwrap_or("".into()),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use axum::http::StatusCode;
+    use axum::routing::get;
+    use axum::{Json, Router};
+    use bmc_mock::test_support::axum_http_client::{AxumRouterHttpClient, Error as TestBmcError};
+    use bmc_mock::test_support::{NoopCallbacks, TEST_MAC_POOL};
+    use bmc_mock::{HostHardwareType, HostMachineInfo, MachineInfo, machine_router};
+    use nv_redfish::ServiceRoot;
+    use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
+    use serde_json::json;
+
+    use super::*;
+
+    fn error_classifier(error: &TestBmcError) -> Option<ErrorClass> {
+        match error {
+            TestBmcError::InvalidResponse { status, text, .. }
+                if *status == StatusCode::BAD_REQUEST
+                    && text.contains("PropertyUnknown")
+                    && text.contains("BootOrder") =>
+            {
+                Some(ErrorClass::BootOrderPropertyUnknown)
+            }
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn explore_continues_when_boot_options_rejects_boot_order() {
+        let machine_info = {
+            let mut pool = TEST_MAC_POOL.lock().unwrap();
+            let hardware_macs = pool.allocate_range_config().unwrap();
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::GenericAmi,
+                Vec::new(),
+                &mut pool,
+                hardware_macs,
+            ))
+        };
+        let (router, _) = machine_router(
+            &machine_info,
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+        );
+        let router = Router::new()
+            .route(
+                "/redfish/v1/Systems/Self/BootOptions",
+                get(|| async {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({
+                            "error": {
+                                "code": "Base.1.0.PropertyUnknown",
+                                "message": "The property BootOrder is unknown"
+                            }
+                        })),
+                    )
+                }),
+            )
+            .fallback_service(router);
+        let bmc = Arc::new(HttpBmc::new(
+            AxumRouterHttpClient::new(router),
+            "https://bmc-mock.local".parse().unwrap(),
+            BmcCredentials::new("root".to_string(), "password".to_string()),
+            CacheSettings::with_capacity(32),
+        ));
+        let root = ServiceRoot::new(bmc).await.unwrap();
+        let system = root
+            .systems()
+            .await
+            .unwrap()
+            .unwrap()
+            .members()
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let explore_config = ExploreConfig {
+            boot_interface_mac: None,
+            error_classifier: &error_classifier,
+            retry_timeout: Duration::ZERO,
+        };
+        let config = Config {
+            need_oem_nvidia_bluefield: false,
+            ignore_500_on_bios_fetch: false,
+            retry_404_on_eth_interfaces: false,
+            explore: &explore_config,
+        };
+
+        let explored = ExploredComputerSystem::explore(system, &config)
+            .await
+            .unwrap();
+
+        assert!(explored.boot_options.is_empty());
+    }
 }

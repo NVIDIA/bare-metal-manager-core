@@ -736,9 +736,12 @@ async fn process_object<IO: StateControllerIO>(
                 // (via the flag) to promptly act on the winner's state.
                 tracing::info!(state=?next, %object_id, "Transition skipped: state version changed concurrently");
                 metrics.common.transition_conflict = true;
-                next_state = None;
-                next_state_entered_at = None;
-                next_state_sla = None;
+                // The handler transaction may contain writes computed from the
+                // same stale snapshot. Discard all of them, and do not replace
+                // the concurrent writer's diagnostic result with a transition
+                // that never committed.
+                txn.rollback().await.ok();
+                return handler_outcome;
             }
         }
 

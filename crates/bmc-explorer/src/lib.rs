@@ -55,10 +55,13 @@ pub use nv_redfish::service_root::Product;
 use nv_redfish::service_root::Vendor;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ErrorClass {
     NotFound,
     InternalServerError,
+    /// The BMC rejects the standard BootOptions resource because its active
+    /// boot order lives behind an OEM resource.
+    BootOrderPropertyUnknown,
 }
 
 pub type ErrorClassifier<'a, B> = &'a (dyn Fn(&<B as Bmc>::Error) -> Option<ErrorClass> + Sync);
@@ -275,6 +278,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
                 expected: "can detect".into(),
                 actual: "cannot detect".into(),
             }],
+            verification_version: 0,
             evaluated_boot_interface: None,
         });
 
@@ -352,6 +356,7 @@ async fn build_delta_powershelf_report<B: Bmc>(
         machine_setup_status: Some(MachineSetupStatus {
             is_done: true,
             diffs: vec![],
+            verification_version: 0,
             evaluated_boot_interface: None,
         }),
         secure_boot_status: None,
@@ -1093,6 +1098,7 @@ fn machine_setup_status<B: Bmc>(
     MachineSetupStatus {
         is_done: diffs.is_empty(),
         diffs,
+        verification_version: 0,
         evaluated_boot_interface: None,
     }
 }

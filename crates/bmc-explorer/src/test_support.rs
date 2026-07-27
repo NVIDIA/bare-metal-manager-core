@@ -158,9 +158,12 @@ fn explorer_config() -> Config<'static, TestBmc> {
 
 fn error_classifier(err: &TestBmcError) -> Option<ErrorClass> {
     match err {
-        TestBmcError::InvalidResponse { status, .. } => match status.as_u16() {
+        TestBmcError::InvalidResponse { status, text, .. } => match status.as_u16() {
             404 => Some(ErrorClass::NotFound),
             500 => Some(ErrorClass::InternalServerError),
+            400 if text.contains("PropertyUnknown") && text.contains("BootOrder") => {
+                Some(ErrorClass::BootOrderPropertyUnknown)
+            }
             _ => None,
         },
         _ => None,

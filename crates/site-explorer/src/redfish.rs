@@ -38,8 +38,9 @@ use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
-    InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
-    Manager, NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
+    InternalLockdownStatus, Inventory, LockdownStatus, MACHINE_SETUP_VERIFICATION_VERSION,
+    MachineSetupDiff, MachineSetupStatus, Manager, NetworkAdapter, PCIeDevice, SecureBootStatus,
+    Service, UefiDevicePath,
 };
 use regex::Regex;
 
@@ -298,49 +299,12 @@ impl RedfishClient {
         let service = fetch_service(client.as_ref())
             .await
             .map_err(map_redfish_error)?;
-        let is_dpu = system.id.to_lowercase().contains("bluefield");
-        let (machine_setup_status, remediation_error) = match fetch_machine_setup_status(
+        let (machine_setup_status, remediation_error) = observe_machine_setup_status(
             client.as_ref(),
             boot_interface,
+            system.id.to_lowercase().contains("bluefield"),
         )
-        .await
-        {
-            Ok(status) => (Some(status), None),
-            Err(error) if is_dpu && is_dpu_bios_attributes_not_ready(&error) => {
-                let details = format!(
-                    "DPU BMC BIOS attributes not ready ({error}); scheduling a force-restart to mitigate the known UEFI POST/BMC race"
-                );
-                let exploration_error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                    details,
-                    response_body: None,
-                    response_code: None,
-                };
-                let schema = exploration_error.operator_error_schema();
-                tracing::warn!(
-                    error = %error,
-                    error_code = %schema.error_code,
-                    mitigation = %schema.mitigation_for_log(),
-                    text = %schema.text,
-                    "Failed to fetch machine setup status"
-                );
-                (None, Some(exploration_error))
-            }
-            Err(error) => {
-                let schema = OperatorErrorSchema::new(
-                    ErrorCode::nico(ErrorSubsystem::SiteExplorer, 130),
-                    format!("Failed to fetch machine setup status: {error}"),
-                    None,
-                );
-                tracing::warn!(
-                    error = %error,
-                    error_code = %schema.error_code,
-                    mitigation = %schema.mitigation_for_log(),
-                    text = %schema.text,
-                    "Failed to fetch machine setup status"
-                );
-                (None, None)
-            }
-        };
+        .await;
 
         let secure_boot_status = fetch_secure_boot_status(client.as_ref())
             .await
@@ -389,6 +353,31 @@ impl RedfishClient {
         credentials: Credentials,
         boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
+        let mut report = self
+            .nv_generate_raw_exploration_report(bmc_ip_address, credentials.clone(), boot_interface)
+            .await?;
+
+        self.replace_nv_machine_setup_observation(
+            &mut report,
+            bmc_ip_address,
+            credentials,
+            boot_interface,
+        )
+        .await;
+
+        Ok(report)
+    }
+
+    /// Generate the native NvRedfish report without replacing its setup
+    /// status. Compare mode uses this to preserve a meaningful backend
+    /// comparison; normal NvRedfish mode adds the authoritative pair-aware
+    /// LibRedfish observation afterward.
+    pub(crate) async fn nv_generate_raw_exploration_report(
+        &self,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        boot_interface: Option<&BootInterfaceTarget>,
+    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let service_root = self
             .nv_redfish_client_pool
             .service_root_with_cache_predicate(bmc_ip_address, credentials, |root| {
@@ -408,16 +397,65 @@ impl RedfishClient {
                 details: format!("Cannot Redfish service root: {err}"),
             })?;
 
-        let mut report = bmc_explorer::nv_generate_exploration_report(
+        let report = bmc_explorer::nv_generate_exploration_report(
             service_root,
             &nv_bmc_explore_config(boot_interface),
         )
         .await
         .map_err(map_nv_redfish_explore_error)?;
 
-        record_evaluated_boot_interface(report.machine_setup_status.as_mut(), boot_interface);
-
         Ok(report)
+    }
+
+    async fn replace_nv_machine_setup_observation(
+        &self,
+        report: &mut EndpointExplorationReport,
+        bmc_ip_address: SocketAddr,
+        credentials: Credentials,
+        boot_interface: Option<&BootInterfaceTarget>,
+    ) {
+        // NvRedfish remains the inventory backend, while setup synchronization
+        // uses the same pair-aware LibRedfish verifier as the actuator. Keeping
+        // the read and write semantics together avoids a second set of vendor
+        // boot-option rules that can disagree about whether the selected NIC is
+        // configured.
+        let Some(boot_interface) = boot_interface else {
+            return;
+        };
+        match self
+            .create_direct_redfish_client(bmc_ip_address, credentials, None)
+            .await
+        {
+            Ok(client) => {
+                let is_dpu = report
+                    .systems
+                    .iter()
+                    .any(|system| system.id.to_lowercase().contains("bluefield"));
+                let (machine_setup_status, remediation_error) =
+                    observe_machine_setup_status(client.as_ref(), Some(boot_interface), is_dpu)
+                        .await;
+                report.machine_setup_status = machine_setup_status;
+                report.remediation_error = remediation_error;
+            }
+            Err(error) => {
+                let schema = OperatorErrorSchema::new(
+                    ErrorCode::nico(ErrorSubsystem::SiteExplorer, 130),
+                    format!("Failed to initialize the machine setup observation client: {error}"),
+                    None,
+                );
+                tracing::warn!(
+                    error = %error,
+                    error_code = %schema.error_code,
+                    mitigation = %schema.mitigation_for_log(),
+                    text = %schema.text,
+                    "Failed to initialize the machine setup observation client"
+                );
+                // Do not retain NvRedfish's less precise status: without the
+                // pair-aware verifier this report cannot prove that the
+                // selected interface was evaluated.
+                report.machine_setup_status = None;
+            }
+        }
     }
 
     pub async fn reset_bmc(
@@ -1220,15 +1258,23 @@ async fn fetch_boot_order(
         .boot_order
         .iter()
         .filter_map(|ref_id| {
-            all_boot_options
-                .iter()
-                .find(|opt| opt.boot_option_reference == *ref_id)
+            boot_option_for_order_identifier(&all_boot_options, ref_id)
                 .cloned()
                 .map(IntoModel::into_model)
         })
         .collect();
 
     Ok(BootOrder { boot_order })
+}
+
+fn boot_option_for_order_identifier<'a>(
+    boot_options: &'a [libredfish::model::BootOption],
+    identifier: &str,
+) -> Option<&'a libredfish::model::BootOption> {
+    let reference = libredfish::model::boot::boot_order_entry_reference(identifier);
+    boot_options
+        .iter()
+        .find(|option| option.boot_option_reference == reference || option.id == reference)
 }
 
 async fn fetch_pcie_devices(client: &dyn Redfish) -> Result<Vec<PCIeDevice>, RedfishError> {
@@ -1304,8 +1350,55 @@ async fn fetch_machine_setup_status(
     Ok(MachineSetupStatus {
         is_done: status.is_done,
         diffs,
+        verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
         evaluated_boot_interface: boot_interface.map(MachineBootInterfaceTarget::from),
     })
+}
+
+/// Read the setup observation and apply the shared error policy used by both
+/// inventory backends.
+async fn observe_machine_setup_status(
+    client: &dyn Redfish,
+    boot_interface: Option<&BootInterfaceTarget>,
+    is_dpu: bool,
+) -> (Option<MachineSetupStatus>, Option<EndpointExplorationError>) {
+    match fetch_machine_setup_status(client, boot_interface).await {
+        Ok(status) => (Some(status), None),
+        Err(error) if is_dpu && is_dpu_bios_attributes_not_ready(&error) => {
+            let details = format!(
+                "DPU BMC BIOS attributes not ready ({error}); scheduling a force-restart to mitigate the known UEFI POST/BMC race"
+            );
+            let exploration_error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                details,
+                response_body: None,
+                response_code: None,
+            };
+            let schema = exploration_error.operator_error_schema();
+            tracing::warn!(
+                error = %error,
+                error_code = %schema.error_code,
+                mitigation = %schema.mitigation_for_log(),
+                text = %schema.text,
+                "Failed to fetch machine setup status"
+            );
+            (None, Some(exploration_error))
+        }
+        Err(error) => {
+            let schema = OperatorErrorSchema::new(
+                ErrorCode::nico(ErrorSubsystem::SiteExplorer, 130),
+                format!("Failed to fetch machine setup status: {error}"),
+                None,
+            );
+            tracing::warn!(
+                error = %error,
+                error_code = %schema.error_code,
+                mitigation = %schema.mitigation_for_log(),
+                text = %schema.text,
+                "Failed to fetch machine setup status"
+            );
+            (None, None)
+        }
+    }
 }
 
 async fn fetch_secure_boot_status(client: &dyn Redfish) -> Result<SecureBootStatus, RedfishError> {
@@ -1442,13 +1535,25 @@ fn nv_error_classifier(
 ) -> Option<bmc_explorer::ErrorClass> {
     type BmcError = carbide_redfish::nv_redfish::BmcError;
     match err {
-        BmcError::InvalidResponse { status, .. } => match *status {
-            http::StatusCode::NOT_FOUND => Some(bmc_explorer::ErrorClass::NotFound),
-            http::StatusCode::INTERNAL_SERVER_ERROR => {
-                Some(bmc_explorer::ErrorClass::InternalServerError)
-            }
-            _ => None,
-        },
+        BmcError::InvalidResponse { status, text, .. } => classify_nv_error_response(*status, text),
+        _ => None,
+    }
+}
+
+fn classify_nv_error_response(
+    status: http::StatusCode,
+    response_body: &str,
+) -> Option<bmc_explorer::ErrorClass> {
+    match status {
+        http::StatusCode::NOT_FOUND => Some(bmc_explorer::ErrorClass::NotFound),
+        http::StatusCode::INTERNAL_SERVER_ERROR => {
+            Some(bmc_explorer::ErrorClass::InternalServerError)
+        }
+        http::StatusCode::BAD_REQUEST
+            if response_body.contains("PropertyUnknown") && response_body.contains("BootOrder") =>
+        {
+            Some(bmc_explorer::ErrorClass::BootOrderPropertyUnknown)
+        }
         _ => None,
     }
 }
@@ -1463,17 +1568,6 @@ fn nv_bmc_explore_config(
         // but not for too long relative to the total exploration
         // time.
         retry_timeout: Duration::from_millis(1000),
-    }
-}
-
-fn record_evaluated_boot_interface(
-    machine_setup_status: Option<&mut MachineSetupStatus>,
-    boot_interface: Option<&BootInterfaceTarget>,
-) {
-    if let Some(status) = machine_setup_status {
-        // NvRedfish currently matches by MAC, but the observation remains
-        // correlated with the complete logical target requested by NICo.
-        status.evaluated_boot_interface = boot_interface.map(MachineBootInterfaceTarget::from);
     }
 }
 
@@ -1566,18 +1660,24 @@ mod tests {
 
     use arc_swap::ArcSwap;
     use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
-    use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
+    use carbide_redfish::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
     use carbide_secrets::credentials::Credentials;
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, check_cases_async, value_scenarios};
+    use libredfish::Redfish;
     use libredfish::model::service_root::RedfishVendor;
     use mac_address::MacAddress;
     use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
+    use model::site_explorer::{
+        EndpointExplorationReport, MACHINE_SETUP_VERIFICATION_VERSION, MachineSetupStatus,
+    };
 
     use super::{
-        BootInterfaceTarget, EndpointExplorationError, MachineSetupStatus, RedfishClient,
-        fetch_machine_setup_status, nv_bmc_explore_config, record_evaluated_boot_interface,
+        BootInterfaceTarget, EndpointExplorationError, RedfishClient,
+        boot_option_for_order_identifier, classify_nv_error_response, fetch_machine_setup_status,
+        nv_bmc_explore_config,
     };
 
     fn test_addr() -> SocketAddr {
@@ -1588,6 +1688,139 @@ mod tests {
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
         let nv_pool = Arc::new(NvRedfishClientPool::new(proxy_address));
         RedfishClient::new(sim, nv_pool)
+    }
+
+    #[derive(Default)]
+    struct FailingRedfishClientPool {
+        credential_manager: TestCredentialManager,
+    }
+
+    #[async_trait::async_trait]
+    impl RedfishClientPool for FailingRedfishClientPool {
+        async fn create_client(
+            &self,
+            _host: &str,
+            _port: Option<u16>,
+            _auth: RedfishAuth,
+            _vendor: Option<RedfishVendor>,
+        ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
+            Err(RedfishClientCreationError::MissingArgument(
+                "simulated client creation failure".to_string(),
+            ))
+        }
+
+        fn credential_reader(&self) -> &dyn carbide_secrets::credentials::CredentialReader {
+            &self.credential_manager
+        }
+    }
+
+    fn test_credentials() -> Credentials {
+        Credentials::UsernamePassword {
+            username: "root".to_string(),
+            password: "password".to_string(),
+        }
+    }
+
+    fn legacy_nv_report() -> EndpointExplorationReport {
+        EndpointExplorationReport {
+            machine_setup_status: Some(MachineSetupStatus {
+                is_done: false,
+                diffs: Vec::new(),
+                verification_version: 0,
+                evaluated_boot_interface: None,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn pair_target() -> BootInterfaceTarget {
+        BootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]),
+            interface_id: "NIC.Slot.7-1-1".to_string(),
+        })
+    }
+
+    #[tokio::test]
+    async fn nvredfish_mode_replaces_native_status_with_pair_aware_verification() {
+        let sim = Arc::new(RedfishSim::default());
+        let redfish = build_redfish_client(sim.clone());
+        let target = pair_target();
+        let mut report = legacy_nv_report();
+
+        redfish
+            .replace_nv_machine_setup_observation(
+                &mut report,
+                test_addr(),
+                test_credentials(),
+                Some(&target),
+            )
+            .await;
+
+        assert_eq!(
+            report.machine_setup_status,
+            Some(MachineSetupStatus {
+                is_done: true,
+                diffs: Vec::new(),
+                verification_version: MACHINE_SETUP_VERIFICATION_VERSION,
+                evaluated_boot_interface: Some(MachineBootInterfaceTarget::from(&target)),
+            }),
+        );
+        assert_eq!(sim.create_client_calls().len(), 1);
+        assert_eq!(
+            sim.machine_setup_status_targets(&test_addr().ip().to_string()),
+            vec![Some(RedfishSimBootInterfaceRef::Pair {
+                mac_address: target.mac_address(),
+                interface_id: "NIC.Slot.7-1-1".to_string(),
+            })],
+        );
+    }
+
+    #[tokio::test]
+    async fn nvredfish_mode_discards_native_status_when_pair_aware_client_is_unavailable() {
+        let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
+        let redfish = RedfishClient::new(
+            Arc::new(FailingRedfishClientPool::default()),
+            Arc::new(NvRedfishClientPool::new(proxy_address)),
+        );
+        let mut report = legacy_nv_report();
+
+        redfish
+            .replace_nv_machine_setup_observation(
+                &mut report,
+                test_addr(),
+                test_credentials(),
+                Some(&pair_target()),
+            )
+            .await;
+
+        assert!(
+            report.machine_setup_status.is_none(),
+            "the native NvRedfish status must not masquerade as pair-aware evidence",
+        );
+    }
+
+    #[tokio::test]
+    async fn nvredfish_mode_without_a_target_keeps_the_native_report_without_libredfish_io() {
+        let sim = Arc::new(RedfishSim::default());
+        let redfish = build_redfish_client(sim.clone());
+        let expected_status = legacy_nv_report().machine_setup_status;
+        let mut report = legacy_nv_report();
+
+        redfish
+            .replace_nv_machine_setup_observation(
+                &mut report,
+                test_addr(),
+                test_credentials(),
+                None,
+            )
+            .await;
+
+        assert_eq!(report.machine_setup_status, expected_status);
+        assert!(sim.create_client_calls().is_empty());
+        assert!(
+            sim.machine_setup_status_targets(&test_addr().ip().to_string())
+                .is_empty()
+        );
     }
 
     async fn machine_setup_status_target(
@@ -1655,7 +1888,43 @@ mod tests {
     }
 
     #[test]
-    fn nvredfish_projects_the_mac_and_records_the_logical_target() {
+    fn boot_order_accepts_option_references_and_resource_ids() {
+        let boot_options = [libredfish::model::BootOption {
+            odata: Default::default(),
+            alias: Some("UefiHttp".to_string()),
+            description: None,
+            boot_option_enabled: Some(true),
+            boot_option_reference: "Boot0004".to_string(),
+            display_name: "HTTP IPv4".to_string(),
+            id: "0004".to_string(),
+            name: "Boot0004".to_string(),
+            uefi_device_path: None,
+        }];
+
+        value_scenarios!(run = |identifier: &str| {
+            boot_option_for_order_identifier(&boot_options, identifier)
+                .map(|option| option.id.as_str())
+        };
+            "BootOptionReference" {
+                "Boot0004" => Some("0004"),
+            }
+
+            "decorated BootOptionReference" {
+                "Boot0004: HTTP IPv4" => Some("0004"),
+            }
+
+            "resource Id used by Vera Rubin and Supermicro" {
+                "0004" => Some("0004"),
+            }
+
+            "unknown identifier" {
+                "Boot9999" => None,
+            }
+        );
+    }
+
+    #[test]
+    fn nvredfish_inventory_config_projects_the_mac() {
         let mac_address = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
         let boot_interface = MachineBootInterface {
             mac_address,
@@ -1664,29 +1933,59 @@ mod tests {
 
         value_scenarios!(run = |target: Option<BootInterfaceTarget>| {
             let config = nv_bmc_explore_config(target.as_ref());
-            let mut status = MachineSetupStatus::default();
-            record_evaluated_boot_interface(Some(&mut status), target.as_ref());
-            (
-                config.boot_interface_mac,
-                status.evaluated_boot_interface,
-            )
+            config.boot_interface_mac
         };
             "complete pair" {
-                Some(BootInterfaceTarget::Pair(boot_interface.clone())) => (
-                    Some(mac_address),
-                    Some(MachineBootInterfaceTarget::Pair(boot_interface)),
-                ),
+                Some(BootInterfaceTarget::Pair(boot_interface)) => Some(mac_address),
             }
 
             "legacy MAC only" {
-                Some(BootInterfaceTarget::MacOnly(mac_address)) => (
-                    Some(mac_address),
-                    Some(MachineBootInterfaceTarget::MacOnly(mac_address)),
-                ),
+                Some(BootInterfaceTarget::MacOnly(mac_address)) => Some(mac_address),
             }
 
             "no boot interface" {
-                None => (None, None),
+                None => None,
+            }
+        );
+    }
+
+    #[test]
+    fn nv_error_classifier_narrowly_recognizes_unsupported_standard_boot_order() {
+        use bmc_explorer::ErrorClass;
+        use http::StatusCode;
+
+        value_scenarios!(run = |(status, body): (StatusCode, &str)| {
+            classify_nv_error_response(status, body)
+        };
+            "known Supermicro standard BootOrder rejection" {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Base.1.0.PropertyUnknown: The property BootOrder is not valid",
+                ) => Some(ErrorClass::BootOrderPropertyUnknown),
+            }
+
+            "an unrelated unknown property remains an error" {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Base.1.0.PropertyUnknown: The property Foo is not valid",
+                ) => None,
+            }
+
+            "an unrelated BootOrder bad request remains an error" {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "BootOrder has an invalid value",
+                ) => None,
+            }
+
+            "not found keeps its existing classification" {
+                (StatusCode::NOT_FOUND, "") => Some(ErrorClass::NotFound),
+            }
+
+            "internal server error keeps its existing classification" {
+                (StatusCode::INTERNAL_SERVER_ERROR, "") => {
+                    Some(ErrorClass::InternalServerError)
+                },
             }
         );
     }

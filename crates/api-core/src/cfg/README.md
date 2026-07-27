@@ -378,7 +378,7 @@ Extends `StateControllerConfig` with:
 | `scout_reporting_timeout` | `Duration` | `5m`    | Duration without scout report before host is unhealthy. |
 | `waiting_for_measurements_timeout` | `Duration` | `4h`    | How long a host may remain in WaitingForMeasurements before being escalated to Failed. |
 | `uefi_boot_wait` | `Duration` | `5m`    | Wait time for UEFI boot completion after host reboot. |
-| `max_bios_config_retries` | `u32` | `3` | Shared retry budget for automated host boot-configuration convergence across BIOS recovery and boot-order verification. |
+| `max_bios_config_retries` | `u32` | `3` | Maximum retry count applied independently to BIOS/boot-order retries and complete synchronization passes whose final observation still reports a mismatch. |
 | `polling_bios_setup_stuck_threshold` | `Duration` | `15m` | Time in PollingBiosSetup with `is_bios_setup == false` before recovery escalation. |
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
 

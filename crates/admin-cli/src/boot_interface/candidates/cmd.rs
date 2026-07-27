@@ -19,7 +19,7 @@
 //! offers (managed `machine_interfaces` rows and pre-first-lease predictions),
 //! annotated with the picks the system computes among them. The picks --
 //! current, default (primary flag masked), predicted, and the explored
-//! endpoint default -- all arrive server-computed on the
+//! endpoint evaluation target -- all arrive server-computed on the
 //! `GetMachineBootInterfaces` response; this module only matches rows against
 //! them, it never re-derives selection logic.
 
@@ -28,6 +28,7 @@ use std::fmt::Write as _;
 use ::rpc::admin_cli::OutputFormat;
 use ::rpc::forge as forgerpc;
 use carbide_uuid::machine::MachineId;
+use model::network_segment::NetworkSegmentType;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 
@@ -61,9 +62,8 @@ struct CandidateRow {
     network_segment_type: Option<String>,
     source: CandidateSource,
     primary_interface: bool,
-    /// Whether the selection considers this row at all. Mirrors the pick
-    /// functions' one exclusion -- underlay rows are never boot candidates --
-    /// for display only; the actual picks are server-computed.
+    /// Whether an operator may explicitly select this row as the host boot
+    /// interface. The write API enforces the same model predicate.
     eligible: bool,
     /// This NIC is what resolution targets right now: the effective managed
     /// pick, or the predicted pick while no managed row offers a candidate.
@@ -71,8 +71,8 @@ struct CandidateRow {
     /// This NIC is the automatic pick with the primary flag masked -- what
     /// the system would choose if nothing were declared.
     default: bool,
-    /// This NIC matches site-explorer's stored default for one of the
-    /// machine's BMC endpoints.
+    /// This NIC matches the stored evaluation target for one of the machine's
+    /// BMC endpoints.
     explored_default: bool,
 }
 
@@ -92,14 +92,14 @@ struct CandidatesReport {
     /// The `pick_boot_prediction` result for the pre-first-lease window.
     predicted_boot_interface_mac: Option<String>,
     predicted_boot_interface_id: Option<String>,
-    /// Every boot pair recorded on the machine's explored BMC endpoints --
-    /// the MAC plus the Redfish interface id when captured.
+    /// Every evaluation target recorded on the machine's explored BMC
+    /// endpoints -- the MAC plus the Redfish interface id when captured.
     explored_boot_interfaces: Vec<ExploredDefault>,
     divergent: bool,
 }
 
-/// An explored-endpoint default: the pair site-explorer recorded for one of
-/// the machine's BMC endpoints.
+/// An explored-endpoint evaluation target recorded for one of the machine's
+/// BMC endpoints.
 #[derive(Debug, Serialize)]
 struct ExploredDefault {
     mac_address: String,
@@ -127,24 +127,31 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
             .as_ref()
             .and_then(|b| b.interface_id.clone());
 
-        // The current pick follows the resolvers' order: managed rows first,
-        // predictions only when the managed rows offer nothing.
-        let (current_mac, current_id, current_source) = if r.effective_boot_interface_mac.is_some()
-        {
+        // New servers report the cross-store effective pick directly. Infer
+        // its source from the rows so a declared primary prediction that
+        // outranks an interim owned row is still labeled correctly. The
+        // predicted fallback keeps this view useful with older servers.
+        let (current_mac, current_id) = if r.effective_boot_interface_mac.is_some() {
             (
                 r.effective_boot_interface_mac.clone(),
                 r.effective_boot_interface_id.clone(),
-                Some(CandidateSource::Managed),
             )
         } else if predicted_mac.is_some() {
-            (
-                predicted_mac.clone(),
-                predicted_id.clone(),
-                Some(CandidateSource::Predicted),
-            )
+            (predicted_mac.clone(), predicted_id.clone())
         } else {
-            (None, None, None)
+            (None, None)
         };
+        let current_source = current_mac.as_ref().map(|mac| {
+            let has_owned_row = r
+                .machine_interfaces
+                .iter()
+                .any(|interface| interface.mac_address == *mac);
+            if predicted_mac.as_ref() == Some(mac) && !has_owned_row {
+                CandidateSource::Predicted
+            } else {
+                CandidateSource::Managed
+            }
+        });
 
         let explored_defaults: Vec<ExploredDefault> = r
             .explored_endpoints
@@ -162,12 +169,14 @@ impl From<forgerpc::GetMachineBootInterfacesResponse> for CandidatesReport {
             .collect();
 
         let mark = |mac: &str, pick: &Option<String>| pick.as_deref() == Some(mac);
-        // The one exclusion the pick functions apply, matched against the
-        // segment type's wire form (`NetworkSegmentType` serializes `Underlay`
-        // as "tor"). Display only -- the picks themselves arrive
-        // server-computed.
-        let underlay = model::network_segment::NetworkSegmentType::Underlay.to_string();
-        let eligible = |segment: Option<&str>| segment != Some(underlay.as_str());
+        // Operator selection is limited to host management segments. Display
+        // only -- the picks themselves arrive server-computed, and the write
+        // API enforces the same model predicate.
+        let eligible = |segment: Option<&str>| {
+            segment
+                .and_then(|segment| segment.parse::<NetworkSegmentType>().ok())
+                .is_some_and(|segment| segment.supports_host_boot())
+        };
 
         let mut candidates: Vec<CandidateRow> = r
             .machine_interfaces
@@ -289,7 +298,11 @@ fn render_candidates(report: &CandidatesReport) -> String {
                 CandidateSource::Managed => "managed",
                 CandidateSource::Predicted => "predicted",
             };
-            let eligible = if c.eligible { "yes" } else { "no (underlay)" };
+            let eligible = if c.eligible {
+                "yes"
+            } else {
+                "no (not a host boot segment)"
+            };
             table.add_row(Row::new(vec![
                 Cell::new(&c.mac_address),
                 Cell::new(&dash(&c.interface_id)),
@@ -377,7 +390,7 @@ fn render_candidates(report: &CandidatesReport) -> String {
     }
     let _ = writeln!(
         out,
-        "Explored default(s):     {}",
+        "Explored target(s):      {}",
         if report.explored_boot_interfaces.is_empty() {
             "-".to_string()
         } else {
@@ -399,8 +412,8 @@ mod tests {
     use super::*;
 
     /// A response with a managed primary (current), a lower-MAC managed row the
-    /// masked pick prefers (default), an underlay row (ineligible), and a
-    /// prediction; the explored default names the primary's MAC.
+    /// masked pick prefers (default), two non-host rows (ineligible), and a
+    /// prediction; the explored target names the primary's MAC.
     fn sample_response() -> forgerpc::GetMachineBootInterfacesResponse {
         forgerpc::GetMachineBootInterfacesResponse {
             machine_id: None,
@@ -424,6 +437,13 @@ mod tests {
                     primary_interface: false,
                     boot_interface_id: None,
                     network_segment_type: Some("tor".to_string()),
+                    interface_id: None,
+                },
+                forgerpc::MachineInterfaceBootInterface {
+                    mac_address: "aa:bb:cc:00:00:03".to_string(),
+                    primary_interface: false,
+                    boot_interface_id: None,
+                    network_segment_type: Some("tenant".to_string()),
                     interface_id: None,
                 },
             ],
@@ -458,7 +478,7 @@ mod tests {
         let report = CandidatesReport::from(sample_response());
 
         // Owned rows first, predictions after.
-        assert_eq!(report.candidates.len(), 4);
+        assert_eq!(report.candidates.len(), 5);
 
         let primary = &report.candidates[0];
         assert!(primary.current, "the managed primary is the current pick");
@@ -468,13 +488,22 @@ mod tests {
 
         let lower = &report.candidates[1];
         assert!(!lower.current);
-        assert!(lower.default, "the lower non-underlay MAC is the default");
+        assert!(lower.default, "the lower eligible MAC is the default");
 
         let underlay = &report.candidates[2];
-        assert!(!underlay.eligible, "underlay rows are never candidates");
+        assert!(
+            !underlay.eligible,
+            "underlay rows cannot be selected for host boot"
+        );
         assert!(!underlay.current && !underlay.default);
 
-        let prediction = &report.candidates[3];
+        let tenant = &report.candidates[3];
+        assert!(
+            !tenant.eligible,
+            "tenant rows cannot be selected for host boot"
+        );
+
+        let prediction = &report.candidates[4];
         assert_eq!(prediction.source, CandidateSource::Predicted);
         assert!(
             !prediction.current,
@@ -523,15 +552,38 @@ mod tests {
     }
 
     #[test]
+    fn effective_primary_prediction_is_labeled_predicted() {
+        let mut response = sample_response();
+        response.predicted_interfaces[0].primary_interface = true;
+        let response = forgerpc::GetMachineBootInterfacesResponse {
+            effective_boot_interface_mac: Some("aa:bb:cc:00:00:09".to_string()),
+            effective_boot_interface_id: None,
+            ..response
+        };
+
+        let report = CandidatesReport::from(response);
+
+        assert_eq!(report.current_source, Some(CandidateSource::Predicted));
+        assert_eq!(
+            report.current_boot_interface_mac.as_deref(),
+            Some("aa:bb:cc:00:00:09"),
+        );
+        assert!(
+            render_candidates(&report).contains("(from a prediction -- not yet leased)"),
+            "the cross-store effective pick should identify its prediction source",
+        );
+    }
+
+    #[test]
     fn ascii_render_shows_markers_and_summary() {
         let rendered = render_candidates(&CandidatesReport::from(sample_response()));
 
         assert!(rendered.contains("current,explored"));
-        assert!(rendered.contains("no (underlay)"));
+        assert!(rendered.contains("no (not a host boot segment)"));
         assert!(rendered.contains("Current boot interface:  aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)\n"));
         assert!(rendered.contains("Default (auto) pick:     aa:bb:cc:00:00:01 (NIC.Slot.1-1-1)\n"));
         assert!(rendered.contains("Predicted pick:          aa:bb:cc:00:00:09"));
-        assert!(rendered.contains("Explored default(s):     aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)"));
+        assert!(rendered.contains("Explored target(s):      aa:bb:cc:00:00:02 (NIC.Slot.2-1-1)"));
         assert!(rendered.contains("Stores diverge on boot MAC: false"));
     }
 
@@ -608,7 +660,8 @@ mod tests {
         assert_eq!(value["candidates"][0]["source"], "managed");
         assert_eq!(value["candidates"][1]["default"], true);
         assert_eq!(value["candidates"][2]["eligible"], false);
-        assert_eq!(value["candidates"][3]["source"], "predicted");
+        assert_eq!(value["candidates"][3]["eligible"], false);
+        assert_eq!(value["candidates"][4]["source"], "predicted");
         assert_eq!(value["current_source"], "managed");
         assert_eq!(
             value["explored_boot_interfaces"][0]["mac_address"],

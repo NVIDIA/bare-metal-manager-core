@@ -167,11 +167,9 @@ pub struct ExpectedHostNic {
     pub fixed_gateway: Option<IpAddr>,
     /// When true, `primary` flags this NIC as the host's boot (primary)
     /// interface. At most one NIC per ExpectedMachine may be marked primary
-    /// (which is enforced in the API). This ultimately propagates into the
-    /// machine_interfaces table, but, in today's world, only really applies
-    /// to zero-DPU. A machine *with* a DPU will end up taking over when
-    /// site-explorer finds a DPU for the machine (and update the primary
-    /// interface accordingly).
+    /// (which is enforced in the API). Site Explorer preserves this intent
+    /// through a predicted interface until the NIC's first lease, including
+    /// for hosts that keep their DPUs under management.
     #[serde(default)]
     pub primary: Option<bool>,
 }
@@ -268,6 +266,16 @@ pub struct ExpectedMachineData {
 // the expected machines on api startup
 
 impl ExpectedMachineData {
+    /// The one host NIC the operator declared as this machine's boot
+    /// interface.
+    ///
+    /// The API enforces at most one `primary` declaration, so callers can use
+    /// the returned NIC's MAC and segment intent together without repeating
+    /// the selection rule.
+    pub fn declared_primary_nic(&self) -> Option<&ExpectedHostNic> {
+        self.host_nics.iter().find(|nic| nic.primary == Some(true))
+    }
+
     /// The MAC the operator declared as this host's boot interface via
     /// `ExpectedHostNic.primary`. This is the single source of declared boot
     /// intent the writers consult -- site-explorer ingestion, DHCP, and
@@ -276,10 +284,7 @@ impl ExpectedMachineData {
     /// declaration. `None` leaves the boot interface to today's automation
     /// (DPU takeover during ingestion, else the `pick_boot_interface` fallback).
     pub fn declared_primary_mac(&self) -> Option<MacAddress> {
-        self.host_nics
-            .iter()
-            .find(|nic| nic.primary == Some(true))
-            .map(|nic| nic.mac_address)
+        self.declared_primary_nic().map(|nic| nic.mac_address)
     }
 }
 
@@ -913,14 +918,15 @@ mod tests {
             None
         );
 
-        // The declared NIC wins.
+        // The declared NIC and all of its metadata remain available together.
+        let data = ExpectedMachineData {
+            host_nics: vec![nic(mac_a, Some(false)), nic(mac_b, Some(true))],
+            ..Default::default()
+        };
+        assert_eq!(data.declared_primary_mac(), Some(mac_b));
         assert_eq!(
-            ExpectedMachineData {
-                host_nics: vec![nic(mac_a, Some(false)), nic(mac_b, Some(true))],
-                ..Default::default()
-            }
-            .declared_primary_mac(),
-            Some(mac_b)
+            data.declared_primary_nic().map(|nic| nic.mac_address),
+            Some(mac_b),
         );
     }
 

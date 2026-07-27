@@ -24,11 +24,11 @@ use rpc::forge as forgerpc;
 EXAMPLES:
 
 Make a host interface the primary (boot) interface:
-    $ carbide-admin-cli managed-host set-primary-interface 12345678-1234-5678-90ab-cdef01234567 \
+    $ nico-admin-cli managed-host set-primary-interface 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789
 
-Promote an interface and reboot the host afterward:
-    $ carbide-admin-cli managed-host set-primary-interface 12345678-1234-5678-90ab-cdef01234567 \
+Apply the selection while the host is assigned (restarts only if required):
+    $ nico-admin-cli managed-host set-primary-interface 12345678-1234-5678-90ab-cdef01234567 \
     abcdef01-2345-6789-abcd-ef0123456789 --reboot
 
 Tip: list a host's interface ids with 'managed-host show <HOST_MACHINE_ID>'.
@@ -38,7 +38,10 @@ pub struct Args {
     pub host_machine_id: MachineId,
     #[clap(help = "ID of the machine interface to make primary (the boot device)")]
     pub interface_id: MachineInterfaceId,
-    #[clap(long, help = "Reboot the host after the update")]
+    #[clap(
+        long,
+        help = "On an assigned host, authorize applying this exact selection now; the controller restarts only if required. Without the flag, defer applying it and clear pending authorization before synchronization starts; once it has started, wait for it to finish. Ready unassigned hosts begin synchronization immediately; hosts in other unassigned states begin when they next reach the Ready gate"
+    )]
     pub reboot: bool,
 }
 

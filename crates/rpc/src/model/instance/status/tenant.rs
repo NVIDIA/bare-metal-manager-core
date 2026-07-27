@@ -118,9 +118,9 @@ pub fn instance_status_tenant_state(
             // When tenants request a custom pxe reboot, the managed hosts
             // will go through HostPlatformConfiguration and WaitingForDpusToUp
             // before going back to Ready
-            InstanceState::WaitingForDpusToUp | InstanceState::HostPlatformConfiguration { .. } => {
-                TenantState::Configuring
-            }
+            InstanceState::WaitingForDpusToUp
+            | InstanceState::HostPlatformConfiguration { .. }
+            | InstanceState::BootConfigSynchronization { .. } => TenantState::Configuring,
             InstanceState::BootingWithDiscoveryImage { .. }
             | InstanceState::DPUReprovision { .. }
             | InstanceState::HostReprovision { .. } => TenantState::Updating,
@@ -182,8 +182,8 @@ mod tests {
     use model::health::HealthReportSources;
     use model::instance::status::SyncState;
     use model::machine::{
-        DpuReprovisionStates, FailureCause, FailureDetails, FailureSource, InstanceState,
-        ManagedHostState,
+        BootConfigSynchronizationState, DpuReprovisionStates, FailureCause, FailureDetails,
+        FailureSource, InstanceState, ManagedHostState,
     };
 
     use super::*;
@@ -268,6 +268,19 @@ mod tests {
                         instance_state: InstanceState::Ready,
                     },
                     SyncState::Pending,
+                ) => Yields(TenantState::Configuring),
+            }
+
+            "boot config synchronization with repair merge" {
+                (
+                    ManagedHostState::Assigned {
+                        instance_state: InstanceState::BootConfigSynchronization {
+                            synchronization_state:
+                                BootConfigSynchronizationState::Initialize { target: None },
+                            synchronization_retry_count: 0,
+                        },
+                    },
+                    SyncState::Synced,
                 ) => Yields(TenantState::Configuring),
             }
 

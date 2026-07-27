@@ -447,7 +447,8 @@ async fn create_test_state_controller_tables(pool: &sqlx::PgPool) {
         id             varchar NOT NULL,
         controller_state         jsonb       NOT NULL,
         controller_state_version VARCHAR(64) NOT NULL,
-        controller_state_outcome JSONB
+        controller_state_outcome JSONB,
+        side_effect BOOLEAN NOT NULL DEFAULT false
     );",
     )
     .execute(&mut *txn)
@@ -1598,9 +1599,13 @@ impl StateHandler for TestLockLossStateHandler {
                 .execute(&self.pool)
                 .await
                 .unwrap();
-            Ok(StateHandlerOutcome::transition(
-                TestObjectControllerState::B,
-            ))
+            let mut txn = self.pool.begin().await.unwrap();
+            sqlx::query("UPDATE test_objects SET side_effect=true WHERE id=$1")
+                .bind(object_id)
+                .execute(&mut *txn)
+                .await
+                .unwrap();
+            Ok(StateHandlerOutcome::transition(TestObjectControllerState::B).with_txn(txn))
         } else {
             Ok(StateHandlerOutcome::do_nothing())
         }
@@ -1622,6 +1627,20 @@ async fn test_lock_loss_requeues_without_publishing_the_transition(
         .await?;
 
     controller.run_single_iteration().await;
+
+    let (state, outcome, side_effect): (
+        sqlx::types::Json<TestObjectControllerState>,
+        Option<sqlx::types::Json<PersistentStateHandlerOutcome>>,
+        bool,
+    ) = sqlx::query_as(
+        "SELECT controller_state, controller_state_outcome, side_effect \
+         FROM test_objects WHERE id='test-obj-1'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(state.0, TestObjectControllerState::A);
+    assert!(outcome.is_none());
+    assert!(!side_effect, "stale handler writes must be rolled back");
 
     // The transition lost the version check: the state this iteration
     // observed is provably outdated, so nothing may be published (existing

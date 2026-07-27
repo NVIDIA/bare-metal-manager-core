@@ -52293,7 +52293,13 @@ type SetPrimaryDpuRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HostMachineId *MachineId             `protobuf:"bytes,1,opt,name=host_machine_id,json=hostMachineId,proto3" json:"host_machine_id,omitempty"`
 	DpuMachineId  *MachineId             `protobuf:"bytes,2,opt,name=dpu_machine_id,json=dpuMachineId,proto3" json:"dpu_machine_id,omitempty"`
-	Reboot        bool                   `protobuf:"varint,3,opt,name=reboot,proto3" json:"reboot,omitempty"`
+	// Ready unassigned hosts begin synchronization immediately; hosts in other
+	// unassigned states begin when they next reach the Ready gate. For assigned
+	// hosts, false defers applying the selection and clears pending
+	// authorization before synchronization starts; once it has started, the
+	// request fails until synchronization finishes. True authorizes applying
+	// this exact selection now. The controller restarts only when required.
+	Reboot        bool `protobuf:"varint,3,opt,name=reboot,proto3" json:"reboot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -52353,7 +52359,13 @@ type SetPrimaryInterfaceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	HostMachineId *MachineId             `protobuf:"bytes,1,opt,name=host_machine_id,json=hostMachineId,proto3" json:"host_machine_id,omitempty"`
 	InterfaceId   *MachineInterfaceId    `protobuf:"bytes,2,opt,name=interface_id,json=interfaceId,proto3" json:"interface_id,omitempty"`
-	Reboot        bool                   `protobuf:"varint,3,opt,name=reboot,proto3" json:"reboot,omitempty"`
+	// Ready unassigned hosts begin synchronization immediately; hosts in other
+	// unassigned states begin when they next reach the Ready gate. For assigned
+	// hosts, false defers applying the selection and clears pending
+	// authorization before synchronization starts; once it has started, the
+	// request fails until synchronization finishes. True authorizes applying
+	// this exact selection now. The controller restarts only when required.
+	Reboot        bool `protobuf:"varint,3,opt,name=reboot,proto3" json:"reboot,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -59540,11 +59552,11 @@ func (x *PredictedBootInterface) GetNetworkSegmentType() string {
 	return ""
 }
 
-// An `explored_endpoints` row's boot interface: site-explorer's per-cycle
-// automatic pick for a BMC endpoint, used only for endpoints no machine owns.
+// An `explored_endpoints` row's boot-interface evaluation target: an inferred
+// default before the endpoint is owned and the managed selection afterward.
 type ExploredBootInterface struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// BMC endpoint address this explored default was recorded against.
+	// BMC endpoint address this evaluation target was recorded against.
 	Address          string  `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 	BootInterfaceMac *string `protobuf:"bytes,2,opt,name=boot_interface_mac,json=bootInterfaceMac,proto3,oneof" json:"boot_interface_mac,omitempty"`
 	BootInterfaceId  *string `protobuf:"bytes,3,opt,name=boot_interface_id,json=bootInterfaceId,proto3,oneof" json:"boot_interface_id,omitempty"`
@@ -59675,27 +59687,31 @@ type GetMachineBootInterfacesResponse struct {
 	ExploredEndpoints   []*ExploredBootInterface         `protobuf:"bytes,4,rep,name=explored_endpoints,json=exploredEndpoints,proto3" json:"explored_endpoints,omitempty"`
 	RetainedInterfaces  []*RetainedBootInterface         `protobuf:"bytes,5,rep,name=retained_interfaces,json=retainedInterfaces,proto3" json:"retained_interfaces,omitempty"`
 	// The boot interface MAC the system would select for this machine right now,
-	// applying `pick_boot_interface` to the owned `machine_interfaces` rows.
-	// Absent when there is no owned candidate yet.
+	// applying `pick_boot_interface_candidate` across the owned
+	// `machine_interfaces` rows and pending `predicted_machine_interfaces`.
+	// Absent when neither store yields a boot-capable candidate.
 	EffectiveBootInterfaceMac *string `protobuf:"bytes,6,opt,name=effective_boot_interface_mac,json=effectiveBootInterfaceMac,proto3,oneof" json:"effective_boot_interface_mac,omitempty"`
-	// The fully-populated effective boot interface id (MAC + Redfish id), when
-	// the selected row has its interface id captured. Absent otherwise.
+	// The vendor-native Redfish interface id for the effective candidate, when
+	// captured on the selected owned row or prediction. Absent when the
+	// candidate has no captured id, or when there is no effective candidate.
 	EffectiveBootInterfaceId *string `protobuf:"bytes,7,opt,name=effective_boot_interface_id,json=effectiveBootInterfaceId,proto3,oneof" json:"effective_boot_interface_id,omitempty"`
 	// True when the stores do not all agree on the boot MAC -- a signal worth a
-	// closer look during troubleshooting (e.g. the explored default points at a
-	// different NIC than the effective owned pick, or a predicted primary
-	// disagrees). See the handler for the exact comparison.
+	// closer look during troubleshooting (e.g. the endpoint evaluation target
+	// points at a different NIC than the effective cross-store selection, or
+	// primary predictions disagree). See the handler for the exact comparison.
 	Divergent bool `protobuf:"varint,8,opt,name=divergent,proto3" json:"divergent,omitempty"`
 	// What the automatic selection would choose if no row were flagged primary
-	// -- `pick_boot_interface`'s fallback of the lowest-MAC non-underlay row.
-	// Comparing this against the effective pick shows whether a primary
-	// designation is overriding the automatic choice. Absent when no managed
-	// row qualifies; `interface_id` absent until captured for that NIC.
+	// -- `pick_boot_interface`'s fallback of the lowest-MAC host-boot row
+	// (Admin or HostInband). Comparing this against the effective pick shows
+	// whether a primary designation is overriding the automatic choice. Absent
+	// when no owned row is boot-capable; `interface_id` absent until captured
+	// for that NIC.
 	DefaultBootInterface *MachineBootInterface `protobuf:"bytes,9,opt,name=default_boot_interface,json=defaultBootInterface,proto3" json:"default_boot_interface,omitempty"`
 	// The prediction `pick_boot_prediction` would boot from for a machine still
-	// waiting on its first DHCP lease: the declared primary, else the sole
-	// non-underlay prediction. Absent when there are no predictions or when the
-	// pick refuses to guess among several undeclared NICs.
+	// waiting on its first DHCP lease: the declared boot-capable primary, else
+	// the sole boot-capable prediction (Admin or HostInband). Absent when there
+	// is no boot-capable prediction or when the pick refuses to guess among
+	// several undeclared NICs.
 	PredictedBootInterface *MachineBootInterface `protobuf:"bytes,10,opt,name=predicted_boot_interface,json=predictedBootInterface,proto3" json:"predicted_boot_interface,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
