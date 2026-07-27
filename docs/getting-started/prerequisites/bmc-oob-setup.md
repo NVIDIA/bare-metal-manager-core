@@ -64,7 +64,7 @@ Before ingesting hosts, you must also configure the credentials NICo will set on
 
 These are configured via `nico-admin-cli` after NICo is deployed. Refer to the [Ingesting Hosts](../../provisioning/ingesting-hosts.md) page for the credential setup commands.
 
-Host ingestion does not start until they are set: Site Explorer verifies the
+Host ingestion does not start until these credentials are set. Site Explorer verifies the
 site-wide BMC root and both UEFI site defaults before contacting any BMC, and
 aborts each run with `MissingCredentials` while any of them is missing. They can
 also be seeded directly into the credential store before NICo is deployed —
