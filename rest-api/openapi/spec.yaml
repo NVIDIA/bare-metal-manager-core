@@ -4805,6 +4805,7 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SkuCreateRequest'
+        required: true
       responses:
         '201':
           description: Created
@@ -23020,7 +23021,8 @@ components:
         Request data to update a SKU.
         At least one of description, deviceType, or components must be provided.
         The service preserves the schema version for metadata-only updates.
-        Component updates require a SKU on the current schema version.
+        Component updates replace the SKU using the current schema version,
+        migrating legacy SKU schemas to the current format.
       examples:
         - description: DGX H100 compute node with InfiniBand
           components:

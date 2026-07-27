@@ -4,6 +4,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -313,6 +314,64 @@ const (
 	deleteSkuMethod         = "/forge.Forge/DeleteSku"
 )
 
+// upsertSkuProjection writes the Core SKU state into the REST database. The
+// update path also reconciles a row that Site inventory sync wrote before a
+// successful REST create could persist it.
+func upsertSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uuid.UUID, coreSKU *corev1.Sku) error {
+	if coreSKU == nil || coreSKU.Id == "" {
+		return errors.New("cannot persist an empty Core SKU")
+	}
+
+	projected := &cdbm.SKU{}
+	projected.FromProto(coreSKU, siteID)
+	skuDAO := cdbm.NewSkuDAO(dbSession)
+
+	return cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
+		if err != nil {
+			return err
+		}
+
+		existing, err := skuDAO.Get(ctx, tx, projected.ID)
+		if errors.Is(err, cdb.ErrDoesNotExist) {
+			_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
+				SkuID:                projected.ID,
+				SiteID:               projected.SiteID,
+				Components:           projected.Components,
+				DeviceType:           projected.DeviceType,
+				AssociatedMachineIds: projected.AssociatedMachineIds,
+			})
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		if existing.SiteID != projected.SiteID {
+			return fmt.Errorf("SKU %q already exists for Site %q", projected.ID, existing.SiteID)
+		}
+
+		components := projected.Components
+		if existing.Components != nil && components == nil {
+			// Match inventory-sync semantics: DAO update uses nil to mean "not
+			// supplied", so use an empty value to clear stale components.
+			components = &cdbm.SkuComponents{SkuComponents: &corev1.SkuComponents{}}
+		}
+		associatedMachineIDs := projected.AssociatedMachineIds
+		if associatedMachineIDs == nil {
+			// DAO update uses nil to mean "not supplied"; Core nil means there
+			// are no associations in the authoritative projection.
+			associatedMachineIDs = []string{}
+		}
+		_, err = skuDAO.Update(ctx, tx, cdbm.SkuUpdateInput{
+			SkuID:                projected.ID,
+			Components:           components,
+			DeviceType:           projected.DeviceType,
+			AssociatedMachineIds: associatedMachineIDs,
+		})
+		return err
+	})
+}
+
 // CreateSkuHandler creates one SKU on a Site's Core service.
 type CreateSkuHandler struct {
 	dbSession  *cdb.Session
@@ -407,7 +466,21 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 	if apiErr != nil {
 		logger.Warn().Err(apiErr).Str("skuID", ids.Ids[0]).Str("siteID", siteID).
 			Msg("SKU created but post-create retrieval failed; returning request-derived response")
+		createdSKU := apiReq.ToProto().Skus[0]
+		createdSKU.Id = ids.Ids[0]
+		err = upsertSkuProjection(ctx, csh.dbSession, siteUUID, createdSKU)
+		if err != nil {
+			logger.Error().Err(err).Str("skuID", ids.Ids[0]).Str("siteID", siteID).
+				Msg("SKU created in Core but failed to update REST DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was created in Core but failed to update REST DB", nil)
+		}
 		return c.JSON(http.StatusCreated, model.NewAPISkuMutationResponseFromCreateRequest(apiReq, ids.Ids[0], siteID))
+	}
+	err = upsertSkuProjection(ctx, csh.dbSession, siteUUID, response.Skus[0])
+	if err != nil {
+		logger.Error().Err(err).Str("skuID", ids.Ids[0]).Str("siteID", siteID).
+			Msg("SKU created in Core but failed to update REST DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was created in Core but failed to update REST DB", nil)
 	}
 	return c.JSON(http.StatusCreated, model.NewAPISkuMutationResponse(response.Skus[0], siteID))
 }
@@ -500,16 +573,13 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 			logAPIError(logger, apiErr, "failed to update SKU metadata via Core proxy")
 			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 		}
+		err = upsertSkuProjection(ctx, ush.dbSession, savedSKU.SiteID, updated)
+		if err != nil {
+			logger.Error().Err(err).Str("skuID", skuID).Str("siteID", siteID).
+				Msg("SKU updated in Core but failed to update REST DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was updated in Core but failed to update REST DB", nil)
+		}
 		return c.JSON(http.StatusOK, model.NewAPISkuMutationResponse(updated, siteID))
-	}
-
-	if response.Skus[0].SchemaVersion != model.CoreSkuSchemaVersion {
-		return cutil.NewAPIErrorResponse(
-			c,
-			http.StatusConflict,
-			"SKU components can only be updated for the current schema version; migrate the SKU before updating components",
-			nil,
-		)
 	}
 
 	updatedReq := apiReq.ToReplacementProto(response.Skus[0])
@@ -518,6 +588,12 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 	if apiErr = common.ExecuteCoreGRPC(ctx, stc, replaceSkuMethod, updatedReq, &updated, siteID); apiErr != nil {
 		logAPIError(logger, apiErr, "failed to update SKU via Core proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+	}
+	err = upsertSkuProjection(ctx, ush.dbSession, savedSKU.SiteID, &updated)
+	if err != nil {
+		logger.Error().Err(err).Str("skuID", skuID).Str("siteID", siteID).
+			Msg("SKU updated in Core but failed to update REST DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was updated in Core but failed to update REST DB", nil)
 	}
 	return c.JSON(http.StatusOK, model.NewAPISkuMutationResponse(&updated, siteID))
 }
@@ -564,6 +640,10 @@ func (dsh DeleteSkuHandler) Handle(c echo.Context) error {
 		logger.Error().Err(err).Str("skuID", skuID).Msg("error retrieving SKU from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SKU, DB error", nil)
 	}
+	if savedSKU.AssociatedMachineIds != nil && len(savedSKU.AssociatedMachineIds) > 0 {
+		logger.Warn().Str("skuID", skuID).Msg("SKU is associated with machines and cannot be deleted")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "SKU is associated with machines and cannot be deleted", nil)
+	}
 
 	stc, siteID, apiErr := common.AuthorizeProviderSiteForCore(common.AuthorizeProviderSiteForCoreInput{
 		Ctx: ctx, Logger: logger, DBSession: dsh.dbSession, SCP: dsh.scp,
@@ -575,8 +655,16 @@ func (dsh DeleteSkuHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("skuID", skuID).Str("siteID", siteID).Msg("deleting SKU via Core proxy")
 	if apiErr = common.ExecuteCoreGRPC(ctx, stc, deleteSkuMethod, &corev1.SkuIdList{Ids: []string{skuID}}, nil, siteID); apiErr != nil {
-		logAPIError(logger, apiErr, "failed to delete SKU via Core proxy")
-		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+		if apiErr.Code != http.StatusNotFound {
+			logAPIError(logger, apiErr, "failed to delete SKU via Core proxy")
+			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
+		}
+		logger.Warn().Str("skuID", skuID).Str("siteID", siteID).Msg("SKU not found in Core, removing stale REST DB record")
+	}
+
+	if err := skuDAO.Delete(ctx, nil, skuID); err != nil {
+		logger.Error().Err(err).Str("skuID", skuID).Msg("failed to delete SKU from REST DB")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete SKU from REST DB", nil)
 	}
 
 	logger.Info().Str("skuID", skuID).Str("siteID", siteID).Msg("finishing API handler")
