@@ -59,6 +59,11 @@ pub const VALIDATION: Duration = Duration::from_secs(30 * 60);
 
 pub const MAINTENANCE: Duration = Duration::from_secs(5 * 60);
 
+// BMC credential rotation (REQ-2). A single synchronous Redfish password change
+// per device (host + each DPU); generous enough to absorb a slow BMC plus the
+// engine's short per-device backoff without tripping the SLA on the first retry.
+pub const ROTATING_BMC: Duration = Duration::from_secs(15 * 60);
+
 /// Configuration for machine state SLA durations.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineSlaConfig {

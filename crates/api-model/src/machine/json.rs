@@ -75,6 +75,8 @@ pub struct MachineSnapshotPgJson {
     pub reprovisioning_requested: Option<ReprovisionRequest>,
     pub host_reprovisioning_requested: Option<HostReprovisionRequest>,
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
+    #[serde(default)]
+    pub bmc_credential_rotation_requested: bool,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -236,6 +238,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             host_profile: value.host_profile,
             rack_fw_details: value.rack_fw_details,
             machine_maintenance_requested: value.machine_maintenance_requested,
+            bmc_credential_rotation_requested: value.bmc_credential_rotation_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }

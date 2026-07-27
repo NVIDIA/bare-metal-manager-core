@@ -371,6 +371,10 @@ service Forge {
   rpc TriggerHostReprovisioning(HostReprovisioningRequest) returns (google.protobuf.Empty);
   // List hosts waiting for reprovisioning
   rpc ListHostsWaitingForReprovisioning(HostReprovisioningListRequest) returns (HostReprovisioningListResponse);
+  // Operator "force-converge this BMC now" escape hatch: request (or clear) an
+  // immediate credential rotation of a single host/DPU BMC, bypassing the
+  // passive site-wide gate and the device's backoff quarantine.
+  rpc TriggerBmcCredentialRotation(BmcCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -5877,6 +5881,24 @@ message HostReprovisioningRequest {
   common.MachineId machine_id = 1;
   Mode mode = 2;
   UpdateInitiator initiator = 3;
+}
+
+message BmcCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  // Address the target BMC by the owning machine's id, by its BMC MAC, or by
+  // both. A machine (host or DPU) has exactly one BMC, so either identifier
+  // alone uniquely names the device; if both are supplied they must agree.
+  // At least one of machine_id / bmc_mac must be set.
+  common.MachineId machine_id = 2;
+  // MAC of the BMC to target. Optional; empty means "unset".
+  string bmc_mac = 3;
 }
 
 message HostReprovisioningListRequest {

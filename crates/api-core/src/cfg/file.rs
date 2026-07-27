@@ -337,6 +337,14 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub attestation_enabled: bool,
 
+    /// Site-wide enable for passive BMC credential rotation (REQ-2). When
+    /// `false` (the default), a Ready host never enters `RotatingBmc` on its own
+    /// even if a device lags the staged site-wide target. This is the fleet
+    /// kill-switch for rolling the feature out site-by-site; the operator
+    /// force-converge escape hatch (`TriggerBmcCredentialRotation`) bypasses it.
+    #[serde(default)]
+    pub bmc_rotation_enabled: bool,
+
     /// *** This mode is for testing purposes and is not widely supported right now ***
     /// Controls if machines allowed to be registered without TPM module,
     /// in this case for stable machine identifier api will use chasis serial.
@@ -918,6 +926,7 @@ impl CarbideConfig {
             dpa_enabled: self.is_dpa_enabled(),
             dpf_enabled: self.dpf.enabled,
             spdm_enabled: self.spdm.enabled,
+            bmc_rotation_enabled: self.bmc_rotation_enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
             restart_ovs_on_use_admin_network_change: self
