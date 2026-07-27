@@ -1558,6 +1558,7 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 
 	siteID := scope.SiteID
 	providerID := scope.InfrastructureProviderID
+	var siteOverride *bool
 
 	// Site-scoped: resolve the effective capability for the exact Site.
 	if siteID != nil {
@@ -1577,11 +1578,9 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 				return false, err
 			}
 		} else {
-			if ts.Config.TargetedInstanceCreation != nil {
-				return *ts.Config.TargetedInstanceCreation, nil
-			}
+			// This will ensure TenantAccount is ready for the Site.
+			siteOverride = ts.Config.TargetedInstanceCreation
 			if ts.Site != nil {
-				// An unset Site override inherits the Ready TenantAccount default.
 				providerID = &ts.Site.InfrastructureProviderID
 			}
 		}
@@ -1603,6 +1602,9 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 		}
 
 		ta := tas[0]
+		if siteOverride != nil {
+			return *siteOverride, nil
+		}
 
 		return ta.Config.TargetedInstanceCreation, nil
 	}
@@ -1631,30 +1633,34 @@ func GetPrivilegedAccessSiteIDsForTenant(ctx context.Context, tx *cdb.Tx, dbSess
 		return nil, nil
 	}
 
-	providerIDs := mapset.NewSet[uuid.UUID]()
+	readyProviderIDs := mapset.NewSet[uuid.UUID]()
+	enabledProviderIDs := mapset.NewSet[uuid.UUID]()
 	for _, ta := range tas {
+		readyProviderIDs.Add(ta.InfrastructureProviderID)
 		if ta.Config.TargetedInstanceCreation {
-			providerIDs.Add(ta.InfrastructureProviderID)
+			enabledProviderIDs.Add(ta.InfrastructureProviderID)
 		}
 	}
 
-	siteDAO := cdbm.NewSiteDAO(dbSession)
-	sites, _, err := siteDAO.GetAll(ctx, tx, cdbm.SiteFilterInput{
-		InfrastructureProviderIDs: providerIDs.ToSlice(),
-	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	siteIDs := mapset.NewSet[uuid.UUID]()
-	for _, site := range sites {
-		siteIDs.Add(site.ID)
+	if !enabledProviderIDs.IsEmpty() {
+		siteDAO := cdbm.NewSiteDAO(dbSession)
+		sites, _, err := siteDAO.GetAll(ctx, tx, cdbm.SiteFilterInput{
+			InfrastructureProviderIDs: enabledProviderIDs.ToSlice(),
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, site := range sites {
+			siteIDs.Add(site.ID)
+		}
 	}
 
 	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
 	tss, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
 		TenantIDs: []uuid.UUID{tenant.ID},
-	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.SiteRelationName})
 	if err != nil {
 		return nil, err
 	}
@@ -1662,7 +1668,9 @@ func GetPrivilegedAccessSiteIDsForTenant(ctx context.Context, tx *cdb.Tx, dbSess
 	for _, ts := range tss {
 		if ts.Config.TargetedInstanceCreation != nil {
 			if *ts.Config.TargetedInstanceCreation {
-				siteIDs.Add(ts.SiteID)
+				if ts.Site != nil && readyProviderIDs.Contains(ts.Site.InfrastructureProviderID) {
+					siteIDs.Add(ts.SiteID)
+				}
 			} else {
 				siteIDs.Remove(ts.SiteID)
 			}

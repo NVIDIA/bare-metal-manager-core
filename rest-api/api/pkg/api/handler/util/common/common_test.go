@@ -2906,7 +2906,7 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	// a Ready TenantAccount's global default as an enabled Site. The coarse and
 	// provider-scoped ceilings report privileged only when at least one Site
 	// resolves to an enabled effective capability.
-	testCommonBuildSite(t, dbSession, ip, "Priv Site", user)
+	ipSite := testCommonBuildSite(t, dbSession, ip, "Priv Site", user)
 
 	tnDAO := cdbm.NewTenantDAO(dbSession)
 
@@ -2984,6 +2984,24 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
+	// A Ready account at a different Provider ensures the list helper cannot
+	// treat any Ready account as sufficient for an override at ip.
+	_, err = taDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+		AccountNumber:             uuid.NewString(),
+		TenantID:                  &pendingTenant.ID,
+		TenantOrg:                 pendingTenant.Org,
+		InfrastructureProviderID:  ip2.ID,
+		InfrastructureProviderOrg: ip2.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+		CreatedBy:                 user.ID,
+	})
+	assert.Nil(t, err)
+
+	cdbm.TestBuildTenantSite(t, dbSession, pendingTenant, ipSite, &cdbm.TenantSiteConfig{
+		TargetedInstanceCreation: cutil.GetPtr(true),
+	}, user)
+
 	tests := []struct {
 		name     string
 		tenant   *cdbm.Tenant
@@ -3009,6 +3027,16 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 			assert.Equal(t, tc.expected, got)
 		})
 	}
+
+	t.Run("Site override requires Ready TenantAccount at the Site Provider", func(t *testing.T) {
+		got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, pendingTenant, &TenantPrivilegeScope{SiteID: &ipSite.ID})
+		assert.Nil(t, gerr)
+		assert.False(t, got)
+
+		privilegedSiteIDs, gerr := GetPrivilegedAccessSiteIDsForTenant(ctx, nil, dbSession, pendingTenant)
+		assert.Nil(t, gerr)
+		assert.NotContains(t, privilegedSiteIDs, ipSite.ID)
+	})
 
 	effOrg := "test-eff-org"
 	effUser := testCommonBuildUser(t, dbSession, uuid.NewString(), []string{effOrg}, []string{authz.ProviderAdminRole})
