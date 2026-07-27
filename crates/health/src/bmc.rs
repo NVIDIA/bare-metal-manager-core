@@ -209,7 +209,11 @@ impl BmcClient {
             return Ok(());
         }
 
-        tracing::warn!(
+        // Debug, not warn: the caller replays the request after this, so a first
+        // auth failure is an expected consequence of credential rotation and is
+        // recovered from silently. Only a retry that fails *after* the refresh
+        // warrants operator attention.
+        tracing::debug!(
             error = ?error,
             endpoint = ?self.addr,
             "Authentication failed, refreshing BMC credentials"
@@ -282,13 +286,29 @@ impl BmcClient {
             return Err(error);
         }
 
-        self.guarded(op()).await.inspect(|_| {
-            tracing::debug!(
-                original_error = ?error,
-                endpoint = ?self.addr,
-                "Retry after BMC credential refresh succeeded"
-            );
-        })
+        self.guarded(op())
+            .await
+            .inspect(|_| {
+                tracing::debug!(
+                    original_error = ?error,
+                    endpoint = ?self.addr,
+                    "Retry after BMC credential refresh succeeded"
+                );
+            })
+            .inspect_err(|retry_error| {
+                // Freshly fetched credentials were refused too, so this is a
+                // real misconfiguration rather than a rotation we raced. The
+                // caller's own warning does not say that we already refreshed
+                // and replayed, and that distinction is the whole diagnostic —
+                // it has to be in the logs by default, not behind a debug level
+                // an operator can only enable after the fact.
+                tracing::warn!(
+                    error = ?retry_error,
+                    original_error = ?error,
+                    endpoint = ?self.addr,
+                    "Retry after BMC credential refresh also failed"
+                );
+            })
     }
 
     /// Run a BMC operation through the connection circuit breaker.
