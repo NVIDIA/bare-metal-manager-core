@@ -40,6 +40,7 @@ impl From<bmc_vendor::BMCVendor> for ComputeTrayVendor {
             bmc_vendor::BMCVendor::LenovoAMI
             | bmc_vendor::BMCVendor::Liteon
             | bmc_vendor::BMCVendor::Delta
+            | bmc_vendor::BMCVendor::Sushy
             | bmc_vendor::BMCVendor::Unknown => Self::Unknown,
         }
     }
@@ -142,6 +143,7 @@ mod tests {
                 BMCVendor::LenovoAMI => ComputeTrayVendor::Unknown,
                 BMCVendor::Liteon => ComputeTrayVendor::Unknown,
                 BMCVendor::Delta => ComputeTrayVendor::Unknown,
+                BMCVendor::Sushy => ComputeTrayVendor::Unknown,
                 BMCVendor::Unknown => ComputeTrayVendor::Unknown,
             }
         );
