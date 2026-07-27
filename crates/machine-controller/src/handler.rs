@@ -11610,6 +11610,20 @@ async fn set_host_boot_order(
                     }));
                 }
 
+                if matches!(job_state, libredfish::JobState::Completed) {
+                    tracing::info!(
+                        %job_id,
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "SetBootOrder: job completed before scheduling was observed; skipping reboot",
+                    );
+
+                    return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                        set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
+                        set_boot_order_state: SetBootOrderState::CheckBootOrder,
+                        retry_count: set_boot_order_info.retry_count,
+                    }));
+                }
+
                 if !matches!(job_state, libredfish::JobState::Scheduled) {
                     return Err(StateHandlerError::GenericError(eyre::eyre!(
                         "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",

@@ -2534,6 +2534,61 @@ async fn test_bios_config_job_happy_path(pool: sqlx::PgPool) {
     );
 }
 
+/// A BIOS job that completes before the scheduling check skips the redundant
+/// reboot and moves directly to BIOS verification.
+#[crate::sqlx_test]
+async fn test_wait_for_bios_job_scheduled_skips_reboot_for_completed_job(pool: sqlx::PgPool) {
+    const RETRY_COUNT: u32 = 2;
+    const TEST_BIOS_JOB_ID: &str = "JID_BIOS_ALREADY_COMPLETED";
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    env.redfish_sim
+        .set_job_state_sequence(vec![libredfish::JobState::Completed]);
+    set_host_controller_state_stuck_in(
+        &env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForBiosJob {
+                bios_config_info: BiosConfigInfo {
+                    bios_job_id: Some(TEST_BIOS_JOB_ID.to_string()),
+                    bios_config_state: BiosConfigState::WaitForBiosJobScheduled,
+                    retry_count: RETRY_COUNT,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::PollingBiosSetup {
+                retry_count: RETRY_COUNT,
+            },
+        }
+    );
+
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+        )),
+        "an already-completed BIOS job should not trigger another reboot, got: {actions:?}"
+    );
+}
+
 /// When HostInit/PollingBiosSetup is stuck, enter HandleBiosJobFailure recovery.
 #[crate::sqlx_test]
 async fn test_polling_bios_setup_stuck_enters_handle_bios_job_failure(pool: sqlx::PgPool) {
@@ -3107,6 +3162,48 @@ async fn test_wait_for_set_boot_order_job_scheduled_advances_to_reboot(pool: sql
             set_boot_order_state: SetBootOrderState::RebootHost,
             retry_count: RETRY_COUNT,
         }
+    );
+}
+
+/// A completed boot-order job skips the redundant reboot and moves directly
+/// to final verification with its job and retry context intact.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_skips_reboot_for_completed_job(
+    pool: sqlx::PgPool,
+) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Completed,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::CheckBootOrder,
+            retry_count: RETRY_COUNT,
+        }
+    );
+
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+        )),
+        "an already-completed boot-order job should not trigger another reboot, got: {actions:?}"
     );
 }
 
