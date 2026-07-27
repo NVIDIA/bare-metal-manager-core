@@ -11,11 +11,26 @@ tests:
           path: data["nico-api-config.toml"]
           pattern: '\[rms\]'
 
-  - it: renders the rms section with chart defaults when enabled
+  - it: renders the full mTLS block with chart defaults when enabled
     documentIndex: 0
     set:
       rms:
         enabled: true
+    asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?s)\[rms\].*api_url = "https://rms-api-server\.rack-manager\.svc\.cluster\.local:8801".*enforce_tls = true.*root_ca_path = "/var/run/secrets/spiffe\.io/ca\.crt".*client_cert = "/var/run/secrets/spiffe\.io/tls\.crt".*client_key = "/var/run/secrets/spiffe\.io/tls\.key"'
+
+  - it: omits TLS material for a plain-HTTP RMS deployment
+    documentIndex: 0
+    set:
+      rms:
+        enabled: true
+        apiUrl: "http://rms-api-server.rack-manager:8801"
+        enforceTls: false
+        rootCaPath: ""
+        clientCert: ""
+        clientKey: ""
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
@@ -23,21 +38,6 @@ tests:
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: 'root_ca_path|client_cert|client_key'
-
-  - it: renders TLS material only when set
-    documentIndex: 0
-    set:
-      rms:
-        enabled: true
-        apiUrl: "https://rms-api-server.rack-manager:8801"
-        enforceTls: true
-        rootCaPath: "/etc/forge/rms/ca.pem"
-        clientCert: "/etc/forge/rms/client.pem"
-        clientKey: "/etc/forge/rms/client.key"
-    asserts:
-      - matchRegex:
-          path: data["nico-api-config.toml"]
-          pattern: '(?s)\[rms\].*api_url = "https://rms-api-server\.rack-manager:8801".*enforce_tls = true.*root_ca_path = "/etc/forge/rms/ca\.pem".*client_cert = "/etc/forge/rms/client\.pem".*client_key = "/etc/forge/rms/client\.key"'
 
   - it: keeps the rms section out of the site-config ConfigMap
     set:

@@ -61,11 +61,12 @@ nico-api:
   ## RMS (Rack Management Service) connectivity — enable on sites that deploy
   ## the standalone rack-manager chart so Core can use it for rack-level
   ## firmware upgrades, power sequencing, and rms-backed component-manager
-  ## operations. Defaults match the rack-manager chart's api-server Service.
+  ## operations. The chart defaults cover the standard mTLS deployment (RMS
+  ## api-server cert minted from vault-nico-issuer; nico-api authenticates
+  ## with its own SPIFFE cert — no extra mounts). Enabling before RMS is
+  ## deployed is safe: rack operations error cleanly until it comes up.
   # rms:
   #   enabled: true
-  #   apiUrl: "http://rms-api-server.rack-manager:8801"
-  #   enforceTls: false
 
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
