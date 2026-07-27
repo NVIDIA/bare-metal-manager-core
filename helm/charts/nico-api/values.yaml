@@ -174,6 +174,32 @@ env:
 ## Optional Figment dictionary for CARBIDE_API_DSX_EXCHANGE_EVENT_BUS.
 dsxExchangeEventBusConfig: ""
 
+## =============================================================================
+## RMS (Rack Management Service) connectivity
+## =============================================================================
+## RMS deploys as its own Helm chart (rack-manager); Core only needs the
+## connection details to use it for rack-level firmware upgrades, power
+## sequencing, and rms-backed component-manager operations. When disabled,
+## no [rms] section is rendered and RMS-backed operations are unavailable.
+##
+## Note the component-manager backend fields DEFAULT to "rms" in the binary,
+## so a site that enables this and has rack profiles configured starts using
+## RMS for those roles without further component_manager config.
+rms:
+  enabled: false
+  ## RMS API server URL. The default matches the rack-manager chart's
+  ## api-server Service in its default namespace (port 8801).
+  apiUrl: "http://rms-api-server.rack-manager:8801"
+  ## Enforce TLS when connecting to RMS. The rack-manager chart ships with
+  ## TLS disabled, matching the plain-HTTP in-cluster URL above; set true
+  ## (plus the paths below) for TLS/mTLS deployments.
+  enforceTls: false
+  ## Optional TLS material — paths inside the nico-api container. Only
+  ## rendered when non-empty.
+  rootCaPath: ""
+  clientCert: ""
+  clientKey: ""
+
 extraEnv: []
 
 ## Authentication for the /admin WebUI. CARBIDE_WEB_AUTH_TYPE in extraEnv

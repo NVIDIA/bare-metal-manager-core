@@ -58,6 +58,15 @@ nico-api:
     additionalIssuerCns:
       - "site-root"
 
+  ## RMS (Rack Management Service) connectivity — enable on sites that deploy
+  ## the standalone rack-manager chart so Core can use it for rack-level
+  ## firmware upgrades, power sequencing, and rms-backed component-manager
+  ## operations. Defaults match the rack-manager chart's api-server Service.
+  # rms:
+  #   enabled: true
+  #   apiUrl: "http://rms-api-server.rack-manager:8801"
+  #   enforceTls: false
+
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
   ## This IP must resolve from your external DNS to the hostname above.
