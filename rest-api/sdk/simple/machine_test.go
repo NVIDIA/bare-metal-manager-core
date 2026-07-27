@@ -15,7 +15,28 @@ func TestMachineFromStandardIncludesLastScoutObservedVersion(t *testing.T) {
 	apiMachine := standard.NewMachine()
 	apiMachine.SetLastScoutObservedVersion(version)
 
-	machine := machineFromStandard(*apiMachine)
+	tests := []struct {
+		name       string
+		apiMachine standard.Machine
+		want       *string
+	}{
+		{
+			name:       "returns reported version",
+			apiMachine: *apiMachine,
+			want:       &version,
+		},
+		{
+			name:       "returns nil when version is unknown",
+			apiMachine: *standard.NewMachine(),
+			want:       nil,
+		},
+	}
 
-	assert.Equal(t, &version, machine.LastScoutObservedVersion)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			machine := machineFromStandard(tt.apiMachine)
+
+			assert.Equal(t, tt.want, machine.LastScoutObservedVersion)
+		})
+	}
 }

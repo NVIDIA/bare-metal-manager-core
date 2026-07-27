@@ -489,6 +489,14 @@ func TestMachine_NewAPIMachineLastScoutObservedVersion(t *testing.T) {
 			want: &legacyVersion,
 		},
 		{
+			name: "falls back when Machine status version is unset",
+			metadata: &cdbm.SiteControllerMachine{Machine: &corev1.Machine{
+				Status:                   &corev1.MachineStatus{},
+				LastScoutObservedVersion: &legacyVersion,
+			}},
+			want: &legacyVersion,
+		},
+		{
 			name: "prefers Machine status value",
 			metadata: &cdbm.SiteControllerMachine{Machine: &corev1.Machine{
 				Status:                   &corev1.MachineStatus{LastScoutObservedVersion: &statusVersion},
