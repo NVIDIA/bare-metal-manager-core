@@ -465,7 +465,7 @@ func TestMachine_NewAPIMachine(t *testing.T) {
 	assert.Equal(t, dbm.IsUsableByTenant, apimi.IsUsableByTenant)
 }
 
-func TestMachine_NewAPIMachineLastScoutObservedVersion(t *testing.T) {
+func TestMachine_NewAPIMachineScoutVersion(t *testing.T) {
 	statusVersion := "2.6.1"
 	legacyVersion := "2.5.0"
 
@@ -523,14 +523,15 @@ func TestMachine_NewAPIMachineLastScoutObservedVersion(t *testing.T) {
 				false,
 			)
 
-			assert.Equal(t, tt.want, apiMachine.LastScoutObservedVersion)
+			assert.Equal(t, tt.want, apiMachine.ScoutVersion)
 
 			response, err := json.Marshal(apiMachine)
 			require.NoError(t, err)
 
 			var fields map[string]interface{}
 			require.NoError(t, json.Unmarshal(response, &fields))
-			value, found := fields["lastScoutObservedVersion"]
+			assert.NotContains(t, fields, "lastScoutObservedVersion")
+			value, found := fields["scoutVersion"]
 			require.True(t, found)
 			if tt.want == nil {
 				assert.Nil(t, value)

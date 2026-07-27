@@ -4,16 +4,18 @@
 package simple
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/sdk/standard"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestMachineFromStandardIncludesLastScoutObservedVersion(t *testing.T) {
+func TestMachineFromStandardIncludesScoutVersion(t *testing.T) {
 	version := "2.6.1"
 	apiMachine := standard.NewMachine()
-	apiMachine.SetLastScoutObservedVersion(version)
+	apiMachine.SetScoutVersion(version)
 
 	tests := []struct {
 		name       string
@@ -36,7 +38,16 @@ func TestMachineFromStandardIncludesLastScoutObservedVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			machine := machineFromStandard(tt.apiMachine)
 
-			assert.Equal(t, tt.want, machine.LastScoutObservedVersion)
+			assert.Equal(t, tt.want, machine.ScoutVersion)
+
+			response, err := json.Marshal(machine)
+			require.NoError(t, err)
+
+			var fields map[string]interface{}
+			require.NoError(t, json.Unmarshal(response, &fields))
+			assert.NotContains(t, fields, "lastScoutObservedVersion")
+			_, found := fields["scoutVersion"]
+			assert.True(t, found)
 		})
 	}
 }

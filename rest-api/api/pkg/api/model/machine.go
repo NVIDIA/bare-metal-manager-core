@@ -342,8 +342,8 @@ type APIMachine struct {
 	PlacementInRack *APIPlacementInRack `json:"placementInRack"`
 	// MaintenanceMessage is the message to display during maintenance mode
 	MaintenanceMessage *string `json:"maintenanceMessage"`
-	// LastScoutObservedVersion is the last Scout version reported by the Machine
-	LastScoutObservedVersion *string `json:"lastScoutObservedVersion"`
+	// ScoutVersion is the Scout version reported by the Machine
+	ScoutVersion *string `json:"scoutVersion"`
 	// Metadata contains additional metadata about the machine
 	Metadata *APIMachineMetadata `json:"metadata,omitempty"`
 	// Health contains health information about the machine
@@ -612,9 +612,9 @@ func NewAPIMachine(dbm *cdbm.Machine, dbmcs []cdbm.MachineCapability, dbmis []cd
 	if dbm.Metadata != nil {
 		if machine := dbm.Metadata.Machine; machine != nil {
 			if status := machine.GetStatus(); status != nil && status.LastScoutObservedVersion != nil {
-				apim.LastScoutObservedVersion = status.LastScoutObservedVersion
+				apim.ScoutVersion = status.LastScoutObservedVersion
 			} else {
-				apim.LastScoutObservedVersion = machine.LastScoutObservedVersion
+				apim.ScoutVersion = machine.LastScoutObservedVersion
 			}
 		}
 		for _, dpuID := range dbm.Metadata.GetAssociatedDpuMachineIds() {
