@@ -1358,8 +1358,9 @@ pub struct DpfConfig {
     pub enabled: bool,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
-    /// mandatory service except `dts` and `doca_hbn`. This also overrides if
-    /// docker_image_pull_secret is set in services sections as well.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config. This also overrides any `docker_image_pull_secret`
+    /// set in those per-service sections.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
     /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
@@ -1381,8 +1382,8 @@ pub struct DpfConfig {
 impl DpfConfig {
     /// Returns the top-level mandatory services with the optional
     /// [`Self::docker_image_pull_secret`] override applied. The override affects every
-    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
-    /// pull secret.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config.
     pub fn resolved_mandatory_services(&self) -> DpfMandatoryServicesConfig {
         let mut services = (*self.services).clone();
         self.apply_pull_secret_override(&mut services);
@@ -1407,14 +1408,15 @@ impl DpfConfig {
     }
 
     /// Applies the optional [`Self::docker_image_pull_secret`] override to every
-    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
-    /// pull secret. No-op when the override is unset.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config. No-op when the override is unset.
     fn apply_pull_secret_override(&self, services: &mut DpfMandatoryServicesConfig) {
         if let Some(secret) = &self.docker_image_pull_secret {
+            let secret = Some(secret.clone());
             services.dpu_agent.docker_image_pull_secret = secret.clone();
             services.dhcp_server.docker_image_pull_secret = secret.clone();
             services.fmds.docker_image_pull_secret = secret.clone();
-            services.otel.docker_image_pull_secret = secret.clone();
+            services.otel.docker_image_pull_secret = secret;
         }
     }
 }
@@ -1469,13 +1471,6 @@ impl Default for DpfMandatoryServicesConfig {
     }
 }
 
-/// Default name for the Kubernetes `imagePullSecrets` entry used by DPF workload charts.
-pub(crate) const DEFAULT_DPF_IMAGE_PULL_SECRET: &str = "dpf-pull-secret";
-
-fn default_dpf_image_pull_secret() -> String {
-    DEFAULT_DPF_IMAGE_PULL_SECRET.to_string()
-}
-
 /// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DpfServiceConfig {
@@ -1491,9 +1486,11 @@ pub struct DpfServiceConfig {
     pub docker_repo_url: String,
     /// Version of docker image
     pub docker_image_tag: String,
-    /// Secret to use to pull the docker images.
-    #[serde(default = "default_dpf_image_pull_secret")]
-    pub docker_image_pull_secret: String,
+    /// Secret to use to pull the docker images. `None` when the service pulls from
+    /// a public registry (`dts` and `doca_hbn` default to this); when set, an
+    /// `imagePullSecrets` entry is emitted in the service's Helm values.
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -5547,48 +5544,40 @@ object_kind = "secret"
         let services = cfg.resolved_mandatory_services();
 
         // Override applies to every mandatory service ...
-        assert_eq!(
-            services.dpu_agent.docker_image_pull_secret,
-            "my-custom-secret"
-        );
-        assert_eq!(
-            services.dhcp_server.docker_image_pull_secret,
-            "my-custom-secret"
-        );
-        assert_eq!(services.fmds.docker_image_pull_secret, "my-custom-secret");
-        assert_eq!(services.otel.docker_image_pull_secret, "my-custom-secret");
+        for secret in [
+            &services.dpu_agent.docker_image_pull_secret,
+            &services.dhcp_server.docker_image_pull_secret,
+            &services.fmds.docker_image_pull_secret,
+            &services.otel.docker_image_pull_secret,
+        ] {
+            assert_eq!(secret.as_deref(), Some("my-custom-secret"));
+        }
 
-        // ... except dts and doca_hbn, which keep the default.
-        assert_eq!(
-            services.dts.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.doca_hbn.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
+        // ... except dts and doca_hbn, which take a pull secret only from their
+        // per-service config (and default to none).
+        assert_eq!(services.dts.docker_image_pull_secret, None);
+        assert_eq!(services.doca_hbn.docker_image_pull_secret, None);
     }
 
     #[test]
-    fn dpf_docker_image_pull_secret_unset_keeps_per_service_secrets() {
-        // No global override -> services keep their own configured secret.
+    fn dpf_docker_image_pull_secret_unset_leaves_all_services_without_a_secret() {
+        // With no top-level override and no per-service value, every mandatory service
+        // defaults to no pull secret (public-registry pulls) and emits no imagePullSecrets.
         let cfg = DpfConfig::default();
         assert!(cfg.docker_image_pull_secret.is_none());
 
         let services = cfg.resolved_mandatory_services();
 
-        assert_eq!(
-            services.dpu_agent.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.dts.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.doca_hbn.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
+        for secret in [
+            &services.dpu_agent.docker_image_pull_secret,
+            &services.dhcp_server.docker_image_pull_secret,
+            &services.fmds.docker_image_pull_secret,
+            &services.otel.docker_image_pull_secret,
+            &services.dts.docker_image_pull_secret,
+            &services.doca_hbn.docker_image_pull_secret,
+        ] {
+            assert_eq!(*secret, None);
+        }
     }
 
     // Verifies that a [secrets] config section with KMS, routing, and import settings

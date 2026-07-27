@@ -533,7 +533,18 @@ enabled = true
 docker_image_pull_secret = "nico-pull-secret"
 ```
 
-`docker_image_pull_secret` is an optional parameter that specifies the name of the Kubernetes Secret used to pull service container images for NICo services. If this field is omitted, NICo defaults to using the `dpf-pull-secret` for image pulls. In this scenario, ensure that the `dpf-pull-secret` is configured with a legacy NGC API key for better compatibility.
+`docker_image_pull_secret` is an optional top-level override for the Kubernetes
+Secret used to pull the NICo (carbide-owned) service images — `dpu_agent`,
+`dhcp_server`, `fmds`, and `otel`. `dts` and `doca_hbn` are never affected by it;
+they take a pull secret only from their own per-service config — either
+`[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override.
+
+By default no mandatory service is given a pull secret, so their images are pulled
+from a **public registry**. Provide one only where a private registry needs it —
+via this top-level override (carbide services) or a service's own
+`docker_image_pull_secret` (any service). When referencing a private Secret such as
+`dpf-pull-secret`, ensure it is configured with a legacy NGC API key for better
+compatibility.
 
 `[dpf].services.*` sub-tables can additionally override the Helm chart and
 container image of each mandatory DPUService that carbide-api deploys
@@ -549,8 +560,12 @@ helm_chart              = "<helm chart name>"
 helm_version            = "<helm chart version>"   # empty → CI default
 docker_repo_url         = "<image registry+repo>"
 docker_image_tag        = "<image tag>"            # empty → CI default
-docker_image_pull_secret = "dpf-pull-secret"
+docker_image_pull_secret = "dpf-pull-secret"       # optional; omit for a public registry
 ```
+
+`docker_image_pull_secret` is optional per service and defaults to none: omitting
+it renders no `imagePullSecrets` for that service (public-registry pulls). Set it to
+a Kubernetes image-pull Secret name when the service is served from a private registry.
 
 #### Per-deployment configuration (`[dpf.deployments.*]`)
 
@@ -646,7 +661,7 @@ Field reference (all under `[dpf]`):
 | TOML key | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `enabled` | bool | `false` | Master switch. Must be `true` to use DPF-based provisioning. |
-| `docker_image_pull_secret` | string | `dpf-pull-secret` | Pull Secret applied to every mandatory service except `dts` and `doca_hbn`. |
+| `docker_image_pull_secret` | string (optional) | none | Top-level override for the image-pull Secret of the carbide services (`dpu_agent`, `dhcp_server`, `fmds`, `otel`); never applied to `dts`/`doca_hbn`. Unset by default: services pull from a public registry (no `imagePullSecrets`) unless a secret is given here or per-service. |
 | `dpu_agent_bootstrap_ca` | tagged table | `source = "legacy_download"` | Selects legacy download or mounted-object bootstrap trust for the DPU agent. |
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
 | `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |

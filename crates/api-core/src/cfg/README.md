@@ -585,7 +585,7 @@ events, so consumers handle them identically.
 | `enabled` | `bool` | `false` | Enable DPF Kubernetes deployment. |
 | `dpu_agent_bootstrap_ca` | `DpfDpuAgentBootstrapCa` | `legacy_download` | Bootstrap trust for the containerized DPU agent. Supports `legacy_download` and `mounted`, as described in the following examples. |
 | `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, and pull-secret settings for the six mandatory DPF services. |
-| `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`). |
+| `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
 | `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`. |
 
