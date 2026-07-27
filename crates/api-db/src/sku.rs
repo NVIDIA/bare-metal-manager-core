@@ -99,13 +99,13 @@ fn validate_storage_for_create(sku: &Sku) -> Result<(), DatabaseError> {
                 ))
             })?;
         }
-        if let (Some(min), Some(max)) = (storage.min_size_mb, storage.max_size_mb) {
-            if min > max {
-                return Err(DatabaseError::InvalidArgument(format!(
-                    "storage entry (model {:?}) has min_size_mb ({min}) greater than max_size_mb ({max})",
-                    storage.model
-                )));
-            }
+        if let (Some(min), Some(max)) = (storage.min_size_mb, storage.max_size_mb)
+            && min > max
+        {
+            return Err(DatabaseError::InvalidArgument(format!(
+                "storage entry (model {:?}) has min_size_mb ({min}) greater than max_size_mb ({max})",
+                storage.model
+            )));
         }
         if sku.schema_version >= SKU_VERSION_WITH_DRIVE_LOCATION
             && storage.pci_patterns.is_empty()
