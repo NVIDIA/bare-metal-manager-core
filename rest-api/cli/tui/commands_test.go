@@ -6,6 +6,7 @@ package tui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -917,6 +918,22 @@ func TestPromptChoice(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not in allowed options")
 	})
+}
+
+func TestPromptSequenceDoesNotConsumeLaterPipedLines(t *testing.T) {
+	got, err := withStdin(t, "value\ny\n", func() (string, error) {
+		value, promptErr := PromptText("Value", true)
+		if promptErr != nil {
+			return "", promptErr
+		}
+		confirmed, promptErr := PromptConfirm("Continue?")
+		if promptErr != nil {
+			return "", promptErr
+		}
+		return fmt.Sprintf("%s:%t", value, confirmed), nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "value:true", got)
 }
 
 // withStdin pipes the provided input into os.Stdin for the duration of f,

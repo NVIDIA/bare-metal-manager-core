@@ -89,6 +89,19 @@ type GeneratedCommandBodyField struct {
 	FlagName string
 }
 
+// GeneratedCommandBodyFormField describes one request-body schema property for
+// interactive form construction. Properties recursively describe object fields
+// and array items while preserving enough type information for JSON fallbacks.
+type GeneratedCommandBodyFormField struct {
+	JSONName   string
+	Required   bool
+	Type       SchemaType
+	Enum       []string
+	ItemType   SchemaType
+	ItemEnum   []string
+	Properties []GeneratedCommandBodyFormField
+}
+
 // GeneratedCommandQueryParameter describes one generated query flag.
 type GeneratedCommandQueryParameter struct {
 	Name        string
@@ -102,18 +115,21 @@ type GeneratedCommandQueryParameter struct {
 // GeneratedCommandInfo describes one executable REST command leaf produced
 // from the OpenAPI contract.
 type GeneratedCommandInfo struct {
-	Name               string
-	Description        string
-	OperationID        string
-	Method             string
-	Path               string
-	PathParameters     []string
-	Flags              []GeneratedCommandFlag
-	QueryParameters    []GeneratedCommandQueryParameter
-	BodyFields         []GeneratedCommandBodyField
-	RootBodyProperties []string
-	BodyPropertyNames  []string
-	HasRequestBody     bool
+	Name                string
+	Description         string
+	OperationID         string
+	Method              string
+	Path                string
+	PathParameters      []string
+	Flags               []GeneratedCommandFlag
+	QueryParameters     []GeneratedCommandQueryParameter
+	BodyFields          []GeneratedCommandBodyField
+	BodyFormFields      []GeneratedCommandBodyFormField
+	BodyRootType        SchemaType
+	RootBodyProperties  []string
+	BodyPropertyNames   []string
+	HasRequestBody      bool
+	RequestBodyRequired bool
 }
 
 type commandBuildOptions struct {
@@ -470,6 +486,8 @@ func buildActionCommandWithOptions(spec *Spec, ro resolvedOp, subResource string
 	}
 
 	var bodyFields []bodyField
+	var bodyFormFields []GeneratedCommandBodyFormField
+	var bodyRootType SchemaType
 	var rootBodyProperties []string
 	var bodyPropertyNames []string
 
@@ -486,6 +504,7 @@ func buildActionCommandWithOptions(spec *Spec, ro resolvedOp, subResource string
 			},
 		)
 		if schema := spec.RequestBodySchema(ro.op); schema != nil {
+			bodyRootType, bodyFormFields = generatedBodyFormFields(spec, schema)
 			rootBodyProperties, bodyPropertyNames = generatedBodyProperties(spec, schema)
 			reqSet := make(map[string]bool)
 			for _, r := range schema.Required {
@@ -631,22 +650,99 @@ func buildActionCommandWithOptions(spec *Spec, ro resolvedOp, subResource string
 			})
 		}
 		options.record(GeneratedCommandInfo{
-			Name:               strings.Join(nameParts, " "),
-			Description:        summary,
-			OperationID:        ro.op.OperationID,
-			Method:             ro.method,
-			Path:               ro.path,
-			PathParameters:     append([]string(nil), argParams...),
-			Flags:              flagInfos,
-			QueryParameters:    append([]GeneratedCommandQueryParameter(nil), queryParameters...),
-			BodyFields:         bodyFieldInfos,
-			RootBodyProperties: append([]string(nil), rootBodyProperties...),
-			BodyPropertyNames:  append([]string(nil), bodyPropertyNames...),
-			HasRequestBody:     hasBody,
+			Name:                strings.Join(nameParts, " "),
+			Description:         summary,
+			OperationID:         ro.op.OperationID,
+			Method:              ro.method,
+			Path:                ro.path,
+			PathParameters:      append([]string(nil), argParams...),
+			Flags:               flagInfos,
+			QueryParameters:     append([]GeneratedCommandQueryParameter(nil), queryParameters...),
+			BodyFields:          bodyFieldInfos,
+			BodyFormFields:      append([]GeneratedCommandBodyFormField(nil), bodyFormFields...),
+			BodyRootType:        bodyRootType,
+			RootBodyProperties:  append([]string(nil), rootBodyProperties...),
+			BodyPropertyNames:   append([]string(nil), bodyPropertyNames...),
+			HasRequestBody:      hasBody,
+			RequestBodyRequired: ro.op.RequestBody != nil && ro.op.RequestBody.Required,
 		})
 	}
 
 	return command
+}
+
+func generatedBodyFormFields(spec *Spec, schema *Schema) (SchemaType, []GeneratedCommandBodyFormField) {
+	root := spec.ResolveSchema(schema)
+	rootType := generatedSchemaType(root)
+	fieldContainer := root
+	if rootType == "array" && root != nil {
+		fieldContainer = spec.ResolveSchema(root.Items)
+	}
+	if fieldContainer == nil {
+		return rootType, nil
+	}
+	return rootType, generatedBodyFormProperties(spec, fieldContainer, make(map[*Schema]bool))
+}
+
+func generatedBodyFormProperties(
+	spec *Spec,
+	container *Schema,
+	visiting map[*Schema]bool,
+) []GeneratedCommandBodyFormField {
+	container = spec.ResolveSchema(container)
+	if container == nil || visiting[container] {
+		return nil
+	}
+	visiting[container] = true
+	defer delete(visiting, container)
+
+	required := make(map[string]bool, len(container.Required))
+	for _, name := range container.Required {
+		required[name] = true
+	}
+
+	names := generatedSortedKeys(container.Properties)
+	fields := make([]GeneratedCommandBodyFormField, 0, len(names))
+	for _, name := range names {
+		property := spec.ResolveSchema(container.Properties[name])
+		if property == nil {
+			continue
+		}
+		field := GeneratedCommandBodyFormField{
+			JSONName: name,
+			Required: required[name],
+			Type:     generatedSchemaType(property),
+			Enum:     append([]string(nil), property.Enum...),
+		}
+		switch field.Type {
+		case "object":
+			field.Properties = generatedBodyFormProperties(spec, property, visiting)
+		case "array":
+			item := spec.ResolveSchema(property.Items)
+			field.ItemType = generatedSchemaType(item)
+			if item != nil {
+				field.ItemEnum = append([]string(nil), item.Enum...)
+				if field.ItemType == "object" {
+					field.Properties = generatedBodyFormProperties(spec, item, visiting)
+				}
+			}
+		}
+		fields = append(fields, field)
+	}
+	return fields
+}
+
+func generatedSchemaType(schema *Schema) SchemaType {
+	if schema == nil {
+		return ""
+	}
+	if schema.Type != "" {
+		return schema.Type
+	}
+	if len(schema.Properties) > 0 {
+		return "object"
+	}
+	return ""
 }
 
 func generatedBodyProperties(spec *Spec, schema *Schema) ([]string, []string) {

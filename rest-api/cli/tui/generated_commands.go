@@ -52,18 +52,6 @@ var embeddedGeneratedSpec = func() *appcli.Spec {
 
 var embeddedGeneratedCommandInfos = appcli.GeneratedCommandInfos(embeddedGeneratedSpec)
 
-func init() {
-	for _, info := range embeddedGeneratedCommandInfos {
-		if len(info.PathParameters) == 0 {
-			continue
-		}
-		if _, exists := argResourceMap[info.Name]; exists {
-			continue
-		}
-		argResourceMap[info.Name] = generatedResourceType(info, info.PathParameters[0])
-	}
-}
-
 func appendGeneratedCommands(commands []Command) []Command {
 	return appendGeneratedCommandInfos(commands, embeddedGeneratedCommandInfos)
 }
@@ -117,32 +105,26 @@ func runGeneratedTUICommand(s *Session, info appcli.GeneratedCommandInfo, args [
 	if err := validateGeneratedBodyArguments(info, flagArgs); err != nil {
 		return err
 	}
-	positionalArgs, err = resolveGeneratedPathParameters(s, info, positionalArgs)
-	if err != nil {
-		return err
-	}
+	persistGeneratedSiteScopeFromArgs(s, info, flagArgs)
 	flagArgs, err = addRequiredGeneratedQueryFlags(s, info, flagArgs)
 	if err != nil {
 		return err
 	}
-
-	if info.HasRequestBody && !hasGeneratedBodyInput(info, flagArgs) {
-		label := "Request body as JSON (optional)"
-		var body string
-		if generatedCommandHasSensitiveBody(info) {
-			body, err = PromptSecret(label, false)
-		} else {
-			body, err = PromptText(label, false)
-		}
-		if err != nil {
+	if generatedCommandRequiresSiteScope(info, flagArgs) &&
+		strings.TrimSpace(s.Scope.SiteID) == "" &&
+		s.Resolver != nil {
+		if _, err = requireSiteScope(s, fmt.Sprintf("%s requires a site. Select a site.", info.Name)); err != nil {
 			return err
 		}
-		if body != "" {
-			if !json.Valid([]byte(body)) {
-				return fmt.Errorf("request body is not valid JSON")
-			}
-			flagArgs = append(flagArgs, "--data", body)
-		}
+	}
+	positionalArgs, err = resolveGeneratedPathParameters(s, info, positionalArgs)
+	if err != nil {
+		return err
+	}
+
+	flagArgs, err = addGeneratedBodyForm(s, info, flagArgs)
+	if err != nil {
+		return err
 	}
 
 	flagArgs, err = addGeneratedScopeFlags(s, info, flagArgs)
@@ -223,15 +205,19 @@ func generatedFlagName(token string) (string, bool) {
 
 func resolveGeneratedPathParameters(s *Session, info appcli.GeneratedCommandInfo, args []string) ([]string, error) {
 	resolved := append([]string(nil), args...)
+	resolvedValues := map[string]string{
+		"siteId": strings.TrimSpace(s.Scope.SiteID),
+		"vpcId":  strings.TrimSpace(s.Scope.VpcID),
+	}
 	for i, parameter := range info.PathParameters {
 		value := ""
 		if i < len(resolved) {
 			value = resolved[i]
 		}
-		resourceType := generatedResourceType(info, parameter)
+		descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
 
 		if value == "" {
-			switch resourceType {
+			switch descriptor.ResourceType {
 			case "site":
 				value = strings.TrimSpace(s.Scope.SiteID)
 			case "vpc":
@@ -239,20 +225,29 @@ func resolveGeneratedPathParameters(s *Session, info appcli.GeneratedCommandInfo
 			}
 		}
 
-		if s.Resolver != nil && s.Resolver.HasFetcher(resourceType) {
-			item, err := s.Resolver.ResolveWithArgs(
-				context.Background(),
-				resourceType,
-				generatedParameterLabel(parameter),
-				nonEmptyArg(value),
-			)
-			if err != nil {
-				return nil, err
-			}
+		item, supported, err := s.ResolveGeneratedResource(
+			context.Background(),
+			descriptor,
+			resolvedValues,
+			generatedParameterLabel(parameter),
+			value,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if supported {
 			value = item.ID
+		} else if descriptor.FreeFormReason == "" && s.Resolver != nil {
+			return nil, fmt.Errorf(
+				"%s has no interactive selector for path parameter %s",
+				info.Name,
+				parameter,
+			)
 		} else if value == "" {
-			var err error
-			value, err = PromptText(generatedParameterLabel(parameter), true)
+			value, err = PromptText(
+				generatedParameterLabel(parameter),
+				true,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -263,6 +258,7 @@ func resolveGeneratedPathParameters(s *Session, info appcli.GeneratedCommandInfo
 		} else {
 			resolved = append(resolved, value)
 		}
+		resolvedValues[parameter] = value
 	}
 	return resolved, nil
 }
@@ -270,12 +266,18 @@ func resolveGeneratedPathParameters(s *Session, info appcli.GeneratedCommandInfo
 func addRequiredGeneratedQueryFlags(s *Session, info appcli.GeneratedCommandInfo, args []string) ([]string, error) {
 	out := append([]string(nil), args...)
 	for _, parameter := range info.QueryParameters {
-		if !parameter.Required || hasGeneratedOption(info, out, parameter.FlagName) {
+		if !parameter.Required {
 			continue
 		}
 
 		value := ""
 		resourceType := generatedResourceType(info, parameter.Name)
+		if providedValue, provided := generatedOptionValue(info, out, parameter.FlagName); provided {
+			if resourceType == "site" {
+				setGeneratedSiteScopeFromID(s, providedValue)
+			}
+			continue
+		}
 		switch resourceType {
 		case "site":
 			value = strings.TrimSpace(s.Scope.SiteID)
@@ -312,6 +314,9 @@ func addRequiredGeneratedQueryFlags(s *Session, info appcli.GeneratedCommandInfo
 			}
 		}
 
+		if resourceType == "site" {
+			setGeneratedSiteScopeFromID(s, value)
+		}
 		if parameter.Type == "boolean" {
 			out = append(out, "--"+parameter.FlagName+"="+value)
 		} else {
@@ -321,26 +326,78 @@ func addRequiredGeneratedQueryFlags(s *Session, info appcli.GeneratedCommandInfo
 	return out, nil
 }
 
-func nonEmptyArg(value string) []string {
-	if strings.TrimSpace(value) == "" {
-		return nil
+func generatedOptionValue(
+	info appcli.GeneratedCommandInfo,
+	args []string,
+	name string,
+) (string, bool) {
+	for _, option := range generatedArgumentOptions(info, args) {
+		if option.name == name {
+			return strings.TrimSpace(option.value), true
+		}
 	}
-	return []string{value}
+	return "", false
+}
+
+func persistGeneratedSiteScopeFromArgs(
+	s *Session,
+	info appcli.GeneratedCommandInfo,
+	args []string,
+) {
+	if siteID, ok := generatedOptionValue(info, args, "site-id"); ok {
+		setGeneratedSiteScopeFromID(s, siteID)
+	}
+}
+
+func setGeneratedSiteScopeFromID(s *Session, siteID string) {
+	siteID = strings.TrimSpace(siteID)
+	if s == nil || siteID == "" || s.Scope.SiteID == siteID {
+		return
+	}
+	if s.Resolver != nil && s.Cache != nil {
+		setSiteScopeFromID(s, siteID)
+		return
+	}
+	s.Scope.SiteID = siteID
+	s.Scope.SiteName = siteID
+	s.Scope.VpcID = ""
+	s.Scope.VpcName = ""
+	if s.Cache != nil {
+		s.Cache.InvalidateFiltered()
+	}
+}
+
+func generatedCommandRequiresSiteScope(
+	info appcli.GeneratedCommandInfo,
+	args []string,
+) bool {
+	resource, _, _ := strings.Cut(info.Name, " ")
+	switch resource {
+	case "rack", "rule", "tray":
+		// Guided forms and scalar body flags need a persisted scope so their
+		// resource selectors use the correct Site. Opaque JSON already
+		// carries its own siteId and remains an explicit escape hatch unless
+		// a path or required query still needs scoped resource resolution.
+		if !hasGeneratedOption(info, args, "data", "data-file") {
+			return true
+		}
+		if len(info.PathParameters) > 0 {
+			return true
+		}
+		for _, parameter := range info.QueryParameters {
+			if parameter.Required &&
+				CanonicalGeneratedResourceType(info.Name, parameter.Name) == "site" {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
 }
 
 func generatedResourceType(info appcli.GeneratedCommandInfo, parameter string) string {
-	base := strings.TrimSpace(parameter)
-	lower := strings.ToLower(base)
-	switch {
-	case strings.HasSuffix(lower, "ids"):
-		base = base[:len(base)-3]
-	case strings.HasSuffix(lower, "id"):
-		base = base[:len(base)-2]
-	}
-	if strings.EqualFold(base, "") || strings.EqualFold(base, "id") {
-		base, _, _ = strings.Cut(info.Name, " ")
-	}
-	return camelToKebab(base)
+	return CanonicalGeneratedResourceType(info.Name, parameter)
 }
 
 func camelToKebab(value string) string {

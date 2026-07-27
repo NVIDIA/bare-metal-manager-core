@@ -9,7 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+
+	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 )
 
 const maxSuggestions = 6
@@ -510,14 +513,130 @@ func getAllSuggestions(s *Session, input string, cmdNames []string) []string {
 	if input == "" {
 		return nil
 	}
-	for cmdPrefix, resourceType := range argResourceMap {
-		withSpace := cmdPrefix + " "
-		if strings.HasPrefix(strings.ToLower(input), strings.ToLower(withSpace)) {
-			argPart := input[len(withSpace):]
-			return getResourceSuggestions(s, cmdPrefix, resourceType, argPart)
-		}
+
+	commandName, argPart, matched := matchAutocompleteCommand(input, cmdNames)
+	if !matched {
+		return getCommandSuggestions(input, cmdNames)
+	}
+	if info, ok := generatedAutocompleteInfo(commandName); ok && len(info.PathParameters) > 0 {
+		return getGeneratedResourceSuggestions(s, info, argPart)
+	}
+	if resourceType, ok := argResourceMap[commandName]; ok {
+		return getResourceSuggestions(s, commandName, resourceType, argPart)
 	}
 	return getCommandSuggestions(input, cmdNames)
+}
+
+func matchAutocompleteCommand(input string, cmdNames []string) (string, string, bool) {
+	lowerInput := strings.ToLower(input)
+	commandName := ""
+	for _, name := range cmdNames {
+		withSpace := strings.ToLower(name) + " "
+		if strings.HasPrefix(lowerInput, withSpace) && len(name) > len(commandName) {
+			commandName = name
+		}
+	}
+	if commandName == "" {
+		return "", "", false
+	}
+	return commandName, input[len(commandName)+1:], true
+}
+
+func generatedAutocompleteInfo(commandName string) (appcli.GeneratedCommandInfo, bool) {
+	for _, info := range embeddedGeneratedCommandInfos {
+		if info.Name == commandName {
+			return info, true
+		}
+	}
+	return appcli.GeneratedCommandInfo{}, false
+}
+
+func getGeneratedResourceSuggestions(
+	s *Session,
+	info appcli.GeneratedCommandInfo,
+	argPart string,
+) []string {
+	completed, argFilter, ok := autocompleteArguments(argPart)
+	if !ok || len(completed) >= len(info.PathParameters) ||
+		strings.HasPrefix(argFilter, "-") {
+		return nil
+	}
+
+	resolvedValues := map[string]string{
+		"siteId": strings.TrimSpace(s.Scope.SiteID),
+		"vpcId":  strings.TrimSpace(s.Scope.VpcID),
+	}
+	for i, value := range completed {
+		if strings.HasPrefix(value, "-") {
+			return nil
+		}
+		parameter := info.PathParameters[i]
+		descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
+		items, supported, err := s.GeneratedResourceItems(
+			context.Background(),
+			descriptor,
+			resolvedValues,
+		)
+		if err != nil {
+			return nil
+		}
+		if !supported {
+			resolvedValues[parameter] = value
+			continue
+		}
+		item, found := matchGeneratedAutocompleteItem(items, value)
+		if !found {
+			return nil
+		}
+		resolvedValues[parameter] = item.ID
+	}
+
+	parameter := info.PathParameters[len(completed)]
+	descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
+	items, supported, err := s.GeneratedResourceItems(
+		context.Background(),
+		descriptor,
+		resolvedValues,
+	)
+	if err != nil || !supported {
+		return nil
+	}
+	return resourceItemSuggestions(info.Name, completed, items, argFilter)
+}
+
+func autocompleteArguments(input string) ([]string, string, bool) {
+	args, err := splitCommandArguments(input)
+	if err != nil {
+		return nil, "", false
+	}
+	if len(args) == 0 {
+		return nil, "", true
+	}
+	if endsWithWhitespace(input) {
+		return args, "", true
+	}
+	return args[:len(args)-1], args[len(args)-1], true
+}
+
+func endsWithWhitespace(input string) bool {
+	if input == "" {
+		return false
+	}
+	switch input[len(input)-1] {
+	case ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
+}
+
+func matchGeneratedAutocompleteItem(items []NamedItem, value string) (NamedItem, bool) {
+	for _, item := range items {
+		if strings.EqualFold(item.Name, value) || strings.EqualFold(item.ID, value) {
+			return item, true
+		}
+	}
+	return NamedItem{}, false
 }
 
 func getResourceSuggestions(s *Session, cmdPrefix, resourceType, argFilter string) []string {
@@ -529,18 +648,42 @@ func getResourceSuggestions(s *Session, cmdPrefix, resourceType, argFilter strin
 		}
 		items = fetched
 	}
-	lowerFilter := strings.ToLower(argFilter)
+	return resourceItemSuggestions(cmdPrefix, nil, items, argFilter)
+}
+
+func resourceItemSuggestions(
+	cmdPrefix string,
+	completed []string,
+	items []NamedItem,
+	argFilter string,
+) []string {
+	lowerFilter := strings.ToLower(strings.TrimSpace(argFilter))
+	prefixParts := []string{cmdPrefix}
+	for _, argument := range completed {
+		prefixParts = append(prefixParts, quoteCommandArgument(argument))
+	}
+	prefix := strings.Join(prefixParts, " ") + " "
+
 	var matches []string
 	for _, item := range items {
 		name := item.Name
 		if name == "" {
 			name = item.ID
 		}
-		if lowerFilter == "" || strings.Contains(strings.ToLower(name), lowerFilter) {
-			matches = append(matches, cmdPrefix+" "+name)
+		if lowerFilter == "" ||
+			strings.Contains(strings.ToLower(name), lowerFilter) ||
+			strings.Contains(strings.ToLower(item.ID), lowerFilter) {
+			matches = append(matches, prefix+quoteCommandArgument(name))
 		}
 	}
 	return matches
+}
+
+func quoteCommandArgument(value string) string {
+	if !strings.ContainsAny(value, " \t\r\n'\"\\") {
+		return value
+	}
+	return strconv.Quote(value)
 }
 
 func getCommandSuggestions(input string, cmdNames []string) []string {
