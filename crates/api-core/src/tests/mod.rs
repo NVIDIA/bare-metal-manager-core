@@ -70,7 +70,6 @@ mod machine_validation;
 mod maintenance;
 #[cfg(feature = "linux-build")]
 mod measured_boot;
-mod mqtt_state_change_hook;
 mod network_security_group;
 mod network_segment;
 mod network_segment_find;

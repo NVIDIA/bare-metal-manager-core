@@ -40,6 +40,7 @@ use libredfish::{
     Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, SystemPowerControl,
 };
+use mac_address::MacAddress;
 
 use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -80,6 +81,9 @@ struct RedfishSimState {
     /// tests can drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
     chassis_manufacturer: Option<String>,
     platform_actions: Vec<RedfishSimPlatformAction>,
+    /// Lossless `machine_setup_status` target observations. These reads stay
+    /// separate from mutating platform actions and preserve both `Pair` fields.
+    machine_setup_status_targets: HashMap<String, Vec<Option<RedfishSimBootInterfaceRef>>>,
     /// Opt-in authentication enforcement. Off by default so existing tests
     /// (which pass arbitrary or anonymous credentials) are undisturbed. When on,
     /// `get_accounts` returns `401` unless the client was created with a
@@ -213,6 +217,21 @@ impl RedfishSim {
         self.state.lock().unwrap().platform_actions.clone()
     }
 
+    /// Returns each boot-interface selector supplied to
+    /// `Redfish::machine_setup_status` for one simulated endpoint.
+    pub fn machine_setup_status_targets(
+        &self,
+        host: &str,
+    ) -> Vec<Option<RedfishSimBootInterfaceRef>> {
+        self.state
+            .lock()
+            .unwrap()
+            .machine_setup_status_targets
+            .get(host)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Build a simulator with optional SPDM / firmware-integration test flags.
     pub fn with_test_overrides(overrides: RedfishSimTestOverrides) -> Self {
         Self {
@@ -297,6 +316,10 @@ impl RedfishSim {
             .unwrap()
             .users
             .insert(username.to_string(), password.to_string());
+    }
+
+    pub fn user_password(&self, account_id: &str) -> Option<String> {
+        self.state.lock().unwrap().users.get(account_id).cloned()
     }
 
     /// Make `change_password` (the by-username path) fail with
@@ -385,6 +408,36 @@ pub enum RedfishSimPlatformAction {
     UefiSetup { dpu: bool },
 }
 
+/// Owned form of the boot-interface reference observed by the Redfish
+/// simulator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RedfishSimBootInterfaceRef {
+    Mac(MacAddress),
+    InterfaceId(String),
+    Pair {
+        mac_address: MacAddress,
+        interface_id: String,
+    },
+}
+
+impl From<libredfish::BootInterfaceRef<'_>> for RedfishSimBootInterfaceRef {
+    fn from(value: libredfish::BootInterfaceRef<'_>) -> Self {
+        match value {
+            libredfish::BootInterfaceRef::Mac(mac_address) => Self::Mac(mac_address),
+            libredfish::BootInterfaceRef::InterfaceId(interface_id) => {
+                Self::InterfaceId(interface_id.to_string())
+            }
+            libredfish::BootInterfaceRef::Pair {
+                mac_address,
+                interface_id,
+            } => Self::Pair {
+                mac_address,
+                interface_id: interface_id.to_string(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RedfishSimAction {
     Power(libredfish::SystemPowerControl),
@@ -434,10 +487,15 @@ impl RedfishSimActions {
 
 /// Stringifies a [`libredfish::BootInterfaceRef`] for recording in
 /// [`RedfishSimAction`], so tests can assert on the targeted boot interface
-/// regardless of which variant was used.
+/// regardless of which variant was used. Paired targets use their MAC because
+/// the simulator action fields and existing assertions model boot-interface
+/// targets as MAC strings.
 fn boot_interface_ref_to_string(boot_interface: libredfish::BootInterfaceRef<'_>) -> String {
     match boot_interface {
-        libredfish::BootInterfaceRef::Mac(mac) => mac.to_string(),
+        libredfish::BootInterfaceRef::Mac(mac)
+        | libredfish::BootInterfaceRef::Pair {
+            mac_address: mac, ..
+        } => mac.to_string(),
         libredfish::BootInterfaceRef::InterfaceId(id) => id.to_string(),
     }
 }
@@ -570,9 +628,16 @@ impl Redfish for RedfishSimClient {
 
     fn machine_setup_status<'a>(
         &'a self,
-        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
+        boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<libredfish::MachineSetupStatus, RedfishError>> {
         Box::pin(async move {
+            self.state
+                .lock()
+                .unwrap()
+                .machine_setup_status_targets
+                .entry(self._host.clone())
+                .or_default()
+                .push(boot_interface.map(RedfishSimBootInterfaceRef::from));
             Ok(libredfish::MachineSetupStatus {
                 is_done: true,
                 diffs: vec![],

@@ -49,7 +49,19 @@ In current deployments, the DPU is a [NVIDIA BlueField-2 or BlueField-3](https:/
 
 ### BlueField
 
-The NVIDIA DPU family used by NICo for tenant isolation and site management. A BlueField card has its own ARM complex, BMC, NIC firmware, and OS image. NICo provisions and manages the BlueField side of each ManagedHost before making the Host available to tenants.
+The NVIDIA accelerator and SuperNIC product family used by NICo for networking, tenant isolation, and site management. DPU-capable BlueField products have an Arm complex, BMC, NIC firmware, and OS image that NICo can provision and manage. NIC-only SuperNIC products do not expose that switchable DPU execution environment to NICo.
+
+### Host DPU Policy
+
+The operator's desired treatment of DPU hardware on a host. `HostDpuPolicy` has three values: `Manage`, which at the site or resolved level lets NICo provision and attach the DPUs; `Nic`, which asks NICo to run physically present DPU hardware as plain NICs; and `Ignore`, which tells NICo not to configure or attach DPU hardware. For backward compatibility, a per-host `Manage` declaration inherits the site policy rather than overriding it. This policy is intent, not a hardware observation.
+
+### BlueField Operating Mode
+
+The optional operating mode reported by a DPU-capable BlueField product's own BMC. When available, `BlueFieldOperatingMode` is either `Dpu` or `Nic`. NICo compares this observed state with the host DPU policy when deciding whether a DPU-capable card needs reconfiguration. NIC-only SuperNIC products do not need to report a switchable DPU mode. Existing protobuf and Redfish boundaries retain the legacy `NicMode` name for compatibility; model code uses `BlueFieldOperatingMode` so observed state is not confused with desired policy.
+
+### Mellanox/BlueField Device Kind
+
+The factory product classification NICo derives from a card's part number, independently of its current operating mode. Model code calls this `MlxDeviceKind`; some historical variant and protobuf names contain `Mode`, but those names are retained only for compatibility and identify a SKU rather than observed state. A DPU-capable product can therefore remain the same device kind when reconfigured from DPU mode to NIC mode. NIC-only SuperNIC products are classified by product without implying that they can enter DPU mode; future CX8 and CX9 SuperNIC support follows this model.
 
 ## REST API Services and Binaries
 
@@ -148,7 +160,7 @@ A VPC virtualization type for tenant instances on zero-DPU hosts. A Flat VPC is 
 
 ### Zero-DPU Host
 
-A managed host that NICo operates without a NICo-managed DPU — either a host with no DPU hardware (`no_dpu`) or a host whose BlueField DPU is run as a plain NIC (`nic_mode`). NICo does not build an overlay for a zero-DPU host; its tenant instances attach directly to HostInband underlay segments and belong to Flat VPCs. DPU mode is set site-wide or per host in the API server configuration.
+A managed host that NICo operates without a NICo-managed DPU — either a host whose DPU policy is `ignore`, or a host whose BlueField DPU is run as a plain NIC through `nic`. NICo does not build an overlay for a zero-DPU host; its tenant instances attach directly to HostInband underlay segments and belong to Flat VPCs. DPU policy is set site-wide in the API server configuration or per host on its Expected Machine. `rack_management_enabled` does not itself make a host zero-DPU; rack-manager deployments must also resolve the applicable DPU policy to `nic`.
 
 ### HBN in NICo
 

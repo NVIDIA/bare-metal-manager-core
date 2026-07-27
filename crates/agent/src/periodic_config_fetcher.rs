@@ -22,7 +22,6 @@ use std::time::Duration;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
-use carbide_instrument::emit;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -31,7 +30,7 @@ use eyre::Context;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use tracing::{trace, warn};
 
-use crate::instrumentation::{ConfigFetchFailed, ConfigFetchSucceeded, ConfigNotFound};
+use crate::instrumentation::ConfigFetch;
 use crate::util::{get_periodic_dpu_config, get_sitename};
 
 pub struct PeriodicFetcherState {
@@ -211,28 +210,33 @@ async fn single_fetch(
             match instance_metadata_from_instance(resp.instance, state.sitename.clone()) {
                 Ok(Some(config)) => {
                     state.instmeta.store(Some(Arc::new(config)));
-                    emit(ConfigFetchSucceeded::new());
+                    ConfigFetch::Succeeded.emit();
                 }
                 Ok(None) => {
                     state.instmeta.store(None);
-                    emit(ConfigFetchSucceeded::new());
+                    ConfigFetch::Succeeded.emit();
                 }
-                Err(err) => emit(ConfigFetchFailed::new(
-                    err.to_string(),
-                    state.config.config_fetch_interval.as_secs_f64(),
-                )),
+                Err(err) => ConfigFetch::Failed {
+                    error: err.to_string(),
+                    retry_interval_seconds: state.config.config_fetch_interval.as_secs_f64(),
+                }
+                .emit(),
             }
         }
         Err(err) => match err.downcast_ref::<tonic::Status>() {
             Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
                 state.netconf.store(None);
                 state.instmeta.store(None);
-                emit(ConfigNotFound::new(state.config.machine_id.to_string()));
+                ConfigFetch::NotFound {
+                    machine_id: state.config.machine_id.to_string(),
+                }
+                .emit();
             }
-            _ => emit(ConfigFetchFailed::new(
-                format!("{err:?}"),
-                state.config.config_fetch_interval.as_secs_f64(),
-            )),
+            _ => ConfigFetch::Failed {
+                error: format!("{err:?}"),
+                retry_interval_seconds: state.config.config_fetch_interval.as_secs_f64(),
+            }
+            .emit(),
         },
     }
 

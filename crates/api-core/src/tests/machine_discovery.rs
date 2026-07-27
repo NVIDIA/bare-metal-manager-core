@@ -20,9 +20,13 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use carbide_authn::middleware::ConnectionAttributes;
+use carbide_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine_with_reporter};
-use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env};
+use common::api_fixtures::{
+    FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_managed_host_with_config,
+    create_test_env,
+};
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::hardware_info::{HardwareInfo, TpmEkCertificate};
@@ -31,13 +35,113 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
 
+use crate::test_support::builder::TestApiBuilder;
+use crate::test_support::fixture_config::FixtureDefault;
 use crate::tests::common;
+use crate::tests::common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, single_interface_network_config,
+};
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env_with_overrides};
 
 fn secure_discovery_config() -> crate::cfg::file::CarbideConfig {
     let mut config = common::api_fixtures::get_config();
     config.allow_insecure_discovery = false;
     config
+}
+
+fn secure_api_for(env: &common::api_fixtures::TestEnv) -> crate::api::Api {
+    TestApiBuilder::new(
+        env.pool.clone(),
+        env.api.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+    )
+    .with_runtime_config(Arc::new(secure_discovery_config()))
+    .build()
+}
+
+fn discovery_request_from(
+    hardware_info: &HardwareInfo,
+    interface_id: Option<MachineInterfaceId>,
+    remote_ip: IpAddr,
+) -> Request<rpc::MachineDiscoveryInfo> {
+    let mut request = Request::new(rpc::MachineDiscoveryInfo {
+        machine_interface_id: interface_id,
+        discovery_data: Some(rpc::DiscoveryData::Info(
+            rpc::DiscoveryInfo::try_from(hardware_info.clone()).unwrap(),
+        )),
+        create_machine: true,
+        ..Default::default()
+    });
+    request
+        .extensions_mut()
+        .insert::<Arc<ConnectionAttributes>>(Arc::new(ConnectionAttributes {
+            peer_address: SocketAddr::from((remote_ip, 0)),
+            peer_certificates: vec![],
+        }));
+    request
+}
+
+async fn allocated_host_for_secure_discovery(
+    env: &common::api_fixtures::TestEnv,
+) -> (
+    common::api_fixtures::TestManagedHost,
+    HardwareInfo,
+    IpAddr,
+    MachineInterfaceId,
+) {
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let host_config = model::test_support::ManagedHostConfig::default();
+    let hardware_info = HardwareInfo::from(&host_config);
+    let managed_host = create_managed_host_with_config(env, host_config).await;
+    assert_eq!(
+        from_hardware_info(&hardware_info).unwrap(),
+        managed_host.host().id
+    );
+
+    let instance = managed_host
+        .instance_builer(env)
+        .config(rpc::InstanceConfig {
+            tenant: Some(default_tenant_config()),
+            os: Some(default_os_config()),
+            network: Some(single_interface_network_config(segment_id)),
+            infiniband: None,
+            network_security_group_id: None,
+            dpu_extension_services: None,
+            nvlink: None,
+            spxconfig: None,
+        })
+        .build()
+        .await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let instance_address = db::instance_address::find_by_instance_id_and_segment_id(
+        txn.as_mut(),
+        &instance.id,
+        &segment_id,
+    )
+    .await
+    .unwrap()
+    .expect("allocated instance must have a tenant address");
+    let interfaces =
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[managed_host.host().id])
+            .await
+            .unwrap();
+    let admin_interface = interfaces[&managed_host.host().id]
+        .iter()
+        .find(|interface| {
+            interface.network_segment_type
+                == Some(model::network_segment::NetworkSegmentType::Admin)
+        })
+        .expect("managed host must have an admin interface")
+        .id;
+    txn.rollback().await.unwrap();
+
+    (
+        managed_host,
+        hardware_info,
+        instance_address.address,
+        admin_interface,
+    )
 }
 
 #[crate::sqlx_test]
@@ -378,6 +482,141 @@ async fn test_discover_dpu_does_not_create_machine_when_site_explorer_creates_ma
 }
 
 #[crate::sqlx_test]
+async fn test_secure_discovery_from_instance_address_accepts_same_machine_interfaces(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let (managed_host, hardware_info, instance_ip, admin_interface_id) =
+        allocated_host_for_secure_discovery(&env).await;
+    let secure_api = secure_api_for(&env);
+
+    let alternate_admin_interface_id: MachineInterfaceId = sqlx::query_scalar(
+        r#"
+        INSERT INTO machine_interfaces (
+            segment_id, mac_address, hostname, domain_id, machine_id,
+            primary_interface, interface_type, association_type
+        )
+        SELECT
+            segment_id, $1, hostname || '-alternate', domain_id, machine_id,
+            false, 'Data', 'Machine'
+        FROM machine_interfaces
+        WHERE id = $2
+        RETURNING id
+        "#,
+    )
+    .bind(MacAddress::from_str("02:00:00:00:20:01")?)
+    .bind(admin_interface_id)
+    .fetch_one(&env.pool)
+    .await?;
+
+    let non_admin_interface_id: MachineInterfaceId = sqlx::query_scalar(
+        r#"
+        INSERT INTO machine_interfaces (
+            segment_id, mac_address, hostname, machine_id,
+            primary_interface, interface_type, association_type
+        )
+        SELECT
+            ia.segment_id, $1, 'instance-discovery-interface', i.machine_id,
+            false, 'Data', 'Machine'
+        FROM instance_addresses ia
+        JOIN instances i ON i.id = ia.instance_id
+        WHERE ia.address = $2
+        RETURNING id
+        "#,
+    )
+    .bind(MacAddress::from_str("02:00:00:00:20:04")?)
+    .bind(instance_ip)
+    .fetch_one(&env.pool)
+    .await?;
+
+    let bmc_interface_id: MachineInterfaceId = sqlx::query_scalar(
+        r#"
+        INSERT INTO machine_interfaces (
+            segment_id, mac_address, hostname, domain_id, machine_id,
+            primary_interface, interface_type, association_type
+        )
+        SELECT
+            segment_id, $1, hostname || '-bmc', domain_id, machine_id,
+            false, 'Bmc', 'Machine'
+        FROM machine_interfaces
+        WHERE id = $2
+        RETURNING id
+        "#,
+    )
+    .bind(MacAddress::from_str("02:00:00:00:20:02")?)
+    .bind(admin_interface_id)
+    .fetch_one(&env.pool)
+    .await?;
+
+    for (case, interface_id) in [
+        ("alternate admin interface", alternate_admin_interface_id),
+        ("non-admin data interface", non_admin_interface_id),
+        ("BMC interface", bmc_interface_id),
+    ] {
+        let response = secure_api
+            .discover_machine(discovery_request_from(
+                &hardware_info,
+                Some(interface_id),
+                instance_ip,
+            ))
+            .await?
+            .into_inner();
+
+        assert_eq!(response.machine_id, Some(managed_host.host().id));
+        assert_eq!(
+            response.machine_interface_id,
+            Some(interface_id),
+            "discovery must preserve Scout's same-machine interface selection: {case}"
+        );
+    }
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_secure_discovery_from_instance_address_rejects_missing_or_foreign_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let (managed_host, hardware_info, instance_ip, _) =
+        allocated_host_for_secure_discovery(&env).await;
+
+    let foreign_host = create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await?;
+    let foreign_interfaces =
+        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[foreign_host.host().id]).await?;
+    let foreign_interface_id = foreign_interfaces[&foreign_host.host().id][0].id;
+    txn.rollback().await?;
+
+    let secure_api = secure_api_for(&env);
+
+    let cases = [
+        ("missing interface ID", None, Code::InvalidArgument),
+        (
+            "interface owned by another host",
+            Some(foreign_interface_id),
+            Code::PermissionDenied,
+        ),
+    ];
+    for (case, interface_id, expected_code) in cases {
+        let response = secure_api
+            .discover_machine(discovery_request_from(
+                &hardware_info,
+                interface_id,
+                instance_ip,
+            ))
+            .await;
+        assert_eq!(
+            response.expect_err(case).code(),
+            expected_code,
+            "case: {case}; host: {}",
+            managed_host.host().id,
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_secure_discovery_requires_remote_ip(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -442,7 +681,7 @@ async fn test_secure_discovery_does_not_fall_back_to_interface_id(
 
     let response = env.api.discover_machine(request).await;
 
-    assert_eq!(response.unwrap_err().code(), Code::NotFound);
+    assert_eq!(response.unwrap_err().code(), Code::PermissionDenied);
     Ok(())
 }
 

@@ -17,6 +17,32 @@
 
 use clap::Parser;
 
+/// Require a pinned SHA256 digest on container image references.
+///
+/// Tags are mutable; a digest is the only guarantee of reproducibility.
+fn parse_img_name(s: &str) -> Result<String, String> {
+    let (name_part, digest_part) = s
+        .split_once('@')
+        .ok_or("must include a SHA256 digest (e.g. image:tag@sha256:<digest>)")?;
+    if name_part.is_empty() {
+        return Err("image name before '@' must not be empty".into());
+    }
+    if digest_part.contains('@') {
+        return Err("must contain exactly one '@sha256:<digest>' suffix".into());
+    }
+    let hex_str = digest_part
+        .strip_prefix("sha256:")
+        .ok_or("digest must use the 'sha256:' algorithm prefix")?;
+    let decoded = hex::decode(hex_str).map_err(|e| format!("digest is not valid hex: {e}"))?;
+    if decoded.len() != 32 {
+        return Err(format!(
+            "SHA256 digest must decode to 32 bytes, got {}",
+            decoded.len()
+        ));
+    }
+    Ok(s.to_string())
+}
+
 #[derive(Parser, Debug)]
 #[command(after_long_help = "\
 EXAMPLES:
@@ -91,7 +117,8 @@ pub struct UpdateTestOptions {
     #[clap(long, help = "List of contexts")]
     pub contexts: Vec<String>,
 
-    #[clap(long, help = "Container image name")]
+    #[clap(long, help = "Container image name (must include @sha256:<digest>)",
+           value_parser = parse_img_name)]
     pub img_name: Option<String>,
 
     #[clap(long, help = "Run command using chroot in case of container")]
@@ -151,7 +178,8 @@ pub struct AddTestOptions {
     #[clap(long, help = "List of contexts")]
     pub contexts: Vec<String>,
 
-    #[clap(long, help = "Container image name")]
+    #[clap(long, help = "Container image name (must include @sha256:<digest>)",
+           value_parser = parse_img_name)]
     pub img_name: Option<String>,
 
     #[clap(long, help = "Run command using chroot in case of container")]

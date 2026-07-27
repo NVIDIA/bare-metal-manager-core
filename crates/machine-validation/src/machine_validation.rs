@@ -19,6 +19,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome, emit};
 use carbide_utils::cmd::TokioCmd;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
@@ -43,6 +44,166 @@ pub const DEFAULT_TIMEOUT: u64 = 3600;
 // low stale_run_timeout config values cannot fail healthy runs between these heartbeat updates.
 const MACHINE_VALIDATION_HEARTBEAT_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum MachineValidationHeartbeatStage {
+    Initial,
+    Periodic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum MachineValidationHeartbeatFailureReason {
+    Rejected,
+    Rpc,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "machine_validation_heartbeat_failed",
+    metric_name = "carbide_machine_validation_heartbeat_failures_total",
+    component = "nico-scout",
+    log = error,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of machine validation heartbeat failures, by stage and reason."
+)]
+struct MachineValidationHeartbeatFailed {
+    #[label]
+    stage: MachineValidationHeartbeatStage,
+    #[label]
+    reason: MachineValidationHeartbeatFailureReason,
+    #[context]
+    machine_validation_id: MachineValidationId,
+    #[context]
+    test_id: String,
+    /// Failure detail. A rejected heartbeat uses `""` because an Event keeps
+    /// one stable set of context fields.
+    #[context]
+    error: String,
+}
+
+impl MachineValidationHeartbeatFailed {
+    fn rejected(
+        stage: MachineValidationHeartbeatStage,
+        machine_validation_id: MachineValidationId,
+        test_id: String,
+    ) -> Self {
+        Self {
+            stage,
+            reason: MachineValidationHeartbeatFailureReason::Rejected,
+            machine_validation_id,
+            test_id,
+            error: String::new(),
+        }
+    }
+
+    fn rpc(
+        stage: MachineValidationHeartbeatStage,
+        machine_validation_id: MachineValidationId,
+        test_id: String,
+        error: impl std::fmt::Display,
+    ) -> Self {
+        Self {
+            stage,
+            reason: MachineValidationHeartbeatFailureReason::Rpc,
+            machine_validation_id,
+            test_id,
+            error: error.to_string(),
+        }
+    }
+}
+
+impl DynamicMessage for MachineValidationHeartbeatFailed {
+    fn message(&self) -> &'static str {
+        match (self.stage, self.reason) {
+            (
+                MachineValidationHeartbeatStage::Initial,
+                MachineValidationHeartbeatFailureReason::Rejected,
+            ) => "initial machine validation heartbeat was rejected",
+            (
+                MachineValidationHeartbeatStage::Periodic,
+                MachineValidationHeartbeatFailureReason::Rejected,
+            ) => {
+                "machine validation heartbeat was rejected because run or attempt is no longer active"
+            }
+            (
+                MachineValidationHeartbeatStage::Initial,
+                MachineValidationHeartbeatFailureReason::Rpc,
+            ) => "failed to send initial machine validation heartbeat",
+            (
+                MachineValidationHeartbeatStage::Periodic,
+                MachineValidationHeartbeatFailureReason::Rpc,
+            ) => "failed to send machine validation heartbeat",
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "machine_validation_result_persistence_finished",
+    metric_name = "carbide_machine_validation_result_persistence_attempts_total",
+    component = "nico-scout",
+    log = dynamic,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of machine validation result persistence attempts, by outcome."
+)]
+struct MachineValidationResultPersistenceFinished {
+    #[label]
+    outcome: Outcome,
+    #[context]
+    machine_validation_id: MachineValidationId,
+    #[context]
+    test_id: String,
+    #[context]
+    test_name: String,
+    /// Failure detail. A successful persistence attempt uses `""` because an
+    /// Event keeps one stable set of context fields.
+    #[context]
+    error: String,
+}
+
+impl MachineValidationResultPersistenceFinished {
+    fn new<E>(
+        machine_validation_id: MachineValidationId,
+        test_id: String,
+        test_name: String,
+        result: &Result<(), E>,
+    ) -> Self
+    where
+        E: std::fmt::Display,
+    {
+        Self {
+            outcome: Outcome::from(result),
+            machine_validation_id,
+            test_id,
+            test_name,
+            error: result
+                .as_ref()
+                .err()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+        }
+    }
+}
+
+impl DynamicLog for MachineValidationResultPersistenceFinished {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
+            Outcome::Error => LogAt::Level(tracing::Level::ERROR),
+        }
+    }
+}
+
+impl DynamicMessage for MachineValidationResultPersistenceFinished {
+    fn message(&self) -> &'static str {
+        match self.outcome {
+            Outcome::Ok => "Sent machine validation result to API server",
+            Outcome::Error => "Failed to send machine validation result to API server",
+        }
+    }
+}
 
 struct MachineValidationExecution {
     result: rpc::forge::MachineValidationResult,
@@ -243,15 +404,20 @@ impl MachineValidation {
                         trace!(machine_validation_id = %validation_id, test_id = %test_id, "sent machine validation heartbeat")
                     }
                     Ok(false) => {
-                        error!(
-                            machine_validation_id = %validation_id,
-                            test_id = %test_id,
-                            "machine validation heartbeat was rejected because run or attempt is no longer active"
-                        );
+                        emit(MachineValidationHeartbeatFailed::rejected(
+                            MachineValidationHeartbeatStage::Periodic,
+                            validation_id,
+                            test_id,
+                        ));
                         return;
                     }
                     Err(e) => {
-                        error!(machine_validation_id = %validation_id, test_id = %test_id, error = %e, "failed to send machine validation heartbeat")
+                        emit(MachineValidationHeartbeatFailed::rpc(
+                            MachineValidationHeartbeatStage::Periodic,
+                            validation_id,
+                            test_id.clone(),
+                            e,
+                        ));
                     }
                 }
             }
@@ -539,11 +705,11 @@ impl MachineValidation {
             ),
             Ok(false) => {
                 let now = Utc::now();
-                error!(
-                    machine_validation_id = %validation_id,
-                    test_id = %test.test_id,
-                    "initial machine validation heartbeat was rejected"
-                );
+                emit(MachineValidationHeartbeatFailed::rejected(
+                    MachineValidationHeartbeatStage::Initial,
+                    validation_id,
+                    test.test_id.clone(),
+                ));
                 mc_result.start_time = Some(now.into());
                 mc_result.end_time = Some(now.into());
                 mc_result.std_err = "Machine validation heartbeat was rejected because run or attempt is no longer active".to_owned();
@@ -551,12 +717,12 @@ impl MachineValidation {
                 mc_result.exit_code = 0;
                 return MachineValidationExecution::without_heartbeat(mc_result);
             }
-            Err(e) => error!(
-                machine_validation_id = %validation_id,
-                test_id = %test.test_id,
-                error = %e,
-                "failed to send initial machine validation heartbeat"
-            ),
+            Err(e) => emit(MachineValidationHeartbeatFailed::rpc(
+                MachineValidationHeartbeatStage::Initial,
+                validation_id,
+                test.test_id.clone(),
+                e,
+            )),
         }
         let heartbeat = MachineValidationHeartbeatGuard::new(
             self.clone()
@@ -789,17 +955,12 @@ impl MachineValidation {
                 if let Some(heartbeat) = heartbeat {
                     heartbeat.stop().await;
                 }
-                match persist_result {
-                    Ok(_) => info!(
-                        test_name = %test.name,
-                        "Sent machine validation result to API server",
-                    ),
-                    Err(e) => error!(
-                        test_name = %test.name,
-                        error = %e,
-                        "Failed to send machine validation result to API server",
-                    ),
-                }
+                emit(MachineValidationResultPersistenceFinished::new(
+                    validation_id,
+                    test.test_id.clone(),
+                    test.name.clone(),
+                    &persist_result,
+                ));
             }
         } else {
             info!("To be implemented");
@@ -810,7 +971,237 @@ impl MachineValidation {
 
 #[cfg(test)]
 mod tests {
-    use super::MachineValidation;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum InstrumentationCase {
+        HeartbeatRejected(MachineValidationHeartbeatStage),
+        HeartbeatRpc(MachineValidationHeartbeatStage),
+        Persistence(Outcome),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct InstrumentationObservation {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        stage: Option<String>,
+        reason: Option<String>,
+        outcome: Option<String>,
+        machine_validation_id: Option<String>,
+        test_id: Option<String>,
+        test_name: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    fn observe_instrumentation(case: InstrumentationCase) -> InstrumentationObservation {
+        const TEST_ID: &str = "validation-test";
+        const TEST_NAME: &str = "Validation test";
+        const RPC_ERROR: &str = "Forge API unavailable";
+
+        let machine_validation_id = MachineValidationId::nil();
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| match case {
+            InstrumentationCase::HeartbeatRejected(stage) => {
+                emit(MachineValidationHeartbeatFailed::rejected(
+                    stage,
+                    machine_validation_id,
+                    TEST_ID.to_string(),
+                ));
+            }
+            InstrumentationCase::HeartbeatRpc(stage) => {
+                emit(MachineValidationHeartbeatFailed::rpc(
+                    stage,
+                    machine_validation_id,
+                    TEST_ID.to_string(),
+                    RPC_ERROR,
+                ));
+            }
+            InstrumentationCase::Persistence(Outcome::Ok) => {
+                emit(MachineValidationResultPersistenceFinished::new(
+                    machine_validation_id,
+                    TEST_ID.to_string(),
+                    TEST_NAME.to_string(),
+                    &Result::<(), &str>::Ok(()),
+                ));
+            }
+            InstrumentationCase::Persistence(Outcome::Error) => {
+                emit(MachineValidationResultPersistenceFinished::new(
+                    machine_validation_id,
+                    TEST_ID.to_string(),
+                    TEST_NAME.to_string(),
+                    &Result::<(), &str>::Err(RPC_ERROR),
+                ));
+            }
+        });
+
+        assert_eq!(logs.len(), 1, "each Event should write one terminal record");
+        let log = logs.first().expect("Event did not log");
+        let counter_delta = match case {
+            InstrumentationCase::HeartbeatRejected(stage) => metrics.counter_delta(
+                "carbide_machine_validation_heartbeat_failures_total",
+                &[
+                    (
+                        "stage",
+                        match stage {
+                            MachineValidationHeartbeatStage::Initial => "initial",
+                            MachineValidationHeartbeatStage::Periodic => "periodic",
+                        },
+                    ),
+                    ("reason", "rejected"),
+                ],
+            ),
+            InstrumentationCase::HeartbeatRpc(stage) => metrics.counter_delta(
+                "carbide_machine_validation_heartbeat_failures_total",
+                &[
+                    (
+                        "stage",
+                        match stage {
+                            MachineValidationHeartbeatStage::Initial => "initial",
+                            MachineValidationHeartbeatStage::Periodic => "periodic",
+                        },
+                    ),
+                    ("reason", "rpc"),
+                ],
+            ),
+            InstrumentationCase::Persistence(outcome) => metrics.counter_delta(
+                "carbide_machine_validation_result_persistence_attempts_total",
+                &[(
+                    "outcome",
+                    match outcome {
+                        Outcome::Ok => "ok",
+                        Outcome::Error => "error",
+                    },
+                )],
+            ),
+        };
+
+        InstrumentationObservation {
+            level: log.level,
+            metadata_name: log.metadata_name.clone(),
+            message: log.message.clone(),
+            event_name: log.field("event_name").map(str::to_string),
+            metric_name: log.field("metric_name").map(str::to_string),
+            stage: log.field("stage").map(str::to_string),
+            reason: log.field("reason").map(str::to_string),
+            outcome: log.field("outcome").map(str::to_string),
+            machine_validation_id: log.field("machine_validation_id").map(str::to_string),
+            test_id: log.field("test_id").map(str::to_string),
+            test_name: log.field("test_name").map(str::to_string),
+            error: log.field("error").map(str::to_string),
+            counter_delta,
+        }
+    }
+
+    #[test]
+    fn control_plane_delivery_events_log_and_count() {
+        let machine_validation_id = Some(MachineValidationId::nil().to_string());
+        value_scenarios!(
+            run = observe_instrumentation;
+            "heartbeat is rejected" {
+                InstrumentationCase::HeartbeatRejected(MachineValidationHeartbeatStage::Initial) => InstrumentationObservation {
+                    level: tracing::Level::ERROR,
+                    metadata_name: "machine_validation_heartbeat_failed".to_string(),
+                    message: "initial machine validation heartbeat was rejected".to_string(),
+                    event_name: Some("machine_validation_heartbeat_failed".to_string()),
+                    metric_name: Some("carbide_machine_validation_heartbeat_failures_total".to_string()),
+                    stage: Some("initial".to_string()),
+                    reason: Some("rejected".to_string()),
+                    outcome: None,
+                    machine_validation_id: machine_validation_id.clone(),
+                    test_id: Some("validation-test".to_string()),
+                    test_name: None,
+                    error: Some(String::new()),
+                    counter_delta: 1.0,
+                },
+                InstrumentationCase::HeartbeatRejected(MachineValidationHeartbeatStage::Periodic) => InstrumentationObservation {
+                    level: tracing::Level::ERROR,
+                    metadata_name: "machine_validation_heartbeat_failed".to_string(),
+                    message: "machine validation heartbeat was rejected because run or attempt is no longer active".to_string(),
+                    event_name: Some("machine_validation_heartbeat_failed".to_string()),
+                    metric_name: Some("carbide_machine_validation_heartbeat_failures_total".to_string()),
+                    stage: Some("periodic".to_string()),
+                    reason: Some("rejected".to_string()),
+                    outcome: None,
+                    machine_validation_id: machine_validation_id.clone(),
+                    test_id: Some("validation-test".to_string()),
+                    test_name: None,
+                    error: Some(String::new()),
+                    counter_delta: 1.0,
+                },
+            }
+            "heartbeat RPC fails" {
+                InstrumentationCase::HeartbeatRpc(MachineValidationHeartbeatStage::Initial) => InstrumentationObservation {
+                    level: tracing::Level::ERROR,
+                    metadata_name: "machine_validation_heartbeat_failed".to_string(),
+                    message: "failed to send initial machine validation heartbeat".to_string(),
+                    event_name: Some("machine_validation_heartbeat_failed".to_string()),
+                    metric_name: Some("carbide_machine_validation_heartbeat_failures_total".to_string()),
+                    stage: Some("initial".to_string()),
+                    reason: Some("rpc".to_string()),
+                    outcome: None,
+                    machine_validation_id: machine_validation_id.clone(),
+                    test_id: Some("validation-test".to_string()),
+                    test_name: None,
+                    error: Some("Forge API unavailable".to_string()),
+                    counter_delta: 1.0,
+                },
+                InstrumentationCase::HeartbeatRpc(MachineValidationHeartbeatStage::Periodic) => InstrumentationObservation {
+                    level: tracing::Level::ERROR,
+                    metadata_name: "machine_validation_heartbeat_failed".to_string(),
+                    message: "failed to send machine validation heartbeat".to_string(),
+                    event_name: Some("machine_validation_heartbeat_failed".to_string()),
+                    metric_name: Some("carbide_machine_validation_heartbeat_failures_total".to_string()),
+                    stage: Some("periodic".to_string()),
+                    reason: Some("rpc".to_string()),
+                    outcome: None,
+                    machine_validation_id: machine_validation_id.clone(),
+                    test_id: Some("validation-test".to_string()),
+                    test_name: None,
+                    error: Some("Forge API unavailable".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+            "result persistence finishes" {
+                InstrumentationCase::Persistence(Outcome::Ok) => InstrumentationObservation {
+                    level: tracing::Level::INFO,
+                    metadata_name: "machine_validation_result_persistence_finished".to_string(),
+                    message: "Sent machine validation result to API server".to_string(),
+                    event_name: Some("machine_validation_result_persistence_finished".to_string()),
+                    metric_name: Some("carbide_machine_validation_result_persistence_attempts_total".to_string()),
+                    stage: None,
+                    reason: None,
+                    outcome: Some("ok".to_string()),
+                    machine_validation_id: machine_validation_id.clone(),
+                    test_id: Some("validation-test".to_string()),
+                    test_name: Some("Validation test".to_string()),
+                    error: Some(String::new()),
+                    counter_delta: 1.0,
+                },
+                InstrumentationCase::Persistence(Outcome::Error) => InstrumentationObservation {
+                    level: tracing::Level::ERROR,
+                    metadata_name: "machine_validation_result_persistence_finished".to_string(),
+                    message: "Failed to send machine validation result to API server".to_string(),
+                    event_name: Some("machine_validation_result_persistence_finished".to_string()),
+                    metric_name: Some("carbide_machine_validation_result_persistence_attempts_total".to_string()),
+                    stage: None,
+                    reason: None,
+                    outcome: Some("error".to_string()),
+                    machine_validation_id,
+                    test_id: Some("validation-test".to_string()),
+                    test_name: Some("Validation test".to_string()),
+                    error: Some("Forge API unavailable".to_string()),
+                    counter_delta: 1.0,
+                },
+            }
+        );
+    }
 
     #[test]
     fn extract_registry_parses_known_registries() {

@@ -27,6 +27,11 @@
 #   * reverts nico-core site_explorer.bmc_proxy (and any legacy
 #     override_target_* lines) and restarts nico-api
 #   * removes the Vault credential machines/bmc/site/root
+#   * deletes the DPF CRs (DPUDevice/DPUNode/DPU/DPUNodeMaintenance) that the
+#     truncated machines spawned — the DB TRUNCATE bypasses NICo's DPF
+#     cleanup, and stale CRs poison the next run's dpuinit walk. The
+#     dpf-sim-controller deployment itself is left running (harmless idle,
+#     redeployed idempotently by setup-machine-a-tron.sh Phase 4b).
 #
 # ONLY for simulation-only clusters. The DB reset truncates machines,
 # machine_interfaces, explored_endpoints, explored_managed_hosts, and
@@ -45,6 +50,7 @@
 #   NICO_SYSTEM_NS         Default: nico-system
 #   POSTGRES_NS            Default: postgres
 #   VAULT_NS               Default: vault
+#   DPF_NAMESPACE          Default: dpf-operator-system
 #
 # Usage:
 #   export KUBECONFIG=/path/to/kubeconfig
@@ -55,6 +61,7 @@
 #   ./cleanup-machine-a-tron.sh --keep-db    # leave the DB untouched
 #   ./cleanup-machine-a-tron.sh --keep-nico-core-config   # leave bmc_proxy in place
 #   ./cleanup-machine-a-tron.sh --keep-vault-cred         # leave BMC cred in Vault
+#   ./cleanup-machine-a-tron.sh --keep-dpf-crs            # leave DPF CRs in place
 # =============================================================================
 
 set -euo pipefail
@@ -63,6 +70,7 @@ MAT_NAMESPACE="${MAT_NAMESPACE:-nico-mat}"
 NICO_SYSTEM_NS="${NICO_SYSTEM_NS:-nico-system}"
 POSTGRES_NS="${POSTGRES_NS:-postgres}"
 VAULT_NS="${VAULT_NS:-vault}"
+DPF_NAMESPACE="${DPF_NAMESPACE:-dpf-operator-system}"
 RELEASE="nico-machine-a-tron"
 NICO_DB="nico_system_nico"
 
@@ -71,6 +79,7 @@ DELETE_NAMESPACE=false
 KEEP_DB=false
 KEEP_NICO_CORE_CONFIG=false
 KEEP_VAULT_CRED=false
+KEEP_DPF_CRS=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -79,7 +88,8 @@ for arg in "$@"; do
         --keep-db) KEEP_DB=true ;;
         --keep-nico-core-config) KEEP_NICO_CORE_CONFIG=true ;;
         --keep-vault-cred) KEEP_VAULT_CRED=true ;;
-        -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -70; exit 0 ;;
+        --keep-dpf-crs) KEEP_DPF_CRS=true ;;
+        -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -75; exit 0 ;;
         *) echo "Unknown argument: $arg" >&2; exit 2 ;;
     esac
 done
@@ -202,6 +212,43 @@ else
         [[ "$SINGLETON" == "1" ]] || die "singleton row missing after reset — investigate before redeploy"
     else
         warn "skipped DB reset"
+    fi
+fi
+
+# =============================================================================
+# Phase 3b — delete DPF CRs the truncated machines spawned
+# =============================================================================
+phase "Phase 3b — DPF CR cleanup (${DPF_NAMESPACE})"
+if $KEEP_DPF_CRS; then
+    warn "--keep-dpf-crs set; leaving DPF CRs in place"
+elif ! kubectl get ns "$DPF_NAMESPACE" >/dev/null 2>&1; then
+    ok "namespace ${DPF_NAMESPACE} absent — nothing to clean"
+elif ! kubectl get crd dpudevices.provisioning.dpu.nvidia.com >/dev/null 2>&1; then
+    # direct CRD get, not api-resources: full-group discovery exits non-zero
+    # whenever ANY aggregated API is flaky and would false-negative here
+    ok "DPF CRDs not installed — nothing to clean"
+elif kubectl get deploy -n "$DPF_NAMESPACE" -o name 2>/dev/null \
+        | grep -vE 'deployment.apps/dpf-sim-controller$' | grep -qE 'dpf.*operator|operator.*dpf'; then
+    # Same guardrail as setup Phase 4b: with a real DPF operator present the
+    # CRs are NOT simulator bookkeeping — deleting them would sabotage a real
+    # deployment. Leave them alone and let the rest of cleanup proceed.
+    warn "a real DPF operator is deployed in ${DPF_NAMESPACE} — NOT touching its CRs"
+else
+    # The DB TRUNCATE above bypasses NICo's DPF cleanup, so the CRs of the
+    # deleted machines survive and poison the next run's dpuinit walk (stale
+    # already-Ready DPUs short-circuit the DPF phase sequence). Delete DPUs
+    # explicitly too — ownerRef GC covers them only while their DPUDevice
+    # exists — plus the simulator's {node}-hold DPUNodeMaintenance CRs.
+    _CRS="$(kubectl get dpudevices,dpunodes,dpus,dpunodemaintenances -n "$DPF_NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "${_CRS:-0}" == "0" ]]; then
+        ok "no DPF CRs present"
+    elif confirm "Delete ${_CRS} DPF CR(s) in ${DPF_NAMESPACE}?"; then
+        kubectl delete dpudevices,dpunodes,dpus,dpunodemaintenances --all \
+            -n "$DPF_NAMESPACE" --ignore-not-found --timeout=120s >/dev/null \
+            || warn "some DPF CRs did not delete cleanly — check finalizers"
+        ok "DPF CRs deleted (${_CRS})"
+    else
+        warn "skipped DPF CR cleanup"
     fi
 fi
 

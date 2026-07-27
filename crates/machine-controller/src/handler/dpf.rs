@@ -436,10 +436,29 @@ async fn handle_dpf_waiting_for_ready(
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
     let dpu_device_name = dpf_id(dpu_snapshot)?;
-    let current_phase = dpf_sdk
-        .get_dpu_phase(&dpu_device_name, &node_name)
-        .await
-        .map_err(dpf_error)?;
+    let current_phase = match dpf_sdk.get_dpu_phase(&dpu_device_name, &node_name).await {
+        Ok(phase) => phase,
+        // The operator briefly removes the old DPU CR before recreating a fresh one
+        // during reprovision; treat that window as "keep waiting" rather than erroring.
+        Err(DpfError::NotFound { .. }) => {
+            return Ok(StateHandlerOutcome::wait(
+                "DPU CR not yet recreated after reprovision".to_string(),
+            ));
+        }
+        Err(err) => return Err(dpf_error(err)),
+    };
+
+    // A DPU with a deletionTimestamp is a terminating old CR (get_dpu_phase maps that to
+    // Deleting; its status.phase is still stale, often Ready or Error). Do nothing until
+    // the operator has deleted it and created the fresh CR: don't release the maintenance
+    // hold, don't trigger a reboot, and don't read Ready/Error off it. This is what lets a
+    // reprovision of an *errored* DPU proceed instead of immediately re-failing on the old
+    // CR's stale Error phase.
+    if current_phase == DpuPhase::Deleting {
+        return Ok(StateHandlerOutcome::wait(
+            "DPU CR is being deleted (reprovision in progress); waiting for the new CR".to_string(),
+        ));
+    }
 
     dpf_sdk
         .release_maintenance_hold(&node_name)

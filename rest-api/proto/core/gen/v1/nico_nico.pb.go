@@ -44238,6 +44238,9 @@ type SkuComponentStorage struct {
 	Model         string                 `protobuf:"bytes,2,opt,name=model,proto3" json:"model,omitempty"`
 	Count         uint32                 `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
 	CapacityMb    uint32                 `protobuf:"varint,4,opt,name=capacity_mb,json=capacityMb,proto3" json:"capacity_mb,omitempty"`
+	MinSizeMb     *uint32                `protobuf:"varint,5,opt,name=min_size_mb,json=minSizeMb,proto3,oneof" json:"min_size_mb,omitempty"`
+	MaxSizeMb     *uint32                `protobuf:"varint,6,opt,name=max_size_mb,json=maxSizeMb,proto3,oneof" json:"max_size_mb,omitempty"`
+	PciPatterns   []string               `protobuf:"bytes,7,rep,name=pci_patterns,json=pciPatterns,proto3" json:"pci_patterns,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -44298,6 +44301,27 @@ func (x *SkuComponentStorage) GetCapacityMb() uint32 {
 		return x.CapacityMb
 	}
 	return 0
+}
+
+func (x *SkuComponentStorage) GetMinSizeMb() uint32 {
+	if x != nil && x.MinSizeMb != nil {
+		return *x.MinSizeMb
+	}
+	return 0
+}
+
+func (x *SkuComponentStorage) GetMaxSizeMb() uint32 {
+	if x != nil && x.MaxSizeMb != nil {
+		return *x.MaxSizeMb
+	}
+	return 0
+}
+
+func (x *SkuComponentStorage) GetPciPatterns() []string {
+	if x != nil {
+		return x.PciPatterns
+	}
+	return nil
 }
 
 type SkuComponentStorageController struct {
@@ -65170,13 +65194,18 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x06vendor\x18\x01 \x01(\tR\x06vendor\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x14\n" +
 	"\x05count\x18\x03 \x01(\rR\x05count\x12)\n" +
-	"\x10inactive_devices\x18\x04 \x03(\rR\x0finactiveDevices\"z\n" +
+	"\x10inactive_devices\x18\x04 \x03(\rR\x0finactiveDevices\"\x87\x02\n" +
 	"\x13SkuComponentStorage\x12\x16\n" +
 	"\x06vendor\x18\x01 \x01(\tR\x06vendor\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x14\n" +
 	"\x05count\x18\x03 \x01(\rR\x05count\x12\x1f\n" +
 	"\vcapacity_mb\x18\x04 \x01(\rR\n" +
-	"capacityMb\"c\n" +
+	"capacityMb\x12#\n" +
+	"\vmin_size_mb\x18\x05 \x01(\rH\x00R\tminSizeMb\x88\x01\x01\x12#\n" +
+	"\vmax_size_mb\x18\x06 \x01(\rH\x01R\tmaxSizeMb\x88\x01\x01\x12!\n" +
+	"\fpci_patterns\x18\a \x03(\tR\vpciPatternsB\x0e\n" +
+	"\f_min_size_mbB\x0e\n" +
+	"\f_max_size_mb\"c\n" +
 	"\x1dSkuComponentStorageController\x12\x16\n" +
 	"\x06vendor\x18\x01 \x01(\tR\x06vendor\x12\x14\n" +
 	"\x05model\x18\x02 \x01(\tR\x05model\x12\x14\n" +
@@ -70989,6 +71018,7 @@ func file_nico_nico_proto_init() {
 		(*NetworkSecurityGroupRuleAttributes_SrcPrefix)(nil),
 		(*NetworkSecurityGroupRuleAttributes_DstPrefix)(nil),
 	}
+	file_nico_nico_proto_msgTypes[606].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[610].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[611].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[616].OneofWrappers = []any{}

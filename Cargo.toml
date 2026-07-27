@@ -23,10 +23,11 @@ edition = "2024"
 license = "Apache-2.0"
 license-file = "LICENSE"
 authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
+repository = "https://github.com/NVIDIA/infra-controller"
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.44.22" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.45.0" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.10.0" }
 ansi-to-html = "0.2.2"
 
@@ -261,6 +262,10 @@ x509-parser = "0.18.1"
 zeroize = { version = "1", features = ["derive"] }
 zip = { version = "8.6", default-features = false }
 jsonpath-rust = "1.0.4"
+
+[profile.ci-tests]
+inherits = "dev"
+debug = "line-tables-only"
 
 [profile.release]
 debug = "line-tables-only"

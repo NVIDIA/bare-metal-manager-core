@@ -70,6 +70,14 @@ impl CredentialReader for TestCredentialManager {
 
 #[async_trait]
 impl CredentialWriter for TestCredentialManager {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        let credentials = self.credentials.lock().await;
+        Ok(credentials.get(key.to_key_str().as_ref()).cloned())
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -127,3 +135,36 @@ impl CredentialWriter for TestCredentialManager {
 }
 
 impl CredentialManager for TestCredentialManager {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn writer_readback_ignores_reader_fallback() {
+        let fallback = Credentials::UsernamePassword {
+            username: "fallback".to_string(),
+            password: "fallback-password".to_string(),
+        };
+
+        let manager = TestCredentialManager::new(fallback);
+        let key = CredentialKey::switch_nvos_site_admin(1);
+
+        assert_eq!(
+            manager.get_credentials_from_writer(&key).await.unwrap(),
+            None
+        );
+
+        let persisted = Credentials::UsernamePassword {
+            username: "nvos-admin".to_string(),
+            password: "target-password".to_string(),
+        };
+
+        manager.set_credentials(&key, &persisted).await.unwrap();
+
+        assert_eq!(
+            manager.get_credentials_from_writer(&key).await.unwrap(),
+            Some(persisted)
+        );
+    }
+}

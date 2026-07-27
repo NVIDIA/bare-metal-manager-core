@@ -169,7 +169,7 @@ The OpenAPI operation ID is `update-instance`. Restish command shape:
 restish <api-profile> update-instance <tenant-org-id> <instance-id> < <request-body-json>
 ```
 
-First inspect the instance and preserve any existing labels. Instance label updates replace the full label map; labels not included in the update request are removed. Labels are limited to 10 key/value pairs, so use the minimum failure labels if the instance is already near that limit.
+First inspect the instance and preserve any existing labels. Instance label updates replace the full label map; labels not included in the update request are removed. Labels are limited to 16 key/value pairs, so use the minimum failure labels if the instance is already near that limit.
 
 ```bash
 restish nico-stg get-instance <tenant-org-id> <instance-id>

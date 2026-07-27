@@ -124,6 +124,9 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Site Explorer
+    description: |-
+      Site Explorer discovers BMC endpoints on a Site and tracks their exploration state.
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -1250,6 +1253,52 @@ paths:
       description: |-
         Create a site-default host or DPU UEFI credential. The request fails
         if the selected site-default credential already exists.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/site-explorer/endpoint/action':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Trigger Site Explorer Endpoint Action
+      tags:
+        - Site Explorer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteExplorerEndpointActionRequest'
+      responses:
+        '200':
+          description: The action completed for every selected endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteExplorerEndpointAction'
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '412':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: create-site-explorer-endpoint-action
+      description: |-
+        Clear the last exploration error or queue re-exploration for all
+        explored endpoints at a Site or an explicit BMC IP address list.
+
+        The operation calls Core once per endpoint. If a call fails, processing
+        stops and endpoints earlier in the list may already have completed.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/allocation':
@@ -13755,6 +13804,67 @@ components:
           enum:
             - Host
             - DPU
+    SiteExplorerEndpointActionRequest:
+      type: object
+      title: SiteExplorerEndpointActionRequest
+      description: Request to trigger a Site Explorer action for explored endpoints.
+      required:
+        - siteId
+        - action
+        - target
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose explored endpoints are targeted.
+        action:
+          type: string
+          description: Site Explorer endpoint action to trigger.
+          enum:
+            - ClearError
+            - ReExplore
+        target:
+          type: string
+          description: Endpoint set to target.
+          enum:
+            - All
+            - EndpointIds
+        endpointIds:
+          type: array
+          description: BMC IP addresses to target when target is EndpointIds.
+          items:
+            type: string
+    SiteExplorerEndpointAction:
+      type: object
+      title: SiteExplorerEndpointAction
+      description: Completed Site Explorer endpoint action.
+      required:
+        - siteId
+        - action
+        - target
+        - endpointIds
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose explored endpoints were targeted.
+        action:
+          type: string
+          description: Site Explorer endpoint action that completed.
+          enum:
+            - ClearError
+            - ReExplore
+        target:
+          type: string
+          description: Endpoint set that was selected.
+          enum:
+            - All
+            - EndpointIds
+        endpointIds:
+          type: array
+          description: BMC IP addresses for which the action completed.
+          items:
+            type: string
     BMCResetRequest:
       type: object
       title: BMCResetRequest

@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-mod duplicate_events;
 mod happy_path;
 mod reprovisioning;
 mod stale_labels;

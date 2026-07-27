@@ -182,6 +182,16 @@ impl<T: CredentialReader + ?Sized> CredentialReader for Arc<T> {
 
 #[async_trait]
 pub trait CredentialWriter: Send + Sync {
+    /// Reads the value persisted by this writer, bypassing any composite reader
+    /// precedence or local overrides.
+    ///
+    /// Callers use this after a security-sensitive write when publishing state
+    /// requires proof that the configured write target contains the value.
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError>;
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -199,6 +209,13 @@ pub trait CredentialWriter: Send + Sync {
 
 #[async_trait]
 impl<T: CredentialWriter + ?Sized> CredentialWriter for Arc<T> {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        (**self).get_credentials_from_writer(key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -249,6 +266,13 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialReader
 impl<R: CredentialReader, W: CredentialWriter> CredentialWriter
     for CompositeCredentialManager<R, W>
 {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        self.writer.get_credentials_from_writer(key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -311,6 +335,11 @@ pub enum BmcCredentialType {
     BmcForgeAdmin {
         bmc_mac_address: MacAddress,
     },
+    /// Site-wide DPU BMC `service` account password
+    /// (`machines/bmc/site/dpu_service`). Written on first ingestion of a DPU
+    /// BMC that exposes a factory `service` account (currently BF4 only; BF3
+    /// has none). Distinct from the site-wide BMC root password.
+    SiteWideDpuBmcService,
 }
 
 impl BmcCredentialType {
@@ -672,6 +701,9 @@ impl CredentialKey {
                 BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
+                BmcCredentialType::SiteWideDpuBmcService => {
+                    Cow::from("machines/bmc/site/dpu_service")
+                }
             },
             CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
                 NicLockdownIkm::SiteWide { version } => {
@@ -822,6 +854,15 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn dpu_bmc_service_site_wide_path() {
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideDpuBmcService,
+        };
+        assert_eq!(key.to_key_str(), "machines/bmc/site/dpu_service");
+        assert_eq!(key.prefix(), CredentialPrefix::BmcCredentials);
+    }
+
     // Pins the exact Vault path for the versioned lockdown IKM, including
     // how the version is rendered (v{N}), since other components and the
     // seed migration depend on this layout.
@@ -924,6 +965,13 @@ mod tests {
                 password: "read-pass".to_string(),
             })
         );
+
+        let writer_readback = composite
+            .get_credentials_from_writer(&key)
+            .await
+            .expect("writer readback");
+
+        assert_eq!(writer_readback, Some(write_cred));
     }
 
     #[tokio::test]
@@ -1121,6 +1169,16 @@ mod tests {
                             credential_type: BmcCredentialType::BmcForgeAdmin {
                                 bmc_mac_address: mac,
                             },
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "bmc site wide dpu service",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::SiteWideDpuBmcService,
                         },
                         expected_prefix: "machines/bmc/",
                     },

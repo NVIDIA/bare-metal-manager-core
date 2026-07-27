@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::Debug;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -201,6 +201,9 @@ pub struct StaticBmcEndpoint {
     pub power_shelf: Option<StaticPowerShelfEndpoint>,
     pub switch: Option<StaticSwitchEndpoint>,
     pub rack_id: Option<String>,
+    /// User-defined labels attached to telemetry emitted for this endpoint.
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -272,6 +275,7 @@ impl Debug for StaticBmcEndpoint {
             .field("power_shelf", &self.power_shelf)
             .field("switch", &self.switch)
             .field("rack_id", &self.rack_id)
+            .field("labels", &self.labels)
             .finish()
     }
 }
@@ -306,6 +310,52 @@ impl StaticBmcEndpoint {
             return Err(format!(
                 "endpoint_sources.static_bmc_endpoints[{index}].switch requires id or serial"
             ));
+        }
+
+        const RESERVED_LABELS: &[&str] = &[
+            "collector_type",
+            "endpoint_ip",
+            "endpoint_key",
+            "endpoint_mac",
+            "machine_id",
+            "machine_slot_number",
+            "machine_tray_index",
+            "nvlink_domain_uuid",
+            "rack_id",
+            "serial_number",
+            "switch_id",
+            "switch_slot_number",
+            "switch_tray_index",
+            "system_uuid",
+        ];
+
+        if self.labels.len() > 32 {
+            return Err(format!(
+                "endpoint_sources.static_bmc_endpoints[{index}].labels supports at most 32 labels"
+            ));
+        }
+
+        for (name, value) in &self.labels {
+            let mut chars = name.chars();
+            let valid_start = chars
+                .next()
+                .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_');
+            let valid_rest = chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+            if !valid_start || !valid_rest {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} must match [a-zA-Z_][a-zA-Z0-9_]*"
+                ));
+            }
+            if RESERVED_LABELS.contains(&name.as_str()) {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].labels key {name:?} is reserved"
+                ));
+            }
+            if value.len() > 1024 {
+                return Err(format!(
+                    "endpoint_sources.static_bmc_endpoints[{index}].labels value for {name:?} exceeds 1024 bytes"
+                ));
+            }
         }
 
         Ok(())
@@ -1826,7 +1876,7 @@ where
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{scenarios, value_scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
 
@@ -1847,6 +1897,7 @@ mod tests {
             power_shelf: None,
             switch: None,
             rack_id: None,
+            labels: BTreeMap::new(),
         }
     }
 
@@ -3004,6 +3055,7 @@ skip_empty_reports = false
     fn test_nvue_config_defaults() {
         let defaults = NvueCollectorConfig::default();
         assert!(defaults.rest.is_enabled());
+        assert!(!defaults.gnmi.is_enabled());
 
         if let Configurable::Enabled(ref rest) = defaults.rest {
             assert_eq!(rest.poll_interval, Duration::from_secs(300));
@@ -3189,6 +3241,12 @@ request_timeout = "45s"
 
     #[test]
     fn test_nvue_config_explicit_disable() {
+        // nvue is already off by default (test_nvue_config_disabled_by_default), so
+        // merging a bare `enabled = false` over the defaults would pass even if the key
+        // were ignored outright. Populating `[collectors.nvue.rest]` is what makes this
+        // worth running -- on its own that turns nvue *on*
+        // (test_nvue_config_rest_only), so this pins the half that can actually break:
+        // an explicit `enabled = false` still wins over a populated sub-table.
         let toml_content = r#"
 [endpoint_sources.carbide_api]
 enabled = false
@@ -3198,6 +3256,9 @@ enabled = false
 
 [collectors.nvue]
 enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
 "#;
 
         let config: Config = Figment::new()
@@ -3278,34 +3339,135 @@ platform_environment_leakage_enabled = false
     }
 
     #[test]
-    fn test_nvue_gnmi_events_disabled() {
-        let toml_content = r#"
-[endpoint_sources.carbide_api]
-enabled = false
-
-[sinks.health_report]
-enabled = false
-
-[collectors.nvue.gnmi]
-gnmi_port = 9339
-system_events_enabled = false
-"#;
-
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(toml_content))
-            .extract()
-            .expect("failed to parse");
-
-        if let Configurable::Enabled(ref nvue) = config.collectors.nvue {
-            if let Configurable::Enabled(ref gnmi) = nvue.gnmi {
-                assert!(!gnmi.system_events_enabled);
-            } else {
-                panic!("gnmi config should be enabled");
-            }
-        } else {
-            panic!("nvue config should be enabled");
+    fn nvue_gnmi_config_parsing() {
+        #[derive(Debug, PartialEq)]
+        enum Projection {
+            NvueDisabled,
+            GnmiDisabled,
+            Enabled {
+                port: u16,
+                sample_interval: Duration,
+                request_timeout: Duration,
+                dangerously_skip_tls_verification: bool,
+                system_events_enabled: bool,
+                components_enabled: bool,
+                interfaces_enabled: bool,
+                platform_general_enabled: bool,
+            },
         }
+
+        check_values(
+            [
+                Check {
+                    scenario: "NVUE disabled",
+                    input: "",
+                    expect: Projection::NvueDisabled,
+                },
+                Check {
+                    scenario: "gNMI disabled",
+                    input: "[collectors.nvue]",
+                    expect: Projection::GnmiDisabled,
+                },
+                Check {
+                    scenario: "gNMI defaults",
+                    input: "[collectors.nvue.gnmi]",
+                    expect: Projection::Enabled {
+                        port: 9339,
+                        sample_interval: Duration::from_secs(300),
+                        request_timeout: Duration::from_secs(30),
+                        dangerously_skip_tls_verification: false,
+                        system_events_enabled: true,
+                        components_enabled: true,
+                        interfaces_enabled: true,
+                        platform_general_enabled: true,
+                    },
+                },
+                Check {
+                    scenario: "custom gNMI settings and paths",
+                    input: r#"
+[collectors.nvue.gnmi]
+gnmi_port = 19339
+sample_interval = "45s"
+request_timeout = "7s"
+dangerously_skip_tls_verification = true
+system_events_enabled = false
+
+[collectors.nvue.gnmi.paths]
+components_enabled = false
+interfaces_enabled = true
+platform_general_enabled = false
+"#,
+                    expect: Projection::Enabled {
+                        port: 19339,
+                        sample_interval: Duration::from_secs(45),
+                        request_timeout: Duration::from_secs(7),
+                        dangerously_skip_tls_verification: true,
+                        system_events_enabled: false,
+                        components_enabled: false,
+                        interfaces_enabled: true,
+                        platform_general_enabled: false,
+                    },
+                },
+                Check {
+                    scenario: "system events subscription alias",
+                    input: r#"
+[collectors.nvue.gnmi]
+system_events_subscription_enabled = false
+"#,
+                    expect: Projection::Enabled {
+                        port: 9339,
+                        sample_interval: Duration::from_secs(300),
+                        request_timeout: Duration::from_secs(30),
+                        dangerously_skip_tls_verification: false,
+                        system_events_enabled: false,
+                        components_enabled: true,
+                        interfaces_enabled: true,
+                        platform_general_enabled: true,
+                    },
+                },
+                Check {
+                    scenario: "events enabled alias",
+                    input: r#"
+[collectors.nvue.gnmi]
+events_enabled = false
+"#,
+                    expect: Projection::Enabled {
+                        port: 9339,
+                        sample_interval: Duration::from_secs(300),
+                        request_timeout: Duration::from_secs(30),
+                        dangerously_skip_tls_verification: false,
+                        system_events_enabled: false,
+                        components_enabled: true,
+                        interfaces_enabled: true,
+                        platform_general_enabled: true,
+                    },
+                },
+            ],
+            |toml| {
+                let config: Config = Figment::new()
+                    .merge(Serialized::defaults(Config::default()))
+                    .merge(Toml::string(toml))
+                    .extract()
+                    .expect("failed to parse NVUE gNMI config");
+                let Configurable::Enabled(nvue) = config.collectors.nvue else {
+                    return Projection::NvueDisabled;
+                };
+                let Configurable::Enabled(gnmi) = nvue.gnmi else {
+                    return Projection::GnmiDisabled;
+                };
+
+                Projection::Enabled {
+                    port: gnmi.gnmi_port,
+                    sample_interval: gnmi.sample_interval,
+                    request_timeout: gnmi.request_timeout,
+                    dangerously_skip_tls_verification: gnmi.dangerously_skip_tls_verification,
+                    system_events_enabled: gnmi.system_events_enabled,
+                    components_enabled: gnmi.paths.components_enabled,
+                    interfaces_enabled: gnmi.paths.interfaces_enabled,
+                    platform_general_enabled: gnmi.paths.platform_general_enabled,
+                }
+            },
+        );
     }
 
     #[test]
@@ -3515,60 +3677,6 @@ root_ca = "/var/run/secrets/spiffe.io/ca.crt"
                 .lines()
                 .any(|line| line == "platform_environment_fan_enabled = true")
         );
-    }
-
-    #[test]
-    fn test_nvue_gnmi_dangerous_tls_skip_defaults_false_and_parses_true() {
-        let omitted = r#"
-[endpoint_sources.carbide_api]
-enabled = false
-
-[sinks.health_report]
-enabled = false
-
-[collectors.nvue.gnmi]
-gnmi_port = 9339
-"#;
-
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(omitted))
-            .extract()
-            .expect("failed to parse omitted tls flag");
-
-        let Configurable::Enabled(nvue) = config.collectors.nvue else {
-            panic!("nvue config should be enabled");
-        };
-        let Configurable::Enabled(gnmi) = nvue.gnmi else {
-            panic!("gnmi config should be enabled");
-        };
-        assert!(!gnmi.dangerously_skip_tls_verification);
-
-        let enabled = r#"
-[endpoint_sources.carbide_api]
-enabled = false
-
-[sinks.health_report]
-enabled = false
-
-[collectors.nvue.gnmi]
-gnmi_port = 9339
-dangerously_skip_tls_verification = true
-"#;
-
-        let config: Config = Figment::new()
-            .merge(Serialized::defaults(Config::default()))
-            .merge(Toml::string(enabled))
-            .extract()
-            .expect("failed to parse enabled tls flag");
-
-        let Configurable::Enabled(nvue) = config.collectors.nvue else {
-            panic!("nvue config should be enabled");
-        };
-        let Configurable::Enabled(gnmi) = nvue.gnmi else {
-            panic!("gnmi config should be enabled");
-        };
-        assert!(gnmi.dangerously_skip_tls_verification);
     }
 
     #[test]
@@ -3789,6 +3897,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:11"
 username = "admin"
 password = "pass"
+labels = { site = "rno-dev7", environment = "development" }
 machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "MN-001", driver_version = "570.82", slot_number = 15, tray_index = 5, nvlink_domain_uuid = "00000000-0000-0000-0000-000000000000" }
 "#;
 
@@ -3803,6 +3912,15 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
             .as_ref()
             .expect("machine metadata");
 
+        config.validate().expect("valid custom labels");
+        assert_eq!(
+            config.endpoint_sources.static_bmc_endpoints[0]
+                .labels
+                .get("site")
+                .map(String::as_str),
+            Some("rno-dev7")
+        );
+
         assert_eq!(machine.slot_number, Some(15));
         assert_eq!(machine.tray_index, Some(5));
         assert_eq!(machine.driver_version.as_deref(), Some("570.82"));
@@ -3810,6 +3928,34 @@ machine = { id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
             machine.nvlink_domain_uuid.as_deref(),
             Some("00000000-0000-0000-0000-000000000000")
         );
+    }
+
+    #[test]
+    fn test_static_endpoint_rejects_invalid_or_reserved_label_names() {
+        for (name, expected) in [("bad-label", "must match"), ("system_uuid", "is reserved")] {
+            let toml_content = format!(
+                r#"
+[endpoint_sources.carbide_api]
+enabled = false
+
+[[endpoint_sources.static_bmc_endpoints]]
+ip = "10.0.1.2"
+mac = "11:22:33:44:55:11"
+username = "admin"
+password = "pass"
+labels = {{ {name} = "value" }}
+machine = {{ id = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0" }}
+"#
+            );
+            let config: Config = Figment::new()
+                .merge(Serialized::defaults(Config::default()))
+                .merge(Toml::string(&toml_content))
+                .extract()
+                .expect("label syntax should parse");
+
+            let error = config.validate().expect_err("label should be rejected");
+            assert!(error.contains(expected), "unexpected error: {error}");
+        }
     }
 
     #[test]

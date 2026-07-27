@@ -52,7 +52,6 @@ use carbide_rack_controller::context::RackStateHandlerServices;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_redfish::libredfish::RedfishClientPool;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader};
 use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
@@ -82,9 +81,7 @@ use model::resource_pool::{self, ResourcePoolDef};
 use model::route_server::RouteServerSourceType;
 use model::vpc::VpcDefinition;
 use opentelemetry::metrics::Meter;
-use sqlx::postgres::PgSslMode;
-use sqlx::{ConnectOptions, PgPool};
-use sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
+use sqlx::PgPool;
 use state_controller::controller::{Enqueuer, StateController};
 use state_controller::per_object::{PerObjectStateMetrics, PerObjectStateRecorder};
 use state_controller::state_change_emitter::StateChangeEmitterBuilder;
@@ -92,7 +89,6 @@ use tokio::sync::Semaphore;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
-use tracing_log::AsLog as _;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -113,7 +109,7 @@ use crate::mqtt_state_change_hook::republisher::{
     ManagedHostStateRepublisher, ManagedHostStateRepublisherParams,
 };
 use crate::scout_stream::ConnectionRegistry;
-use crate::{attestation, db_init, ethernet_virtualization, listener};
+use crate::{CarbideError, attestation, db_init, ethernet_virtualization, listener};
 
 pub fn create_ipmi_tool(
     credential_reader: Arc<dyn CredentialReader>,
@@ -135,70 +131,70 @@ pub fn create_ipmi_tool(
         }
     }
 }
-/// Configure and create a postgres connection pool
-///
-/// This connects to the database to verify settings
-pub(crate) async fn create_and_connect_postgres_pool(
-    config: &CarbideConfig,
-) -> eyre::Result<PgPool> {
-    for (name, value) in [
-        (
-            "database_pool_acquire_timeout",
-            config.database_pool_acquire_timeout,
+
+fn create_redfish_pool(
+    carbide_config: &CarbideConfig,
+    credential_manager: Arc<dyn CredentialManager>,
+) -> eyre::Result<Arc<dyn RedfishClientPool>> {
+    let pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()
+        .map_err(CarbideError::from)?;
+
+    // Support deprecated configuration for site_explorer.override_target_ip and
+    // override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
+    match (
+        &carbide_config.site_explorer.override_target_ip,
+        carbide_config.site_explorer.override_target_port,
+        carbide_config.site_explorer.bmc_proxy.load().as_ref(),
+    ) {
+        (Some(_), _, Some(_)) => tracing::warn!(
+            "Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config."
         ),
-        (
-            "database_pool_idle_timeout",
-            config.database_pool_idle_timeout,
-        ),
-        (
-            "database_pool_max_lifetime",
-            config.database_pool_max_lifetime,
-        ),
-    ] {
-        if value.is_zero() {
-            eyre::bail!("{name} must be greater than zero");
+        (Some(ip), port, None) => {
+            tracing::warn!(
+                "Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+            );
+            let proxy = port.map_or_else(
+                || HostPortPair::HostOnly(ip.to_string()),
+                |port| HostPortPair::HostAndPort(ip.to_string(), port),
+            );
+            carbide_config
+                .site_explorer
+                .bmc_proxy
+                .store(Arc::new(Some(proxy)));
         }
+        (None, Some(port), None) => {
+            tracing::warn!(
+                "Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
+            );
+            carbide_config
+                .site_explorer
+                .bmc_proxy
+                .store(Arc::new(Some(HostPortPair::PortOnly(port))));
+        }
+        (None, Some(_), Some(_)) => tracing::warn!(
+            "Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config."
+        ),
+        (None, None, _) => {} // leave bmc_proxy untouched
     }
 
-    // We need logs to be enabled at least at `INFO` level. Otherwise
-    // our global logging filter would reject the logs before they get injected
-    // into the `SqlxQueryTracing` layer.
-    let mut database_connect_options = config
-        .database_url
-        .parse::<sqlx::postgres::PgConnectOptions>()?
-        .log_statements(SQLX_STATEMENTS_LOG_LEVEL.as_log().to_level_filter());
-    if let Some(ref tls_config) = config.tls {
-        let tls_disabled = std::env::var("DISABLE_TLS_ENFORCEMENT").is_ok(); // the integration test doesn't like this
-        if !tls_disabled {
-            tracing::info!("using TLS for postgres connection.");
-            database_connect_options = database_connect_options
-                .ssl_mode(PgSslMode::Require) //TODO: move this to VerifyFull once it actually works
-                .ssl_root_cert(&tls_config.root_cafile_path);
-        }
-    }
-    Ok(sqlx::pool::PoolOptions::new()
-        .max_connections(config.max_database_connections)
-        // Lifecycle settings are operator-configurable; each `database_pool_*`
-        // config field documents what it bounds. The defaults are sqlx's own,
-        // so exposing them changes no behavior -- tuning belongs to the site.
-        .acquire_timeout(config.database_pool_acquire_timeout)
-        .idle_timeout(Some(config.database_pool_idle_timeout))
-        .max_lifetime(Some(config.database_pool_max_lifetime))
-        .connect_with(database_connect_options)
-        .await?)
+    Ok(carbide_redfish::libredfish::new_pool(
+        credential_manager,
+        pool,
+        carbide_config.site_explorer.bmc_proxy.clone(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all)]
-pub async fn start_api(
+pub(crate) async fn start_runtime(
     join_set: &mut JoinSet<()>,
     carbide_config: Arc<CarbideConfig>,
     initial_objects: Option<InitialObjectsConfig>,
     meter: Meter,
     per_object_prometheus_registry: Option<prometheus::Registry>,
     dynamic_settings: DynamicSettings,
-    shared_redfish_pool: Arc<dyn RedfishClientPool>,
-    shared_nv_redfish_pool: Arc<NvRedfishClientPool>,
     credential_manager: Arc<dyn CredentialManager>,
     certificate_provider: Arc<dyn CertificateProvider>,
     db_pool: PgPool,
@@ -207,6 +203,10 @@ pub async fn start_api(
     cancel_token: CancellationToken,
     ready_channel: Sender<()>,
 ) -> eyre::Result<()> {
+    let shared_redfish_pool = create_redfish_pool(&carbide_config, credential_manager.clone())?;
+    let shared_nv_redfish_pool =
+        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
+
     let ipmi_tool = create_ipmi_tool(
         credential_manager.clone(),
         &carbide_config,
@@ -1664,12 +1664,12 @@ fn nmxc_tls_config_from_nvlink(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
     use std::path::Path;
 
     use carbide_network::virtualization::VpcVirtualizationType;
-    use carbide_test_support::Outcome::Yields;
-    use carbide_test_support::scenarios;
+    use carbide_test_support::Outcome::{FailsWith, Yields};
+    use carbide_test_support::{Case, check_cases, scenarios};
     use figment::Figment;
     use figment::providers::{Format, Toml};
     use model::expected_machine::HostDpuPolicy;
@@ -1680,7 +1680,6 @@ mod tests {
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
     use crate::cfg::load::{merged_carbide_config_figment, parse_carbide_config};
-    use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     #[derive(Clone, Copy)]
     struct PolicyLayers {
@@ -1767,45 +1766,8 @@ mod tests {
         );
     }
 
-    fn carbide_with_networks(
-        networks: Option<HashMap<String, NetworkDefinition>>,
-    ) -> CarbideConfig {
-        let mut cfg: CarbideConfig = Figment::new()
-            .merge(Toml::string(
-                r#"
-               database_url = "postgres://test"
-               listen = "[::]:1081"
-               asn = 1
-            "#,
-            ))
-            .extract()
-            .expect("Unable to extract config");
-        cfg.networks = networks;
-        cfg.pools = Some(Default::default());
-        cfg
-    }
-
-    fn carbide_with_vpcs(vpcs: Option<HashMap<String, VpcDefinition>>) -> CarbideConfig {
-        let mut cfg: CarbideConfig = Figment::new()
-            .merge(Toml::string(
-                r#"
-               database_url = "postgres://test"
-               listen = "[::]:1081"
-               asn = 1
-            "#,
-            ))
-            .extract()
-            .expect("Unable to extract config");
-        cfg.vpcs = vpcs;
-        cfg.pools = Some(Default::default());
-        cfg
-    }
-
-    // Builds a `CarbideConfig` from the smallest valid TOML and overrides
-    // the `pools` field. `SeedData::resolve` only reads `.pools`, so
-    // the rest of the config can be defaulted.
-    fn carbide_with_pools(pools: Option<HashMap<String, ResourcePoolDef>>) -> CarbideConfig {
-        let mut cfg: CarbideConfig = Figment::new()
+    fn minimal_carbide_config() -> CarbideConfig {
+        Figment::new()
             .merge(Toml::string(
                 r#"
                     database_url = "postgres://test"
@@ -1814,24 +1776,20 @@ mod tests {
                 "#,
             ))
             .extract()
-            .expect("minimal CarbideConfig parses");
-        cfg.pools = pools;
-        cfg
+            .expect("minimal CarbideConfig parses")
     }
 
-    fn network_definition(
-        prefix: &str,
-        segment_type: NetworkDefinitionSegmentType,
-    ) -> NetworkDefinition {
-        let prefix = prefix.parse::<ipnetwork::IpNetwork>().unwrap();
+    fn network_definition(mtu: i32) -> NetworkDefinition {
+        let prefix = "10.0.0.0/24"
+            .parse::<ipnetwork::IpNetwork>()
+            .expect("test network prefix parses");
         NetworkDefinition {
-            segment_type,
+            segment_type: NetworkDefinitionSegmentType::Admin,
             prefix,
             prefix_v6: None,
-            // Test helper placeholder; callers under test do not use this as a routable gateway.
             gateway: prefix.network(),
             dhcpv6_link_address: None,
-            mtu: 1500,
+            mtu,
             reserve_first: 0,
             allocation_strategy: Default::default(),
             vpc_name: None,
@@ -1847,61 +1805,270 @@ mod tests {
         }
     }
 
-    fn vpc_definition(
-        organization_id: Option<&str>,
-        network_virtualization_type: VpcVirtualizationType,
-        routing_profile_type: Option<&str>,
-    ) -> VpcDefinition {
+    fn vpc_definition(network_virtualization_type: VpcVirtualizationType) -> VpcDefinition {
         VpcDefinition {
-            organization_id: organization_id.map(str::to_string),
+            organization_id: None,
             network_virtualization_type,
-            routing_profile_type: routing_profile_type.map(str::to_string),
+            routing_profile_type: None,
             vni: None,
         }
     }
 
-    fn network_map(entries: &[(&str, NetworkDefinition)]) -> HashMap<String, NetworkDefinition> {
+    fn seed_map<T: Clone>(entries: &[(&str, T)]) -> HashMap<String, T> {
         entries
             .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
+            .map(|(name, definition)| (name.to_string(), definition.clone()))
             .collect()
     }
 
-    fn vpc_map(entries: &[(&str, VpcDefinition)]) -> HashMap<String, VpcDefinition> {
-        entries
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .collect()
-    }
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct TestSeed(u8);
 
-    fn pool_map(entries: &[(&str, ResourcePoolDef)]) -> HashMap<String, ResourcePoolDef> {
-        entries
-            .iter()
-            .map(|(k, v)| ((*k).to_string(), v.clone()))
-            .collect()
-    }
+    impl SeedKind for TestSeed {
+        fn name() -> &'static str {
+            "Test object"
+        }
 
-    fn initial_objects_networks(entries: &[(&str, NetworkDefinition)]) -> InitialObjectsConfig {
-        InitialObjectsConfig {
-            pools: None,
-            networks: Some(network_map(entries)),
-            vpcs: None,
+        fn source_description(_: &CarbideConfig, _: &str) -> String {
+            "legacy test config".to_string()
         }
     }
 
-    fn initial_objects_vpcs(entries: &[(&str, VpcDefinition)]) -> InitialObjectsConfig {
-        InitialObjectsConfig {
-            pools: None,
-            networks: None,
-            vpcs: Some(vpc_map(entries)),
+    fn test_seed_map(entries: &[(&str, u8)]) -> HashMap<String, TestSeed> {
+        entries
+            .iter()
+            .map(|(name, value)| (name.to_string(), TestSeed(*value)))
+            .collect()
+    }
+
+    struct MergeSources {
+        initial_objects: Option<HashMap<String, TestSeed>>,
+        carbide_config: Option<HashMap<String, TestSeed>>,
+        required: bool,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum MergeFailure {
+        MissingRequired,
+        Conflicts(BTreeSet<String>),
+        Unexpected(String),
+    }
+
+    fn merge_test_seeds(
+        input: MergeSources,
+        config: &CarbideConfig,
+    ) -> Result<BTreeMap<String, u8>, MergeFailure> {
+        let candidate_names: BTreeSet<String> = input
+            .initial_objects
+            .iter()
+            .chain(input.carbide_config.iter())
+            .flat_map(|objects| objects.keys().cloned())
+            .collect();
+
+        match SeedData::merge_objects(
+            input.initial_objects.as_ref(),
+            input.carbide_config.as_ref(),
+            config,
+            input.required,
+        ) {
+            Ok(objects) => Ok(objects
+                .iter()
+                .map(|(name, TestSeed(value))| (name.clone(), *value))
+                .collect()),
+            Err(error)
+                if matches!(
+                    error.downcast_ref::<DefineResourcePoolError>(),
+                    Some(DefineResourcePoolError::InvalidArgument(_))
+                ) =>
+            {
+                Err(MergeFailure::MissingRequired)
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let conflicts = candidate_names
+                    .into_iter()
+                    .filter(|name| message.contains(&format!("`{name}`")))
+                    .collect::<BTreeSet<_>>();
+
+                if conflicts.is_empty() {
+                    Err(MergeFailure::Unexpected(message))
+                } else {
+                    Err(MergeFailure::Conflicts(conflicts))
+                }
+            }
         }
     }
 
-    fn initial_objects_pools(entries: &[(&str, ResourcePoolDef)]) -> InitialObjectsConfig {
-        InitialObjectsConfig {
-            pools: Some(pool_map(entries)),
+    #[derive(Clone, Copy)]
+    enum SeedObjectKind {
+        Network,
+        Vpc,
+        Pool,
+    }
+
+    #[derive(Clone, Copy)]
+    enum SeedSource {
+        InitialObjects,
+        LegacyConfig,
+    }
+
+    #[derive(Clone, Copy)]
+    enum ResolveInput {
+        Object {
+            kind: SeedObjectKind,
+            source: SeedSource,
+        },
+        ConflictingNetwork,
+        ConflictingVpc,
+        InvalidNetwork,
+        NoOptionalObjects,
+        MissingPools,
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct SeedSummary {
+        networks: BTreeSet<String>,
+        vpcs: BTreeSet<String>,
+        pools: BTreeSet<String>,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum ResolveFailure {
+        Conflict(String),
+        InvalidNetwork,
+        MissingPools,
+        Unexpected(String),
+    }
+
+    fn names(entries: &[&str]) -> BTreeSet<String> {
+        entries.iter().map(|name| name.to_string()).collect()
+    }
+
+    fn seed_summary(networks: &[&str], vpcs: &[&str], pools: &[&str]) -> SeedSummary {
+        SeedSummary {
+            networks: names(networks),
+            vpcs: names(vpcs),
+            pools: names(pools),
+        }
+    }
+
+    fn resolve_seed_data(input: ResolveInput) -> Result<SeedSummary, ResolveFailure> {
+        let mut config = minimal_carbide_config();
+        config.networks = None;
+        config.vpcs = None;
+        config.pools = Some(HashMap::new());
+
+        let mut initial_objects = InitialObjectsConfig {
+            pools: None,
             networks: None,
             vpcs: None,
+        };
+        let mut use_initial_objects = false;
+
+        match input {
+            ResolveInput::Object {
+                kind: SeedObjectKind::Network,
+                source: SeedSource::InitialObjects,
+            } => {
+                initial_objects.networks =
+                    Some(seed_map(&[("test-network", network_definition(1500))]));
+                use_initial_objects = true;
+            }
+            ResolveInput::Object {
+                kind: SeedObjectKind::Network,
+                source: SeedSource::LegacyConfig,
+            } => {
+                config.networks = Some(seed_map(&[("test-network", network_definition(1500))]));
+            }
+            ResolveInput::Object {
+                kind: SeedObjectKind::Vpc,
+                source: SeedSource::InitialObjects,
+            } => {
+                initial_objects.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    vpc_definition(VpcVirtualizationType::Flat),
+                )]));
+                use_initial_objects = true;
+            }
+            ResolveInput::Object {
+                kind: SeedObjectKind::Vpc,
+                source: SeedSource::LegacyConfig,
+            } => {
+                config.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    vpc_definition(VpcVirtualizationType::Flat),
+                )]));
+            }
+            ResolveInput::Object {
+                kind: SeedObjectKind::Pool,
+                source: SeedSource::InitialObjects,
+            } => {
+                config.pools = None;
+                initial_objects.pools = Some(seed_map(&[("test-pool", ipv4_pool("10.0.0.0/24"))]));
+                use_initial_objects = true;
+            }
+            ResolveInput::Object {
+                kind: SeedObjectKind::Pool,
+                source: SeedSource::LegacyConfig,
+            } => {
+                config.pools = Some(seed_map(&[("test-pool", ipv4_pool("10.0.0.0/24"))]));
+            }
+            ResolveInput::ConflictingNetwork => {
+                initial_objects.networks =
+                    Some(seed_map(&[("test-network", network_definition(1500))]));
+                config.networks = Some(seed_map(&[("test-network", network_definition(1600))]));
+                use_initial_objects = true;
+            }
+            ResolveInput::ConflictingVpc => {
+                initial_objects.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    vpc_definition(VpcVirtualizationType::Flat),
+                )]));
+                config.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    vpc_definition(VpcVirtualizationType::EthernetVirtualizer),
+                )]));
+                use_initial_objects = true;
+            }
+            ResolveInput::InvalidNetwork => {
+                config.networks = Some(seed_map(&[("test-network", network_definition(9214))]));
+            }
+            ResolveInput::NoOptionalObjects => {}
+            ResolveInput::MissingPools => {
+                config.pools = None;
+            }
+        }
+
+        match SeedData::resolve(&config, use_initial_objects.then_some(&initial_objects)) {
+            Ok(seed_data) => Ok(SeedSummary {
+                networks: seed_data.initial_networks.keys().cloned().collect(),
+                vpcs: seed_data.initial_vpcs.keys().cloned().collect(),
+                pools: seed_data.initial_pools.keys().cloned().collect(),
+            }),
+            Err(error) => {
+                if let Some(DefineResourcePoolError::InvalidArgument(message)) =
+                    error.downcast_ref::<DefineResourcePoolError>()
+                    && message.to_ascii_lowercase().contains("no resource pools")
+                {
+                    return Err(ResolveFailure::MissingPools);
+                }
+                if error
+                    .downcast_ref::<model::ConfigValidationError>()
+                    .is_some()
+                {
+                    return Err(ResolveFailure::InvalidNetwork);
+                }
+
+                let message = error.to_string();
+                if let Some(name) = ["test-network", "test-vpc"]
+                    .into_iter()
+                    .find(|name| message.contains(&format!("`{name}`")))
+                {
+                    Err(ResolveFailure::Conflict(name.to_string()))
+                } else {
+                    Err(ResolveFailure::Unexpected(message))
+                }
+            }
         }
     }
 
@@ -1953,411 +2120,165 @@ mod tests {
         Ok(())
     }
 
-    // neither source declares pools — operator misconfiguration.
     #[test]
-    fn no_pool_sources_errors() {
-        let cfg = carbide_with_pools(None);
-        let err =
-            SeedData::resolve(&cfg, None).expect_err("missing pools must surface as an error");
-        assert!(
-            err.to_string().to_lowercase().contains("no resource pools"),
-            "error message should name the missing input: {err}"
-        );
-    }
+    fn seed_data_merge_objects_enumerates_source_combinations() {
+        let config = minimal_carbide_config();
 
-    // only `InitialObjectsConfig.pools` declares pools
-    #[test]
-    fn initial_objects_only_succeeds() {
-        let cfg = carbide_with_pools(None);
-        let io = initial_objects_pools(&[("lo-ip", ipv4_pool("10.0.0.0/24"))]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("InitialObjectsConfig-only must succeed")
-            .initial_pools;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("lo-ip"), Some(&ipv4_pool("10.0.0.0/24")));
-    }
-
-    // only legacy `CarbideConfig.pools` declares pools — the
-    // Returns the legacy map; emits a deprecation warning
-    #[test]
-    fn legacy_only_returns_legacy_pools() {
-        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
-
-        let resolved = SeedData::resolve(&cfg, None)
-            .expect("legacy-only must succeed")
-            .initial_pools;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("lo-ip"), Some(&ipv4_pool("10.0.0.0/24")));
-    }
-
-    // both sources declare pools but with disjoint names
-    // Resolver returns the union; emits a deprecation warning naming the still-legacy entries.
-    #[test]
-    fn disjoint_union_returns_all_pools() {
-        let cfg = carbide_with_pools(Some(pool_map(&[("legacy-only", ipv4_pool("10.0.1.0/24"))])));
-        let io = initial_objects_pools(&[("new-only", ipv4_pool("10.0.2.0/24"))]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("disjoint union must succeed")
-            .initial_pools;
-
-        assert_eq!(resolved.len(), 2);
-        assert!(resolved.contains_key("legacy-only"));
-        assert!(resolved.contains_key("new-only"));
-    }
-
-    // both sources declare the same pool with identical defs —
-    // Resolver dedupes silently; the still-legacy entry is included in the deprecation warning.
-    #[test]
-    fn overlap_identical_succeeds() {
-        let pool = ipv4_pool("10.0.0.0/24");
-        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", pool.clone())])));
-        let io = initial_objects_pools(&[("lo-ip", pool.clone())]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("identical defs must succeed")
-            .initial_pools;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("lo-ip"), Some(&pool));
-    }
-
-    // both sources declare the same pool with different defs —
-    // Resolver must fail loudly so the bad state is fixed before reconcile runs.
-    #[test]
-    fn overlap_conflict_errors() {
-        let cfg = carbide_with_pools(Some(pool_map(&[("lo-ip", ipv4_pool("10.0.0.0/24"))])));
-        let io = initial_objects_pools(&[("lo-ip", ipv4_pool("10.0.0.0/16"))]);
-
-        let err = SeedData::resolve(&cfg, Some(&io)).expect_err("conflicting defs must error");
-
-        assert!(
-            err.to_string().contains("lo-ip"),
-            "error message should name the conflicting pool: {err}"
-        );
-    }
-
-    // every overlap is a conflict — the resolver collects all
-    // bad names so the operator can fixe them
-    #[test]
-    fn collects_all_conflict_names() {
-        let cfg = carbide_with_pools(Some(pool_map(&[
-            ("alpha", ipv4_pool("10.0.0.0/24")),
-            ("beta", ipv4_pool("10.0.1.0/24")),
-        ])));
-        let io = initial_objects_pools(&[
-            ("alpha", ipv4_pool("10.0.0.0/16")),
-            ("beta", ipv4_pool("10.0.1.0/16")),
-        ]);
-
-        let err = SeedData::resolve(&cfg, Some(&io)).expect_err("any conflict must error");
-        let msg = err.to_string();
-
-        assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
-        assert!(msg.contains("beta"), "expected `beta` in {msg}");
-    }
-
-    // neither source declares networks — operator misconfiguration.
-    #[test]
-    fn no_network_sources_returns_empty() {
-        let cfg = carbide_with_networks(None);
-        let resolved = SeedData::resolve(&cfg, None)
-            .expect("missing networks must not be an error")
-            .initial_networks;
-        assert!(
-            resolved.is_empty(),
-            "no declared networks should produce an empty map"
-        );
-    }
-
-    // only `InitialObjectsConfig.pools` declares pools
-    #[test]
-    fn initial_objects_networks_only_succeeds() {
-        let cfg = carbide_with_networks(None);
-        let io = initial_objects_networks(&[(
-            "network1",
-            network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
-        )]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("InitialObjectsConfig-only must succeed")
-            .initial_networks;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(
-            resolved.get("network1"),
-            Some(&network_definition(
-                "10.0.0.0/24",
-                NetworkDefinitionSegmentType::Admin
-            ))
-        );
-    }
-
-    // only legacy `CarbideConfig.networks` declares networks
-    #[test]
-    fn legacy_only_returns_legacy_networks() {
-        let cfg = carbide_with_networks(Some(network_map(&[(
-            "network1",
-            network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
-        )])));
-
-        let resolved = SeedData::resolve(&cfg, None)
-            .expect("legacy-only must succeed")
-            .initial_networks;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(
-            resolved.get("network1"),
-            Some(&network_definition(
-                "10.0.0.0/24",
-                NetworkDefinitionSegmentType::Admin
-            ))
-        );
-    }
-
-    // both sources declare networks but with different names
-    // Resolver returns the union; emits a deprecation warning naming the still-legacy entries.
-    #[test]
-    fn disjoint_union_returns_all_networks() {
-        let cfg = carbide_with_networks(Some(network_map(&[(
-            "legacy-only",
-            network_definition("10.0.1.0/24", NetworkDefinitionSegmentType::Admin),
-        )])));
-        let io = initial_objects_networks(&[(
-            "new-only",
-            network_definition("10.0.2.0/24", NetworkDefinitionSegmentType::Admin),
-        )]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("disjoint union must succeed")
-            .initial_networks;
-
-        assert_eq!(resolved.len(), 2);
-        assert!(resolved.contains_key("legacy-only"));
-        assert!(resolved.contains_key("new-only"));
-    }
-
-    // both sources declare the same network with identical definitions —
-    // Resolver dedupes silently; the still-legacy entry is included in the deprecation warning.
-    #[test]
-    fn overlap_networks_identical_succeeds() {
-        let pool = network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin);
-        let cfg = carbide_with_networks(Some(network_map(&[("network1", pool.clone())])));
-        let io = initial_objects_networks(&[("network1", pool.clone())]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("identical defs must succeed")
-            .initial_networks;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("network1"), Some(&pool));
-    }
-
-    // both sources declare the same network name but with different definitions —
-    // Resolver must fail loudly so the bad state is fixed before reconcile runs.
-    #[test]
-    fn overlap_networks_conflict_errors() {
-        let cfg = carbide_with_networks(Some(network_map(&[(
-            "network1",
-            network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
-        )])));
-        let io = initial_objects_networks(&[(
-            "network1",
-            network_definition("10.0.0.0/16", NetworkDefinitionSegmentType::Admin),
-        )]);
-
-        let err = SeedData::resolve(&cfg, Some(&io)).expect_err("conflicting defs must error");
-
-        assert!(
-            err.to_string().contains("network1"),
-            "error message should name the conflicting network: {err}"
-        );
-    }
-
-    // every overlap is a conflict — the resolver collects all
-    // bad names so the operator can fixe them
-    #[test]
-    fn collects_all_conflict_network_names() {
-        let cfg = carbide_with_networks(Some(network_map(&[
-            (
-                "alpha",
-                network_definition("10.0.0.0/24", NetworkDefinitionSegmentType::Admin),
-            ),
-            (
-                "beta",
-                network_definition("10.0.1.0/24", NetworkDefinitionSegmentType::Admin),
-            ),
-        ])));
-        let io = initial_objects_networks(&[
-            (
-                "alpha",
-                network_definition("10.0.0.0/16", NetworkDefinitionSegmentType::Admin),
-            ),
-            (
-                "beta",
-                network_definition("10.0.1.0/16", NetworkDefinitionSegmentType::Admin),
-            ),
-        ]);
-
-        let err = SeedData::resolve(&cfg, Some(&io)).expect_err("any conflict must error");
-        let msg = err.to_string();
-
-        assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
-        assert!(msg.contains("beta"), "expected `beta` in {msg}");
-    }
-
-    #[test]
-    fn no_vpc_sources_returns_empty() {
-        let cfg = carbide_with_vpcs(None);
-        let resolved = SeedData::resolve(&cfg, None)
-            .expect("missing VPCs must not be an error")
-            .initial_vpcs;
-        assert!(resolved.is_empty());
-    }
-
-    #[test]
-    fn initial_objects_vpcs_only_succeeds() {
-        let cfg = carbide_with_vpcs(None);
-        let def = vpc_definition(
-            Some(FIXTURE_TENANT_ORG_ID),
-            VpcVirtualizationType::Flat,
-            None,
-        );
-        let io = initial_objects_vpcs(&[("host-inband-vpc", def.clone())]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("InitialObjectsConfig-only must succeed")
-            .initial_vpcs;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("host-inband-vpc"), Some(&def));
-    }
-
-    #[test]
-    fn legacy_only_returns_legacy_vpcs() {
-        let def = vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None);
-        let cfg = carbide_with_vpcs(Some(vpc_map(&[("legacy-vpc", def.clone())])));
-
-        let resolved = SeedData::resolve(&cfg, None)
-            .expect("legacy-only must succeed")
-            .initial_vpcs;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("legacy-vpc"), Some(&def));
-    }
-
-    #[test]
-    fn disjoint_union_returns_all_vpcs() {
-        let legacy_def = vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None);
-        let initial_def = vpc_definition(
-            Some(FIXTURE_TENANT_ORG_ID),
-            VpcVirtualizationType::Flat,
-            None,
-        );
-        let cfg = carbide_with_vpcs(Some(vpc_map(&[("legacy-vpc", legacy_def)])));
-        let io = initial_objects_vpcs(&[("initial-vpc", initial_def)]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("disjoint union must succeed")
-            .initial_vpcs;
-
-        assert_eq!(resolved.len(), 2);
-        assert!(resolved.contains_key("legacy-vpc"));
-        assert!(resolved.contains_key("initial-vpc"));
-    }
-
-    #[test]
-    fn overlap_vpcs_identical_succeeds() {
-        let def = vpc_definition(None, VpcVirtualizationType::Flat, None);
-        let cfg = carbide_with_vpcs(Some(vpc_map(&[("host-inband-vpc", def.clone())])));
-        let io = initial_objects_vpcs(&[("host-inband-vpc", def.clone())]);
-
-        let resolved = SeedData::resolve(&cfg, Some(&io))
-            .expect("identical defs must succeed")
-            .initial_vpcs;
-
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved.get("host-inband-vpc"), Some(&def));
-    }
-
-    #[test]
-    fn overlap_vpcs_conflict_errors() {
-        let cfg = carbide_with_vpcs(Some(vpc_map(&[(
-            "host-inband-vpc",
-            vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None),
-        )])));
-        let io = initial_objects_vpcs(&[(
-            "host-inband-vpc",
-            vpc_definition(None, VpcVirtualizationType::Flat, None),
-        )]);
-
-        let err = SeedData::resolve(&cfg, Some(&io)).expect_err("conflicting defs must error");
-
-        assert!(
-            err.to_string().contains("host-inband-vpc"),
-            "error message should name the conflicting VPC: {err}"
+        check_cases(
+            [
+                Case {
+                    scenario: "an optional object kind may be absent",
+                    input: MergeSources {
+                        initial_objects: None,
+                        carbide_config: None,
+                        required: false,
+                    },
+                    expect: Yields(BTreeMap::new()),
+                },
+                Case {
+                    scenario: "a required object kind must be declared",
+                    input: MergeSources {
+                        initial_objects: None,
+                        carbide_config: None,
+                        required: true,
+                    },
+                    expect: FailsWith(MergeFailure::MissingRequired),
+                },
+                Case {
+                    scenario: "initial-objects definitions are authoritative on their own",
+                    input: MergeSources {
+                        initial_objects: Some(test_seed_map(&[("initial", 1)])),
+                        carbide_config: None,
+                        required: false,
+                    },
+                    expect: Yields(BTreeMap::from([("initial".to_string(), 1)])),
+                },
+                Case {
+                    scenario: "legacy definitions are retained on their own",
+                    input: MergeSources {
+                        initial_objects: None,
+                        carbide_config: Some(test_seed_map(&[("legacy", 2)])),
+                        required: false,
+                    },
+                    expect: Yields(BTreeMap::from([("legacy".to_string(), 2)])),
+                },
+                Case {
+                    scenario: "disjoint definitions are merged",
+                    input: MergeSources {
+                        initial_objects: Some(test_seed_map(&[("initial", 1)])),
+                        carbide_config: Some(test_seed_map(&[("legacy", 2)])),
+                        required: false,
+                    },
+                    expect: Yields(BTreeMap::from([
+                        ("initial".to_string(), 1),
+                        ("legacy".to_string(), 2),
+                    ])),
+                },
+                Case {
+                    scenario: "identical overlapping definitions are deduplicated",
+                    input: MergeSources {
+                        initial_objects: Some(test_seed_map(&[("shared", 1)])),
+                        carbide_config: Some(test_seed_map(&[("shared", 1)])),
+                        required: false,
+                    },
+                    expect: Yields(BTreeMap::from([("shared".to_string(), 1)])),
+                },
+                Case {
+                    scenario: "every conflicting definition is reported",
+                    input: MergeSources {
+                        initial_objects: Some(test_seed_map(&[("alpha", 1), ("beta", 2)])),
+                        carbide_config: Some(test_seed_map(&[("alpha", 3), ("beta", 4)])),
+                        required: false,
+                    },
+                    expect: FailsWith(MergeFailure::Conflicts(BTreeSet::from([
+                        "alpha".to_string(),
+                        "beta".to_string(),
+                    ]))),
+                },
+            ],
+            |input| merge_test_seeds(input, &config),
         );
     }
 
     #[test]
-    fn collects_all_conflict_vpc_names() {
-        let cfg = carbide_with_vpcs(Some(vpc_map(&[
-            (
-                "alpha",
-                vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None),
-            ),
-            (
-                "beta",
-                vpc_definition(None, VpcVirtualizationType::EthernetVirtualizer, None),
-            ),
-        ])));
-        let io = initial_objects_vpcs(&[
-            (
-                "alpha",
-                vpc_definition(None, VpcVirtualizationType::Flat, None),
-            ),
-            (
-                "beta",
-                vpc_definition(None, VpcVirtualizationType::Flat, None),
-            ),
-        ]);
-
-        let err = SeedData::resolve(&cfg, Some(&io)).expect_err("any conflict must error");
-        let msg = err.to_string();
-
-        assert!(msg.contains("alpha"), "expected `alpha` in {msg}");
-        assert!(msg.contains("beta"), "expected `beta` in {msg}");
-    }
-
-    /// The pool builder rejects zero-valued lifecycle settings before it
-    /// touches the database, naming the offending field.
-    #[tokio::test]
-    async fn zero_database_pool_durations_are_rejected_at_startup() {
-        type ZeroOut = fn(&mut CarbideConfig);
-        let cases: [(&str, ZeroOut); 3] = [
-            ("database_pool_acquire_timeout", |config| {
-                config.database_pool_acquire_timeout = std::time::Duration::ZERO
-            }),
-            ("database_pool_idle_timeout", |config| {
-                config.database_pool_idle_timeout = std::time::Duration::ZERO
-            }),
-            ("database_pool_max_lifetime", |config| {
-                config.database_pool_max_lifetime = std::time::Duration::ZERO
-            }),
-        ];
-        for (field, zero_out) in cases {
-            let mut config = crate::test_support::default_config::get();
-            zero_out(&mut config);
-            let err = create_and_connect_postgres_pool(&config)
-                .await
-                .expect_err("a zero-valued pool duration must be rejected");
-            assert!(
-                err.to_string().contains(field),
-                "error must name `{field}`, got: {err}"
-            );
-        }
+    fn seed_data_resolve_wires_each_object_kind() {
+        check_cases(
+            [
+                Case {
+                    scenario: "network from initial-objects config",
+                    input: ResolveInput::Object {
+                        kind: SeedObjectKind::Network,
+                        source: SeedSource::InitialObjects,
+                    },
+                    expect: Yields(seed_summary(&["test-network"], &[], &[])),
+                },
+                Case {
+                    scenario: "network from legacy config",
+                    input: ResolveInput::Object {
+                        kind: SeedObjectKind::Network,
+                        source: SeedSource::LegacyConfig,
+                    },
+                    expect: Yields(seed_summary(&["test-network"], &[], &[])),
+                },
+                Case {
+                    scenario: "VPC from initial-objects config",
+                    input: ResolveInput::Object {
+                        kind: SeedObjectKind::Vpc,
+                        source: SeedSource::InitialObjects,
+                    },
+                    expect: Yields(seed_summary(&[], &["test-vpc"], &[])),
+                },
+                Case {
+                    scenario: "VPC from legacy config",
+                    input: ResolveInput::Object {
+                        kind: SeedObjectKind::Vpc,
+                        source: SeedSource::LegacyConfig,
+                    },
+                    expect: Yields(seed_summary(&[], &["test-vpc"], &[])),
+                },
+                Case {
+                    scenario: "resource pool from initial-objects config",
+                    input: ResolveInput::Object {
+                        kind: SeedObjectKind::Pool,
+                        source: SeedSource::InitialObjects,
+                    },
+                    expect: Yields(seed_summary(&[], &[], &["test-pool"])),
+                },
+                Case {
+                    scenario: "resource pool from legacy config",
+                    input: ResolveInput::Object {
+                        kind: SeedObjectKind::Pool,
+                        source: SeedSource::LegacyConfig,
+                    },
+                    expect: Yields(seed_summary(&[], &[], &["test-pool"])),
+                },
+                Case {
+                    scenario: "optional network and VPC definitions may both be absent",
+                    input: ResolveInput::NoOptionalObjects,
+                    expect: Yields(SeedSummary::default()),
+                },
+                Case {
+                    scenario: "network conflicts propagate through resolution",
+                    input: ResolveInput::ConflictingNetwork,
+                    expect: FailsWith(ResolveFailure::Conflict("test-network".to_string())),
+                },
+                Case {
+                    scenario: "VPC conflicts propagate through resolution",
+                    input: ResolveInput::ConflictingVpc,
+                    expect: FailsWith(ResolveFailure::Conflict("test-vpc".to_string())),
+                },
+                Case {
+                    scenario: "invalid merged networks fail during resolution",
+                    input: ResolveInput::InvalidNetwork,
+                    expect: FailsWith(ResolveFailure::InvalidNetwork),
+                },
+                Case {
+                    scenario: "resource pool definitions remain required",
+                    input: ResolveInput::MissingPools,
+                    expect: FailsWith(ResolveFailure::MissingPools),
+                },
+            ],
+            resolve_seed_data,
+        );
     }
 }

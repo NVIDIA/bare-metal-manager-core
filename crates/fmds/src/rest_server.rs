@@ -185,7 +185,6 @@ async fn get_metadata_params(State(_state): State<Arc<FmdsState>>) -> (StatusCod
             MACHINE_ID_CATEGORY,
             INSTANCE_ID_CATEGORY,
             ASN_CATEGORY,
-            machine_identity::META_DATA_IDENTITY_CATEGORY,
         ]
         .join("\n"),
     )
@@ -533,30 +532,39 @@ mod tests {
     }
 
     // Test metadata listing.
+    //
+    // `identity` must not appear in the plain /meta-data/ index: cloud-init's EC2
+    // IMDS crawler GETs every advertised key without a Metadata header, and the
+    // identity handler returns 400 without that header — which aborts the crawl.
+    // The /meta-data/identity route remains for clients that send Metadata: true.
     #[tokio::test]
     async fn test_get_metadata_listing() {
         let state = make_test_state();
         state.update_config(make_test_config());
         let (server, port) = setup_server(state).await;
 
-        let expected = [
-            "hostname",
-            "sitename",
-            "machine-id",
-            "instance-id",
-            "asn",
-            machine_identity::META_DATA_IDENTITY_CATEGORY,
-        ]
-        .join("\n");
+        let expected = ["hostname", "sitename", "machine-id", "instance-id", "asn"].join("\n");
 
         let (status, body) = get_request(port, "meta-data").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, expected);
+        assert!(
+            !body
+                .lines()
+                .any(|line| line == machine_identity::META_DATA_IDENTITY_CATEGORY),
+            "identity must not be listed in /meta-data/ (cloud-init EC2 crawl)"
+        );
 
         // Also check with trailing slash (cloud-init compat).
         let (status, body) = get_request(port, "meta-data/").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, expected);
+        assert!(
+            !body
+                .lines()
+                .any(|line| line == machine_identity::META_DATA_IDENTITY_CATEGORY),
+            "identity must not be listed in /meta-data/ (cloud-init EC2 crawl)"
+        );
 
         server.abort();
     }

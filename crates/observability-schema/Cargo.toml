@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Shared, dependency-free validation for NICo observability schemas."
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lints]
 workspace = true

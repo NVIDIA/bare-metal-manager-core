@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Client code for NVUE configuration"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "nvue_client"

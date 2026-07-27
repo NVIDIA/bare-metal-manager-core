@@ -1680,12 +1680,12 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
             .restart_reprovision_requested_at
     );
 
-    let _expected_state = ManagedHostState::DPUReprovision {
-        dpu_states: model::machine::DpuReprovisionStates {
-            states: HashMap::from([(mh.dpu().id, ReprovisionState::WaitingForNetworkInstall)]),
-        },
-    };
-    assert!(matches!(dpu.current_state(), _expected_state));
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::InstallDpuOs {
+            substate: InstallDpuOsState::InstallingBFB
+        }),
+    );
 
     // change the mode
     mh.host()

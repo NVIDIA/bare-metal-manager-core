@@ -205,8 +205,8 @@ impl StateHandler for SpdmAttestationStateHandler {
                     .await
                     .map_err(|e| redfish_error("get_task_state", e))?;
 
-                match task.task_state {
-                    Some(TaskState::Completed) => {
+                match classify_evidence_collection_task_state(task.task_state.as_ref()) {
+                    EvidenceCollectionTaskStateClass::Completed => {
                         // read the result
                         let Some(url) = &snapshot.evidence_target else {
                             // This is an unrecoverable error due to db discrepancy.
@@ -233,20 +233,27 @@ impl StateHandler for SpdmAttestationStateHandler {
                                 .with_txn(txn),
                         )
                     }
-                    Some(TaskState::Running) | Some(TaskState::New) | Some(TaskState::Starting) => {
+                    EvidenceCollectionTaskStateClass::InProgress => {
                         Ok(StateHandlerOutcome::wait(format!(
                             "Measurement collection is pending {}%",
                             task.percent_complete.unwrap_or_default(),
                         )))
                     }
-                    task_state => {
-                        let err = task.messages.iter().map(|t| t.message.clone()).join("\n");
-                        tracing::error!(
-                            error = %err,
-                            task_state = ?task_state,
-                            "measurement collection task entered an unexpected state"
-                        );
-                        if *retry_count > 4 {
+                    EvidenceCollectionTaskStateClass::Unexpected(task_state) => {
+                        let err = task.messages.iter().map(|t| t.message.as_str()).join("\n");
+                        let next_action = EvidenceCollectionNextAction::for_retry(*retry_count);
+
+                        emit(SpdmEvidenceCollectionTaskStateUnexpected {
+                            task_state,
+                            next_action,
+                            machine_id: machine_id.to_string(),
+                            device_id: device_id.clone(),
+                            task_id: task_id.clone(),
+                            retry_count: *retry_count,
+                            error: err,
+                        });
+
+                        if next_action == EvidenceCollectionNextAction::Fail {
                             Ok(StateHandlerOutcome::transition(
                                 SpdmAttestationState::Failed(
                                     "Too many retries triggering evidence collection".to_string(),
@@ -315,6 +322,111 @@ impl StateHandler for SpdmAttestationStateHandler {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EvidenceCollectionTaskStateClass {
+    Completed,
+    InProgress,
+    Unexpected(UnexpectedEvidenceCollectionTaskState),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum UnexpectedEvidenceCollectionTaskState {
+    Suspended,
+    Interrupted,
+    Pending,
+    Stopping,
+    Killed,
+    Exception,
+    Service,
+    Cancelling,
+    Cancelled,
+    Missing,
+}
+
+fn classify_evidence_collection_task_state(
+    task_state: Option<&TaskState>,
+) -> EvidenceCollectionTaskStateClass {
+    match task_state {
+        Some(TaskState::Completed) => EvidenceCollectionTaskStateClass::Completed,
+        Some(TaskState::New) | Some(TaskState::Starting) | Some(TaskState::Running) => {
+            EvidenceCollectionTaskStateClass::InProgress
+        }
+        Some(TaskState::Suspended) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Suspended,
+        ),
+        Some(TaskState::Interrupted) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Interrupted,
+        ),
+        Some(TaskState::Pending) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Pending,
+        ),
+        Some(TaskState::Stopping) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Stopping,
+        ),
+        Some(TaskState::Killed) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Killed,
+        ),
+        Some(TaskState::Exception) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Exception,
+        ),
+        Some(TaskState::Service) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Service,
+        ),
+        Some(TaskState::Cancelling) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Cancelling,
+        ),
+        Some(TaskState::Cancelled) => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Cancelled,
+        ),
+        None => EvidenceCollectionTaskStateClass::Unexpected(
+            UnexpectedEvidenceCollectionTaskState::Missing,
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum EvidenceCollectionNextAction {
+    Retry,
+    Fail,
+}
+
+impl EvidenceCollectionNextAction {
+    fn for_retry(retry_count: i32) -> Self {
+        if retry_count > 4 {
+            Self::Fail
+        } else {
+            Self::Retry
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "spdm_evidence_collection_task_state_unexpected",
+    metric_name = "carbide_spdm_evidence_collection_unexpected_task_states_total",
+    component = "carbide-spdm-controller",
+    log = error,
+    metric = counter,
+    message = "measurement collection task entered an unexpected state",
+    describe = "Number of unexpected SPDM evidence collection task states, by task state and next action."
+)]
+struct SpdmEvidenceCollectionTaskStateUnexpected {
+    #[label]
+    task_state: UnexpectedEvidenceCollectionTaskState,
+    #[label]
+    next_action: EvidenceCollectionNextAction,
+    #[context]
+    machine_id: String,
+    #[context]
+    device_id: String,
+    #[context]
+    task_id: String,
+    #[context]
+    retry_count: i32,
+    #[context]
+    error: String,
 }
 
 /// The device kind an attestation covered, as a bounded metric label. Only the
@@ -454,5 +566,172 @@ async fn perform_attestation(
             device_id: device.device_id.clone(),
         }),
         Err(err) => Err(SpdmHandlerError::NrasError(err)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    const METRIC_NAME: &str = "carbide_spdm_evidence_collection_unexpected_task_states_total";
+
+    #[derive(Debug)]
+    struct TaskStateCase {
+        task_state: Option<TaskState>,
+        retry_count: i32,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TaskStateObservation {
+        log_count: usize,
+        level: Option<tracing::Level>,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        task_state: Option<String>,
+        next_action: Option<String>,
+        machine_id: Option<String>,
+        device_id: Option<String>,
+        task_id: Option<String>,
+        retry_count: Option<String>,
+        error: Option<String>,
+        counter_delta: f64,
+    }
+
+    fn observe_task_state(input: TaskStateCase) -> TaskStateObservation {
+        const MACHINE_ID: &str = "00000000-0000-0000-0000-000000000001";
+        const DEVICE_ID: &str = "GPU-1";
+        const TASK_ID: &str = "task-1";
+        const ERROR: &str = "task failed";
+
+        let task_state = match classify_evidence_collection_task_state(input.task_state.as_ref()) {
+            EvidenceCollectionTaskStateClass::Unexpected(task_state) => Some(task_state),
+            EvidenceCollectionTaskStateClass::Completed
+            | EvidenceCollectionTaskStateClass::InProgress => None,
+        };
+        let next_action = EvidenceCollectionNextAction::for_retry(input.retry_count);
+        let metrics = MetricsCapture::start();
+        let logs = capture_logs(|| {
+            if let Some(task_state) = task_state {
+                emit(SpdmEvidenceCollectionTaskStateUnexpected {
+                    task_state,
+                    next_action,
+                    machine_id: MACHINE_ID.to_string(),
+                    device_id: DEVICE_ID.to_string(),
+                    task_id: TASK_ID.to_string(),
+                    retry_count: input.retry_count,
+                    error: ERROR.to_string(),
+                });
+            }
+        });
+        let counter_delta = match task_state {
+            Some(task_state) => {
+                let task_state = task_state.label_value();
+                let next_action = next_action.label_value();
+                metrics.counter_delta(
+                    METRIC_NAME,
+                    &[
+                        ("task_state", task_state.as_str()),
+                        ("next_action", next_action.as_str()),
+                    ],
+                )
+            }
+            None => 0.0,
+        };
+        let log = logs.first();
+
+        TaskStateObservation {
+            log_count: logs.len(),
+            level: log.map(|log| log.level),
+            event_name: log
+                .and_then(|log| log.field("event_name"))
+                .map(str::to_string),
+            metric_name: log
+                .and_then(|log| log.field("metric_name"))
+                .map(str::to_string),
+            task_state: log
+                .and_then(|log| log.field("task_state"))
+                .map(str::to_string),
+            next_action: log
+                .and_then(|log| log.field("next_action"))
+                .map(str::to_string),
+            machine_id: log
+                .and_then(|log| log.field("machine_id"))
+                .map(str::to_string),
+            device_id: log
+                .and_then(|log| log.field("device_id"))
+                .map(str::to_string),
+            task_id: log.and_then(|log| log.field("task_id")).map(str::to_string),
+            retry_count: log
+                .and_then(|log| log.field("retry_count"))
+                .map(str::to_string),
+            error: log.and_then(|log| log.field("error")).map(str::to_string),
+            counter_delta,
+        }
+    }
+
+    fn no_event() -> TaskStateObservation {
+        TaskStateObservation {
+            log_count: 0,
+            level: None,
+            event_name: None,
+            metric_name: None,
+            task_state: None,
+            next_action: None,
+            machine_id: None,
+            device_id: None,
+            task_id: None,
+            retry_count: None,
+            error: None,
+            counter_delta: 0.0,
+        }
+    }
+
+    fn emitted(task_state: &str, next_action: &str, retry_count: i32) -> TaskStateObservation {
+        TaskStateObservation {
+            log_count: 1,
+            level: Some(tracing::Level::ERROR),
+            event_name: Some("spdm_evidence_collection_task_state_unexpected".to_string()),
+            metric_name: Some(METRIC_NAME.to_string()),
+            task_state: Some(task_state.to_string()),
+            next_action: Some(next_action.to_string()),
+            machine_id: Some("00000000-0000-0000-0000-000000000001".to_string()),
+            device_id: Some("GPU-1".to_string()),
+            task_id: Some("task-1".to_string()),
+            retry_count: Some(retry_count.to_string()),
+            error: Some("task failed".to_string()),
+            counter_delta: 1.0,
+        }
+    }
+
+    #[test]
+    fn evidence_collection_task_states_log_and_count_when_unexpected() {
+        value_scenarios!(
+            run = observe_task_state;
+            "normal states do not emit" {
+                TaskStateCase { task_state: Some(TaskState::New), retry_count: 0 } => no_event(),
+                TaskStateCase { task_state: Some(TaskState::Starting), retry_count: 0 } => no_event(),
+                TaskStateCase { task_state: Some(TaskState::Running), retry_count: 0 } => no_event(),
+                TaskStateCase { task_state: Some(TaskState::Completed), retry_count: 0 } => no_event(),
+            }
+            "unexpected states retry" {
+                TaskStateCase { task_state: Some(TaskState::Suspended), retry_count: 4 } => emitted("suspended", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Interrupted), retry_count: 4 } => emitted("interrupted", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Pending), retry_count: 4 } => emitted("pending", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Stopping), retry_count: 4 } => emitted("stopping", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Killed), retry_count: 4 } => emitted("killed", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Exception), retry_count: 4 } => emitted("exception", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Service), retry_count: 4 } => emitted("service", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Cancelling), retry_count: 4 } => emitted("cancelling", "retry", 4),
+                TaskStateCase { task_state: Some(TaskState::Cancelled), retry_count: 4 } => emitted("cancelled", "retry", 4),
+                TaskStateCase { task_state: None, retry_count: 4 } => emitted("missing", "retry", 4),
+            }
+            "retry budget is exhausted" {
+                TaskStateCase { task_state: Some(TaskState::Interrupted), retry_count: 5 } => emitted("interrupted", "fail", 5),
+                TaskStateCase { task_state: None, retry_count: 5 } => emitted("missing", "fail", 5),
+            }
+        );
     }
 }

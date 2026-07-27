@@ -67,7 +67,6 @@ mod machine_validation;
 mod measured_boot;
 mod mqtt_state_change_hook;
 mod network_segment;
-mod run;
 mod scout_stream;
 pub mod secrets;
 mod setup;
@@ -94,7 +93,6 @@ pub(crate) use errors::CarbideResult;
 
 pub use crate::api::{Api, DefaultCredential};
 pub use crate::auth::AuthContext;
-pub use crate::cfg::command_line::{Command, Options};
 use crate::cfg::file::ToolLink;
 pub use crate::errors::CarbideError;
 pub use crate::handlers::redfish::NUM_REQUIRED_APPROVALS;

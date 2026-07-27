@@ -271,14 +271,17 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron],
         );
         x.perm("GetSiteExplorerLastRun", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
+        x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
-        x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow]);
+        x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow, SiteAgent]);
         x.perm("RefreshEndpointReport", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteExploredEndpoint", vec![ForgeAdminCLI]);
         x.perm("PauseExploredEndpointRemediation", vec![ForgeAdminCLI]);
-        x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "FindExploredEndpointIds",
+            vec![ForgeAdminCLI, Flow, SiteAgent],
+        );
         x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
@@ -1142,6 +1145,22 @@ mod rbac_rule_tests {
             "GetAllExpectedSwitchesLinked",
             "GetAllExpectedPowerShelves",
             "GetAllExpectedPowerShelvesLinked",
+        ] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier(
+                        "elektra-site-agent".to_string()
+                    )]
+                ),
+                "{method} should allow SiteAgent"
+            );
+        }
+
+        for method in [
+            "ClearSiteExplorationError",
+            "ReExploreEndpoint",
+            "FindExploredEndpointIds",
         ] {
             assert!(
                 InternalRBACRules::allowed_from_static(

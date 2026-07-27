@@ -1569,6 +1569,13 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
             return Err(DpfError::not_found("DPU", cr_name));
         };
 
+        // A DPU being torn down (e.g. right after reprovision deleted it) still reports
+        // its old status.phase (often Ready) until the operator's finalizer runs. Treat
+        // a set deletionTimestamp as authoritative so callers never act on the stale phase.
+        if dpu.metadata.deletion_timestamp.is_some() {
+            return Ok(DpuPhase::Deleting);
+        }
+
         let Some(status) = dpu.status else {
             return Err(DpfError::InvalidState(format!(
                 "DPU {cr_name} has no status"
@@ -2917,6 +2924,94 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(devices.len(), 1, "DPUDevice should remain");
+    }
+
+    #[tokio::test]
+    async fn test_get_dpu_phase_reports_deleting_when_terminating() {
+        use kube::core::ObjectMeta;
+
+        use crate::crds::dpus_generated::{DpuSpec, DpuStatus, DpuStatusPhase};
+
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        // A DPU that has been deleted (reprovision) but whose finalizer has not yet
+        // run: it carries a deletionTimestamp while its status.phase is still Ready.
+        let dpu_name = "node-dpu-001-device-dpu-001";
+        let dpu = DPU {
+            metadata: ObjectMeta {
+                name: Some(dpu_name.to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                deletion_timestamp: Some(terminating_timestamp()),
+                ..Default::default()
+            },
+            spec: DpuSpec {
+                bfb: Some("bf-bundle".to_string()),
+                bmc_ip: None,
+                cluster: None,
+                dpu_device_name: "dpu-001".to_string(),
+                dpu_flavor: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
+                dpu_node_name: "node-dpu-001".to_string(),
+                node_effect: DpuNodeEffect {
+                    apply_on_label_change: None,
+                    custom_action: None,
+                    custom_label: None,
+                    drain: None,
+                    force: None,
+                    hold: None,
+                    no_effect: None,
+                    node_maintenance_additional_requestors: None,
+                    taint: None,
+                },
+                pci_address: None,
+                serial_number: "SN123".to_string(),
+                blue_field_software: None,
+                secure_boot: None,
+                astra_enabled: None,
+            },
+            status: Some(DpuStatus {
+                phase: DpuStatusPhase::Ready,
+                addresses: None,
+                bf_cfg_file: None,
+                bfb_file: None,
+                bfb_version: None,
+                conditions: None,
+                dpf_version: None,
+                dpu_install_interface: None,
+                dpu_mode: None,
+                firmware: None,
+                observed_generation: None,
+                pci_device: None,
+                post_provisioning_node_effect: None,
+                required_reset: None,
+                agent_last_startup_time: None,
+                agent_status: None,
+                dpu_type: None,
+                operational_conditions: None,
+                previous_phase: None,
+                redfish_task_id: None,
+                secure_boot: None,
+                deployment_mode: None,
+                hostless: None,
+                identity_mode: None,
+                outdated: None,
+                reboot_status: None,
+            }),
+        };
+        mock.dpus
+            .write()
+            .unwrap()
+            .insert(format!("{}/{}", TEST_NAMESPACE, dpu_name), dpu);
+
+        let phase = sdk.get_dpu_phase("dpu-001", "node-dpu-001").await.unwrap();
+        assert_eq!(
+            phase,
+            DpuPhase::Deleting,
+            "a DPU with a deletionTimestamp must report Deleting even though its stale status.phase is Ready"
+        );
     }
 
     #[tokio::test]

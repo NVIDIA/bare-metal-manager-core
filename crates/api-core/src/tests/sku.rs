@@ -161,7 +161,7 @@ pub mod tests {
               "version": "2.0"
             }
         },
-        "schema_version": 4
+        "schema_version": 5
     }"#;
 
     const SKU_DATA: &str = r#"
@@ -210,7 +210,10 @@ pub mod tests {
     "storage": [
       {
         "model": "Dell Ent NVMe CM6 RI 1.92TB",
-        "count": 1
+        "count": 1,
+        "min_size_mb": 1831420,
+        "max_size_mb": 1831420,
+        "pci_patterns": ["/devices/pci0000:00/0000:64:00.0/0000:65:00.0/nvme/nvme0/nvme0n1"]
       }
     ],
     "memory": [
@@ -228,7 +231,7 @@ pub mod tests {
         "version": "2.0"
       }
   },
-  "schema_version": 4
+  "schema_version": 5
 }"#;
 
     pub async fn handle_inventory_update(pool: &sqlx::PgPool, env: &TestEnv, mh: &TestManagedHost) {

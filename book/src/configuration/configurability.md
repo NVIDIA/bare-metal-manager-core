@@ -453,11 +453,187 @@ overrides. Key fields:
 
 - `default_dpu_agent_version` — DPU agent version installed during provisioning.
 - `bfb_image_path` — BFB (Bluefield boot image) location served to DPUs.
+- `bootstrap_ca_source`: Trust-anchor source for non-DPF DPU provisioning.
 - `dpu_ipmi_tool_impl` (top-level) — `"prod"` for real IPMI; `"fake"` for dev clusters with simulated DPUs.
 - `dpu_ipmi_reboot_attempts` (top-level) — retry budget for IPMI reboot ops.
 
 See [`crates/api-core/src/cfg/README.md` → DpuConfig](../../../crates/api-core/src/cfg/README.md#dpuconfig)
 for the full field list.
+
+#### DPU Bootstrap CA Trust
+
+For non-DPF provisioning, select the source in site config:
+
+```toml
+[dpu_config]
+bootstrap_ca_source = "embedded" # legacy_download | embedded | mounted
+```
+
+The following table describes the available sources:
+
+| Source | Behavior |
+|--------|----------|
+| `legacy_download` | Default when the field is omitted. Preserves the historical download and response handling from `nico-pxe` during boot. It does not authenticate or locally validate the response. |
+| `embedded` | Uses a site-specific CA bundle staged at `/opt/forge/embedded_forge_root.pem` in the DPU BFB from an explicit `BOOTSTRAP_CA_PATH`. Generic builds do not include this payload. A missing or invalid bundle stops provisioning. There is no download fallback. |
+| `mounted` | Uses an operator-managed bundle at `/opt/forge/forge_root.pem`. The provisioning environment must populate the path because the bare-metal flow does not create the mount. A missing or invalid bundle stops provisioning. There is no download fallback. |
+
+##### Operator Configuration Examples
+
+The following examples are independent configurations. Do not combine them.
+Omit the field to preserve the current behavior, or declare the legacy
+behavior explicitly:
+
+```toml
+[dpu_config]
+bootstrap_ca_source = "legacy_download"
+```
+
+Legacy-download sites can serve a stable operator-owned root bundle without
+changing the DPU policy. Reference an existing ConfigMap in the `nico-pxe`
+release namespace. In the NICo umbrella chart's values, use:
+
+```yaml
+nico-pxe:
+  bootstrapRootCa:
+    configMapName: forge-root-ca
+    key: ca.crt
+```
+
+Or reference an existing Secret when that matches the site's distribution
+workflow:
+
+```yaml
+nico-pxe:
+  bootstrapRootCa:
+    secretName: forge-root-ca
+    key: ca.crt
+```
+
+When installing `helm/charts/nico-pxe` directly, omit the `nico-pxe` umbrella
+key. The same top-level shape accepts `secretName` instead of
+`configMapName`:
+
+```yaml
+bootstrapRootCa:
+  configMapName: forge-root-ca
+  key: ca.crt
+```
+
+For a non-Helm `nico-pxe` deployment, point the binary directly at the served
+bundle. The file must already exist in the container, for example through a
+read-only mount, and the launcher must export the variable. Omitting it retains
+the `FORGE_ROOT_CAFILE_PATH` fallback:
+
+```bash
+export FORGE_BOOTSTRAP_ROOT_CAFILE_PATH=/etc/nico/bootstrap/roots.pem
+```
+
+For a non-DPF site that publishes its own BFB, supply the bundle during the BFB
+build and then select the embedded source in NICo site config:
+
+```bash
+BOOTSTRAP_CA_PATH=/secure/site/forge-roots.pem \
+  cargo make --cwd pxe build-boot-artifacts-bfb
+```
+
+```toml
+[dpu_config]
+bootstrap_ca_source = "embedded"
+```
+
+For a non-DPF provisioning environment that installs the bundle itself, place
+it at `/opt/forge/forge_root.pem` and select:
+
+```toml
+[dpu_config]
+bootstrap_ca_source = "mounted"
+```
+
+DPF can retain the download while overriding the complete endpoint URL:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "legacy_download"
+url = "http://site-pxe.example.com/api/v0/tls/root_ca"
+```
+
+Or DPF can install a projected Secret:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "secret"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+The equivalent ConfigMap form is useful when the object is created directly
+in every target DPU cluster:
+
+```toml
+[dpf.dpu_agent_bootstrap_ca]
+source = "mounted"
+object_kind = "config_map"
+name = "nico-bootstrap-ca-v1"
+key = "ca.crt"
+```
+
+This policy is attached only to DPU provisioning instructions. Host Scout
+boots do not receive `[dpu_config].bootstrap_ca_source` and retain their
+existing trust behavior.
+
+The `nico-pxe` chart can decouple the payload returned by the legacy
+`/api/v0/tls/root_ca` endpoint from the CA used by PXE for its own outbound API
+connection. Use either chart form from
+[Operator Configuration Examples](#operator-configuration-examples).
+
+With neither name set, the chart renders the old deployment and serves the
+PXE workload CA as before. This option changes only the bytes served to legacy
+clients. It does not authenticate their HTTP download. Set at most one of
+`configMapName` and `secretName`. Existing DPUs retain the CA they previously
+installed. Changing the served bundle affects only later downloads unless you
+reprovision or refresh the DPU through another trusted mechanism.
+
+For non-Helm deployments, set `FORGE_BOOTSTRAP_ROOT_CAFILE_PATH` to the PEM
+bundle path in the `nico-pxe` container. If it is unset, `nico-pxe` serves the
+file named by `FORGE_ROOT_CAFILE_PATH`, preserving the historical behavior.
+
+Build a site-specific BFB with `BOOTSTRAP_CA_PATH` pointing to the desired PEM
+bundle before selecting `embedded`. The build provides no repository or
+developer-certificate fallback. Without the explicit input, the artifact has
+no dedicated embedded trust anchor. Existing legacy artifact inputs are
+unchanged. The embedded source lives at
+`/opt/forge/embedded_forge_root.pem`, separately from the final
+`/opt/forge/forge_root.pem` path used by `mounted`, so selecting one mode cannot
+silently consume material intended for the other. Roll out the compatible code
+and site-specific artifacts first. Then change site configuration and
+reprovision non-DPF DPUs. During root rotation, publish an overlap bundle
+containing both old and new roots and reprovision every DPU. Verify that every
+DPU installed the overlap bundle and can authenticate the NICo API before
+rotating the API server chain to the new root. Verify authentication again,
+then publish a bundle without the old root, reprovision and verify the fleet,
+and retire the old root only after that rollout succeeds.
+
+For DPF, configure `[dpf.dpu_agent_bootstrap_ca]` instead. Refer to
+[DPU Agent Bootstrap CA](../../../docs/manuals/dpf.md#dpu-agent-bootstrap-ca)
+for deployment and rotation instructions. DPF configuration changes require a
+`carbide-api` restart. The shared published DPU agent image does not embed a site
+trust anchor. DPF supports the compatible legacy download or an
+operator-managed Secret or ConfigMap mounted when the init container starts.
+
+When pinning a root, verify the NICo API presents its intermediate certificate
+with each leaf. Clients cannot build a chain from a root-only bundle if the
+server omits the intermediate. If each replacement intermediate chains to the
+pinned root and the server presents the complete chain, clients can validate
+leaf certificates across those rotations without replacing the bundle. If an
+intermediate chains to a different root, stage and verify an updated root bundle
+before rotating the server chain. The bundle validates the API server
+certificate. This validation is required whether the DPU presents a client
+certificate for mutual TLS. It does not authenticate the preceding DHCP, DNS,
+iPXE, and user-data delivery chain. Embedded mode also requires an
+integrity-protected artifact distribution and boot chain, such as verified
+signatures and Secure Boot. Otherwise, an attacker can replace the image and
+its CA together.
 
 ### BIOS profiles — `bios_profiles`, `selected_profile`
 

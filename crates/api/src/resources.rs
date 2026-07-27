@@ -14,132 +14,48 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use carbide_api_core::bootstrap::lock_vault_import_session;
+use carbide_api_core::cfg::file::{
+    CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
+};
+use carbide_api_core::secrets::{PostgresCredentialManager, SecretRouting, SecretsContext};
 use carbide_kms_provider::{
     DEFAULT_TRANSIT_MOUNT, IntegratedKmsProvider, KmsBackend, MultiKmsProvider, TransitKmsProvider,
 };
+use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{CredentialManager, CredentialReader, CredentialWriter};
 use carbide_secrets::{
     CredentialConfig, ForgeVaultClient, MemoryCredentialStore, SpiffeIdentity, VaultConfig,
     create_certificate_provider, create_credential_manager_from, create_vault_client,
 };
-use carbide_utils::HostPortPair;
 use eyre::WrapErr;
-use sqlx::PgPool;
-use tokio::sync::oneshot::Sender;
+use opentelemetry::metrics::Meter;
+use sqlx::postgres::PgSslMode;
+use sqlx::{ConnectOptions, PgPool};
+use sqlx_query_tracing::SQLX_STATEMENTS_LOG_LEVEL;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use tracing_log::AsLog as _;
 
-use crate::cfg::file::{
-    CarbideConfig, CredentialBackend, ImportSource, InitialObjectsConfig, ProviderConfig,
-    SecretsConfig,
-};
-use crate::listener::AdminUiRoutesBuilder;
-use crate::logging::setup::Logging;
-use crate::secrets::{SecretRouting, SecretsContext};
-use crate::{CarbideError, dynamic_settings, setup};
-
-/// Inputs prepared by the top-level `carbide-api` composition crate before
-/// core service initialization begins.
-#[doc(hidden)]
-pub struct CoreRunInputs<'a> {
-    pub carbide_config: Arc<CarbideConfig>,
-    pub initial_objects: Option<InitialObjectsConfig>,
-    pub credential_config: CredentialConfig,
-    pub logging: Logging,
-    pub meter: opentelemetry::metrics::Meter,
-    /// The dedicated per-object state metrics registry, `None` when the
-    /// opt-in endpoint is disabled. Created (and served) by the composition
-    /// crate; core registers the per-object collectors on it.
-    pub per_object_metrics: Option<prometheus::Registry>,
-    pub join_set: &'a mut JoinSet<()>,
-    pub admin_ui_routes_builder: Option<AdminUiRoutesBuilder>,
-    pub cancel_token: CancellationToken,
-    pub ready_channel: Sender<()>,
+pub(crate) struct RuntimeResources {
+    pub credential_manager: Arc<dyn CredentialManager>,
+    pub certificate_provider: Arc<dyn CertificateProvider>,
+    pub db_pool: PgPool,
+    pub secrets_context: Option<SecretsContext>,
 }
 
-/// Vault machine PKI URI SANs must match `[auth.trust]` when site auth config is present.
-fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) -> VaultConfig {
-    let mut config = vault.clone();
-    if let Some(trust) = carbide_config
-        .auth
-        .as_ref()
-        .and_then(|auth| auth.trust.as_ref())
-    {
-        config.spiffe_trust_domain = Some(trust.spiffe_trust_domain.clone());
-        config.spiffe_machine_base_path = Some(trust.spiffe_machine_base_path.clone());
-    }
-    config
-}
-
-/// Run the carbide-api server until `cancel_token` is cancelled.
-///
-/// `admin_ui_routes_builder` is how the admin web UI's pages (everything under
-/// `/admin`) get plugged in: pass `Some(Box::new(carbide_api_web::routes))` to
-/// serve them, or `None` to skip the web UI entirely (e.g. in-process test
-/// servers, which only hit the gRPC API). It's passed in rather than called
-/// directly to avoid a dependency cycle — see [`AdminUiRoutesBuilder`] for why.
-///
-/// Note: even when `Some` is passed, the admin UI is only mounted if the
-/// `enable_admin_ui` config flag is true (the default). When it's false,
-/// `start_api` drops the builder and serves gRPC only — so `Some` here means
-/// "offer the UI", not "force it on". The flag also gates the log-stream
-/// layer feeding the UI's live log viewer: with the UI off, no per-event
-/// work is spent collecting lines nothing can read.
-#[doc(hidden)]
-pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
-    let CoreRunInputs {
-        carbide_config,
-        initial_objects,
-        credential_config,
-        logging: tconf,
-        meter,
-        per_object_metrics,
-        join_set,
-        admin_ui_routes_builder,
-        cancel_token,
-        ready_channel,
-    } = inputs;
-
-    // Redact credentials before printing the config
-    let print_config = carbide_config.redacted();
-
-    tracing::info!(
-        print_config = ?print_config,
-        "Using configuration",
-    );
-    tracing::info!(
-        worker_count = tokio::runtime::Handle::current().metrics().num_workers(),
-        cpu_count = num_cpus::get(),
-        tokio_worker_threads = %std::env::var("TOKIO_WORKER_THREADS").unwrap_or_else(|_| "UNSET".to_string()),
-        "Tokio worker thread configuration",
-    );
-
-    let dynamic_settings = crate::dynamic_settings::DynamicSettings {
-        log_filter: tconf.filter.clone(),
-        site_explorer_enabled: carbide_config.site_explorer.enabled.clone(),
-        create_machines: carbide_config.site_explorer.create_machines.clone(),
-        bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
-        tracing_enabled: tconf.tracing_enabled,
-        log_stream: tconf.log_stream,
-    };
-    dynamic_settings.start_reset_task(
-        join_set,
-        dynamic_settings::RESET_PERIOD,
-        cancel_token.clone(),
-    );
-
-    tracing::info!(
-        listen_address = carbide_config.listen.to_string(),
-        build_version = carbide_version::v!(build_version),
-        build_date = carbide_version::v!(build_date),
-        rust_version = carbide_version::v!(rust_version),
-        "Start carbide-api",
-    );
-
-    let vault_config = vault_config_for_site(&credential_config.vault, &carbide_config);
+pub(crate) async fn setup_resources(
+    carbide_config: &CarbideConfig,
+    credential_config: &CredentialConfig,
+    meter: &Meter,
+    join_set: &mut JoinSet<()>,
+    cancel_token: &CancellationToken,
+) -> eyre::Result<RuntimeResources> {
+    let vault_config = vault_config_for_site(&credential_config.vault, carbide_config);
 
     // One vault client serves every credential vault role below.
     let vault_client = create_vault_client(&vault_config, meter.clone())?;
@@ -161,32 +77,12 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
         meter.clone(),
     )?;
 
-    let db_pool = setup::create_and_connect_postgres_pool(&carbide_config).await?;
+    let db_pool = connect_postgres(carbide_config).await?;
 
     // Build the local-override readers (env, file); each is consulted only when
     // its [credentials.*] section is enabled. The backends (postgres,
     // vault) and the writer are chosen below.
-    let env_reader: Option<Box<dyn CredentialReader>> = if credential_config.env.enabled() {
-        Some(Box::new(
-            carbide_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
-        ))
-    } else {
-        None
-    };
-    let file_reader: Option<Box<dyn CredentialReader>> = if credential_config.file.enabled() {
-        Some(Box::new(
-            carbide_secrets::local_credentials::FileCredentialsWatcher::new(
-                credential_config.file.clone(),
-            )
-            .await?,
-        ))
-    } else {
-        None
-    };
-    // The local overrides that ended up enabled, in order -- always tried
-    // ahead of the backends.
-    let local_overrides: Vec<Box<dyn CredentialReader>> =
-        [env_reader, file_reader].into_iter().flatten().collect();
+    let local_overrides = local_credential_readers(credential_config).await?;
 
     // With a [secrets] section, the credential chain and write target come from
     // `backends`/`writer` -- defaulting to env -> file -> vault writing to vault,
@@ -194,16 +90,14 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
     // independent: it runs iff `import_from` is set. Without the section, the
     // store comes from CARBIDE_CREDENTIAL_STORE: vault (the default), or an
     // in-memory store for development and testing.
-    let (credential_manager, secrets_context): (
-        Arc<dyn CredentialManager>,
-        Option<SecretsContext>,
-    ) = if let Some(ref secrets_config) = carbide_config.secrets {
+    let (credential_manager, secrets_context) = if let Some(secrets_config) =
+        &carbide_config.secrets
+    {
         // Reject a nonsensical backends list before anything with side effects
         // runs (KMS task setup, the one-time vault import): a config error
         // should fail the boot cleanly, not after a partial, hard-to-undo
         // import that has already written the completion marker.
-        crate::secrets::validate_backends(&secrets_config.backends)?;
-
+        carbide_api_core::secrets::validate_backends(&secrets_config.backends)?;
         let routing = SecretRouting::from_config(&secrets_config.routing)
             .map_err(eyre::Report::new)
             .wrap_err("secrets routing configuration")?;
@@ -212,10 +106,9 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
             &vault_config,
             &routing,
             join_set,
-            &cancel_token,
+            cancel_token,
         )?;
-
-        let pg_mgr = Arc::new(crate::secrets::PostgresCredentialManager::new(
+        let pg_manager = Arc::new(PostgresCredentialManager::new(
             db_pool.clone(),
             routing.clone(),
             kms.clone(),
@@ -226,6 +119,7 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
             writer = ?secrets_config.writer,
             "Postgres secrets backend configured"
         );
+
         // New writes all go to `writer`, but reads take the first backend in
         // `backends` that holds the path -- first-match-wins, evaluated per path.
         // So unless `writer` is the highest-priority backend, a write can be
@@ -237,8 +131,7 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
         // is not in `backends` at all. Both reduce to "writer isn't the top
         // backend." We allow it -- a deliberate shadow-write is a valid, if
         // advanced, setup -- but warn so an accidental one is visible.
-        let writer_is_top_backend = secrets_config.backends.first() == Some(&secrets_config.writer);
-        if !writer_is_top_backend {
+        if secrets_config.backends.first() != Some(&secrets_config.writer) {
             tracing::warn!(
                 writer = ?secrets_config.writer,
                 backends = ?secrets_config.backends,
@@ -271,15 +164,14 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
                 .iter()
                 .map(|backend| -> Box<dyn CredentialReader> {
                     match backend {
-                        CredentialBackend::Postgres => Box::new(pg_mgr.clone()),
+                        CredentialBackend::Postgres => Box::new(pg_manager.clone()),
                         CredentialBackend::Vault => Box::new(vault_client.clone()),
                     }
                 });
-        let chain: Vec<Box<dyn CredentialReader>> =
-            local_overrides.into_iter().chain(backend_readers).collect();
+        let chain = local_overrides.into_iter().chain(backend_readers).collect();
         let writer: Arc<dyn CredentialWriter> = match secrets_config.writer {
             CredentialBackend::Vault => vault_client.clone(),
-            CredentialBackend::Postgres => pg_mgr.clone(),
+            CredentialBackend::Postgres => pg_manager,
         };
         (
             create_credential_manager_from(writer, chain),
@@ -290,7 +182,7 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
             .as_deref()
             .unwrap_or("vault")
         {
-            "vault" => vault_client.clone(),
+            "vault" => vault_client,
             "memory" => Arc::new(MemoryCredentialStore::default()),
             other => {
                 return Err(eyre::eyre!(
@@ -299,7 +191,7 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
             }
         };
         // env -> file -> the configured store; nothing from [secrets] applies.
-        let chain: Vec<Box<dyn CredentialReader>> = local_overrides
+        let chain = local_overrides
             .into_iter()
             .chain(std::iter::once(
                 Box::new(store.clone()) as Box<dyn CredentialReader>
@@ -308,85 +200,109 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
         (create_credential_manager_from(store, chain), None)
     };
 
-    let redfish_pool = {
-        let rf_pool = libredfish::RedfishClientPool::builder()
-            .danger_accept_invalid_certs()
-            .build()
-            .map_err(CarbideError::from)?;
-
-        // Support deprecated configuration for site_explorer.override_target_ip and override_target_port. Configuration should migrate to site_explorer.bmc_proxy.
-        match (
-            &carbide_config.site_explorer.override_target_ip,
-            carbide_config.site_explorer.override_target_port,
-            carbide_config.site_explorer.bmc_proxy.load().as_ref(),
-        ) {
-            (Some(_), _, Some(_)) => {
-                tracing::warn!(
-                    "Ignoring deprecated config site_explorer.override_target_ip, since site_explorer.bmc_proxy is also set. Please delete override_target_ip from site_explorer config."
-                );
-            }
-            (Some(ip), maybe_target_port, None) => {
-                tracing::warn!(
-                    "Deprecated site_explorer.override_target_ip in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
-                );
-                if let Some(port) = maybe_target_port {
-                    carbide_config.site_explorer.bmc_proxy.store(Arc::new(Some(
-                        HostPortPair::HostAndPort(ip.to_string(), port),
-                    )));
-                } else {
-                    carbide_config
-                        .site_explorer
-                        .bmc_proxy
-                        .store(Arc::new(Some(HostPortPair::HostOnly(ip.to_string()))));
-                }
-            }
-            (None, Some(port), None) => {
-                tracing::warn!(
-                    "Deprecated site_explorer.override_target_port in carbide config. Setting site_explorer.bmc_proxy instead. Please migrate configuration."
-                );
-                carbide_config
-                    .site_explorer
-                    .bmc_proxy
-                    .store(Arc::new(Some(HostPortPair::PortOnly(port))));
-            }
-            (None, Some(_), Some(_)) => {
-                tracing::warn!(
-                    "Ignoring deprecated config site_explorer.override_target_port, since site_explorer.bmc_proxy is also set. Please delete override_target_port from site_explorer config."
-                );
-            }
-            (None, None, _) => {} // leave bmc_proxy untouched
-        }
-
-        carbide_redfish::libredfish::new_pool(
-            credential_manager.clone(),
-            rf_pool,
-            carbide_config.site_explorer.bmc_proxy.clone(),
-        )
-    };
-
-    let nv_redfish_pool =
-        carbide_redfish::nv_redfish::new_pool(carbide_config.site_explorer.bmc_proxy.clone());
-
-    setup::start_api(
-        join_set,
-        carbide_config,
-        initial_objects,
-        meter,
-        per_object_metrics,
-        dynamic_settings,
-        redfish_pool,
-        nv_redfish_pool,
+    Ok(RuntimeResources {
         credential_manager,
         certificate_provider,
         db_pool,
         secrets_context,
-        admin_ui_routes_builder,
-        cancel_token,
-        ready_channel,
-    )
-    .await?;
+    })
+}
 
+/// Vault machine PKI URI SANs must match `[auth.trust]` when site auth config is present.
+fn vault_config_for_site(vault: &VaultConfig, carbide_config: &CarbideConfig) -> VaultConfig {
+    let mut config = vault.clone();
+    if let Some(trust) = carbide_config
+        .auth
+        .as_ref()
+        .and_then(|auth| auth.trust.as_ref())
+    {
+        config.spiffe_trust_domain = Some(trust.spiffe_trust_domain.clone());
+        config.spiffe_machine_base_path = Some(trust.spiffe_machine_base_path.clone());
+    }
+    config
+}
+
+/// Configure and create a postgres connection pool
+///
+/// This connects to the database to verify settings
+async fn connect_postgres(config: &CarbideConfig) -> eyre::Result<PgPool> {
+    validate_database_pool_durations([
+        (
+            "database_pool_acquire_timeout",
+            config.database_pool_acquire_timeout,
+        ),
+        (
+            "database_pool_idle_timeout",
+            config.database_pool_idle_timeout,
+        ),
+        (
+            "database_pool_max_lifetime",
+            config.database_pool_max_lifetime,
+        ),
+    ])?;
+
+    // We need logs to be enabled at least at `INFO` level. Otherwise
+    // our global logging filter would reject the logs before they get injected
+    // into the `SqlxQueryTracing` layer.
+    let mut options = config
+        .database_url
+        .parse::<sqlx::postgres::PgConnectOptions>()?
+        .log_statements(SQLX_STATEMENTS_LOG_LEVEL.as_log().to_level_filter());
+    // The integration test opts out of TLS enforcement.
+    if let Some(tls_config) = &config.tls
+        && std::env::var("DISABLE_TLS_ENFORCEMENT").is_err()
+    {
+        tracing::info!("using TLS for postgres connection.");
+        options = options
+            // TODO: move this to VerifyFull once it actually works.
+            .ssl_mode(PgSslMode::Require)
+            .ssl_root_cert(&tls_config.root_cafile_path);
+    }
+
+    Ok(sqlx::pool::PoolOptions::new()
+        .max_connections(config.max_database_connections)
+        // Lifecycle settings are operator-configurable; each `database_pool_*`
+        // config field documents what it bounds. The defaults are sqlx's own,
+        // so exposing them changes no behavior -- tuning belongs to the site.
+        .acquire_timeout(config.database_pool_acquire_timeout)
+        .idle_timeout(Some(config.database_pool_idle_timeout))
+        .max_lifetime(Some(config.database_pool_max_lifetime))
+        .connect_with(options)
+        .await?)
+}
+
+fn validate_database_pool_durations(
+    durations: [(&str, std::time::Duration); 3],
+) -> eyre::Result<()> {
+    for (name, value) in durations {
+        if value.is_zero() {
+            eyre::bail!("{name} must be greater than zero");
+        }
+    }
     Ok(())
+}
+
+async fn local_credential_readers(
+    config: &CredentialConfig,
+) -> eyre::Result<Vec<Box<dyn CredentialReader>>> {
+    let env_reader: Option<Box<dyn CredentialReader>> = if config.env.enabled() {
+        Some(Box::new(
+            carbide_secrets::local_credentials::EnvCredentials::new(config.env.clone())?,
+        ))
+    } else {
+        None
+    };
+    let file_reader: Option<Box<dyn CredentialReader>> = if config.file.enabled() {
+        Some(Box::new(
+            carbide_secrets::local_credentials::FileCredentialsWatcher::new(config.file.clone())
+                .await?,
+        ))
+    } else {
+        None
+    };
+    // The local overrides that ended up enabled, in order -- always tried
+    // ahead of the backends.
+    Ok([env_reader, file_reader].into_iter().flatten().collect())
 }
 
 /// Build the KMS stack from the `[secrets.kms]` config: construct every
@@ -394,7 +310,7 @@ pub async fn run_core(inputs: CoreRunInputs<'_>) -> eyre::Result<()> {
 /// the active provider wraps DEKs for new writes while any provider can
 /// unwrap rows recorded with its kek_ids.
 fn build_kms_backend(
-    secrets_config: &SecretsConfig,
+    config: &SecretsConfig,
     vault_config: &VaultConfig,
     routing: &SecretRouting,
     join_set: &mut JoinSet<()>,
@@ -404,8 +320,7 @@ fn build_kms_backend(
     // duplicate kek_ids rejected, order never decides which provider
     // unwraps, but stable beats arbitrary if that invariant ever slips.
     let mut built: BTreeMap<String, Arc<dyn KmsBackend>> = BTreeMap::new();
-
-    for (name, provider_config) in &secrets_config.kms.providers {
+    for (name, provider_config) in &config.kms.providers {
         let provider: Arc<dyn KmsBackend> = match provider_config {
             ProviderConfig::Integrated { keys } => Arc::new(
                 IntegratedKmsProvider::from_config(keys)
@@ -419,18 +334,18 @@ fn build_kms_backend(
                 // The same address, CA trust, and timeout ForgeVaultClient
                 // connects with -- a bare vaultrs client only trusts public
                 // roots and fails TLS against a site-CA-signed vault.
-                let vault_settings =
-                    carbide_secrets::create_raw_vault_client_settings(vault_config).wrap_err(
+                let settings = carbide_secrets::create_raw_vault_client_settings(vault_config)
+                    .wrap_err(
                         "building the transit KMS vault client (transit requires a static \
                          VAULT_TOKEN; the kubernetes service-account login flow is not \
                          supported for transit yet)",
                     )?;
-                let vault_client = Arc::new(
-                    vaultrs::client::VaultClient::new(vault_settings)
-                        .map_err(|e| eyre::eyre!("vault client: {e}"))?,
+                let client = Arc::new(
+                    vaultrs::client::VaultClient::new(settings)
+                        .map_err(|error| eyre::eyre!("vault client: {error}"))?,
                 );
-                let transit_provider = TransitKmsProvider::new(
-                    vault_client,
+                let provider = TransitKmsProvider::new(
+                    client,
                     transit_mount
                         .as_deref()
                         .unwrap_or(DEFAULT_TRANSIT_MOUNT)
@@ -440,8 +355,8 @@ fn build_kms_backend(
                 join_set
                     .build_task()
                     .name("transit_kms_token_renewal")
-                    .spawn(transit_provider.run_token_renewal(cancel_token.clone()))?;
-                Arc::new(transit_provider)
+                    .spawn(provider.run_token_renewal(cancel_token.clone()))?;
+                Arc::new(provider)
             }
         };
         tracing::info!(name = %name, "initialized KMS provider");
@@ -449,11 +364,11 @@ fn build_kms_backend(
     }
 
     let active = built
-        .get(&secrets_config.kms.active)
+        .get(&config.kms.active)
         .ok_or_else(|| {
             eyre::eyre!(
                 "active KMS provider {:?} not found; configured providers: {:?}",
-                secrets_config.kms.active,
+                config.kms.active,
                 built.keys().collect::<Vec<_>>()
             )
         })?
@@ -472,13 +387,13 @@ fn build_kms_backend(
     for (prefix, kek_id) in routing.routes() {
         if !active.can_decrypt_kek(kek_id) {
             return Err(eyre::eyre!(
-                "routing assigns {kek_id:?} (prefix {prefix:?}), but the active KMS \
-                 provider {:?} does not have that key",
-                secrets_config.kms.active
+                "routing assigns {kek_id:?} (prefix {prefix:?}), but the active KMS provider {:?} does not have that key",
+                config.kms.active
             ));
         }
     }
-    let mut kek_owners: BTreeMap<String, Vec<&String>> = BTreeMap::new();
+
+    let mut owners: BTreeMap<String, Vec<&String>> = BTreeMap::new();
     for (name, provider) in &built {
         // Dedup within a provider first: a transit key list can repeat a
         // name, and that is harmless, not "two providers".
@@ -486,20 +401,21 @@ fn build_kms_backend(
         kek_ids.sort();
         kek_ids.dedup();
         for kek_id in kek_ids {
-            kek_owners.entry(kek_id).or_default().push(name);
+            owners.entry(kek_id).or_default().push(name);
         }
     }
-    for (kek_id, owners) in &kek_owners {
+    for (kek_id, owners) in owners {
         if owners.len() > 1 {
             return Err(eyre::eyre!(
-                "kek_id {kek_id:?} exists in more than one KMS provider \
-                 ({owners:?}); unwraps would be ambiguous"
+                "kek_id {kek_id:?} exists in more than one KMS provider ({owners:?}); unwraps would be ambiguous"
             ));
         }
     }
 
-    let providers: Vec<Arc<dyn KmsBackend>> = built.into_values().collect();
-    Ok(Arc::new(MultiKmsProvider::new(active, providers)))
+    Ok(Arc::new(MultiKmsProvider::new(
+        active,
+        built.into_values().collect(),
+    )))
 }
 
 /// Run the one-time vault import, skipping if the completion marker is
@@ -528,7 +444,7 @@ fn build_kms_backend(
 #[allow(txn_held_across_await)]
 async fn import_vault_secrets_once(
     db_pool: &PgPool,
-    secrets_config: &SecretsConfig,
+    config: &SecretsConfig,
     routing: &SecretRouting,
     kms: &dyn KmsBackend,
     vault_client: &ForgeVaultClient,
@@ -547,16 +463,15 @@ async fn import_vault_secrets_once(
     // and, under concurrent startup, risk waiters starving the pool the
     // importer itself needs. Detaching the connection guarantees the lock
     // releases when it drops, including on an early error return.
-    let mut lock_conn = db_pool
+    let mut lock_connection = db_pool
         .acquire()
         .await
         .wrap_err("acquire vault import lock connection")?
         .detach();
-    db::secrets::lock_path_session(&mut lock_conn, crate::secrets::VAULT_IMPORT_MARKER_PATH)
+    lock_vault_import_session(&mut lock_connection)
         .await
         .map_err(eyre::Report::new)
         .wrap_err("acquire vault import lock")?;
-
     if is_import_complete(db_pool).await? {
         tracing::info!("Vault import completed by another replica");
         return Ok(());
@@ -565,57 +480,85 @@ async fn import_vault_secrets_once(
     // Strict enumeration: any list or read failure aborts the boot rather
     // than importing a subset and recording it as complete. The marker is
     // permanent, so a partial import here would be silent credential loss.
-    let vault_secrets = vault_client
+    let secrets = vault_client
         .get_secrets_strict()
         .await
         .map_err(eyre::Report::from)
         .wrap_err("enumerate vault secrets for import")?;
-
-    if vault_secrets.is_empty() {
+    if secrets.is_empty() {
         return Err(eyre::eyre!(
-            "vault enumeration returned no secrets; refusing to record an import from an \
-             empty vault. if this site really has no vault secrets, remove import_from \
-             from the [secrets] config; otherwise fix vault and restart"
+            "vault enumeration returned no secrets; refusing to record an import from an empty vault. if this site really has no vault secrets, remove import_from from the [secrets] config; otherwise fix vault and restart"
         ));
     }
 
     tracing::info!(
-        vault_secret_count = vault_secrets.len(),
-        approach = ?secrets_config.import_approach,
+        vault_secret_count = secrets.len(),
+        approach = ?config.import_approach,
         "Importing secrets from vault"
     );
-
-    let result = crate::secrets::import_secrets(
+    let result = carbide_api_core::secrets::import_secrets(
         db_pool,
         routing,
         kms,
-        &vault_secrets,
-        secrets_config.import_approach,
+        &secrets,
+        config.import_approach,
     )
     .await
     .map_err(eyre::Report::new)
     .wrap_err("vault secret import")?;
-
     tracing::info!(
         imported_secret_count = result.imported,
         skipped_secret_count = result.skipped,
         "Vault secret import completed"
     );
-
-    crate::secrets::mark_vault_import_complete(db_pool, routing, kms)
+    carbide_api_core::secrets::mark_vault_import_complete(db_pool, routing, kms)
         .await
         .map_err(eyre::Report::new)
         .wrap_err("mark vault import complete")?;
     tracing::info!("Vault import marked complete");
 
-    // lock_conn drops here, closing the connection and releasing the
+    // lock_connection drops here, closing the connection and releasing the
     // session advisory lock.
     Ok(())
 }
 
 async fn is_import_complete(db_pool: &PgPool) -> eyre::Result<bool> {
-    crate::secrets::is_vault_import_complete(db_pool)
+    carbide_api_core::secrets::is_vault_import_complete(db_pool)
         .await
         .map_err(eyre::Report::new)
         .wrap_err("check vault import status")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pool builder rejects zero-valued lifecycle settings before it
+    /// touches the database, naming the offending field.
+    #[tokio::test]
+    async fn zero_database_pool_durations_are_rejected_at_startup() {
+        type ZeroOut = fn(&mut CarbideConfig);
+        let cases: [(&str, ZeroOut); 3] = [
+            ("database_pool_acquire_timeout", |config| {
+                config.database_pool_acquire_timeout = std::time::Duration::ZERO
+            }),
+            ("database_pool_idle_timeout", |config| {
+                config.database_pool_idle_timeout = std::time::Duration::ZERO
+            }),
+            ("database_pool_max_lifetime", |config| {
+                config.database_pool_max_lifetime = std::time::Duration::ZERO
+            }),
+        ];
+        for (field, zero_out) in cases {
+            let mut config = carbide_api_core::test_support::default_config::get();
+            zero_out(&mut config);
+            let error = connect_postgres(&config)
+                .await
+                .expect_err("a zero-valued pool duration must be rejected");
+            assert!(
+                error.to_string().contains(field),
+                "error must name `{field}`, got: {error}"
+            );
+        }
+    }
 }

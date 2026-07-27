@@ -320,6 +320,36 @@ pub async fn find(
     }
 }
 
+/// Locks the expected-switch write domain and returns the selected row for update.
+pub async fn find_for_update(
+    txn: &mut PgConnection,
+    req: &ExpectedSwitchRequest,
+) -> DatabaseResult<Option<ExpectedSwitch>> {
+    lock_expected_switch_writes(&mut *txn).await?;
+
+    let (query, key) = if let Some(id) = req.expected_switch_id {
+        (
+            "SELECT * FROM expected_switches WHERE expected_switch_id=$1::uuid FOR UPDATE",
+            id.to_string(),
+        )
+    } else if let Some(mac) = req.bmc_mac_address {
+        (
+            "SELECT * FROM expected_switches WHERE bmc_mac_address=$1::macaddr FOR UPDATE",
+            mac.to_string(),
+        )
+    } else {
+        return Err(DatabaseError::InvalidArgument(
+            "either expected_switch_id or bmc_mac_address must be provided".into(),
+        ));
+    };
+
+    sqlx::query_as(query)
+        .bind(key)
+        .fetch_optional(txn)
+        .await
+        .map_err(|err| DatabaseError::query(query, err))
+}
+
 /// delete deletes an expected switch by expected_switch_id if provided,
 /// otherwise by bmc_mac_address.
 pub async fn delete(txn: &mut PgConnection, req: &ExpectedSwitchRequest) -> DatabaseResult<()> {
