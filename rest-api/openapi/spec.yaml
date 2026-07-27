@@ -230,6 +230,9 @@ tags:
   - name: Rule
     description: |-
       Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
+  - name: Run
+    description: |-
+      A Run is Flow's operation run: a phased, policy-gated execution of one operation (currently firmware) across many Racks. A Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -11017,6 +11020,478 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rule
+  '/v2/org/{org}/nico/run':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create a Run
+      operationId: create-run
+      description: |-
+        Create a Run: a phased, policy-gated execution of one operation across
+        many Racks. The configuration is validated server-side by Flow; on
+        validation failure no state changes.
+
+        A Run executes exactly one operation (currently firmware) over a
+        candidate set of Racks, narrowed by an optional `selector` and divided
+        into phases by an optional `options.phasePolicy`. The response echoes the
+        assigned `id`; the Run always starts in the `Pending` state. Poll
+        `GET /run/{id}` for progress.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRunRequest'
+      responses:
+        '201':
+          description: Run was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Run
+    get:
+      summary: List Runs
+      operationId: list-runs
+      description: |-
+        List Runs on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Runs (Runs are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Running
+              - Paused
+              - Completed
+              - Cancelled
+              - Failed
+              - CompletedWithFailures
+          name: status
+          in: query
+          required: false
+          description: Filter by Run status.
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Run'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":2}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Run
+  '/v2/org/{org}/nico/run/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Run
+    get:
+      summary: Retrieve a Run
+      operationId: get-run
+      description: |-
+        Get a Run by UUID. Set `includeStats=true` for derived per-phase
+        outcome counts (current phase and cumulative run).
+
+        Runs are site-scoped; `siteId` must be the Site that owns the
+        Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Run (Runs are site-scoped).
+        - schema:
+            type: boolean
+            default: false
+          name: includeStats
+          in: query
+          required: false
+          description: Include derived per-phase outcome stats on the response.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Run
+  '/v2/org/{org}/nico/run/{id}/target':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Run
+    get:
+      summary: List Run targets
+      operationId: list-run-targets
+      description: |-
+        List a Run's materialized per-Rack execution targets. Each target
+        references the Task the Run submitted for that Rack via `taskId`
+        (null until the target is submitted); drill into execution detail via
+        `GET /task/{taskId}`.
+
+        Filters compose with AND. Results are paginated; the `X-Pagination`
+        response header reports the total count over the post-filter set.
+
+        Runs are site-scoped; `siteId` must be the Site that owns the
+        Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Run.
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Blocked
+              - Submitted
+              - Completed
+              - Failed
+              - Terminated
+              - Skipped
+              - Claimed
+          name: status
+          in: query
+          required: false
+          description: Filter by target status.
+        - schema:
+            type: string
+            enum:
+              - currentPhase
+              - completedPhases
+              - currentAndCompletedPhases
+            default: currentPhase
+          name: phaseScope
+          in: query
+          required: false
+          description: Restrict targets to the current phase, completed phases, or both.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunTarget'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":6}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Run
+  '/v2/org/{org}/nico/run/{id}/pause':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Run
+    post:
+      summary: Pause a Run
+      operationId: pause-run
+      description: |-
+        Pause a running Run. In-flight target Tasks continue to completion;
+        no new targets are claimed until the Run is resumed. Pausing an
+        already-paused Run is idempotent.
+
+        Runs are site-scoped; `siteId` must be the Site that owns the
+        Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The pause request was accepted and the Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Run
+  '/v2/org/{org}/nico/run/{id}/resume':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Run
+    post:
+      summary: Resume a Run
+      operationId: resume-run
+      description: |-
+        Resume an operator-paused Run. A Run paused at a phase gate
+        (rather than by an operator) must be advanced with the advance endpoint
+        instead; resume applies only to operator pauses.
+
+        Runs are site-scoped; `siteId` must be the Site that owns the
+        Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The resume request was accepted and the Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Run
+  '/v2/org/{org}/nico/run/{id}/advance':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Run
+    post:
+      summary: Advance a Run to its next phase
+      operationId: advance-run
+      description: |-
+        Open the next phase of a Run that is paused at a phase gate.
+        Optionally guard the transition with `expectedPhaseIndex`: when set, the
+        phase that would be opened must match, otherwise Flow rejects the advance
+        so a stale client cannot open the wrong phase.
+
+        Runs are site-scoped; `siteId` must be the Site that owns the
+        Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvanceRunRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The advance request was accepted and the Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Run
+  '/v2/org/{org}/nico/run/{id}/cancel':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Run
+    post:
+      summary: Cancel a Run
+      operationId: cancel-run
+      description: |-
+        Cancel a Run. Best-effort cancellation cascades to the current
+        phase's in-flight target Tasks; targets not yet claimed are not started.
+        Cancelling an already-terminal Run returns its last known state.
+
+        Runs are site-scoped; `siteId` must be the Site that owns the
+        Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRunRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The cancellation request was accepted and the Run's
+            last known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Run
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -20227,6 +20702,534 @@ components:
           description: New free-form description.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
+    Run:
+      title: Run
+      type: object
+      description: |-
+        A Run is Flow's operation run: a phased, policy-gated execution of one
+        operation across many Racks. List responses populate the summary fields;
+        the single-Run `GET` additionally populates `stats` when
+        `includeStats=true`.
+      required:
+        - id
+        - name
+        - operationType
+        - status
+        - statusReason
+        - totalPhases
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the Run.
+        name:
+          type: string
+          description: Human-readable name of the Run.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this Run executes. Currently always `FirmwareControl`.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `upgrade`).
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Running
+            - Paused
+            - Completed
+            - Cancelled
+            - Failed
+            - CompletedWithFailures
+          description: Current lifecycle state of the Run.
+        statusReason:
+          type: string
+          enum:
+            - Unknown
+            - None
+            - OperatorPaused
+            - PhaseGate
+            - SafetyGate
+            - ConflictRetryTimeout
+          description: |-
+            Why the Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`).
+            `None` when there is no qualifying reason.
+        statusMessage:
+          type: string
+          description: Optional human-readable detail for the current status.
+        totalPhases:
+          type: integer
+          description: Total number of phases the selected targets were divided into.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the Run was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the Run was last updated.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Run started execution. Null before it starts.
+        finished:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Run reached a terminal state. Null while active.
+        stats:
+          allOf:
+            - $ref: '#/components/schemas/RunStats'
+          description: |-
+            Derived per-phase outcome stats. Present only on the single-Run
+            `GET` when `includeStats=true`; omitted otherwise.
+    RunStats:
+      title: RunStats
+      type: object
+      description: Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
+      required:
+        - currentPhase
+        - cumulativePhase
+      properties:
+        currentPhase:
+          $ref: '#/components/schemas/RunPhaseStats'
+        cumulativePhase:
+          $ref: '#/components/schemas/RunPhaseStats'
+    RunPhaseStats:
+      title: RunPhaseStats
+      type: object
+      description: Summarizes target outcomes for one phase scope.
+      required:
+        - phaseIndex
+        - selectedTargets
+        - outcomeCounts
+      properties:
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this scope refers to.
+        selectedTargets:
+          type: integer
+          description: Number of targets selected within the scope.
+        outcomeCounts:
+          $ref: '#/components/schemas/RunOutcomeCounts'
+    RunOutcomeCounts:
+      title: RunOutcomeCounts
+      type: object
+      description: Counts terminal target outcomes within a phase scope.
+      required:
+        - completed
+        - failed
+        - terminated
+        - skipped
+      properties:
+        completed:
+          type: integer
+          description: Targets that completed successfully.
+        failed:
+          type: integer
+          description: Targets that failed.
+        terminated:
+          type: integer
+          description: Targets that were terminated (e.g. by cancellation).
+        skipped:
+          type: integer
+          description: Targets that were skipped.
+    RunTarget:
+      title: RunTarget
+      type: object
+      description: |-
+        One materialized per-Rack execution target of a Run. Each target
+        drives at most one Task; `taskId` references it (null until the target is
+        submitted).
+      required:
+        - id
+        - runId
+        - rackId
+        - sequenceIndex
+        - phaseIndex
+        - status
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the target.
+        runId:
+          type: string
+          format: uuid
+          description: ID of the Run that owns this target.
+        rackId:
+          type: string
+          format: uuid
+          description: ID of the Rack this target operates on.
+        sequenceIndex:
+          type: integer
+          description: Position of this target in the Run's overall processing order.
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this target belongs to.
+        taskId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            ID of the Task this target submitted. Null until the target is
+            submitted; drill into execution detail via `GET /task/{taskId}`.
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Blocked
+            - Submitted
+            - Completed
+            - Failed
+            - Terminated
+            - Skipped
+            - Claimed
+          description: Current execution state of the target.
+        message:
+          type: string
+          description: Optional human-readable detail for the current target status.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the target was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the target was last updated.
+    RunSiteRequest:
+      title: RunSiteRequest
+      type: object
+      description: Shared request body for the pause and resume lifecycle actions.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Run (Runs are site-scoped).
+    AdvanceRunRequest:
+      title: AdvanceRunRequest
+      type: object
+      description: Request body for advancing a Run to its next phase.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Run.
+        expectedPhaseIndex:
+          type: integer
+          description: |-
+            Optional guard: when set, the phase that would be opened must match
+            this zero-based index, otherwise the advance is rejected.
+    CancelRunRequest:
+      title: CancelRunRequest
+      type: object
+      description: Request body for cancelling a Run.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Run.
+        reason:
+          type: string
+          description: Optional free-form reason recorded with the cancellation.
+    CreateRunRequest:
+      title: CreateRunRequest
+      type: object
+      description: |-
+        Request body for creating a Run. `operationType` is inferred from the
+        operation and is not accepted here. Flow performs semantic validation
+        (selector ranges, phase math, operation code membership) server-side.
+      required:
+        - siteId
+        - name
+        - options
+        - operation
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the Run on.
+        name:
+          type: string
+          description: Human-readable name of the Run.
+        description:
+          type: string
+          description: Optional free-form description.
+        selector:
+          allOf:
+            - $ref: '#/components/schemas/RunSelector'
+          description: |-
+            Narrows the candidate Racks. Omit to target the full candidate scope
+            (100%).
+        options:
+          $ref: '#/components/schemas/RunOptions'
+        operation:
+          $ref: '#/components/schemas/RunOperation'
+    RunSelector:
+      title: RunSelector
+      type: object
+      description: Selects a subset of candidate Racks. Percentage is the only supported selector today.
+      properties:
+        percentage:
+          $ref: '#/components/schemas/RunPercentageSelector'
+    RunPercentageSelector:
+      title: RunPercentageSelector
+      type: object
+      description: |-
+        Selects a percentage of the candidate Racks. `seed` is optional; when
+        omitted Flow generates and stores one so the cohort is deterministic and
+        auditable.
+      required:
+        - percent
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Percentage of candidate Racks to select.
+        seed:
+          type: string
+          description: Optional seed for the deterministic selection.
+    RunOptions:
+      title: RunOptions
+      type: object
+      description: Execution policy for the Run.
+      required:
+        - maxConcurrentTargets
+      properties:
+        maxConcurrentTargets:
+          type: integer
+          minimum: 1
+          description: |-
+            Caps how many targets may have active child Tasks at once. Must be
+            greater than zero.
+        safetyPolicy:
+          $ref: '#/components/schemas/RunSafetyPolicy'
+        conflictPolicy:
+          $ref: '#/components/schemas/RunConflictPolicy'
+        orderingPolicy:
+          $ref: '#/components/schemas/RunOrderingPolicy'
+        phasePolicy:
+          $ref: '#/components/schemas/RunPhasePolicy'
+    RunSafetyPolicy:
+      title: RunSafetyPolicy
+      type: object
+      description: A set of gates that pause the Run when any one of them trips (OR composition).
+      properties:
+        gates:
+          type: array
+          description: Safety gates evaluated after each target outcome.
+          items:
+            $ref: '#/components/schemas/RunSafetyGate'
+    RunSafetyGate:
+      title: RunSafetyGate
+      type: object
+      description: Exactly one of `failureRate` or `failureCount` must be set.
+      properties:
+        failureRate:
+          $ref: '#/components/schemas/RunFailureRateGate'
+        failureCount:
+          $ref: '#/components/schemas/RunFailureCountGate'
+    RunFailureRateGate:
+      title: RunFailureRateGate
+      type: object
+      description: Pauses when the failed/planned ratio reaches `thresholdPercent` for the scope.
+      required:
+        - thresholdPercent
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the ratio is evaluated over the current phase or the cumulative run.
+        thresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Failure-rate percentage at which the gate trips.
+    RunFailureCountGate:
+      title: RunFailureCountGate
+      type: object
+      description: Pauses when the number of failed targets reaches `thresholdCount` for the scope.
+      required:
+        - thresholdCount
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the count is evaluated over the current phase or the cumulative run.
+        thresholdCount:
+          type: integer
+          minimum: 0
+          description: Number of failed targets at which the gate trips.
+    RunConflictPolicy:
+      title: RunConflictPolicy
+      type: object
+      description: Configures how blocked targets are retried. Retry is the only supported strategy today.
+      properties:
+        retry:
+          $ref: '#/components/schemas/RunConflictRetry'
+    RunConflictRetry:
+      title: RunConflictRetry
+      type: object
+      description: |-
+        Retry backoff for blocked targets. Durations are Go duration strings
+        (e.g. `30m`, `10s`); an empty value means "use the operation default".
+      properties:
+        retryTimeout:
+          type: string
+          description: Total time to keep retrying a blocked target before giving up.
+        initialRetryDelay:
+          type: string
+          description: Delay before the first retry.
+        maxRetryDelay:
+          type: string
+          description: Cap on the exponentially growing retry delay.
+    RunOrderingPolicy:
+      title: RunOrderingPolicy
+      type: object
+      description: Controls the order in which targets are processed. Random is the only supported ordering today.
+      properties:
+        random:
+          $ref: '#/components/schemas/RunRandomOrdering'
+    RunRandomOrdering:
+      title: RunRandomOrdering
+      type: object
+      description: Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
+      properties:
+        seed:
+          type: string
+          description: Optional seed for the deterministic random ordering.
+    RunPhasePolicy:
+      title: RunPhasePolicy
+      type: object
+      description: |-
+        Divides the selected targets into phases. Set at most one of `equal`,
+        `percentage`, or `count`; omit the whole policy for a single phase
+        covering all targets.
+      properties:
+        equal:
+          $ref: '#/components/schemas/RunEqualPhases'
+        percentage:
+          $ref: '#/components/schemas/RunPercentagePhases'
+        count:
+          $ref: '#/components/schemas/RunCountPhases'
+        autoAdvance:
+          type: boolean
+          default: false
+          description: |-
+            When true, phases advance automatically as long as safety gates are
+            not tripped. When false (default) each completed phase pauses at a
+            phase gate until advanced explicitly.
+    RunEqualPhases:
+      title: RunEqualPhases
+      type: object
+      description: Splits targets into `phaseCount` roughly equal phases.
+      required:
+        - phaseCount
+      properties:
+        phaseCount:
+          type: integer
+          minimum: 1
+          description: Number of equally sized phases.
+    RunPercentagePhases:
+      title: RunPercentagePhases
+      type: object
+      description: Splits targets by percentage. Values must sum to 100.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase percentages, in phase order; must sum to 100.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 100
+    RunCountPhases:
+      title: RunCountPhases
+      type: object
+      description: Splits targets by explicit counts. A generated final phase covers any remaining targets.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase target counts, in phase order.
+          items:
+            type: integer
+            minimum: 0
+    RunOperation:
+      title: RunOperation
+      type: object
+      description: The operation the Run executes. Firmware is the only supported operation today.
+      required:
+        - firmware
+      properties:
+        firmware:
+          $ref: '#/components/schemas/RunFirmwareOperation'
+        excludeRunIds:
+          type: array
+          description: |-
+            Excludes Racks materialized by prior Runs from this Run's
+            candidate scope.
+          items:
+            type: string
+            format: uuid
+    RunFirmwareOperation:
+      title: RunFirmwareOperation
+      type: object
+      description: Configures a firmware rollout.
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Target firmware version to roll out.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule to pin for each target's firmware Task. Null to let
+            Flow's default rule resolution pick one.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: Skip the pre-flight readiness check when true.
+        subTargets:
+          type: array
+          description: Optional subset of firmware sub-targets to update.
+          items:
+            type: string
     TaskReportV1:
       title: TaskReportV1
       type: object
