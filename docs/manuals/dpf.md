@@ -533,18 +533,13 @@ enabled = true
 docker_image_pull_secret = "nico-pull-secret"
 ```
 
-`docker_image_pull_secret` is an optional top-level override for the Kubernetes
-Secret used to pull the NICo (carbide-owned) service images — `dpu_agent`,
-`dhcp_server`, `fmds`, and `otel`. `dts` and `doca_hbn` are never affected by it;
-they take a pull secret only from their own per-service config — either
-`[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override.
+`docker_image_pull_secret` is an optional top-level override for the Kubernetes Secret used to pull the NICo (carbide-owned) service images: `dpu_agent`, `dhcp_server`, `fmds`, and `otel`. The `dts` and `doca_hbn` images are never affected by it; they take a pull secret only from their own per-service config — either `[dpf.services.*]` or a deployment's `[dpf.deployments.<name>.services.*]` override.
 
-By default no mandatory service is given a pull secret, so their images are pulled
-from a **public registry**. Provide one only where a private registry needs it —
-via this top-level override (carbide services) or a service's own
-`docker_image_pull_secret` (any service). When referencing a private Secret such as
-`dpf-pull-secret`, ensure it is configured with a legacy NGC API key for better
-compatibility.
+By default, no mandatory service is given a pull secret, so their images are pulled from a **public registry**. Provide a pull secret only where a private registry needs it. You can use either this top-level override (carbide services only) or a service's own `docker_image_pull_secret` (any service).
+
+<Tip>
+When referencing a private Secret such as `dpf-pull-secret`, ensure it is configured with a legacy NGC API key for better compatibility.
+</Tip>
 
 `[dpf].services.*` sub-tables can additionally override the Helm chart and
 container image of each mandatory DPUService that carbide-api deploys
