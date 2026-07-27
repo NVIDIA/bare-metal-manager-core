@@ -74,6 +74,53 @@ type bodyField struct {
 	schema   *Schema
 }
 
+// GeneratedCommandFlag describes a flag accepted by an OpenAPI-generated
+// command. It is used by other nicocli interfaces that need to prepare the
+// same command line without duplicating the OpenAPI-to-CLI naming rules.
+type GeneratedCommandFlag struct {
+	Name       string
+	TakesValue bool
+}
+
+// GeneratedCommandBodyField describes a scalar request-body property exposed
+// as a generated CLI flag.
+type GeneratedCommandBodyField struct {
+	JSONName string
+	FlagName string
+}
+
+// GeneratedCommandQueryParameter describes one generated query flag.
+type GeneratedCommandQueryParameter struct {
+	Name        string
+	FlagName    string
+	Description string
+	Required    bool
+	Type        SchemaType
+	Enum        []string
+}
+
+// GeneratedCommandInfo describes one executable REST command leaf produced
+// from the OpenAPI contract.
+type GeneratedCommandInfo struct {
+	Name               string
+	Description        string
+	OperationID        string
+	Method             string
+	Path               string
+	PathParameters     []string
+	Flags              []GeneratedCommandFlag
+	QueryParameters    []GeneratedCommandQueryParameter
+	BodyFields         []GeneratedCommandBodyField
+	RootBodyProperties []string
+	BodyPropertyNames  []string
+	HasRequestBody     bool
+}
+
+type commandBuildOptions struct {
+	clientFactory func(*cli.Context) (*Client, error)
+	record        func(GeneratedCommandInfo)
+}
+
 // reservedBodyFlagNames are flag names owned by the CLI wrapper. Body
 // properties whose kebab-cased name matches one of these get a "body-"
 // prefix during flag registration (e.g. --body-data) to avoid
@@ -105,6 +152,49 @@ OPTIONS:
 
 // BuildCommands converts parsed OpenAPI operations into a cli.Command tree grouped by tag.
 func BuildCommands(spec *Spec) []*cli.Command {
+	return buildCommands(spec, commandBuildOptions{})
+}
+
+// GeneratedCommandInfos returns the REST command leaves produced from spec.
+// The names come from the same build pass as BuildCommands, including
+// sub-resource grouping and collision expansion.
+func GeneratedCommandInfos(spec *Spec) []GeneratedCommandInfo {
+	var infos []GeneratedCommandInfo
+	buildCommands(spec, commandBuildOptions{
+		record: func(info GeneratedCommandInfo) {
+			infos = append(infos, info)
+		},
+	})
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].Name < infos[j].Name
+	})
+	return infos
+}
+
+// RunGeneratedCommand executes one OpenAPI-generated command through client.
+// This keeps alternate interfaces on the generated CLI's flag, request-body,
+// pagination, output, and error behavior while reusing their active client.
+func RunGeneratedCommand(spec *Spec, client *Client, name string, args []string) error {
+	if client == nil {
+		return fmt.Errorf("generated command client is required")
+	}
+
+	commands := buildCommands(spec, commandBuildOptions{
+		clientFactory: func(*cli.Context) (*Client, error) {
+			return client, nil
+		},
+	})
+	app := &cli.App{
+		Name:     binaryName,
+		Commands: commands,
+	}
+	appArgs := []string{binaryName}
+	appArgs = append(appArgs, strings.Fields(name)...)
+	appArgs = append(appArgs, args...)
+	return app.Run(appArgs)
+}
+
+func buildCommands(spec *Spec, options commandBuildOptions) []*cli.Command {
 	ops := collectOperations(spec)
 	grouped := groupByTag(ops)
 
@@ -116,7 +206,7 @@ func BuildCommands(spec *Spec) []*cli.Command {
 	var commands []*cli.Command
 	for _, cmdName := range sortedKeys(grouped) {
 		actions := grouped[cmdName]
-		subCmds := buildTagSubcommands(spec, actions)
+		subCmds := buildTagSubcommandsWithOptions(spec, actions, options)
 		sort.Slice(subCmds, func(i, j int) bool { return subCmds[i].Name < subCmds[j].Name })
 		desc := tagDescriptions[cmdName]
 		if desc == "" {
@@ -184,6 +274,10 @@ func groupByTag(ops []resolvedOp) map[string][]resolvedOp {
 // buildTagSubcommands splits a tag's operations into primary resource actions
 // and nested sub-resource groups.
 func buildTagSubcommands(spec *Spec, ops []resolvedOp) []*cli.Command {
+	return buildTagSubcommandsWithOptions(spec, ops, commandBuildOptions{})
+}
+
+func buildTagSubcommandsWithOptions(spec *Spec, ops []resolvedOp, options commandBuildOptions) []*cli.Command {
 	primary := detectPrimaryResource(ops)
 
 	var primaryOps []resolvedOp
@@ -225,7 +319,7 @@ func buildTagSubcommands(spec *Spec, ops []resolvedOp) []*cli.Command {
 
 	var cmds []*cli.Command
 	for _, op := range primaryOps {
-		cmds = append(cmds, buildActionCommand(spec, op, ""))
+		cmds = append(cmds, buildActionCommandWithOptions(spec, op, "", options))
 	}
 
 	subResNames := make([]string, 0, len(subResourceOps))
@@ -238,7 +332,7 @@ func buildTagSubcommands(spec *Spec, ops []resolvedOp) []*cli.Command {
 		subOps := subResourceOps[name]
 		subCmds := make([]*cli.Command, 0, len(subOps))
 		for _, op := range subOps {
-			subCmds = append(subCmds, buildActionCommand(spec, op, name))
+			subCmds = append(subCmds, buildActionCommandWithOptions(spec, op, name, options))
 		}
 		sort.Slice(subCmds, func(i, j int) bool { return subCmds[i].Name < subCmds[j].Name })
 
@@ -321,6 +415,10 @@ func isListAction(action string) bool {
 }
 
 func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Command {
+	return buildActionCommandWithOptions(spec, ro, subResource, commandBuildOptions{})
+}
+
+func buildActionCommandWithOptions(spec *Spec, ro resolvedOp, subResource string, options commandBuildOptions) *cli.Command {
 	flags := []cli.Flag{
 		&cli.StringFlag{
 			Name:   "output",
@@ -339,6 +437,7 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 	}
 
 	var argParams []string
+	var queryParameters []GeneratedCommandQueryParameter
 
 	allParams := ro.parameters()
 
@@ -351,11 +450,28 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 			continue
 		}
 		if p.In == "query" {
-			flags = append(flags, paramToFlag(p))
+			flag := paramToFlag(p)
+			flags = append(flags, flag)
+			queryParameter := GeneratedCommandQueryParameter{
+				Name:        p.Name,
+				FlagName:    flag.Names()[0],
+				Description: p.Description,
+				Required:    p.Required,
+			}
+			if schema := spec.ResolveSchema(p.Schema); schema != nil {
+				queryParameter.Type = schema.Type
+				queryParameter.Enum = append([]string(nil), schema.Enum...)
+			} else if p.Schema != nil {
+				queryParameter.Type = p.Schema.Type
+				queryParameter.Enum = append([]string(nil), p.Schema.Enum...)
+			}
+			queryParameters = append(queryParameters, queryParameter)
 		}
 	}
 
 	var bodyFields []bodyField
+	var rootBodyProperties []string
+	var bodyPropertyNames []string
 
 	hasBody := ro.op.RequestBody != nil
 	if hasBody {
@@ -370,6 +486,7 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 			},
 		)
 		if schema := spec.RequestBodySchema(ro.op); schema != nil {
+			rootBodyProperties, bodyPropertyNames = generatedBodyProperties(spec, schema)
 			reqSet := make(map[string]bool)
 			for _, r := range schema.Required {
 				reqSet[r] = true
@@ -422,7 +539,7 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 		summary = ro.op.OperationID
 	}
 
-	return &cli.Command{
+	command := &cli.Command{
 		Name:      ro.action,
 		Usage:     summary,
 		UsageText: usageText,
@@ -432,7 +549,11 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 				return err
 			}
 
-			client, err := clientFromContext(c)
+			clientFactory := options.clientFactory
+			if clientFactory == nil {
+				clientFactory = clientFromContext
+			}
+			client, err := clientFactory(c)
 			if err != nil {
 				return err
 			}
@@ -481,6 +602,90 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 			return FormatOutput(respBody, c.String("output"))
 		},
 	}
+
+	if options.record != nil {
+		nameParts := []string{tagToCommand(ro.tag)}
+		if subResource != "" {
+			nameParts = append(nameParts, subResource)
+		}
+		nameParts = append(nameParts, ro.action)
+
+		flagInfos := make([]GeneratedCommandFlag, 0, len(flags))
+		for _, flag := range flags {
+			takesValue := true
+			if _, ok := flag.(*cli.BoolFlag); ok {
+				takesValue = false
+			}
+			for _, name := range flag.Names() {
+				flagInfos = append(flagInfos, GeneratedCommandFlag{
+					Name:       name,
+					TakesValue: takesValue,
+				})
+			}
+		}
+		bodyFieldInfos := make([]GeneratedCommandBodyField, 0, len(bodyFields))
+		for _, field := range bodyFields {
+			bodyFieldInfos = append(bodyFieldInfos, GeneratedCommandBodyField{
+				JSONName: field.jsonName,
+				FlagName: field.flagName,
+			})
+		}
+		options.record(GeneratedCommandInfo{
+			Name:               strings.Join(nameParts, " "),
+			Description:        summary,
+			OperationID:        ro.op.OperationID,
+			Method:             ro.method,
+			Path:               ro.path,
+			PathParameters:     append([]string(nil), argParams...),
+			Flags:              flagInfos,
+			QueryParameters:    append([]GeneratedCommandQueryParameter(nil), queryParameters...),
+			BodyFields:         bodyFieldInfos,
+			RootBodyProperties: append([]string(nil), rootBodyProperties...),
+			BodyPropertyNames:  append([]string(nil), bodyPropertyNames...),
+			HasRequestBody:     hasBody,
+		})
+	}
+
+	return command
+}
+
+func generatedBodyProperties(spec *Spec, schema *Schema) ([]string, []string) {
+	root := spec.ResolveSchema(schema)
+	if root != nil && root.Type == "array" {
+		root = spec.ResolveSchema(root.Items)
+	}
+
+	var rootNames []string
+	if root != nil {
+		rootNames = generatedSortedKeys(root.Properties)
+	}
+
+	seen := make(map[*Schema]bool)
+	allNames := make(map[string]struct{})
+	var collect func(*Schema)
+	collect = func(current *Schema) {
+		current = spec.ResolveSchema(current)
+		if current == nil || seen[current] {
+			return
+		}
+		seen[current] = true
+		for name, property := range current.Properties {
+			allNames[name] = struct{}{}
+			collect(property)
+		}
+		collect(current.Items)
+	}
+	collect(schema)
+	return rootNames, generatedSortedKeys(allNames)
+}
+
+func generatedSortedKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // detectMisorderedFlags returns a helpful error when urfave/cli's stdlib flag

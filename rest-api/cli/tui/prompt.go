@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // PromptText displays a label and reads a line of text input.
@@ -19,6 +21,30 @@ func PromptText(label string, required bool) (string, error) {
 			return "", fmt.Errorf("input cancelled")
 		}
 		text := strings.TrimSpace(scanner.Text())
+		if text == "" && required {
+			fmt.Println(Red("  (required)"))
+			continue
+		}
+		return text, nil
+	}
+}
+
+// PromptSecret reads one line without echo when stdin is a terminal. Piped
+// input keeps the normal scanner path so commands remain scriptable and tests
+// can supply deterministic input.
+func PromptSecret(label string, required bool) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return PromptText(label, required)
+	}
+
+	for {
+		fmt.Printf("%s: ", Bold(label))
+		input, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return "", fmt.Errorf("reading secret input: %w", err)
+		}
+		text := strings.TrimSpace(string(input))
 		if text == "" && required {
 			fmt.Println(Red("  (required)"))
 			continue

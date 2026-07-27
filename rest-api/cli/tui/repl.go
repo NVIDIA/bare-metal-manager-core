@@ -123,8 +123,9 @@ func RunREPL(s *Session) error {
 			continue
 		}
 
-		if len(history) == 0 || history[len(history)-1] != line {
-			history = append(history, line)
+		historyLine := commandHistoryLine(line, cmdMap, commands)
+		if len(history) == 0 || history[len(history)-1] != historyLine {
+			history = append(history, historyLine)
 			if len(history) > maxHistory {
 				history = history[1:]
 			}
@@ -217,36 +218,115 @@ func RunREPL(s *Session) error {
 			continue
 		}
 
-		if cmd, ok := cmdMap[line]; ok {
-			if err := cmd.Run(s, nil); err != nil {
-				fmt.Fprintf(os.Stderr, "%s %v\n", Red("Error:"), err)
-			}
+		command, rest, matched := matchCommandLine(line, cmdMap, commands)
+		if !matched {
+			fmt.Fprintf(os.Stderr, "%s unknown command: %s\n", Red("Error:"), line)
 			fmt.Println()
 			continue
 		}
 
-		matched := false
-		for _, cmd := range commands {
-			if strings.HasPrefix(line, cmd.Name) {
-				rest := strings.TrimSpace(line[len(cmd.Name):])
-				var args []string
-				if rest != "" {
-					args = strings.Fields(rest)
-				}
-				if err := cmd.Run(s, args); err != nil {
-					fmt.Fprintf(os.Stderr, "%s %v\n", Red("Error:"), err)
-				}
-				fmt.Println()
-				matched = true
-				break
-			}
+		args, parseErr := splitCommandArguments(rest)
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n\n", Red("Error:"), parseErr)
+			continue
 		}
+		if err := command.Run(s, args); err != nil {
+			fmt.Fprintf(os.Stderr, "%s %v\n", Red("Error:"), err)
+		}
+		fmt.Println()
+	}
+}
 
-		if !matched {
-			fmt.Fprintf(os.Stderr, "%s unknown command: %s\n", Red("Error:"), line)
-			fmt.Println()
+func matchCommandLine(line string, commandMap map[string]Command, commands []Command) (Command, string, bool) {
+	if command, ok := commandMap[line]; ok {
+		return command, "", true
+	}
+
+	bestIndex := -1
+	for i, command := range commands {
+		if !strings.HasPrefix(line, command.Name+" ") {
+			continue
+		}
+		if bestIndex == -1 || len(command.Name) > len(commands[bestIndex].Name) {
+			bestIndex = i
 		}
 	}
+	if bestIndex == -1 {
+		return Command{}, "", false
+	}
+	command := commands[bestIndex]
+	return command, strings.TrimSpace(line[len(command.Name):]), true
+}
+
+func commandHistoryLine(line string, commandMap map[string]Command, commands []Command) string {
+	command, rest, matched := matchCommandLine(line, commandMap, commands)
+	if !matched || !command.Sensitive || rest == "" {
+		return line
+	}
+	return command.Name + " <redacted>"
+}
+
+func splitCommandArguments(input string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	var quote byte
+	escaped := false
+	started := false
+
+	flush := func() {
+		if !started {
+			return
+		}
+		args = append(args, current.String())
+		current.Reset()
+		started = false
+	}
+
+	for i := range len(input) {
+		char := input[i]
+		if escaped {
+			current.WriteByte(char)
+			started = true
+			escaped = false
+			continue
+		}
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+				started = true
+				continue
+			}
+			if char == '\\' && quote != '\'' {
+				escaped = true
+				continue
+			}
+			current.WriteByte(char)
+			started = true
+			continue
+		}
+
+		switch char {
+		case '\'', '"':
+			quote = char
+			started = true
+		case '\\':
+			escaped = true
+			started = true
+		case ' ', '\t', '\r', '\n':
+			flush()
+		default:
+			current.WriteByte(char)
+			started = true
+		}
+	}
+	if escaped {
+		return nil, fmt.Errorf("unfinished escape sequence")
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("unterminated %q quote", string(quote))
+	}
+	flush()
+	return args, nil
 }
 
 func readLineWithSuggestions(s *Session, cmdNames []string) (string, error) {
