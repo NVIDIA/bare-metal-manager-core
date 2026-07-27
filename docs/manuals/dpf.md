@@ -991,7 +991,11 @@ service stack against the configured one. The full set is listed below.
 > rediscovery the host reverts to whatever its expected-machine entry says.
 > To persist the per-host DPF setting, update the expected-machines table
 > (see section 3.7). This is useful when you want to reprovision a host that
-> was not previously managed by DPF, using the DPF framework.
+<Tip>
+All `dpf enable` changes are written to the machine's metadata only. **They are wiped on force-delete** and on rediscovery the host reverts to whatever its expected-machine entry says.
+
+To persist the per-host DPF setting, update the expected-machines table (refer to [Mark hosts as DPF-managed in expected machines](#37-mark-hosts-as-dpf-managed-in-expected-machines)). This is useful when you want to reprovision a host that was not previously managed by DPF, using the DPF framework.
+</Tip>
 
 ### `dpf enable` — turn DPF on for a host
 
