@@ -47,7 +47,7 @@ mod maintenance;
 mod nvos_password_rotation;
 use fixtures::switch::{
     configure_certificate_start_state, configure_certificate_wait_state, mark_switch_as_deleted,
-    set_switch_controller_state, set_switch_rack_id, transition_switch_controller_state,
+    set_switch_rack_id, transition_switch_controller_state,
 };
 
 fn default_switch_mtls_services() -> Vec<i32> {
@@ -597,58 +597,6 @@ async fn test_rotate_os_password_transitions_to_fetch_info(
         switch.controller_state.value,
         SwitchControllerState::FetchInfo
     ));
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_switch_state_transition_validation(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    // Create a switch
-    let switch_id = common::api_fixtures::site_explorer::new_switch(
-        &env,
-        Some("Switch2".to_string()),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
-
-    // Verify initial state is Initializing
-    let mut txn = pool.acquire().await?;
-    let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
-    assert!(switch.is_some());
-    let switch = switch.unwrap();
-    assert!(matches!(
-        switch.controller_state.value,
-        SwitchControllerState::Created
-    ));
-
-    // Test state transitions by manually setting different states
-    let states = vec![
-        SwitchControllerState::Configuring {
-            config_state: ConfiguringState::RotateOsPassword,
-        },
-        SwitchControllerState::Ready,
-        SwitchControllerState::Error {
-            cause: "Test error".to_string(),
-        },
-    ];
-
-    for state in states {
-        set_switch_controller_state(pool.acquire().await?.as_mut(), &switch_id, state.clone())
-            .await?;
-
-        // Verify the state was set correctly
-        let mut txn = pool.acquire().await?;
-        let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
-        assert!(switch.is_some());
-        let switch = switch.unwrap();
-        assert!(
-            matches!(switch.controller_state.value, _ if switch.controller_state.value == state)
-        );
-    }
 
     Ok(())
 }

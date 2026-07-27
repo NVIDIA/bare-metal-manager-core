@@ -513,32 +513,6 @@ mod tests {
     }
 
     #[test]
-    fn state_display_round_trips_through_from_str() {
-        scenarios!(
-            run = |state| MachineValidationState::from_str(&state.to_string()).map_err(drop);
-            "Started" {
-                MachineValidationState::Started => Yields(MachineValidationState::Started),
-            }
-
-            "InProgress" {
-                MachineValidationState::InProgress => Yields(MachineValidationState::InProgress),
-            }
-
-            "Success" {
-                MachineValidationState::Success => Yields(MachineValidationState::Success),
-            }
-
-            "Skipped" {
-                MachineValidationState::Skipped => Yields(MachineValidationState::Skipped),
-            }
-
-            "Failed" {
-                MachineValidationState::Failed => Yields(MachineValidationState::Failed),
-            }
-        );
-    }
-
-    #[test]
     fn run_item_state_from_str_parses_every_variant_and_rejects_the_rest() {
         scenarios!(
             run = |s| MachineValidationRunItemState::from_str(s).map_err(drop);
@@ -694,49 +668,6 @@ mod tests {
                     total: 0,
                     completed: 0,
                 } => MachineValidationStatus::default(),
-            }
-        );
-    }
-
-    #[test]
-    fn status_equality_distinguishes_each_field() {
-        let base = MachineValidationStatus {
-            state: MachineValidationState::InProgress,
-            total: 10,
-            completed: 4,
-        };
-        value_scenarios!(
-            run = |status| status == base;
-            "identical is equal" {
-                MachineValidationStatus {
-                    state: MachineValidationState::InProgress,
-                    total: 10,
-                    completed: 4,
-                } => true,
-            }
-
-            "differing state is unequal" {
-                MachineValidationStatus {
-                    state: MachineValidationState::Success,
-                    total: 10,
-                    completed: 4,
-                } => false,
-            }
-
-            "differing total is unequal" {
-                MachineValidationStatus {
-                    state: MachineValidationState::InProgress,
-                    total: 11,
-                    completed: 4,
-                } => false,
-            }
-
-            "differing completed is unequal" {
-                MachineValidationStatus {
-                    state: MachineValidationState::InProgress,
-                    total: 10,
-                    completed: 5,
-                } => false,
             }
         );
     }

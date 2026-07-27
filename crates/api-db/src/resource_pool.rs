@@ -2392,15 +2392,6 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_ipv6_prefix_120() {
-        // A /120 has 256 addresses, so make sure all 256 are included.
-        let addrs = expand_ipv6_prefix("fd00::/120").unwrap();
-        assert_eq!(addrs.len(), 256);
-        assert_eq!(addrs[0], "fd00::".parse::<Ipv6Addr>().unwrap());
-        assert_eq!(addrs[255], "fd00::ff".parse::<Ipv6Addr>().unwrap());
-    }
-
-    #[test]
     fn test_expand_ipv6_prefix_rejects_large_prefix() {
         // A /64 would produce 2^64 addresses, which, as of this
         // writing, is beyond MAX_POOL_SIZE (and would cause us

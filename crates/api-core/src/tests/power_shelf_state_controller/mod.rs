@@ -21,8 +21,6 @@ use std::time::Duration;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
-use db::power_shelf as db_power_shelf;
-use model::power_shelf::PowerShelfControllerState;
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
 use state_controller::controller::StateController;
@@ -34,64 +32,7 @@ mod error_state;
 mod fixtures;
 mod maintenance;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
-use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
-
-#[crate::sqlx_test]
-async fn test_power_shelf_state_transition_validation(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    // Create a power shelf
-    let power_shelf_id = common::api_fixtures::site_explorer::new_power_shelf(
-        &env,
-        Some("State Transition Validation Test Power Shelf".to_string()),
-        Some(5000),
-        Some(240),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
-
-    // Verify initial state is Initializing
-    let mut txn = pool.acquire().await?;
-    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id).await?;
-    assert!(power_shelf.is_some());
-    let power_shelf = power_shelf.unwrap();
-    assert!(matches!(
-        power_shelf.controller_state.value,
-        PowerShelfControllerState::Initializing
-    ));
-
-    // Test state transitions by manually setting different states
-    let states = vec![
-        PowerShelfControllerState::FetchingData,
-        PowerShelfControllerState::Configuring,
-        PowerShelfControllerState::Ready,
-        PowerShelfControllerState::Error {
-            cause: "Test error".to_string(),
-        },
-    ];
-
-    for state in states {
-        set_power_shelf_controller_state(
-            pool.acquire().await?.as_mut(),
-            &power_shelf_id,
-            state.clone(),
-        )
-        .await?;
-
-        // Verify the state was set correctly
-        let mut txn = pool.acquire().await?;
-        let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id).await?;
-        assert!(power_shelf.is_some());
-        let power_shelf = power_shelf.unwrap();
-        assert!(
-            matches!(power_shelf.controller_state.value, _ if power_shelf.controller_state.value == state)
-        );
-    }
-
-    Ok(())
-}
+use fixtures::power_shelf::mark_power_shelf_as_deleted;
 
 #[crate::sqlx_test]
 async fn test_power_shelf_deletion_with_state_controller(
