@@ -780,9 +780,11 @@ Configure it either through the API or by seeding the credential store directly.
 nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
 ```
 
+<Warning>
 `nico-admin-cli` takes the password only as an argument, so it lands in shell
 history and in the process argument list. Run it from a shell with history
 disabled, or use the seeding path below, which avoids both.
+</Warning>
 
 This works on a site that is already running: when a BMC password refresh
 interval is configured, carbide-api starts whether or not the credential is
