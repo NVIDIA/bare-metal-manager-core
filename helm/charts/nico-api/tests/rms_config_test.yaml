@@ -40,13 +40,20 @@ tests:
           pattern: '(?s)\[rms\].*api_url = "https://rms-api-server\.rack-manager:8801".*enforce_tls = true.*root_ca_path = "/etc/forge/rms/ca\.pem".*client_cert = "/etc/forge/rms/client\.pem".*client_key = "/etc/forge/rms/client\.key"'
 
   - it: keeps the rms section out of the site-config ConfigMap
-    documentIndex: 0
     set:
       rms:
         enabled: true
       siteConfig:
         enabled: true
+        nicoApiSiteConfig: |
+          [site_explorer]
+          run_interval = "30s"
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[rms\]'
+        documentIndex: 0
+      - notMatchRegex:
+          path: data["carbide-api-site-config.toml"]
+          pattern: '\[rms\]'
+        documentIndex: 1
