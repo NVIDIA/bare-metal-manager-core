@@ -166,6 +166,58 @@ func (flowgrpc *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(ruleManager.DeleteTaskRuleOnFlow)
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered DeleteTaskRuleOnFlow activity")
 
+	// Register Run workflows
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CreateRun)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateRun workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetRun)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetRun workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetAllRuns)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetAllRuns workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.GetRunTargets)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetRunTargets workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.PauseRun)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered PauseRun workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.ResumeRun)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered ResumeRun workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.AdvanceRunPhase)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered AdvanceRunPhase workflow")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterWorkflow(sww.CancelRun)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CancelRun workflow")
+
+	// Register Run activities
+	runManager := swa.NewManageRun(ManagerAccess.Data.EB.Managers.FlowGrpc.Client)
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.CreateRunOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CreateRunOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.GetRunFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetRunFromFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.GetAllRunsFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetAllRunsFromFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.GetRunTargetsFromFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered GetRunTargetsFromFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.PauseRunOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered PauseRunOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.ResumeRunOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered ResumeRunOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.AdvanceRunPhaseOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered AdvanceRunPhaseOnFlow activity")
+
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(runManager.CancelRunOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Successfully registered CancelRunOnFlow activity")
+
 	// Register the tray subscribers here
 	ManagerAccess.Data.EB.Log.Info().Msg("FlowGrpc: Registering tray workflows")
 
