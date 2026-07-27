@@ -8084,7 +8084,7 @@ paths:
             enum:
               - Image
               - iPXE
-              - Templated iPXE
+              - TemplatedIpxe
           in: query
           name: type
           description: Filter Operating Systems by Type
@@ -16992,7 +16992,7 @@ components:
           enum:
             - iPXE
             - Image
-            - Templated iPXE
+            - TemplatedIpxe
         imageUrl:
           type:
             - string
