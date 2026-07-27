@@ -1997,7 +1997,6 @@ pub(crate) async fn component_configure_switch_certificate(
                         .switch_state_controller
                         .effective_switch_mtls_services_as_i32(),
                 ),
-                true,
             )
             .await
             .map_err(component_manager_error_to_status)

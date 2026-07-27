@@ -178,17 +178,11 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         endpoints: &[SwitchEndpoint],
     ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError>;
-
-    /// Starts switch certificate configuration.
-    ///
-    /// When `test_hello` is true, RMS enables the NMX cluster service and
-    /// verifies the new certificate with NMX Hello.
     async fn configure_switch_certificate(
         &self,
         endpoint: &SwitchEndpoint,
         domain_name: Option<&str>,
         services: Option<&[i32]>,
-        test_hello: bool,
     ) -> Result<String, ComponentManagerError>;
 
     async fn get_configure_switch_certificate_job_status(

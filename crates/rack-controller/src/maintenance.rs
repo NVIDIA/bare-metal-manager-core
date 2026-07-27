@@ -945,7 +945,6 @@ async fn handle_configure_nmx_cluster_certificates(
                 &primary_switch.device,
                 None,
                 &ctx.services.nmx_cluster_switch_mtls_services,
-                true,
             )
             .await
             .map_err(|error| StateHandlerError::GenericError(eyre::eyre!(error)))?;
@@ -960,7 +959,6 @@ async fn handle_configure_nmx_cluster_certificates(
             Ok(StateHandlerOutcome::transition(RackState::Maintenance {
                 maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
                     configure_nmx_cluster: ConfigureNmxClusterState::ConfigureCertificates {
-                        scale_up_fabric_manager_api_version: ScaleUpFabricManagerApiVersion::V1,
                         configure_certificate:
                             ConfigureNmxClusterCertificateState::WaitForComplete { jobs: vec![job] },
                     },
@@ -990,153 +988,6 @@ async fn handle_configure_nmx_cluster_certificates(
                                 ConfigureNmxClusterState::DisableScaleUpFabricState,
                         },
                     }))
-                }
-                Ok(ConfigureNmxClusterCertificatePollOutcome::Failed(cause)) => {
-                    transition_to_rack_error(
-                        id,
-                        state,
-                        format!("ConfigureNmxCluster certificate configuration failed: {cause}"),
-                        ctx,
-                    )
-                    .await
-                }
-                Ok(ConfigureNmxClusterCertificatePollOutcome::InProgress) => {
-                    Ok(StateHandlerOutcome::wait(format!(
-                        "ConfigureNmxCluster certificate jobs in progress for rack {id}"
-                    )))
-                }
-                Err(error) => Err(StateHandlerError::GenericError(eyre::eyre!(error))),
-            }
-        }
-    }
-}
-
-/// Installs certificates on every possible primary before RMS selects one.
-///
-/// V2 prepares the complete rack without running NMX Hello because RMS performs
-/// that verification against the primary selected during fabric configuration.
-async fn handle_configure_nmx_cluster_all_switch_certificates(
-    id: &RackId,
-    state: &mut Rack,
-    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
-    rack_profile_id: Option<&RackProfileId>,
-    scope: &MaintenanceScope,
-    configure_certificate: ConfigureNmxClusterCertificateState,
-) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-    match configure_certificate {
-        ConfigureNmxClusterCertificateState::Start => {
-            if !scope.is_full_rack() && scope.switch_ids.is_empty() {
-                return Ok(skip_configure_nmx_cluster_outcome(
-                    id,
-                    "maintenance scope contains no switches",
-                    scope,
-                ));
-            }
-
-            let Some(component_manager) = ctx.services.component_manager.as_ref() else {
-                return transition_to_rack_error(
-                    id,
-                    state,
-                    "component manager not configured for ConfigureNmxCluster certificate configuration",
-                    ctx,
-                )
-                .await;
-            };
-
-            // Primary selection belongs to RMS, so certificate preparation must
-            // cover every rack switch rather than the maintenance-scoped subset.
-            let switch_inventory = load_nmx_fabric_inventory(
-                id,
-                "ConfigureCertificates",
-                &ctx.services.db_pool,
-                ctx.services.credential_manager.as_ref(),
-            )
-            .await?;
-
-            if switch_inventory.switches.is_empty() {
-                return Ok(skip_configure_nmx_cluster_outcome(
-                    id,
-                    "rack has no switches in inventory",
-                    scope,
-                ));
-            }
-
-            if let Err(cause) =
-                validate_switch_inventory_for_nmx_cluster(&switch_inventory.switches)
-            {
-                return transition_to_rack_error(id, state, cause, ctx).await;
-            }
-
-            let mut jobs = Vec::with_capacity(switch_inventory.switches.len());
-
-            // Capture every submitted job before entering the polling phase.
-            // Partial submission failures cannot be retried safely because the
-            // certificate RPC does not deduplicate repeated requests.
-            for switch in &switch_inventory.switches {
-                let job = match start_configure_nmx_cluster_certificate(
-                    component_manager,
-                    switch,
-                    None,
-                    &ctx.services.nmx_cluster_switch_mtls_services,
-                    false,
-                )
-                .await
-                {
-                    Ok(job) => job,
-                    Err(error) => {
-                        let cause = format!(
-                            "ConfigureNmxCluster certificate submission failed with {} of {} job \
-                             IDs captured: {error}; automatic retry is disabled to avoid duplicate \
-                             certificate jobs",
-                            jobs.len(),
-                            switch_inventory.switches.len()
-                        );
-
-                        return transition_to_rack_error(id, state, cause, ctx).await;
-                    }
-                };
-
-                jobs.push(job);
-            }
-
-            tracing::info!(
-                rack_id = %id,
-                switch_count = jobs.len(),
-                "Started ConfigureNmxCluster rack switch certificate jobs; waiting for completion"
-            );
-
-            Ok(StateHandlerOutcome::transition(RackState::Maintenance {
-                maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                    configure_nmx_cluster: ConfigureNmxClusterState::ConfigureCertificates {
-                        scale_up_fabric_manager_api_version: ScaleUpFabricManagerApiVersion::V2,
-                        configure_certificate:
-                            ConfigureNmxClusterCertificateState::WaitForComplete { jobs },
-                    },
-                },
-            }))
-        }
-        ConfigureNmxClusterCertificateState::WaitForComplete { jobs } => {
-            let Some(component_manager) = ctx.services.component_manager.as_ref() else {
-                return transition_to_rack_error(
-                    id,
-                    state,
-                    "component manager not configured while waiting for ConfigureNmxCluster certificate jobs",
-                    ctx,
-                )
-                .await;
-            };
-
-            match poll_configure_nmx_cluster_certificate_jobs(component_manager, &jobs).await {
-                Ok(ConfigureNmxClusterCertificatePollOutcome::Completed) => {
-                    tracing::info!(
-                        rack_id = %id,
-                        "ConfigureNmxCluster rack switch certificate configuration completed; submitting RMS V2 configuration"
-                    );
-
-                    // V2 submission is idempotent. If its response is lost, this
-                    // durable certificate state safely submits the desired fabric again.
-                    configure_scale_up_fabric_manager_v2(id, state, ctx, rack_profile_id, scope)
-                        .await
                 }
                 Ok(ConfigureNmxClusterCertificatePollOutcome::Failed(cause)) => {
                     transition_to_rack_error(
@@ -1894,6 +1745,8 @@ async fn load_nmx_fabric_inventory(
 
 /// Submits the complete rack fabric topology to the idempotent RMS V2 API.
 ///
+/// RMS selects the primary and ensures its NMX Controller security before
+/// reconciling the fabric, so NICo does not run V1 certificate preparation.
 /// Submission failures retain the current durable state for retry. A successful
 /// response advances only after RMS returns a non-empty job identifier.
 async fn configure_scale_up_fabric_manager_v2(
@@ -1903,6 +1756,14 @@ async fn configure_scale_up_fabric_manager_v2(
     rack_profile_id: Option<&RackProfileId>,
     scope: &MaintenanceScope,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    if !scope.is_full_rack() && scope.switch_ids.is_empty() {
+        return Ok(skip_configure_nmx_cluster_outcome(
+            id,
+            "maintenance scope contains no switches",
+            scope,
+        ));
+    }
+
     let nmx_configure_rms_client = build_nmx_configure_rms_client(&ctx.services.site_config.rms);
 
     let rms_client = nmx_configure_rms_client
@@ -3053,58 +2914,47 @@ pub async fn handle_maintenance(
         RackMaintenanceState::ConfigureNmxCluster {
             configure_nmx_cluster,
         } => match configure_nmx_cluster {
-            ConfigureNmxClusterState::Start => {
-                // Capture the selector in controller state before starting certificate
-                // jobs so configuration reloads cannot redirect an active workflow.
-                let scale_up_fabric_manager_api_version = ctx
-                    .services
-                    .site_config
-                    .rms
-                    .scale_up_fabric_manager_api_version;
-
-                let configure_nmx_cluster = ConfigureNmxClusterState::ConfigureCertificates {
-                    scale_up_fabric_manager_api_version,
-                    configure_certificate: ConfigureNmxClusterCertificateState::Start,
-                };
-
-                tracing::info!(
-                    rack_id = %id,
-                    next_state = %configure_nmx_cluster,
-                    "Starting ConfigureNmxCluster"
-                );
-                Ok(StateHandlerOutcome::transition(RackState::Maintenance {
-                    maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                        configure_nmx_cluster,
-                    },
-                }))
-            }
-            ConfigureNmxClusterState::ConfigureCertificates {
-                scale_up_fabric_manager_api_version,
-                configure_certificate,
-            } => match scale_up_fabric_manager_api_version {
+            ConfigureNmxClusterState::Start => match ctx
+                .services
+                .site_config
+                .rms
+                .scale_up_fabric_manager_api_version
+            {
                 ScaleUpFabricManagerApiVersion::V1 => {
-                    handle_configure_nmx_cluster_certificates(
-                        id,
-                        state,
-                        ctx,
-                        rack_profile_id,
-                        scope,
-                        configure_certificate.clone(),
-                    )
-                    .await
+                    let configure_nmx_cluster = ConfigureNmxClusterState::ConfigureCertificates {
+                        configure_certificate: ConfigureNmxClusterCertificateState::Start,
+                    };
+
+                    tracing::info!(
+                        rack_id = %id,
+                        next_state = %configure_nmx_cluster,
+                        "Starting ConfigureNmxCluster"
+                    );
+
+                    Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                            configure_nmx_cluster,
+                        },
+                    }))
                 }
                 ScaleUpFabricManagerApiVersion::V2 => {
-                    handle_configure_nmx_cluster_all_switch_certificates(
-                        id,
-                        state,
-                        ctx,
-                        rack_profile_id,
-                        scope,
-                        configure_certificate.clone(),
-                    )
-                    .await
+                    configure_scale_up_fabric_manager_v2(id, state, ctx, rack_profile_id, scope)
+                        .await
                 }
             },
+            ConfigureNmxClusterState::ConfigureCertificates {
+                configure_certificate,
+            } => {
+                handle_configure_nmx_cluster_certificates(
+                    id,
+                    state,
+                    ctx,
+                    rack_profile_id,
+                    scope,
+                    configure_certificate.clone(),
+                )
+                .await
+            }
             ConfigureNmxClusterState::DisableScaleUpFabricState => {
                 let nmx_configure_rms_client =
                     build_nmx_configure_rms_client(&ctx.services.site_config.rms);

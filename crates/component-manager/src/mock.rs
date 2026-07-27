@@ -202,7 +202,6 @@ impl NvSwitchManager for MockNvSwitchManager {
         _endpoint: &SwitchEndpoint,
         _domain_name: Option<&str>,
         _services: Option<&[i32]>,
-        _test_hello: bool,
     ) -> Result<String, ComponentManagerError> {
         Ok("mock-switch-cert-job".to_string())
     }

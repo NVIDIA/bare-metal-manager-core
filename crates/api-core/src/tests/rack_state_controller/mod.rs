@@ -407,7 +407,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
         "{\"state\": \"discovering\"}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Start\"}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": \"Start\"}}}",
-        "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": {\"ConfigureCertificates\": {\"scale_up_fabric_manager_api_version\": \"v1\", \"configure_certificate\": \"Start\"}}}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": {\"ConfigureCertificates\": {\"configure_certificate\": \"Start\"}}}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"PowerSequence\": {\"rack_power\": \"PoweringOn\"}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": \"Completed\"}",
         "{\"state\": \"validating\", \"validating_state\": \"Pending\"}",

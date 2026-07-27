@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_rack_controller::config::{
-    RackConfig as RackControllerConfig, ScaleUpFabricManagerApiVersion,
-};
+use carbide_rack_controller::config::ScaleUpFabricManagerApiVersion;
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::handler::RackStateHandler;
 use carbide_rack_controller::maintenance::apply_nvos_job_status_response;
@@ -2465,8 +2463,6 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
                         maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
                             configure_nmx_cluster:
                                 ConfigureNmxClusterState::ConfigureCertificates {
-                                    scale_up_fabric_manager_api_version:
-                                        ScaleUpFabricManagerApiVersion::V1,
                                     configure_certificate:
                                         ConfigureNmxClusterCertificateState::Start,
                                 },
@@ -2515,8 +2511,6 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
                         maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
                             configure_nmx_cluster:
                                 ConfigureNmxClusterState::ConfigureCertificates {
-                                    scale_up_fabric_manager_api_version:
-                                        ScaleUpFabricManagerApiVersion::V1,
                                     configure_certificate:
                                         ConfigureNmxClusterCertificateState::WaitForComplete {
                                             ref jobs
@@ -2553,17 +2547,6 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
             .await
             .is_empty()
     );
-
-    let certificate_requests = env
-        .rms_sim
-        .submitted_configure_switch_certificate_requests()
-        .await;
-
-    let [certificate_request] = certificate_requests.as_slice() else {
-        return Err(eyre::eyre!("expected exactly one V1 certificate request").into());
-    };
-
-    assert!(certificate_request.test_hello);
 
     let outcome = handler_instance
         .handle_object_state(&rack_id, &mut rack, &cert_wait_state, &mut ctx)
@@ -3150,55 +3133,11 @@ async fn queue_configure_nmx_cluster_v2_success(
             },
         ))
         .await;
-
-    let mut certificate_switch_ids = switch_ids.to_vec();
-    certificate_switch_ids.sort();
-
-    for (index, switch_id) in certificate_switch_ids.iter().enumerate() {
-        let job_id = format!("nmx-cluster-cert-job-{index}");
-
-        env.rms_sim
-            .queue_configure_switch_certificate_response(Ok(
-                rms::ConfigureSwitchCertificateResponse {
-                    response: Some(rms::NodeBatchResponse {
-                        status: rms::ReturnCode::Success as i32,
-                        stats: Some(rms::NodeOperationStats {
-                            total_nodes: 1,
-                            successful_nodes: 1,
-                            failed_nodes: 0,
-                        }),
-                        node_results: vec![rms::NodeOperationResult {
-                            node_id: switch_id.to_string(),
-                            status: rms::ReturnCode::Success as i32,
-                            error_message: String::new(),
-                        }],
-                        ..Default::default()
-                    }),
-                    jobs: vec![rms::ConfigureSwitchCertificateJobInfo {
-                        node_id: switch_id.to_string(),
-                        job_id: job_id.clone(),
-                    }],
-                },
-            ))
-            .await;
-
-        env.rms_sim
-            .queue_get_configure_switch_certificate_job_status_response(Ok(
-                rms::GetConfigureSwitchCertificateJobStatusResponse {
-                    status: rms::ReturnCode::Success as i32,
-                    state: "completed".to_string(),
-                    job_id,
-                    ..Default::default()
-                },
-            ))
-            .await;
-    }
 }
 
 async fn run_configure_nmx_cluster_v2_workflow(
     env: &TestEnv,
     rack_id: &RackId,
-    switch_ids: &[SwitchId],
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut rack = get_db_rack(env.db_reader().as_mut(), rack_id).await;
     let handler_instance = RackStateHandler::default();
@@ -3219,72 +3158,8 @@ async fn run_configure_nmx_cluster_v2_workflow(
         },
     };
 
-    let certificate_start = match handler_instance
-        .handle_object_state(rack_id, &mut rack, &start, &mut ctx)
-        .await?
-    {
-        StateHandlerOutcome::Transition { next_state, .. } => next_state,
-        other => panic!(
-            "Expected Transition, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    };
-
-    assert!(matches!(
-        certificate_start,
-        RackState::Maintenance {
-            maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::ConfigureCertificates {
-                    scale_up_fabric_manager_api_version: ScaleUpFabricManagerApiVersion::V2,
-                    configure_certificate: ConfigureNmxClusterCertificateState::Start,
-                },
-            },
-        }
-    ));
-
-    // Persisted certificate state must keep the selected workflow if a restart
-    // loads a different site configuration.
-    let mut reloaded_rms_config = ctx.services.site_config.rms.clone();
-    reloaded_rms_config.scale_up_fabric_manager_api_version = ScaleUpFabricManagerApiVersion::V1;
-
-    let reloaded_config = RackControllerConfig {
-        rms: reloaded_rms_config,
-        rack_validation_config: ctx.services.site_config.rack_validation_config.clone(),
-        rack_profiles: ctx.services.site_config.rack_profiles.clone(),
-    };
-
-    ctx.services.site_config = std::sync::Arc::new(reloaded_config);
-
-    let certificate_wait = match handler_instance
-        .handle_object_state(rack_id, &mut rack, &certificate_start, &mut ctx)
-        .await?
-    {
-        StateHandlerOutcome::Transition { next_state, .. } => next_state,
-        other => panic!(
-            "Expected Transition, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    };
-
-    assert!(matches!(
-        certificate_wait,
-        RackState::Maintenance {
-            maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::ConfigureCertificates {
-                    scale_up_fabric_manager_api_version:
-                        ScaleUpFabricManagerApiVersion::V2,
-                    configure_certificate:
-                        ConfigureNmxClusterCertificateState::WaitForComplete {
-                            ref jobs,
-                        },
-                },
-            },
-        } if jobs.len() == switch_ids.len()
-            && jobs.iter().all(|job| switch_ids.contains(&job.switch_id))
-    ));
-
     let job_wait = match handler_instance
-        .handle_object_state(rack_id, &mut rack, &certificate_wait, &mut ctx)
+        .handle_object_state(rack_id, &mut rack, &start, &mut ctx)
         .await?
     {
         StateHandlerOutcome::Transition { next_state, .. } => next_state,
@@ -3335,17 +3210,11 @@ async fn assert_configure_nmx_cluster_v2_results(
     primary_switch_id: SwitchId,
     topology_type: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let certificate_requests = env
-        .rms_sim
-        .submitted_configure_switch_certificate_requests()
-        .await;
-
-    assert_eq!(certificate_requests.len(), switch_ids.len());
-
     assert!(
-        certificate_requests
-            .iter()
-            .all(|request| !request.test_hello)
+        env.rms_sim
+            .submitted_configure_switch_certificate_requests()
+            .await
+            .is_empty()
     );
 
     assert!(
@@ -3478,7 +3347,7 @@ async fn assert_configure_nmx_cluster_v2_results(
 }
 
 #[crate::sqlx_test]
-async fn test_configure_nmx_cluster_v2_preserves_workflow_and_uses_full_fabric(
+async fn test_configure_nmx_cluster_v2_delegates_primary_setup_and_persists_observed_state(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut config = config_with_nmx_cluster_profile();
@@ -3540,7 +3409,7 @@ async fn test_configure_nmx_cluster_v2_preserves_workflow_and_uses_full_fabric(
     )
     .await;
 
-    run_configure_nmx_cluster_v2_workflow(&env, &rack_id, &switch_ids).await?;
+    run_configure_nmx_cluster_v2_workflow(&env, &rack_id).await?;
 
     assert_configure_nmx_cluster_v2_results(
         &env,

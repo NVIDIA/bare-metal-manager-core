@@ -1908,7 +1908,6 @@ impl NvSwitchManager for RmsBackend {
         endpoint: &SwitchEndpoint,
         domain_name: Option<&str>,
         services: Option<&[i32]>,
-        test_hello: bool,
     ) -> Result<String, ComponentManagerError> {
         let ids =
             resolve_switch_identities(&self.db, std::slice::from_ref(&endpoint.bmc_mac)).await?;
@@ -1933,15 +1932,7 @@ impl NvSwitchManager for RmsBackend {
             &resolved,
             hostnames.get(&endpoint.nvos_mac).cloned(),
         );
-
-        rms_configure_switch_certificate(
-            self.client.as_ref(),
-            device,
-            domain_name,
-            services,
-            test_hello,
-        )
-        .await
+        rms_configure_switch_certificate(self.client.as_ref(), device, domain_name, services).await
     }
 
     #[instrument(skip(self), fields(backend = "rms", job_id))]
@@ -2259,7 +2250,6 @@ async fn rms_configure_switch_certificate(
     device: rms::NodeInfo,
     domain_name: Option<&str>,
     services: Option<&[i32]>,
-    test_hello: bool,
 ) -> Result<String, ComponentManagerError> {
     let node_id = device.node_id.clone();
     let request = rms::ConfigureSwitchCertificateRequest {
@@ -2267,7 +2257,7 @@ async fn rms_configure_switch_certificate(
             nodes: vec![device],
         }),
         services: services.map(<[i32]>::to_vec).unwrap_or_default(),
-        test_hello,
+        test_hello: true,
         domain: domain_name.map(str::to_owned),
     };
 
@@ -2850,38 +2840,6 @@ mod tests {
                 "" => None,
             }
         );
-    }
-
-    #[tokio::test]
-    async fn configure_switch_certificate_forwards_test_hello() {
-        let mock = MockRmsApi::new();
-
-        mock.enqueue_configure_switch_certificate(Ok(MockRmsApi::configure_switch_certificate_ok(
-            "sw-1",
-            "cert-job-1",
-        )))
-        .await;
-
-        rms_configure_switch_certificate(
-            &mock,
-            rms::NodeInfo {
-                node_id: "sw-1".to_string(),
-                ..Default::default()
-            },
-            None,
-            None,
-            false,
-        )
-        .await
-        .expect("certificate request should succeed");
-
-        let calls = mock.configure_switch_certificate_calls().await;
-
-        let [call] = calls.as_slice() else {
-            panic!("expected exactly one configure switch certificate request");
-        };
-
-        assert!(!call.test_hello);
     }
 
     #[tokio::test]
@@ -4089,7 +4047,6 @@ mod tests {
             Some(&crate::config::switch_mtls_services_as_i32(
                 &SwitchMtlsService::default_services(),
             )),
-            true,
         )
         .await
         .unwrap();

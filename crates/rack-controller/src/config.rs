@@ -17,9 +17,20 @@
 
 use carbide_utils::config::as_std_duration;
 use duration_str::deserialize_duration;
-pub use model::rack::ScaleUpFabricManagerApiVersion;
 use model::rack_type::RackProfileConfig;
 use serde::{Deserialize, Serialize};
+
+/// RMS API used by the ScaleUpFabric Manager configuration workflow.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScaleUpFabricManagerApiVersion {
+    /// Uses the synchronous V1 workflow.
+    #[default]
+    V1,
+
+    /// Uses the asynchronous V2 workflow.
+    V2,
+}
 
 pub struct RackConfig {
     pub rms: RmsConfig,
