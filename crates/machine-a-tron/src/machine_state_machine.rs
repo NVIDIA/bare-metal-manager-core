@@ -406,6 +406,21 @@ impl MachineStateMachine {
                 },
                 FsmAction::PxeBootRequest => match self.pxe_boot_request().await {
                     Ok(os_image) => {
+                        // A netbooted DPU-agent image is this simulation's stand-in
+                        // for the DPF BFB install writing the OS to the DPU's disk,
+                        // so record it as installed at boot. NICo's PXE serves a DPU
+                        // EXIT in every DPUInit sub-state after Init; without a disk
+                        // OS to fall back on, any mid-walk reboot (BIOS setup, the
+                        // DPF reboot handshake, an external power-cycle) strands the
+                        // DPU OS-less and dpuinit never completes. Waiting for
+                        // initial discovery to succeed (which also sets this) is not
+                        // enough: at cold start discovery can fail before the record
+                        // exists, and the recovery reboot then EXITs into nothing.
+                        if matches!(self.machine_info, MachineInfo::Dpu(_))
+                            && matches!(os_image, OsImage::DpuAgent)
+                        {
+                            self.installed_os = OsImage::DpuAgent;
+                        }
                         self.actions.pop_front();
                         self.fsm_event(Event::PxeComplete(os_image))
                     }
@@ -708,8 +723,18 @@ impl MachineStateMachine {
             Err(MachineStateError::ClientApi(ClientApiError::InvocationError(status))) => {
                 match status.code() {
                     tonic::Code::InvalidArgument => {
-                        tracing::error!(error=%status, "Invalid argument return by discovery, likely not ingested yet.");
-                        Ok(None)
+                        // Not ingested yet: at MAT cold start the machines power on
+                        // and PXE the agent image BEFORE site-explorer has created
+                        // their machine records (on real hardware NICo powers hosts
+                        // on only after creation, so this window does not exist).
+                        // Treat it as retryable so the queued discovery action runs
+                        // again next iteration; giving up here (MachineNotFound)
+                        // permanently loses the installed OS — later reboots PXE
+                        // EXIT and boot OsImage::None, deadlocking dpuinit.
+                        tracing::warn!(error=%status, "Machine not ingested yet; retrying discovery until site-explorer creates it.");
+                        Err(MachineStateError::ClientApi(
+                            ClientApiError::InvocationError(status),
+                        ))
                     }
                     tonic::Code::NotFound => {
                         tracing::warn!(error=%status, "Machine not found in discovery, likely force deleted.");

@@ -66,8 +66,50 @@ impl MachineBootInterface {
     }
 }
 
+/// The logical boot-interface target NICo asked a Redfish backend to assess for
+/// a machine-setup observation.
+///
+/// Newer endpoint records retain the complete [`MachineBootInterface`] pair.
+/// Older records may only have the MAC, which remains a valid selector but
+/// must stay distinguishable from a pair. A backend may match with only the
+/// identifiers its read path supports -- NvRedfish currently uses the MAC --
+/// while this value keeps the `Pair` identity NICo requested. The state
+/// controller can therefore compare the logical target with its current target
+/// before trusting the associated setup status.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum MachineBootInterfaceTarget {
+    /// Both the MAC and vendor-native Redfish interface id are known.
+    Pair(MachineBootInterface),
+    /// Only the MAC is known.
+    MacOnly(MacAddress),
+}
+
+impl MachineBootInterfaceTarget {
+    /// Builds the strongest usable target from an endpoint record.
+    ///
+    /// A MAC plus a non-empty interface id becomes [`Self::Pair`]. A MAC
+    /// without an id remains [`Self::MacOnly`], while an id without a MAC
+    /// cannot identify an interface and yields `None`.
+    pub fn from_parts(
+        mac_address: Option<MacAddress>,
+        interface_id: Option<String>,
+    ) -> Option<Self> {
+        let mac_address = mac_address?;
+        Some(match interface_id.none_if_empty() {
+            Some(interface_id) => Self::Pair(MachineBootInterface {
+                mac_address,
+                interface_id,
+            }),
+            None => Self::MacOnly(mac_address),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
 
     #[test]
@@ -97,5 +139,39 @@ mod tests {
             "an interface id with no MAC is not fully populated"
         );
         assert_eq!(MachineBootInterface::from_parts(None, None), None);
+    }
+
+    #[test]
+    fn target_from_parts_preserves_the_available_selector() {
+        let mac = MacAddress::new([1, 2, 3, 4, 5, 6]);
+
+        value_scenarios!(run = |(mac_address, interface_id)| {
+            MachineBootInterfaceTarget::from_parts(mac_address, interface_id)
+        };
+            "complete pair" {
+                (Some(mac), Some("NIC.Slot.7-1-1".to_string())) =>
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address: mac,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+            }
+
+            "legacy MAC only" {
+                (Some(mac), None) => Some(MachineBootInterfaceTarget::MacOnly(mac)),
+            }
+
+            "empty interface id is MAC only" {
+                (Some(mac), Some(String::new())) =>
+                    Some(MachineBootInterfaceTarget::MacOnly(mac)),
+            }
+
+            "interface id without MAC" {
+                (None, Some("NIC.Slot.7-1-1".to_string())) => None,
+            }
+
+            "no target parts" {
+                (None, None) => None,
+            }
+        );
     }
 }

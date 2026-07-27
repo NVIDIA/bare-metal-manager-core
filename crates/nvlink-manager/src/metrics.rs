@@ -51,11 +51,12 @@ pub struct NvlPartitionMonitorMetrics {
     pub applied_changes: HashMap<AppliedChange, usize>,
     /// Time from nvlink_config_version for instances currently in Pending (time spent in Pending), in milliseconds
     pub nvlink_config_apply_durations_ms: Vec<f64>,
-    /// Chassis-level NMX-C connectivity failures that caused null nvlink status observations
+    /// Chassis- or rack-level NMX-C connectivity failures that caused null nvlink status observations.
+    /// Counted per machine group; the OTEL gauge name remains `..._unreachable_chassis_count` for continuity.
     pub num_nmx_c_unreachable_chassis: HashMap<ChassisNmxCUnreachableReason, usize>,
 }
 
-/// Why the partition monitor could not use NMX-C for a chassis during an iteration.
+/// Why the partition monitor could not use NMX-C for a machine group during an iteration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChassisNmxCUnreachableReason {
     /// No rack-switch NVOS IP or `nvlink_nmxc_endpoints` row resolved an endpoint URL.
@@ -493,7 +494,7 @@ impl NvlPartitionMonitorInstruments {
                     "carbide_nvlink_partition_monitor_nmx_c_unreachable_chassis_count",
                 )
                 .with_description(
-                    "Number of chassis where NMX-C was unreachable during partition monitor iteration",
+                    "Number of machine groups (chassis or rack) where NMX-C was unreachable during partition monitor iteration",
                 )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {

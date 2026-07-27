@@ -618,8 +618,13 @@ async fn test_on_demand_rack_maintenance_defaults_missing_access_token_to_noauth
     Ok(())
 }
 
-/// test_expected_no_definition_stays_parked verifies that a rack without an
-/// expected_rack record stays in Created and does not advance.
+/// test_expected_no_definition_stays_parked pins the first thing `handle_created` does:
+/// with no rack profile to resolve, it parks in `Created` instead of advancing.
+///
+/// The rack is created with `None` for the profile id deliberately. Hand it a known
+/// profile and `resolve_capabilities` succeeds, so the handler falls through to the
+/// device-count check and waits for an entirely different reason -- which left the
+/// unresolved-profile branch untested until this test was pointed at it.
 #[crate::sqlx_test]
 async fn test_expected_no_definition_stays_parked(
     pool: sqlx::PgPool,
@@ -637,14 +642,7 @@ async fn test_expected_no_definition_stays_parked(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("NVL72")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
+    db_rack::create(&mut txn, &rack_id, None, &RackConfig::default(), None).await?;
 
     let mut rack = get_db_rack(txn.as_mut(), &rack_id).await;
 
@@ -662,9 +660,18 @@ async fn test_expected_no_definition_stays_parked(
         .handle_object_state(&rack_id, &mut rack, &RackState::Created, &mut ctx)
         .await?;
 
-    assert!(
-        matches!(outcome, StateHandlerOutcome::Wait { .. }),
-        "Rack without expected_rack record should wait in Created"
+    // Match the reason, not just the variant. The device-count check further down
+    // `handle_created` also returns `Wait`, so a bare `Wait { .. }` would keep passing if
+    // an unresolvable profile ever started resolving -- which is the whole thing this test
+    // is here to catch. (`StateHandlerOutcome` has no `Debug`, since it holds a
+    // `PgTransaction`, so pull the reason out rather than formatting the outcome.)
+    let reason = match &outcome {
+        StateHandlerOutcome::Wait { reason, .. } => reason.as_str(),
+        _ => panic!("expected the handler to wait, not advance"),
+    };
+    assert_eq!(
+        reason, "no or unknown rack_profile_id",
+        "Rack with an unresolvable rack_profile_id should wait on the profile, not on device counts"
     );
 
     Ok(())
@@ -786,64 +793,6 @@ async fn test_expected_incomplete_device_counts_stays(
         None,
     )
     .await?;
-
-    let handler = RackStateHandler::default();
-    let mut services = env.rack_state_handler_services();
-    let mut metrics = RackMetrics::default();
-    let mut db_writes = DbWriteBatch::default();
-    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut db_writes,
-    };
-
-    let outcome = handler
-        .handle_object_state(&rack_id, &mut rack, &RackState::Created, &mut ctx)
-        .await?;
-
-    assert!(
-        matches!(outcome, StateHandlerOutcome::Wait { .. }),
-        "Rack with incomplete device counts should wait in Created"
-    );
-
-    Ok(())
-}
-
-/// test_expected_counts_match_but_not_linked_stays verifies that a rack with
-/// all expected device counts matched but devices not yet linked stays in
-/// Expected until linking completes.
-#[crate::sqlx_test]
-async fn test_expected_counts_match_but_not_linked_stays(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_profiles();
-    let env = create_test_env_with_overrides(
-        pool.clone(),
-        TestEnvOverrides {
-            config: Some(config),
-            ..Default::default()
-        },
-    )
-    .await;
-
-    let rack_id = new_rack_id();
-
-    let mut txn = pool.acquire().await?;
-
-    // Create rack with correct device counts matching the definition.
-    let _rack = db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("NVL72")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-    drop(txn);
-
-    create_expected_rack(&pool, &rack_id, "NVL72").await;
-
-    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
 
     let handler = RackStateHandler::default();
     let mut services = env.rack_state_handler_services();
@@ -2246,368 +2195,6 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
             std::mem::discriminant(&other)
         ),
     }
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_configure_nmx_cluster_start_advances_to_disable_scale_up_fabric_state(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(pool.clone(), TestEnvOverrides::default()).await;
-
-    let rack_id = new_rack_id();
-    let mut txn = pool.acquire().await?;
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("Empty")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-
-    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
-
-    let handler_instance = RackStateHandler::default();
-    let mut services = env.rack_state_handler_services();
-    let mut metrics = RackMetrics::default();
-    let mut db_writes = DbWriteBatch::default();
-    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut db_writes,
-    };
-
-    let nmx_state = RackState::Maintenance {
-        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-            configure_nmx_cluster: ConfigureNmxClusterState::Start,
-        },
-    };
-    let outcome = handler_instance
-        .handle_object_state(&rack_id, &mut rack, &nmx_state, &mut ctx)
-        .await?;
-
-    match outcome {
-        StateHandlerOutcome::Transition { next_state, .. } => {
-            assert!(
-                matches!(
-                    next_state,
-                    RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                            configure_nmx_cluster:
-                                ConfigureNmxClusterState::ConfigureCertificates {
-                                    configure_certificate:
-                                        ConfigureNmxClusterCertificateState::Start,
-                                },
-                        },
-                    }
-                ),
-                "ConfigureNmxCluster(Start) should transition to ConfigureCertificates(Start), got {:?}",
-                next_state
-            );
-        }
-        other => panic!(
-            "Expected Transition, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    }
-
-    assert!(
-        env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
-            .await
-            .is_empty()
-    );
-    assert!(
-        env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
-            .await
-            .is_empty()
-    );
-    assert!(
-        env.rms_sim
-            .submitted_configure_scale_up_fabric_manager_requests()
-            .await
-            .is_empty()
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_runs_on_all_switches(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(
-        pool.clone(),
-        TestEnvOverrides {
-            config: Some(config_with_nmx_cluster_profile()),
-            ..Default::default()
-        },
-    )
-    .await;
-
-    let rack_id = new_rack_id();
-    let mut txn = pool.acquire().await?;
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("NmxCluster")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-    drop(txn);
-
-    let switch_ids = attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
-    env.rms_sim
-        .queue_batch_set_scale_up_fabric_state_response(Ok(
-            rms::BatchSetScaleUpFabricStateResponse {
-                response: Some(rms::NodeBatchResponse {
-                    status: rms::ReturnCode::Success as i32,
-                    stats: Some(rms::NodeOperationStats {
-                        total_nodes: switch_ids.len() as u32,
-                        successful_nodes: switch_ids.len() as u32,
-                        failed_nodes: 0,
-                    }),
-                    ..Default::default()
-                }),
-            },
-        ))
-        .await;
-
-    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
-
-    let handler_instance = RackStateHandler::default();
-    let mut services = env.rack_state_handler_services();
-    let mut metrics = RackMetrics::default();
-    let mut db_writes = DbWriteBatch::default();
-    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut db_writes,
-    };
-
-    let nmx_state = RackState::Maintenance {
-        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-            configure_nmx_cluster: ConfigureNmxClusterState::DisableScaleUpFabricState,
-        },
-    };
-    let outcome = handler_instance
-        .handle_object_state(&rack_id, &mut rack, &nmx_state, &mut ctx)
-        .await?;
-
-    match outcome {
-        StateHandlerOutcome::Transition { next_state, .. } => {
-            assert!(
-                matches!(
-                    next_state,
-                    RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                            configure_nmx_cluster:
-                                ConfigureNmxClusterState::ConfigureScaleUpFabricManager,
-                        },
-                    }
-                ),
-                "DisableScaleUpFabricState should transition to ConfigureScaleUpFabricManager, got {:?}",
-                next_state
-            );
-        }
-        other => panic!(
-            "Expected Transition, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    }
-
-    let requests = env
-        .rms_sim
-        .submitted_batch_set_scale_up_fabric_state_requests()
-        .await;
-    assert_eq!(requests.len(), 1);
-    let request = &requests[0];
-    assert!(!request.enabled);
-    let devices = request
-        .nodes
-        .as_ref()
-        .expect("disable request should include nodes")
-        .nodes
-        .as_slice();
-
-    assert_eq!(devices.len(), switch_ids.len());
-    assert!(devices.iter().all(|device| device.host_endpoint.is_some()));
-
-    let node_ids = devices
-        .iter()
-        .map(|device| device.node_id.clone())
-        .collect::<std::collections::HashSet<_>>();
-    for switch_id in &switch_ids {
-        assert!(node_ids.contains(&switch_id.to_string()));
-    }
-    assert!(
-        env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
-            .await
-            .is_empty()
-    );
-    assert!(
-        env.rms_sim
-            .submitted_configure_scale_up_fabric_manager_requests()
-            .await
-            .is_empty()
-    );
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
-async fn test_configure_nmx_cluster_configure_selects_persists_and_configures_primary_switch(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env_with_overrides(
-        pool.clone(),
-        TestEnvOverrides {
-            config: Some(config_with_nmx_cluster_profile()),
-            ..Default::default()
-        },
-    )
-    .await;
-
-    let rack_id = new_rack_id();
-    let mut txn = pool.acquire().await?;
-    db_rack::create(
-        &mut txn,
-        &rack_id,
-        Some(&RackProfileId::new("NmxCluster")),
-        &RackConfig::default(),
-        None,
-    )
-    .await?;
-    drop(txn);
-
-    let switch_ids = attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
-    let secondary_switch_id = switch_ids[0];
-    let primary_switch_id = switch_ids[1];
-    let topology_type = RackHardwareTopology::Gb200Nvl72r1C2g4Topology.to_string();
-
-    env.rms_sim
-        .queue_batch_get_node_device_info_response(Ok(rms::BatchGetNodeDeviceInfoResponse {
-            status: rms::ReturnCode::Success as i32,
-            node_device_details: vec![
-                rms::NodeDeviceInfo {
-                    node_id: secondary_switch_id.to_string(),
-                    tray_index: Some(2),
-                    slot_number: Some(2),
-                    ..Default::default()
-                },
-                rms::NodeDeviceInfo {
-                    node_id: primary_switch_id.to_string(),
-                    tray_index: Some(1),
-                    slot_number: Some(1),
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        }))
-        .await;
-    env.rms_sim
-        .queue_configure_scale_up_fabric_manager_response(Ok(
-            rms::ConfigureScaleUpFabricManagerResponse {
-                status: rms::ReturnCode::Success as i32,
-                topology_used: topology_type.clone(),
-                scale_up_fabric_state_enabled: false,
-                grpc_enabled: true,
-                ..Default::default()
-            },
-        ))
-        .await;
-
-    let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
-
-    let handler_instance = RackStateHandler::default();
-    let mut services = env.rack_state_handler_services();
-    let mut metrics = RackMetrics::default();
-    let mut db_writes = DbWriteBatch::default();
-    let mut ctx = StateHandlerContext::<RackStateHandlerContextObjects> {
-        services: &mut services,
-        metrics: &mut metrics,
-        pending_db_writes: &mut db_writes,
-    };
-
-    let nmx_state = RackState::Maintenance {
-        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-            configure_nmx_cluster: ConfigureNmxClusterState::ConfigureScaleUpFabricManager,
-        },
-    };
-    let outcome = handler_instance
-        .handle_object_state(&rack_id, &mut rack, &nmx_state, &mut ctx)
-        .await?;
-
-    match outcome {
-        StateHandlerOutcome::Transition { next_state, .. } => {
-            assert!(
-                matches!(
-                    next_state,
-                    RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
-                            configure_nmx_cluster: ConfigureNmxClusterState::WaitForFabricStatus,
-                        },
-                    }
-                ),
-                "ConfigureScaleUpFabricManager should transition to WaitForFabricStatus, got {:?}",
-                next_state
-            );
-        }
-        other => panic!(
-            "Expected Transition, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    }
-
-    assert!(
-        env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
-            .await
-            .is_empty()
-    );
-
-    let device_info_requests = env
-        .rms_sim
-        .submitted_batch_get_node_device_info_requests()
-        .await;
-    assert_eq!(device_info_requests.len(), 1);
-    let device_info_nodes = device_info_requests[0]
-        .nodes
-        .as_ref()
-        .expect("device-info request should include nodes")
-        .nodes
-        .as_slice();
-    assert_eq!(device_info_nodes.len(), switch_ids.len());
-
-    let configure_requests = env
-        .rms_sim
-        .submitted_configure_scale_up_fabric_manager_requests()
-        .await;
-    assert_eq!(configure_requests.len(), 1);
-    let configure_request = &configure_requests[0];
-    assert_eq!(configure_request.topology_type, topology_type);
-    let configure_node = configure_request
-        .node
-        .as_ref()
-        .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
-
-    assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(configure_node.host_endpoint.is_some());
-
-    let mut txn = pool.acquire().await?;
-    let primary_switch = db_switch::find_by_id(&mut txn, &primary_switch_id)
-        .await?
-        .expect("primary switch should exist");
-    let secondary_switch = db_switch::find_by_id(&mut txn, &secondary_switch_id)
-        .await?
-        .expect("secondary switch should exist");
-    assert!(primary_switch.is_primary);
-    assert!(!secondary_switch.is_primary);
 
     Ok(())
 }

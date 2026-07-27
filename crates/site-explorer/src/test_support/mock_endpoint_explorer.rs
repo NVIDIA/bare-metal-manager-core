@@ -20,9 +20,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{PowerState, RoleId, SystemPowerControl};
-use mac_address::MacAddress;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
@@ -32,6 +32,13 @@ use model::site_explorer::{
 use tokio::sync::Notify;
 
 use crate::{EndpointExplorer, SiteExplorationMetrics};
+
+/// One recorded endpoint exploration and its boot-interface target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndpointExplorationCall {
+    pub ip_address: IpAddr,
+    pub boot_interface: Option<BootInterfaceTarget>,
+}
 
 #[derive(Clone)]
 pub struct MockEndpointExplorationBlocker {
@@ -76,8 +83,8 @@ pub struct MockEndpointExplorer {
     /// mode) so tests can assert the auto-correct path fired with the
     /// right arguments.
     pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, BlueFieldOperatingMode)>>>,
-    /// Records IPs that `explore_endpoint` was called for.
-    pub explore_endpoint_calls: Arc<Mutex<Vec<IpAddr>>>,
+    /// Records each call to `explore_endpoint`.
+    pub explore_endpoint_calls: Arc<Mutex<Vec<EndpointExplorationCall>>>,
     next_exploration_blocker: Arc<Mutex<Option<MockEndpointExplorationBlocker>>>,
     /// Real explorer that `machine_setup`/`set_boot_order_dpu_first` forward to
     /// (see [`Self::with_redfish_backend`]); `None` for the pure in-memory mock
@@ -178,13 +185,16 @@ impl EndpointExplorer for MockEndpointExplorer {
         _interface: &MachineInterfaceSnapshot,
         _expected: Option<&ExpectedEntity>,
         _last_error: Option<&EndpointExplorationError>,
-        _boot_interface_mac: Option<MacAddress>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         tracing::info!(%bmc_ip_address, "Endpoint is getting explored");
         self.explore_endpoint_calls
             .lock()
             .unwrap()
-            .push(bmc_ip_address.ip());
+            .push(EndpointExplorationCall {
+                ip_address: bmc_ip_address.ip(),
+                boot_interface: boot_interface.cloned(),
+            });
         let blocker = self.next_exploration_blocker.lock().unwrap().take();
         if let Some(blocker) = blocker {
             blocker.started.notify_one();

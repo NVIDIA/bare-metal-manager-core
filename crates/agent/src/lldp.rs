@@ -25,6 +25,8 @@ use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
 use tokio::process::Command;
 
+use crate::instrumentation::LldpdRestart;
+
 // FIXME: This should probably be configurable and come from the API's config
 // file.
 const SITE_OPERATOR: &str = "Forge-SRE (ngc-forge-sre@exchange.nvidia.com)";
@@ -37,6 +39,20 @@ const LLDPD_RESTART_ATTEMPTS: u8 = 3;
 const LLDP_MED_CONFIGURATION_CHECK_ATTEMPTS: u8 = 3;
 const LLDPCLI_TIMEOUT: Duration = Duration::from_secs(10);
 const LLDPD_RESTART_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LldpdRestartFailureAction {
+    Retry,
+    ReturnError,
+}
+
+fn lldpd_restart_failure_action(attempt: u8) -> LldpdRestartFailureAction {
+    if attempt == LLDPD_RESTART_ATTEMPTS {
+        LldpdRestartFailureAction::ReturnError
+    } else {
+        LldpdRestartFailureAction::Retry
+    }
+}
 
 pub(crate) async fn prepare_lldp() -> eyre::Result<()> {
     let interfaces_config_disabled = disable_interfaces_config()?;
@@ -249,22 +265,28 @@ async fn restart_lldpd() -> eyre::Result<()> {
 
         match restart_result {
             Ok(()) => {
-                tracing::info!(attempt, "Restarted lldpd service");
+                LldpdRestart::Succeeded { attempt }.emit();
                 return Ok(());
             }
-            Err(error) if attempt == LLDPD_RESTART_ATTEMPTS => {
-                tracing::error!(
-                    error = %error,
-                    attempt_count = attempt,
-                    "Couldn't restart lldpd service"
-                );
-                return Err(error);
-            }
-            Err(error) => {
-                tracing::warn!(error = %error, attempt, "Couldn't restart lldpd service, retrying");
-                tokio::time::sleep(Duration::from_secs(u64::from(attempt))).await;
-                attempt += 1;
-            }
+            Err(error) => match lldpd_restart_failure_action(attempt) {
+                LldpdRestartFailureAction::Retry => {
+                    LldpdRestart::Retrying {
+                        error: error.to_string(),
+                        attempt,
+                    }
+                    .emit();
+                    tokio::time::sleep(Duration::from_secs(u64::from(attempt))).await;
+                    attempt += 1;
+                }
+                LldpdRestartFailureAction::ReturnError => {
+                    LldpdRestart::Failed {
+                        error: error.to_string(),
+                        attempt_count: attempt,
+                    }
+                    .emit();
+                    return Err(error);
+                }
+            },
         }
     }
 }
@@ -396,6 +418,20 @@ mod tests {
                 r#"{"configuration":[{"config":[{}]}]}"# => Fails,
                 r#"{"configuration":[{"config":[{"lldpmed-no-inventory":[{"value":"maybe"}]}]}]}"# =>
                     Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn lldpd_restart_failures_retry_until_the_final_attempt() {
+        value_scenarios!(lldpd_restart_failure_action:
+            "retry budget remains" {
+                1 => LldpdRestartFailureAction::Retry,
+                2 => LldpdRestartFailureAction::Retry,
+            }
+
+            "retry budget is exhausted" {
+                3 => LldpdRestartFailureAction::ReturnError,
             }
         );
     }

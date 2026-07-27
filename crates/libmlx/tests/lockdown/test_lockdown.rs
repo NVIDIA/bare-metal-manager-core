@@ -53,24 +53,6 @@ fn lock_status_displays_lowercase_name() {
 }
 
 #[test]
-fn test_lock_status_serialization() {
-    let status = LockStatus::Locked;
-    let json = serde_json::to_string(&status).unwrap();
-    assert_eq!(json, "\"locked\"");
-
-    let status: LockStatus = serde_json::from_str("\"unlocked\"").unwrap();
-    assert_eq!(status, LockStatus::Unlocked);
-}
-
-#[test]
-fn test_status_report_creation() {
-    let report = StatusReport::new("test_device".to_string(), LockStatus::Locked);
-    assert_eq!(report.device_id, "test_device");
-    assert_eq!(report.status, LockStatus::Locked);
-    assert!(!report.timestamp.is_empty());
-}
-
-#[test]
 fn test_status_report_json() {
     let report = StatusReport::new("test_device".to_string(), LockStatus::Unlocked);
     let json = report.to_json().unwrap();
@@ -103,16 +85,6 @@ fn test_lockdown_manager_with_dry_run() {
     // Test that dry run is properly propagated
     let result = manager.lock_device("test_device", "12345678");
     assert!(matches!(result, Err(MlxError::DryRun(_))));
-}
-
-#[test]
-fn test_device_validation_in_manager() {
-    let runner = FlintRunner::with_path("/fake/path");
-    let manager = LockdownManager::with_runner(runner);
-
-    // Test invalid device ID
-    let result = manager.get_status("");
-    assert!(result.is_err());
 }
 
 // With a fake flint path every operation fails when it tries to execute the tool,

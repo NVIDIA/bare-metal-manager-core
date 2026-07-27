@@ -152,6 +152,7 @@ mod tests {
             collector_type: "sensor_collector",
             metadata: None,
             rack_id: Some(RackId::new(rack)),
+            labels: Default::default(),
         }
     }
 
@@ -166,6 +167,7 @@ mod tests {
             collector_type: "sensor_collector",
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         }
     }
 

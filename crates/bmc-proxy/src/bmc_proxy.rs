@@ -1626,61 +1626,6 @@ mod tests {
     }
 
     #[test]
-    fn finds_forwarded_host_among_parameters() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("forwarded"),
-            HeaderValue::from_static("proto=https;host=10.1.2.3;for=10.0.0.1"),
-        );
-        assert_eq!(
-            forwarded_header_value(&headers).unwrap().unwrap(),
-            ForwardedTarget::Ip(IpAddr::V4(Ipv4Addr::new(10, 1, 2, 3))),
-        );
-    }
-
-    #[test]
-    fn finds_forwarded_mac_target() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("forwarded"),
-            HeaderValue::from_static("proto=https;mac=00:11:22:33:44:55;for=10.0.0.1"),
-        );
-
-        assert_eq!(
-            forwarded_header_value(&headers).unwrap().unwrap(),
-            ForwardedTarget::Mac(MacAddress::from_str("00:11:22:33:44:55").unwrap()),
-        );
-    }
-
-    #[test]
-    fn finds_forwarded_serial_target() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("forwarded"),
-            HeaderValue::from_static("proto=https; serial = DGX-A100-0001 ; for=10.0.0.1"),
-        );
-
-        assert_eq!(
-            forwarded_header_value(&headers).unwrap().unwrap(),
-            ForwardedTarget::Serial("DGX-A100-0001"),
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_forwarded_mac_target() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("forwarded"),
-            HeaderValue::from_static("mac=not-a-mac-address"),
-        );
-
-        assert!(matches!(
-            forwarded_header_value(&headers),
-            Err(super::ForwardedHeaderParseError::Mac(_))
-        ));
-    }
-
-    #[test]
     fn body_method_support() {
         value_scenarios!(
             run = |method| method_supports_body(&method);

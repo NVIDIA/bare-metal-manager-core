@@ -106,7 +106,8 @@ use errors::{SiteExplorerError, SiteExplorerResult};
 use self::metrics::{
     BmcResetFinished, BmcResetMethod, BmcResetStatus, BmcResetTimestampPersistenceFailed,
     DpuMigrationSignal, PairingBlockerReason, SiteExplorerIterationFinished,
-    exploration_error_to_metric_label,
+    SiteExplorerMachineSlotTrayFetchFailed, SiteExplorerMachineSlotTrayResponseMissing,
+    SiteExplorerMachineSlotTrayValueInvalid, exploration_error_to_metric_label,
 };
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
@@ -210,8 +211,14 @@ pub(crate) async fn ensure_rack_exists(
     }
 }
 
-/// Fetches slot_number and tray_index from the RMS for a given rack/node pair.
-/// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
+fn rms_location_value(value: Option<u32>) -> Result<Option<i32>, u32> {
+    value
+        .map(|value| i32::try_from(value).map_err(|_| value))
+        .transpose()
+}
+
+/// Fetches `slot_number` and `tray_index` from RMS for one rack/node pair.
+/// Each value remains usable when the other is absent or outside `i32`.
 pub async fn fetch_slot_and_tray(
     rms_client: &dyn librms::RmsApi,
     request: librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest,
@@ -219,23 +226,29 @@ pub async fn fetch_slot_and_tray(
     match rms_client.batch_get_node_device_info(request).await {
         Ok(info) => {
             let Some(node_device_details) = info.node_device_details.first() else {
+                carbide_instrument::emit(SiteExplorerMachineSlotTrayResponseMissing::new());
                 return (None, None);
             };
 
-            let slot_number = node_device_details
-                .slot_number
-                .and_then(|value| i32::try_from(value).ok());
-            let tray_index = node_device_details
-                .tray_index
-                .and_then(|value| i32::try_from(value).ok());
+            let slot_number =
+                rms_location_value(node_device_details.slot_number).unwrap_or_else(|value| {
+                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::slot_number(
+                        value,
+                    ));
+                    None
+                });
+            let tray_index =
+                rms_location_value(node_device_details.tray_index).unwrap_or_else(|value| {
+                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::tray_index(
+                        value,
+                    ));
+                    None
+                });
 
             (slot_number, tray_index)
         }
         Err(e) => {
-            tracing::warn!(
-                error = %e,
-                "Failed to get device info from RMS, slot_number and tray_index will be unset"
-            );
+            carbide_instrument::emit(SiteExplorerMachineSlotTrayFetchFailed::new(e.to_string()));
             (None, None)
         }
     }
@@ -2335,7 +2348,10 @@ impl SiteExplorer {
                             endpoint
                                 .last_explored
                                 .and_then(|e| e.report.last_exploration_error.as_ref()),
-                            endpoint.last_explored.and_then(|e| e.boot_interface_mac),
+                            endpoint
+                                .last_explored
+                                .and_then(ExploredEndpoint::boot_interface_target)
+                                .map(Into::into),
                         )
                         .await
                     else {
@@ -4144,11 +4160,40 @@ fn health_reports_equal_ignoring_observed_at(
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, value_scenarios};
+    use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
     use model::site_explorer::PreingestionState;
 
     use super::*;
+
+    #[test]
+    fn rms_location_value_preserves_valid_and_absent_values_and_returns_out_of_range_input() {
+        check_values(
+            [
+                Check {
+                    scenario: "valid value",
+                    input: Some(42),
+                    expect: Ok(Some(42)),
+                },
+                Check {
+                    scenario: "absent value",
+                    input: None,
+                    expect: Ok(None),
+                },
+                Check {
+                    scenario: "first value outside i32",
+                    input: Some(i32::MAX as u32 + 1),
+                    expect: Err(i32::MAX as u32 + 1),
+                },
+                Check {
+                    scenario: "largest value outside i32",
+                    input: Some(u32::MAX),
+                    expect: Err(u32::MAX),
+                },
+            ],
+            rms_location_value,
+        );
+    }
 
     #[test]
     fn in_memory_marker_keeps_bmc_reset_throttled_when_persist_fails() {

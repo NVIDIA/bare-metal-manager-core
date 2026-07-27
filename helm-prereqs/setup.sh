@@ -293,6 +293,32 @@ helmfile sync -l name=postgres-operator
 _SETUP_PHASE="[1c] MetalLB"
 echo "=== [1c] MetalLB ==="
 
+# CRDs are applied directly (server-side), not helm-managed: MetalLB's cert
+# rotator takes SSA ownership of the CRD conversion-webhook caBundle after
+# install, so a helm-managed CRD upgrade conflicts on every re-sync (see
+# operators/values/metallb.yaml crds.enabled=false). --force-conflicts keeps
+# this idempotent against the rotator's field ownership.
+echo "Applying MetalLB CRDs (server-side)..."
+# Single source of truth for the chart version is the metallb release in
+# helmfile.yaml — read it from there so this bootstrap and the helm release
+# cannot drift when the version is bumped.
+METALLB_CHART_VERSION="$(awk '/chart: metallb\/metallb/{found=1} found && /^[[:space:]]*version:/{gsub(/"/,"",$2); print $2; exit}' helmfile.yaml)"
+if [[ -z "${METALLB_CHART_VERSION}" ]]; then
+    echo "ERROR: could not read the metallb chart version from helmfile.yaml" >&2
+    exit 1
+fi
+# The awk filter emits only CustomResourceDefinition documents, splitting on
+# '---' separator lines itself (POSIX awk/mawk/BusyBox treat a multi-character
+# RS as its first character only, so RS="\n---\n" is not portable). helm's
+# stderr is left attached so a repo/render failure says what actually broke
+# instead of surfacing as a confusing kubectl parse error downstream.
+helm template metallb metallb/metallb --version "${METALLB_CHART_VERSION}" -n metallb-system --include-crds \
+    | awk '
+        /^---[[:space:]]*$/ { if (doc ~ /kind: CustomResourceDefinition/) printf "%s---\n", doc; doc = ""; next }
+        { doc = doc $0 "\n" }
+        END { if (doc ~ /kind: CustomResourceDefinition/) printf "%s", doc }' \
+    | kubectl apply --server-side --force-conflicts -f -
+
 helmfile sync -l name=metallb
 
 echo "Waiting for MetalLB controller to be ready..."

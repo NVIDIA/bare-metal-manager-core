@@ -442,6 +442,7 @@ fn build_endpoints(
             addr,
             metadata: None,
             rack_id: node.rack.as_deref().map(RackId::new),
+            labels: Default::default(),
             bmc,
         }));
     }

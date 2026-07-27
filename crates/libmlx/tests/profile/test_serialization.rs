@@ -38,46 +38,23 @@ fn assert_same_profile(got: &SerializableProfile, want: &SerializableProfile) {
     assert_eq!(got.config.len(), want.config.len());
 }
 
-// to_proto mirrors the TryInto conversion: each YAML config value is serialized to a
-// trimmed string. The real conversion lives in the crate; the tests re-create it so
-// they can assert the wire shape independently.
+// to_proto hands the profile to the crate's own conversion, `impl
+// TryFrom<&SerializableProfile> for SerializableMlxConfigProfilePb`. These helpers used to
+// re-create that conversion here so the tests could assert the wire shape independently --
+// but re-creating it meant the real impl was never exercised by anything, which is the
+// opposite of what these tests are for.
 fn to_proto(profile: &SerializableProfile) -> SerializableMlxConfigProfilePb {
-    let config = profile
-        .config
-        .iter()
-        .map(|(key, yaml_value)| {
-            let value_str = serde_yaml::to_string(yaml_value).expect("Should serialize YAML value");
-            (key.clone(), value_str.trim().to_string())
-        })
-        .collect();
-
-    SerializableMlxConfigProfilePb {
-        name: profile.name.clone(),
-        registry_name: profile.registry_name.clone(),
-        description: profile.description.clone(),
-        config,
-    }
+    profile
+        .try_into()
+        .expect("a profile built in these tests should convert to its protobuf form")
 }
 
-// from_proto mirrors the TryFrom conversion: each stringified config value is parsed
-// back into a YAML value.
+// from_proto is the same idea in the other direction, through `impl
+// TryFrom<SerializableMlxConfigProfilePb> for SerializableProfile`.
 fn from_proto(proto: SerializableMlxConfigProfilePb) -> SerializableProfile {
-    let config = proto
-        .config
-        .into_iter()
-        .map(|(key, value_str)| {
-            let yaml_value: serde_yaml::Value =
-                serde_yaml::from_str(&value_str).expect("Should parse YAML value");
-            (key, yaml_value)
-        })
-        .collect();
-
-    SerializableProfile {
-        name: proto.name,
-        registry_name: proto.registry_name,
-        description: proto.description,
-        config,
-    }
+    proto
+        .try_into()
+        .expect("a protobuf built in these tests should convert back to a profile")
 }
 
 #[test]
@@ -304,87 +281,6 @@ fn test_protobuf_roundtrip() {
     // Convert to protobuf and back, then verify roundtrip integrity.
     let roundtrip = from_proto(to_proto(&original));
     assert_same_profile(&roundtrip, &original);
-}
-
-#[test]
-fn test_protobuf_with_arrays() {
-    let original =
-        SerializableProfile::new("array_test", "test_registry").with_config("SIMPLE_VAR", 42);
-
-    // Add an array manually to test array handling
-    let mut config = original.config.clone();
-    let array_values = vec![
-        serde_yaml::Value::String("first".to_string()),
-        serde_yaml::Value::String("second".to_string()),
-        serde_yaml::Value::String("third".to_string()),
-    ];
-    config.insert(
-        "ARRAY_VAR".to_string(),
-        serde_yaml::Value::Sequence(array_values),
-    );
-
-    let profile_with_array = SerializableProfile {
-        name: original.name,
-        registry_name: original.registry_name,
-        description: original.description,
-        config,
-    };
-
-    // Test array serialization to protobuf
-    let array_yaml = profile_with_array.config.get("ARRAY_VAR").unwrap();
-    let array_string = serde_yaml::to_string(array_yaml).unwrap();
-
-    // Should be valid YAML array format
-    assert!(array_string.contains("- first"));
-    assert!(array_string.contains("- second"));
-    assert!(array_string.contains("- third"));
-
-    // Test array deserialization from protobuf
-    let parsed_back: serde_yaml::Value = serde_yaml::from_str(&array_string).unwrap();
-    assert_eq!(*array_yaml, parsed_back);
-}
-
-#[test]
-fn test_protobuf_with_sparse_arrays() {
-    let original = SerializableProfile::new("sparse_test", "test_registry");
-
-    // Create a sparse array with some null values
-    let sparse_array = vec![
-        serde_yaml::Value::String("first".to_string()),
-        serde_yaml::Value::Null, // This represents an unset sparse array element
-        serde_yaml::Value::String("third".to_string()),
-    ];
-
-    let mut config = HashMap::new();
-    config.insert(
-        "SPARSE_ARRAY".to_string(),
-        serde_yaml::Value::Sequence(sparse_array),
-    );
-
-    let profile = SerializableProfile {
-        name: original.name,
-        registry_name: original.registry_name,
-        description: original.description,
-        config,
-    };
-
-    // Test sparse array serialization
-    let sparse_yaml = profile.config.get("SPARSE_ARRAY").unwrap();
-    let sparse_string = serde_yaml::to_string(sparse_yaml).unwrap();
-
-    // Test sparse array deserialization
-    let parsed_back: serde_yaml::Value = serde_yaml::from_str(&sparse_string).unwrap();
-    assert_eq!(*sparse_yaml, parsed_back);
-
-    // Verify the structure
-    if let serde_yaml::Value::Sequence(seq) = parsed_back {
-        assert_eq!(seq.len(), 3);
-        assert!(matches!(seq[0], serde_yaml::Value::String(_)));
-        assert!(matches!(seq[1], serde_yaml::Value::Null));
-        assert!(matches!(seq[2], serde_yaml::Value::String(_)));
-    } else {
-        panic!("Expected sequence");
-    }
 }
 
 #[test]

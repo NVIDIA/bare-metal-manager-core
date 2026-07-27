@@ -7382,6 +7382,9 @@ message SkuComponentStorage {
   string model = 2;
   uint32 count = 3;
   uint32 capacity_mb = 4;
+  optional uint32 min_size_mb = 5;
+  optional uint32 max_size_mb = 6;
+  repeated string pci_patterns = 7;
 }
 
 message SkuComponentStorageController {

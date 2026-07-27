@@ -1102,6 +1102,7 @@ mod tests {
             collector_type: NVUE_GNMI_SAMPLE_STREAM_ID,
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         };
         GnmiSampleProcessor {
             data_sink: None,
@@ -1167,6 +1168,7 @@ mod tests {
                     mac: MacAddress::from_str("AA:BB:CC:DD:EE:FF").unwrap(),
                 },
                 collector_type: NVUE_GNMI_SAMPLE_STREAM_ID,
+                labels: Default::default(),
                 metadata: Some(EndpointMetadata::Switch(SwitchData {
                     id: Some(switch_id),
                     serial: "SN-SWITCH-001".to_string(),

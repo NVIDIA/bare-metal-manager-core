@@ -936,7 +936,12 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
         .unwrap();
 
     // Delete should succeed now.
-    _ = force_delete(&env, &tmp_machine_id);
+    let response = force_delete(&env, &tmp_machine_id).await;
+    assert!(
+        response.all_done,
+        "the machine should delete once its instance type association is cleared"
+    );
+    assert!(env.find_machine(tmp_machine_id).await.is_empty());
 }
 
 /// Force delete with DPF: the node_id and dpu_device_names passed to

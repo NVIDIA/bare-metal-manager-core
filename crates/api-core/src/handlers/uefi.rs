@@ -89,7 +89,11 @@ async fn host_uefi_device_version(
 /// Read the host UEFI credential at `key`, mapping a store error or a missing
 /// secret to a `CarbideError`. Used to resolve the password the low-level
 /// `redfish` UEFI calls apply (they no longer read the store themselves).
-async fn read_uefi_credentials(
+///
+/// Takes no database connection: the reader can be Vault-backed, so callers
+/// resolve the version-to-`key` half against the DB first, commit, then call
+/// this -- the remote read must not run while a connection is held.
+pub(crate) async fn read_uefi_credentials(
     reader: &dyn CredentialReader,
     key: &CredentialKey,
 ) -> Result<Credentials, CarbideError> {
@@ -107,37 +111,39 @@ async fn read_uefi_credentials(
         })
 }
 
-/// Resolve the site-wide host UEFI credential to *set* on a device: the secret
-/// at the current `host_uefi` target version (table-driven; v0 = the legacy
-/// unversioned site-default).
-// TODO(#2991, @spydaNVIDIA): do not hold the database connection while the
-// credential reader may perform a remote Vault request.
-#[allow(txn_held_across_await)]
-pub(crate) async fn host_uefi_set_credentials(
+/// The `CredentialKey` for the site-wide host UEFI password to *set* on a
+/// device: the secret at the current `host_uefi` target version (table-driven;
+/// v0 = the legacy unversioned site-default).
+///
+/// This is the database half of resolving the credential -- it reads only the
+/// version and returns the key. The caller reads the secret with
+/// `read_uefi_credentials` after committing, so no connection is held across the
+/// remote reader (Vault) request.
+pub(crate) async fn host_uefi_set_credential_key(
     conn: &mut sqlx::PgConnection,
-    reader: &dyn CredentialReader,
-) -> Result<Credentials, CarbideError> {
+) -> Result<CredentialKey, CarbideError> {
     let version = host_uefi_target_version(conn).await.map_err(|e| {
         CarbideError::internal(format!("failed to read host UEFI target version: {e}"))
     })?;
-    read_uefi_credentials(reader, &CredentialKey::host_uefi_site_default(version)).await
+    Ok(CredentialKey::host_uefi_site_default(version))
 }
 
-/// Resolve the host UEFI credential a device currently carries, to authenticate
-/// a *clear* against its existing password (the device's converged version; see
-/// [`host_uefi_device_version`]).
-// TODO(#2991, @spydaNVIDIA): do not hold the database connection while the
-// credential reader may perform a remote Vault request.
-#[allow(txn_held_across_await)]
-pub(crate) async fn host_uefi_clear_credentials(
+/// The `CredentialKey` for the host UEFI password a device currently holds, to
+/// authenticate a *clear* against its existing password (the device's converged
+/// version; see [`host_uefi_device_version`]).
+///
+/// Like `host_uefi_set_credential_key`, this is only the database half: it reads
+/// the device version and returns the key. The caller reads the secret with
+/// `read_uefi_credentials` after committing, so no connection is held across the
+/// remote reader (Vault) request.
+pub(crate) async fn host_uefi_clear_credential_key(
     conn: &mut sqlx::PgConnection,
-    reader: &dyn CredentialReader,
     bmc_mac: mac_address::MacAddress,
-) -> Result<Credentials, CarbideError> {
+) -> Result<CredentialKey, CarbideError> {
     let version = host_uefi_device_version(conn, bmc_mac).await.map_err(|e| {
         CarbideError::internal(format!("failed to read host UEFI device version: {e}"))
     })?;
-    read_uefi_credentials(reader, &CredentialKey::host_uefi_site_default(version)).await
+    Ok(CredentialKey::host_uefi_site_default(version))
 }
 
 pub(crate) async fn clear_host_uefi_password(
@@ -231,16 +237,17 @@ pub(crate) async fn clear_host_uefi_password(
         db::machine_interface::lookup_bmc_access_info(&mut txn, addr.ip(), Some(addr.port()))
             .await?;
 
-    // Resolve the credential the device currently carries so the clear
-    // authenticates with the right password (table-driven; see
-    // `host_uefi_clear_credentials`). Done before the commit while the txn is
-    // open.
-    let clear_credentials =
-        host_uefi_clear_credentials(&mut txn, api.redfish_pool.credential_reader(), bmc_mac)
-            .await?;
+    // Resolve which credential the clear must authenticate with -- the password
+    // the device currently holds, keyed by its converged version (table-driven;
+    // see `host_uefi_clear_credential_key`). This is the DB half; do it while the
+    // txn is open.
+    let clear_key = host_uefi_clear_credential_key(&mut txn, bmc_mac).await?;
 
-    // Don't hold the transaction across an await point
+    // Commit before the remote reader (Vault) request so the connection is not
+    // held across it, then read the actual secret.
     txn.commit().await?;
+    let clear_credentials =
+        read_uefi_credentials(api.redfish_pool.credential_reader(), &clear_key).await?;
 
     let redfish_client = api
         .redfish_pool
@@ -346,13 +353,16 @@ pub(crate) async fn set_host_uefi_password(
         db::machine_interface::lookup_bmc_access_info(&mut txn, addr.ip(), Some(addr.port()))
             .await?;
 
-    // Resolve the site-wide host UEFI credential to set (table-driven; v0 = the
-    // legacy unversioned site-default). Resolved before the commit.
-    let host_uefi_credentials =
-        host_uefi_set_credentials(&mut txn, api.redfish_pool.credential_reader()).await?;
+    // Resolve the site-wide host UEFI credential key to set (table-driven; v0 =
+    // the legacy unversioned site-default). This is the DB half; do it while the
+    // txn is open.
+    let host_uefi_key = host_uefi_set_credential_key(&mut txn).await?;
 
-    // Let txn drop so we don't hold it across a redfish request
+    // Commit before the remote reader (Vault) request and the redfish call so the
+    // connection is not held across them, then read the actual secret.
     txn.commit().await?;
+    let host_uefi_credentials =
+        read_uefi_credentials(api.redfish_pool.credential_reader(), &host_uefi_key).await?;
 
     let redfish_client = api
         .redfish_pool

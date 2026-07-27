@@ -465,14 +465,14 @@ impl ComponentManager {
             .await
     }
 
-    /// Starts an NVOS password rotation through the configured switch backend.
-    pub async fn start_switch_password_rotation(
+    /// Converges an NVOS password through the configured switch backend.
+    pub async fn ensure_switch_password_rotation(
         &self,
         endpoint: &SwitchEndpoint,
         next_password: &str,
     ) -> Result<String, ComponentManagerError> {
         self.nv_switch
-            .start_password_rotation(endpoint, next_password)
+            .ensure_password_rotation(endpoint, next_password)
             .await
     }
 
@@ -671,6 +671,13 @@ mod tests {
 
     #[async_trait]
     impl CredentialWriter for FailingCredentialManager {
+        async fn get_credentials_from_writer(
+            &self,
+            _key: &CredentialKey,
+        ) -> Result<Option<Credentials>, SecretsError> {
+            Ok(None)
+        }
+
         async fn set_credentials(
             &self,
             _key: &CredentialKey,

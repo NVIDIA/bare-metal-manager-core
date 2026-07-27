@@ -275,6 +275,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
                 expected: "can detect".into(),
                 actual: "cannot detect".into(),
             }],
+            evaluated_boot_interface: None,
         });
 
     let system = explored_system.to_model(hw_type, &explored_chassis, &pcie_devices)?;
@@ -351,6 +352,7 @@ async fn build_delta_powershelf_report<B: Bmc>(
         machine_setup_status: Some(MachineSetupStatus {
             is_done: true,
             diffs: vec![],
+            evaluated_boot_interface: None,
         }),
         secure_boot_status: None,
         lockdown_status: None,
@@ -1091,6 +1093,7 @@ fn machine_setup_status<B: Bmc>(
     MachineSetupStatus {
         is_done: diffs.is_empty(),
         diffs,
+        evaluated_boot_interface: None,
     }
 }
 

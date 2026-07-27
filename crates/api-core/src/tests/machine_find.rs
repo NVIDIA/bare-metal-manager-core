@@ -579,10 +579,11 @@ async fn test_attached_dpu_machine_ids_multi_dpu(pool: sqlx::PgPool) {
         dpu_ids.len()
     );
 
-    for ref dpu_id in dpu_ids.iter() {
+    for n in 0..2 {
+        let dpu_id = mh.dpu_n(n).id;
         assert!(
-            dpu_ids.contains(dpu_id),
-            "host machine has an unexpected associated_dpu_machine_id {dpu_id}"
+            dpu_ids.contains(&dpu_id),
+            "host machine is missing associated_dpu_machine_id {dpu_id}"
         );
     }
 }

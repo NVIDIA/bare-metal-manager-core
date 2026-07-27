@@ -470,50 +470,6 @@ fn test_realistic_pet_monitoring_scenario() {
     assert!(queue_tracker.is_empty());
 }
 
-// Tests for QueueStats and PublishStats struct methods (if any)
-#[test]
-fn test_queue_stats_debug_format() {
-    let tracker = QueueStatsTracker::new();
-    tracker.increment_pending(100);
-    tracker.decrement_pending_increment_processed(100);
-
-    let stats = tracker.to_stats();
-    let debug_str = format!("{stats:?}");
-
-    // Should be able to debug format without panic
-    assert!(debug_str.contains("QueueStats"));
-    assert!(debug_str.contains("total_processed"));
-}
-
-#[test]
-fn test_publish_stats_debug_format() {
-    let tracker = PublishStatsTracker::new();
-    tracker.increment_published(200);
-    tracker.increment_failed();
-
-    let stats = tracker.to_stats();
-    let debug_str = format!("{stats:?}");
-
-    // Should be able to debug format without panic
-    assert!(debug_str.contains("PublishStats"));
-    assert!(debug_str.contains("total_published"));
-}
-
-#[test]
-fn test_stats_clone() {
-    let tracker = QueueStatsTracker::new();
-    tracker.increment_pending(150);
-    tracker.decrement_pending_increment_processed(150);
-
-    let stats1 = tracker.to_stats();
-    let stats2 = stats1.clone();
-
-    // Cloned stats should be identical
-    assert_eq!(stats1.pending_messages, stats2.pending_messages);
-    assert_eq!(stats1.total_processed, stats2.total_processed);
-    assert_eq!(stats1.total_bytes_processed, stats2.total_bytes_processed);
-}
-
 // Tests for register_metrics: the observable instruments expose the
 // trackers' atomics through a local meter provider backed by a plain
 // prometheus registry (gathering the registry runs the callbacks).

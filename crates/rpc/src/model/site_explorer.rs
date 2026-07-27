@@ -16,6 +16,7 @@
  */
 
 use model::errors::{OperatorError, OperatorErrorSchema};
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::site_explorer::{
     BlueFieldOperatingMode, BootOption, BootOrder, Chassis, ComputerSystem,
     ComputerSystemAttributes, EndpointExplorationReport, EthernetInterface, ExploredDpu,
@@ -342,6 +343,27 @@ impl From<Inventory> for rpc::site_explorer::Inventory {
     }
 }
 
+impl From<MachineBootInterfaceTarget> for rpc::site_explorer::MachineBootInterfaceTarget {
+    fn from(target: MachineBootInterfaceTarget) -> Self {
+        use rpc::site_explorer::machine_boot_interface_target::Target;
+
+        let target = match target {
+            MachineBootInterfaceTarget::Pair(boot_interface) => {
+                Target::Pair(rpc::site_explorer::MachineBootInterfacePair {
+                    mac_address: boot_interface.mac_address.to_string(),
+                    interface_id: boot_interface.interface_id,
+                })
+            }
+            MachineBootInterfaceTarget::MacOnly(mac_address) => {
+                Target::MacOnly(mac_address.to_string())
+            }
+        };
+        Self {
+            target: Some(target),
+        }
+    }
+}
+
 impl From<MachineSetupStatus> for rpc::site_explorer::MachineSetupStatus {
     fn from(machine_setup_status: MachineSetupStatus) -> Self {
         rpc::site_explorer::MachineSetupStatus {
@@ -351,6 +373,9 @@ impl From<MachineSetupStatus> for rpc::site_explorer::MachineSetupStatus {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
+            evaluated_boot_interface: machine_setup_status
+                .evaluated_boot_interface
+                .map(Into::into),
         }
     }
 }
@@ -435,6 +460,7 @@ mod tests {
     use carbide_uuid::machine::MachineId;
     use chrono::{DateTime, TimeZone as _, Utc};
     use model::firmware::FirmwareComponentType;
+    use model::machine_boot_interface::MachineBootInterface;
     use model::site_explorer::{EndpointExplorationError, EndpointType, PreingestionState};
     use prost::Message;
 
@@ -1185,6 +1211,65 @@ mod tests {
     }
 
     #[test]
+    fn machine_setup_statuses_include_the_evaluated_boot_interface() {
+        let mac_address = "02:00:00:00:10:03".parse().expect("valid test MAC");
+
+        value_scenarios!(run = rpc::site_explorer::MachineSetupStatus::from;
+            "report written before target capture" {
+                MachineSetupStatus::default() => rpc::site_explorer::MachineSetupStatus::default(),
+            }
+
+            "complete pair" {
+                MachineSetupStatus {
+                    is_done: true,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
+                        MachineBootInterface {
+                            mac_address,
+                            interface_id: "NIC.Slot.7-1-1".to_string(),
+                        },
+                    )),
+                } => rpc::site_explorer::MachineSetupStatus {
+                    is_done: true,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(
+                        rpc::site_explorer::MachineBootInterfaceTarget {
+                            target: Some(
+                                rpc::site_explorer::machine_boot_interface_target::Target::Pair(
+                                    rpc::site_explorer::MachineBootInterfacePair {
+                                        mac_address: "02:00:00:00:10:03".to_string(),
+                                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                                    },
+                                ),
+                            ),
+                        },
+                    ),
+                },
+            }
+
+            "legacy MAC only" {
+                MachineSetupStatus {
+                    is_done: false,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac_address)),
+                } => rpc::site_explorer::MachineSetupStatus {
+                    is_done: false,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(
+                        rpc::site_explorer::MachineBootInterfaceTarget {
+                            target: Some(
+                                rpc::site_explorer::machine_boot_interface_target::Target::MacOnly(
+                                    "02:00:00:00:10:03".to_string(),
+                                ),
+                            ),
+                        },
+                    ),
+                },
+            }
+        );
+    }
+
+    #[test]
     fn endpoint_reports_convert_to_rpc() {
         let error = EndpointExplorationError::MissingVendor { observed: None };
         let expected_schema = error.operator_error_schema();
@@ -1285,6 +1370,7 @@ mod tests {
                     expected: "PXE".to_string(),
                     actual: "Disk".to_string(),
                 }],
+                evaluated_boot_interface: None,
             }),
             secure_boot_status: Some(SecureBootStatus { is_enabled: true }),
             lockdown_status: Some(LockdownStatus {

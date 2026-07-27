@@ -189,6 +189,7 @@ mod tests {
             collector_type: "logs_collector",
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         }
     }
 
