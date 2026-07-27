@@ -126,7 +126,7 @@ async fn test_remove_route_servers_wrong_source_type(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
-    let servers = vec![IpAddr::from_str("1.2.3.4")?];
+    let servers = [IpAddr::from_str("1.2.3.4")?];
 
     // Add a server with ConfigFile source type
     let request = tonic::Request::new(RouteServers {
