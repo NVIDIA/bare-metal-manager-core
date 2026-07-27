@@ -684,22 +684,34 @@ if env.get("KNOB_SE_RUN_INTERVAL"):
     drop.append("run_interval")   # scoped to [site_explorer] by insertion point
     knobs.append(f'      run_interval = "{env["KNOB_SE_RUN_INTERVAL"]}"')
 
-# Optional tuning overrides living OUTSIDE [site_explorer] (issue #3738):
-# managed as a sentinel-delimited tail block that each run regenerates. A
-# duplicate TOML table would be a parse error, so refuse if the operator
-# already defines these sections outside our block.
+# Optional tuning overrides living OUTSIDE [site_explorer] (issue #3738).
+# When the target section already exists in the site config, its managed keys
+# are rewritten IN PLACE (scoped, like [site_explorer]); a section that is
+# absent is emitted in a sentinel-delimited tail block regenerated each run.
+# Duplicating an existing table would be a TOML parse error — dev6's template
+# ships both [firmware_global] and [machine_state_controller].
 TUNING_BEGIN = "# --- BEGIN scale tuning overrides (managed by setup-machine-a-tron.sh) ---"
 TUNING_END   = "# --- END scale tuning overrides ---"
-tuning = []
+# Managed tuning keys are ALWAYS dropped from their sections in scale mode —
+# with no override env set they revert to the build's defaults, so one run's
+# override can never leak into the next (run independence for #3738). Set
+# them via the SCALE_* envs, not by editing these keys in the site config.
+MANAGED_TUNING = {
+    "[firmware_global]": ("concurrency_limit", "run_interval"),
+    "[machine_state_controller.controller]": ("max_concurrency",),
+}
+# section header -> (managed key names, replacement lines)
+tuning_secs = {}
 if env.get("KNOB_FW_CONC") or env.get("KNOB_FW_RUN_INTERVAL"):
-    tuning.append("[firmware_global]")
+    keys, lines = [], []
     if env.get("KNOB_FW_CONC"):
-        tuning.append(f'concurrency_limit = {env["KNOB_FW_CONC"]}')
+        keys.append("concurrency_limit"); lines.append(f'concurrency_limit = {env["KNOB_FW_CONC"]}')
     if env.get("KNOB_FW_RUN_INTERVAL"):
-        tuning.append(f'run_interval = "{env["KNOB_FW_RUN_INTERVAL"]}"')
+        keys.append("run_interval"); lines.append(f'run_interval = "{env["KNOB_FW_RUN_INTERVAL"]}"')
+    tuning_secs["[firmware_global]"] = (tuple(keys), lines)
 if env.get("KNOB_STATE_CONC"):
-    tuning.append("[machine_state_controller.controller]")
-    tuning.append(f'max_concurrency = {env["KNOB_STATE_CONC"]}')
+    tuning_secs["[machine_state_controller.controller]"] = (
+        ("max_concurrency",), [f'max_concurrency = {env["KNOB_STATE_CONC"]}'])
 networks = f'''
 # --- simulated networks for machine-a-tron scale testing (managed by
 # --- setup-machine-a-tron.sh --scale; safe to leave in place) ---
@@ -741,14 +753,19 @@ for k, v in cm["data"].items():
     # Phase 5 resource_pool DB widening regardless, so a no-op here is safe.
     SIM_LO_PRESENT = "10.103.0.1" in v_work
     in_sec = ""
+    seen_secs = set()
     for ln in v_work.splitlines():
         s = ln.strip()
         if s.startswith("["):
             in_sec = s
-        # drop-list is scoped: managed [site_explorer] keys only there, so a
-        # run_interval belonging to another section is never touched.
+        # drop-lists are scoped per section, so a key with the same name in
+        # another section is never touched.
         if in_sec == "[site_explorer]" and any(t in ln for t in drop) and not s.startswith("["):
             continue
+        if in_sec in MANAGED_TUNING and not s.startswith("["):
+            key = s.split("=", 1)[0].strip()
+            if key in MANAGED_TUNING[in_sec]:
+                continue   # managed key: replaced when overridden, reverted when not
         if s.startswith("[pools."):
             in_lo = (s == "[pools.lo-ip]")
         if (in_lo and s.startswith("ranges") and not SIM_LO_PRESENT
@@ -758,15 +775,21 @@ for k, v in cm["data"].items():
         out.append(ln)
         if s == "[site_explorer]":
             out.extend(knobs)
+        if s in tuning_secs:
+            seen_secs.add(s)
+            out.extend(tuning_secs[s][1])
     new = "\n".join(out) + ("\n" if v_work.endswith("\n") else "")
     if "[networks.simulated-oob]" not in new:
         new = new.rstrip("\n") + "\n" + networks
-    if tuning:
-        for header in ("[firmware_global]", "[machine_state_controller"):
-            if any(l.strip().startswith(header) for l in new.splitlines()):
-                sys.stderr.write(f"ERROR: {header} already defined in the site config outside the managed block; set the knob there instead\n")
-                sys.exit(3)
-        new = new.rstrip("\n") + "\n\n" + TUNING_BEGIN + "\n" + "\n".join(tuning) + "\n" + TUNING_END + "\n"
+    # Sections not present in the file are emitted in the sentinel tail.
+    # (A dotted subtable like [machine_state_controller.controller] is valid
+    # there even when its parent table exists elsewhere.)
+    tail = []
+    for sec, (_keys, lines) in tuning_secs.items():
+        if sec not in seen_secs:
+            tail.append(sec); tail.extend(lines)
+    if tail:
+        new = new.rstrip("\n") + "\n\n" + TUNING_BEGIN + "\n" + "\n".join(tail) + "\n" + TUNING_END + "\n"
     if new != v:
         cm["data"][k] = new
         changed = True
