@@ -1,0 +1,509 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+package model
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
+	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
+)
+
+func int32Ptr(v int32) *int32 { return &v }
+
+// sampleRunCreateRequest returns a fully-populated create request that
+// exercises every branch of the configuration tree.
+func sampleRunCreateRequest() APIRunCreateRequest {
+	ruleID := "rule-id"
+	return APIRunCreateRequest{
+		SiteID:      "site-id",
+		Name:        "fw-rollout",
+		Description: "desc",
+		Selector: &APIRunSelector{
+			Percentage: &APIRunPercentageSelector{Percent: 50, Seed: "seed-1"},
+		},
+		Options: APIRunOptions{
+			MaxConcurrentTargets: 3,
+			SafetyPolicy: &APIRunSafetyPolicy{
+				Gates: []APIRunSafetyGate{
+					{FailureRate: &APIRunFailureRateGate{Scope: "currentPhase", ThresholdPercent: 20}},
+					{FailureCount: &APIRunFailureCountGate{Scope: "cumulativeRun", ThresholdCount: 5}},
+				},
+			},
+			ConflictPolicy: &APIRunConflictPolicy{
+				Retry: &APIRunConflictRetry{
+					RetryTimeout:      "30m",
+					InitialRetryDelay: "10s",
+					MaxRetryDelay:     "5m",
+				},
+			},
+			OrderingPolicy: &APIRunOrderingPolicy{
+				Random: &APIRunRandomOrdering{Seed: "seed-2"},
+			},
+			PhasePolicy: &APIRunPhasePolicy{
+				Equal:       &APIRunEqualPhases{PhaseCount: 4},
+				AutoAdvance: true,
+			},
+		},
+		Operation: APIRunOperation{
+			Firmware: &APIRunFirmwareOperation{
+				Version:                "1.2.3",
+				RuleID:                 &ruleID,
+				OverrideReadinessCheck: true,
+				SubTargets:             []string{"bmc", "bios"},
+			},
+			ExcludeRunIDs: []string{"prev-1", "prev-2"},
+		},
+	}
+}
+
+func TestAPIRunCreateRequest_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(r *APIRunCreateRequest)
+		wantErr string
+	}{
+		{name: "valid full", mutate: func(r *APIRunCreateRequest) {}},
+		{
+			name: "valid minimal",
+			mutate: func(r *APIRunCreateRequest) {
+				r.Selector = nil
+				r.Options = APIRunOptions{MaxConcurrentTargets: 1}
+				r.Operation = APIRunOperation{Firmware: &APIRunFirmwareOperation{Version: "1.0.0"}}
+			},
+		},
+		{
+			name:    "missing siteId",
+			mutate:  func(r *APIRunCreateRequest) { r.SiteID = "" },
+			wantErr: "siteId is required",
+		},
+		{
+			name:    "missing name",
+			mutate:  func(r *APIRunCreateRequest) { r.Name = "" },
+			wantErr: "name is required",
+		},
+		{
+			name:    "non-positive maxConcurrentTargets",
+			mutate:  func(r *APIRunCreateRequest) { r.Options.MaxConcurrentTargets = 0 },
+			wantErr: "maxConcurrentTargets must be greater than zero",
+		},
+		{
+			name:    "missing firmware operation",
+			mutate:  func(r *APIRunCreateRequest) { r.Operation.Firmware = nil },
+			wantErr: "operation.firmware is required",
+		},
+		{
+			name:    "missing firmware version",
+			mutate:  func(r *APIRunCreateRequest) { r.Operation.Firmware.Version = "" },
+			wantErr: "operation.firmware.version is required",
+		},
+		{
+			name: "gate sets both",
+			mutate: func(r *APIRunCreateRequest) {
+				r.Options.SafetyPolicy.Gates = []APIRunSafetyGate{{
+					FailureRate:  &APIRunFailureRateGate{Scope: "currentPhase", ThresholdPercent: 10},
+					FailureCount: &APIRunFailureCountGate{Scope: "currentPhase", ThresholdCount: 1},
+				}}
+			},
+			wantErr: "must set exactly one of failureRate or failureCount",
+		},
+		{
+			name: "gate sets neither",
+			mutate: func(r *APIRunCreateRequest) {
+				r.Options.SafetyPolicy.Gates = []APIRunSafetyGate{{}}
+			},
+			wantErr: "must set exactly one of failureRate or failureCount",
+		},
+		{
+			name: "invalid gate scope",
+			mutate: func(r *APIRunCreateRequest) {
+				r.Options.SafetyPolicy.Gates = []APIRunSafetyGate{{
+					FailureRate: &APIRunFailureRateGate{Scope: "bogus", ThresholdPercent: 10},
+				}}
+			},
+			wantErr: "scope must be one of",
+		},
+		{
+			name: "phase policy sets more than one",
+			mutate: func(r *APIRunCreateRequest) {
+				r.Options.PhasePolicy = &APIRunPhasePolicy{
+					Equal:      &APIRunEqualPhases{PhaseCount: 2},
+					Percentage: &APIRunPercentagePhases{Phases: []int32{50, 50}},
+				}
+			},
+			wantErr: "must set at most one of equal, percentage, count",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := sampleRunCreateRequest()
+			tt.mutate(&req)
+			err := req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestAPIRunCreateRequest_ToProto(t *testing.T) {
+	req := sampleRunCreateRequest()
+
+	pb, err := req.ToProto()
+	require.NoError(t, err)
+	require.NotNil(t, pb)
+	assert.Equal(t, "fw-rollout", pb.GetName())
+	assert.Equal(t, "desc", pb.GetDescription())
+
+	cfg := pb.GetConfiguration()
+	require.NotNil(t, cfg)
+
+	// Selector.
+	sel := cfg.GetSelector().GetPercentage()
+	require.NotNil(t, sel)
+	assert.Equal(t, int32(50), sel.GetPercentage())
+	assert.Equal(t, "seed-1", sel.GetSeed())
+
+	// Options.
+	opts := cfg.GetOptions()
+	require.NotNil(t, opts)
+	assert.Equal(t, int32(3), opts.GetMaxConcurrentTargets())
+
+	// Safety gates: rate + count, with scope mapping.
+	gates := opts.GetSafetyPolicy().GetGates()
+	require.Len(t, gates, 2)
+	rate := gates[0].GetFailureRate()
+	require.NotNil(t, rate)
+	assert.Equal(t, int32(20), rate.GetFailureThresholdPercent())
+	assert.Equal(t, flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE, rate.GetScope())
+	count := gates[1].GetFailureCount()
+	require.NotNil(t, count)
+	assert.Equal(t, int32(5), count.GetFailureThresholdCount())
+	assert.Equal(t, flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CUMULATIVE_RUN, count.GetScope())
+
+	// Conflict retry durations.
+	retry := opts.GetConflictPolicy().GetRetry()
+	require.NotNil(t, retry)
+	assert.Equal(t, 30*time.Minute, retry.GetRetryTimeout().AsDuration())
+	assert.Equal(t, 10*time.Second, retry.GetInitialRetryDelay().AsDuration())
+	assert.Equal(t, 5*time.Minute, retry.GetMaxRetryDelay().AsDuration())
+
+	// Ordering.
+	assert.Equal(t, "seed-2", opts.GetOrderingPolicy().GetRandom().GetSeed())
+
+	// Phase policy: equal + auto-advance.
+	phase := opts.GetPhasePolicy()
+	require.NotNil(t, phase)
+	assert.Equal(t, int32(4), phase.GetEqual().GetPhaseCount())
+	assert.True(t, phase.GetAdvancePolicy().GetAutoAdvance())
+
+	// Operation.
+	fw := cfg.GetOperation().GetUpgradeFirmware()
+	require.NotNil(t, fw)
+	assert.Equal(t, "1.2.3", fw.GetTargetVersion())
+	assert.Equal(t, "rule-id", fw.GetRuleId().GetId())
+	assert.True(t, fw.GetOverrideReadinessCheck())
+	assert.Equal(t, []string{"bmc", "bios"}, fw.GetSubTargets())
+
+	// Target scope excludes.
+	excludes := cfg.GetOperation().GetTargetScope().GetExcludeOperationRunIds()
+	require.Len(t, excludes, 2)
+	assert.Equal(t, "prev-1", excludes[0].GetId())
+	assert.Equal(t, "prev-2", excludes[1].GetId())
+}
+
+func TestAPIRunCreateRequest_ToProto_OmitsUnsetRuleID(t *testing.T) {
+	req := sampleRunCreateRequest()
+	req.Operation.Firmware.RuleID = stringPtr("")
+
+	pb, err := req.ToProto()
+	require.NoError(t, err)
+	assert.Nil(t, pb.GetConfiguration().GetOperation().GetUpgradeFirmware().GetRuleId())
+}
+
+func TestAPIRunCreateRequest_ToProto_InvalidDuration(t *testing.T) {
+	req := sampleRunCreateRequest()
+	req.Options.ConflictPolicy.Retry.RetryTimeout = "not-a-duration"
+
+	_, err := req.ToProto()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "retryTimeout")
+}
+
+func TestAPIRunCreateRequest_ToProto_PhasePercentageAndCount(t *testing.T) {
+	req := sampleRunCreateRequest()
+
+	req.Options.PhasePolicy = &APIRunPhasePolicy{Percentage: &APIRunPercentagePhases{Phases: []int32{30, 70}}}
+	pb, err := req.ToProto()
+	require.NoError(t, err)
+	pct := pb.GetConfiguration().GetOptions().GetPhasePolicy().GetPercentage().GetPhases()
+	require.Len(t, pct, 2)
+	assert.Equal(t, int32(30), pct[0].GetPercentage())
+	assert.Equal(t, int32(70), pct[1].GetPercentage())
+
+	req.Options.PhasePolicy = &APIRunPhasePolicy{Count: &APIRunCountPhases{Phases: []int32{2, 3}}}
+	pb, err = req.ToProto()
+	require.NoError(t, err)
+	cnt := pb.GetConfiguration().GetOptions().GetPhasePolicy().GetCount().GetPhases()
+	require.Len(t, cnt, 2)
+	assert.Equal(t, int32(2), cnt[0].GetCount())
+	assert.Equal(t, int32(3), cnt[1].GetCount())
+}
+
+func TestAPIRun_FromProto(t *testing.T) {
+	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+	updated := created.Add(time.Hour)
+	started := created.Add(2 * time.Minute)
+
+	run := &flowv1.OperationRun{
+		Summary: &flowv1.OperationRunSummary{
+			Id:          &flowv1.UUID{Id: "run-id"},
+			Name:        "fw-rollout",
+			Description: "desc",
+			OperationKind: &flowv1.OperationKind{
+				Type: flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL,
+				Code: stringPtr("upgrade"),
+			},
+			State: &flowv1.OperationRunState{
+				Status: flowv1.OperationRunStatus_OPERATION_RUN_STATUS_PAUSED,
+				Reason: flowv1.OperationRunStatusReason_OPERATION_RUN_STATUS_REASON_PHASE_GATE,
+			},
+			StatusMessage: "paused at phase gate",
+			TotalPhases:   4,
+			CreatedAt:     timestamppb.New(created),
+			UpdatedAt:     timestamppb.New(updated),
+			StartedAt:     timestamppb.New(started),
+		},
+		Stats: &flowv1.OperationRunStats{
+			CurrentPhaseStats: &flowv1.OperationRunPhaseStats{
+				PhaseIndex:      1,
+				SelectedTargets: 6,
+				OutcomeCounts: &flowv1.OperationRunTargetOutcomeCounts{
+					Completed: 3, Failed: 1, Terminated: 0, Skipped: 2,
+				},
+			},
+			CumulativePhaseStats: &flowv1.OperationRunPhaseStats{
+				PhaseIndex:      1,
+				SelectedTargets: 12,
+			},
+		},
+	}
+
+	got := NewAPIRunFromProto(run)
+	assert.Equal(t, "run-id", got.ID)
+	assert.Equal(t, "fw-rollout", got.Name)
+	assert.Equal(t, "desc", got.Description)
+	assert.Equal(t, APIOperationTypeFirmwareControl, got.OperationType)
+	assert.Equal(t, "upgrade", got.OperationCode)
+	assert.Equal(t, "Paused", got.Status)
+	assert.Equal(t, "PhaseGate", got.StatusReason)
+	assert.Equal(t, "paused at phase gate", got.StatusMessage)
+	assert.Equal(t, int32(4), got.TotalPhases)
+	assert.Equal(t, created, got.Created)
+	assert.Equal(t, updated, got.Updated)
+	require.NotNil(t, got.Started)
+	assert.Equal(t, started, *got.Started)
+	assert.Nil(t, got.Finished)
+
+	require.NotNil(t, got.Stats)
+	assert.Equal(t, int32(1), got.Stats.CurrentPhase.PhaseIndex)
+	assert.Equal(t, int32(6), got.Stats.CurrentPhase.SelectedTargets)
+	assert.Equal(t, int32(3), got.Stats.CurrentPhase.OutcomeCounts.Completed)
+	assert.Equal(t, int32(2), got.Stats.CurrentPhase.OutcomeCounts.Skipped)
+	assert.Equal(t, int32(12), got.Stats.CumulativePhase.SelectedTargets)
+}
+
+func TestAPIRun_FromProtoSummary_NoStats(t *testing.T) {
+	got := NewAPIRunFromSummary(&flowv1.OperationRunSummary{
+		Id:    &flowv1.UUID{Id: "run-id"},
+		Name:  "fw-rollout",
+		State: &flowv1.OperationRunState{Status: flowv1.OperationRunStatus_OPERATION_RUN_STATUS_RUNNING},
+	})
+	assert.Equal(t, "run-id", got.ID)
+	assert.Equal(t, "Running", got.Status)
+	assert.Nil(t, got.Stats)
+}
+
+func TestAPIRun_FromProto_NilSafe(t *testing.T) {
+	got := &APIRun{}
+	assert.NotPanics(t, func() { got.FromProto(nil) })
+	assert.NotPanics(t, func() { got.FromProtoSummary(nil) })
+}
+
+func TestAPIRunTarget_FromProto(t *testing.T) {
+	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
+
+	target := &flowv1.OperationRunTarget{
+		Id:             &flowv1.UUID{Id: "target-id"},
+		OperationRunId: &flowv1.UUID{Id: "run-id"},
+		RackId:         &flowv1.UUID{Id: "rack-id"},
+		SequenceIndex:  2,
+		PhaseIndex:     1,
+		TaskId:         &flowv1.UUID{Id: "task-id"},
+		Status:         flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_SUBMITTED,
+		Message:        "submitted",
+		CreatedAt:      timestamppb.New(created),
+		UpdatedAt:      timestamppb.New(created),
+	}
+
+	got := NewAPIRunTarget(target)
+	assert.Equal(t, "target-id", got.ID)
+	assert.Equal(t, "run-id", got.RunID)
+	assert.Equal(t, "rack-id", got.RackID)
+	assert.Equal(t, int32(2), got.SequenceIndex)
+	assert.Equal(t, int32(1), got.PhaseIndex)
+	require.NotNil(t, got.TaskID)
+	assert.Equal(t, "task-id", *got.TaskID)
+	assert.Equal(t, APIRunTargetStatusSubmitted, got.Status)
+	assert.Equal(t, "submitted", got.Message)
+}
+
+func TestAPIRunTarget_FromProto_UnsetTaskID(t *testing.T) {
+	got := NewAPIRunTarget(&flowv1.OperationRunTarget{
+		Id:     &flowv1.UUID{Id: "target-id"},
+		TaskId: &flowv1.UUID{Id: ""},
+		Status: flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_PENDING,
+	})
+	assert.Nil(t, got.TaskID)
+	assert.Equal(t, APIRunTargetStatusPending, got.Status)
+}
+
+func TestAPIRunGetRequest_Validate(t *testing.T) {
+	require.Error(t, (&APIRunGetRequest{}).Validate())
+	require.NoError(t, (&APIRunGetRequest{SiteID: "site-id"}).Validate())
+}
+
+func TestAPIRunSiteRequest_Validate(t *testing.T) {
+	require.Error(t, (&APIRunSiteRequest{}).Validate())
+	require.NoError(t, (&APIRunSiteRequest{SiteID: "site-id"}).Validate())
+}
+
+func TestAPIRunAdvanceRequest_Validate(t *testing.T) {
+	require.Error(t, (&APIRunAdvanceRequest{}).Validate())
+	require.NoError(t, (&APIRunAdvanceRequest{SiteID: "site-id"}).Validate())
+	require.NoError(t, (&APIRunAdvanceRequest{SiteID: "site-id", ExpectedPhaseIndex: int32Ptr(2)}).Validate())
+}
+
+func TestAPIRunCancelRequest_Validate(t *testing.T) {
+	require.Error(t, (&APIRunCancelRequest{}).Validate())
+	require.NoError(t, (&APIRunCancelRequest{SiteID: "site-id"}).Validate())
+}
+
+func TestAPIRunGetAllRequest_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     APIRunGetAllRequest
+		wantErr string
+	}{
+		{name: "valid no filters", req: APIRunGetAllRequest{SiteID: "site-id"}},
+		{
+			name: "valid with filters",
+			req:  APIRunGetAllRequest{SiteID: "site-id", Status: "Running", OperationType: APIOperationTypeFirmwareControl},
+		},
+		{name: "missing siteId", req: APIRunGetAllRequest{}, wantErr: "siteId"},
+		{name: "invalid status", req: APIRunGetAllRequest{SiteID: "site-id", Status: "bogus"}, wantErr: "status must be one of"},
+		{name: "invalid operationType", req: APIRunGetAllRequest{SiteID: "site-id", OperationType: "bogus"}, wantErr: "operationType must be one of"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestAPIRunGetAllRequest_ToProto(t *testing.T) {
+	pageNum, pageSize := 2, 10
+	req := APIRunGetAllRequest{SiteID: "site-id", Status: "Paused", OperationType: APIOperationTypeFirmwareControl}
+	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+
+	pb, err := req.ToProto(page)
+	require.NoError(t, err)
+	require.NotNil(t, pb.GetFilter())
+	states := pb.GetFilter().GetStates()
+	require.Len(t, states, 1)
+	assert.Equal(t, flowv1.OperationRunStatus_OPERATION_RUN_STATUS_PAUSED, states[0].GetStatus())
+	kinds := pb.GetFilter().GetOperationKinds()
+	require.Len(t, kinds, 1)
+	assert.Equal(t, flowv1.OperationType_OPERATION_TYPE_FIRMWARE_CONTROL, kinds[0].GetType())
+	require.NotNil(t, pb.GetPagination())
+	assert.Equal(t, int32(10), pb.GetPagination().GetLimit())
+	assert.Equal(t, int32(10), pb.GetPagination().GetOffset()) // (2-1)*10
+}
+
+func TestAPIRunGetAllRequest_QueryValues(t *testing.T) {
+	pageNum, pageSize := 1, 50
+	req := APIRunGetAllRequest{SiteID: "site-id", Status: "Running", OperationType: APIOperationTypeFirmwareControl}
+	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+
+	v := req.QueryValues(page)
+	assert.Equal(t, "site-id", v.Get("siteId"))
+	assert.Equal(t, "Running", v.Get("status"))
+	assert.Equal(t, string(APIOperationTypeFirmwareControl), v.Get("operationType"))
+	assert.Equal(t, "1", v.Get("pageNumber"))
+	assert.Equal(t, "50", v.Get("pageSize"))
+}
+
+func TestAPIRunTargetGetAllRequest_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		req     APIRunTargetGetAllRequest
+		wantErr string
+	}{
+		{name: "valid no filters", req: APIRunTargetGetAllRequest{SiteID: "site-id"}},
+		{
+			name: "valid with filters",
+			req:  APIRunTargetGetAllRequest{SiteID: "site-id", Status: APIRunTargetStatusFailed, PhaseScope: "completedPhases"},
+		},
+		{name: "missing siteId", req: APIRunTargetGetAllRequest{}, wantErr: "siteId"},
+		{name: "invalid status", req: APIRunTargetGetAllRequest{SiteID: "site-id", Status: "bogus"}, wantErr: "status must be one of"},
+		{name: "invalid phaseScope", req: APIRunTargetGetAllRequest{SiteID: "site-id", PhaseScope: "bogus"}, wantErr: "phaseScope must be one of"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestAPIRunTargetGetAllRequest_ToProto(t *testing.T) {
+	pageNum, pageSize := 3, 20
+	req := APIRunTargetGetAllRequest{SiteID: "site-id", Status: APIRunTargetStatusFailed, PhaseScope: "completedPhases"}
+	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+
+	pb := req.ToProto("run-id", page)
+	assert.Equal(t, "run-id", pb.GetOperationRunId().GetId())
+	assert.Equal(t, flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_FAILED, pb.GetStatus())
+	assert.Equal(t, flowv1.OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_COMPLETED_PHASES, pb.GetPhaseScope())
+	require.NotNil(t, pb.GetPagination())
+	assert.Equal(t, int32(20), pb.GetPagination().GetLimit())
+	assert.Equal(t, int32(40), pb.GetPagination().GetOffset()) // (3-1)*20
+}
+
+func TestAPIRunTargetGetAllRequest_ToProto_DefaultsPhaseScope(t *testing.T) {
+	req := APIRunTargetGetAllRequest{SiteID: "site-id"}
+	pb := req.ToProto("run-id", pagination.PageRequest{})
+	assert.Equal(t, flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_UNKNOWN, pb.GetStatus())
+	assert.Equal(t, flowv1.OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_PHASE, pb.GetPhaseScope())
+}
