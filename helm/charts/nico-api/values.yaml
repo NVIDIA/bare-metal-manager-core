@@ -186,19 +186,26 @@ dsxExchangeEventBusConfig: ""
 ## so a site that enables this and has rack profiles configured starts using
 ## RMS for those roles without further component_manager config.
 rms:
+  ## Off by default until RMS ships in the standard install path. Enabling
+  ## this WITHOUT RMS deployed is safe: the client is constructed lazily and
+  ## every RMS-backed operation guards on it, so Core runs healthy and rack
+  ## operations report a clean error until RMS comes up at apiUrl.
   enabled: false
   ## RMS API server URL. The default matches the rack-manager chart's
-  ## api-server Service in its default namespace (port 8801).
-  apiUrl: "http://rms-api-server.rack-manager:8801"
-  ## Enforce TLS when connecting to RMS. The rack-manager chart ships with
-  ## TLS disabled, matching the plain-HTTP in-cluster URL above; set true
-  ## (plus the paths below) for TLS/mTLS deployments.
-  enforceTls: false
-  ## Optional TLS material — paths inside the nico-api container. Only
-  ## rendered when non-empty.
-  rootCaPath: ""
-  clientCert: ""
-  clientKey: ""
+  ## api-server Service in its default namespace (port 8801), TLS enabled.
+  apiUrl: "https://rms-api-server.rack-manager.svc.cluster.local:8801"
+  ## Enforce TLS when connecting to RMS. The standard RMS deployment serves
+  ## mTLS (apiServer.tls.enabled + caEnabled) with a certificate minted from
+  ## the same vault-nico-issuer that signs nico-api's SPIFFE cert.
+  enforceTls: true
+  ## mTLS material — paths inside the nico-api container. The defaults are
+  ## nico-api's own SPIFFE certificate mount, which shares a CA with the RMS
+  ## api-server certificate, so mTLS works both ways with no extra mounts.
+  ## Set all three to "" for a plain-HTTP RMS deployment (with enforceTls
+  ## false and an http:// apiUrl).
+  rootCaPath: "/var/run/secrets/spiffe.io/ca.crt"
+  clientCert: "/var/run/secrets/spiffe.io/tls.crt"
+  clientKey: "/var/run/secrets/spiffe.io/tls.key"
 
 extraEnv: []
 
