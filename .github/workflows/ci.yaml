@@ -1082,6 +1082,8 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
+      # No RUN steps to cache, and the multi-GB blob COPY layer alone can exhaust the 10 GB per-repo Actions cache quota.
+      cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
@@ -1116,6 +1118,8 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
+      # No RUN steps to cache, and the multi-GB blob COPY layer alone can exhaust the 10 GB per-repo Actions cache quota.
+      cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
       additional_tags: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
