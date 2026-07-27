@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -200,6 +201,55 @@ func TestGeneratedCommand_ReadOnlyUsesSessionClientScopeAndFetchesAll(t *testing
 	assert.Contains(t, output, "--site-id site-1")
 	assert.Contains(t, output, "--all")
 	assert.Contains(t, output, `"H100"`)
+}
+
+func TestGeneratedCommand_ExplicitPaginationIsNotOverridden(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		args           []string
+		wantPageNumber string
+		wantPageSize   string
+	}{
+		{
+			name:           "separate values",
+			args:           []string{"--page-number", "3", "--page-size", "7"},
+			wantPageNumber: "3",
+			wantPageSize:   "7",
+		},
+		{
+			name:           "inline values",
+			args:           []string{"--page-number=4", "--page-size=9"},
+			wantPageNumber: "4",
+			wantPageSize:   "9",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requestQuery := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestQuery <- r.URL.RawQuery
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `[]`)
+			}))
+			defer server.Close()
+
+			session := NewSession(
+				appcli.NewClient(server.URL, "acme", "token", nil, false),
+				"acme",
+				"",
+			)
+			var runErr error
+			output := captureStdout(func() {
+				runErr = requireTUICommand(t, "vpc-peering list").Run(session, test.args)
+			})
+			require.NoError(t, runErr)
+
+			query, err := url.ParseQuery(<-requestQuery)
+			require.NoError(t, err)
+			assert.Equal(t, test.wantPageNumber, query.Get("pageNumber"))
+			assert.Equal(t, test.wantPageSize, query.Get("pageSize"))
+			assert.NotContains(t, output, "--all")
+		})
+	}
 }
 
 func TestGeneratedCommand_PromptsForRequiredQuery(t *testing.T) {
@@ -790,6 +840,60 @@ func TestGeneratedRackAndTrayPaths_SelectSiteBeforeResource(t *testing.T) {
 			assert.Equal(t, "/v2/org/acme/nico/site", <-requests)
 			assert.Equal(t, test.resourcePath, <-requests)
 			assert.Equal(t, test.finalPath, <-requests)
+		})
+	}
+}
+
+func TestGeneratedOptionalQueryFiltersAreNotForced(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		args     []string
+		wantType string
+	}{
+		{name: "required site only"},
+		{name: "explicit optional filter", args: []string{"--type", "compute"}, wantType: "compute"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			requests := make(chan *http.Request, 2)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests <- r.Clone(r.Context())
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v2/org/acme/nico/site":
+					_, _ = io.WriteString(w, `[{"id":"site-1","name":"Site One"}]`)
+				case "/v2/org/acme/nico/tray/validation":
+					_, _ = io.WriteString(w, `{"valid":true}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			session := NewSession(
+				appcli.NewClient(server.URL, "acme", "token", nil, false),
+				"acme",
+				"",
+			)
+			var runErr error
+			_ = captureStdout(func() {
+				runErr = requireTUICommand(
+					t,
+					"tray validate-trays validate-trays",
+				).Run(session, test.args)
+			})
+			require.NoError(t, runErr)
+
+			siteRequest := <-requests
+			assert.Equal(t, "/v2/org/acme/nico/site", siteRequest.URL.Path)
+			validationRequest := <-requests
+			assert.Equal(t, "/v2/org/acme/nico/tray/validation", validationRequest.URL.Path)
+			assert.Equal(t, "site-1", validationRequest.URL.Query().Get("siteId"))
+			assert.Equal(t, test.wantType, validationRequest.URL.Query().Get("type"))
+			for _, optional := range []string{
+				"componentId", "manufacturer", "name", "rackId", "rackName", "slotId",
+			} {
+				assert.Empty(t, validationRequest.URL.Query().Get(optional), optional)
+			}
 		})
 	}
 }

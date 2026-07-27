@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -186,4 +187,30 @@ func TestClientDoDoesNotRefreshOnForbidden(t *testing.T) {
 	require.True(t, ok, "err = %T, want *APIError", err)
 	require.Equal(t, http.StatusForbidden, apiErr.StatusCode)
 	require.Equal(t, 0, refreshes)
+}
+
+func TestFormatDebugBodyRedactsNestedSecrets(t *testing.T) {
+	body := []byte(`{
+		"tokenEndpoint":"https://issuer.example/token",
+		"clientSecretBasic":{"clientId":"client-one","clientSecret":"secret-value"},
+		"credentials":[{"password":"password-value"}],
+		"accessToken":"access-token-value",
+		"publicKey":"ssh-ed25519 public"
+	}`)
+
+	formatted := formatDebugBody(body)
+
+	assert.NotContains(t, formatted, "secret-value")
+	assert.NotContains(t, formatted, "password-value")
+	assert.NotContains(t, formatted, "access-token-value")
+	assert.Contains(t, formatted, `"tokenEndpoint":"https://issuer.example/token"`)
+	assert.Contains(t, formatted, `"clientId":"client-one"`)
+	assert.Contains(t, formatted, `"clientSecret":"<redacted>"`)
+	assert.Contains(t, formatted, `"credentials":[{"password":"<redacted>"}]`)
+	assert.Contains(t, formatted, `"accessToken":"<redacted>"`)
+	assert.Contains(t, formatted, `"publicKey":"ssh-ed25519 public"`)
+}
+
+func TestFormatDebugBodyPreservesNonJSONDiagnostics(t *testing.T) {
+	assert.Equal(t, "upstream unavailable", formatDebugBody([]byte("upstream unavailable")))
 }

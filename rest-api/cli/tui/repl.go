@@ -556,8 +556,8 @@ func getGeneratedResourceSuggestions(
 	info appcli.GeneratedCommandInfo,
 	argPart string,
 ) []string {
-	completed, argFilter, ok := autocompleteArguments(argPart)
-	if !ok || len(completed) >= len(info.PathParameters) ||
+	prefixArgs, completedPaths, argFilter, ok := generatedAutocompleteArguments(info, argPart)
+	if !ok || len(completedPaths) >= len(info.PathParameters) ||
 		strings.HasPrefix(argFilter, "-") {
 		return nil
 	}
@@ -566,10 +566,7 @@ func getGeneratedResourceSuggestions(
 		"siteId": strings.TrimSpace(s.Scope.SiteID),
 		"vpcId":  strings.TrimSpace(s.Scope.VpcID),
 	}
-	for i, value := range completed {
-		if strings.HasPrefix(value, "-") {
-			return nil
-		}
+	for i, value := range completedPaths {
 		parameter := info.PathParameters[i]
 		descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
 		items, supported, err := s.GeneratedResourceItems(
@@ -591,7 +588,7 @@ func getGeneratedResourceSuggestions(
 		resolvedValues[parameter] = item.ID
 	}
 
-	parameter := info.PathParameters[len(completed)]
+	parameter := info.PathParameters[len(completedPaths)]
 	descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
 	items, supported, err := s.GeneratedResourceItems(
 		context.Background(),
@@ -601,21 +598,62 @@ func getGeneratedResourceSuggestions(
 	if err != nil || !supported {
 		return nil
 	}
-	return resourceItemSuggestions(info.Name, completed, items, argFilter)
+	return resourceItemSuggestions(info.Name, prefixArgs, items, argFilter)
 }
 
-func autocompleteArguments(input string) ([]string, string, bool) {
+// generatedAutocompleteArguments separates generated command flags from
+// positional path values. Generated CLI flags must precede positional values,
+// so autocomplete needs to retain complete flags in the suggested command
+// while resolving only the path values against resource fetchers.
+func generatedAutocompleteArguments(
+	info appcli.GeneratedCommandInfo,
+	input string,
+) (prefixArgs []string, pathArgs []string, filter string, ok bool) {
 	args, err := splitCommandArguments(input)
 	if err != nil {
-		return nil, "", false
+		return nil, nil, "", false
 	}
-	if len(args) == 0 {
-		return nil, "", true
+	completed := args
+	if len(args) > 0 && !endsWithWhitespace(input) {
+		filter = args[len(args)-1]
+		completed = args[:len(args)-1]
 	}
-	if endsWithWhitespace(input) {
-		return args, "", true
+
+	flagTakesValue := make(map[string]bool, len(info.Flags))
+	for _, flag := range info.Flags {
+		flagTakesValue[flag.Name] = flag.TakesValue
 	}
-	return args[:len(args)-1], args[len(args)-1], true
+
+	positionalStarted := false
+	for i := 0; i < len(completed); i++ {
+		token := completed[i]
+		if isGeneratedFlagToken(token) {
+			if positionalStarted {
+				return nil, nil, "", false
+			}
+			name, inline := generatedFlagName(token)
+			takesValue, exists := flagTakesValue[name]
+			if !exists {
+				return nil, nil, "", false
+			}
+			prefixArgs = append(prefixArgs, token)
+			if takesValue && !inline {
+				if i+1 >= len(completed) {
+					// The current partial token is this flag's value, not a
+					// resource path filter.
+					return nil, nil, "", false
+				}
+				i++
+				prefixArgs = append(prefixArgs, completed[i])
+			}
+			continue
+		}
+
+		positionalStarted = true
+		prefixArgs = append(prefixArgs, token)
+		pathArgs = append(pathArgs, token)
+	}
+	return prefixArgs, pathArgs, filter, true
 }
 
 func endsWithWhitespace(input string) bool {

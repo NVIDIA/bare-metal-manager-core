@@ -179,3 +179,58 @@ func TestGetAllSuggestions_PreservesManualAliasCompletion(t *testing.T) {
 
 	assert.Equal(t, []string{"machine dpu get host-one"}, suggestions)
 }
+
+func TestGetAllSuggestions_GeneratedResourceAfterValueFlag(t *testing.T) {
+	cache := NewCache()
+	resolver := NewResolver(cache)
+	resolver.RegisterFetcher("machine", func(context.Context) ([]NamedItem, error) {
+		return []NamedItem{{Name: "host-one", ID: "machine-1"}}, nil
+	})
+	session := &Session{Cache: cache, Resolver: resolver}
+
+	for _, test := range []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "separate flag value before resource",
+			input: "machine status-history --page-size 10 host",
+			want:  []string{"machine status-history --page-size 10 host-one"},
+		},
+		{
+			name:  "inline flag value before resource",
+			input: "machine status-history --page-size=10 host",
+			want:  []string{"machine status-history --page-size=10 host-one"},
+		},
+		{
+			name:  "completed flag value offers all resources",
+			input: "machine status-history --page-size 10 ",
+			want:  []string{"machine status-history --page-size 10 host-one"},
+		},
+		{
+			name:  "incomplete flag value is not a resource filter",
+			input: "machine status-history --page-size ",
+		},
+		{
+			name:  "unknown flag suppresses resource completion",
+			input: "machine status-history --unknown value host",
+		},
+		{
+			name:  "flag after positional is invalid",
+			input: "machine status-history host-one --page-size 10 ",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(
+				t,
+				test.want,
+				getAllSuggestions(
+					session,
+					test.input,
+					[]string{"machine status-history"},
+				),
+			)
+		})
+	}
+}

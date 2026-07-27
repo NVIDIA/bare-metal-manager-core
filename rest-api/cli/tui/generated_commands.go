@@ -131,7 +131,8 @@ func runGeneratedTUICommand(s *Session, info appcli.GeneratedCommandInfo, args [
 	if err != nil {
 		return err
 	}
-	if generatedCommandSupportsPagination(info) && !hasGeneratedOption(info, flagArgs, "all") {
+	if generatedCommandSupportsPagination(info) &&
+		!hasGeneratedOption(info, flagArgs, "all", "page-number", "page-size") {
 		flagArgs = append(flagArgs, "--all")
 	}
 	preparedArgs := append(flagArgs, positionalArgs...)

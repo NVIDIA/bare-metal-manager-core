@@ -3820,7 +3820,7 @@ func cmdTenantIdentityTokenDelegationUpdate(s *Session, args []string) error {
 		if err != nil {
 			return err
 		}
-		sec, err := PromptText("clientSecretBasic.clientSecret (required, write-only)", true)
+		sec, err := PromptSecret("clientSecretBasic.clientSecret (required, write-only)", true)
 		if err != nil {
 			return err
 		}

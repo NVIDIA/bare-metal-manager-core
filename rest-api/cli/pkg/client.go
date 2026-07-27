@@ -262,7 +262,54 @@ func formatDebugBody(body []byte) string {
 	if len(body) == 0 {
 		return "<empty>"
 	}
-	return string(body)
+	var decoded interface{}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return string(body)
+	}
+	redactSensitiveJSONFields(decoded)
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(decoded); err != nil {
+		return "<JSON body unavailable>"
+	}
+	return strings.TrimSpace(buf.String())
+}
+
+func redactSensitiveJSONFields(value interface{}) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, nested := range typed {
+			if isSensitiveJSONField(key) && !isJSONContainer(nested) {
+				typed[key] = "<redacted>"
+				continue
+			}
+			redactSensitiveJSONFields(nested)
+		}
+	case []interface{}:
+		for _, nested := range typed {
+			redactSensitiveJSONFields(nested)
+		}
+	}
+}
+
+func isJSONContainer(value interface{}) bool {
+	switch value.(type) {
+	case map[string]interface{}, []interface{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSensitiveJSONField(name string) bool {
+	normalized := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(name))
+	for _, fragment := range []string{"credential", "password", "secret", "privatekey", "apikey"} {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return normalized == "token" || strings.HasSuffix(normalized, "token")
 }
 
 func formatDebugHeaders(headers http.Header) string {
