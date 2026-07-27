@@ -113,3 +113,20 @@ test_selection_mode = "EnableAll"
 enabled = {{ .Values.service.perObjectStateMetrics.enabled }}
 listen_address = "[::]:{{ .Values.service.perObjectStateMetrics.port }}"
 object_types = {{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}
+{{- if .Values.rms.enabled }}
+
+# RMS (Rack Management Service) connectivity, used by the component manager
+# and rack controller for rack-level firmware upgrades and power sequencing.
+[rms]
+api_url = {{ .Values.rms.apiUrl | quote }}
+enforce_tls = {{ .Values.rms.enforceTls }}
+{{- with .Values.rms.rootCaPath }}
+root_ca_path = {{ . | quote }}
+{{- end }}
+{{- with .Values.rms.clientCert }}
+client_cert = {{ . | quote }}
+{{- end }}
+{{- with .Values.rms.clientKey }}
+client_key = {{ . | quote }}
+{{- end }}
+{{- end }}
