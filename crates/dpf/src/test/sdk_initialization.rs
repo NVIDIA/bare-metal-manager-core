@@ -339,7 +339,7 @@ impl K8sConfigRepository for InitializationMock {
     ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
         Ok(self.secrets.get(&ns_key(ns, name)).map(|r| r.clone()))
     }
-    async fn create_secret(
+    async fn apply_secret(
         &self,
         name: &str,
         ns: &str,

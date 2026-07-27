@@ -117,6 +117,9 @@ impl EnvBuilder {
             scout_reporting_timeout: runtime_config
                 .machine_state_controller
                 .scout_reporting_timeout,
+            waiting_for_measurements_timeout: runtime_config
+                .machine_state_controller
+                .waiting_for_measurements_timeout,
             uefi_boot_wait: runtime_config.machine_state_controller.uefi_boot_wait,
         };
         let power_options: PowerOptionConfig = runtime_config.power_manager_options.clone().into();

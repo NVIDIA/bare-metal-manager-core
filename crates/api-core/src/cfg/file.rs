@@ -176,20 +176,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub enable_route_servers: bool,
 
-    /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
-    //
-    // TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
-    // that process deny prefixes are IPv4-only (and I'll do it in another PR):
-    // - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
-    //   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
-    // - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
-    //   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
-    //
-    // Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
-    // rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
-    // handle the `ipv6: bool` split.
+    /// List of IP prefixes (in CIDR notation) that tenant instances are not allowed to reach.
+    ///
+    /// FNN supports IPv4 and IPv6 prefixes. All non-FNN virtualizers apply only IPv4 prefixes.
     #[serde(default)]
-    pub deny_prefixes: Vec<Ipv4Network>,
+    pub deny_prefixes: Vec<IpNetwork>,
 
     /// List of IP prefixes (in CIDR notation) that are assigned for tenant
     /// use within this site. Supports both IPv4 and IPv6 prefixes.
@@ -1358,8 +1349,9 @@ pub struct DpfConfig {
     pub enabled: bool,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
-    /// mandatory service except `dts` and `doca_hbn`. This also overrides if
-    /// docker_image_pull_secret is set in services sections as well.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config. This also overrides any `docker_image_pull_secret`
+    /// set in those per-service sections.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
     /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
@@ -1381,8 +1373,8 @@ pub struct DpfConfig {
 impl DpfConfig {
     /// Returns the top-level mandatory services with the optional
     /// [`Self::docker_image_pull_secret`] override applied. The override affects every
-    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
-    /// pull secret.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config.
     pub fn resolved_mandatory_services(&self) -> DpfMandatoryServicesConfig {
         let mut services = (*self.services).clone();
         self.apply_pull_secret_override(&mut services);
@@ -1407,14 +1399,15 @@ impl DpfConfig {
     }
 
     /// Applies the optional [`Self::docker_image_pull_secret`] override to every
-    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
-    /// pull secret. No-op when the override is unset.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config. No-op when the override is unset.
     fn apply_pull_secret_override(&self, services: &mut DpfMandatoryServicesConfig) {
         if let Some(secret) = &self.docker_image_pull_secret {
+            let secret = Some(secret.clone());
             services.dpu_agent.docker_image_pull_secret = secret.clone();
             services.dhcp_server.docker_image_pull_secret = secret.clone();
             services.fmds.docker_image_pull_secret = secret.clone();
-            services.otel.docker_image_pull_secret = secret.clone();
+            services.otel.docker_image_pull_secret = secret;
         }
     }
 }
@@ -1469,13 +1462,6 @@ impl Default for DpfMandatoryServicesConfig {
     }
 }
 
-/// Default name for the Kubernetes `imagePullSecrets` entry used by DPF workload charts.
-pub(crate) const DEFAULT_DPF_IMAGE_PULL_SECRET: &str = "dpf-pull-secret";
-
-fn default_dpf_image_pull_secret() -> String {
-    DEFAULT_DPF_IMAGE_PULL_SECRET.to_string()
-}
-
 /// Configuration for a single Helm-based DPF service.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DpfServiceConfig {
@@ -1491,9 +1477,11 @@ pub struct DpfServiceConfig {
     pub docker_repo_url: String,
     /// Version of docker image
     pub docker_image_tag: String,
-    /// Secret to use to pull the docker images.
-    #[serde(default = "default_dpf_image_pull_secret")]
-    pub docker_image_pull_secret: String,
+    /// Secret to use to pull the docker images. `None` when the service pulls from
+    /// a public registry (`dts` and `doca_hbn` default to this); when set, an
+    /// `imagePullSecrets` entry is emitted in the service's Helm values.
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -3352,6 +3340,53 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
+    #[test]
+    fn deny_prefixes_accept_both_address_families() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                    deny_prefixes = ["192.0.2.0/24", "2001:db8::/32"]
+                    anycast_site_prefixes = ["198.51.100.0/24"]
+                "#,
+            ))
+            .extract()
+            .expect("dual-stack deny prefixes must parse");
+
+        assert_eq!(
+            config.deny_prefixes,
+            vec![
+                "192.0.2.0/24".parse::<IpNetwork>().unwrap(),
+                "2001:db8::/32".parse::<IpNetwork>().unwrap(),
+            ]
+        );
+        assert_eq!(
+            config.anycast_site_prefixes,
+            vec!["198.51.100.0/24".parse::<Ipv4Network>().unwrap()]
+        );
+    }
+
+    #[test]
+    fn anycast_site_prefixes_reject_ipv6() {
+        let result = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                    anycast_site_prefixes = ["2001:db8::/32"]
+                "#,
+            ))
+            .extract::<CarbideConfig>();
+
+        assert!(
+            result.is_err(),
+            "IPv6 anycast site prefixes must be rejected"
+        );
+    }
+
     /// Exercises the real `[certificates]` / `[certificates.dedicated_vault]`
     /// TOML contract through Figment (the production config path), rather than
     /// JSON serde. Each case parses a TOML fragment into `CertificatesConfig`
@@ -3510,6 +3545,7 @@ mod tests {
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
+            waiting_for_measurements_timeout: Duration::hours(4),
             uefi_boot_wait: Duration::minutes(5),
             max_bios_config_retries: 3,
             polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -3555,6 +3591,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -3577,6 +3614,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -4001,6 +4039,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -4241,6 +4280,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -4603,6 +4643,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -5547,48 +5588,40 @@ object_kind = "secret"
         let services = cfg.resolved_mandatory_services();
 
         // Override applies to every mandatory service ...
-        assert_eq!(
-            services.dpu_agent.docker_image_pull_secret,
-            "my-custom-secret"
-        );
-        assert_eq!(
-            services.dhcp_server.docker_image_pull_secret,
-            "my-custom-secret"
-        );
-        assert_eq!(services.fmds.docker_image_pull_secret, "my-custom-secret");
-        assert_eq!(services.otel.docker_image_pull_secret, "my-custom-secret");
+        for secret in [
+            &services.dpu_agent.docker_image_pull_secret,
+            &services.dhcp_server.docker_image_pull_secret,
+            &services.fmds.docker_image_pull_secret,
+            &services.otel.docker_image_pull_secret,
+        ] {
+            assert_eq!(secret.as_deref(), Some("my-custom-secret"));
+        }
 
-        // ... except dts and doca_hbn, which keep the default.
-        assert_eq!(
-            services.dts.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.doca_hbn.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
+        // ... except dts and doca_hbn, which take a pull secret only from their
+        // per-service config (and default to none).
+        assert_eq!(services.dts.docker_image_pull_secret, None);
+        assert_eq!(services.doca_hbn.docker_image_pull_secret, None);
     }
 
     #[test]
-    fn dpf_docker_image_pull_secret_unset_keeps_per_service_secrets() {
-        // No global override -> services keep their own configured secret.
+    fn dpf_docker_image_pull_secret_unset_leaves_all_services_without_a_secret() {
+        // With no top-level override and no per-service value, every mandatory service
+        // defaults to no pull secret (public-registry pulls) and emits no imagePullSecrets.
         let cfg = DpfConfig::default();
         assert!(cfg.docker_image_pull_secret.is_none());
 
         let services = cfg.resolved_mandatory_services();
 
-        assert_eq!(
-            services.dpu_agent.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.dts.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.doca_hbn.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
+        for secret in [
+            &services.dpu_agent.docker_image_pull_secret,
+            &services.dhcp_server.docker_image_pull_secret,
+            &services.fmds.docker_image_pull_secret,
+            &services.otel.docker_image_pull_secret,
+            &services.dts.docker_image_pull_secret,
+            &services.doca_hbn.docker_image_pull_secret,
+        ] {
+            assert_eq!(*secret, None);
+        }
     }
 
     // Verifies that a [secrets] config section with KMS, routing, and import settings

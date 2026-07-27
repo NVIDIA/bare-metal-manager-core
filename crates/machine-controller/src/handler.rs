@@ -210,6 +210,7 @@ pub struct ReachabilityParams {
     pub power_down_wait: chrono::Duration,
     pub failure_retry_time: chrono::Duration,
     pub scout_reporting_timeout: chrono::Duration,
+    pub waiting_for_measurements_timeout: chrono::Duration,
     pub uefi_boot_wait: chrono::Duration,
 }
 
@@ -290,6 +291,7 @@ impl MachineStateHandlerBuilder {
                 power_down_wait: chrono::Duration::zero(),
                 failure_retry_time: chrono::Duration::zero(),
                 scout_reporting_timeout: chrono::Duration::zero(),
+                waiting_for_measurements_timeout: chrono::Duration::zero(),
                 uefi_boot_wait: chrono::Duration::zero(),
             },
             firmware_downloader: None,
@@ -376,6 +378,15 @@ impl MachineStateHandlerBuilder {
 
     pub fn scout_reporting_timeout(mut self, scout_reporting_timeout: chrono::Duration) -> Self {
         self.reachability_params.scout_reporting_timeout = scout_reporting_timeout;
+        self
+    }
+
+    pub fn waiting_for_measurements_timeout(
+        mut self,
+        waiting_for_measurements_timeout: chrono::Duration,
+    ) -> Self {
+        self.reachability_params.waiting_for_measurements_timeout =
+            waiting_for_measurements_timeout;
         self
     }
 
@@ -1577,6 +1588,11 @@ impl MachineStateHandler {
                 &mh_snapshot.host_snapshot.id,
                 &mut ctx.services.db_reader,
                 self.host_handler.host_handler_params.attestation_enabled,
+                mh_snapshot.host_snapshot.state.version.timestamp(),
+                self.host_handler
+                    .host_handler_params
+                    .reachability_params
+                    .waiting_for_measurements_timeout,
             )
             .await
             .map(|v| map_measuring_outcome_to_state_handler_outcome(&v, measuring_state))?,
@@ -1598,6 +1614,11 @@ impl MachineStateHandler {
                             &mh_snapshot.host_snapshot.id,
                             &mut ctx.services.db_reader,
                             self.host_handler.host_handler_params.attestation_enabled,
+                            mh_snapshot.host_snapshot.state.version.timestamp(),
+                            self.host_handler
+                                .host_handler_params
+                                .reachability_params
+                                .waiting_for_measurements_timeout,
                         )
                         .await
                         .map(|v| {
@@ -5884,6 +5905,10 @@ impl StateHandler for HostMachineStateHandler {
                         &mh_snapshot.host_snapshot.id,
                         &mut ctx.services.db_reader,
                         self.host_handler_params.attestation_enabled,
+                        mh_snapshot.host_snapshot.state.version.timestamp(),
+                        self.host_handler_params
+                            .reachability_params
+                            .waiting_for_measurements_timeout,
                     )
                     .await
                     {

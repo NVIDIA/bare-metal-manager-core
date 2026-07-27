@@ -57,6 +57,8 @@ type Machine struct {
 	PlacementInRack *PlacementInRack `json:"placementInRack,omitempty"`
 	// If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance
 	MaintenanceMessage NullableString `json:"maintenanceMessage,omitempty"`
+	// Scout version reported by the Machine, if known
+	ScoutVersion NullableString `json:"scoutVersion,omitempty"`
 	// Health information about the machine
 	Health *MachineHealth `json:"health,omitempty"`
 	// Only available to Providers. Returned if the `includeMetadata` query parameter is specified. Otherwise attribute is omitted from response.
@@ -735,6 +737,49 @@ func (o *Machine) UnsetMaintenanceMessage() {
 	o.MaintenanceMessage.Unset()
 }
 
+// GetScoutVersion returns the ScoutVersion field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *Machine) GetScoutVersion() string {
+	if o == nil || IsNil(o.ScoutVersion.Get()) {
+		var ret string
+		return ret
+	}
+	return *o.ScoutVersion.Get()
+}
+
+// GetScoutVersionOk returns a tuple with the ScoutVersion field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *Machine) GetScoutVersionOk() (*string, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.ScoutVersion.Get(), o.ScoutVersion.IsSet()
+}
+
+// HasScoutVersion returns a boolean if a field has been set.
+func (o *Machine) HasScoutVersion() bool {
+	if o != nil && o.ScoutVersion.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetScoutVersion gets a reference to the given NullableString and assigns it to the ScoutVersion field.
+func (o *Machine) SetScoutVersion(v string) {
+	o.ScoutVersion.Set(&v)
+}
+
+// SetScoutVersionNil sets the value for ScoutVersion to be an explicit nil
+func (o *Machine) SetScoutVersionNil() {
+	o.ScoutVersion.Set(nil)
+}
+
+// UnsetScoutVersion ensures that no value is present for ScoutVersion, not even an explicit nil
+func (o *Machine) UnsetScoutVersion() {
+	o.ScoutVersion.Unset()
+}
+
 // GetHealth returns the Health field value if set, zero value otherwise.
 func (o *Machine) GetHealth() MachineHealth {
 	if o == nil || IsNil(o.Health) {
@@ -1051,6 +1096,9 @@ func (o Machine) ToMap() (map[string]interface{}, error) {
 	}
 	if o.MaintenanceMessage.IsSet() {
 		toSerialize["maintenanceMessage"] = o.MaintenanceMessage.Get()
+	}
+	if o.ScoutVersion.IsSet() {
+		toSerialize["scoutVersion"] = o.ScoutVersion.Get()
 	}
 	if !IsNil(o.Health) {
 		toSerialize["health"] = o.Health

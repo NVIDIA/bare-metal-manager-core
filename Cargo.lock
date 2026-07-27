@@ -6811,7 +6811,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.45.0#7cdf76cfa974db4062c6e7418d9609110bd1f2f3"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.45.1#7d6a335f7ebe1e489c574f075a9adc1ce171a1bf"
 dependencies = [
  "chrono",
  "clap",
@@ -7762,9 +7762,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a479451ed177b194f1516905192cca7afcb19df746929a696cde25bb59505d22"
+checksum = "2592edb56672a2c7edf127a376cc1ee487ba0e3c6f1de089e0a8074e731fae2c"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -7779,10 +7779,11 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de3e56d83d55644a02a8df38e8708acaae92502e9365ed89283659e772f384e3"
+checksum = "36d20f59e47169c5adc5ee4d16ee58c4be04bdb7b13adf20c95b574b068f2d65"
 dependencies = [
+ "bytes",
  "futures-core",
  "futures-util",
  "http",
@@ -7803,9 +7804,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a53785a0f2fe9ec12e7d5eea889878f9f6957dd71057685b65d4a67014382192"
+checksum = "d604b8acdfb20dae81b2a0849258126723f649d772e5097c75a54bd75aad53e6"
 dependencies = [
  "futures-core",
  "futures-io",
@@ -7818,9 +7819,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40e98d0fb2cfe55eef14406dc37abe45d8423eeff76e4f24bac222a30e9fd6b0"
+checksum = "f1b4cbe1798dd45c668d35da308da62fc55e1c321e337685bd2126fc50ba07f1"
 dependencies = [
  "clap",
  "clap_derive",
@@ -7836,9 +7837,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-schema"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fab0ee38389eee599875be88eee81f6f879d0671e830d20ec424654b74097bd5"
+checksum = "6005f1c3630b8ef4df0a2564fb935a659ae6384a09bd2c7e2081ce20e5033e15"
 dependencies = [
  "glob",
 ]

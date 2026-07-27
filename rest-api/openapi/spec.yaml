@@ -20607,6 +20607,7 @@ components:
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
           maintenanceMessage: null
+          scoutVersion: 2.6.1
           health:
             source: aggregate-host-health
             observedAt: null
@@ -20737,6 +20738,12 @@ components:
             - string
             - 'null'
           description: 'If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance'
+        scoutVersion:
+          type:
+            - string
+            - 'null'
+          description: 'Scout version reported by the Machine, if known'
+          readOnly: true
         health:
           $ref: '#/components/schemas/MachineHealth'
           description: 'Health information about the machine'

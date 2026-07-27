@@ -235,13 +235,35 @@ where
 {
     /// Fetch password, write the K8s BMC secret, spawn refresh task,
     /// and return the constructed SDK.
+    ///
+    /// The BMC password is not necessarily available the first time this runs.
+    /// It comes from the site-wide BMC root credential, which operators set
+    /// *through the API this SDK is initializing*, so on a fresh site the
+    /// credential does not exist yet. When a refresh interval is configured the
+    /// initial read is therefore best-effort: initialization continues without
+    /// the Secret, and the refresh task writes it as soon as the credential
+    /// appears — no restart needed. Without a refresh interval nothing would
+    /// ever retry, so there a failed read stays fatal.
     async fn init_secret_and_task(self) -> Result<DpfSdk<R, L>, DpfError> {
         let repo = Arc::new(self.repo);
         let namespace = self.namespace;
         let provider = self.bmc_password_provider;
 
-        let password = provider.get_bmc_password().await?;
-        write_bmc_secret::<R>(&repo, &namespace, &password).await?;
+        let password = match provider.get_bmc_password().await {
+            Ok(password) => {
+                write_bmc_secret::<R>(&repo, &namespace, &password).await?;
+                Some(password)
+            }
+            Err(error) if self.bmc_password_refresh_interval.is_some() => {
+                tracing::warn!(
+                    %error,
+                    secret = SECRET_NAME,
+                    "BMC password unavailable; DPF secret will be written once the credential is set"
+                );
+                None
+            }
+            Err(error) => return Err(error),
+        };
 
         let guard = if let Some(interval) = self.bmc_password_refresh_interval {
             Some(spawn_bmc_refresh(
@@ -306,25 +328,30 @@ async fn write_bmc_secret<R: K8sConfigRepository>(
 ) -> Result<(), DpfError> {
     let mut data = BTreeMap::new();
     data.insert("password".to_string(), password.as_bytes().to_vec());
-    K8sConfigRepository::create_secret(repo, SECRET_NAME, namespace, data).await
+    K8sConfigRepository::apply_secret(repo, SECRET_NAME, namespace, data).await
 }
 
 /// Fetch the current BMC password from the provider and update the K8s
 /// secret when it differs from `last_password`. Returns the password
 /// value that should be remembered for the next comparison.
+///
+/// `last_password` is `None` when no password has been written yet — either
+/// because the credential was unset at startup, or because every write since
+/// has failed. That case writes on the next successful read, which is how a
+/// site that boots without the site-wide BMC root recovers on its own.
 async fn refresh_bmc_secret_if_changed<R: K8sConfigRepository>(
     repo: &R,
     namespace: &str,
     provider: &impl BmcPasswordProvider,
-    last_password: String,
-) -> String {
+    last_password: Option<String>,
+) -> Option<String> {
     match provider.get_bmc_password().await {
-        Ok(new_pw) if new_pw != last_password => {
+        Ok(new_pw) if Some(&new_pw) != last_password.as_ref() => {
             if let Err(e) = write_bmc_secret::<R>(repo, namespace, &new_pw).await {
                 tracing::error!(error = %e, "Failed to refresh BMC secret");
                 last_password
             } else {
-                new_pw
+                Some(new_pw)
             }
         }
         Err(e) => {
@@ -340,7 +367,7 @@ fn spawn_bmc_refresh<R, P>(
     repo: Arc<R>,
     namespace: String,
     provider: P,
-    password: String,
+    password: Option<String>,
     interval: Duration,
     join_set: Option<&mut tokio::task::JoinSet<()>>,
 ) -> Result<tokio_util::sync::DropGuard, DpfError>
@@ -2491,7 +2518,7 @@ mod tests {
         ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
             Ok(None)
         }
-        async fn create_secret(
+        async fn apply_secret(
             &self,
             _name: &str,
             _ns: &str,
@@ -3091,7 +3118,7 @@ mod tests {
         ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
             Ok(None)
         }
-        async fn create_secret(
+        async fn apply_secret(
             &self,
             _name: &str,
             _ns: &str,
@@ -3115,16 +3142,33 @@ mod tests {
         }
     }
 
+    /// Provider that always fails, standing in for a site where the site-wide
+    /// BMC root credential has not been set yet.
+    struct UnsetBmcPasswordProvider;
+
+    #[async_trait]
+    impl BmcPasswordProvider for UnsetBmcPasswordProvider {
+        async fn get_bmc_password(&self) -> Result<String, DpfError> {
+            Err(DpfError::InvalidState(
+                "Site wide BMC root credentials not set".into(),
+            ))
+        }
+    }
+
     #[tokio::test]
     async fn test_refresh_writes_secret_when_password_changes() {
         let mock = SecretTrackingMock::default();
         let provider = "new-password".to_string();
 
-        let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "old-password".into())
-                .await;
+        let result = refresh_bmc_secret_if_changed(
+            &mock,
+            TEST_NAMESPACE,
+            &provider,
+            Some("old-password".into()),
+        )
+        .await;
 
-        assert_eq!(result, "new-password");
+        assert_eq!(result.as_deref(), Some("new-password"));
         assert_eq!(
             mock.secrets_written.lock().unwrap().as_slice(),
             &["new-password"]
@@ -3137,9 +3181,10 @@ mod tests {
         let provider = "same".to_string();
 
         let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "same".into()).await;
+            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, Some("same".into()))
+                .await;
 
-        assert_eq!(result, "same");
+        assert_eq!(result.as_deref(), Some("same"));
         assert!(mock.secrets_written.lock().unwrap().is_empty());
     }
 
@@ -3151,11 +3196,80 @@ mod tests {
         };
         let provider = "new-password".to_string();
 
+        let result = refresh_bmc_secret_if_changed(
+            &mock,
+            TEST_NAMESPACE,
+            &provider,
+            Some("old-password".into()),
+        )
+        .await;
+
+        assert_eq!(result.as_deref(), Some("old-password"));
+    }
+
+    /// The recovery path for a site that booted before the site-wide BMC root
+    /// credential was set: nothing has been written yet, so the first
+    /// successful read must write the Secret.
+    #[tokio::test]
+    async fn test_refresh_writes_secret_when_no_password_written_yet() {
+        let mock = SecretTrackingMock::default();
+        let provider = "first-password".to_string();
+
+        let result = refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, None).await;
+
+        assert_eq!(result.as_deref(), Some("first-password"));
+        assert_eq!(
+            mock.secrets_written.lock().unwrap().as_slice(),
+            &["first-password"]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refresh_stays_unwritten_while_password_unavailable() {
+        let mock = SecretTrackingMock::default();
+
         let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "old-password".into())
+            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &UnsetBmcPasswordProvider, None)
                 .await;
 
-        assert_eq!(result, "old-password");
+        assert_eq!(result, None);
+        assert!(mock.secrets_written.lock().unwrap().is_empty());
+    }
+
+    /// A fresh site sets the site-wide BMC root credential *through* the API,
+    /// so initialization must survive the credential being unset, leaving the
+    /// Secret to the refresh task.
+    #[tokio::test]
+    async fn test_build_succeeds_when_bmc_password_unset_and_refresh_configured() {
+        let mock = SecretTrackingMock::default();
+
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, UnsetBmcPasswordProvider)
+            .with_bmc_password_refresh_interval(Duration::from_secs(3600))
+            .build_without_resources()
+            .await
+            .expect("initialization tolerates an unset BMC password");
+
+        assert_eq!(sdk.namespace(), TEST_NAMESPACE);
+        assert!(mock.secrets_written.lock().unwrap().is_empty());
+    }
+
+    /// Without a refresh task nothing would ever retry the read, so an unset
+    /// credential stays fatal rather than leaving the Secret permanently absent.
+    #[tokio::test]
+    async fn test_build_fails_when_bmc_password_unset_and_no_refresh_configured() {
+        let mock = SecretTrackingMock::default();
+
+        let Err(error) = DpfSdkBuilder::new(mock, TEST_NAMESPACE, UnsetBmcPasswordProvider)
+            .build_without_resources()
+            .await
+        else {
+            panic!("an unset BMC password with no refresh task is fatal");
+        };
+
+        assert!(
+            matches!(error, DpfError::InvalidState(msg) if msg.contains("BMC root credentials")),
+            "unexpected error"
+        );
     }
 
     fn terminating_timestamp() -> k8s_openapi::apimachinery::pkg::apis::meta::v1::Time {

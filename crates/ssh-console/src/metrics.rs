@@ -42,9 +42,10 @@ pub async fn spawn(
     let listener = TcpListener::bind(config.metrics_address)
         .await
         .map_err(SpawnError::Listen)?;
+    let metrics_address = listener.local_addr().map_err(SpawnError::Listen)?;
 
     tracing::info!(
-        metrics_address = %config.metrics_address,
+        %metrics_address,
         "metrics service listening"
     );
 
@@ -86,6 +87,7 @@ pub async fn spawn(
     });
 
     Ok(MetricsHandle {
+        metrics_address,
         shutdown_tx,
         join_handle,
     })
@@ -125,8 +127,15 @@ fn serve_metrics(
 }
 
 pub struct MetricsHandle {
+    metrics_address: std::net::SocketAddr,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
+}
+
+impl MetricsHandle {
+    pub fn metrics_address(&self) -> std::net::SocketAddr {
+        self.metrics_address
+    }
 }
 
 impl ShutdownHandle<()> for MetricsHandle {
