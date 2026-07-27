@@ -932,8 +932,7 @@ impl ApiClient {
         Ok(self.0.update_expected_machine(request).await?)
     }
 
-    /// Replaces the entire expected-machine table from JSON. Entries with `bmc_ip_address` trigger
-    /// the same static BMC `machine_interface` setup as a single create.
+    /// Replaces the entire expected-machine table from JSON.
     pub async fn replace_all_expected_machines(
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,

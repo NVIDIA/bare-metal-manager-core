@@ -1135,9 +1135,13 @@ impl MachineCreator {
     }
 }
 
-/// Host inband MACs used when minting `predicted_machine_interface` rows for zero-DPU hosts.
-/// Prefers Redfish-reported System EthernetInterfaces; falls back to `ExpectedMachine.host_nics`
-/// when the BMC omits them from Redfish.
+/// `host_mac_addresses_for_predicted_machine` finds the Host interfaces used to
+/// mint `predicted_machine_interface` rows for a zero-DPU host.
+///
+/// Redfish-reported System EthernetInterfaces remain authoritative. When the
+/// BMC omits that inventory, only Host-role ExpectedMachine declarations are a
+/// valid fallback; treating DPU OS or DPU BMC declarations as Host interfaces
+/// would attach those endpoints to the wrong machine.
 fn host_mac_addresses_for_predicted_machine(
     report: &EndpointExplorationReport,
     machine_data: Option<&ExpectedMachineData>,
@@ -1147,19 +1151,138 @@ fn host_mac_addresses_for_predicted_machine(
         [_, ..] => from_redfish,
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
-            .map(|data| data.host_nics.as_slice())
+            .map(|data| {
+                data.host_nics
+                    .iter()
+                    .filter(|interface| interface.role.is_host())
+                    .map(|interface| interface.mac_address)
+                    .dedup()
+                    .collect::<Vec<_>>()
+            })
             .none_if_empty()
-            .map(|host_nics| {
+            .inspect(|host_mac_addresses| {
                 tracing::info!(
-                    host_nic_count = host_nics.len(),
+                    host_nic_count = host_mac_addresses.len(),
                     "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
                 );
-                host_nics
-                    .iter()
-                    .map(|nic| nic.mac_address)
-                    .dedup()
-                    .collect()
             })
             .unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceRole};
+    use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface};
+
+    use super::*;
+
+    /// Redfish inventory stays authoritative, and the zero-DPU fallback uses
+    /// only Host declarations from a host ExpectedMachine.
+    #[test]
+    fn host_mac_addresses_for_predicted_machine_cases() {
+        let host_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        let dpu_os_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+        let dpu_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x03]);
+        let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
+        let interface = |mac_address, role| ExpectedHostNic {
+            mac_address,
+            role,
+            ..Default::default()
+        };
+        let machine_data = |host_nics| ExpectedMachineData {
+            host_nics,
+            ..Default::default()
+        };
+        let all_roles = || {
+            machine_data(vec![
+                interface(host_mac, ExpectedInterfaceRole::Host),
+                interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
+                interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+            ])
+        };
+        let excluded_report = |chassis_id: &str| EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: chassis_id.to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "Redfish EthernetInterfaces are authoritative",
+                    input: (
+                        EndpointExplorationReport {
+                            systems: vec![ComputerSystem {
+                                ethernet_interfaces: vec![EthernetInterface {
+                                    mac_address: Some(redfish_mac),
+                                    ..Default::default()
+                                }],
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        },
+                        Some(all_roles()),
+                    ),
+                    expect: vec![redfish_mac],
+                },
+                Check {
+                    scenario: "Host declarations provide the zero-DPU fallback",
+                    input: (EndpointExplorationReport::default(), Some(all_roles())),
+                    expect: vec![host_mac],
+                },
+                Check {
+                    scenario: "DPU-only declarations do not become Host predictions",
+                    input: (
+                        EndpointExplorationReport::default(),
+                        Some(machine_data(vec![
+                            interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
+                            interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+                        ])),
+                    ),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "missing ExpectedMachine data has no fallback",
+                    input: (EndpointExplorationReport::default(), None),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "DPU reports do not use Host declarations",
+                    input: (
+                        EndpointExplorationReport {
+                            systems: vec![ComputerSystem {
+                                id: "Bluefield".to_string(),
+                                ..Default::default()
+                            }],
+                            chassis: vec![Chassis {
+                                id: "Card1".to_string(),
+                                model: Some("BlueField 3 DPU".to_string()),
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        },
+                        Some(all_roles()),
+                    ),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "switch reports do not use Host declarations",
+                    input: (excluded_report("MGX_NVSwitch_0"), Some(all_roles())),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "power-shelf reports do not use Host declarations",
+                    input: (excluded_report("PowerShelf"), Some(all_roles())),
+                    expect: vec![],
+                },
+            ],
+            |(report, machine_data)| {
+                host_mac_addresses_for_predicted_machine(&report, machine_data.as_ref())
+            },
+        );
     }
 }

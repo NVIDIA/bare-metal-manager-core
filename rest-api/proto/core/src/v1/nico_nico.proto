@@ -6167,27 +6167,41 @@ message IpxeTemplateList {
 message ExpectedHostNic {
   string mac_address = 1;
   // Legacy free-form segment hint (bf3, onboard, oob, ...). Kept for backward
-  // compatibility; declare network_segment_type instead, which wins.
+  // compatibility; declare `network_segment_type` instead, which wins.
   optional string nic_type = 2;
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
   optional string fixed_gateway = 5;
-  // When true, this flags the given NIC as the host's primary (boot)
-  // interface (used in cases of zero DPU).
+  // Host-role interfaces may set this to true to declare the host's primary
+  // (boot) interface.
   //
-  // Up to one NIC per ExpectedMachine may be marked primary, if set at
-  // all. Propagates to `machine_interfaces.primary_interface` during DHCP
-  // when this NIC is first discovered.
-  //
-  // Some day this could be even possibly used to say "this dumb NIC
-  // *is* the primary interface, even though I know I have a DPU."
+  // At most one Host interface per `ExpectedMachine` may set it to true; the
+  // other Host interfaces then become non-primary. False remains accepted for
+  // compatibility but does not replace that machine-wide selection. DPU OS
+  // interfaces are primary data interfaces and DPU BMC interfaces are
+  // non-primary; those roles must omit this field.
   optional bool primary = 6;
-  // The network segment type this NIC's first DHCP lease should come from.
-  // A NIC's segment normally follows its DHCP relay; where segment prefixes
-  // nest or overlap and a relay matches several, this narrows the choice to
-  // the segment of this type. Supersedes nic_type; absent both, the relay's
-  // match stands.
+  // Optional guard for this interface's network segment type. An explicit
+  // allocation policy or DPU role applies the guard to DHCP-selected segments
+  // and fixed-address containment. A legacy Host declaration with an omitted
+  // policy keeps the earlier first-DHCP selection-only behavior. Supersedes
+  // `nic_type` for DHCP; absent both, relay selection remains unconstrained.
+  // On update, omission clears this guard.
   optional NetworkSegmentType network_segment_type = 7;
+  // Machine endpoint that owns this interface. The role selects interface type
+  // and primary behavior only; Host, DPU OS, and DPU BMC all accept the same
+  // allocation policies and optional segment guard. On create, missing and
+  // Unspecified mean Host. On update, omission preserves the stored role while
+  // explicit Unspecified resets it to Host.
+  optional ExpectedInterfaceRole role = 8;
+  // Optional allocation policy. On create, missing and Unspecified infer Fixed
+  // from `fixed_ip` and Dynamic otherwise. On update, omission preserves the
+  // stored policy while explicit Unspecified resets to that inference.
+  // Explicit Dynamic rejects `fixed_ip`. For a legacy Host declaration,
+  // inferred Fixed still selects the segment by address-prefix containment but
+  // does not turn `network_segment_type` into a fixed-address guard; configure
+  // Fixed explicitly to request that check.
+  optional ExpectedInterfaceIpAllocation ip_allocation = 9;
 }
 
 // NICo RPC representation of the per-host policy for how NICo treats DPU
@@ -9148,6 +9162,46 @@ enum OperatingSystemType {
   OS_TYPE_UNSPECIFIED = 0;
   OS_TYPE_IPXE = 1;              // Raw inline iPXE script
   OS_TYPE_TEMPLATED_IPXE = 2; // iPXE OS using an iPXE template
+}
+
+// Identifies which machine endpoint owns an entry in `ExpectedMachine.host_nics`.
+// Each role accepts Dynamic, Fixed, and Retained allocation plus the optional
+// segment guard. The role only derives interface type and primary behavior.
+//
+// On create, missing and `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` mean Host. On
+// update, omission preserves the stored role, while explicit
+// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. Host BMC identity
+// remains on `ExpectedMachine.bmc_mac_address`. NVIDIA/infra-controller#4103
+// tracks adding its network settings to this same interface model.
+enum ExpectedInterfaceRole {
+  // Preserve the legacy Host role when the optional field is absent.
+  EXPECTED_INTERFACE_ROLE_UNSPECIFIED = 0;
+  // Host operating-system data interface. Primary selection is machine-wide.
+  EXPECTED_INTERFACE_ROLE_HOST = 1;
+  // DPU operating-system data interface. Always primary for its DPU.
+  EXPECTED_INTERFACE_ROLE_DPU_OS = 2;
+  // DPU Redfish/BMC interface. Never primary.
+  EXPECTED_INTERFACE_ROLE_DPU_BMC = 3;
+}
+
+// Controls how an expected interface receives and retains its IP address.
+// Missing and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` preserve legacy
+// behavior: `fixed_ip` implies `FIXED`, while its absence implies `DYNAMIC`.
+enum ExpectedInterfaceIpAllocation {
+  // Infer Fixed or Dynamic from whether `fixed_ip` is configured. For a legacy
+  // Host declaration, this does not opt into the fixed-address segment guard.
+  EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED = 0;
+  // Use an expiring DHCP lease. The segment guard must match the relay's
+  // selected segment when configured.
+  EXPECTED_INTERFACE_IP_ALLOCATION_DYNAMIC = 1;
+  // Reserve `fixed_ip`. Its prefix selects the segment, and the segment guard
+  // must match that segment when configured.
+  EXPECTED_INTERFACE_IP_ALLOCATION_FIXED = 2;
+  // Allocate through DHCP, then make the address Static for this interface
+  // row's lifetime. It is not saved in ExpectedMachine for re-ingestion. The
+  // address is not converted back to DHCP if the policy later changes. The
+  // segment guard must match the relay's selected segment when configured.
+  EXPECTED_INTERFACE_IP_ALLOCATION_RETAINED = 3;
 }
 
 message OperatingSystem {
