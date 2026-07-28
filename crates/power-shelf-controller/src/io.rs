@@ -160,6 +160,16 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 };
                 ("maintenance", op)
             }
+            PowerShelfControllerState::ReProvisioning {
+                reprovisioning_state,
+            } => {
+                let sub = match reprovisioning_state {
+                    model::power_shelf::ReProvisioningState::WaitingForRackFirmwareUpgrade => {
+                        "waiting_for_rack_firmware_upgrade"
+                    }
+                };
+                ("reprovisioning", sub)
+            }
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }

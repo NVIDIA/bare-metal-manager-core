@@ -621,6 +621,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("ExpectedHostNic", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Deserialize)]")
+        .field_attribute(
+            "ExpectedHostNic.role",
+            "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"ExpectedInterfaceRole::deserialize_optional\", serialize_with = \"ExpectedInterfaceRole::serialize_optional\")]",
+        )
+        .field_attribute(
+            "ExpectedHostNic.ip_allocation",
+            "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"ExpectedInterfaceIpAllocation::deserialize_optional\", serialize_with = \"ExpectedInterfaceIpAllocation::serialize_optional\")]",
+        )
         .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")

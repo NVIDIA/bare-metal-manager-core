@@ -28,15 +28,17 @@ use state_controller::state_handler::{
 
 use crate::context::PowerShelfStateHandlerContextObjects;
 use crate::maintenance::build_power_shelf_endpoint;
+use crate::reprovisioning::first_reprovisioning_state;
 
 /// Handles the Ready state for a power shelf.
 ///
 /// If the power shelf is marked for deletion, transitions to `Deleting`.
 /// If a maintenance request has been posted via
 /// `power_shelf_maintenance_requested`, transitions to `Maintenance` with the
-/// requested operation (PowerOn / PowerOff). Otherwise polls the configured
-/// component manager backend for the current power state (best-effort
-/// observation) and idles.
+/// requested operation (PowerOn / PowerOff). If rack-level reprovisioning has
+/// been requested and `rack_firmware_reprovisioning_enabled` is set, transitions
+/// to `ReProvisioning`. Otherwise polls the configured component manager backend
+/// for the current power state (best-effort observation) and idles.
 ///
 /// TODO: Implement PowerShelf monitoring (health checks, status updates,
 /// power consumption / efficiency tracking).
@@ -64,10 +66,74 @@ pub async fn handle_ready(
         ));
     }
 
+    if let Some(req) = &state.power_shelf_reprovisioning_requested {
+        if !ctx.services.rack_firmware_reprovisioning_enabled {
+            tracing::info!(
+                power_shelf_id = %power_shelf_id,
+                initiator = %req.initiator,
+                "Rack reprovision request ignored; rack_firmware_reprovisioning_enabled is false"
+            );
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db_power_shelf::clear_power_shelf_reprovisioning_requested(
+                txn.as_mut(),
+                *power_shelf_id,
+            )
+            .await?;
+            return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
+        }
+
+        if !req.initiator.starts_with("rack-") {
+            tracing::warn!(
+                initiator = %req.initiator,
+                "Unknown initiator for power shelf reprovisioning request",
+            );
+            let cause = format!(
+                "unknown initiator for power shelf reprovisioning request: {}",
+                req.initiator
+            );
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db_power_shelf::clear_power_shelf_reprovisioning_requested(
+                txn.as_mut(),
+                *power_shelf_id,
+            )
+            .await?;
+            return Ok(
+                StateHandlerOutcome::transition(PowerShelfControllerState::Error { cause })
+                    .with_txn(txn),
+            );
+        }
+
+        let Some(reprovisioning_state) = first_reprovisioning_state(req) else {
+            tracing::warn!(
+                power_shelf_id = %power_shelf_id,
+                initiator = %req.initiator,
+                "Rack reprovision request has no power-shelf-relevant activities; clearing request"
+            );
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db_power_shelf::clear_power_shelf_reprovisioning_requested(
+                txn.as_mut(),
+                *power_shelf_id,
+            )
+            .await?;
+            return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
+        };
+
+        tracing::info!(
+            ?reprovisioning_state,
+            "Rack-level reprovisioning requested — entering ReProvisioning"
+        );
+        return Ok(StateHandlerOutcome::transition(
+            PowerShelfControllerState::ReProvisioning {
+                reprovisioning_state,
+            },
+        ));
+    }
+
     let txn = poll_power_state(power_shelf_id, state, ctx).await;
 
     Ok(StateHandlerOutcome::do_nothing().with_txn_opt(txn))
 }
+
 ///
 /// On a successful response, the observed power state for this power shelf is
 /// persisted to the `power_shelves.status` column and the in-memory `state`

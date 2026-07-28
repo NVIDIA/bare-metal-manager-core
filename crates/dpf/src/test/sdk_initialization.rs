@@ -479,7 +479,7 @@ async fn service_versions_fail_when_referenced_template_is_missing() {
         TEST_NS,
         &[],
         BTreeMap::new(),
-        "",
+        crate::types::DpuDeploymentType::Bf3,
     );
     DpuDeploymentRepository::apply(&mock, &deployment)
         .await

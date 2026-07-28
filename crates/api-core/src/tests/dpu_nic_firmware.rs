@@ -463,6 +463,86 @@ async fn test_wrong_version_failures_count_once_per_outcome(
     Ok(())
 }
 
+/// DPF picks update targets by the DPUDeployment's expected BFB, so a
+/// DPF-managed DPU's reported NIC firmware has no reason to appear in
+/// `dpu_nic_firmware_update_versions`. The completion path must not hold it
+/// against that list, or the HostUpdateInProgress alert stays pinned after the
+/// reprovision finishes and the host never becomes allocatable again.
+#[crate::sqlx_test]
+async fn test_clear_completed_updates_dpf_host_off_list_version(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // Mark the host as DPF-ingested and pretend a DPF-driven reprovision just
+    // finished: the DPU is back with a firmware version outside the configured
+    // set, its reprovisioning flag is cleared, and the in-update marker is still
+    // on the host.
+    let mut txn = env.pool.begin().await?;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    update_nic_firmware_version(&mut txn, &mh.dpu().id, "0.0.0-from-bfb").await?;
+    let query = r#"UPDATE machines set reprovisioning_requested = NULL where id = $1"#;
+    sqlx::query(query)
+        .bind(mh.dpu().id.to_string())
+        .execute(&mut *txn)
+        .await?;
+    db::machine::insert_health_report(
+        &mut txn,
+        &mh.id,
+        health_report::HealthReportApplyMode::Merge,
+        &create_host_update_health_report_dpufw(),
+        false,
+    )
+    .await?;
+    txn.commit().await?;
+
+    assert!(
+        !env.config
+            .dpu_config
+            .dpu_nic_firmware_update_versions
+            .contains(&"0.0.0-from-bfb".to_string()),
+        "the version the BFB landed must be off the NIC firmware allowlist",
+    );
+
+    let dpu_nic_firmware_update = DpuNicFirmwareUpdate {
+        reported_wrong_versions: std::sync::Mutex::new(std::collections::HashSet::new()),
+        metrics: None,
+        config: env.config.clone(),
+        dpf: None,
+    };
+
+    let metrics = MetricsCapture::start();
+    let mut txn = env.pool.begin().await?;
+    dpu_nic_firmware_update
+        .clear_completed_updates(&mut txn)
+        .await?;
+
+    let managed_host = mh.snapshot(&mut txn).await;
+    assert!(
+        !managed_host
+            .host_snapshot
+            .health_reports
+            .merges
+            .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE),
+        "DPF host must have its update marker removed once the reprovision completes",
+    );
+    assert!(managed_host.aggregate_health.alerts.is_empty());
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_firmware_update_failures_total",
+            &[
+                ("target", "dpu_nic"),
+                ("cause", "wrong_version_after_update"),
+            ],
+        ),
+        0.0,
+        "a DPF update landing off the NIC allowlist is not a wrong-version failure",
+    );
+
+    Ok(())
+}
+
 impl TestManagedHost {
     pub async fn update_nic_firmware_version(
         &self,

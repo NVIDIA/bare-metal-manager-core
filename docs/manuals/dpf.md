@@ -566,10 +566,11 @@ a Kubernetes image-pull Secret name when the service is served from a private re
 
 Each DPU generation is provisioned by its own `DPUDeployment`, configured under
 `[dpf.deployments.<name>]`. **BF3** is always present with built-in defaults;
-**BF4 (generic)** is opt-in and is activated only when a
-`[dpf.deployments.bf4_generic]` table is present. Both deployments run
-side-by-side, each with its own `DPUFlavor` and `DPUDeployment`. BF3 uses a
-BFB URL (`bfb_url`) and BF4 uses a `[bluefield_software]` block instead of a BFB.
+**BF4 (generic)** and **BF4 Astra** are opt-in and are activated by
+`[dpf.deployments.bf4_generic]` and `[dpf.deployments.bf4_astra]`,
+respectively. Active deployments run side-by-side, each with its own
+`DPUFlavor` and `DPUDeployment`. BF3 uses a BFB URL (`bfb_url`), while BF4
+uses a `[bluefield_software]` block instead of a BFB.
 
 Every active deployment must have a **unique** `deployment_name`, `flavor_name`,
 and `node_label_key`; carbide-api validates this at startup and refuses to start
@@ -612,6 +613,7 @@ Per-deployment field reference:
 | `deployment_name` | yes | `nico-deployment-v2` | `DPUDeployment` CR name. |
 | `node_label_key` | yes | `carbide.nvidia.com/controlled.node.v2` | Node-selector label key applied to this deployment's DPUNodes. |
 | `services` | no | inherit `[dpf.services]` | Optional per-deployment mandatory-services override (see below). |
+| `extra_services` | no | Weave DHCP agent, Weave flow controller, and Xplane for BF4 Astra; otherwise empty | Optional replacement definitions for deployment-specific services. |
 
 **Per-deployment services override.** By default every deployment inherits the
 top-level `[dpf.services]` mandatory services. A deployment can pin its own
@@ -633,6 +635,36 @@ helm_version             = "3.4.0"
 docker_repo_url          = "nvcr.io/nvidia/doca/doca_hbn"
 docker_image_tag         = "3.4.0-doca3.4.0"
 # ...plus dts, dpu_agent, dhcp_server, fmds, and otel sub-tables.
+```
+
+BF4 Astra includes three built-in deployment-specific services with no
+`extra_services` TOML required:
+
+- `doca_weave_dhcp_agent`
+- `doca_weave_flow_controller`
+- `doca_xplane`
+
+To pin a different chart/image for development without rebuilding NICo, provide
+a complete `DpfServiceConfig` for only the service being replaced:
+
+```toml
+[dpf.deployments.bf4_astra.extra_services.doca_weave_dhcp_agent]
+name             = "doca-weave-dhcp-agent"
+helm_repo_url    = "https://helm.ngc.nvidia.com/nvidia/doca"
+helm_chart       = "doca-weave-dhcp-agent"
+helm_version     = "1.0"
+docker_repo_url  = "nvcr.io/nvidia/doca/doca_weave_dhcp_agent"
+docker_image_tag = "3.2.1-doca3.2.1"
+# Optional; omit when the registry needs no Kubernetes pull secret.
+docker_image_pull_secret = "private-doca-pull-secret"
+
+[dpf.deployments.bf4_astra.extra_services.doca_weave_flow_controller]
+name             = "doca-weave-flow-controller"
+helm_repo_url    = "https://helm.ngc.nvidia.com/nvidia/doca"
+helm_chart       = "doca-weave-flow-controller"
+helm_version     = "1.0"
+docker_repo_url  = "nvcr.io/nvidia/doca/doca_weave_flow_controller"
+docker_image_tag = "3.2.1-doca3.2.1"
 ```
 
 If your environment routes DPU image pulls through an HTTPS forward proxy (Option B
@@ -661,7 +693,9 @@ Field reference (all under `[dpf]`):
 | `services.<svc>` | table | per-service defaults | Helm/image overrides for each mandatory DPUService. |
 | `deployments.bf3` | table | BF3 defaults | BF3 DPUDeployment config; always active. |
 | `deployments.bf4_generic` | table | — | BF4 (generic) DPUDeployment config; opt-in, active only when present. |
+| `deployments.bf4_astra` | table | — | BF4 Astra DPUDeployment config; opt-in, active only when present. |
 | `deployments.<name>.services.<svc>` | table | inherit `[dpf.services]` | Optional per-deployment mandatory-service override. |
+| `deployments.<name>.extra_services.<svc>` | table | Weave DHCP agent, Weave flow controller, and Xplane for BF4 Astra; otherwise empty | Complete replacement for one deployment-specific service. Supported keys are `doca_weave_dhcp_agent`, `doca_weave_flow_controller`, and `doca_xplane`. |
 | `proxy.https_proxy` | string | — | HTTPS proxy URL for DPU image pulls (see section 3.5). |
 | `proxy.no_proxy` | list of strings | `[]` | Hosts/CIDRs that must bypass the proxy. |
 
