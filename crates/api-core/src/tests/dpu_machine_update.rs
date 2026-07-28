@@ -324,6 +324,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
             host_machine_id: mh.host().id,
             dpu_machine_id: mh.dpu_n(0).id,
             firmware_version: "test_version".to_string(),
+            dpf_managed: false,
         }],
     )
     .await
@@ -382,11 +383,13 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
                 host_machine_id: mh.host().id,
                 dpu_machine_id: all_dpus[1].id,
                 firmware_version: "test_version".to_string(),
+                dpf_managed: false,
             },
             DpuMachineUpdate {
                 host_machine_id: mh.host().id,
                 dpu_machine_id: all_dpus[0].id,
                 firmware_version: "test_version".to_string(),
+                dpf_managed: false,
             },
         ],
     )
