@@ -65,7 +65,7 @@ releases:
     namespace: postgres
     createNamespace: true
     chart: postgres-operator/postgres-operator
-    version: "1.10.1"
+    version: "1.11.0"
     wait: true
     timeout: 600
     values:
