@@ -71,6 +71,9 @@ service Forge {
   rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
 
   // Site prefixes
+  rpc CreateSitePrefix(SitePrefixCreationRequest) returns (SitePrefix);
+  rpc UpdateSitePrefix(SitePrefixUpdateRequest) returns (SitePrefix);
+  rpc DeleteSitePrefix(SitePrefixDeletionRequest) returns (SitePrefixDeletionResult);
   rpc FindSitePrefixIds(SitePrefixSearchFilter) returns (SitePrefixIdList);
   rpc FindSitePrefixesByIds(SitePrefixesByIdsRequest) returns (SitePrefixList);
 
@@ -243,6 +246,7 @@ service Forge {
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindNetworkSegmentStateHistories(NetworkSegmentStateHistoriesRequest) returns (StateHistories);
   rpc FindVpcPrefixStateHistories(VpcPrefixStateHistoriesRequest) returns (StateHistories);
+  rpc FindSitePrefixStateHistories(SitePrefixStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -1544,6 +1548,7 @@ message RuntimeConfig {
   string compile_time_helm_version = 51;
   string compile_time_docker_version = 52;
   bool restart_ovs_on_use_admin_network_change = 53;
+  uint32 max_site_prefixes_per_tenant = 54;
 }
 
 message EchoRequest {
@@ -9503,6 +9508,52 @@ message SitePrefixConfig {
 message SitePrefixStatus {
   SitePrefixAuthority authority = 1;
   SitePrefixLifecycleState lifecycle_state = 2;
+  // Tenant-wide point-in-time use for the owning tenant. Present only for
+  // tenant-managed SitePrefixes and repeated on each returned resource;
+  // mutation admission remains authoritative.
+  optional SitePrefixQuotaUsage quota = 3;
+}
+
+message SitePrefixQuotaUsage {
+  uint32 used = 1;
+  uint32 limit = 2;
+}
+
+// Core derives TenantManaged, DatacenterOnly, and Provisioning. They are
+// intentionally absent from this request. The caller ID, tenant, prefix, and
+// derived routing scope define an idempotent create. A matching retry returns
+// the current stored resource without reapplying metadata; use UpdateSitePrefix
+// to change metadata.
+message SitePrefixCreationRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+  string prefix = 3;
+  Metadata metadata = 4;
+}
+
+message SitePrefixUpdateRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+  // Required. This replaces metadata only; immutable prefix configuration is
+  // intentionally absent from the update request.
+  Metadata metadata = 3;
+  optional string if_version_match = 4;
+}
+
+// Records retirement intent. DeleteSitePrefix moves the retained row to
+// Deleting; it does not release the CIDR or tenant quota slot. Final removal
+// occurs only after child and dataplane drain.
+message SitePrefixDeletionRequest {
+  common.SitePrefixId id = 1;
+  string tenant_organization_id = 2;
+}
+
+message SitePrefixDeletionResult {
+  SitePrefix site_prefix = 1;
+}
+
+message SitePrefixStateHistoriesRequest {
+  repeated common.SitePrefixId site_prefix_ids = 1;
 }
 
 // All fields are optional. An empty filter returns the complete inventory.

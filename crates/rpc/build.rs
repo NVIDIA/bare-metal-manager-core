@@ -484,6 +484,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.SitePrefix", "#[derive(serde::Serialize)]")
         .type_attribute("forge.SitePrefixConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.SitePrefixStatus", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.SitePrefixQuotaUsage",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.SitePrefixAuthority", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.SitePrefixRoutingScope",

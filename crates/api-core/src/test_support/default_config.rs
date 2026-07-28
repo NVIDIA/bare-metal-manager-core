@@ -48,7 +48,8 @@ use crate::cfg::file::{
     SwitchStateControllerConfig, TracingConfig, VmaasConfig, VpcPeeringPolicy,
     VpcPrefixStateControllerConfig, default_bmc_session_lockout_threshold,
     default_database_pool_acquire_timeout, default_database_pool_idle_timeout,
-    default_database_pool_max_lifetime, default_max_find_by_ids, default_pxe_public_base_url,
+    default_database_pool_max_lifetime, default_max_find_by_ids,
+    default_max_site_prefixes_per_tenant, default_pxe_public_base_url,
 };
 
 /// [`get`] with every `Option` config section populated. Used by tests that
@@ -117,6 +118,7 @@ pub fn get() -> CarbideConfig {
         enable_route_servers: false,
         deny_prefixes: vec![],
         site_fabric_prefixes: vec![],
+        max_site_prefixes_per_tenant: default_max_site_prefixes_per_tenant(),
         anycast_site_prefixes: vec![],
         common_tenant_host_asn: None,
         vpc_isolation_behavior: <_ as Default>::default(),

@@ -187,6 +187,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub site_fabric_prefixes: Vec<IpNetwork>,
 
+    /// Maximum number of tenant-managed SitePrefixes retained for one tenant
+    /// at this site. Prefixes awaiting removal still count against this limit
+    /// and keep their CIDR reserved.
+    #[serde(default = "default_max_site_prefixes_per_tenant")]
+    pub max_site_prefixes_per_tenant: u32,
+
     /// List of aggregate IPv4 prefixes (in CIDR notation) that contain prefixes assigned
     /// to tenants so that they themselves can announce to the DPU.  E.g., BYOIP
     #[serde(default)]
@@ -2900,6 +2906,10 @@ pub fn default_max_find_by_ids() -> u32 {
     100
 }
 
+pub fn default_max_site_prefixes_per_tenant() -> u32 {
+    8
+}
+
 pub fn default_max_network_security_group_size() -> u32 {
     200
 }
@@ -3046,6 +3056,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
                 .into_iter()
                 .map(|x| x.to_string())
                 .collect(),
+            max_site_prefixes_per_tenant: value.max_site_prefixes_per_tenant,
             vpc_isolation_behavior: value.vpc_isolation_behavior.to_string(),
             networks: value
                 .networks
@@ -4030,6 +4041,10 @@ mod tests {
             IbPartitionStateControllerConfig::default()
         );
         assert_eq!(config.max_find_by_ids, default_max_find_by_ids());
+        assert_eq!(
+            config.max_site_prefixes_per_tenant,
+            default_max_site_prefixes_per_tenant()
+        );
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(config.measured_boot_collector, {
             MeasuredBootMetricsCollectorConfig {
@@ -4227,6 +4242,10 @@ mod tests {
             }
         );
         assert_eq!(config.max_find_by_ids, 50);
+        assert_eq!(
+            config.max_site_prefixes_per_tenant,
+            default_max_site_prefixes_per_tenant()
+        );
         assert_eq!(
             config.dpu_network_monitor_pinger_type,
             Some("OobNetBind".to_string())
@@ -4479,6 +4498,10 @@ mod tests {
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
         assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);
         assert_eq!(config.max_find_by_ids, 75);
+        assert_eq!(
+            config.max_site_prefixes_per_tenant,
+            default_max_site_prefixes_per_tenant()
+        );
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(
             config.measured_boot_collector,
