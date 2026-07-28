@@ -3371,6 +3371,11 @@ mod tests {
             is_primary: true,
         };
         sdk.register_dpu_device(info).await.unwrap();
+
+        // This branch is a deliberate no-op: an existing, non-terminating device is left
+        // alone. `.unwrap()` only said no error came back -- assert no second device was
+        // created alongside it, which is the whole of what "left alone" means here.
+        assert_eq!(mock.devices.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3448,6 +3453,9 @@ mod tests {
             deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_node(info).await.unwrap();
+
+        // Same no-op branch for nodes.
+        assert_eq!(mock.nodes.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3599,12 +3607,14 @@ mod tests {
                 .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
                 .unwrap(),
         );
+        let flavor_name = flavor.metadata.name.clone().unwrap();
         mock.flavors
             .write()
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(
+        let expected_name = flavor_name.clone();
+        let returned = create_dpu_flavor(
             &mock,
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
@@ -3613,6 +3623,12 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // The whole contract of this branch is "reuse what's already there". `.unwrap()`
+        // only proved it didn't error -- so check it hands back the existing flavor's name
+        // and, more to the point, that it didn't quietly create a second one alongside it.
+        assert_eq!(returned, expected_name);
+        assert_eq!(mock.flavors.read().unwrap().len(), 1);
     }
 
     #[derive(Clone, Default)]
