@@ -34,6 +34,11 @@ pub struct PowerShelfStateHandlerServices {
     pub credential_manager: Arc<dyn CredentialManager>,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
+    /// When `true`, Ready accepts rack-level `power_shelf_reprovisioning_requested`
+    /// and enters `ReProvisioning::WaitingForRackFirmwareUpgrade`. Defaults to
+    /// `false` so power shelves stay out of rack firmware wait unless explicitly
+    /// enabled.
+    pub rack_firmware_reprovisioning_enabled: bool,
 }
 
 impl StateHandlerContextObjects for PowerShelfStateHandlerContextObjects {

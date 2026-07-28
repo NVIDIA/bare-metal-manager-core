@@ -52,6 +52,16 @@ Add a host whose DPU should be treated as a plain NIC:
     --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
     --dpu-policy nic
 
+Add a host interface with a fixed IP:
+    $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
+    --host_nics '[{\"mac_address\":\"02:00:00:00:10:01\",\"role\":\"host\",\"ip_allocation\":\"fixed\",\"fixed_ip\":\"192.0.2.21\"}]'
+
+Add a DPU OS interface that retains its DHCP address:
+    $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
+    --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
+    --host_nics '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"dpu_os\",\"ip_allocation\":\"retained\"}]'
+
 Retain the BMC's auto-allocated DHCP address as a static one (never expires):
     $ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 \
@@ -123,7 +133,7 @@ pub struct Args {
     #[clap(
         long = "host_nics",
         value_name = "HOST_NICS",
-        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type)",
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc and ip_allocation=dynamic|fixed|retained. An omitted role defaults to host. When ip_allocation is omitted, fixed_ip implies fixed; otherwise it defaults to dynamic.",
         action = clap::ArgAction::Append
     )]
     pub host_nics: Option<String>,

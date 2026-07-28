@@ -18,13 +18,15 @@
 //! Handler for SwitchControllerState::Ready.
 
 use carbide_uuid::switch::SwitchId;
-use model::switch::{ConfiguringState, ReProvisioningState, Switch, SwitchControllerState};
+use db::switch as db_switch;
+use model::switch::{ConfiguringState, Switch, SwitchControllerState};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 use crate::context::SwitchStateHandlerContextObjects;
 use crate::nvos_password_rotation::needs_nvos_password_reconciliation;
+use crate::reprovisioning::first_reprovisioning_state;
 
 /// Handles the Ready state for a switch.
 ///
@@ -56,27 +58,41 @@ pub async fn handle_ready(
     }
 
     if let Some(req) = &state.switch_reprovisioning_requested {
-        if req.initiator.starts_with("rack-") {
-            tracing::info!(
-                "Rack-level firmware upgrade requested — transitioning to WaitingForRackFirmwareUpgrade"
+        if !req.initiator.starts_with("rack-") {
+            tracing::warn!(
+                initiator = %req.initiator,
+                "Unknown initiator for switch reprovisioning request",
             );
-            return Ok(StateHandlerOutcome::transition(
-                SwitchControllerState::ReProvisioning {
-                    reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
-                },
-            ));
+            let cause = format!(
+                "unknown initiator for switch reprovisioning request: {}",
+                req.initiator
+            );
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id).await?;
+            return Ok(
+                StateHandlerOutcome::transition(SwitchControllerState::Error { cause })
+                    .with_txn(txn),
+            );
         }
 
-        tracing::warn!(
-            initiator = %req.initiator,
-            "Unknown initiator for switch reprovisioning request",
+        let Some(reprovisioning_state) = first_reprovisioning_state(req) else {
+            tracing::warn!(
+                switch_id = %switch_id,
+                initiator = %req.initiator,
+                "Rack reprovision request has no switch-relevant activities; clearing request"
+            );
+            let mut txn = ctx.services.db_pool.begin().await?;
+            db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id).await?;
+            return Ok(StateHandlerOutcome::do_nothing().with_txn(txn));
+        };
+
+        tracing::info!(
+            ?reprovisioning_state,
+            "Rack-level reprovisioning requested — entering ReProvisioning"
         );
         return Ok(StateHandlerOutcome::transition(
-            SwitchControllerState::Error {
-                cause: format!(
-                    "unknown initiator for switch reprovisioning request: {}",
-                    req.initiator
-                ),
+            SwitchControllerState::ReProvisioning {
+                reprovisioning_state,
             },
         ));
     }

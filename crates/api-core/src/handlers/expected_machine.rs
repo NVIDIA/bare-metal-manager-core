@@ -14,6 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashSet;
+
 use ::rpc::forge as rpc;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
@@ -25,7 +27,9 @@ use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
+use crate::handlers::machine_interface_address::{
+    update_preallocated_expected_machine_interface, update_preallocated_machine_interface,
+};
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
@@ -69,19 +73,35 @@ pub(crate) async fn add(
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let machine = parse_expected_machine_for_insert(request.into_inner())?;
+
+    let mut txn = api.txn_begin().await?;
+    db::expected_machine::create(&mut txn, machine).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
+}
+
+/// `parse_expected_machine_for_insert` converts an RPC request and runs every
+/// validation required before creating an `ExpectedMachine`.
+///
+/// Keeping parsing separate from [`add`] lets [`replace_all`] reject every bad
+/// replacement before it clears the current inventory.
+fn parse_expected_machine_for_insert(
+    request: rpc::ExpectedMachine,
+) -> Result<ExpectedMachine, CarbideError> {
     if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
-        return Err(
-            CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
-        );
+        return Err(CarbideError::InvalidArgument(
+            "duplicate dpu serial number found".to_string(),
+        ));
     }
 
     if !CHASSIS_SERIAL_REGEX.is_match(&request.chassis_serial_number) {
         return Err(CarbideError::InvalidArgument(format!(
             "chassis serial is not formatted properly {}",
             request.chassis_serial_number
-        ))
-        .into());
+        )));
     }
 
     let parsed_mac: MacAddress = request
@@ -107,22 +127,15 @@ pub(crate) async fn add(
     };
 
     validate_expected_machine_for_insert(&machine)?;
-
-    let mut txn = api.txn_begin().await?;
-    db::expected_machine::create(&mut txn, machine).await?;
-
-    txn.commit().await?;
-
-    Ok(tonic::Response::new(()))
+    Ok(machine)
 }
 
-/// Validate the ExpectedMachine payload prior to insert.
-/// Shared between the `add` gRPC handler and the
-/// `expected_machines.json` import flow.
+/// `validate_expected_machine_for_insert` applies the validation shared by the
+/// `add` handler and the `expected_machines.json` import flow.
 pub(crate) fn validate_expected_machine_for_insert(
     machine: &ExpectedMachine,
 ) -> Result<(), CarbideError> {
-    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+    validate_expected_interfaces(&machine.data.host_nics)?;
     machine
         .data
         .bmc_ip_allocation
@@ -141,12 +154,11 @@ pub(crate) async fn create_missing_from(
     txn: &mut sqlx::PgConnection,
     expected_machines: &[ExpectedMachine],
 ) -> Result<(), CarbideError> {
-    let existing_macs: std::collections::HashSet<String> =
-        db::expected_machine::find_all(&mut *txn)
-            .await?
-            .into_iter()
-            .map(|m| m.bmc_mac_address.to_string())
-            .collect();
+    let existing_macs: HashSet<String> = db::expected_machine::find_all(&mut *txn)
+        .await?
+        .into_iter()
+        .map(|m| m.bmc_mac_address.to_string())
+        .collect();
 
     for expected_machine in expected_machines {
         if existing_macs.contains(&expected_machine.bmc_mac_address.to_string()) {
@@ -186,16 +198,16 @@ pub(crate) async fn delete(
     Ok(tonic::Response::new(()))
 }
 
-/// Updates an expected machine row and, when `bmc_ip_address` is set, reconciles the pre-allocated
-/// `machine_interface` via [`update_preallocated_machine_interface`] (no-op for interfaces that
-/// already have addresses—operators use `machine-interfaces assign-address` for those).
+/// Updates an expected machine row and reconciles configured fixed BMC and
+/// nested-interface addresses. Existing addressed interfaces remain unchanged;
+/// operators use `machine-interfaces assign-address` to update those rows.
 pub(crate) async fn update(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachine>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let mut request = request.into_inner();
     if carbide_utils::has_duplicates(&request.fallback_dpu_serial_numbers) {
         return Err(
             CarbideError::InvalidArgument("duplicate dpu serial number found".to_string()).into(),
@@ -215,6 +227,16 @@ pub(crate) async fn update(
         .bmc_mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
+    let mut txn = api.txn_begin().await?;
+    let existing = db::expected_machine::find_for_update(
+        &mut txn,
+        &ExpectedMachineRequest {
+            id,
+            bmc_mac_address: Some(parsed_mac),
+        },
+    )
+    .await?;
+    preserve_omitted_rpc_role_and_allocation(&mut request, existing.as_ref());
     let data: ExpectedMachineData = request.try_into()?;
 
     let machine = ExpectedMachine {
@@ -222,39 +244,14 @@ pub(crate) async fn update(
         bmc_mac_address: parsed_mac,
         data,
     };
+    validate_expected_machine_for_insert(&machine)?;
 
-    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
-    machine
-        .data
-        .bmc_ip_allocation
-        .validate(machine.data.bmc_ip_address.is_some())
-        .map_err(|msg| CarbideError::InvalidArgument(msg.to_string()))?;
-
-    let mut txn = api.txn_begin().await?;
-
-    // Update BMC interface if bmc_ip_address is set.
-    if let Some(bmc_ip) = machine.data.bmc_ip_address {
-        update_preallocated_machine_interface(
-            &mut txn,
-            machine.bmc_mac_address,
-            bmc_ip,
-            api.runtime_config.retained_boot_interface_window,
-        )
-        .await?;
-    }
-
-    // Update/create machine interfaces for host NICs with fixed IPs.
-    for nic in &machine.data.host_nics {
-        if let Some(ip) = nic.fixed_ip {
-            update_preallocated_machine_interface(
-                &mut txn,
-                nic.mac_address,
-                ip,
-                api.runtime_config.retained_boot_interface_window,
-            )
-            .await?;
-        }
-    }
+    update_preallocated_interfaces(
+        &mut txn,
+        &machine,
+        api.runtime_config.retained_boot_interface_window,
+    )
+    .await?;
 
     db::expected_machine::update(&mut txn, &machine)
         .await
@@ -265,8 +262,11 @@ pub(crate) async fn update(
     Ok(tonic::Response::new(()))
 }
 
-/// Clears all expected machines, then creates each entry via [`add`]. Optional `bmc_ip_address` on
-/// each RPC message runs the same `machine_interface` pre-allocation as a single create.
+/// Replace the complete expected-machine inventory in one transaction.
+///
+/// Every entry is parsed and validated before the current inventory is
+/// cleared. The clear and replacement inserts then commit together, so any
+/// database failure also leaves the previous inventory intact.
 pub(crate) async fn replace_all(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineList>,
@@ -275,14 +275,42 @@ pub(crate) async fn replace_all(
     let request = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
+    let previous = db::expected_machine::find_all_for_replace(&mut txn).await?;
+    let mut replacements = request.expected_machines;
+    for replacement in &mut replacements {
+        let existing = find_previous_expected_machine(&previous, replacement);
+        preserve_omitted_rpc_role_and_allocation(replacement, existing);
+    }
+
+    let mut seen_bmc_macs = HashSet::with_capacity(replacements.len());
+    let mut seen_ids = HashSet::with_capacity(replacements.len());
+    let mut parsed_replacements = Vec::with_capacity(replacements.len());
+    for replacement in replacements {
+        let parsed = parse_expected_machine_for_insert(replacement)?;
+        if !seen_bmc_macs.insert(parsed.bmc_mac_address) {
+            return Err(CarbideError::InvalidArgument(format!(
+                "duplicate expected machine BMC MAC address {} in replacement list",
+                parsed.bmc_mac_address,
+            ))
+            .into());
+        }
+        if let Some(id) = parsed.id
+            && !seen_ids.insert(id)
+        {
+            return Err(CarbideError::InvalidArgument(format!(
+                "duplicate expected machine id {id} in replacement list",
+            ))
+            .into());
+        }
+        parsed_replacements.push(parsed);
+    }
 
     db::expected_machine::clear(&mut txn).await?;
-
+    for expected_machine in parsed_replacements {
+        db::expected_machine::create(&mut txn, expected_machine).await?;
+    }
     txn.commit().await?;
 
-    for expected_machine in request.expected_machines {
-        add(api, tonic::Request::new(expected_machine)).await?;
-    }
     Ok(tonic::Response::new(()))
 }
 
@@ -351,8 +379,42 @@ pub(crate) async fn delete_all(
     Ok(tonic::Response::new(()))
 }
 
-/// Rejects an ExpectedMachine payload that declares more than one host NIC
-/// with `primary: true`, returning an InvalidArgument if found.
+/// Reject invalid expected-interface allocation and primary declarations.
+fn validate_expected_interfaces(host_nics: &[ExpectedHostNic]) -> Result<(), CarbideError> {
+    validate_expected_interface_role_and_allocation(host_nics)?;
+    validate_at_most_one_primary_host_nic(host_nics)
+}
+
+/// `validate_expected_interface_role_and_allocation` checks only the role and
+/// allocation fields added to expected interfaces.
+///
+/// Batch update historically did not apply the older Expected Machine
+/// validators, so it uses this narrower check to avoid changing legacy batch
+/// behavior.
+fn validate_expected_interface_role_and_allocation(
+    host_nics: &[ExpectedHostNic],
+) -> Result<(), CarbideError> {
+    for interface in host_nics {
+        interface.validate_ip_allocation().map_err(|message| {
+            CarbideError::InvalidArgument(format!(
+                "host_nics interface {}: {message}",
+                interface.mac_address,
+            ))
+        })?;
+        if interface.primary.is_some() && !interface.role.is_host() {
+            return Err(CarbideError::InvalidArgument(format!(
+                "only a role=host interface may set primary; {} has role {}",
+                interface.mac_address, interface.role,
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// `validate_at_most_one_primary_host_nic` rejects competing machine-wide Host
+/// primary declarations. DPU roles define their own primary behavior and may
+/// not set this field.
 fn validate_at_most_one_primary_host_nic(
     host_nics: &[ExpectedHostNic],
 ) -> Result<(), CarbideError> {
@@ -369,6 +431,144 @@ fn validate_at_most_one_primary_host_nic(
         )));
     }
     Ok(())
+}
+
+/// `find_previous_expected_machine` finds the stored row whose newly-added
+/// interface fields may need to survive a replacement request.
+///
+/// Prefer the stable ID so a BMC MAC change still matches the same row. Older
+/// clients may omit the ID, so the BMC MAC remains the compatibility fallback.
+fn find_previous_expected_machine<'a>(
+    previous: &'a [ExpectedMachine],
+    replacement: &rpc::ExpectedMachine,
+) -> Option<&'a ExpectedMachine> {
+    replacement
+        .id
+        .as_ref()
+        .and_then(|id| Uuid::parse_str(&id.value).ok())
+        .and_then(|id| previous.iter().find(|machine| machine.id == Some(id)))
+        .or_else(|| {
+            replacement
+                .bmc_mac_address
+                .parse::<MacAddress>()
+                .ok()
+                .and_then(|mac_address| {
+                    previous
+                        .iter()
+                        .find(|machine| machine.bmc_mac_address == mac_address)
+                })
+        })
+}
+
+/// Preserve omitted role and allocation fields unknown to older RPC clients.
+///
+/// `None` means the field was absent, while an explicit `Unspecified` asks to
+/// restore legacy defaults. Match each interface at the same list index first
+/// so duplicate legacy MAC entries retain independent settings, then fall back
+/// to MAC for clients that reorder the list.
+///
+/// Other optional fields keep their existing full-replacement behavior. For
+/// example, omitting `network_segment_type` removes that guard.
+fn preserve_omitted_rpc_role_and_allocation(
+    replacement: &mut rpc::ExpectedMachine,
+    existing: Option<&ExpectedMachine>,
+) {
+    let Some(existing) = existing else {
+        return;
+    };
+
+    for (index, interface) in replacement.host_nics.iter_mut().enumerate() {
+        let Ok(mac_address) = interface.mac_address.parse::<MacAddress>() else {
+            continue;
+        };
+        let Some(existing_interface) = existing
+            .data
+            .host_nics
+            .get(index)
+            .filter(|candidate| candidate.mac_address == mac_address)
+            .or_else(|| {
+                existing
+                    .data
+                    .host_nics
+                    .iter()
+                    .find(|candidate| candidate.mac_address == mac_address)
+            })
+        else {
+            // A new interface has no stored value to preserve. Missing fields
+            // retain their normal inference/default behavior.
+            continue;
+        };
+
+        let preserve_role = interface.role.is_none();
+        let preserve_ip_allocation = interface.ip_allocation.is_none();
+        if preserve_role {
+            interface.role = (!existing_interface.role.is_host())
+                .then(|| rpc::ExpectedInterfaceRole::from(existing_interface.role) as i32);
+            if !existing_interface.role.is_host() && interface.primary == Some(false) {
+                // Older clients commonly send primary=false for every entry.
+                // Once the stored DPU role is restored, that legacy field no
+                // longer applies and must not make the payload invalid.
+                interface.primary = None;
+            }
+        }
+        if preserve_ip_allocation
+            // An old client still controls legacy fixed/dynamic intent through
+            // `fixed_ip`. Preserve a newer explicit policy only while that
+            // legacy signal remains unchanged.
+            && existing_interface.fixed_ip.is_some()
+                == interface
+                    .fixed_ip
+                    .as_deref()
+                    .is_some_and(|ip| !ip.is_empty())
+        {
+            interface.ip_allocation = existing_interface
+                .ip_allocation
+                .map(|policy| rpc::ExpectedInterfaceIpAllocation::from(policy) as i32);
+        }
+    }
+}
+
+/// `update_preallocated_interfaces` applies the update-time fixed-address
+/// behavior shared by the single and batch APIs.
+///
+/// The lower-level helpers create a missing reservation or fill an addressless
+/// row, but leave existing addresses alone. An associated row may receive its
+/// configured fixed address, but its role-derived type and primary setting
+/// remain managed state. Operators still use the machine-interface address APIs
+/// to replace a live address.
+async fn update_preallocated_interfaces(
+    txn: &mut sqlx::PgConnection,
+    machine: &ExpectedMachine,
+    retained_window: Option<chrono::Duration>,
+) -> Result<(), CarbideError> {
+    if let Some(bmc_ip) = machine.data.bmc_ip_address {
+        update_preallocated_machine_interface(
+            &mut *txn,
+            machine.bmc_mac_address,
+            bmc_ip,
+            retained_window,
+        )
+        .await?;
+    }
+
+    for interface in &machine.data.host_nics {
+        if interface.fixed_ip.is_some() {
+            update_preallocated_expected_machine_interface(&mut *txn, interface, retained_window)
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Preserve the request representation used by batch results and replace only
+/// the ID with its parsed value. Older clients expect their payload back rather
+/// than a model-normalized copy.
+fn batch_result_with_id(mut machine: rpc::ExpectedMachine, id: Uuid) -> rpc::ExpectedMachine {
+    machine.id = Some(::rpc::common::Uuid {
+        value: id.to_string(),
+    });
+    machine
 }
 
 /// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)
@@ -419,14 +619,14 @@ fn sanitize_expected_machine_and_get_ids(
     Ok((id, parsed_mac))
 }
 
-/// Creates one expected machine inside an existing transaction (batch API). Applies the same static
-/// BMC pre-allocation rules as [`add`].
+/// Creates one expected machine inside an existing transaction (batch API).
 async fn create_expected_machine(
     txn: &mut sqlx::PgConnection,
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
+) -> Result<rpc::ExpectedMachine, CarbideError> {
+    let result_machine = batch_result_with_id(machine.clone(), id);
     let db_data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -438,18 +638,30 @@ async fn create_expected_machine(
     validate_expected_machine_for_insert(&expected_machine)?;
     db::expected_machine::create(txn, expected_machine).await?;
 
-    Ok(())
+    Ok(result_machine)
 }
 
-/// Updates one expected machine inside an existing transaction (batch API). Applies the same
-/// static BMC reconciliation as [`update`].
+/// Updates one expected machine inside an existing transaction (batch API).
+///
+/// Fixed BMC and nested-interface addresses use the same safe reconciliation
+/// as [`update`].
 async fn update_expected_machine(
     txn: &mut sqlx::PgConnection,
-    machine: rpc::ExpectedMachine,
+    mut machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
     retained_window: Option<chrono::Duration>,
-) -> Result<(), CarbideError> {
+) -> Result<rpc::ExpectedMachine, CarbideError> {
+    let result_machine = batch_result_with_id(machine.clone(), id);
+    let existing = db::expected_machine::find_for_update(
+        &mut *txn,
+        &ExpectedMachineRequest {
+            id: Some(id),
+            bmc_mac_address: Some(parsed_mac),
+        },
+    )
+    .await?;
+    preserve_omitted_rpc_role_and_allocation(&mut machine, existing.as_ref());
     let data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -457,20 +669,12 @@ async fn update_expected_machine(
         bmc_mac_address: parsed_mac,
         data,
     };
-
-    if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
-        update_preallocated_machine_interface(
-            txn,
-            expected_machine.bmc_mac_address,
-            bmc_ip,
-            retained_window,
-        )
-        .await?;
-    }
+    validate_expected_interface_role_and_allocation(&expected_machine.data.host_nics)?;
+    update_preallocated_interfaces(txn, &expected_machine, retained_window).await?;
 
     db::expected_machine::update(txn, &expected_machine).await?;
 
-    Ok(())
+    Ok(result_machine)
 }
 
 #[derive(Copy, Clone)]
@@ -520,7 +724,7 @@ async fn apply_operation(
     id: Uuid,
     parsed_mac: MacAddress,
     retained_window: Option<chrono::Duration>,
-) -> Result<(), CarbideError> {
+) -> Result<rpc::ExpectedMachine, CarbideError> {
     match op {
         BatchOperation::Create => create_expected_machine(txn, machine, id, parsed_mac).await,
         BatchOperation::Update => {
@@ -557,11 +761,6 @@ async fn process_batch_operations(
                     }
                 };
 
-            let mut machine_for_result = machine.clone();
-            machine_for_result.id = Some(::rpc::common::Uuid {
-                value: id.to_string(),
-            });
-
             let mut txn = match api.txn_begin().await {
                 Ok(txn) => txn,
                 Err(e) => {
@@ -583,8 +782,8 @@ async fn process_batch_operations(
             )
             .await
             {
-                Ok(_) => match txn.commit().await {
-                    Ok(_) => results.push(build_success_result(machine_for_result)),
+                Ok(result_machine) => match txn.commit().await {
+                    Ok(_) => results.push(build_success_result(result_machine)),
                     Err(e) => {
                         results.push(build_failure_result(id, format!("Failed to commit: {}", e)))
                     }
@@ -601,21 +800,23 @@ async fn process_batch_operations(
     }
 
     let mut prepared = Vec::with_capacity(machines.len());
-    for machine in machines {
+    for (request_index, machine) in machines.into_iter().enumerate() {
         let (id, parsed_mac) =
             sanitize_expected_machine_and_get_ids(api, machine.clone(), op.is_update())?;
-        prepared.push((machine, id, parsed_mac));
+        prepared.push((request_index, machine, id, parsed_mac));
+    }
+    if op.is_update() {
+        // Every update locks its stored row before preserving fields omitted by
+        // older clients. A stable order keeps overlapping all-or-nothing
+        // batches from taking those row locks in opposite directions.
+        prepared.sort_by_key(|(_, _, id, _)| *id);
     }
 
     let mut txn = api.txn_begin().await?;
+    let mut ordered_results = Vec::with_capacity(prepared.len());
 
-    for (machine, id, parsed_mac) in prepared {
-        let mut machine_for_result = machine.clone();
-        machine_for_result.id = Some(::rpc::common::Uuid {
-            value: id.to_string(),
-        });
-
-        if let Err(e) = apply_operation(
+    for (request_index, machine, id, parsed_mac) in prepared {
+        let result_machine = match apply_operation(
             op,
             txn.as_pgconn(),
             machine,
@@ -625,19 +826,26 @@ async fn process_batch_operations(
         )
         .await
         {
-            txn.rollback_or_log("expected-machine write after operation failure")
-                .await;
-            return Err(e);
-        }
-        results.push(build_success_result(machine_for_result));
+            Ok(machine) => machine,
+            Err(error) => {
+                txn.rollback_or_log("expected-machine write after operation failure")
+                    .await;
+                return Err(error);
+            }
+        };
+        ordered_results.push((request_index, build_success_result(result_machine)));
     }
 
     txn.commit().await?;
 
-    Ok(results)
+    ordered_results.sort_by_key(|(request_index, _)| *request_index);
+    Ok(ordered_results
+        .into_iter()
+        .map(|(_, result)| result)
+        .collect())
 }
 
-/// Batch-create expected machines. Static BMC IP handling matches single [`add`] for each row.
+/// Batch-create expected machines.
 pub(crate) async fn create_expected_machines(
     api: &Api,
     request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
@@ -697,6 +905,8 @@ pub(crate) async fn query(
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     #[test]
@@ -714,5 +924,168 @@ mod tests {
 
         let too_long = "A".repeat(65);
         assert!(!CHASSIS_SERIAL_REGEX.is_match(&too_long));
+    }
+
+    #[test]
+    fn expected_interface_primary_is_host_only() {
+        check_values(
+            [
+                Check {
+                    scenario: "Host may be primary",
+                    input: (
+                        model::expected_machine::ExpectedInterfaceRole::Host,
+                        Some(true),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "Host may be secondary",
+                    input: (
+                        model::expected_machine::ExpectedInterfaceRole::Host,
+                        Some(false),
+                    ),
+                    expect: true,
+                },
+                Check {
+                    scenario: "DPU OS derives primary behavior from its role",
+                    input: (model::expected_machine::ExpectedInterfaceRole::DpuOs, None),
+                    expect: true,
+                },
+                Check {
+                    scenario: "DPU BMC derives primary behavior from its role",
+                    input: (model::expected_machine::ExpectedInterfaceRole::DpuBmc, None),
+                    expect: true,
+                },
+                Check {
+                    scenario: "DPU OS cannot override primary behavior",
+                    input: (
+                        model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        Some(false),
+                    ),
+                    expect: false,
+                },
+                Check {
+                    scenario: "DPU BMC cannot override primary behavior",
+                    input: (
+                        model::expected_machine::ExpectedInterfaceRole::DpuBmc,
+                        Some(true),
+                    ),
+                    expect: false,
+                },
+            ],
+            |(role, primary)| {
+                validate_expected_interface_role_and_allocation(&[ExpectedHostNic {
+                    role,
+                    primary,
+                    ..Default::default()
+                }])
+                .is_ok()
+            },
+        );
+    }
+
+    #[test]
+    fn omitted_role_and_allocation_are_preserved_per_list_entry() {
+        let mac_address: MacAddress = "7A:7B:7C:7D:7E:91".parse().unwrap();
+        let existing = ExpectedMachine {
+            id: Some(Uuid::new_v4()),
+            bmc_mac_address: "7A:7B:7C:7D:7E:90".parse().unwrap(),
+            data: ExpectedMachineData {
+                host_nics: vec![
+                    ExpectedHostNic {
+                        mac_address,
+                        role: model::expected_machine::ExpectedInterfaceRole::DpuBmc,
+                        ip_allocation: Some(
+                            model::expected_machine::ExpectedInterfaceIpAllocation::Retained,
+                        ),
+                        network_segment_type: Some(
+                            model::network_segment::NetworkSegmentType::Underlay,
+                        ),
+                        ..Default::default()
+                    },
+                    ExpectedHostNic {
+                        mac_address,
+                        role: model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        ip_allocation: Some(
+                            model::expected_machine::ExpectedInterfaceIpAllocation::Dynamic,
+                        ),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        };
+        let mut replacement = rpc::ExpectedMachine {
+            host_nics: vec![
+                rpc::ExpectedHostNic {
+                    mac_address: mac_address.to_string(),
+                    primary: Some(false),
+                    ..Default::default()
+                },
+                rpc::ExpectedHostNic {
+                    mac_address: mac_address.to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        preserve_omitted_rpc_role_and_allocation(&mut replacement, Some(&existing));
+
+        assert_eq!(
+            replacement.host_nics[0].role,
+            Some(rpc::ExpectedInterfaceRole::DpuBmc as i32),
+        );
+        assert_eq!(
+            replacement.host_nics[0].ip_allocation,
+            Some(rpc::ExpectedInterfaceIpAllocation::Retained as i32),
+        );
+        assert_eq!(replacement.host_nics[0].primary, None);
+        assert_eq!(replacement.host_nics[0].network_segment_type, None);
+        assert_eq!(
+            replacement.host_nics[1].role,
+            Some(rpc::ExpectedInterfaceRole::DpuOs as i32),
+        );
+        assert_eq!(
+            replacement.host_nics[1].ip_allocation,
+            Some(rpc::ExpectedInterfaceIpAllocation::Dynamic as i32),
+        );
+        let parsed: ExpectedMachineData = replacement.try_into().unwrap();
+        assert!(validate_expected_interface_role_and_allocation(&parsed.host_nics).is_ok());
+    }
+
+    #[test]
+    fn omitted_dpu_role_does_not_hide_primary_true() {
+        let mac_address: MacAddress = "7A:7B:7C:7D:7E:93".parse().unwrap();
+        let existing = ExpectedMachine {
+            id: Some(Uuid::new_v4()),
+            bmc_mac_address: "7A:7B:7C:7D:7E:92".parse().unwrap(),
+            data: ExpectedMachineData {
+                host_nics: vec![ExpectedHostNic {
+                    mac_address,
+                    role: model::expected_machine::ExpectedInterfaceRole::DpuBmc,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        };
+        let mut replacement = rpc::ExpectedMachine {
+            host_nics: vec![rpc::ExpectedHostNic {
+                mac_address: mac_address.to_string(),
+                primary: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        preserve_omitted_rpc_role_and_allocation(&mut replacement, Some(&existing));
+
+        assert_eq!(
+            replacement.host_nics[0].role,
+            Some(rpc::ExpectedInterfaceRole::DpuBmc as i32),
+        );
+        assert_eq!(replacement.host_nics[0].primary, Some(true));
+        let parsed: ExpectedMachineData = replacement.try_into().unwrap();
+        assert!(validate_expected_interface_role_and_allocation(&parsed.host_nics).is_err());
     }
 }

@@ -24,8 +24,9 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::power_shelf::{
     NewPowerShelf, PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation,
-    PowerShelfMaintenanceRequest,
+    PowerShelfMaintenanceRequest, PowerShelfReprovisionRequest,
 };
+use model::rack::{MaintenanceActivity, RackFirmwareUpgradeStatus};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -133,6 +134,8 @@ pub async fn create(
         version,
         rack_id: new_power_shelf.rack_id.clone(),
         power_shelf_maintenance_requested: None,
+        power_shelf_reprovisioning_requested: None,
+        firmware_upgrade_status: None,
         health_reports: Default::default(),
     })
 }
@@ -345,6 +348,65 @@ pub async fn clear_power_shelf_maintenance_requested(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("clear_power_shelf_maintenance_requested", e))?;
+    Ok(())
+}
+
+/// Sets `power_shelf_reprovisioning_requested` so the Ready handler can enter
+/// `ReProvisioning` when rack-firmware reprovisioning is enabled.
+///
+/// `activities` selects which rack maintenance phases the power shelf should wait
+/// for. Empty means all activities.
+pub async fn set_power_shelf_reprovisioning_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+    initiator: &str,
+    activities: Vec<MaintenanceActivity>,
+) -> DatabaseResult<()> {
+    let req = PowerShelfReprovisionRequest {
+        requested_at: Utc::now(),
+        initiator: initiator.to_string(),
+        activities,
+    };
+    let query = "UPDATE power_shelves SET power_shelf_reprovisioning_requested = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(sqlx::types::Json(req))
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("set_power_shelf_reprovisioning_requested", e))?;
+    Ok(())
+}
+
+/// Clears `power_shelf_reprovisioning_requested`. Typically called when
+/// reprovisioning completes or is cancelled.
+pub async fn clear_power_shelf_reprovisioning_requested(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE power_shelves SET power_shelf_reprovisioning_requested = NULL WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("clear_power_shelf_reprovisioning_requested", e))?;
+    Ok(())
+}
+
+/// Sets `firmware_upgrade_status` on the power shelf. Call from rack maintenance
+/// to report upgrade progress. `WaitingForRackFirmwareUpgrade` reads this:
+/// Completed → Ready, Failed → Error.
+pub async fn update_firmware_upgrade_status(
+    txn: &mut PgConnection,
+    power_shelf_id: PowerShelfId,
+    status: Option<&RackFirmwareUpgradeStatus>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE power_shelves SET firmware_upgrade_status = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, PowerShelfId>(query)
+        .bind(status.map(|s| sqlx::types::Json(s.clone())))
+        .bind(power_shelf_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_firmware_upgrade_status", e))?;
     Ok(())
 }
 

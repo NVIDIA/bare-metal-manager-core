@@ -403,12 +403,15 @@ pub fn diff_skus(actual_sku: &Sku, expected_sku: &Sku) -> Vec<String> {
 /// Legacy (schema version < 5) storage comparison: match discovered storage to
 /// expected storage by model and compare counts.
 fn diff_storage_by_model(actual_sku: &Sku, expected_sku: &Sku, diffs: &mut Vec<String>) {
-    let mut actual_storage: HashMap<String, SkuComponentStorage> = actual_sku
-        .components
-        .storage
-        .iter()
-        .map(|s| (s.model.clone(), s.clone()))
-        .collect();
+    // v5 actual SKUs have one entry per drive; aggregate by model so the count
+    // comparison against a v4 expected SKU (grouped by model) is correct.
+    let mut actual_storage: HashMap<String, SkuComponentStorage> = HashMap::new();
+    for s in &actual_sku.components.storage {
+        actual_storage
+            .entry(s.model.clone())
+            .and_modify(|e| e.count += s.count)
+            .or_insert_with(|| s.clone());
+    }
 
     for es in &expected_sku.components.storage {
         if let Some(actual_storage) = actual_storage.remove(&es.model) {
@@ -972,5 +975,22 @@ mod tests {
             diffs.iter().any(|d| d.contains("Missing storage config")),
             "got {diffs:?}"
         );
+    }
+
+    #[test]
+    fn v5_actual_matches_v4_expected_by_model() {
+        // A v5 actual SKU (one entry per drive, count=1 each) must match a v4
+        // expected SKU (grouped by model) correctly. The regression: HashMap
+        // collection clobbered duplicate models, leaving count=1 instead of 2.
+        let actual_v5 = vec![drive(PATH_A, 3_840_000), drive(PATH_B, 3_840_000)];
+        let expected_v4 = vec![SkuComponentStorage {
+            model: "nvme".to_string(),
+            count: 2,
+            min_size_mb: None,
+            max_size_mb: None,
+            pci_patterns: Vec::new(),
+        }];
+        let diffs = diff_skus(&sku(5, actual_v5), &sku(4, expected_v4));
+        assert!(diffs.is_empty(), "expected no diffs, got {diffs:?}");
     }
 }

@@ -758,55 +758,22 @@ mod tests {
     /// covers `SystemPowerControl` variant for variant.
     #[test]
     fn power_operation_label_covers_every_system_power_control() {
-        check_values(
-            [
-                Check {
-                    scenario: "power on",
-                    input: PowerOperation::from(SystemPowerControl::On),
-                    expect: "on".to_string(),
-                },
-                Check {
-                    scenario: "graceful shutdown",
-                    input: PowerOperation::from(SystemPowerControl::GracefulShutdown),
-                    expect: "graceful_shutdown".to_string(),
-                },
-                Check {
-                    scenario: "force off",
-                    input: PowerOperation::from(SystemPowerControl::ForceOff),
-                    expect: "force_off".to_string(),
-                },
-                Check {
-                    scenario: "graceful restart",
-                    input: PowerOperation::from(SystemPowerControl::GracefulRestart),
-                    expect: "graceful_restart".to_string(),
-                },
-                Check {
-                    scenario: "force restart",
-                    input: PowerOperation::from(SystemPowerControl::ForceRestart),
-                    expect: "force_restart".to_string(),
-                },
-                Check {
-                    scenario: "AC powercycle",
-                    input: PowerOperation::from(SystemPowerControl::ACPowercycle),
-                    expect: "ac_powercycle".to_string(),
-                },
-                Check {
-                    scenario: "powercycle",
-                    input: PowerOperation::from(SystemPowerControl::PowerCycle),
-                    expect: "power_cycle".to_string(),
-                },
-                Check {
-                    scenario: "BMC reset",
-                    input: PowerOperation::BmcReset,
-                    expect: "bmc_reset".to_string(),
-                },
-                Check {
-                    scenario: "chassis reset",
-                    input: PowerOperation::ChassisReset,
-                    expect: "chassis_reset".to_string(),
-                },
-            ],
-            |operation| operation.label_value().to_string(),
+        value_scenarios!(
+            run = |operation: PowerOperation| operation.label_value().to_string();
+            "mapped from SystemPowerControl" {
+                PowerOperation::from(SystemPowerControl::On) => "on".to_string(),
+                PowerOperation::from(SystemPowerControl::GracefulShutdown) => "graceful_shutdown".to_string(),
+                PowerOperation::from(SystemPowerControl::ForceOff) => "force_off".to_string(),
+                PowerOperation::from(SystemPowerControl::GracefulRestart) => "graceful_restart".to_string(),
+                PowerOperation::from(SystemPowerControl::ForceRestart) => "force_restart".to_string(),
+                PowerOperation::from(SystemPowerControl::ACPowercycle) => "ac_powercycle".to_string(),
+                PowerOperation::from(SystemPowerControl::PowerCycle) => "power_cycle".to_string(),
+            }
+
+            "not reachable from SystemPowerControl" {
+                PowerOperation::BmcReset => "bmc_reset".to_string(),
+                PowerOperation::ChassisReset => "chassis_reset".to_string(),
+            }
         );
     }
 
@@ -814,65 +781,23 @@ mod tests {
     /// would: the variant's snake_case name, for every component type.
     #[test]
     fn firmware_component_label_renders_snake_case() {
-        check_values(
-            [
-                Check {
-                    scenario: "BMC",
-                    input: FirmwareComponentType::Bmc,
-                    expect: "bmc".to_string(),
-                },
-                Check {
-                    scenario: "CEC",
-                    input: FirmwareComponentType::Cec,
-                    expect: "cec".to_string(),
-                },
-                Check {
-                    scenario: "UEFI",
-                    input: FirmwareComponentType::Uefi,
-                    expect: "uefi".to_string(),
-                },
-                Check {
-                    scenario: "NIC",
-                    input: FirmwareComponentType::Nic,
-                    expect: "nic".to_string(),
-                },
-                Check {
-                    scenario: "CPLD MB",
-                    input: FirmwareComponentType::CpldMb,
-                    expect: "cpld_mb".to_string(),
-                },
-                Check {
-                    scenario: "CPLD PDB",
-                    input: FirmwareComponentType::CpldPdb,
-                    expect: "cpld_pdb".to_string(),
-                },
-                Check {
-                    scenario: "HGX BMC",
-                    input: FirmwareComponentType::HGXBmc,
-                    expect: "hgx_bmc".to_string(),
-                },
-                Check {
-                    scenario: "combined BMC+UEFI",
-                    input: FirmwareComponentType::CombinedBmcUefi,
-                    expect: "combined_bmc_uefi".to_string(),
-                },
-                Check {
-                    scenario: "GPU",
-                    input: FirmwareComponentType::Gpu,
-                    expect: "gpu".to_string(),
-                },
-                Check {
-                    scenario: "CX7",
-                    input: FirmwareComponentType::Cx7,
-                    expect: "cx7".to_string(),
-                },
-                Check {
-                    scenario: "unknown",
-                    input: FirmwareComponentType::Unknown,
-                    expect: "unknown".to_string(),
-                },
-            ],
-            |component| FirmwareComponentLabel(component).label_value().to_string(),
+        value_scenarios!(
+            run = |component: FirmwareComponentType| {
+                FirmwareComponentLabel(component).label_value().to_string()
+            };
+            "every component type" {
+                FirmwareComponentType::Bmc => "bmc".to_string(),
+                FirmwareComponentType::Cec => "cec".to_string(),
+                FirmwareComponentType::Uefi => "uefi".to_string(),
+                FirmwareComponentType::Nic => "nic".to_string(),
+                FirmwareComponentType::CpldMb => "cpld_mb".to_string(),
+                FirmwareComponentType::CpldPdb => "cpld_pdb".to_string(),
+                FirmwareComponentType::HGXBmc => "hgx_bmc".to_string(),
+                FirmwareComponentType::CombinedBmcUefi => "combined_bmc_uefi".to_string(),
+                FirmwareComponentType::Gpu => "gpu".to_string(),
+                FirmwareComponentType::Cx7 => "cx7".to_string(),
+                FirmwareComponentType::Unknown => "unknown".to_string(),
+            }
         );
     }
 

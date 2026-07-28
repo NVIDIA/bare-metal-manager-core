@@ -25,7 +25,7 @@ use ipnetwork::Ipv6Network;
 use model::resource_pool;
 use model::resource_pool::common::{
     CommonPools, DPA_VNI, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP,
-    SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
+    LOOPBACK_IP_V6, SECONDARY_VTEP_IP, VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
 use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 use model::resource_pool::{
@@ -374,6 +374,63 @@ RETURNING allocate.value
     Ok(out)
 }
 
+/// Returns the value already reserved by one owner in this pool.
+///
+/// A duplicate reservation is treated as corrupted pool state. Callers cannot
+/// safely choose one value while leaving the other assigned to the same owner.
+pub async fn find_owned_allocation<T>(
+    pool: &ResourcePool<T>,
+    txn: &mut PgConnection,
+    owner_type: OwnerType,
+    owner_id: &str,
+) -> Result<Option<T>, ResourcePoolDatabaseError>
+where
+    T: ToString + FromStr + Send + Sync + 'static,
+    <T as FromStr>::Err: std::error::Error,
+{
+    let allocated_state = ResourcePoolEntryState::Allocated {
+        owner: owner_id.to_string(),
+        owner_type: owner_type.to_string(),
+    };
+    let query = "SELECT value FROM resource_pool
+        WHERE name = $1 AND state = $2
+        ORDER BY value
+        LIMIT 2
+        FOR UPDATE";
+    let values: Vec<String> = sqlx::query_scalar(query)
+        .bind(pool.name())
+        .bind(sqlx::types::Json(&allocated_state))
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+
+    if values.len() > 1 {
+        return Err(DatabaseError::FailedPrecondition(format!(
+            "resource pool `{}` has multiple values allocated to {} `{owner_id}`",
+            pool.name(),
+            owner_type
+        ))
+        .into());
+    }
+
+    values
+        .into_iter()
+        .next()
+        .map(|value| {
+            value
+                .parse()
+                .map_err(|error: <T as FromStr>::Err| ResourcePoolError::Parse {
+                    e: error.to_string(),
+                    v: value,
+                    pool_name: pool.name.clone(),
+                    owner_type: owner_type.to_string(),
+                    owner_id: owner_id.to_string(),
+                })
+        })
+        .transpose()
+        .map_err(Into::into)
+}
+
 /// Return a resource to the pool
 pub async fn release<T>(
     pool: &ResourcePool<T>,
@@ -531,7 +588,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
                 FROM resource_pool WHERE value_type = 'integer' GROUP BY name
             ) snapshot";
 
-    let query_ipv4 = "
+    let query_ip_address = "
             SELECT
                 name,
                 min,
@@ -549,10 +606,10 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
                     count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND auto_assign) AS auto_assign_used,
                     count(*) FILTER (WHERE state = '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_free,
                     count(*) FILTER (WHERE state != '{\"state\": \"free\"}' AND NOT auto_assign) AS non_auto_assign_used
-                FROM resource_pool WHERE value_type = 'ipv4' GROUP BY name
+                FROM resource_pool WHERE value_type IN ('ipv4', 'ipv6') GROUP BY name
             ) snapshot";
 
-    for query in [query_int, query_ipv4] {
+    for query in [query_int, query_ip_address] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
             .fetch_all(&mut *txn)
             .await
@@ -1316,6 +1373,11 @@ pub async fn create_common_pools(
     let pool_loopback_ip: Arc<ResourcePool<IpAddr>> =
         Arc::new(ResourcePool::new(LOOPBACK_IP.to_string(), ValueType::Ipv4));
     pool_names.push(pool_loopback_ip.name().to_string());
+    let pool_loopback_ip_v6: Arc<ResourcePool<Ipv6Addr>> = Arc::new(ResourcePool::new(
+        LOOPBACK_IP_V6.to_string(),
+        ValueType::Ipv6,
+    ));
+    optional_pool_names.push(pool_loopback_ip_v6.name().to_string());
     let pool_vlan_id: Arc<ResourcePool<i16>> =
         Arc::new(ResourcePool::new(VLANID.to_string(), ValueType::Integer));
     pool_names.push(pool_vlan_id.name().to_string());
@@ -1408,6 +1470,7 @@ pub async fn create_common_pools(
     Ok(Arc::new(CommonPools {
         ethernet: EthernetPools {
             pool_loopback_ip,
+            pool_loopback_ip_v6,
             pool_vlan_id,
             pool_vni,
             pool_vpc_vni,
@@ -2112,6 +2175,51 @@ mod tests {
         Ok(())
     }
 
+    #[crate::sqlx_test]
+    async fn find_owned_allocation_returns_typed_value_and_rejects_duplicates(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
+
+        let mut txn = pool.begin().await?;
+        define(
+            &mut txn,
+            "test-owned-ipv6-pool",
+            &ResourcePoolDef {
+                prefix: Some("2001:db8::/126".to_string()),
+                ranges: Vec::new(),
+                pool_type: ResourcePoolType::Ipv6,
+                delegate_prefix_len: None,
+            },
+        )
+        .await?;
+        let pool_handle =
+            ResourcePool::<Ipv6Addr>::new("test-owned-ipv6-pool".to_string(), ValueType::Ipv6);
+
+        assert_eq!(
+            find_owned_allocation(&pool_handle, &mut txn, OwnerType::Machine, "owner-1",).await?,
+            None
+        );
+        let first = allocate(&pool_handle, &mut txn, OwnerType::Machine, "owner-1", None).await?;
+        assert_eq!(
+            find_owned_allocation(&pool_handle, &mut txn, OwnerType::Machine, "owner-1",).await?,
+            Some(first)
+        );
+
+        allocate(&pool_handle, &mut txn, OwnerType::Machine, "owner-1", None).await?;
+        let error = find_owned_allocation(&pool_handle, &mut txn, OwnerType::Machine, "owner-1")
+            .await
+            .expect_err("duplicate reservations for one owner must be rejected");
+        assert!(matches!(
+            error,
+            ResourcePoolDatabaseError::Database(ref boxed)
+                if matches!(boxed.as_ref(), DatabaseError::FailedPrecondition(_))
+        ));
+
+        txn.rollback().await?;
+        Ok(())
+    }
+
     /// Requesting a specific value that the pool cannot hand out — while the
     /// pool still has free non-auto-assign entries — must map to
     /// `FailedPrecondition`, distinct from the `Empty` (exhausted) case. The
@@ -2328,6 +2436,17 @@ mod tests {
         // /120 == 256 usable IPv6 addresses.
         let pool_stats = stats(txn.as_mut(), "test-ipv6-pool").await?;
         assert_eq!(pool_stats.free, 256);
+
+        // `admin-cli resource-pool list` reads `all()`, so the IPv6 pool must
+        // appear alongside the older integer and IPv4 pool types.
+        let snapshots = all(txn.as_mut()).await?;
+        let snapshot = snapshots
+            .iter()
+            .find(|snapshot| snapshot.name == "test-ipv6-pool")
+            .expect("IPv6 pool should be listed");
+        assert_eq!(snapshot.min, "fd00:abcd::");
+        assert_eq!(snapshot.max, "fd00:abcd::ff");
+        assert_eq!(snapshot.stats.free, 256);
 
         // Allocate an address.
         let pool_handle =

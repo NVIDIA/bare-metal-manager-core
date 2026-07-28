@@ -653,6 +653,7 @@ struct RackFirmwareMaintenanceTarget {
     rack_id: RackId,
     machine_ids: Vec<String>,
     switch_ids: Vec<String>,
+    power_shelf_ids: Vec<String>,
 }
 
 fn push_rack_firmware_target(
@@ -660,6 +661,7 @@ fn push_rack_firmware_target(
     rack_id: RackId,
     machine_id: Option<String>,
     switch_id: Option<String>,
+    power_shelf_id: Option<String>,
 ) {
     let target = match targets.iter_mut().find(|target| target.rack_id == rack_id) {
         Some(target) => target,
@@ -668,6 +670,7 @@ fn push_rack_firmware_target(
                 rack_id,
                 machine_ids: Vec::new(),
                 switch_ids: Vec::new(),
+                power_shelf_ids: Vec::new(),
             });
             targets.last_mut().expect("target was just pushed")
         }
@@ -678,6 +681,9 @@ fn push_rack_firmware_target(
     }
     if let Some(switch_id) = switch_id {
         target.switch_ids.push(switch_id);
+    }
+    if let Some(power_shelf_id) = power_shelf_id {
+        target.power_shelf_ids.push(power_shelf_id);
     }
 }
 
@@ -707,7 +713,13 @@ async fn group_machine_ids_by_rack(
                 "machine {machine_id} is not associated with a rack"
             ))
         })?;
-        push_rack_firmware_target(&mut targets, rack_id, Some(machine_id.to_string()), None);
+        push_rack_firmware_target(
+            &mut targets,
+            rack_id,
+            Some(machine_id.to_string()),
+            None,
+            None,
+        );
     }
 
     Ok(targets)
@@ -854,7 +866,57 @@ async fn group_switch_ids_by_rack(
         let rack_id = switch.rack_id.clone().ok_or_else(|| {
             Status::failed_precondition(format!("switch {switch_id} is not associated with a rack"))
         })?;
-        push_rack_firmware_target(&mut targets, rack_id, None, Some(switch_id.to_string()));
+        push_rack_firmware_target(
+            &mut targets,
+            rack_id,
+            None,
+            Some(switch_id.to_string()),
+            None,
+        );
+    }
+
+    Ok(targets)
+}
+
+async fn group_power_shelf_ids_by_rack(
+    api: &Api,
+    power_shelf_ids: &[PowerShelfId],
+) -> Result<Vec<RackFirmwareMaintenanceTarget>, Status> {
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| Status::internal(format!("failed to begin transaction: {e}")))?;
+    let power_shelves = db::power_shelf::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::List(db::power_shelf::IdColumn, power_shelf_ids),
+    )
+    .await
+    .map_err(|e| Status::internal(format!("failed to look up power shelves: {e}")))?;
+    drop(txn);
+
+    let power_shelves_by_id: HashMap<_, _> = power_shelves
+        .into_iter()
+        .map(|power_shelf| (power_shelf.id, power_shelf))
+        .collect();
+
+    let mut targets = Vec::new();
+    for power_shelf_id in power_shelf_ids {
+        let power_shelf = power_shelves_by_id
+            .get(power_shelf_id)
+            .ok_or_else(|| Status::not_found(format!("power shelf {power_shelf_id} not found")))?;
+        let rack_id = power_shelf.rack_id.clone().ok_or_else(|| {
+            Status::failed_precondition(format!(
+                "power shelf {power_shelf_id} is not associated with a rack"
+            ))
+        })?;
+        push_rack_firmware_target(
+            &mut targets,
+            rack_id,
+            None,
+            None,
+            Some(power_shelf_id.to_string()),
+        );
     }
 
     Ok(targets)
@@ -882,6 +944,7 @@ async fn submit_rack_firmware_maintenance_requests(
             .machine_ids
             .iter()
             .chain(target.switch_ids.iter())
+            .chain(target.power_shelf_ids.iter())
             .cloned()
             .collect();
         let maintenance_req = Request::new(rpc::RackMaintenanceOnDemandRequest {
@@ -889,7 +952,7 @@ async fn submit_rack_firmware_maintenance_requests(
             scope: Some(rpc::RackMaintenanceScope {
                 machine_ids: target.machine_ids,
                 switch_ids: target.switch_ids,
-                power_shelf_ids: vec![],
+                power_shelf_ids: target.power_shelf_ids,
                 activities: activities.clone(),
             }),
         });
@@ -2353,54 +2416,70 @@ pub(crate) async fn update_component_firmware(
             let route_through_state_controller =
                 cm.power_shelf_use_state_controller && !bypass_state_controller;
             if route_through_state_controller {
-                // TODO: implement state controller path for power shelf firmware control
-                return Err(Status::unimplemented(
-                    "power shelf firmware control through the state controller is not yet supported",
-                ));
-            }
-
-            let options = if cm.power_shelf.supports_firmware_object_json() {
-                require_firmware_object_json_for_direct_rms(
+                let token = require_firmware_object_json_for_rack_maintenance(
                     "power shelf",
                     &access_token,
                     &req.target_version,
+                )?;
+                let components = map_power_shelf_components(&t.components)?;
+                let component_names = components
+                    .iter()
+                    .map(|component| match component {
+                        PowerShelfComponent::Pmc => "pmc".to_string(),
+                        PowerShelfComponent::Psu => "psu".to_string(),
+                    })
+                    .collect();
+                maintenance_activities = vec![firmware_upgrade_activity(
+                    req.target_version.clone(),
+                    component_names,
+                    Some(token),
                     force_update,
-                )?
+                )];
+                rack_maintenance_targets = group_power_shelf_ids_by_rack(api, &list.ids).await?;
             } else {
-                reject_power_shelf_firmware_object_json(&access_token)?;
-                FirmwareUpdateOptions {
-                    force_update,
-                    ..FirmwareUpdateOptions::default()
-                }
-            };
-            let components = map_power_shelf_components(&t.components)?;
-            let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
-
-            let mut results: Vec<_> = endpoints
-                .unresolved
-                .iter()
-                .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
-                .collect();
-
-            let backend_results = cm
-                .power_shelf
-                .update_firmware(
-                    &endpoints.resolved.endpoints,
-                    &req.target_version,
-                    &components,
-                    &options,
-                )
-                .await
-                .map_err(component_manager_error_to_status)?;
-            results.extend(backend_results.into_iter().map(|r| {
-                let id = ps_mac_to_id_str(&r.pmc_mac, &endpoints.resolved.mac_to_id);
-                if r.success {
-                    success_result(&id)
+                let options = if cm.power_shelf.supports_firmware_object_json() {
+                    require_firmware_object_json_for_direct_rms(
+                        "power shelf",
+                        &access_token,
+                        &req.target_version,
+                        force_update,
+                    )?
                 } else {
-                    error_result(&id, r.error.unwrap_or_default())
-                }
-            }));
-            power_shelf_results = Some(results);
+                    reject_power_shelf_firmware_object_json(&access_token)?;
+                    FirmwareUpdateOptions {
+                        force_update,
+                        ..FirmwareUpdateOptions::default()
+                    }
+                };
+                let components = map_power_shelf_components(&t.components)?;
+                let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
+
+                let mut results: Vec<_> = endpoints
+                    .unresolved
+                    .iter()
+                    .map(|u| error_result(&u.id.to_string(), u.reason.clone()))
+                    .collect();
+
+                let backend_results = cm
+                    .power_shelf
+                    .update_firmware(
+                        &endpoints.resolved.endpoints,
+                        &req.target_version,
+                        &components,
+                        &options,
+                    )
+                    .await
+                    .map_err(component_manager_error_to_status)?;
+                results.extend(backend_results.into_iter().map(|r| {
+                    let id = ps_mac_to_id_str(&r.pmc_mac, &endpoints.resolved.mac_to_id);
+                    if r.success {
+                        success_result(&id)
+                    } else {
+                        error_result(&id, r.error.unwrap_or_default())
+                    }
+                }));
+                power_shelf_results = Some(results);
+            }
         }
         rpc::update_component_firmware_request::Target::Racks(t) => {
             if bypass_state_controller {
@@ -2972,17 +3051,37 @@ mod tests {
         let rack_b = RackId::new("rack-b".to_string());
         let mut targets = Vec::new();
 
-        push_rack_firmware_target(&mut targets, rack_a.clone(), Some("machine-a".into()), None);
-        push_rack_firmware_target(&mut targets, rack_b.clone(), None, Some("switch-b".into()));
-        push_rack_firmware_target(&mut targets, rack_a.clone(), Some("machine-c".into()), None);
+        push_rack_firmware_target(
+            &mut targets,
+            rack_a.clone(),
+            Some("machine-a".into()),
+            None,
+            None,
+        );
+        push_rack_firmware_target(
+            &mut targets,
+            rack_b.clone(),
+            None,
+            Some("switch-b".into()),
+            None,
+        );
+        push_rack_firmware_target(
+            &mut targets,
+            rack_a.clone(),
+            Some("machine-c".into()),
+            None,
+            None,
+        );
 
         assert_eq!(targets.len(), 2);
         assert_eq!(targets[0].rack_id, rack_a);
         assert_eq!(targets[0].machine_ids, vec!["machine-a", "machine-c"]);
         assert!(targets[0].switch_ids.is_empty());
+        assert!(targets[0].power_shelf_ids.is_empty());
         assert_eq!(targets[1].rack_id, rack_b);
         assert_eq!(targets[1].switch_ids, vec!["switch-b"]);
         assert!(targets[1].machine_ids.is_empty());
+        assert!(targets[1].power_shelf_ids.is_empty());
     }
 
     #[test]

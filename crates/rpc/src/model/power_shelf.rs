@@ -186,6 +186,8 @@ mod tests {
             bmc_info: None,
             rack_id: None,
             power_shelf_maintenance_requested: None,
+            power_shelf_reprovisioning_requested: None,
+            firmware_upgrade_status: None,
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
             health_reports: Default::default(),

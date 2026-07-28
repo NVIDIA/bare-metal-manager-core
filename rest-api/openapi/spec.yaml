@@ -3799,7 +3799,7 @@ paths:
       description: |-
         Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-        All items in a batch update must provide the same set of fields.
+        All items in a batch update must provide the same set of fields, except that `bmcIpAddress` may be omitted or set to `null` to preserve that machine's current BMC IP address.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -20687,6 +20687,7 @@ components:
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
           maintenanceMessage: null
+          scoutVersion: 2.6.1
           health:
             source: aggregate-host-health
             observedAt: null
@@ -20817,6 +20818,12 @@ components:
             - string
             - 'null'
           description: 'If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance'
+        scoutVersion:
+          type:
+            - string
+            - 'null'
+          description: 'Scout version reported by the Machine, if known'
+          readOnly: true
         health:
           $ref: '#/components/schemas/MachineHealth'
           description: 'Health information about the machine'
@@ -21982,7 +21989,7 @@ components:
             - string
             - 'null'
           description: |-
-            Optional BMC IP address (IPv4 or IPv6). A non-null address sets the value and pre-allocates a reserved IP for the BMC. An explicit null clears the value. In an individual update, omission preserves the current value. Empty strings are invalid.
+            Optional BMC IP address (IPv4 or IPv6). A non-empty address sets the value and pre-allocates a reserved IP for the BMC. An empty string clears the value. Omission or null preserves the current value.
         name:
           type:
             - string

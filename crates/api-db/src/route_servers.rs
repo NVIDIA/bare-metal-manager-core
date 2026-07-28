@@ -122,11 +122,12 @@ pub async fn add(
 
 // remove deletes route server addresses matching the input
 // list of IP addresses for the given input source_type.
+// Returns the number of rows deleted.
 pub async fn remove(
     txn: &mut PgConnection,
-    addresses: &Vec<IpAddr>,
+    addresses: &[IpAddr],
     source_type: RouteServerSourceType,
-) -> DatabaseResult<()> {
+) -> DatabaseResult<u64> {
     // len + 1 since we're going to be binding all addresses
     // plus the source_type when we do the delete below.
     if addresses.len() + 1 > BIND_LIMIT {
@@ -137,14 +138,15 @@ pub async fn remove(
         )));
     } else if !addresses.is_empty() {
         let query = r#"DELETE FROM route_servers WHERE address = ANY($1) AND source_type = $2;"#;
-        sqlx::query(query)
+        let result = sqlx::query(query)
             .bind(addresses)
             .bind(source_type)
             .execute(txn)
             .await
             .map_err(|e| DatabaseError::new("super::remove", e))?;
+        return Ok(result.rows_affected());
     }
-    Ok(())
+    Ok(0)
 }
 
 #[cfg(test)]
@@ -534,13 +536,16 @@ mod tests {
 
         // Try to remove an AdminApi address using ConfigFile source type - should not remove anything
         let to_remove = vec![admin_addresses[0]];
-        super::remove(&mut txn, &to_remove, RouteServerSourceType::ConfigFile).await?;
+        let deleted =
+            super::remove(&mut txn, &to_remove, RouteServerSourceType::ConfigFile).await?;
+        assert_eq!(deleted, 0);
 
         let remaining = super::get(txn.as_mut()).await?;
         assert_eq!(remaining.len(), 5); // All entries should remain
 
         // Now remove with correct source type
-        super::remove(&mut txn, &to_remove, RouteServerSourceType::AdminApi).await?;
+        let deleted = super::remove(&mut txn, &to_remove, RouteServerSourceType::AdminApi).await?;
+        assert_eq!(deleted, 1);
 
         let remaining = super::get(txn.as_mut()).await?;
         assert_eq!(remaining.len(), 4); // One entry should be removed

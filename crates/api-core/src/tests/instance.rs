@@ -7038,6 +7038,7 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
         host_machine_id: mh.host().id,
         dpu_machine_id: mh.dpu_ids[0],
         firmware_version: "test".to_string(),
+        dpf_managed: false,
     };
 
     db::dpu_machine_update::trigger_reprovisioning_for_managed_host(&mut txn, &[machine_update])

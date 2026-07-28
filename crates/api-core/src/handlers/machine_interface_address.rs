@@ -18,24 +18,14 @@
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
+use model::expected_machine::ExpectedHostNic;
+use model::machine_interface::InterfaceType;
+use model::network_segment::NetworkSegmentType;
 use rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
-
-/// Resolve the correct segment for a static IP. If the IP is within a
-/// managed network prefix, use that segment. Otherwise use the
-/// static-assignments anchor segment.
-async fn resolve_segment_for_static_ip(
-    txn: &mut sqlx::PgConnection,
-    ip: std::net::IpAddr,
-) -> Result<model::network_segment::NetworkSegment, CarbideError> {
-    match db::network_segment::for_prefix_containing_address(txn, ip).await? {
-        Some(seg) => Ok(seg),
-        None => Ok(db::network_segment::static_assignments(txn).await?),
-    }
-}
 
 /// Update or create a machine_interface with a static address.
 ///
@@ -54,14 +44,101 @@ pub async fn update_preallocated_machine_interface(
     bmc_ip: std::net::IpAddr,
     retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
-    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
+    update_preallocated_machine_interface_with_settings(
+        txn,
+        bmc_mac_address,
+        bmc_ip,
+        None,
+        retained_window,
+    )
+    .await
+}
+
+/// Apply the existing safe update behavior to a fixed expected interface.
+///
+/// An addressed interface remains unchanged. A missing row is created with
+/// the declared interface settings. Any addressless row receives the fixed IP,
+/// but only an unassociated row also receives the role-derived settings.
+pub async fn update_preallocated_expected_machine_interface(
+    txn: &mut sqlx::PgConnection,
+    expected_interface: &ExpectedHostNic,
+    retained_window: Option<chrono::Duration>,
+) -> Result<(), CarbideError> {
+    let fixed_ip = expected_interface
+        .fixed_reservation_ip()
+        .map_err(|message| {
+            CarbideError::InvalidArgument(format!(
+                "expected interface {}: {message}",
+                expected_interface.mac_address,
+            ))
+        })?;
+
+    update_preallocated_machine_interface_with_settings(
+        txn,
+        expected_interface.mac_address,
+        fixed_ip,
+        Some(ExpectedInterfaceSettings {
+            interface_type: expected_interface.role.interface_type(),
+            primary_interface: expected_interface.role.primary_interface_override(),
+            segment_type_guard: expected_interface.segment_type_guard(),
+        }),
+        retained_window,
+    )
+    .await
+}
+
+/// ExpectedInterface settings that may be applied with a fixed-address
+/// reservation.
+///
+/// These settings configure a new row, but only update an existing row while
+/// it is still unassociated. ExpectedMachine is an ingestion template and must
+/// not reclassify an interface after another resource owns it.
+#[derive(Clone, Copy)]
+struct ExpectedInterfaceSettings {
+    /// Database interface type represented by the configured role.
+    interface_type: InterfaceType,
+    /// Role-specific primary-interface value, when the role declares one.
+    primary_interface: Option<bool>,
+    /// Segment type that the fixed address must resolve to.
+    segment_type_guard: Option<NetworkSegmentType>,
+}
+
+/// Create or safely update a fixed-address reservation.
+///
+/// Existing addressed rows remain unchanged. Addressless rows receive the
+/// fixed address, but ExpectedInterface settings are applied only while the row
+/// is unassociated. Passing no settings preserves the existing Host BMC update
+/// behavior.
+async fn update_preallocated_machine_interface_with_settings(
+    txn: &mut sqlx::PgConnection,
+    mac_address: MacAddress,
+    ip_address: std::net::IpAddr,
+    settings: Option<ExpectedInterfaceSettings>,
+    retained_window: Option<chrono::Duration>,
+) -> Result<(), CarbideError> {
+    let segment_type_guard = settings.and_then(|settings| settings.segment_type_guard);
+    // An explicit segment type is a configuration guard, so validate it even
+    // when an addressed interface will otherwise remain unchanged. Legacy
+    // callers resolve lazily to preserve that addressed-row no-op.
+    let guarded_segment = if let Some(segment_type_guard) = segment_type_guard {
+        Some(
+            db::network_segment::for_static_address(txn, ip_address, Some(segment_type_guard))
+                .await?,
+        )
+    } else {
+        None
+    };
+    let existing = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
 
     if let Some(iface) = existing.first() {
         if iface.addresses.is_empty() {
             // No addresses -- safe to assign the static IP.
-            db::machine_interface_address::assign_static(txn, iface.id, bmc_ip).await?;
+            db::machine_interface_address::assign_static(txn, iface.id, ip_address).await?;
 
-            let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
+            let segment = match guarded_segment {
+                Some(segment) => segment,
+                None => db::network_segment::for_static_address(txn, ip_address, None).await?,
+            };
             if iface.segment_id != segment.id {
                 db::machine_interface::update_segment_id(
                     txn,
@@ -71,10 +148,29 @@ pub async fn update_preallocated_machine_interface(
                 )
                 .await?;
             }
+            // Address reconciliation is independent from these settings. A
+            // configured fixed address is still assigned above when an
+            // associated row has no addresses; ownership only prevents role
+            // and primary-interface changes.
+            if let Some(settings) = settings {
+                db::machine_interface::update_unassociated_expected_interface_settings(
+                    txn,
+                    iface.id,
+                    Some(settings.interface_type),
+                    settings.primary_interface,
+                )
+                .await?;
+            }
+            db::machine_interface::sync_hostname_after_address_assignment(
+                txn,
+                iface.id,
+                segment.config.subdomain_id,
+            )
+            .await?;
 
             tracing::info!(
-                %bmc_mac_address,
-                bmc_ip_address = %bmc_ip,
+                %mac_address,
+                ip_address = %ip_address,
                 machine_interface_id = %iface.id,
                 "Assigned static address to existing interface without addresses"
             );
@@ -83,29 +179,38 @@ pub async fn update_preallocated_machine_interface(
             // expected data updates are decoupled from managed state.
             // The caller updates the expected data table; we just log.
             tracing::info!(
-                %bmc_mac_address,
-                bmc_ip_address = %bmc_ip,
+                %mac_address,
+                ip_address = %ip_address,
                 existing_addresses = ?iface.addresses,
                 "Interface already has addresses, updated expected data only"
             );
         }
     } else {
         // No interface yet -- create a new one.
-        let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
-
-        db::machine_interface::create(
+        let segment = match guarded_segment {
+            Some(segment) => segment,
+            None => db::network_segment::for_static_address(txn, ip_address, None).await?,
+        };
+        let interface_type = settings
+            .map(|settings| settings.interface_type)
+            .unwrap_or(InterfaceType::Data);
+        let primary_interface = settings
+            .and_then(|settings| settings.primary_interface)
+            .unwrap_or(true);
+        db::machine_interface::create_with_type(
             txn,
             std::slice::from_ref(&segment),
-            &bmc_mac_address,
-            true,
-            AddressSelectionStrategy::StaticAddress(bmc_ip),
+            &mac_address,
+            primary_interface,
+            AddressSelectionStrategy::StaticAddress(ip_address),
+            interface_type,
             retained_window,
         )
         .await?;
 
         tracing::info!(
-            %bmc_mac_address,
-            bmc_ip_address = %bmc_ip,
+            %mac_address,
+            ip_address = %ip_address,
             network_segment_id = %segment.id,
             "Pre-allocated static machine interface"
         );
@@ -131,7 +236,8 @@ pub async fn assign_static_address(
     // Resolve the correct segment for this IP and update the interface
     // if needed. IPs within a managed prefix go on that prefix's segment.
     // External IPs go on the static-assignments anchor segment.
-    let target_segment = resolve_segment_for_static_ip(txn.as_pgconn(), ip_address).await?;
+    let target_segment =
+        db::network_segment::for_static_address(txn.as_pgconn(), ip_address, None).await?;
 
     let current_iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
     if current_iface.segment_id != target_segment.id {

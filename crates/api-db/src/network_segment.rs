@@ -256,6 +256,37 @@ pub async fn for_prefix_containing_address(
     }
 }
 
+/// Resolve the segment that owns a configured static address.
+///
+/// A segment type is a guard: the address must already fall within a managed
+/// prefix of that type. Without a guard, addresses outside managed prefixes
+/// continue to use `static-assignments`.
+pub async fn for_static_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+    expected_segment_type: Option<NetworkSegmentType>,
+) -> DatabaseResult<NetworkSegment> {
+    match for_prefix_containing_address(&mut *txn, address).await? {
+        Some(segment) => {
+            if let Some(expected_segment_type) = expected_segment_type
+                && segment.config.segment_type != expected_segment_type
+            {
+                return Err(DatabaseError::InvalidArgument(format!(
+                    "fixed IP {address} belongs to {} network segment {}, not the expected {expected_segment_type} segment type",
+                    segment.config.segment_type, segment.config.name,
+                )));
+            }
+            Ok(segment)
+        }
+        None => match expected_segment_type {
+            Some(expected_segment_type) => Err(DatabaseError::InvalidArgument(format!(
+                "fixed IP {address} is not within a configured {expected_segment_type} network segment",
+            ))),
+            None => static_assignments(&mut *txn).await,
+        },
+    }
+}
+
 /// Returns all network segments that contain at least one relay/gateway IP.
 pub async fn for_relay_all(
     txn: &mut PgConnection,

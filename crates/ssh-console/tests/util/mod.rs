@@ -125,7 +125,7 @@ pub async fn run_baseline_test_environment(
                         ))
                     }
                     MockBmcType::Ipmi => Ok(MockBmcHandle::Ipmi(
-                        ipmi_sim::run(format!("root@{machine_id} # ")).await?,
+                        ipmi_sim::run(format!("root@{machine_id} # ")).await?.into(),
                     )),
                 }?;
 
@@ -198,7 +198,7 @@ pub enum MockBmcType {
 
 pub enum MockBmcHandle {
     Ssh(MockSshServerHandle),
-    Ipmi(IpmiSimHandle),
+    Ipmi(Box<IpmiSimHandle>),
 }
 
 #[derive(Debug)]

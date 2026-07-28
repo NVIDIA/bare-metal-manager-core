@@ -15,7 +15,12 @@
  * limitations under the License.
  */
 
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
+use model::allocation_type::AllocationType;
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+};
 use model::machine_interface::InterfaceType;
 use model::network_prefix::NewNetworkPrefix;
 use model::network_segment::{
@@ -76,6 +81,43 @@ async fn create_test_segment(
             segment_type: NetworkSegmentType::HostInband,
             can_stretch: Some(false),
             allocation_strategy: AllocationStrategy::Reserved,
+        },
+        txn.as_pgconn(),
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
+    txn.commit().await?;
+
+    Ok(segment_id)
+}
+
+async fn create_managed_segment(
+    pool: &sqlx::PgPool,
+    name: &str,
+    prefix: &str,
+    segment_type: NetworkSegmentType,
+    allocation_strategy: AllocationStrategy,
+) -> Result<NetworkSegmentId, Box<dyn std::error::Error>> {
+    let segment_id = NetworkSegmentId::new();
+    let mut txn = db::Transaction::begin(pool).await?;
+    db::network_segment::persist(
+        NewNetworkSegment {
+            id: segment_id,
+            name: name.to_string(),
+            subdomain_id: None,
+            vpc_id: None,
+            mtu: 1500,
+            prefixes: vec![NewNetworkPrefix {
+                prefix: prefix.parse()?,
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 0,
+            }],
+            vlan_id: None,
+            vni: None,
+            segment_type,
+            can_stretch: Some(false),
+            allocation_strategy,
         },
         txn.as_pgconn(),
         NetworkSegmentControllerState::Ready,
@@ -175,6 +217,192 @@ async fn test_preallocate_machine_interface_is_idempotent(
         interfaces[0].addresses.contains(&ip),
         "interface should still carry the static IP"
     );
+
+    Ok(())
+}
+
+/// Legacy installations can have an external static reservation on an
+/// ordinary segment without the newer static-assignments anchor. Reapplying
+/// that exact reservation remains an idempotent no-op.
+#[crate::sqlx_test]
+async fn test_preallocate_machine_interface_is_idempotent_without_static_assignments(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_test_segment(&pool, "legacy-external-static").await?;
+    let mac: MacAddress = "7A:7B:7C:7D:7E:30".parse()?;
+    let ip: IpAddr = "203.0.113.230".parse()?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let interface_id: MachineInterfaceId = sqlx::query_scalar(
+        "INSERT INTO machine_interfaces
+            (segment_id, mac_address, primary_interface, hostname)
+         VALUES ($1, $2, true, 'legacy-external-static')
+         RETURNING id",
+    )
+    .bind(segment_id)
+    .bind(mac)
+    .fetch_one(txn.as_pgconn())
+    .await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        interface_id,
+        ip,
+        AllocationType::Static,
+    )
+    .await?;
+
+    preallocate_machine_interface(txn.as_pgconn(), mac, ip, None).await?;
+    let interfaces = find_by_mac_address(txn.as_pgconn(), mac).await?;
+    txn.commit().await?;
+
+    assert_eq!(interfaces.len(), 1);
+    assert_eq!(interfaces[0].segment_id, segment_id);
+    assert_eq!(interfaces[0].addresses, vec![ip]);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expected_declaration_does_not_reclassify_attached_dpu_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_name = "attached-dpu-interface";
+    create_managed_segment(
+        &pool,
+        segment_name,
+        "192.0.2.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let dpu_id = MachineId::new(
+        MachineIdSource::ProductBoardChassisSerial,
+        [0x43; 32],
+        MachineType::Dpu,
+    );
+    let mac: MacAddress = "7A:7B:7C:7D:7E:2F".parse()?;
+    let relay: IpAddr = "192.0.2.1".parse()?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+        .bind(dpu_id)
+        .execute(txn.as_pgconn())
+        .await?;
+    let segment = db::network_segment::find_by_name(txn.as_pgconn(), segment_name).await?;
+    let interface = create_without_addresses(
+        txn.as_pgconn(),
+        &segment,
+        &mac,
+        true,
+        InterfaceType::Data,
+        None,
+    )
+    .await?;
+    associate_interface_with_dpu_machine(&interface.id, &dpu_id, txn.as_pgconn()).await?;
+
+    let expected_interface = ExpectedHostNic {
+        mac_address: mac,
+        role: ExpectedInterfaceRole::DpuBmc,
+        ..Default::default()
+    };
+    let reconciled = find_or_create_machine_interface(
+        txn.as_pgconn(),
+        None,
+        mac,
+        &[relay],
+        Some(expected_interface),
+        Some(false),
+        None,
+    )
+    .await?;
+    txn.commit().await?;
+
+    assert_eq!(reconciled.attached_dpu_machine_id, Some(dpu_id));
+    assert_eq!(reconciled.interface_type, InterfaceType::Data);
+    assert!(reconciled.primary_interface);
+
+    Ok(())
+}
+
+/// An association that commits after DHCP reads an interface must still win
+/// over ExpectedMachine settings derived from that stale snapshot.
+#[crate::sqlx_test]
+async fn test_expected_interface_settings_do_not_overwrite_concurrent_dpu_association(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_name = "concurrently-attached-dpu-interface";
+    create_managed_segment(
+        &pool,
+        segment_name,
+        "198.51.100.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let dpu_id = MachineId::new(
+        MachineIdSource::ProductBoardChassisSerial,
+        [0x44; 32],
+        MachineType::Dpu,
+    );
+    let mac: MacAddress = "7A:7B:7C:7D:7E:2E".parse()?;
+
+    let mut setup_txn = db::Transaction::begin(&pool).await?;
+    sqlx::query("INSERT INTO machines (id, dpf) VALUES ($1, '{}'::jsonb)")
+        .bind(dpu_id)
+        .execute(setup_txn.as_pgconn())
+        .await?;
+    let segment = db::network_segment::find_by_name(setup_txn.as_pgconn(), segment_name).await?;
+    let interface = create_without_addresses(
+        setup_txn.as_pgconn(),
+        &segment,
+        &mac,
+        true,
+        InterfaceType::Data,
+        None,
+    )
+    .await?;
+    setup_txn.commit().await?;
+
+    let mut snapshot_txn = db::Transaction::begin(&pool).await?;
+    let mut stale_interface = find_one(snapshot_txn.as_pgconn(), interface.id).await?;
+    let updated = update_unassociated_expected_interface_settings(
+        snapshot_txn.as_pgconn(),
+        interface.id,
+        Some(InterfaceType::Data),
+        Some(true),
+    )
+    .await?;
+    assert!(
+        !updated,
+        "steady-state ExpectedInterface settings should not write a new row version",
+    );
+    snapshot_txn.commit().await?;
+
+    let mut association_txn = db::Transaction::begin(&pool).await?;
+    associate_interface_with_dpu_machine(&interface.id, &dpu_id, association_txn.as_pgconn())
+        .await?;
+    association_txn.commit().await?;
+
+    let mut expected_txn = db::Transaction::begin(&pool).await?;
+    reconcile_unassociated_expected_interface_settings(
+        expected_txn.as_pgconn(),
+        &mut stale_interface,
+        Some(InterfaceType::Bmc),
+        Some(false),
+    )
+    .await?;
+    assert_eq!(stale_interface.attached_dpu_machine_id, Some(dpu_id));
+    assert_eq!(stale_interface.interface_type, InterfaceType::Data);
+    assert!(stale_interface.primary_interface);
+    expected_txn.commit().await?;
+
+    let mut verify_txn = db::Transaction::begin(&pool).await?;
+    let reconciled = find_one(verify_txn.as_pgconn(), interface.id).await?;
+    verify_txn.commit().await?;
+
+    assert_eq!(reconciled.attached_dpu_machine_id, Some(dpu_id));
+    assert_eq!(reconciled.interface_type, InterfaceType::Data);
+    assert!(reconciled.primary_interface);
 
     Ok(())
 }
@@ -398,6 +626,522 @@ async fn test_retain_bmc_address_pins_dhcp_and_survives_expiry(
         "the retained Static address should survive DHCP lease expiry"
     );
     assert_eq!(addrs[0].allocation_type, AllocationType::Static);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expected_interface_role_controls_fixed_preallocation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    let segment_id = create_managed_segment(
+        &pool,
+        "expected-interface-underlay",
+        "192.0.2.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Reserved,
+    )
+    .await?;
+
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        role: ExpectedInterfaceRole,
+        primary: Option<bool>,
+        expected_type: InterfaceType,
+        expected_primary: bool,
+    }
+
+    for Case {
+        name,
+        suffix,
+        role,
+        primary,
+        expected_type,
+        expected_primary,
+    } in [
+        Case {
+            name: "host default",
+            suffix: 0x51,
+            role: ExpectedInterfaceRole::Host,
+            primary: None,
+            expected_type: InterfaceType::Data,
+            expected_primary: true,
+        },
+        Case {
+            name: "Host false retains legacy creation default",
+            suffix: 0x52,
+            role: ExpectedInterfaceRole::Host,
+            primary: Some(false),
+            expected_type: InterfaceType::Data,
+            expected_primary: true,
+        },
+        Case {
+            name: "DPU OS",
+            suffix: 0x53,
+            role: ExpectedInterfaceRole::DpuOs,
+            primary: None,
+            expected_type: InterfaceType::Data,
+            expected_primary: true,
+        },
+        Case {
+            name: "DPU BMC",
+            suffix: 0x54,
+            role: ExpectedInterfaceRole::DpuBmc,
+            primary: None,
+            expected_type: InterfaceType::Bmc,
+            expected_primary: false,
+        },
+    ] {
+        let expected_interface = ExpectedHostNic {
+            mac_address: MacAddress::new([0x7a, 0x7b, 0x7c, 0x7d, 0x7e, suffix]),
+            role,
+            ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+            network_segment_type: Some(NetworkSegmentType::Underlay),
+            fixed_ip: Some(format!("192.0.2.{suffix}").parse()?),
+            primary,
+            ..Default::default()
+        };
+
+        let mut txn = db::Transaction::begin(&pool).await?;
+        preallocate_expected_machine_interface(txn.as_pgconn(), &expected_interface, None).await?;
+        let interfaces =
+            find_by_mac_address(txn.as_pgconn(), expected_interface.mac_address).await?;
+        txn.commit().await?;
+
+        assert_eq!(interfaces.len(), 1, "case: {name}");
+        assert_eq!(interfaces[0].interface_type, expected_type, "case: {name}");
+        assert_eq!(
+            interfaces[0].primary_interface, expected_primary,
+            "case: {name}",
+        );
+        assert_eq!(interfaces[0].segment_id, segment_id, "case: {name}");
+        assert_eq!(
+            interfaces[0].addresses,
+            vec![expected_interface.fixed_ip.unwrap()],
+            "case: {name}",
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_fixed_host_preallocation_does_not_override_machine_wide_primary_selection(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    create_managed_segment(
+        &pool,
+        "fixed-host-primary",
+        "192.0.2.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Reserved,
+    )
+    .await?;
+    let expected_interface = ExpectedHostNic {
+        mac_address: "7A:7B:7C:7D:7E:59".parse()?,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        fixed_ip: Some("192.0.2.59".parse()?),
+        ..Default::default()
+    };
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    preallocate_expected_machine_interface(txn.as_pgconn(), &expected_interface, None).await?;
+    let interface_id = find_by_mac_address(txn.as_pgconn(), expected_interface.mac_address)
+        .await?
+        .pop()
+        .expect("fixed Host preallocation should create an interface")
+        .id;
+
+    // DHCP applies the ExpectedMachine-wide primary declaration. A later Site
+    // Explorer pass must not replace it with the Host creation default.
+    set_primary_interface(&interface_id, false, txn.as_pgconn()).await?;
+    preallocate_expected_machine_interface(txn.as_pgconn(), &expected_interface, None).await?;
+    let interface = find_one(txn.as_pgconn(), interface_id).await?;
+    txn.commit().await?;
+
+    assert!(!interface.primary_interface);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_fixed_preallocation_derives_segment_before_applying_typed_guard(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    let underlay_segment = create_managed_segment(
+        &pool,
+        "fixed-address-underlay",
+        "198.51.100.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Reserved,
+    )
+    .await?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let legacy_hint = ExpectedHostNic {
+        mac_address: "7A:7B:7C:7D:7E:61".parse()?,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        nic_type: Some("onboard".to_string()),
+        fixed_ip: Some("198.51.100.61".parse()?),
+        ..Default::default()
+    };
+    preallocate_expected_machine_interface(txn.as_pgconn(), &legacy_hint, None).await?;
+    let interface = find_by_mac_address(txn.as_pgconn(), legacy_hint.mac_address)
+        .await?
+        .pop()
+        .expect("legacy fixed interface should be preallocated");
+    assert_eq!(interface.segment_id, underlay_segment);
+    let reconciled = validate_existing_mac_and_create(
+        txn.as_pgconn(),
+        legacy_hint.mac_address,
+        &["198.51.100.1".parse()?],
+        Some(legacy_hint.clone()),
+        None,
+    )
+    .await?;
+    assert_eq!(
+        reconciled.segment_id, underlay_segment,
+        "legacy nic_type must not reject an existing row whose fixed IP selected the segment",
+    );
+
+    let legacy_typed_segment = ExpectedHostNic {
+        mac_address: "7A:7B:7C:7D:7E:64".parse()?,
+        network_segment_type: Some(NetworkSegmentType::Underlay),
+        fixed_ip: Some("203.0.113.64".parse()?),
+        ..Default::default()
+    };
+    preallocate_expected_machine_interface(txn.as_pgconn(), &legacy_typed_segment, None).await?;
+    let legacy_interface = find_by_mac_address(txn.as_pgconn(), legacy_typed_segment.mac_address)
+        .await?
+        .pop()
+        .expect("legacy fixed interface should be preallocated");
+    let static_assignments = db::network_segment::static_assignments(txn.as_pgconn()).await?;
+    assert_eq!(
+        legacy_interface.segment_id, static_assignments.id,
+        "a legacy Host declaration must not turn its DHCP selector into a fixed-address guard",
+    );
+
+    let wrong_guard = ExpectedHostNic {
+        mac_address: "7A:7B:7C:7D:7E:62".parse()?,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        network_segment_type: Some(NetworkSegmentType::Admin),
+        fixed_ip: Some("198.51.100.62".parse()?),
+        ..Default::default()
+    };
+    let error = preallocate_expected_machine_interface(txn.as_pgconn(), &wrong_guard, None)
+        .await
+        .expect_err("the typed segment guard should reject a different segment type");
+    assert!(matches!(error, DatabaseError::InvalidArgument(_)));
+
+    let outside_guard = ExpectedHostNic {
+        mac_address: "7A:7B:7C:7D:7E:63".parse()?,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        network_segment_type: Some(NetworkSegmentType::Underlay),
+        fixed_ip: Some("203.0.113.63".parse()?),
+        ..Default::default()
+    };
+    let error = preallocate_expected_machine_interface(txn.as_pgconn(), &outside_guard, None)
+        .await
+        .expect_err("a guarded fixed IP should belong to a configured segment");
+    assert!(matches!(error, DatabaseError::InvalidArgument(_)));
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+/// Existing Host declarations used `network_segment_type` only to narrow the
+/// first DHCP segment choice. An explicit allocation policy turns that same
+/// field into a guard for later DHCP reconciliation.
+#[crate::sqlx_test]
+async fn test_explicit_policy_opts_existing_host_interface_into_segment_guard(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    let segment_id = create_managed_segment(
+        &pool,
+        "legacy-host-segment-selector",
+        "198.51.100.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let mac_address: MacAddress = "7A:7B:7C:7D:7E:65".parse()?;
+    let fixed_ip = "198.51.100.65".parse()?;
+    let relay = "198.51.100.1".parse()?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    preallocate_machine_interface(txn.as_pgconn(), mac_address, fixed_ip, None).await?;
+
+    let legacy_interface = ExpectedHostNic {
+        mac_address,
+        network_segment_type: Some(NetworkSegmentType::Admin),
+        ..Default::default()
+    };
+    let reconciled = validate_existing_mac_and_create(
+        txn.as_pgconn(),
+        mac_address,
+        &[relay],
+        Some(legacy_interface.clone()),
+        None,
+    )
+    .await?;
+    assert_eq!(reconciled.segment_id, segment_id);
+
+    let explicit_policy = ExpectedHostNic {
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
+        ..legacy_interface
+    };
+    let error = validate_existing_mac_and_create(
+        txn.as_pgconn(),
+        mac_address,
+        &[relay],
+        Some(explicit_policy),
+        None,
+    )
+    .await
+    .expect_err("an explicit policy should enforce the typed segment guard");
+    assert!(matches!(error, DatabaseError::FailedPrecondition(_)));
+    assert!(
+        error
+            .to_string()
+            .contains("do not identify the expected admin network segment type"),
+        "{error}",
+    );
+    txn.rollback().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expected_interface_retained_policy_pins_all_dhcp_address_families(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    create_managed_segment(
+        &pool,
+        "retained-wrong-interface-type",
+        "203.0.113.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    create_managed_segment(
+        &pool,
+        "retained-wrong-segment-type",
+        "198.51.100.0/24",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let mac_address: MacAddress = "7A:7B:7C:7D:7E:71".parse()?;
+    let wrong_segment_mac: MacAddress = "7A:7B:7C:7D:7E:72".parse()?;
+    let addresses = ["192.0.2.71".parse()?, "2001:db8::71".parse()?];
+    let bmc_address = "203.0.113.71".parse()?;
+    let wrong_segment_address = "198.51.100.72".parse()?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    preallocate_machine_interface(txn.as_pgconn(), mac_address, addresses[0], None).await?;
+    let interface_id = find_by_mac_address(txn.as_pgconn(), mac_address)
+        .await?
+        .pop()
+        .expect("preallocation should create an interface")
+        .id;
+    crate::machine_interface_address::delete(txn.as_pgconn(), &interface_id).await?;
+    for address in addresses {
+        crate::machine_interface_address::insert(
+            txn.as_pgconn(),
+            interface_id,
+            address,
+            AllocationType::Dhcp,
+        )
+        .await?;
+    }
+
+    let bmc_segment =
+        crate::network_segment::for_prefix_containing_address(txn.as_pgconn(), bmc_address)
+            .await?
+            .expect("BMC test address should belong to the managed segment");
+    let bmc_interface = create_with_type(
+        txn.as_pgconn(),
+        &[bmc_segment],
+        &mac_address,
+        false,
+        AddressSelectionStrategy::StaticAddress(bmc_address),
+        InterfaceType::Bmc,
+        None,
+    )
+    .await?;
+    crate::machine_interface_address::delete(txn.as_pgconn(), &bmc_interface.id).await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        bmc_interface.id,
+        bmc_address,
+        AllocationType::Dhcp,
+    )
+    .await?;
+
+    preallocate_machine_interface(
+        txn.as_pgconn(),
+        wrong_segment_mac,
+        wrong_segment_address,
+        None,
+    )
+    .await?;
+    let wrong_segment_interface_id = find_by_mac_address(txn.as_pgconn(), wrong_segment_mac)
+        .await?
+        .pop()
+        .expect("wrong-segment preallocation should create an interface")
+        .id;
+    crate::machine_interface_address::delete(txn.as_pgconn(), &wrong_segment_interface_id).await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        wrong_segment_interface_id,
+        wrong_segment_address,
+        AllocationType::Dhcp,
+    )
+    .await?;
+
+    let expected_interface = ExpectedHostNic {
+        mac_address,
+        role: ExpectedInterfaceRole::DpuOs,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Retained),
+        ..Default::default()
+    };
+    retain_expected_machine_interface_address(txn.as_pgconn(), &expected_interface).await?;
+    retain_expected_machine_interface_address(txn.as_pgconn(), &expected_interface).await?;
+    let retained =
+        crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
+    let bmc_addresses =
+        crate::machine_interface_address::find_for_interface(txn.as_pgconn(), bmc_interface.id)
+            .await?;
+
+    let wrong_segment_expected_interface = ExpectedHostNic {
+        mac_address: wrong_segment_mac,
+        role: ExpectedInterfaceRole::DpuOs,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Retained),
+        network_segment_type: Some(NetworkSegmentType::Underlay),
+        ..Default::default()
+    };
+    let error = retain_expected_machine_interface_address(
+        txn.as_pgconn(),
+        &wrong_segment_expected_interface,
+    )
+    .await
+    .expect_err("the typed segment guard should reject a DHCP address on another segment type");
+    assert!(matches!(error, DatabaseError::FailedPrecondition(_)));
+    let wrong_segment_addresses = crate::machine_interface_address::find_for_interface(
+        txn.as_pgconn(),
+        wrong_segment_interface_id,
+    )
+    .await?;
+    txn.commit().await?;
+
+    assert_eq!(retained.len(), 2);
+    assert!(
+        retained
+            .iter()
+            .all(|address| address.allocation_type == AllocationType::Static),
+    );
+    assert_eq!(bmc_addresses.len(), 1);
+    assert_eq!(bmc_addresses[0].allocation_type, AllocationType::Dhcp);
+    assert_eq!(wrong_segment_addresses.len(), 1);
+    assert_eq!(
+        wrong_segment_addresses[0].allocation_type,
+        AllocationType::Dhcp,
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_expected_interface_role_controls_observed_interface_creation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_managed_segment(
+        &pool,
+        "observed-interface-underlay",
+        "203.0.113.0/24",
+        NetworkSegmentType::Underlay,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let relay = "203.0.113.1".parse()?;
+
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        role: ExpectedInterfaceRole,
+        primary: Option<bool>,
+        expected_type: InterfaceType,
+        expected_primary: bool,
+    }
+
+    for Case {
+        name,
+        suffix,
+        role,
+        primary,
+        expected_type,
+        expected_primary,
+    } in [
+        Case {
+            name: "Host false retains legacy creation default",
+            suffix: 0x81,
+            role: ExpectedInterfaceRole::Host,
+            primary: Some(false),
+            expected_type: InterfaceType::Data,
+            expected_primary: true,
+        },
+        Case {
+            name: "DPU OS",
+            suffix: 0x82,
+            role: ExpectedInterfaceRole::DpuOs,
+            primary: None,
+            expected_type: InterfaceType::Data,
+            expected_primary: true,
+        },
+        Case {
+            name: "DPU BMC",
+            suffix: 0x83,
+            role: ExpectedInterfaceRole::DpuBmc,
+            primary: None,
+            expected_type: InterfaceType::Bmc,
+            expected_primary: false,
+        },
+    ] {
+        let expected_interface = ExpectedHostNic {
+            mac_address: MacAddress::new([0x7a, 0x7b, 0x7c, 0x7d, 0x7e, suffix]),
+            role,
+            ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
+            network_segment_type: Some(NetworkSegmentType::Underlay),
+            primary,
+            ..Default::default()
+        };
+        let mut txn = db::Transaction::begin(&pool).await?;
+        let interface = find_or_create_observed_machine_interface(
+            txn.as_pgconn(),
+            None,
+            expected_interface.mac_address,
+            &[relay],
+            Some(expected_interface),
+            None,
+            None,
+        )
+        .await?;
+        txn.commit().await?;
+
+        assert_eq!(interface.segment_id, segment_id, "case: {name}");
+        assert_eq!(interface.interface_type, expected_type, "case: {name}");
+        assert_eq!(
+            interface.primary_interface, expected_primary,
+            "case: {name}",
+        );
+        assert!(interface.addresses.is_empty(), "case: {name}");
+    }
 
     Ok(())
 }

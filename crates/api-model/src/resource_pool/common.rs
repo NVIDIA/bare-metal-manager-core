@@ -15,16 +15,17 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
 
 use crate::resource_pool::{ResourcePool, ResourcePoolStats};
 
-/// DPU VPC loopback IP pool
-/// Must match a pool defined in dev/resource_pools.toml
+/// IPv4 DPU loopback IP pool.
 pub const LOOPBACK_IP: &str = "lo-ip";
+/// IPv6 DPU loopback IP pool used by the FNN underlay.
+pub const LOOPBACK_IP_V6: &str = "lo-ip-v6";
 /// VNI pool. FabricNetworkConfiguration
 /// Must match a pool defined in dev/resource_pools.toml
 pub const VNI: &str = "vni";
@@ -71,6 +72,7 @@ pub struct CommonPools {
 #[derive(Debug)]
 pub struct EthernetPools {
     pub pool_loopback_ip: Arc<ResourcePool<IpAddr>>,
+    pub pool_loopback_ip_v6: Arc<ResourcePool<Ipv6Addr>>,
     pub pool_vlan_id: Arc<ResourcePool<i16>>,
     pub pool_vni: Arc<ResourcePool<i32>>,
     pub pool_vpc_vni: Arc<ResourcePool<i32>>,

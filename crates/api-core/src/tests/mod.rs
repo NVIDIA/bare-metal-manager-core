@@ -87,6 +87,7 @@ mod service_health_metrics;
 mod set_primary_dpu;
 mod set_primary_interface;
 mod site_explorer;
+mod site_prefix;
 mod sku;
 mod spdm;
 mod switch;

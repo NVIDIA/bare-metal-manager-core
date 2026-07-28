@@ -38,6 +38,7 @@ carbide-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
 metrics-endpoint = { path = "../metrics-endpoint" }
 carbide-utils = { path = "../utils" }
+libc = { workspace = true }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized

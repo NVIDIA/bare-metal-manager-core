@@ -23,7 +23,8 @@ use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::network_segment::{
     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
-    create_host_inband_network_segment, create_network_segment,
+    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_host_inband_network_segment,
+    create_network_segment,
 };
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, TestEnvOverrides, create_managed_host,
@@ -36,6 +37,9 @@ use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+};
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
@@ -523,6 +527,7 @@ async fn test_machine_dhcp_declared_admin_nic_allocates_from_relay_admin_segment
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: Some(true),
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -619,6 +624,159 @@ async fn test_machine_dhcp_declared_segment_type_allocates_from_relay_admin_segm
     let persisted_interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await?;
     assert_eq!(persisted_interface.segment_id, second_admin_segment);
     assert_eq!(persisted_interface.mac_address, admin_nic_mac);
+
+    Ok(())
+}
+
+/// Every expected-interface role uses the same DHCP and allocation-policy
+/// path, while the role supplies only its interface type and primary setting.
+#[crate::sqlx_test]
+async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_explorer(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let expected_bmc_mac: MacAddress = "7A:7B:7C:7D:7E:31".parse()?;
+    let host_mac: MacAddress = "7A:7B:7C:7D:7E:34".parse()?;
+    let dpu_os_mac: MacAddress = "7A:7B:7C:7D:7E:32".parse()?;
+    let dpu_bmc_mac: MacAddress = "7A:7B:7C:7D:7E:33".parse()?;
+    let underlay_segment = env
+        .underlay_segment
+        .expect("test environment should have an underlay segment");
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: expected_bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DPU-EXPECTED-INTERFACES-001".into(),
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: host_mac.to_string(),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::Host as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                    primary: Some(true),
+                    ..Default::default()
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: dpu_os_mac.to_string(),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuOs as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                    ..Default::default()
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: dpu_bmc_mac.to_string(),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }))
+        .await?;
+
+    // The machine-wide primary declaration belongs only to the Host role. DPU
+    // OS and DPU BMC still derive their primary settings from their roles even
+    // when the same ExpectedMachine also declares a primary Host interface.
+    struct Case {
+        name: &'static str,
+        mac_address: MacAddress,
+        role: ExpectedInterfaceRole,
+        policy: ExpectedInterfaceIpAllocation,
+        interface_type: InterfaceType,
+        primary: bool,
+    }
+
+    for Case {
+        name,
+        mac_address,
+        role,
+        policy,
+        interface_type,
+        primary,
+    } in [
+        Case {
+            name: "Host dynamic",
+            mac_address: host_mac,
+            role: ExpectedInterfaceRole::Host,
+            policy: ExpectedInterfaceIpAllocation::Dynamic,
+            interface_type: InterfaceType::Data,
+            primary: true,
+        },
+        Case {
+            name: "DPU OS dynamic",
+            mac_address: dpu_os_mac,
+            role: ExpectedInterfaceRole::DpuOs,
+            policy: ExpectedInterfaceIpAllocation::Dynamic,
+            interface_type: InterfaceType::Data,
+            primary: true,
+        },
+        Case {
+            name: "DPU BMC retained",
+            mac_address: dpu_bmc_mac,
+            role: ExpectedInterfaceRole::DpuBmc,
+            policy: ExpectedInterfaceIpAllocation::Retained,
+            interface_type: InterfaceType::Bmc,
+            primary: false,
+        },
+    ] {
+        let response = env
+            .api
+            .discover_dhcp(
+                DhcpDiscovery::builder(mac_address, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip())
+                    .tonic_request(),
+            )
+            .await?
+            .into_inner();
+        let interface_id = response
+            .machine_interface_id
+            .expect("DHCP response should identify the interface");
+
+        let mut txn = pool.begin().await?;
+        let interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await?;
+        let before =
+            db::machine_interface_address::find_for_interface(&mut txn, interface_id).await?;
+        txn.rollback().await?;
+        assert_eq!(interface.segment_id, underlay_segment, "case: {name}");
+        assert_eq!(interface.interface_type, interface_type, "case: {name}");
+        assert_eq!(interface.primary_interface, primary, "case: {name}");
+        assert_eq!(before.len(), 1, "case: {name}");
+        assert_eq!(
+            before[0].allocation_type,
+            AllocationType::Dhcp,
+            "case: {name}",
+        );
+
+        carbide_site_explorer::try_apply_expected_interface(
+            &pool,
+            &ExpectedHostNic {
+                mac_address,
+                role,
+                ip_allocation: Some(policy),
+                network_segment_type: Some(NetworkSegmentType::Underlay),
+                ..Default::default()
+            },
+            None,
+        )
+        .await;
+
+        let mut txn = pool.begin().await?;
+        let after =
+            db::machine_interface_address::find_for_interface(&mut txn, interface_id).await?;
+        txn.rollback().await?;
+        let expected_allocation = if policy == ExpectedInterfaceIpAllocation::Retained {
+            AllocationType::Static
+        } else {
+            AllocationType::Dhcp
+        };
+        assert_eq!(after.len(), 1, "case: {name}");
+        assert_eq!(
+            after[0].allocation_type, expected_allocation,
+            "case: {name}",
+        );
+    }
 
     Ok(())
 }
@@ -1401,10 +1559,11 @@ async fn test_dhcp_v6_solicit_exact_link_precedes_reserved_prefix_candidate(
     Ok(())
 }
 
-// Exact DHCPv6 link-address routing is authoritative even when expected host
-// NIC metadata declares a different segment type.
+// A legacy Host declaration that omits the new allocation policy keeps its
+// typed segment field as a first-lease selector, so an exact DHCPv6
+// link-address remains authoritative.
 #[crate::sqlx_test]
-async fn test_dhcp_v6_solicit_exact_link_precedes_expected_host_nic_type_filter(
+async fn test_dhcp_v6_solicit_exact_link_preserves_legacy_typed_segment_behavior(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
@@ -1426,7 +1585,8 @@ async fn test_dhcp_v6_solicit_exact_link_precedes_expected_host_nic_type_filter(
     .await;
     add_ipv6_prefix(&pool, exact_segment, "2001:db8:91::/64", Some(relay)).await?;
 
-    // Declare the host NIC as Admin; the exact link-address must still win.
+    // The typed field selects Admin for prefix matching, but omission of the
+    // new policy keeps it from guarding the authoritative exact link-address.
     env.api
         .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
             id: None,
@@ -1470,10 +1630,10 @@ async fn test_dhcp_v6_solicit_exact_link_precedes_expected_host_nic_type_filter(
     Ok(())
 }
 
-// INFORMATION-REQUEST uses the same exact-link authority before expected NIC
-// type narrowing, so SLAAC observation lands on the exact segment.
+// INFORMATION-REQUEST uses the same legacy Host compatibility rule, so its
+// SLAAC observation follows the authoritative exact link-address segment.
 #[crate::sqlx_test]
-async fn test_dhcp_v6_info_request_exact_link_precedes_expected_host_nic_type_filter(
+async fn test_dhcp_v6_info_request_exact_link_preserves_legacy_typed_segment_behavior(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
@@ -1495,7 +1655,8 @@ async fn test_dhcp_v6_info_request_exact_link_precedes_expected_host_nic_type_fi
     .await;
     add_ipv6_prefix(&pool, exact_segment, "2001:db8:93::/64", Some(relay)).await?;
 
-    // Declare the host NIC as Admin; the exact link-address must still win.
+    // Omission of the new policy keeps the typed Admin field from guarding the
+    // authoritative Underlay link-address.
     env.api
         .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
             id: None,
@@ -1538,6 +1699,128 @@ async fn test_dhcp_v6_info_request_exact_link_precedes_expected_host_nic_type_fi
         addresses[0].address,
         expected_slaac_address("2001:db8:93::".parse()?, host_mac)
     );
+
+    Ok(())
+}
+
+// A typed segment guard rejects an exact DHCPv6 link-address from a different
+// segment type for every allocation-bearing DHCPv6 message.
+#[crate::sqlx_test]
+async fn test_dhcp_v6_exact_link_honors_expected_segment_type_guard(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    struct Case {
+        name: &'static str,
+        message_kind: i32,
+        relay: &'static str,
+        fallback_prefix: &'static str,
+        fallback_ipv4_prefix: &'static str,
+        fallback_ipv4_gateway: &'static str,
+        exact_prefix: &'static str,
+        exact_ipv4_prefix: &'static str,
+        exact_ipv4_gateway: &'static str,
+        bmc_mac: &'static str,
+        host_mac: &'static str,
+    }
+
+    for case in [
+        Case {
+            name: "SOLICIT",
+            message_kind: RPC_MESSAGE_KIND_V6_SOLICIT,
+            relay: "2001:db8:92::1",
+            fallback_prefix: "2001:db8:92::/64",
+            fallback_ipv4_prefix: "192.0.92.0/24",
+            fallback_ipv4_gateway: "192.0.92.1",
+            exact_prefix: "2001:db8:93::/64",
+            exact_ipv4_prefix: "192.0.93.0/24",
+            exact_ipv4_gateway: "192.0.93.1",
+            bmc_mac: "02:00:00:00:00:29",
+            host_mac: "02:00:00:00:00:2a",
+        },
+        Case {
+            name: "INFO_REQUEST",
+            message_kind: RPC_MESSAGE_KIND_V6_INFO_REQUEST,
+            relay: "2001:db8:94::1",
+            fallback_prefix: "2001:db8:94::/64",
+            fallback_ipv4_prefix: "192.0.94.0/24",
+            fallback_ipv4_gateway: "192.0.94.1",
+            exact_prefix: "2001:db8:95::/64",
+            exact_ipv4_prefix: "192.0.95.0/24",
+            exact_ipv4_gateway: "192.0.95.1",
+            bmc_mac: "02:00:00:00:00:2b",
+            host_mac: "02:00:00:00:00:2c",
+        },
+    ] {
+        let bmc_mac: MacAddress = case.bmc_mac.parse()?;
+        let host_mac: MacAddress = case.host_mac.parse()?;
+
+        // Create a declared-type prefix fallback and a different-type exact match.
+        let fallback_segment_name = format!("ADMIN_V6_{}_EXPECTED_FALLBACK", case.name);
+        let fallback_segment = create_network_segment(
+            &env.api,
+            &fallback_segment_name,
+            case.fallback_ipv4_prefix,
+            case.fallback_ipv4_gateway,
+            rpc::forge::NetworkSegmentType::Admin,
+            None,
+            true,
+        )
+        .await;
+        add_ipv6_prefix(&pool, fallback_segment, case.fallback_prefix, None).await?;
+        let exact_segment_name = format!("UNDERLAY_V6_{}_EXACT_BEATS_EXPECTED_ADMIN", case.name);
+        let exact_segment = create_network_segment(
+            &env.api,
+            &exact_segment_name,
+            case.exact_ipv4_prefix,
+            case.exact_ipv4_gateway,
+            rpc::forge::NetworkSegmentType::Underlay,
+            None,
+            true,
+        )
+        .await;
+        add_ipv6_prefix(&pool, exact_segment, case.exact_prefix, Some(case.relay)).await?;
+
+        // Declare the host NIC as Admin; the exact Underlay link-address must be
+        // rejected.
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: None,
+                bmc_mac_address: bmc_mac.to_string(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: format!("DHCP6-{}-GUARD", case.name),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    mac_address: host_mac.to_string(),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                    primary: Some(true),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }))
+            .await?;
+
+        let status = env
+            .api
+            .discover_dhcp(dhcpv6_discovery(host_mac, case.relay, case.message_kind))
+            .await
+            .expect_err("the typed segment guard should reject a different exact-link segment");
+        assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+        assert!(
+            status
+                .message()
+                .contains("do not identify the expected admin network segment type"),
+            "{status}",
+        );
+
+        // A rejected discover must not create an observed interface.
+        let mut txn = pool.begin().await?;
+        let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, host_mac).await?;
+        txn.rollback().await?;
+        assert!(interfaces.is_empty(), "case: {}", case.name);
+    }
 
     Ok(())
 }
@@ -1771,6 +2054,7 @@ async fn test_dhcp_v6_info_request_materializes_fixed_reservation(
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: None,
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -1854,6 +2138,7 @@ async fn test_dhcp_v6_fixed_reservation_restores_domain_after_v4_expiration(
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: None,
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -1917,6 +2202,7 @@ async fn test_dhcp_v6_info_request_materializes_fixed_reservation_on_reserved_no
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: None,
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -1955,41 +2241,76 @@ async fn test_dhcp_v6_info_request_materializes_fixed_reservation_on_reserved_no
     Ok(())
 }
 
-// Reserved IPv6-enabled segments still deliver DHCPv6 options, but they must
-// not create an observed interface row or SLAAC address without a reservation.
+// Reserved IPv6-enabled segments still deliver DHCPv6 options to anonymous and
+// legacy expected interfaces, but they must not create an observed interface
+// row or SLAAC address without a reservation.
 #[crate::sqlx_test]
 async fn test_dhcp_v6_info_request_on_reserved_segment_returns_options_only_without_observation(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool.clone()).await;
-    let mac = MacAddress::from_str("02:00:00:00:00:11").unwrap();
+    let anonymous_mac = MacAddress::from_str("02:00:00:00:00:11").unwrap();
+    let expected_mac = MacAddress::from_str("02:00:00:00:00:30").unwrap();
+    let bmc_mac = MacAddress::from_str("02:00:00:00:00:31").unwrap();
 
     // Make the admin segment v6-enabled and reserved-only before first contact.
     add_ipv6_prefix(&pool, env.admin_segment(), "2001:db8:12::/64", None).await?;
     set_segment_reserved(&pool, env.admin_segment()).await?;
-    let response = env
-        .api
-        .discover_dhcp(dhcpv6_discovery(
-            mac,
-            "2001:db8:12::1",
-            RPC_MESSAGE_KIND_V6_INFO_REQUEST,
-        ))
-        .await?
-        .into_inner();
-    assert_eq!(response.address, "");
-    assert_eq!(response.prefix, "");
-    assert!(response.gateway.is_none());
-    assert_eq!(response.mac_address, mac.to_string());
-    assert_eq!(response.machine_id, None);
-    assert_eq!(response.machine_interface_id, None);
-    assert_eq!(response.segment_id, Some(env.admin_segment()));
-    assert_eq!(response.subdomain_id, Some(env.domain.into()));
-    assert!(response.last_invalidation_time.is_some());
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DHCPV6-RESERVED-OPTIONS-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: expected_mac.to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    for (case, mac) in [
+        ("anonymous interface", anonymous_mac),
+        ("legacy expected interface", expected_mac),
+    ] {
+        let response = env
+            .api
+            .discover_dhcp(dhcpv6_discovery(
+                mac,
+                "2001:db8:12::1",
+                RPC_MESSAGE_KIND_V6_INFO_REQUEST,
+            ))
+            .await?
+            .into_inner();
+        assert_eq!(response.address, "", "case: {case}");
+        assert_eq!(response.prefix, "", "case: {case}");
+        assert!(response.gateway.is_none(), "case: {case}");
+        assert_eq!(response.mac_address, mac.to_string(), "case: {case}");
+        assert_eq!(response.machine_id, None, "case: {case}");
+        assert_eq!(response.machine_interface_id, None, "case: {case}");
+        assert_eq!(
+            response.segment_id,
+            Some(env.admin_segment()),
+            "case: {case}",
+        );
+        assert_eq!(
+            response.subdomain_id,
+            Some(env.domain.into()),
+            "case: {case}",
+        );
+        assert!(response.last_invalidation_time.is_some(), "case: {case}");
+    }
 
     // Verify the options request did not persist an observed interface.
     let mut txn = pool.begin().await?;
-    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
-    assert!(interfaces.is_empty());
+    for (case, mac) in [
+        ("anonymous interface", anonymous_mac),
+        ("legacy expected interface", expected_mac),
+    ] {
+        let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, mac).await?;
+        assert!(interfaces.is_empty(), "case: {case}");
+    }
     txn.rollback().await?;
 
     Ok(())

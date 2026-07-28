@@ -153,7 +153,7 @@ pub async fn start(
         "Start carbide BMC proxy",
     );
 
-    let listener = TcpListener::bind(config.listen)
+    let listener = crate::net::bind_with_ipv4_fallback(config.listen)
         .await
         .map_err(BmcProxyError::Listen)?;
 

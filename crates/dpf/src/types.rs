@@ -43,10 +43,12 @@ impl BmcPasswordProvider for String {
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
 pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
 pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
-
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const DTS_SERVICE_NAME: &str = "dts";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
+pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.
@@ -270,6 +272,7 @@ pub struct DpuFlavorBridgeDefinition {
 pub enum DpuDeploymentType {
     Bf3,
     Bf4Generic,
+    Bf4Astra,
 }
 
 /// Information about a DPU device (DPUDevice CR).

@@ -32,8 +32,9 @@ use libredfish::SystemPowerControl;
 use model::machine::{DpfState, DpuInitState, ManagedHostState, PerformPowerOperation};
 use tokio::time::timeout;
 
+use super::{dpf_config, get_host_state};
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, TestManagedHost, create_managed_host, create_managed_host_with_dpf,
+    TestEnvOverrides, create_managed_host, create_managed_host_with_dpf,
     create_test_env_with_overrides, get_config, reboot_completed,
 };
 
@@ -60,20 +61,6 @@ fn expect_provisioning(mock: &mut MockDpfOperations) {
     mock.expect_deployment_type_for_dpu()
         .returning(|_| Ok(DpuDeploymentType::Bf3));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
-}
-
-fn dpf_config() -> crate::cfg::file::DpfConfig {
-    crate::cfg::file::DpfConfig {
-        enabled: true,
-        deployments: crate::cfg::file::DpfDeploymentsConfig {
-            bf3: crate::cfg::file::DpfDeploymentConfig {
-                bfb_url: Some("http://example.com/test.bfb".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        ..Default::default()
-    }
 }
 
 /// Persists one DPU's DPF substate directly so tests can isolate a handler
@@ -124,15 +111,6 @@ async fn reset_host_to_waiting_for_ready(
         DpfState::WaitingForReady { phase_detail: None },
     )
     .await;
-}
-
-async fn get_host_state(
-    env: &crate::tests::common::api_fixtures::TestEnv,
-    mh: &TestManagedHost,
-) -> ManagedHostState {
-    let mut txn = env.db_txn().await;
-    let machine = mh.host().db_machine(&mut txn).await;
-    machine.state.value
 }
 
 /// WaitingForReady with reboot required:

@@ -87,7 +87,7 @@ use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
 use model::DpuModel;
-use model::expected_machine::HostDpuPolicy;
+use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceIpAllocation, HostDpuPolicy};
 use model::firmware::FirmwareComponentType;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
@@ -111,6 +111,16 @@ use self::metrics::{
 };
 use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
+
+/// Return whether an expected interface is explicitly a non-Redfish DPU OS
+/// endpoint.
+///
+/// Host is the compatibility default for existing `host_nics` entries, so
+/// those entries remain scannable even when they look like data interfaces.
+/// DPU BMC interfaces remain scannable too.
+fn should_skip_expected_interface_redfish_scan(interface: &ExpectedHostNic) -> bool {
+    interface.role == model::expected_machine::ExpectedInterfaceRole::DpuOs
+}
 
 pub fn new_bmc_explorer(
     redfish_client_pool: Arc<dyn RedfishClientPool>,
@@ -1995,12 +2005,13 @@ impl SiteExplorer {
             .map(|sku| (sku.id, sku.device_type))
             .collect();
 
-        // Record expected machine metrics and reconcile any configured static-IP reservations
-        // (bmc_ip_address, host_nics[].fixed_ip) into machine_interfaces. Idempotent on the
-        // api-db side -- steady-state runs are no-ops at the row level. This is the canonical
-        // path that materializes static reservations for IPs that don't reach
-        // `discover_dhcp` (devices on the static-assignments segment, devices not yet powered
-        // on, etc.), and a belt-and-suspenders for the in-network case too.
+        // Record Expected Machine metrics and apply configured address
+        // policies. Host, DPU OS, and DPU BMC declarations all use
+        // `try_apply_expected_interface`; their roles only determine the row's
+        // interface type and primary setting. Fixed addresses create rows when
+        // needed, while Retained changes a matching DHCP address to `Static`.
+        // The database helpers are idempotent, so steady-state passes do not
+        // change rows.
         let preallocate_start = Instant::now();
         for expected_machine in &expected_machines {
             let device_type = expected_machine
@@ -2035,15 +2046,9 @@ impl SiteExplorer {
                 try_retain_bmc(&self.database_connection, expected_machine.bmc_mac_address).await;
             }
             for nic in &expected_machine.data.host_nics {
-                let Some(ip) = nic.fixed_ip else {
-                    continue;
-                };
-                try_preallocate_one(
+                try_apply_expected_interface(
                     &self.database_connection,
-                    nic.mac_address,
-                    ip,
-                    InterfaceType::Data,
-                    "expected_machine host NIC",
+                    nic,
                     self.config.retained_boot_interface_window,
                 )
                 .await;
@@ -2110,18 +2115,20 @@ impl SiteExplorer {
         );
 
         let expected_count = expected_machines.len();
+        let expected_non_redfish_interface_macs = expected_machines
+            .iter()
+            .flat_map(|machine| &machine.data.host_nics)
+            .filter(|interface| should_skip_expected_interface_redfish_scan(interface))
+            .map(|interface| interface.mac_address)
+            .collect::<HashSet<_>>();
 
-        // We don't have to scan anything that is on the Tenant or Admin Segments,
-        // since we know what those Segments are used for (Forge allocated the IPs on the segments
-        // for a specific machine).
-        // We also can skip scanning IPs which are knowingly used as DPU OOB interfaces,
-        // since those will not speak redfish.
-        // Note: As a side effect of this, OOB interfaces might for a short time be scanned,
-        // until the machine is ingested. At that point in time this filter will remove them
-        // from the to-be-scanned list.
-        // Get all underlay interfaces from the database, which includes interfaces
-        // which have come from both DHCP and/or static assignments. Fetched here, after the
-        // preallocate loops above, so we see any freshly preallocated rows from this iteration.
+        // Tenant and Admin segments are never Redfish discovery networks. The
+        // Underlay may contain DPU OS data interfaces, so keep only explicitly
+        // declared DPU OS MACs out of the scan. Host remains the compatibility
+        // default for legacy entries, and DPU BMC interfaces remain eligible.
+        //
+        // Load interfaces after allocation reconciliation so this iteration
+        // also sees newly-created fixed reservations.
         let interface_load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
         let interfaces = db::machine_interface::find_all(&mut txn).await?;
@@ -2139,7 +2146,9 @@ impl SiteExplorer {
                 // On Underlay an unadopted interface is a BMC to explore, and adopted BMCs
                 // stay visible too.
                 let underlay = underlay_segments.contains(&iface.segment_id)
-                    && (iface.machine_id.is_none() || is_bmc);
+                    && (is_bmc
+                        || (iface.machine_id.is_none()
+                            && !expected_non_redfish_interface_macs.contains(&iface.mac_address)));
                 // On HostInband only scan BMCs. The host in-band NIC also DHCPs here with no
                 // machine_id and is not a Redfish endpoint.
                 let host_inband = host_inband_segments.contains(&iface.segment_id) && is_bmc;
@@ -3572,13 +3581,14 @@ impl SiteExplorer {
     }
 }
 
-/// Reconcile a single static-IP reservation into `machine_interfaces` in its
-/// own transaction.
+/// `try_preallocate_one` reconciles one generic fixed-address reservation in
+/// its own transaction.
 ///
-/// Called once per configured static IP during the `update_explored_endpoints`
-/// walk over `expected_machine` / `expected_switch` / `expected_power_shelf`.
-/// Idempotent on the api-db side -- steady-state runs are noops. Per-entry
-/// errors are logged as warnings, and doesn't stop the wider iteration.
+/// Site Explorer uses this for flat BMC, switch NVOS, and power-shelf
+/// configuration. Nested expected interfaces use
+/// [`try_apply_expected_interface`] because their role and segment guard also
+/// need to be applied. Database operations are idempotent, and a failure is
+/// logged without stopping the wider reconciliation pass.
 ///
 /// This is `pub` so tests can drive a single (mac, ip, interface_type)
 /// preallocation directly without needing to create a full `SiteExplorer`.
@@ -3680,6 +3690,82 @@ pub async fn try_retain_bmc(pool: &PgPool, mac: MacAddress) {
                 %error,
                 bmc_mac_address = %mac,
                 "Site-explorer BMC retain skipped"
+            );
+        }
+    }
+}
+
+/// `try_apply_expected_interface` applies the allocation policy for one nested
+/// expected interface.
+///
+/// Every role follows this same policy path. Fixed reservations are
+/// materialized while expected configuration is reconciled. Retained follows
+/// the existing Host BMC behavior: a matching DHCP address becomes `Static`
+/// for this interface row's lifetime, but the selected address is not written
+/// back to `ExpectedMachine` for a later re-ingestion. Dynamic needs no
+/// reconciliation here.
+///
+/// Each interface gets its own transaction so one invalid reservation cannot
+/// stop Site Explorer from processing the remaining expected inventory.
+pub async fn try_apply_expected_interface(
+    pool: &PgPool,
+    expected_interface: &ExpectedHostNic,
+    retained_window: Option<chrono::Duration>,
+) {
+    let allocation = expected_interface.resolved_ip_allocation();
+    let mut txn = match allocation {
+        ExpectedInterfaceIpAllocation::Dynamic => return,
+        ExpectedInterfaceIpAllocation::Fixed | ExpectedInterfaceIpAllocation::Retained => {
+            match db::Transaction::begin(pool).await {
+                Ok(txn) => txn,
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        mac_address = %expected_interface.mac_address,
+                        "Site-explorer expected-interface allocation: txn_begin failed"
+                    );
+                    return;
+                }
+            }
+        }
+    };
+
+    let result = match allocation {
+        ExpectedInterfaceIpAllocation::Dynamic => {
+            unreachable!("dynamic allocation returns before opening a transaction")
+        }
+        ExpectedInterfaceIpAllocation::Fixed => {
+            db::machine_interface::preallocate_expected_machine_interface(
+                txn.as_pgconn(),
+                expected_interface,
+                retained_window,
+            )
+            .await
+        }
+        ExpectedInterfaceIpAllocation::Retained => {
+            db::machine_interface::retain_expected_machine_interface_address(
+                txn.as_pgconn(),
+                expected_interface,
+            )
+            .await
+        }
+    };
+
+    match result {
+        Ok(()) => {
+            if let Err(error) = txn.commit().await {
+                tracing::warn!(
+                    %error,
+                    mac_address = %expected_interface.mac_address,
+                    "Site-explorer expected-interface allocation: commit failed"
+                );
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                mac_address = %expected_interface.mac_address,
+                "Site-explorer expected-interface allocation skipped"
             );
         }
     }
@@ -4162,6 +4248,7 @@ mod tests {
     use carbide_test_support::Outcome::*;
     use carbide_test_support::{Case, Check, check_cases, check_values, value_scenarios};
     use config_version::ConfigVersion;
+    use model::expected_machine::ExpectedInterfaceRole;
     use model::site_explorer::PreingestionState;
 
     use super::*;
@@ -4192,6 +4279,39 @@ mod tests {
                 },
             ],
             rms_location_value,
+        );
+    }
+
+    /// Only an explicit DPU OS role suppresses Redfish scanning.
+    ///
+    /// Host remains eligible because it is the default for legacy entries
+    /// that did not declare an interface role.
+    #[test]
+    fn expected_interface_role_controls_redfish_scan_classification() {
+        check_values(
+            [
+                Check {
+                    scenario: "legacy host entry",
+                    input: ExpectedInterfaceRole::Host,
+                    expect: false,
+                },
+                Check {
+                    scenario: "DPU OS interface",
+                    input: ExpectedInterfaceRole::DpuOs,
+                    expect: true,
+                },
+                Check {
+                    scenario: "DPU BMC interface",
+                    input: ExpectedInterfaceRole::DpuBmc,
+                    expect: false,
+                },
+            ],
+            |role| {
+                should_skip_expected_interface_redfish_scan(&ExpectedHostNic {
+                    role,
+                    ..Default::default()
+                })
+            },
         );
     }
 

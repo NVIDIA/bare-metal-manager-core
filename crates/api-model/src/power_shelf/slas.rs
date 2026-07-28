@@ -35,3 +35,6 @@ pub const DELETING: u64 = 300; // 5 minutes
 
 /// SLA for PowerShelf maintenance (PowerOn / PowerOff) in seconds
 pub const MAINTENANCE: u64 = 300; // 5 minutes
+
+/// SLA for PowerShelf rack-level reprovisioning (firmware wait) in seconds
+pub const REPROVISIONING: u64 = 3600; // 1 hour

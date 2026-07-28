@@ -200,6 +200,9 @@ verification expectations.
   - PUT: APIInstanceCreateOrUpdateRequest
   - DELETE: APIInstanceDeleteRequest
   - GET: Request objects are typically not used for GET requests
+- Optional string fields that support clearing through PATCH use `""` as the
+  explicit clear value. Omission or JSON `null` preserves the stored value;
+  model these as `*string` instead of adding custom presence tracking.
 - API models should have the following naming conventions:
   - APIInstance: For full Instance details
   - APIInstanceSummary: For summary objects nested under other API resource objects
@@ -744,8 +747,8 @@ When adding such a field to a bulk-update DAO:
   the omitted rows keep their prior value.
 
 `ExpectedMachine.UpdateMultiple` (`db/pkg/db/model/expectedmachine.go`) applies
-`host_lifecycle_profile` this way and is the reference;
-`TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile` is the guard.
+`bmc_ip_address` this way for a scalar value and `host_lifecycle_profile` for a
+JSONB patch; their mixed-batch tests are the guards.
 
 ## Git Workflow
 
