@@ -1507,7 +1507,7 @@ impl MachineStateHandler {
                                 set_boot_order_info: Some(initial_set_boot_order_info()),
                             },
                         };
-                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, recovered).await
+                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, None, recovered).await
                     }
                     _ => {
                         // Do nothing.
@@ -3430,6 +3430,7 @@ async fn handle_dpu_reprovision_host_boot_config_check(
         state,
         reachability_params,
         dpu_freshness,
+        None,
         ctx,
     )
     .await?
@@ -3478,6 +3479,7 @@ async fn handle_dpu_reprovision_host_boot_config_stage(
         reachability_params,
         redfish_client.as_ref(),
         state,
+        None,
         stage,
     )
     .await?
@@ -3575,6 +3577,24 @@ async fn load_boot_predictions(
     let predictions =
         db::predicted_machine_interface::find_by_machine_id(&mut conn, machine_id).await?;
     Ok(predictions)
+}
+
+/// Resolve one boot-config step from either its explicit target or current
+/// interface state.
+///
+/// An explicit target is complete input, so resolving it does not require
+/// reading mutable prediction rows.
+async fn resolve_boot_interface_for_step(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    explicit_target: Option<&BootInterfaceTarget>,
+) -> Result<BootInterfaceResolution, StateHandlerError> {
+    if let Some(target) = explicit_target {
+        return Ok(BootInterfaceResolution::Ready(target.clone()));
+    }
+
+    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    Ok(resolve_boot_interface(mh_snapshot, &predictions))
 }
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
@@ -4927,31 +4947,15 @@ enum RequiredBootInterface<W> {
     Wait(W),
 }
 
-/// Resolve the boot NIC for a Redfish boot step, folding the not-ready cases
-/// every caller handles the same way: a zero-DPU host that has not discovered
-/// its boot NIC yet maps to the caller's wait outcome (`wait` wraps the shared
-/// message; `activity` names the blocked step), and a host with no resolvable
-/// interface is a hard error. Keeps the boot-order substates and host boot
-/// repair resolving the boot NIC identically.
+/// Map a boot-interface resolution for Redfish steps that require a target.
+///
+/// A zero-DPU host that has not discovered its boot NIC maps to the caller's
+/// wait outcome (`wait` wraps the shared message and `activity` names the
+/// blocked step). A host that should already have an interface returns an
+/// error.
 fn require_boot_interface<W>(
-    mh_snapshot: &ManagedHostStateSnapshot,
-    predictions: &[PredictedMachineInterface],
-    activity: &str,
-    wait: impl FnOnce(String) -> W,
-) -> Result<RequiredBootInterface<W>, StateHandlerError> {
-    map_boot_interface_resolution(
-        resolve_boot_interface(mh_snapshot, predictions),
-        &mh_snapshot.host_snapshot.id,
-        activity,
-        wait,
-    )
-}
-
-/// The mapping behind [`require_boot_interface`], split out from the snapshot
-/// lookup so it can be unit-tested directly.
-fn map_boot_interface_resolution<W>(
-    resolution: BootInterfaceResolution,
     host_id: &MachineId,
+    resolution: BootInterfaceResolution,
     activity: &str,
     wait: impl FnOnce(String) -> W,
 ) -> Result<RequiredBootInterface<W>, StateHandlerError> {
@@ -4980,9 +4984,9 @@ mod require_boot_interface_tests {
     #[test]
     fn ready_passes_the_target_through() {
         let target = BootInterfaceTarget::MacOnly("20:00:00:00:00:01".parse().unwrap());
-        let resolved = map_boot_interface_resolution::<String>(
-            BootInterfaceResolution::Ready(target.clone()),
+        let resolved = require_boot_interface::<String>(
             &host_id(),
+            BootInterfaceResolution::Ready(target.clone()),
             "setting boot order",
             |msg| msg,
         )
@@ -4997,9 +5001,9 @@ mod require_boot_interface_tests {
     // message with the caller's activity spliced in.
     #[test]
     fn awaiting_nic_maps_to_the_callers_wait_outcome() {
-        let resolved = map_boot_interface_resolution::<String>(
-            BootInterfaceResolution::AwaitingNic,
+        let resolved = require_boot_interface::<String>(
             &host_id(),
+            BootInterfaceResolution::AwaitingNic,
             "setting boot order",
             |msg| msg,
         )
@@ -5019,9 +5023,9 @@ mod require_boot_interface_tests {
     // Missing is a hard error, not a wait.
     #[test]
     fn missing_is_a_hard_error() {
-        let err = map_boot_interface_resolution::<String>(
-            BootInterfaceResolution::Missing,
+        let err = require_boot_interface::<String>(
             &host_id(),
+            BootInterfaceResolution::Missing,
             "setting boot order",
             |msg| msg,
         )
@@ -5398,8 +5402,15 @@ async fn handle_host_init_boot_config_stage(
     redfish_client: &dyn Redfish,
     stage: HostBootConfigStage,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match run_host_boot_config_stage(ctx, reachability_params, redfish_client, mh_snapshot, stage)
-        .await?
+    match run_host_boot_config_stage(
+        ctx,
+        reachability_params,
+        redfish_client,
+        mh_snapshot,
+        None,
+        stage,
+    )
+    .await?
     {
         HostBootConfigOutcome::Continue(stage) => {
             let machine_state = match stage {
@@ -7191,7 +7202,7 @@ impl StateHandler for InstanceStateHandler {
                                     },
                             },
                         };
-                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, recovered).await
+                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, None, recovered).await
                     }
                     _ => {
                         // Only way to proceed for other causes is to
@@ -11008,8 +11019,15 @@ async fn handle_instance_host_boot_config_stage(
     redfish_client: &dyn Redfish,
     stage: HostBootConfigStage,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match run_host_boot_config_stage(ctx, reachability_params, redfish_client, mh_snapshot, stage)
-        .await?
+    match run_host_boot_config_stage(
+        ctx,
+        reachability_params,
+        redfish_client,
+        mh_snapshot,
+        None,
+        stage,
+    )
+    .await?
     {
         HostBootConfigOutcome::Continue(stage) => {
             let platform_config_state = match stage {
@@ -11292,6 +11310,7 @@ async fn handle_instance_host_platform_config(
                 mh_snapshot,
                 reachability_params,
                 HostBootConfigDpuFreshness::CurrentHostState,
+                None,
                 ctx,
             )
             .await?
@@ -11409,9 +11428,11 @@ async fn set_host_boot_order(
     reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
+    explicit_target: Option<&BootInterfaceTarget>,
     set_boot_order_info: SetBootOrderInfo,
 ) -> Result<SetBootOrderOutcome, StateHandlerError> {
-    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    let boot_interface_resolution =
+        resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
             // There used to be a `force_dpu_nic_mode`-gated short-circuit
@@ -11432,8 +11453,8 @@ async fn set_host_boot_order(
             // resolves via its predictions; it waits only when neither a real row
             // nor a usable prediction exists.
             let boot_interface = match require_boot_interface(
-                mh_snapshot,
-                &predictions,
+                &mh_snapshot.host_snapshot.id,
+                boot_interface_resolution,
                 "setting boot order",
                 SetBootOrderOutcome::Wait,
             )? {
@@ -11572,8 +11593,8 @@ async fn set_host_boot_order(
             const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
 
             let boot_interface = match require_boot_interface(
-                mh_snapshot,
-                &predictions,
+                &mh_snapshot.host_snapshot.id,
+                boot_interface_resolution,
                 "verifying the re-asserted HTTP boot device",
                 SetBootOrderOutcome::Wait,
             )? {
@@ -11882,8 +11903,8 @@ async fn set_host_boot_order(
                 .max_bios_config_retries;
 
             let boot_interface = match require_boot_interface(
-                mh_snapshot,
-                &predictions,
+                &mh_snapshot.host_snapshot.id,
+                boot_interface_resolution,
                 "verifying boot order",
                 SetBootOrderOutcome::Wait,
             )? {

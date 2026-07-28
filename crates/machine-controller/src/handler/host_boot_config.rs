@@ -44,8 +44,9 @@ use super::bios_config::{
 };
 use super::{
     ReachabilityParams, RequiredBootInterface, SetBootOrderOutcome,
-    are_dpus_up_trigger_reboot_if_needed, is_dpu_observed_since, load_boot_predictions,
-    log_host_config, require_boot_interface, set_host_boot_order, trigger_reboot_if_needed,
+    are_dpus_up_trigger_reboot_if_needed, is_dpu_observed_since, log_host_config,
+    require_boot_interface, resolve_boot_interface_for_step, set_host_boot_order,
+    trigger_reboot_if_needed,
 };
 use crate::context::MachineStateHandlerContextObjects;
 
@@ -176,6 +177,7 @@ pub(super) async fn check_host_boot_config(
     mh_snapshot: &ManagedHostStateSnapshot,
     reachability_params: &ReachabilityParams,
     dpu_freshness: HostBootConfigDpuFreshness,
+    explicit_target: Option<&BootInterfaceTarget>,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<HostBootConfigCheckOutcome, StateHandlerError> {
     if should_wait_for_dpus_before_host_boot_config(
@@ -191,10 +193,10 @@ pub(super) async fn check_host_boot_config(
         ));
     }
 
-    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    let resolution = resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
     let boot_interface = match require_boot_interface(
-        mh_snapshot,
-        &predictions,
+        &mh_snapshot.host_snapshot.id,
+        resolution,
         "configuring boot",
         HostBootConfigCheckOutcome::Wait,
     )? {
@@ -248,15 +250,20 @@ pub(super) async fn run_host_boot_config_stage(
     reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
+    explicit_target: Option<&BootInterfaceTarget>,
     stage: HostBootConfigStage,
 ) -> Result<HostBootConfigOutcome, StateHandlerError> {
     match stage {
         HostBootConfigStage::ConfigureBios { retry_count } => {
+            let boot_interface =
+                resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
+            let boot_interface = boot_interface.into_target();
             match configure_host_bios(
                 ctx,
                 reachability_params,
                 redfish_client,
                 mh_snapshot,
+                boot_interface.as_ref(),
                 retry_count,
             )
             .await?
@@ -301,13 +308,15 @@ pub(super) async fn run_host_boot_config_stage(
             }
         }
         HostBootConfigStage::PollingBiosSetup { retry_count } => {
-            let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+            let boot_interface =
+                resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
+            let boot_interface = boot_interface.into_target();
             match advance_polling_bios_setup(
                 redfish_client,
                 mh_snapshot,
                 retry_count,
                 &ctx.services.site_config.machine_state_controller,
-                &predictions,
+                boot_interface.as_ref(),
             )
             .await?
             {
@@ -342,6 +351,7 @@ pub(super) async fn run_host_boot_config_stage(
                 reachability_params,
                 redfish_client,
                 mh_snapshot,
+                explicit_target,
                 set_boot_order_info,
             )
             .await?
@@ -463,9 +473,193 @@ async fn should_wait_for_dpus_before_host_boot_config(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use carbide_health_metrics::PerObjectMetricsRegistry;
+    use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
+    use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
+    use carbide_secrets::test_support::credentials::TestCredentialManager;
     use carbide_test_support::value_scenarios;
+    use model::machine_boot_interface::MachineBootInterface;
+    use model::test_support::machine_snapshot::managed_host_state_snapshot;
+    use state_controller::db_write_batch::DbWriteBatch;
 
     use super::*;
+    use crate::config::MachineStateHandlerSiteConfig;
+    use crate::context::MachineStateHandlerServices;
+    use crate::metrics::MachineMetrics;
+
+    fn reachability_params() -> ReachabilityParams {
+        ReachabilityParams {
+            dpu_wait_time: chrono::Duration::zero(),
+            power_down_wait: chrono::Duration::zero(),
+            failure_retry_time: chrono::Duration::zero(),
+            scout_reporting_timeout: chrono::Duration::zero(),
+            waiting_for_measurements_timeout: chrono::Duration::zero(),
+            uefi_boot_wait: chrono::Duration::zero(),
+        }
+    }
+
+    fn change_observed_boot_interface(
+        mh_snapshot: &mut ManagedHostStateSnapshot,
+        mac_address: &str,
+    ) {
+        let interface = mh_snapshot
+            .host_snapshot
+            .status
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.primary_interface)
+            .expect("fixture host has a primary interface");
+        interface.mac_address = mac_address.parse().unwrap();
+        interface.boot_interface_id = Some(format!("mutable-{mac_address}"));
+    }
+
+    #[tokio::test]
+    async fn explicit_target_is_stable_across_boot_config_stages() {
+        const REDFISH_HOST: &str = "boot-config-test";
+        let explicit_boot_interface = MachineBootInterface {
+            mac_address: "10:00:00:00:00:01".parse().unwrap(),
+            interface_id: "NIC.Slot.5-1".to_string(),
+        };
+        let explicit_target = BootInterfaceTarget::Pair(explicit_boot_interface.clone());
+        let expected_redfish_target = RedfishSimBootInterfaceRef::Pair {
+            mac_address: explicit_boot_interface.mac_address,
+            interface_id: explicit_boot_interface.interface_id.clone(),
+        };
+
+        let redfish_sim = Arc::new(RedfishSim::default());
+        let redfish_client = redfish_sim
+            .create_client(REDFISH_HOST, None, RedfishAuth::Anonymous, None)
+            .await
+            .unwrap();
+        redfish_sim.set_machine_setup_bios_job_id(Some("bios-job".to_string()));
+
+        // Explicit-target stages do not need prediction data. A short-timeout
+        // unreachable pool makes an accidental lookup fail promptly.
+        let db_pool = sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(50))
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap();
+        let mut services = MachineStateHandlerServices {
+            db_pool: db_pool.clone(),
+            db_reader: db_pool.into(),
+            redfish_client_pool: redfish_sim.clone(),
+            ipmi_tool: carbide_ipmi::test_support(),
+            site_config: Arc::new(MachineStateHandlerSiteConfig::test_default()),
+            component_manager: None,
+            credential_manager: Arc::new(TestCredentialManager::default()),
+            per_object_metrics_registry: PerObjectMetricsRegistry::new(
+                Vec::new(),
+                Duration::from_secs(60),
+            ),
+            per_object_info: None,
+        };
+        let mut metrics = MachineMetrics::default();
+        let mut pending_db_writes = DbWriteBatch::new();
+        let mut ctx = StateHandlerContext {
+            services: &mut services,
+            metrics: &mut metrics,
+            pending_db_writes: &mut pending_db_writes,
+        };
+        let reachability_params = reachability_params();
+        let mut mh_snapshot = managed_host_state_snapshot();
+
+        change_observed_boot_interface(&mut mh_snapshot, "20:00:00:00:00:01");
+        assert_eq!(
+            check_host_boot_config(
+                redfish_client.as_ref(),
+                &mh_snapshot,
+                &reachability_params,
+                HostBootConfigDpuFreshness::AlreadyValidated,
+                Some(&explicit_target),
+                &mut ctx,
+            )
+            .await
+            .unwrap(),
+            HostBootConfigCheckOutcome::Ready(HostBootConfigDecision::Complete),
+        );
+
+        macro_rules! run_stage {
+            ($stage:expr) => {
+                run_host_boot_config_stage(
+                    &mut ctx,
+                    &reachability_params,
+                    redfish_client.as_ref(),
+                    &mh_snapshot,
+                    Some(&explicit_target),
+                    $stage,
+                )
+                .await
+                .unwrap()
+            };
+        }
+        let set_boot_order_stage = |set_boot_order_state| HostBootConfigStage::SetBootOrder {
+            set_boot_order_info: SetBootOrderInfo {
+                set_boot_order_jid: None,
+                set_boot_order_state,
+                retry_count: 0,
+            },
+        };
+
+        change_observed_boot_interface(&mut mh_snapshot, "30:00:00:00:00:01");
+        assert!(matches!(
+            run_stage!(HostBootConfigStage::ConfigureBios { retry_count: 0 }),
+            HostBootConfigOutcome::Continue(HostBootConfigStage::WaitingForBiosJob { .. }),
+        ));
+
+        change_observed_boot_interface(&mut mh_snapshot, "40:00:00:00:00:01");
+        assert!(matches!(
+            run_stage!(HostBootConfigStage::PollingBiosSetup { retry_count: 0 }),
+            HostBootConfigOutcome::Continue(HostBootConfigStage::SetBootOrder { .. }),
+        ));
+
+        redfish_sim.set_is_boot_order_setup(false);
+        change_observed_boot_interface(&mut mh_snapshot, "50:00:00:00:00:01");
+        assert!(matches!(
+            run_stage!(set_boot_order_stage(SetBootOrderState::SetBootOrder)),
+            HostBootConfigOutcome::Continue(HostBootConfigStage::SetBootOrder {
+                set_boot_order_info: SetBootOrderInfo {
+                    set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                    ..
+                },
+            }),
+        ));
+
+        change_observed_boot_interface(&mut mh_snapshot, "60:00:00:00:00:01");
+        assert!(matches!(
+            run_stage!(set_boot_order_stage(
+                SetBootOrderState::WaitForHttpBootDeviceApplied
+            )),
+            HostBootConfigOutcome::Continue(HostBootConfigStage::SetBootOrder {
+                set_boot_order_info: SetBootOrderInfo {
+                    set_boot_order_state: SetBootOrderState::SetBootOrder,
+                    ..
+                },
+            }),
+        ));
+
+        change_observed_boot_interface(&mut mh_snapshot, "70:00:00:00:00:01");
+        assert_eq!(
+            run_stage!(set_boot_order_stage(SetBootOrderState::CheckBootOrder)),
+            HostBootConfigOutcome::Complete,
+        );
+
+        let observed_targets = redfish_sim.boot_interface_targets(REDFISH_HOST);
+        assert_eq!(
+            observed_targets.len(),
+            10,
+            "each target-consuming call in the exercised stages must be recorded",
+        );
+        for (call_index, observed_target) in observed_targets.into_iter().enumerate() {
+            assert_eq!(
+                observed_target,
+                Some(expected_redfish_target.clone()),
+                "boot-config target drifted at Redfish call {call_index}",
+            );
+        }
+    }
 
     #[test]
     fn boot_config_decision_chooses_the_smallest_remediation() {
