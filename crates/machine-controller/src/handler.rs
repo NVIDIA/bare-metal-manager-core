@@ -19,7 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -3352,12 +3352,13 @@ async fn handle_dpu_reprovision(
                                 missing: "bmc_ip",
                             }
                         })?;
+                    let bmc_address = resolve_ipmi_address(bmc_ip_address, ctx).await?;
 
                     if let Err(ipmitool_error) = ctx
                         .services
                         .ipmi_tool
                         .bmc_cold_reset(
-                            bmc_ip_address,
+                            bmc_address,
                             &CredentialKey::BmcCredentials {
                                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                             },
@@ -10733,13 +10734,28 @@ async fn do_ipmi_restart(
             bmc_mac_address: bmc_mac,
         },
     };
+    let bmc_address = resolve_ipmi_address(ip, ctx).await?;
     ctx.services
         .ipmi_tool
-        .restart(&machine.id, ip, false, &credential_key)
+        .restart(&machine.id, bmc_address, false, &credential_key)
         .await
         .map_err(|e| {
             StateHandlerError::GenericError(eyre!("IPMI restart failed for {}: {}", machine.id, e))
         })
+}
+
+async fn resolve_ipmi_address(
+    ip_address: IpAddr,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<SocketAddr, StateHandlerError> {
+    let metadata =
+        db::explored_endpoints::lookup_bmc_metadata_by_ip(ip_address, &mut ctx.services.db_reader)
+            .await?;
+    Ok(ipmi_socket_address(ip_address, metadata.ipmi_port))
+}
+
+fn ipmi_socket_address(ip_address: IpAddr, port: Option<u16>) -> SocketAddr {
+    SocketAddr::new(ip_address, port.unwrap_or(carbide_ipmi::DEFAULT_IPMI_PORT))
 }
 
 /// find_explored_refreshed_endpoint will locate the explored endpoint for the given state.
@@ -11983,6 +11999,20 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn ipmi_socket_address_uses_reported_or_default_port() {
+        let ip_address = IpAddr::V4("192.0.2.10".parse().unwrap());
+
+        assert_eq!(
+            ipmi_socket_address(ip_address, Some(1623)),
+            "192.0.2.10:1623".parse().unwrap(),
+        );
+        assert_eq!(
+            ipmi_socket_address(ip_address, None),
+            "192.0.2.10:623".parse().unwrap(),
+        );
+    }
 
     /// One emit per actual retry: the INFO line carries the machine, the
     /// 1-based attempt, and the failure it recovers from, and the unlabeled

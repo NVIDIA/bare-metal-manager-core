@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -48,13 +48,25 @@ impl IPMIToolImpl {
             IpmiCommand::BmcColdReset => "-I lanplus -C 17 bmc reset cold",
         }
     }
+
+    fn connection_args(bmc_address: SocketAddr, username: &str) -> [String; 7] {
+        [
+            "-H".to_string(),
+            bmc_address.ip().to_string(),
+            "-p".to_string(),
+            bmc_address.port().to_string(),
+            "-U".to_string(),
+            username.to_string(),
+            "-E".to_string(),
+        ]
+    }
 }
 
 #[async_trait]
 impl IPMITool for IPMIToolImpl {
     async fn bmc_cold_reset(
         &self,
-        bmc_ip: IpAddr,
+        bmc_address: SocketAddr,
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let credentials = self
@@ -67,7 +79,7 @@ impl IPMITool for IPMIToolImpl {
             .ok_or_else(|| eyre!("no credentials for key {credential_key:#?} found"))?;
 
         match self
-            .execute_ipmitool_command(IpmiCommand::BmcColdReset, bmc_ip, &credentials)
+            .execute_ipmitool_command(IpmiCommand::BmcColdReset, bmc_address, &credentials)
             .await
         {
             Ok(_) => Ok(()),
@@ -78,7 +90,7 @@ impl IPMITool for IPMIToolImpl {
     async fn restart(
         &self,
         machine_id: &MachineId,
-        bmc_ip: IpAddr,
+        bmc_address: SocketAddr,
         legacy_boot: bool,
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
@@ -98,7 +110,11 @@ impl IPMITool for IPMIToolImpl {
 
         if legacy_boot {
             match self
-                .execute_ipmitool_command(IpmiCommand::DpuLegacyPowerReset, bmc_ip, &credentials)
+                .execute_ipmitool_command(
+                    IpmiCommand::DpuLegacyPowerReset,
+                    bmc_address,
+                    &credentials,
+                )
                 .await
             {
                 Ok(_) => return Ok(()),   // return early if we get a successful response
@@ -106,7 +122,7 @@ impl IPMITool for IPMIToolImpl {
             }
         }
         match self
-            .execute_ipmitool_command(IpmiCommand::ChassisPowerReset, bmc_ip, &credentials)
+            .execute_ipmitool_command(IpmiCommand::ChassisPowerReset, bmc_address, &credentials)
             .await
         {
             Ok(_) => return Ok(()),   // return early if we get a successful response
@@ -131,7 +147,7 @@ impl IPMIToolImpl {
     async fn execute_ipmitool_command(
         &self,
         command: IpmiCommand,
-        bmc_ip: IpAddr,
+        bmc_address: SocketAddr,
         credentials: &Credentials,
     ) -> CmdResult<String> {
         let (username, password) = match credentials {
@@ -139,13 +155,7 @@ impl IPMIToolImpl {
         };
 
         // cmd line args that are filled in from the db
-        let prefix_args: Vec<String> =
-            vec!["-H", bmc_ip.to_string().as_str(), "-U", username, "-E"]
-                .into_iter()
-                .map(str::to_owned)
-                .collect();
-
-        let mut args = prefix_args.to_owned();
+        let mut args = Self::connection_args(bmc_address, username).to_vec();
         args.extend(Self::command_args(command).split(' ').map(str::to_owned));
         let cmd = TokioCmd::new("/usr/bin/ipmitool")
             .args(&args)
@@ -160,6 +170,7 @@ impl IPMIToolImpl {
 
 #[cfg(test)]
 mod test {
+    use std::net::SocketAddr;
     use std::sync::Arc;
 
     use carbide_secrets::credentials::Credentials;
@@ -174,5 +185,16 @@ mod test {
         let tool = super::IPMIToolImpl::new(cp, Some(1));
 
         assert_eq!(tool.attempts, 1);
+    }
+
+    #[test]
+    fn connection_args_include_non_default_port() {
+        assert_eq!(
+            super::IPMIToolImpl::connection_args(
+                "[2001:db8::1]:1623".parse::<SocketAddr>().unwrap(),
+                "admin",
+            ),
+            ["-H", "2001:db8::1", "-p", "1623", "-U", "admin", "-E"]
+        );
     }
 }

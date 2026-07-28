@@ -138,6 +138,27 @@ pub async fn find_all(txn: impl DbReader<'_>) -> DatabaseResult<Vec<ExpectedMach
         .map_err(|err| DatabaseError::query(sql, err))
 }
 
+/// Lock expected-machine writes and return the inventory being replaced.
+///
+/// Older clients omit interface fields they do not know about. Replace-all
+/// reads those values before clearing the table, so the read must exclude
+/// concurrent inserts, updates, and deletes until the replacement transaction
+/// commits. Replace-all is rare, so a table-level writer lock keeps the complete
+/// inventory operation easy to reason about.
+pub async fn find_all_for_replace(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedMachine>> {
+    let lock = "LOCK TABLE expected_machines IN SHARE ROW EXCLUSIVE MODE";
+    sqlx::query(lock)
+        .execute(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(lock, error))?;
+
+    let query = "SELECT * FROM expected_machines ORDER BY id";
+    sqlx::query_as(query)
+        .fetch_all(txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
+}
+
 /// find_all_by_rack_id returns all expected machines for a given rack_id.
 pub async fn find_all_by_rack_id(
     txn: &mut PgConnection,
@@ -315,6 +336,58 @@ pub async fn find(
         Err(DatabaseError::InvalidArgument(
             "either id or bmc_mac_address must be provided".into(),
         ))
+    }
+}
+
+/// Returns the selected expected machine while locking it for the current
+/// transaction.
+///
+/// Acquire the table lock an eventual update needs before taking the row lock.
+/// Replace-all takes a stronger writer lock, so this order prevents each path
+/// from holding one lock while waiting to upgrade to the other.
+pub async fn find_for_update(
+    txn: &mut PgConnection,
+    req: &ExpectedMachineRequest,
+) -> DatabaseResult<Option<ExpectedMachine>> {
+    // Resolve the selector before taking a table lock so an invalid request
+    // cannot delay a real writer.
+    enum Selector {
+        Id(Uuid),
+        BmcMacAddress(MacAddress),
+    }
+    let selector = if let Some(id) = req.id {
+        Selector::Id(id)
+    } else if let Some(mac_address) = req.bmc_mac_address {
+        Selector::BmcMacAddress(mac_address)
+    } else {
+        return Err(DatabaseError::InvalidArgument(
+            "either id or bmc_mac_address must be provided".into(),
+        ));
+    };
+
+    let lock = "LOCK TABLE expected_machines IN ROW EXCLUSIVE MODE";
+    sqlx::query(lock)
+        .execute(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(lock, error))?;
+
+    match selector {
+        Selector::Id(id) => {
+            let query = "SELECT * FROM expected_machines WHERE id=$1 FOR UPDATE";
+            sqlx::query_as(query)
+                .bind(id)
+                .fetch_optional(txn)
+                .await
+                .map_err(|err| DatabaseError::query(query, err))
+        }
+        Selector::BmcMacAddress(mac_address) => {
+            let query = "SELECT * FROM expected_machines WHERE bmc_mac_address=$1 FOR UPDATE";
+            sqlx::query_as(query)
+                .bind(mac_address)
+                .fetch_optional(txn)
+                .await
+                .map_err(|err| DatabaseError::query(query, err))
+        }
     }
 }
 

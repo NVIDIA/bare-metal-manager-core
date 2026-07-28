@@ -500,11 +500,10 @@ func TestNewAPIExpectedMachineWithNilFields(t *testing.T) {
 	assert.Nil(t, got.Labels)
 }
 
-func TestAPIExpectedMachineUpdateRequest_UnmarshalJSON(t *testing.T) {
+func TestAPIExpectedMachineUpdateRequest_BmcIpAddressJSONSemantics(t *testing.T) {
 	tests := []struct {
 		name               string
 		body               string
-		wantPresent        bool
 		wantValue          *string
 		wantUnmarshalError bool
 		wantValidateError  bool
@@ -514,22 +513,18 @@ func TestAPIExpectedMachineUpdateRequest_UnmarshalJSON(t *testing.T) {
 			body: `{}`,
 		},
 		{
-			name:        "explicit null",
-			body:        `{"bmcIpAddress":null}`,
-			wantPresent: true,
+			name: "explicit null",
+			body: `{"bmcIpAddress":null}`,
 		},
 		{
-			name:        "address",
-			body:        `{"bmcIpAddress":"192.0.2.10"}`,
-			wantPresent: true,
-			wantValue:   cutil.GetPtr("192.0.2.10"),
+			name:      "address",
+			body:      `{"bmcIpAddress":"192.0.2.10"}`,
+			wantValue: cutil.GetPtr("192.0.2.10"),
 		},
 		{
-			name:              "empty string",
-			body:              `{"bmcIpAddress":""}`,
-			wantPresent:       true,
-			wantValue:         cutil.GetPtr(""),
-			wantValidateError: true,
+			name:      "empty string",
+			body:      `{"bmcIpAddress":""}`,
+			wantValue: cutil.GetPtr(""),
 		},
 		{
 			name:               "wrong JSON type",
@@ -547,30 +542,10 @@ func TestAPIExpectedMachineUpdateRequest_UnmarshalJSON(t *testing.T) {
 				return
 			}
 
-			assert.Equal(t, tc.wantPresent, got.HasBmcIpAddress())
 			assert.Equal(t, tc.wantValue, got.BmcIpAddress)
 			assert.Equal(t, tc.wantValidateError, got.Validate() != nil)
 		})
 	}
-
-	t.Run("reused request resets presence", func(t *testing.T) {
-		got := APIExpectedMachineUpdateRequest{BmcIpAddress: cutil.GetPtr("192.0.2.20")}
-		assert.NoError(t, json.Unmarshal([]byte(`{}`), &got))
-		assert.False(t, got.HasBmcIpAddress())
-		assert.Nil(t, got.BmcIpAddress)
-	})
-
-	t.Run("marshaled partial request omits address", func(t *testing.T) {
-		data, err := json.Marshal(APIExpectedMachineUpdateRequest{
-			Name: cutil.GetPtr("partial-update"),
-		})
-		assert.NoError(t, err)
-		assert.NotContains(t, string(data), "bmcIpAddress")
-
-		var got APIExpectedMachineUpdateRequest
-		assert.NoError(t, json.Unmarshal(data, &got))
-		assert.False(t, got.HasBmcIpAddress())
-	})
 }
 
 func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
@@ -819,12 +794,12 @@ func TestAPIExpectedMachineUpdateRequest_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			desc: "empty BmcIpAddress (pointer set, value empty)",
+			desc: "empty BmcIpAddress clears the value",
 			obj: APIExpectedMachineUpdateRequest{
 				ChassisSerialNumber: &validChassisSerial,
 				BmcIpAddress:        &emptyString,
 			},
-			expectErr: true,
+			expectErr: false,
 		},
 		{
 			desc: "nil BmcIpAddress (default)",

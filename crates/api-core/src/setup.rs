@@ -262,10 +262,12 @@ pub(crate) async fn start_runtime(
     };
 
     // Note: Normally we want initialize_and_start_controllers to be responsible for populating
-    // information into the database, but resource pools and route servers need to be defined first,
-    // since the controllers rely on a fully-hydrated Api object, which relies on route_servers and
-    // common_pools being populated. So if we're configured for listen_only, strictly read them from
-    // the database (assuming another instance has populated them), otherwise, populate them now.
+    // information into the database, but resource pools, route servers, and configured site
+    // prefixes need to be defined first. The controllers rely on a fully-hydrated Api object, which
+    // relies on route_servers and common_pools being populated, while site-prefix inventory must
+    // reflect the complete configured set before the API starts serving it. So if we're configured
+    // for listen_only, strictly read them from the database (assuming another instance has populated
+    // them), otherwise, populate them now.
     //
     // Pool reconciliation specifically must happen before `create_common_pools` runs below, because
     // that call queries `resource_pool` and bails if any mandatory pool is missing or empty.
@@ -289,6 +291,9 @@ pub(crate) async fn start_runtime(
             RouteServerSourceType::ConfigFile,
         )
         .await?;
+
+        db::site_prefix::reconcile_configured(&mut txn, &carbide_config.site_fabric_prefixes)
+            .await?;
 
         txn.commit().await?;
 
@@ -550,7 +555,14 @@ async fn initialize_dpf_sdk(
         return Ok(None);
     }
 
-    tracing::info!("Initializing DPF SDK");
+    let mut deployments = vec!["bf3"];
+    if carbide_config.dpf.deployments.bf4_generic.is_some() {
+        deployments.push("bf4_generic");
+    }
+    if carbide_config.dpf.deployments.bf4_astra.is_some() {
+        deployments.push("bf4_astra");
+    }
+    tracing::info!(?deployments, "Initializing DPF SDK");
 
     carbide_config
         .dpf
@@ -641,6 +653,28 @@ async fn initialize_dpf_sdk(
         .map_err(|err| eyre::eyre!("failed to initialize bf4_generic DPF deployment: {err}"))?;
     }
 
+    if let Some(bf4_astra) = &carbide_config.dpf.deployments.bf4_astra {
+        let bfs = bf4_astra
+            .bluefield_software
+            .as_ref()
+            .ok_or_else(|| eyre::eyre!("bf4_astra DPF deployment is missing bluefield_software"))?;
+        let pldm_url =
+            bfs.pldm_fw_bundle.values().next().ok_or_else(|| {
+                eyre::eyre!("bf4_astra DPF deployment has an empty pldm_fw_bundle")
+            })?;
+        let params = carbide_dpf::BlueFieldSoftwareParams {
+            os_iso: bfs.os_iso.clone(),
+            pldm_fw_bundle: Some(pldm_url.clone()),
+        };
+        sdk.create_initialization_objects(&make_init_config(
+            bf4_astra,
+            DpuDeploymentType::Bf4Astra,
+            Some(params),
+        ))
+        .await
+        .map_err(|err| eyre::eyre!("failed to initialize bf4_astra DPF deployment: {err}"))?;
+    }
+
     Ok(Some(Arc::new(DpfSdkOps::new(
         Arc::new(sdk),
         db_pool,
@@ -675,6 +709,13 @@ fn build_deployment_type_labels(
         map.insert(
             DpuDeploymentType::Bf4Generic,
             make_labels(&bf4.node_label_key),
+        );
+    }
+
+    if let Some(bf4_astra) = &carbide_config.dpf.deployments.bf4_astra {
+        map.insert(
+            DpuDeploymentType::Bf4Astra,
+            make_labels(&bf4_astra.node_label_key),
         );
     }
 
@@ -1456,6 +1497,9 @@ async fn initialize_and_start_controllers<'a>(
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                rack_firmware_reprovisioning_enabled: carbide_config
+                    .power_shelf_state_controller
+                    .rack_firmware_reprovisioning_enabled,
             }
             .into(),
         )

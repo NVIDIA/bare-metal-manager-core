@@ -3281,6 +3281,7 @@ mod test {
             (VLANID.to_string(), integer_pool()),
             (VNI.to_string(), integer_pool()),
             (VPC_VNI.to_string(), integer_pool()),
+            (FNN_ASN.to_string(), integer_pool()),
         ]);
         if let Some(prefix) = loopback_ip_v6_prefix {
             definitions.insert(

@@ -617,6 +617,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
         DpuDeploymentType::Bf4Generic => "bf4generic",
+        DpuDeploymentType::Bf4Astra => "bf4astra",
     }
 }
 
@@ -812,8 +813,9 @@ pub fn build_deployment(
     namespace: &str,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     deployment_node_labels: BTreeMap<String, String>,
-    suffix: &str,
+    deployment_type: DpuDeploymentType,
 ) -> DPUDeployment {
+    let suffix = deployment_cr_suffix(deployment_type);
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
         .map(|svc| {
@@ -950,7 +952,8 @@ pub fn build_deployment(
                     r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
                 },
                 secure_boot: None,
-                astra_enabled: None,
+                astra_enabled: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
+                    .then_some(true),
                 blue_field_software: match source {
                     DpuProvisioningSource::Bfb(_) => None,
                     DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
@@ -1284,7 +1287,7 @@ async fn create_flavor_services_and_deployment<
         namespace,
         &interfaces,
         deployment_node_labels,
-        suffix,
+        deployment_type,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())
@@ -2189,6 +2192,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use async_trait::async_trait;
+    use carbide_test_support::value_scenarios;
     use kube::Resource;
 
     use super::*;
@@ -2231,7 +2235,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            "bf3",
+            DpuDeploymentType::Bf3,
         );
 
         let otel = deployment
@@ -2292,7 +2296,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            bf4_suffix,
+            DpuDeploymentType::Bf4Generic,
         );
         let entry = bf4_deployment
             .spec
@@ -2306,6 +2310,39 @@ mod tests {
         assert_eq!(
             entry.service_configuration.as_deref(),
             Some("doca-hbn-bf4generic")
+        );
+    }
+
+    #[test]
+    fn deployment_type_controls_cr_suffix_and_astra_enablement() {
+        value_scenarios!(
+            run = |deployment_type| {
+                let deployment = build_deployment(
+                    &[],
+                    "deployment",
+                    &DpuProvisioningSource::Bfb("bfb".to_string()),
+                    "flavor",
+                    TEST_NAMESPACE,
+                    &[],
+                    BTreeMap::new(),
+                    deployment_type,
+                );
+                (
+                    deployment_cr_suffix(deployment_type),
+                    deployment.spec.dpus.astra_enabled,
+                )
+            };
+            "BF3 preserves unsuffixed resource names" {
+                DpuDeploymentType::Bf3 => ("", None),
+            }
+
+            "generic BF4 uses its deployment suffix" {
+                DpuDeploymentType::Bf4Generic => ("bf4generic", None),
+            }
+
+            "Astra BF4 uses its deployment suffix and enables Astra" {
+                DpuDeploymentType::Bf4Astra => ("bf4astra", Some(true)),
+            }
         );
     }
 
@@ -3371,6 +3408,11 @@ mod tests {
             is_primary: true,
         };
         sdk.register_dpu_device(info).await.unwrap();
+
+        // This branch is a deliberate no-op: an existing, non-terminating device is left
+        // alone. `.unwrap()` only said no error came back -- assert no second device was
+        // created alongside it, which is the whole of what "left alone" means here.
+        assert_eq!(mock.devices.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3448,6 +3490,9 @@ mod tests {
             deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_node(info).await.unwrap();
+
+        // Same no-op branch for nodes.
+        assert_eq!(mock.nodes.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3599,12 +3644,14 @@ mod tests {
                 .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
                 .unwrap(),
         );
+        let flavor_name = flavor.metadata.name.clone().unwrap();
         mock.flavors
             .write()
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(
+        let expected_name = flavor_name.clone();
+        let returned = create_dpu_flavor(
             &mock,
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
@@ -3613,6 +3660,12 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // The whole contract of this branch is "reuse what's already there". `.unwrap()`
+        // only proved it didn't error -- so check it hands back the existing flavor's name
+        // and, more to the point, that it didn't quietly create a second one alongside it.
+        assert_eq!(returned, expected_name);
+        assert_eq!(mock.flavors.read().unwrap().len(), 1);
     }
 
     #[derive(Clone, Default)]

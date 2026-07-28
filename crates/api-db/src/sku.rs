@@ -26,8 +26,9 @@ use model::machine::Machine;
 use model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::sku::{
-    Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
-    SkuComponentMemory, SkuComponentStorage, SkuComponentTpm, SkuComponents, diff_skus,
+    SKU_VERSION_WITH_DRIVE_LOCATION, Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
+    SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponentStorage, SkuComponentTpm,
+    SkuComponents, diff_skus,
 };
 use sqlx::PgConnection;
 
@@ -80,10 +81,16 @@ pub async fn find_matching_with_exclusion(
     Ok(None)
 }
 
-/// Reject a SKU whose storage components carry an uncompilable PCI location
-/// pattern, so an invalid regex is caught at authoring time rather than at
-/// validation time.
-fn validate_storage_pci_patterns(sku: &Sku) -> Result<(), DatabaseError> {
+/// Validate storage components of an expected SKU being persisted.
+///
+/// Rejects uncompilable PCI patterns (caught at authoring time rather than at
+/// validation time), and rejects v5 storage entries that carry no constraints
+/// at all (no size bounds, no PCI patterns). Such entries would silently accept
+/// any drive at any location, providing weaker guarantees than v4 model
+/// matching. This most commonly occurs when a v5 SKU is auto-generated from
+/// hardware_info that predates the size_mb/pci_path fields; those SKUs should
+/// not be persisted until the hardware has been re-enumerated.
+fn validate_storage_for_create(sku: &Sku) -> Result<(), DatabaseError> {
     for storage in &sku.components.storage {
         for pattern in &storage.pci_patterns {
             regex::Regex::new(pattern).map_err(|err| {
@@ -91,6 +98,25 @@ fn validate_storage_pci_patterns(sku: &Sku) -> Result<(), DatabaseError> {
                     "invalid storage PCI pattern \"{pattern}\": {err}"
                 ))
             })?;
+        }
+        if let (Some(min), Some(max)) = (storage.min_size_mb, storage.max_size_mb)
+            && min > max
+        {
+            return Err(DatabaseError::InvalidArgument(format!(
+                "storage entry (model {:?}) has min_size_mb ({min}) greater than max_size_mb ({max})",
+                storage.model
+            )));
+        }
+        if sku.schema_version >= SKU_VERSION_WITH_DRIVE_LOCATION
+            && storage.pci_patterns.is_empty()
+            && storage.min_size_mb.is_none()
+            && storage.max_size_mb.is_none()
+        {
+            return Err(DatabaseError::InvalidArgument(format!(
+                "v5 storage entry (model {:?}) has no size bounds or PCI patterns; \
+                 re-enumerate the machine's hardware before creating this SKU",
+                storage.model
+            )));
         }
     }
     Ok(())
@@ -110,7 +136,7 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
         ));
     }
 
-    validate_storage_pci_patterns(sku)?;
+    validate_storage_for_create(sku)?;
 
     let mut inner_txn = Transaction::begin_inner(txn).await?;
 
@@ -241,7 +267,7 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
         ));
     }
 
-    validate_storage_pci_patterns(sku)?;
+    validate_storage_for_create(sku)?;
 
     let mut inner_txn = Transaction::begin_inner(txn).await?;
 
@@ -776,29 +802,28 @@ pub async fn generate_sku_from_machine_at_version_5(
     // authored from this can then widen the size range or replace the literal
     // path with a regex. Drives are ordered by path for deterministic output.
     //
-    // Both fields are required: a missing size or PCI path would produce an
-    // unconstrained storage entry that validates any drive at any location or
-    // capacity. Since a generated SKU can be persisted as an expected SKU,
-    // reject generation rather than silently authoring a permissive v5 SKU.
+    // size_mb and pci_path may be absent on hardware_info records that predate
+    // the v5 fields (discovered before PR #3717). Rather than failing generation
+    // and wedging the machine, we include the drive with whatever fields are
+    // present. A drive without a path will not match any location-constrained
+    // expected group (which is correct — the mismatch is reported as a diff),
+    // and a drive without a size satisfies only unconstrained size ranges. The
+    // machine self-heals once hardware re-enumeration populates the new fields.
     let mut storage: Vec<SkuComponentStorage> = hardware_info
         .nvme_devices
         .iter()
-        .map(|nvme| {
-            let (Some(size_mb), Some(pci_path)) = (nvme.size_mb, nvme.pci_path.as_ref()) else {
-                return Err(DatabaseError::InvalidArgument(format!(
-                    "generate sku (v5): nvme drive (model {:?}, serial {:?}) is missing size or PCI path",
-                    nvme.model, nvme.serial
-                )));
-            };
-            Ok(SkuComponentStorage {
-                model: nvme.model.clone(),
-                count: 1,
-                min_size_mb: Some(size_mb),
-                max_size_mb: Some(size_mb),
-                pci_patterns: vec![pci_path.clone()],
-            })
+        .map(|nvme| SkuComponentStorage {
+            model: nvme.model.clone(),
+            count: 1,
+            min_size_mb: nvme.size_mb,
+            max_size_mb: nvme.size_mb,
+            pci_patterns: nvme
+                .pci_path
+                .as_ref()
+                .map(|p| vec![p.clone()])
+                .unwrap_or_default(),
         })
-        .collect::<Result<_, _>>()?;
+        .collect();
     storage.sort();
     sku.components.storage = storage;
 

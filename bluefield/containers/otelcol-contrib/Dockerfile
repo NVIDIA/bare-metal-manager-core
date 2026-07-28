@@ -53,6 +53,14 @@ COPY bluefield/otel/puntstatsreceiver /build/puntstatsreceiver
 COPY bluefield/otel/otelcol_builder_config_yaml.txt /build/
 COPY bluefield/otel/get_module_version.sh /build/
 
+# Committed go.mod/go.sum produced by running update-ocb-modules.sh locally.
+# Using these instead of a fresh `go mod tidy` inside the build makes the
+# dependency graph deterministic — two builds from the same commit produce
+# identical module sets. Run update-ocb-modules.sh and commit the outputs
+# whenever otelcol_builder_config_yaml.txt or component versions change.
+COPY bluefield/otel/ocb-generated/go.mod /build/ocb-generated/go.mod
+COPY bluefield/otel/ocb-generated/go.sum /build/ocb-generated/go.sum
+
 # Generate the builder config with resolved versions
 RUN FILERESOURCE_VERSION=$(bash /build/get_module_version.sh /build/fileresourceprocessor) && \
     TELEMETRYSTATS_VERSION=$(bash /build/get_module_version.sh /build/telemetrystatsprocessor) && \
@@ -63,8 +71,18 @@ RUN FILERESOURCE_VERSION=$(bash /build/get_module_version.sh /build/fileresource
         -e "s/\${PUNTSTATS_VERSION}/${PUNTSTATS_VERSION}/g" \
         otelcol_builder_config_yaml.txt > ocb_config.yaml
 
-# Cross-compile the collector binary for arm64
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 ocb --config ocb_config.yaml
+# Generate Go source only — skip the go mod tidy step that makes module
+# resolution non-deterministic across builds.
+RUN ocb --config ocb_config.yaml --skip-compilation --skip-get-modules
+
+# Overwrite the incomplete OCB-generated go.mod/go.sum (missing indirect deps)
+# with the committed versions that have the full module graph resolved.
+RUN cp /build/ocb-generated/go.mod /build/ocb-build/go.mod && \
+    cp /build/ocb-generated/go.sum /build/ocb-build/go.sum
+
+# Cross-compile from the pinned module graph.
+RUN cd /build/ocb-build && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=readonly -o otelcol-contrib .
 
 # ---------------------------------------------------------------------------
 # Runtime (arm64)

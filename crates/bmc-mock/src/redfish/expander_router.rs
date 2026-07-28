@@ -277,6 +277,7 @@ mod tests {
             callbacks,
             String::default(),
             false,
+            MachineRouterOptions::default(),
         )
         .0
     }
