@@ -31,6 +31,7 @@ image_auth_token=
 distro_name=
 distro_version=
 distro_release=
+installed_os_label=
 serial_port=
 serial_port_num=
 log_output=
@@ -164,6 +165,24 @@ function expand_root_fs() {
 	# not handling lvm resize currently
 }
 
+function resolve_esp_partition() {
+	# Find the ESP by its GPT partition type code (EF00), reading the GPT
+	# directly via sgdisk rather than relying on blkid's label cache, which
+	# can be stale right after a raw qemu-img write onto a previously-used
+	# (reprovisioned) disk.
+	disk=$1
+	part_num=$(sgdisk -p "$disk" 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="EF00") {print $1; exit}}')
+	if [ -z "$part_num" ]; then
+		return 1
+	fi
+	is_nvme=$(echo "$disk" | grep nvme)
+	if [ ! -z "$is_nvme" ]; then
+		echo "$disk"p"$part_num"
+	else
+		echo "$disk""$part_num"
+	fi
+}
+
 function get_root_dev() {
 	if [ ! -z "$rootfs_uuid" ]; then
 		root_dev=$(blkid -U $rootfs_uuid)
@@ -175,6 +194,10 @@ function get_root_dev() {
 	fi
 	if [ ! -z "$efi_label" ]; then
 		efi_dev=$(blkid -L $efi_label)
+	fi
+	if [ -z "$efi_dev" ] && [ ! -z "$image_disk" ]; then
+		echo "EFI partition not found by label [$efi_label]; falling back to GPT partition type EF00 (EFI System Partition) on $image_disk" | tee $log_output
+		efi_dev=$(resolve_esp_partition "$image_disk")
 	fi
 }
 
@@ -305,6 +328,8 @@ function modify_grub_cfg() {
 	else
 		chroot /mnt /bin/sh -c update-grub 2>&1 | tee $log_output
 	fi
+	create_efi_boot_entry
+	set_boot_order
 	umount /mnt/boot/efi 2>&1 | tee $log_output
 	umount /mnt/sys
 	umount /mnt/proc
@@ -314,11 +339,135 @@ function modify_grub_cfg() {
 	fi
 }
 
+function get_part_num() {
+	dev=$1
+	is_nvme=$(echo $dev | grep nvme)
+	if [ ! -z "$is_nvme" ]; then
+		echo $dev | sed -E 's/.*p([0-9]+)$/\1/'
+	else
+		echo $dev | sed -E 's/.*[^0-9]([0-9]+)$/\1/'
+	fi
+}
+
+function create_efi_boot_entry() {
+	if ! command -v efibootmgr >/dev/null 2>&1; then
+		echo "efibootmgr not available, skipping EFI boot entry creation" | tee $log_output
+		return 0
+	fi
+	if [ -z "$efi_dev" ]; then
+		echo "EFI device not resolved, skipping EFI boot entry creation" | tee $log_output
+		return 0
+	fi
+
+	shim_arch=
+	efi_arch=$(uname -m)
+	if [ "$efi_arch" == "x86_64" ]; then
+		shim_arch="x64"
+	elif [ "$efi_arch" == "aarch64" ]; then
+		shim_arch="aa64"
+	else
+		echo "Unsupported arch $efi_arch for EFI boot entry creation" | tee $log_output
+		return 0
+	fi
+
+	# Discover the installed bootloader directly from the ESP rather than
+	# assuming a path derived from distro_name, which is not always set
+	# (e.g. when the image is provisioned via a raw image_url instead of
+	# image_distro_name/image_distro_version on the kernel cmdline).
+	shim_path=$(find /mnt/boot/efi/EFI -mindepth 2 -maxdepth 2 -iname "shim${shim_arch}.efi" -print -quit 2>/dev/null)
+	if [ -z "$shim_path" ]; then
+		echo "No shim${shim_arch}.efi found under /mnt/boot/efi/EFI/*, skipping EFI boot entry creation" | tee $log_output
+		return 0
+	fi
+
+	efi_dir=$(dirname "$shim_path")
+	distro_dir=$(basename "$efi_dir")
+	loader_rel="/EFI/$distro_dir/$(basename "$shim_path")"
+	loader_path=$(echo "$loader_rel" | sed 's#/#\\#g')
+
+	# Prefer the label recorded in the shim's own .csv hint file (the
+	# authoritative source per the UEFI shim convention: <loader>,<label>,
+	# <optional args>,<description>, UTF-16 encoded), falling back to the
+	# ESP directory name.
+	label=
+	csv_file=$(find "$efi_dir" -maxdepth 1 -iname "*.csv" -print -quit 2>/dev/null)
+	if [ ! -z "$csv_file" ]; then
+		label=$(iconv -f UTF-16 -t UTF-8 "$csv_file" 2>/dev/null | tr -d '\r' | head -n1 | cut -d',' -f2)
+	fi
+	if [ -z "$label" ]; then
+		label="$distro_dir"
+	fi
+	# Shared with set_boot_order() so it can prioritize this entry even
+	# when distro_name wasn't provided on the kernel cmdline.
+	installed_os_label="$label"
+
+	esp_part_num=$(get_part_num "$efi_dev")
+	if [ -z "$esp_part_num" ]; then
+		echo "Could not determine ESP partition number for $efi_dev, skipping EFI boot entry creation" | tee $log_output
+		return 0
+	fi
+
+	if efibootmgr | grep -qi "^Boot[0-9A-Fa-f]\{4\}\*\?[[:space:]]*$label\$"; then
+		echo "EFI boot entry for $label already exists, skipping creation" | tee $log_output
+		return 0
+	fi
+
+	echo "Creating EFI boot entry for $label ($loader_path on $image_disk part $esp_part_num)" | tee $log_output
+	efibootmgr --create --disk "$image_disk" --part "$esp_part_num" --label "$label" --loader "$loader_path" 2>&1 | tee $log_output
+}
+
+function set_boot_order() {
+	if ! command -v efibootmgr >/dev/null 2>&1; then
+		return 0
+	fi
+
+	efi_list=$(efibootmgr)
+	current_order_line=$(echo "$efi_list" | grep '^BootOrder:')
+	if [ -z "$current_order_line" ]; then
+		echo "Could not read current BootOrder, skipping reorder" | tee $log_output
+		return 0
+	fi
+	current_order_csv=$(echo "$current_order_line" | sed -E 's/^BootOrder:[[:space:]]*//')
+	IFS=',' read -r -a current_order <<< "$current_order_csv"
+
+	# Prefer the label create_efi_boot_entry() actually discovered on the
+	# ESP; distro_name alone can be empty (e.g. raw image_url provisioning),
+	# which would otherwise match every entry as "distro".
+	match_name="${installed_os_label:-$distro_name}"
+
+	network=()
+	distro=()
+	rest=()
+	for bootnum in "${current_order[@]}"; do
+		entry_label=$(echo "$efi_list" | grep "^Boot$bootnum" | sed -E 's/^Boot[0-9A-Fa-f]{4}\*?[[:space:]]*//')
+		lower_label=$(echo "$entry_label" | tr '[:upper:]' '[:lower:]')
+		if [[ "$lower_label" == *pxe* || "$lower_label" == *http* ]]; then
+			network+=("$bootnum")
+		elif [ ! -z "$match_name" ] && [[ "$lower_label" == *"$(echo "$match_name" | tr '[:upper:]' '[:lower:]')"* ]]; then
+			distro+=("$bootnum")
+		else
+			rest+=("$bootnum")
+		fi
+	done
+
+	new_order=("${network[@]}" "${distro[@]}" "${rest[@]}")
+	new_order_csv=$(IFS=,; echo "${new_order[*]}")
+
+	if [ "$new_order_csv" == "$current_order_csv" ]; then
+		echo "Boot order already network-first then $match_name, no change needed" | tee $log_output
+		return 0
+	fi
+
+	echo "Setting boot order to: $new_order_csv" | tee $log_output
+	efibootmgr -o "$new_order_csv" 2>&1 | tee $log_output
+}
+
 function mount_efi() {
 	if [ ! -z "$efifs_uuid" ]; then
 		efi_dev=$(blkid -U $efifs_uuid)
 	fi
 	if [ ! -z "$efi_dev" ]; then
+		mkdir -p /mnt/boot/efi
 		mount $efi_dev /mnt/boot/efi 2>&1 | tee $log_output
 	else
 		chroot /mnt /bin/sh -c 'mount /boot/efi' 2>&1 | tee $log_output
