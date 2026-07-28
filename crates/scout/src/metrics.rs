@@ -250,16 +250,22 @@ pub(crate) enum ScoutMlxFailureKind {
     Rpc,
 }
 
-impl ScoutMlxFailureStage {
-    fn failure_kind(self) -> ScoutMlxFailureKind {
-        match self {
-            Self::Create | Self::Discover | Self::Initialize | Self::Execute => {
-                ScoutMlxFailureKind::Backend
+/// Every failure stage belongs to exactly one failure kind, so the family
+/// derives the `failure_kind` label from `failure_stage` through this
+/// conversion rather than letting a call site supply the pair.
+impl From<ScoutMlxFailureStage> for ScoutMlxFailureKind {
+    fn from(stage: ScoutMlxFailureStage) -> Self {
+        match stage {
+            ScoutMlxFailureStage::Create
+            | ScoutMlxFailureStage::Discover
+            | ScoutMlxFailureStage::Initialize
+            | ScoutMlxFailureStage::Execute => ScoutMlxFailureKind::Backend,
+            ScoutMlxFailureStage::Publish => ScoutMlxFailureKind::Rpc,
+            ScoutMlxFailureStage::Decode | ScoutMlxFailureStage::Validate => {
+                ScoutMlxFailureKind::InvalidRequest
             }
-            Self::Publish => ScoutMlxFailureKind::Rpc,
-            Self::Decode | Self::Validate => ScoutMlxFailureKind::InvalidRequest,
-            Self::Lookup => ScoutMlxFailureKind::NotFound,
-            Self::Serialize => ScoutMlxFailureKind::Serialization,
+            ScoutMlxFailureStage::Lookup => ScoutMlxFailureKind::NotFound,
+            ScoutMlxFailureStage::Serialize => ScoutMlxFailureKind::Serialization,
         }
     }
 }
@@ -267,7 +273,10 @@ impl ScoutMlxFailureStage {
 /// `ScoutMlxFailures` is the one metric behind every Scout MLX failure below:
 /// which operation failed, where it failed, and what class of failure it was.
 /// The Events that record it keep their own severity, wording, and diagnostic
-/// context, and the derive checks each one against these three labels.
+/// context, and the derive checks each one against the labels they supply.
+///
+/// `failure_kind` is not one of those: it follows from `failure_stage`, so the
+/// family computes it and no call site can pair the two contradictorily.
 #[derive(MetricFamily)]
 #[metric(
     name = "carbide_scout_mlx_failures_total",
@@ -275,10 +284,10 @@ impl ScoutMlxFailureStage {
     component = "nico-scout",
     describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
 )]
+#[derived(failure_kind: ScoutMlxFailureKind, from = failure_stage)]
 pub(crate) struct ScoutMlxFailures {
     operation: ScoutMlxOperation,
     failure_stage: ScoutMlxFailureStage,
-    failure_kind: ScoutMlxFailureKind,
 }
 
 // The operation, request, device, profile, registry, config, firmware, and
@@ -286,12 +295,11 @@ pub(crate) struct ScoutMlxFailures {
 // diagnostics need different context. Keep separate `Event` structs so each log
 // retains its fields without filling unrelated fields with empty values.
 //
-// Named constructors own each valid (`operation`, `failure_stage`) pair and
-// derive `failure_kind` from the stage. That makes contradictory metric
-// series unrepresentable at call sites. The dynamic log and message matches
-// still have generic fallbacks: `emit()` is diagnostic plumbing and must not
-// panic if a future constructor reaches a pair its matching table does not
-// know yet.
+// Named constructors still own each valid (`operation`, `failure_stage`) pair,
+// so a call site names the situation rather than assembling one. The dynamic
+// log and message matches keep generic fallbacks: `emit()` is diagnostic
+// plumbing and must not panic if a future constructor reaches a pair its
+// matching table does not know yet.
 
 /// An MLX failure whose existing diagnostic only carries an error.
 #[derive(Event)]
@@ -306,8 +314,6 @@ pub(crate) struct ScoutMlxOperationFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     error: String,
 }
@@ -321,7 +327,6 @@ impl ScoutMlxOperationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             error,
         }
     }
@@ -487,8 +492,6 @@ pub(crate) struct ScoutMlxRequestRejected {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
 }
 
 impl ScoutMlxRequestRejected {
@@ -497,7 +500,6 @@ impl ScoutMlxRequestRejected {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
         }
     }
 
@@ -548,8 +550,6 @@ pub(crate) struct ScoutMlxDeviceOperationFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -566,7 +566,6 @@ impl ScoutMlxDeviceOperationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             error,
         }
@@ -642,8 +641,6 @@ pub(crate) struct ScoutMlxProfileOperationFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -662,7 +659,6 @@ impl ScoutMlxProfileOperationFailed {
         Self {
             operation: ScoutMlxOperation::ProfileCompare,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             profile_name,
             error,
@@ -678,7 +674,6 @@ impl ScoutMlxProfileOperationFailed {
         Self {
             operation: ScoutMlxOperation::ProfileSync,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             profile_name,
             error,
@@ -716,8 +711,6 @@ pub(crate) struct ScoutMlxRegistryLookupFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     registry_name: String,
 }
@@ -728,7 +721,6 @@ impl ScoutMlxRegistryLookupFailed {
         Self {
             operation: ScoutMlxOperation::RegistryShow,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             registry_name,
         }
     }
@@ -747,8 +739,6 @@ pub(crate) struct ScoutMlxConfigRegistryLookupFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -761,7 +751,6 @@ impl ScoutMlxConfigRegistryLookupFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             registry_name,
         }
@@ -797,8 +786,6 @@ pub(crate) struct ScoutMlxConfigOperationFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -818,7 +805,6 @@ impl ScoutMlxConfigOperationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             registry_name,
             error,
@@ -966,8 +952,6 @@ pub(crate) struct ScoutMlxProfileResetFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -980,7 +964,6 @@ impl ScoutMlxProfileResetFailed {
         Self {
             operation: ScoutMlxOperation::ProfileReset,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             error,
         }
@@ -1000,8 +983,6 @@ pub(crate) struct ScoutMlxProfileApplyFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -1016,7 +997,6 @@ impl ScoutMlxProfileApplyFailed {
         Self {
             operation: ScoutMlxOperation::ProfileApply,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             profile,
             error,
@@ -1037,8 +1017,6 @@ pub(crate) struct ScoutMlxFirmwareFlasherInitializationFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -1055,7 +1033,6 @@ impl ScoutMlxFirmwareFlasherInitializationFailed {
         Self {
             operation: ScoutMlxOperation::FirmwareFlash,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             part_number,
             psid,
@@ -1077,8 +1054,6 @@ pub(crate) struct ScoutMlxFirmwareFlashFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -1106,7 +1081,6 @@ impl ScoutMlxFirmwareFlashFailed {
         Self {
             operation: ScoutMlxOperation::FirmwareFlash,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             part_number,
             psid,
@@ -1130,8 +1104,6 @@ pub(crate) struct ScoutMlxReconciliationFailed {
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     pci_name: String,
     #[context]
@@ -1148,7 +1120,6 @@ impl ScoutMlxReconciliationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             pci_name,
             error,
         }
@@ -1468,7 +1439,7 @@ mod tests {
                     expect: ScoutMlxFailureKind::Serialization,
                 },
             ],
-            ScoutMlxFailureStage::failure_kind,
+            ScoutMlxFailureKind::from,
         );
     }
 

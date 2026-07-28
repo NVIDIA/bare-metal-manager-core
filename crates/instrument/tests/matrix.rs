@@ -848,3 +848,99 @@ fn a_histogram_family_converts_the_observation() {
         "the family's histogram is exported under its declared name"
     );
 }
+
+/// A derived label is computed by the family from a label the Event supplies,
+/// so it lands on the metric without the Event -- or its call sites -- ever
+/// being able to pair the two contradictorily.
+#[test]
+fn a_derived_label_is_computed_by_the_family() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum DerivedStage {
+        Decode,
+        Publish,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum DerivedKind {
+        InvalidRequest,
+        Rpc,
+    }
+
+    impl From<DerivedStage> for DerivedKind {
+        fn from(stage: DerivedStage) -> Self {
+            match stage {
+                DerivedStage::Decode => DerivedKind::InvalidRequest,
+                DerivedStage::Publish => DerivedKind::Rpc,
+            }
+        }
+    }
+
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_derived_total",
+        kind = counter,
+        component = "matrix-test",
+        describe = "Number of matrix derived-label test failures, by stage and kind."
+    )]
+    #[derived(kind: DerivedKind, from = stage)]
+    struct DerivedFailures {
+        stage: DerivedStage,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_derived_failed",
+        metric_family = DerivedFailures,
+        log = warn,
+        message = "matrix derived failed"
+    )]
+    struct DerivedFailed {
+        #[label]
+        stage: DerivedStage,
+        #[context]
+        detail: String,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(DerivedFailed {
+            stage: DerivedStage::Publish,
+            detail: "upstream refused".to_string(),
+        });
+        emit(DerivedFailed {
+            stage: DerivedStage::Decode,
+            detail: "bad frame".to_string(),
+        });
+    });
+
+    // Each stage reaches the metric paired with the kind its `From` impl gives.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_derived_total",
+            &[("stage", "publish"), ("kind", "rpc")],
+        ),
+        1.0
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_derived_total",
+            &[("stage", "decode"), ("kind", "invalid_request")],
+        ),
+        1.0
+    );
+    // ...and the contradictory pairing has no series at all.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_derived_total",
+            &[("stage", "publish"), ("kind", "invalid_request")],
+        ),
+        0.0
+    );
+
+    // The Event never declares the derived label, so it is not a log field --
+    // its source is, and the mapping is the family's `From` impl.
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].field("stage"), Some("publish"));
+    assert_eq!(logs[0].field("kind"), None);
+    assert_eq!(logs[0].field("detail"), Some("upstream refused"));
+}

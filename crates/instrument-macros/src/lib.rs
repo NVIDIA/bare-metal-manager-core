@@ -1056,12 +1056,41 @@ fn family_name(path: &syn::Path) -> String {
 /// one label set. Metric names and describe text are validated exactly as they
 /// are for a metric declared inline on an Event, with the same
 /// `metric_name_unchecked` and `describe_unchecked` escape hatches.
-#[proc_macro_derive(MetricFamily, attributes(metric, label))]
+#[proc_macro_derive(MetricFamily, attributes(metric, label, derived))]
 pub fn derive_metric_family(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     match expand_metric_family(input) {
         Ok(ts) => ts,
         Err(e) => e.to_compile_error().into(),
+    }
+}
+
+/// One `#[derived(label: Type, from = source)]` on a metric family: a label the
+/// family computes from another label rather than taking from the call site.
+/// The family stays the list of labels an Event supplies, so a derived label is
+/// declared here instead of as a field.
+struct DerivedLabel {
+    label: Ident,
+    ty: syn::Type,
+    from: Ident,
+}
+
+impl syn::parse::Parse for DerivedLabel {
+    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
+        let label: Ident = input.parse()?;
+        input.parse::<syn::Token![:]>()?;
+        let ty: syn::Type = input.parse()?;
+        input.parse::<syn::Token![,]>()?;
+        let from_key: Ident = input.parse()?;
+        if from_key != "from" {
+            return Err(syn::Error::new_spanned(
+                from_key,
+                "a derived label reads #[derived(label: Type, from = other_label)]",
+            ));
+        }
+        input.parse::<syn::Token![=]>()?;
+        let from: Ident = input.parse()?;
+        Ok(DerivedLabel { label, ty, from })
     }
 }
 
@@ -1228,9 +1257,51 @@ fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
         labels_fields.push(field);
     }
 
-    let n_labels = labels.len();
+    // Labels the family computes rather than takes: declared on the struct so
+    // the family's fields stay exactly what an Event has to supply.
+    let mut derived: Vec<DerivedLabel> = Vec::new();
+    for attr in input.attrs.iter().filter(|a| a.path().is_ident("derived")) {
+        let label: DerivedLabel = attr.parse_args()?;
+        let key = validate_metric_label_name(label.label.to_string(), label.label.span())?;
+        if labels.iter().any(|(_, name)| name == &key)
+            || derived.iter().any(|other| other.label == label.label)
+        {
+            return Err(syn::Error::new_spanned(
+                &label.label,
+                format!("duplicate metric label name `{key}`"),
+            ));
+        }
+        // The source must be a label the call site actually supplies: deriving
+        // from another derived label would make the order of computation part
+        // of the declaration.
+        if derived.iter().any(|other| other.label == label.from) {
+            return Err(syn::Error::new_spanned(
+                &label.from,
+                format!(
+                    "`{}` is itself derived; a derived label reads from a label the Event supplies",
+                    label.from
+                ),
+            ));
+        }
+        if !labels.iter().any(|(ident, _)| **ident == label.from) {
+            return Err(syn::Error::new_spanned(
+                &label.from,
+                format!("`{}` is not a field of this metric family", label.from),
+            ));
+        }
+        derived.push(label);
+    }
+
+    let n_labels = labels.len() + derived.len();
     let label_idents: Vec<&Ident> = labels.iter().map(|(ident, _)| *ident).collect();
     let label_names: Vec<&str> = labels.iter().map(|(_, name)| name.as_str()).collect();
+    let derived_keys: Vec<String> = derived
+        .iter()
+        .map(|label| label.label.to_string())
+        .collect();
+    let derived_idents: Vec<&Ident> = derived.iter().map(|label| &label.label).collect();
+    let derived_types: Vec<&syn::Type> = derived.iter().map(|label| &label.ty).collect();
+    let derived_sources: Vec<&Ident> = derived.iter().map(|label| &label.from).collect();
     let describe_value = args
         .describe
         .as_ref()
@@ -1263,11 +1334,24 @@ fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
             type Labels = [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels];
 
             fn labels(&self) -> Self::Labels {
+                #(
+                    // A derived label is computed here, once, from the label it
+                    // reads -- so no call site can pair the two contradictorily.
+                    let #derived_idents: #derived_types = ::std::convert::Into::into(
+                        ::std::clone::Clone::clone(&self.#derived_sources),
+                    );
+                )*
                 [
                     #(
                         ::carbide_instrument::__private::opentelemetry::KeyValue::new(
                             #label_names,
                             ::carbide_instrument::LabelValue::label_value(&self.#label_idents),
+                        ),
+                    )*
+                    #(
+                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                            #derived_keys,
+                            ::carbide_instrument::LabelValue::label_value(&#derived_idents),
                         ),
                     )*
                 ]
@@ -1738,6 +1822,67 @@ mod tests {
             ],
             |DiagnosticInput { source, expected }| {
                 let error = family_error(source);
+                (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
+            },
+        );
+    }
+
+    /// A derived label is declared once on the family and computed there, so
+    /// its diagnostics point at the family's declaration.
+    #[test]
+    fn derived_label_diagnostics_are_specific() {
+        struct DiagnosticInput {
+            derived: &'static str,
+            expected: &'static str,
+        }
+
+        fn family_error(source: &str) -> String {
+            let input: DeriveInput = syn::parse_str(source).expect("valid derive input");
+            super::expand_metric_family(input)
+                .expect_err("input should be rejected")
+                .to_string()
+        }
+
+        const METRIC: &str = r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Number of things")]"#;
+
+        check_values(
+            [
+                Check {
+                    scenario: "the source must be a field of the family",
+                    input: DiagnosticInput {
+                        derived: r#"#[derived(kind: Kind, from = nonexistent)]"#,
+                        expected: "`nonexistent` is not a field of this metric family",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a derived label cannot read another derived label",
+                    input: DiagnosticInput {
+                        derived: r#"#[derived(kind: Kind, from = stage)] #[derived(other: Kind, from = kind)]"#,
+                        expected: "`kind` is itself derived",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a derived label cannot collide with a supplied one",
+                    input: DiagnosticInput {
+                        derived: r#"#[derived(stage: Kind, from = stage)]"#,
+                        expected: "duplicate metric label name `stage`",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "the grammar names the source with `from`",
+                    input: DiagnosticInput {
+                        derived: r#"#[derived(kind: Kind, using = stage)]"#,
+                        expected: "reads #[derived(label: Type, from = other_label)]",
+                    },
+                    expect: None,
+                },
+            ],
+            |DiagnosticInput { derived, expected }| {
+                let error =
+                    family_error(&format!("{METRIC} {derived} struct F {{ stage: Stage }}"));
                 (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
             },
         );

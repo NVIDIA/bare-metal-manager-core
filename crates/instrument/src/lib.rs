@@ -175,6 +175,71 @@
 //! }
 //! ```
 //!
+//! ## A label the family computes
+//!
+//! Sometimes one label is a function of another -- a failure *kind* that
+//! follows from the *stage* it failed at. Declaring both invites a call site to
+//! pair them wrongly, so the family can compute one instead:
+//!
+//! ```
+//! use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
+//!
+//! #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+//! enum Stage {
+//!     Decode,
+//!     Publish,
+//! }
+//!
+//! #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+//! enum Kind {
+//!     InvalidRequest,
+//!     Rpc,
+//! }
+//!
+//! impl From<Stage> for Kind {
+//!     fn from(stage: Stage) -> Self {
+//!         match stage {
+//!             Stage::Decode => Kind::InvalidRequest,
+//!             Stage::Publish => Kind::Rpc,
+//!         }
+//!     }
+//! }
+//!
+//! #[derive(MetricFamily)]
+//! #[metric(
+//!     name = "carbide_ingest_failures_total",
+//!     kind = counter,
+//!     component = "ingest",
+//!     describe = "Number of ingest failures, by stage and kind",
+//! )]
+//! #[derived(kind: Kind, from = stage)] // computed, never supplied
+//! struct IngestFailures {
+//!     stage: Stage,
+//! }
+//!
+//! #[derive(Event)]
+//! #[event(
+//!     event_name = "ingest_failed",
+//!     metric_family = IngestFailures,
+//!     log = warn,
+//!     message = "ingest failed",
+//! )]
+//! struct IngestFailed {
+//!     #[label]
+//!     stage: Stage, // `kind` is the family's to compute; declaring it here is a compile error
+//! }
+//!
+//! emit(IngestFailed {
+//!     stage: Stage::Publish,
+//! }); // records kind="rpc"
+//! ```
+//!
+//! `kind` stays a metric label with the same values; what changes is that the
+//! family computes it through `From`, so a contradictory pair has no series to
+//! land in. A derived label is not a field of any event, so it does not appear
+//! as a log field either -- the label it reads does, and the `From` impl is the
+//! one place the mapping lives.
+//!
 //! Reach for a family only when two or more events move the same metric. A
 //! metric one event owns stays declared inline on that event -- and because
 //! the family owns the metric side, an event that names one must not restate
