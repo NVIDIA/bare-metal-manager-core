@@ -35,7 +35,8 @@ use carbide_rack::rms_node_type::{
 use carbide_rack_controller::config::{RmsConfig, ScaleUpFabricManagerApiVersion};
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
-    batch_get_scale_up_fabric_service_status, observed_primary_switch,
+    batch_get_scale_up_fabric_service_status,
+    batch_get_scale_up_fabric_service_status_via_component_manager, observed_primary_switch,
     persist_fabric_manager_statuses, persist_primary_switch, select_primary_switch,
     validate_switch_inventory_for_nmx_cluster,
 };
@@ -43,6 +44,8 @@ use carbide_rack_controller::validating::strip_rv_labels;
 use carbide_secrets::credentials::{CredentialManager, Credentials};
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::{RackId, RackProfileId};
+use component_manager::component_manager::ComponentManager;
+use component_manager::error::ComponentManagerError;
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, power_shelf as db_power_shelf, rack as db_rack,
@@ -1764,15 +1767,8 @@ async fn configure_scale_up_fabric_manager_v2(
         ));
     }
 
-    let nmx_configure_rms_client = build_nmx_configure_rms_client(&ctx.services.site_config.rms);
-
-    let rms_client = nmx_configure_rms_client
-        .as_ref()
-        .map(|client| client as &dyn librms::RmsApi)
-        .or(ctx.services.rms_client.as_deref());
-
-    let Some(rms_client) = rms_client else {
-        return transition_to_rack_error(id, state, "RMS client not configured", ctx).await;
+    let Some(component_manager) = ctx.services.component_manager.clone() else {
+        return transition_to_rack_error(id, state, "component manager not configured", ctx).await;
     };
 
     // RMS selects the primary across the fabric, so V2 always receives the full
@@ -1843,7 +1839,7 @@ async fn configure_scale_up_fabric_manager_v2(
         "Submitting RMS v2 NMX cluster configuration"
     );
 
-    let response = match rms_client
+    let response = match component_manager
         .configure_scale_up_fabric_manager_v2(rms_v2::ConfigureScaleUpFabricManagerRequest {
             nodes: Some(rms::NodeSet {
                 nodes: switch_inventory
@@ -1863,9 +1859,10 @@ async fn configure_scale_up_fabric_manager_v2(
         .await
     {
         Ok(response) => response,
+        Err(error @ ComponentManagerError::Unsupported(_)) => {
+            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+        }
         Err(error) => {
-            let error = rack_manager_error("configure_scale_up_fabric_manager_v2", error);
-
             // The desired-state RPC is idempotent, so any submission error keeps
             // this state retryable, including a lost response after RMS accepted it.
             tracing::warn!(
@@ -1922,20 +1919,12 @@ async fn wait_for_scale_up_fabric_manager_job(
     scope: &MaintenanceScope,
     job_id: &str,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-    let nmx_configure_rms_client = build_nmx_configure_rms_client(&ctx.services.site_config.rms);
-    let service_rms_client = ctx.services.rms_client.clone();
-
-    let rms_client = nmx_configure_rms_client
-        .as_ref()
-        .map(|client| client as &dyn librms::RmsApi)
-        .or(service_rms_client.as_deref());
-
-    let Some(rms_client) = rms_client else {
-        return transition_to_rack_error(id, state, "RMS client not configured", ctx).await;
+    let Some(component_manager) = ctx.services.component_manager.clone() else {
+        return transition_to_rack_error(id, state, "component manager not configured", ctx).await;
     };
 
-    let job = match rms_client
-        .get_job_status(rms::GetJobStatusRequest {
+    let job = match component_manager
+        .get_scale_up_fabric_manager_job_status(rms::GetJobStatusRequest {
             job_id: job_id.to_string(),
             include_child_job_states: false,
         })
@@ -1945,17 +1934,16 @@ async fn wait_for_scale_up_fabric_manager_job(
             .job_states
             .into_iter()
             .find(|job| job.job_id == job_id),
-        Err(librms::RackManagerError::ApiInvocationError(status))
-            if status.code() == tonic::Code::NotFound =>
-        {
+        Err(ComponentManagerError::NotFound(_)) => {
             // V2 submission is idempotent, so losing RMS job state
             // is recovered by submitting the same desired state.
             None
         }
+        Err(error @ ComponentManagerError::Unsupported(_)) => {
+            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+        }
 
         Err(error) => {
-            let error = rack_manager_error("get_job_status", error);
-
             tracing::warn!(
                 rack_id = %id,
                 job_id,
@@ -1995,8 +1983,15 @@ async fn wait_for_scale_up_fabric_manager_job(
                 "ConfigureScaleUpFabricManager job completed; verifying observed primary switch"
             );
 
-            verify_scale_up_fabric_manager_v2(id, state, ctx, rms_client, rack_profile_id, scope)
-                .await
+            verify_scale_up_fabric_manager_v2(
+                id,
+                state,
+                ctx,
+                component_manager.as_ref(),
+                rack_profile_id,
+                scope,
+            )
+            .await
         }
         Ok(rms::JobExecutionState::Failed) => {
             let cause = if job.error_message.trim().is_empty() {
@@ -2032,7 +2027,7 @@ async fn verify_scale_up_fabric_manager_v2(
     id: &RackId,
     state: &mut Rack,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
-    rms_client: &dyn librms::RmsApi,
+    component_manager: &ComponentManager,
     rack_profile_id: Option<&RackProfileId>,
     scope: &MaintenanceScope,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
@@ -2077,7 +2072,7 @@ async fn verify_scale_up_fabric_manager_v2(
 
     // RMS owns primary selection in V2. Read the observed switch state instead
     // of reproducing RMS tray-selection policy in NICo.
-    let response = match rms_client
+    let response = match component_manager
         .get_scale_up_fabric_status(rms::GetScaleUpFabricStatusRequest {
             nodes: Some(rms::NodeSet {
                 nodes: switch_inventory
@@ -2091,9 +2086,10 @@ async fn verify_scale_up_fabric_manager_v2(
         .await
     {
         Ok(response) => response,
+        Err(error @ ComponentManagerError::Unsupported(_)) => {
+            return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+        }
         Err(error) => {
-            let error = rack_manager_error("get_scale_up_fabric_status", error);
-
             tracing::warn!(
                 rack_id = %id,
                 error = %error,
@@ -2121,26 +2117,30 @@ async fn verify_scale_up_fabric_manager_v2(
 
     // GetScaleUpFabricStatus identifies the primary, while existing NICo
     // consumers require the richer per-switch Fabric Manager status payload.
-    let fabric_manager_status_response = match batch_get_scale_up_fabric_service_status(
-        &ctx.services.site_config.rms,
-        Some(rms_client),
-        id,
-        &switch_inventory.switches,
-        &switch_node_identity,
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(cause) => {
-            tracing::warn!(
-                rack_id = %id,
-                cause,
-                "Unable to read RMS Fabric Manager status; retrying"
-            );
+    let fabric_manager_status_response =
+        match batch_get_scale_up_fabric_service_status_via_component_manager(
+            component_manager,
+            id,
+            &switch_inventory.switches,
+            &switch_node_identity,
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(error @ ComponentManagerError::Unsupported(_)) => {
+                return transition_to_rack_error(id, state, error.to_string(), ctx).await;
+            }
+            Err(error) => {
+                let cause = error.to_string();
+                tracing::warn!(
+                    rack_id = %id,
+                    cause,
+                    "Unable to read RMS Fabric Manager status; retrying"
+                );
 
-            return Ok(StateHandlerOutcome::wait(cause));
-        }
-    };
+                return Ok(StateHandlerOutcome::wait(cause));
+            }
+        };
 
     let observed_primary_node_id = observed_primary.to_string();
     let mut txn = ctx.services.db_pool.begin().await?;
@@ -3339,7 +3339,6 @@ pub async fn handle_maintenance(
 
                 let fabric_status_response = match batch_get_scale_up_fabric_service_status(
                     &ctx.services.site_config.rms,
-                    None,
                     id,
                     &switch_inventory.switches,
                     &switch_node_identity,

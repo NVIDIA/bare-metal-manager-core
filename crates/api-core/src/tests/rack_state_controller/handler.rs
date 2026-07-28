@@ -3143,6 +3143,7 @@ async fn run_configure_nmx_cluster_v2_workflow(
     let handler_instance = RackStateHandler::default();
 
     let mut services = env.rack_state_handler_services();
+    services.rms_client = None;
     let mut metrics = RackMetrics::default();
     let mut db_writes = DbWriteBatch::default();
 

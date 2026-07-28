@@ -23,6 +23,8 @@ use carbide_rack_controller::config::RmsConfig;
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
+use component_manager::component_manager::ComponentManager;
+use component_manager::error::ComponentManagerError;
 use db::switch as db_switch;
 use librms::protos::rack_manager as rms;
 use model::rack::FirmwareUpgradeDeviceInfo;
@@ -70,24 +72,12 @@ fn build_scale_up_fabric_services_status_request(
     }
 }
 
-/// Reads Fabric Manager status through a supplied client or the configured RMS
-/// endpoint.
 pub(super) async fn batch_get_scale_up_fabric_service_status(
     rms_config: &RmsConfig,
-    provided_rms_client: Option<&dyn librms::RmsApi>,
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
     node_identity: &RmsNodeIdentity,
 ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, String> {
-    let request = build_scale_up_fabric_services_status_request(rack_id, switches, node_identity);
-
-    if let Some(rms_client) = provided_rms_client {
-        return rms_client
-            .batch_get_scale_up_fabric_service_status(request)
-            .await
-            .map_err(|error| format!("RMS BatchGetScaleUpFabricServiceStatus failed: {}", error));
-    }
-
     let Some(url) = rms_config.api_url.as_deref().none_if_empty() else {
         return Err("RMS client not configured".to_string());
     };
@@ -104,9 +94,28 @@ pub(super) async fn batch_get_scale_up_fabric_service_status(
 
     rms_client
         .client
-        .batch_get_scale_up_fabric_service_status(request)
+        .batch_get_scale_up_fabric_service_status(build_scale_up_fabric_services_status_request(
+            rack_id,
+            switches,
+            node_identity,
+        ))
         .await
         .map_err(|error| format!("RMS BatchGetScaleUpFabricServiceStatus failed: {}", error))
+}
+
+pub(super) async fn batch_get_scale_up_fabric_service_status_via_component_manager(
+    component_manager: &ComponentManager,
+    rack_id: &RackId,
+    switches: &[FirmwareUpgradeDeviceInfo],
+    node_identity: &RmsNodeIdentity,
+) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+    component_manager
+        .batch_get_scale_up_fabric_service_status(build_scale_up_fabric_services_status_request(
+            rack_id,
+            switches,
+            node_identity,
+        ))
+        .await
 }
 
 #[derive(Debug, Deserialize)]

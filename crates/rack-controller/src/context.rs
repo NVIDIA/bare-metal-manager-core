@@ -43,8 +43,7 @@ pub struct RackStateHandlerServices {
     /// librms::RmsApi.
     pub switch_system_image_rms_client: Option<Arc<dyn SwitchSystemImageRmsClient>>,
     pub credential_manager: Arc<dyn CredentialManager>,
-    /// Component manager used for switch certificate configuration during NMX
-    /// cluster maintenance.
+    /// Component manager used for switch operations during rack maintenance.
     pub component_manager: Option<Arc<ComponentManager>>,
     /// Switch mTLS services passed to RMS during NMX cluster certificate
     /// configuration. Sourced from `[rack_state_controller].nmx_cluster_switch_mtls_services`.
