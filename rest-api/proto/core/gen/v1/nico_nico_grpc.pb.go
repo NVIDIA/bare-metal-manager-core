@@ -191,6 +191,7 @@ const (
 	Forge_ListDpuWaitingForReprovisioning_FullMethodName                    = "/forge.Forge/ListDpuWaitingForReprovisioning"
 	Forge_TriggerHostReprovisioning_FullMethodName                          = "/forge.Forge/TriggerHostReprovisioning"
 	Forge_ListHostsWaitingForReprovisioning_FullMethodName                  = "/forge.Forge/ListHostsWaitingForReprovisioning"
+	Forge_TriggerBmcCredentialRotation_FullMethodName                       = "/forge.Forge/TriggerBmcCredentialRotation"
 	Forge_MarkManualFirmwareUpgradeComplete_FullMethodName                  = "/forge.Forge/MarkManualFirmwareUpgradeComplete"
 	Forge_ReportScoutFirmwareUpgradeStatus_FullMethodName                   = "/forge.Forge/ReportScoutFirmwareUpgradeStatus"
 	Forge_GetDpuInfoList_FullMethodName                                     = "/forge.Forge/GetDpuInfoList"
@@ -790,6 +791,15 @@ type ForgeClient interface {
 	TriggerHostReprovisioning(ctx context.Context, in *HostReprovisioningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// List hosts waiting for reprovisioning
 	ListHostsWaitingForReprovisioning(ctx context.Context, in *HostReprovisioningListRequest, opts ...grpc.CallOption) (*HostReprovisioningListResponse, error)
+	// Operator "force-converge this BMC now" escape hatch for a single host/DPU
+	// BMC. This is asynchronous: the handler only persists (Set) or removes
+	// (Clear) the machine's `bmc_credential_rotation_requested` flag and returns;
+	// it performs no rotation itself. A later machine-controller sweep observes a
+	// set flag and rotates the BMC, bypassing the passive site-wide gate and the
+	// device's backoff quarantine, then clears the flag once it converges. Clear
+	// only withdraws a not-yet-consumed request -- it does not undo or reset any
+	// BMC credentials that a prior sweep already rotated.
+	TriggerBmcCredentialRotation(ctx context.Context, in *BmcCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -2993,6 +3003,16 @@ func (c *forgeClient) ListHostsWaitingForReprovisioning(ctx context.Context, in 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HostReprovisioningListResponse)
 	err := c.cc.Invoke(ctx, Forge_ListHostsWaitingForReprovisioning_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) TriggerBmcCredentialRotation(ctx context.Context, in *BmcCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_TriggerBmcCredentialRotation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6290,6 +6310,15 @@ type ForgeServer interface {
 	TriggerHostReprovisioning(context.Context, *HostReprovisioningRequest) (*emptypb.Empty, error)
 	// List hosts waiting for reprovisioning
 	ListHostsWaitingForReprovisioning(context.Context, *HostReprovisioningListRequest) (*HostReprovisioningListResponse, error)
+	// Operator "force-converge this BMC now" escape hatch for a single host/DPU
+	// BMC. This is asynchronous: the handler only persists (Set) or removes
+	// (Clear) the machine's `bmc_credential_rotation_requested` flag and returns;
+	// it performs no rotation itself. A later machine-controller sweep observes a
+	// set flag and rotates the BMC, bypassing the passive site-wide gate and the
+	// device's backoff quarantine, then clears the flag once it converges. Clear
+	// only withdraws a not-yet-consumed request -- it does not undo or reset any
+	// BMC credentials that a prior sweep already rotated.
+	TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error)
@@ -7314,6 +7343,9 @@ func (UnimplementedForgeServer) TriggerHostReprovisioning(context.Context, *Host
 }
 func (UnimplementedForgeServer) ListHostsWaitingForReprovisioning(context.Context, *HostReprovisioningListRequest) (*HostReprovisioningListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListHostsWaitingForReprovisioning not implemented")
+}
+func (UnimplementedForgeServer) TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method TriggerBmcCredentialRotation not implemented")
 }
 func (UnimplementedForgeServer) MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkManualFirmwareUpgradeComplete not implemented")
@@ -11252,6 +11284,24 @@ func _Forge_ListHostsWaitingForReprovisioning_Handler(srv interface{}, ctx conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).ListHostsWaitingForReprovisioning(ctx, req.(*HostReprovisioningListRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_TriggerBmcCredentialRotation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BmcCredentialRotationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TriggerBmcCredentialRotation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TriggerBmcCredentialRotation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TriggerBmcCredentialRotation(ctx, req.(*BmcCredentialRotationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17305,6 +17355,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListHostsWaitingForReprovisioning",
 			Handler:    _Forge_ListHostsWaitingForReprovisioning_Handler,
+		},
+		{
+			MethodName: "TriggerBmcCredentialRotation",
+			Handler:    _Forge_TriggerBmcCredentialRotation_Handler,
 		},
 		{
 			MethodName: "MarkManualFirmwareUpgradeComplete",

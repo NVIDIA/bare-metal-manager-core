@@ -53,10 +53,9 @@ pub(crate) async fn trigger_bmc_credential_rotation(
         // An omitted `mode` decodes as `Unspecified`; reject it rather than let
         // a request fall through to an action it did not name.
         Mode::Unspecified => {
-            return Err(CarbideError::InvalidArgument(
-                "mode must be Set or Clear".to_string(),
-            )
-            .into());
+            return Err(
+                CarbideError::InvalidArgument("mode must be set or clear".to_string()).into(),
+            );
         }
     };
 

@@ -40,6 +40,7 @@ use carbide_uuid::machine::MachineId;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::machine::{Machine, ManagedHostStateSnapshot};
+use sqlx::PgTransaction;
 use state_controller::state_handler::StateHandlerError;
 
 use crate::context::MachineStateHandlerServices;
@@ -193,8 +194,33 @@ pub(crate) fn bmc_rotation_force_requested(mh: &ManagedHostStateSnapshot) -> boo
 
 /// The machine ids carrying a pending force-converge request, so the controller
 /// can clear exactly those rows once the forced tick settles.
-pub(crate) fn forced_bmc_machine_ids(mh: &ManagedHostStateSnapshot) -> Vec<MachineId> {
+fn forced_bmc_machine_ids(mh: &ManagedHostStateSnapshot) -> Vec<MachineId> {
     forced_bmc_machines(mh).map(|m| m.id).collect()
+}
+
+/// Clear the one-shot force-converge flag on exactly the machines that carried a
+/// pending request *in this snapshot*, returning the transaction to commit with
+/// the state transition. Returns `None` when nothing was forced, so the common
+/// passive path performs no write.
+///
+/// Only the observed-forced machines are cleared -- never the whole managed host
+/// -- so a request that lands mid-tick (after this snapshot was read, hence not
+/// acted on this tick) survives for the next sweep instead of being silently
+/// dropped. Call this only on a settled tick, where the forced attempt genuinely
+/// fired.
+pub(crate) async fn clear_forced_bmc_requests(
+    services: &MachineStateHandlerServices,
+    mh: &ManagedHostStateSnapshot,
+) -> Result<Option<PgTransaction<'static>>, StateHandlerError> {
+    let forced_machine_ids = forced_bmc_machine_ids(mh);
+    if forced_machine_ids.is_empty() {
+        return Ok(None);
+    }
+    let mut txn = services.db_pool.begin().await?;
+    for machine_id in forced_machine_ids {
+        db::machine::clear_bmc_credential_rotation_requested(&mut txn, machine_id).await?;
+    }
+    Ok(Some(txn))
 }
 
 /// Rotate a single BMC endpoint toward the staged target. `force` bypasses the
@@ -252,11 +278,18 @@ async fn rotate_endpoint(
 /// (`Assigned/RotatingBmc`) dispatch arms share one retry/budget policy and
 /// remain thin maps onto their own state constructors.
 pub(crate) enum RotationStep {
-    /// Leave the rotation state for the caller's steady state: either the tick
-    /// settled (every device reached a terminal outcome) or the transient-retry
-    /// budget is exhausted. The entry guard re-enters on a later sweep if a
-    /// device still lags.
-    Done,
+    /// The tick reached a terminal outcome for every device (converged,
+    /// quarantined, or no work): leave the rotation state, and it is safe to
+    /// clear any one-shot force request because the forced attempt genuinely
+    /// fired. The entry guard re-enters on a later sweep if a device lags again.
+    Settled,
+    /// The transient-retry budget was exhausted without settling. Leave the
+    /// rotation state, but do *not* treat a force request as satisfied: the
+    /// forced attempt never cleanly ran (the failures were pre-hardware
+    /// bookkeeping errors that record no quarantine), so leaving the flag set
+    /// lets the entry guard re-attempt on a later sweep instead of silently
+    /// dropping the operator's request.
+    GaveUp,
     /// Re-enter the rotation state carrying this incremented retry count.
     Retry { retry_count: u32 },
 }
@@ -272,15 +305,15 @@ pub(crate) fn advance(
     host_machine_id: &MachineId,
 ) -> RotationStep {
     match tick {
-        BmcRotationTick::Settled => RotationStep::Done,
+        BmcRotationTick::Settled => RotationStep::Settled,
         BmcRotationTick::Retry => {
             let next = retry_count + 1;
             if next >= MAX_BMC_ROTATION_RETRIES {
                 tracing::warn!(
                     %host_machine_id,
-                    "BMC rotation exhausted its transient-retry budget; returning to steady state (the entry guard re-enters on a later sweep if a device still lags)"
+                    "BMC rotation exhausted its transient-retry budget; returning to steady state (a pending force request stays set so the entry guard re-attempts on a later sweep; a passively-lagging device is re-selected by the gate)"
                 );
-                RotationStep::Done
+                RotationStep::GaveUp
             } else {
                 RotationStep::Retry { retry_count: next }
             }
@@ -434,9 +467,11 @@ mod tests {
     fn advance_settles_regardless_of_retry_count() {
         // A settled tick always leaves the rotation state, even mid-budget: every
         // device reached a terminal outcome, so there is nothing left to retry.
+        // `Settled` (not `GaveUp`) is what authorizes the caller to clear a
+        // satisfied force request.
         assert!(matches!(
             advance(BmcRotationTick::Settled, 0, &machine_id()),
-            RotationStep::Done
+            RotationStep::Settled
         ));
         assert!(matches!(
             advance(
@@ -444,7 +479,7 @@ mod tests {
                 MAX_BMC_ROTATION_RETRIES - 1,
                 &machine_id()
             ),
-            RotationStep::Done
+            RotationStep::Settled
         ));
     }
 
@@ -462,14 +497,17 @@ mod tests {
     #[test]
     fn advance_gives_up_at_budget() {
         // The last attempt before the bound (count+1 == MAX) stops retrying and
-        // falls back to the steady state instead of exceeding the budget.
+        // falls back to the steady state instead of exceeding the budget. It
+        // reports `GaveUp` rather than `Settled` so the caller leaves a pending
+        // force request in place (the forced attempt never cleanly ran) instead
+        // of silently clearing it.
         assert!(matches!(
             advance(
                 BmcRotationTick::Retry,
                 MAX_BMC_ROTATION_RETRIES - 1,
                 &machine_id()
             ),
-            RotationStep::Done
+            RotationStep::GaveUp
         ));
     }
 }

@@ -40,7 +40,9 @@ pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()>
         .await?;
     println!(
         "Requested force-converge of {target}. The state controller rotates it on its next \
-         sweep (bypassing backoff); check `credential rotation-status`.",
+         sweep (bypassing backoff); confirm this device converged with \
+         `credential rotation-status --type=bmc --mac-address <bmc-mac>` (the per-device query, \
+         not the site-wide view).",
     );
     Ok(())
 }

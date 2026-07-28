@@ -1180,9 +1180,9 @@ mod tests {
             "credential material must not become a metric label"
         );
         drop(metrics);
-        // First failure: backoff is the base window (60s) from "now".
-        assert!(until >= before + Duration::seconds(60));
-        assert!(until <= Utc::now() + Duration::seconds(61));
+        // First failure: backoff is the base window (15 minutes) from "now".
+        assert!(until >= before + Duration::minutes(15));
+        assert!(until <= Utc::now() + Duration::minutes(15) + Duration::seconds(1));
 
         let status = status_of(&pool).await;
         assert!(status.quarantined, "device must be in a backoff window");

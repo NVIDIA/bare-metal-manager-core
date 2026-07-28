@@ -45,8 +45,10 @@ pub enum Args {
 #[command(after_long_help = "\
 EXAMPLES:
 
-Force-converge a BMC now (by machine ID or by BMC MAC):
+Force-converge a BMC now by machine ID:
     $ nico-admin-cli credential force-bmc set --id 12345678-1234-5678-90ab-cdef01234567
+
+Force-converge a BMC now by BMC MAC:
     $ nico-admin-cli credential force-bmc set --bmc-mac 00:11:22:33:44:55
 
 ")]
@@ -82,8 +84,11 @@ impl From<&ForceSet> for BmcCredentialRotationRequest {
 #[command(after_long_help = "\
 EXAMPLES:
 
-Clear a pending force-converge request:
+Clear a pending force-converge request by machine ID:
     $ nico-admin-cli credential force-bmc clear --id 12345678-1234-5678-90ab-cdef01234567
+
+Clear a pending force-converge request by BMC MAC:
+    $ nico-admin-cli credential force-bmc clear --bmc-mac 00:11:22:33:44:55
 
 ")]
 pub struct ForceClear {

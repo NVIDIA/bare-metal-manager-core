@@ -1038,25 +1038,23 @@ impl MachineStateHandler {
                 // enabled, any lagging host or DPU BMC -- handled together.
                 let tick = rotation::rotate_managed_host_bmcs(ctx.services, mh_snapshot).await;
                 match rotation::advance(tick, *retry_count, host_machine_id) {
-                    rotation::RotationStep::Done => {
-                        // Clear any one-shot force request(s) as we leave the
-                        // state, so a satisfied (or unresolvable) request never
-                        // re-enters. The flag lives on the machine that owns the
-                        // BMC (host row and/or a DPU row), so clear exactly those.
-                        let forced_machine_ids = rotation::forced_bmc_machine_ids(mh_snapshot);
-                        if forced_machine_ids.is_empty() {
-                            Ok(StateHandlerOutcome::transition(ManagedHostState::Ready))
-                        } else {
-                            let mut txn = ctx.services.db_pool.begin().await?;
-                            for machine_id in forced_machine_ids {
-                                db::machine::clear_bmc_credential_rotation_requested(
-                                    &mut txn, machine_id,
-                                )
+                    step @ (rotation::RotationStep::Settled | rotation::RotationStep::GaveUp) => {
+                        // Both terminal steps return to Ready. Only a settled tick
+                        // clears a one-shot force request: the forced attempt
+                        // genuinely fired, so a satisfied (or unresolvable) request
+                        // must not re-enter (only the machines observed as forced
+                        // are cleared; see `clear_forced_bmc_requests`). GaveUp
+                        // exhausted the transient-retry budget without the forced
+                        // attempt cleanly running, so we leave the flag set and let
+                        // the entry guard re-attempt on a later sweep rather than
+                        // silently drop the operator's request.
+                        let mut txn = None;
+                        if matches!(step, rotation::RotationStep::Settled) {
+                            txn = rotation::clear_forced_bmc_requests(ctx.services, mh_snapshot)
                                 .await?;
-                            }
-                            Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
-                                .with_txn(txn))
                         }
+                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
+                            .with_txn_opt(txn))
                     }
                     rotation::RotationStep::Retry { retry_count } => {
                         Ok(StateHandlerOutcome::transition(

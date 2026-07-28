@@ -4118,21 +4118,35 @@ mod tests {
     /// later PR; see the plan.)
     #[test]
     fn rotating_bmc_state_serde_display_and_sla() {
-        // `retry_count` is `#[serde(default)]`: absent means 0, explicit round-trips.
-        assert_eq!(
-            serde_json::from_str::<ManagedHostState>(r#"{"state":"rotatingbmc"}"#).unwrap(),
-            ManagedHostState::RotatingBmc { retry_count: 0 },
-        );
-        assert_eq!(
-            serde_json::from_str::<ManagedHostState>(r#"{"state":"rotatingbmc","retry_count":4}"#)
-                .unwrap(),
-            ManagedHostState::RotatingBmc { retry_count: 4 },
-        );
+        // The literal wire form pins the `state` tag and the `#[serde(default)]`
+        // retry_count (absent means 0); the `parse -> serialize -> reparse` run
+        // then pins serializer symmetry, so a dropped/renamed retry_count or a
+        // mis-wired tag can't slip through a deserialize-only check. Each row
+        // yields `(parsed, round-tripped, Display)` so the serde tag and the
+        // stable, retry-count-free label are asserted together.
+        scenarios!(
+            run = |s| {
+                let parsed = serde_json::from_str::<ManagedHostState>(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip =
+                    serde_json::from_str::<ManagedHostState>(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed.clone(), roundtrip, parsed.to_string()))
+            };
+            "absent retry_count defaults to 0" {
+                r#"{"state":"rotatingbmc"}"# => Yields((
+                    ManagedHostState::RotatingBmc { retry_count: 0 },
+                    ManagedHostState::RotatingBmc { retry_count: 0 },
+                    "RotatingBmc".to_string(),
+                )),
+            }
 
-        // The pool state renders a stable, retry-count-free label.
-        assert_eq!(
-            ManagedHostState::RotatingBmc { retry_count: 7 }.to_string(),
-            "RotatingBmc",
+            "explicit retry_count round-trips" {
+                r#"{"state":"rotatingbmc","retry_count":4}"# => Yields((
+                    ManagedHostState::RotatingBmc { retry_count: 4 },
+                    ManagedHostState::RotatingBmc { retry_count: 4 },
+                    "RotatingBmc".to_string(),
+                )),
+            }
         );
 
         // It carries the dedicated rotation SLA (not a default), and a freshly
