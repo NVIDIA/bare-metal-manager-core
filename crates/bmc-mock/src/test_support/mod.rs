@@ -309,8 +309,11 @@ mod test {
 
     use axum::Router;
     use axum::body::Body;
-    use axum::http::{Request, StatusCode};
+    use axum::http::header::CONTENT_TYPE;
+    use axum::http::{Method, Request, StatusCode};
+    use http_body_util::BodyExt;
     use nv_redfish::bmc_http::{BmcCredentials, HttpClient};
+    use serde_json::json;
     use tower::ServiceExt;
     use url::Url;
 
@@ -318,6 +321,34 @@ mod test {
     use crate::injection::{Action, InjectionStore, Rule, RuleId, Selector};
     use crate::test_support::axum_http_client::Error;
     use crate::test_support::host_info;
+
+    async fn json_request(
+        router: &Router,
+        method: Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut request = Request::builder().method(method).uri(path);
+        let body = if let Some(body) = body {
+            request = request.header(CONTENT_TYPE, "application/json");
+            Body::from(serde_json::to_vec(&body).unwrap())
+        } else {
+            Body::empty()
+        };
+        let response = router
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let body = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        };
+        (status, body)
+    }
 
     #[tokio::test]
     async fn caller_provided_injection_store_is_active() {
@@ -407,5 +438,93 @@ mod test {
             }
             other => panic!("expected invalid response error, got: {other}"),
         }
+    }
+
+    #[tokio::test]
+    async fn ami_boot_option_settings_persist_enablement() {
+        let router = machine_router(
+            &host_info(HostHardwareType::LenovoGB300Nvl),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+        )
+        .0;
+        let resource = "/redfish/v1/Systems/System_0/BootOptions/0004";
+
+        let (status, initial) = json_request(&router, Method::GET, resource, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(initial.get("BootOptionEnabled"), None);
+
+        for enabled in [true, false] {
+            let (status, _) = json_request(
+                &router,
+                Method::PATCH,
+                &format!("{resource}/SD"),
+                Some(json!({ "BootOptionEnabled": enabled })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+
+            let (status, current) = json_request(&router, Method::GET, resource, None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(
+                current.get("BootOptionEnabled").and_then(|v| v.as_bool()),
+                Some(enabled)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn hpe_boot_settings_persist_oem_order_separately() {
+        let router = machine_router(
+            &host_info(HostHardwareType::HpeProliantDl380aGen11),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+            false,
+        )
+        .0;
+        let system_resource = "/redfish/v1/Systems/1";
+        let boot_resource = "/redfish/v1/Systems/1/Bios/oem/hpe/boot";
+
+        let (status, system) = json_request(&router, Method::GET, system_resource, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let standard_order = system["Boot"]["BootOrder"].clone();
+
+        let (status, initial) = json_request(&router, Method::GET, boot_resource, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let initial_order = initial["PersistentBootConfigOrder"]
+            .as_array()
+            .expect("HPE persistent boot order must be an array");
+        assert!(initial_order.iter().any(|entry| {
+            entry
+                .as_str()
+                .is_some_and(|entry| entry.starts_with("NIC."))
+        }));
+        assert!(
+            initial_order
+                .iter()
+                .any(|entry| { entry.as_str().is_some_and(|entry| entry.starts_with("HD.")) })
+        );
+
+        let new_order = json!(["HD.Slot.1.1", "NIC.Slot.1.1.Httpv4"]);
+        let (status, _) = json_request(
+            &router,
+            Method::PATCH,
+            &format!("{boot_resource}/settings"),
+            Some(json!({ "PersistentBootConfigOrder": new_order })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, current) = json_request(&router, Method::GET, boot_resource, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            current["PersistentBootConfigOrder"],
+            json!(["HD.Slot.1.1", "NIC.Slot.1.1.Httpv4"])
+        );
+
+        let (status, system) = json_request(&router, Method::GET, system_resource, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(system["Boot"]["BootOrder"], standard_order);
     }
 }

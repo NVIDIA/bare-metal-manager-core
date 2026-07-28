@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -59,6 +60,14 @@ pub fn reset_target(system_id: &str) -> String {
     )
 }
 
+fn hpe_boot_resource(system_id: &str) -> String {
+    format!("{}/Bios/oem/hpe/boot", resource(system_id).odata_id)
+}
+
+fn hpe_boot_settings_target(system_id: &str) -> String {
+    format!("{}/settings", hpe_boot_resource(system_id))
+}
+
 pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> Router<BmcState> {
     const SYSTEM_ID: &str = "{system_id}";
     const ETH_ID: &str = "{eth_id}";
@@ -66,7 +75,8 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
     const LOG_SERVICE_ID: &str = "{log_service_id}";
     const PROCESSOR_ID: &str = "{processor_id}";
     let bios = redfish::bios::resource(SYSTEM_ID);
-    r.route(&collection().odata_id, get(get_system_collection))
+    let routes = r
+        .route(&collection().odata_id, get(get_system_collection))
         .route(
             &resource(SYSTEM_ID).odata_id,
             get(get_system).patch(patch_system),
@@ -132,7 +142,22 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         .route(
             &redfish::bios::change_password_target(&bios),
             post(change_bios_password_action),
-        )
+        );
+
+    match bmc_vendor {
+        redfish::oem::BmcVendor::Ami => routes.route(
+            &bmc_vendor
+                .make_settings_odata_id(&redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID)),
+            patch(patch_boot_option_settings),
+        ),
+        redfish::oem::BmcVendor::Hpe => routes
+            .route(&hpe_boot_resource(SYSTEM_ID), get(get_hpe_boot))
+            .route(
+                &hpe_boot_settings_target(SYSTEM_ID),
+                patch(patch_hpe_boot_settings),
+            ),
+        _ => routes,
+    }
 }
 
 pub struct SingleSystemConfig {
@@ -173,7 +198,9 @@ pub struct BootSourceOverride {
 pub struct SingleSystemState {
     config: SingleSystemConfig,
     boot_order_override: Mutex<Option<Vec<String>>>,
+    boot_option_enabled_overrides: Mutex<HashMap<String, bool>>,
     boot_source_override: Mutex<BootSourceOverride>,
+    hpe_boot_order_override: Mutex<Option<Vec<String>>>,
     secure_boot_enabled: Arc<AtomicBool>,
     bios_overrides: Arc<Mutex<serde_json::Value>>,
 }
@@ -233,7 +260,9 @@ impl SingleSystemState {
         Self {
             config,
             boot_order_override: Mutex::new(None),
+            boot_option_enabled_overrides: Mutex::new(HashMap::new()),
             boot_source_override: Mutex::new(BootSourceOverride::default()),
+            hpe_boot_order_override: Mutex::new(None),
             secure_boot_enabled: Arc::new(AtomicBool::new(false)),
             bios_overrides: Arc::new(Mutex::new(serde_json::json!({}))),
         }
@@ -262,12 +291,75 @@ impl SingleSystemState {
             .find(|v| v.id == option_id)
     }
 
+    fn boot_option_json(&self, option_id: &str) -> Option<serde_json::Value> {
+        let boot_option = self.find_boot_option(option_id)?;
+        let mut value = boot_option.to_json();
+        if let Some(enabled) = self
+            .boot_option_enabled_overrides
+            .lock()
+            .unwrap()
+            .get(option_id)
+        {
+            value = value.patch(json!({ "BootOptionEnabled": enabled }));
+        }
+        Some(value)
+    }
+
+    fn set_boot_option_enabled(&self, option_id: &str, enabled: bool) -> bool {
+        if self.find_boot_option(option_id).is_none() {
+            return false;
+        }
+        self.boot_option_enabled_overrides
+            .lock()
+            .unwrap()
+            .insert(option_id.to_string(), enabled);
+        true
+    }
+
     fn set_boot_order_override(&self, boot_order: Vec<String>) {
         *self.boot_order_override.lock().unwrap() = Some(boot_order);
     }
 
     fn boot_order_override(&self) -> Option<Vec<String>> {
         self.boot_order_override.lock().unwrap().clone()
+    }
+
+    fn hpe_default_boot_order(&self) -> Option<Vec<String>> {
+        self.config
+            .boot_options
+            .as_ref()
+            .map(|_| vec!["PcieSlotNic".to_string(), "EmbeddedStorage".to_string()])
+    }
+
+    fn initial_hpe_persistent_boot_order(&self) -> Option<Vec<String>> {
+        self.config.boot_options.as_ref().map(|options| {
+            options
+                .iter()
+                .enumerate()
+                .map(|(index, option)| match option.kind {
+                    BootOptionKind::Network => {
+                        format!("NIC.Slot.{}.1.Httpv4", index + 1)
+                    }
+                    BootOptionKind::Disk => format!("HD.Slot.{}.1", index + 1),
+                })
+                .collect()
+        })
+    }
+
+    fn hpe_boot_order(&self) -> Option<Vec<String>> {
+        self.hpe_boot_order_override
+            .lock()
+            .unwrap()
+            .clone()
+            .or_else(|| self.initial_hpe_persistent_boot_order())
+    }
+
+    fn set_hpe_boot_order(&self, boot_order: Vec<String>) -> bool {
+        if self.config.boot_options.is_none() {
+            return false;
+        }
+        *self.hpe_boot_order_override.lock().unwrap() = Some(boot_order);
+        true
     }
 
     fn resolve_current_boot_selection(&self) -> Option<BootOptionKind> {
@@ -668,9 +760,79 @@ async fn get_boot_option(
     state
         .system_state
         .find(&system_id)
-        .and_then(|system_state| system_state.find_boot_option(&boot_option_id))
-        .map(|boot_option| boot_option.to_json().into_ok_response())
+        .and_then(|system_state| system_state.boot_option_json(&boot_option_id))
+        .map(JsonExt::into_ok_response)
         .unwrap_or_else(http::not_found)
+}
+
+async fn patch_boot_option_settings(
+    State(state): State<BmcState>,
+    Path((system_id, boot_option_id)): Path<(String, String)>,
+    Json(settings): Json<serde_json::Value>,
+) -> Response {
+    let Some(enabled) = settings
+        .get("BootOptionEnabled")
+        .and_then(serde_json::Value::as_bool)
+    else {
+        return http::bad_request("BootOptionEnabled must be a boolean");
+    };
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    if !system_state.set_boot_option_enabled(&boot_option_id, enabled) {
+        return http::not_found();
+    }
+    http::ok_no_content()
+}
+
+async fn get_hpe_boot(State(state): State<BmcState>, Path(system_id): Path<String>) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    let Some(default_boot_order) = system_state.hpe_default_boot_order() else {
+        return http::not_found();
+    };
+    let Some(persistent_boot_order) = system_state.hpe_boot_order() else {
+        return http::not_found();
+    };
+    json!({
+        "@odata.context": "/redfish/v1/$metadata#HpeServerBootSettings.HpeServerBootSettings",
+        "@odata.id": hpe_boot_resource(&system_id),
+        "@odata.type": "#HpeServerBootSettings.v2_0_0.HpeServerBootSettings",
+        "Id": "boot",
+        "Name": "Boot Order Current Settings",
+        "BootSources": [],
+        "DefaultBootOrder": default_boot_order,
+        "PersistentBootConfigOrder": persistent_boot_order,
+    })
+    .into_ok_response()
+}
+
+async fn patch_hpe_boot_settings(
+    State(state): State<BmcState>,
+    Path(system_id): Path<String>,
+    Json(settings): Json<serde_json::Value>,
+) -> Response {
+    let Some(order) = settings
+        .get("PersistentBootConfigOrder")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|order| {
+            order
+                .iter()
+                .map(serde_json::Value::as_str)
+                .map(|entry| entry.map(ToString::to_string))
+                .collect::<Option<Vec<_>>>()
+        })
+    else {
+        return http::bad_request("PersistentBootConfigOrder must be an array of strings");
+    };
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    if !system_state.set_hpe_boot_order(order) {
+        return http::not_found();
+    }
+    json!({}).into_ok_response()
 }
 
 async fn get_log_services_collection(

@@ -1450,19 +1450,12 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
         .unwrap();
     txn.commit().await?;
     assert_eq!(explored.len(), 3);
-    let mut versions = Vec::new();
-    let mut versions_without_boot_target_barriers = Vec::new();
-    let mut boot_target_barriers = 0;
+    let boot_target_count = explored
+        .iter()
+        .filter(|report| report.boot_interface_target().is_some())
+        .count();
     for report in &explored {
-        versions.push(report.report_version.version_nr());
-        let boot_target_barrier = if report.boot_interface_target().is_some() {
-            1
-        } else {
-            0
-        };
-        boot_target_barriers += boot_target_barrier;
-        versions_without_boot_target_barriers
-            .push(report.report_version.version_nr() - boot_target_barrier);
+        assert!(report.report_version.version_nr() >= 2);
         assert_eq!(report.report.endpoint_type, EndpointType::Bmc);
         match report.address.to_string() {
             a if a == machines[0].ip => {
@@ -1488,16 +1481,16 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
             _ => panic!("No other endpoints should be discovered"),
         }
     }
-    // Four iterations perform eight scans. Normalize the one version barrier
-    // on every endpoint that selected an inferred boot target before checking
-    // the exact scan count without assuming how the oldest-first scheduler
-    // distributed those scans.
+    // Report versions also advance when boot targets change, so use the mock's
+    // test-local call history to verify that four iterations performed eight scans.
+    assert_eq!(
+        explorer.endpoint_explorer().explore_endpoint_call_count(),
+        8
+    );
     assert!(
-        (1..=2).contains(&boot_target_barriers),
+        (1..=2).contains(&boot_target_count),
         "one or both managed hosts should have selected an inferred boot target",
     );
-    assert_eq!(versions_without_boot_target_barriers.iter().sum::<u64>(), 8);
-    assert!(versions.iter().all(|version| *version >= 2));
 
     let report = fetch_exploration_report(api).await;
     assert_eq!(report.endpoints.len(), 3);
