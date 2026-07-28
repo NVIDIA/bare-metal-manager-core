@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
@@ -146,6 +146,9 @@ impl MachineNetworkStatusObservation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManagedHostNetworkConfig {
     pub loopback_ip: Option<IpAddr>,
+    /// IPv6 loopback reserved for the FNN underlay. `None` keeps the existing
+    /// IPv4-only behavior for sites without `lo-ip-v6`.
+    pub loopback_ip_v6: Option<Ipv6Addr>,
     pub secondary_overlay_vtep_ip: Option<IpAddr>,
     /// This is a host-level field of the "consolidated" network
     /// config served to all [DPU] agents within host machine group.
@@ -190,6 +193,7 @@ impl Default for ManagedHostNetworkConfig {
     fn default() -> Self {
         ManagedHostNetworkConfig {
             loopback_ip: None,
+            loopback_ip_v6: None,
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
@@ -296,12 +300,14 @@ mod tests {
             "ipv4 round-trip" {
                 ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     use_admin_network: Some(true),
                     quarantine_state: None,
                     use_admin_network_changed: None,
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
                     use_admin_network: Some(true),
                     quarantine_state: None,
@@ -309,11 +315,12 @@ mod tests {
                 }),
             }
 
-            "ipv6 round-trip" {
+            "generic IPv6 addresses round-trip" {
                 ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
                     ))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
                         0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
                     ))),
@@ -324,9 +331,32 @@ mod tests {
                     loopback_ip: Some(IpAddr::V6(Ipv6Addr::new(
                         0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
                     ))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: Some(IpAddr::V6(Ipv6Addr::new(
                         0xfd00, 0, 0, 0, 0, 0, 0, 0x42,
                     ))),
+                    use_admin_network: Some(false),
+                    quarantine_state: None,
+                    use_admin_network_changed: None,
+                }),
+            }
+
+            "dedicated IPv6 loopback round-trip" {
+                ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: Some(Ipv6Addr::new(
+                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+                    )),
+                    secondary_overlay_vtep_ip: None,
+                    use_admin_network: Some(false),
+                    quarantine_state: None,
+                    use_admin_network_changed: None,
+                } => Yields(ManagedHostNetworkConfig {
+                    loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: Some(Ipv6Addr::new(
+                        0x2001, 0xdb8, 0, 0, 0, 0, 0, 1,
+                    )),
+                    secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(false),
                     quarantine_state: None,
                     use_admin_network_changed: None,
@@ -335,15 +365,15 @@ mod tests {
         );
     }
 
-    // Deserialize raw JSON (as it would already exist in the database) into the
-    // IpAddr-typed config, projecting to the (loopback_ip, secondary_overlay_vtep_ip)
-    // pair the original tests asserted. Covers legacy IPv4 JSON and IPv6 JSON.
+    // `loopback_ip_v6` is optional in persisted machine JSON, so rows written
+    // before this field existed keep loading it as `None`. Once populated, the
+    // `Ipv6Addr` type rejects an IPv4 value before it can reach FNN rendering.
     #[test]
     fn test_managed_host_network_config_deserialize_json() {
         scenarios!(
             run = |json| {
                 serde_json::from_str::<ManagedHostNetworkConfig>(json)
-                    .map(|c| (c.loopback_ip, c.secondary_overlay_vtep_ip))
+                    .map(|c| (c.loopback_ip, c.secondary_overlay_vtep_ip, c.loopback_ip_v6))
                     .map_err(drop)
             };
             "legacy ipv4 json" {
@@ -352,22 +382,42 @@ mod tests {
                             "secondary_overlay_vtep_ip": "172.16.0.5",
                             "use_admin_network": true,
                             "quarantine_state": null
-                        }"# => Yields((
+                }"# => Yields((
                     Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
                     Some(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 5))),
+                    None,
                 )),
             }
 
-            "ipv6 json" {
+            "generic IPv6 address json" {
                 r#"{
                             "loopback_ip": "2001:db8::1",
                             "secondary_overlay_vtep_ip": null,
                             "use_admin_network": true,
                             "quarantine_state": null
-                        }"# => Yields((
+                }"# => Yields((
                     Some(IpAddr::V6(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1))),
                     None,
+                    None,
                 )),
+            }
+
+            "dedicated IPv6 loopback json" {
+                r#"{
+                            "loopback_ip": "10.0.0.1",
+                            "loopback_ip_v6": "2001:db8::1",
+                            "secondary_overlay_vtep_ip": null,
+                            "use_admin_network": true,
+                            "quarantine_state": null
+                        }"# => Yields((
+                    Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    None,
+                    Some(Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+                )),
+            }
+
+            "IPv4 rejected for dedicated IPv6 loopback" {
+                r#"{"loopback_ip_v6": "192.0.2.1"}"# => Fails,
             }
         );
     }
@@ -380,6 +430,7 @@ mod tests {
     fn test_managed_host_network_config_ipv4_json_format_unchanged() {
         let config = ManagedHostNetworkConfig {
             loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+            loopback_ip_v6: None,
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(true),
             quarantine_state: None,
@@ -398,6 +449,8 @@ mod tests {
     #[test]
     fn test_managed_host_network_config_default() {
         let default = ManagedHostNetworkConfig::default();
+        assert_eq!(default.loopback_ip_v6, None);
+
         value_scenarios!(
             run = |ip| ip;
             "loopback_ip defaults to None" {
@@ -624,6 +677,7 @@ mod tests {
                             }
                         }"# => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(false),
                     quarantine_state: Some(ManagedHostQuarantineState {
@@ -637,6 +691,7 @@ mod tests {
             "empty object defaults all optional fields" {
                 "{}" => Yields(ManagedHostNetworkConfig {
                     loopback_ip: None,
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: None,
                     use_admin_network: None,
                     quarantine_state: None,
@@ -685,6 +740,7 @@ mod tests {
             "quarantine state round-trips" {
                 ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(true),
                     quarantine_state: Some(ManagedHostQuarantineState {
@@ -694,6 +750,7 @@ mod tests {
                     use_admin_network_changed: None,
                 } => Yields(ManagedHostNetworkConfig {
                     loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))),
+                    loopback_ip_v6: None,
                     secondary_overlay_vtep_ip: None,
                     use_admin_network: Some(true),
                     quarantine_state: Some(ManagedHostQuarantineState {

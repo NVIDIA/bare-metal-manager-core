@@ -174,13 +174,16 @@ pub async fn detail(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
 
-    let maybe_rack = match fetch_rack(&api, &rack_id).await {
-        Ok(maybe_rack) => maybe_rack,
+    let rack = match fetch_rack(&api, &rack_id).await {
+        Ok(Some(rack)) => rack,
+        Ok(None) => {
+            return super::not_found_response(rack_id.to_string());
+        }
         Err(response) => return response,
     };
 
     if show_json {
-        return (StatusCode::OK, Json(maybe_rack)).into_response();
+        return (StatusCode::OK, Json(rack)).into_response();
     };
 
     let associated_machines = match fetch_machine_ids(api.clone(), rack_id.clone()).await {
@@ -207,26 +210,20 @@ pub async fn detail(
         }
     };
 
-    let version = maybe_rack
-        .as_ref()
-        .map(|r| r.version.clone())
-        .unwrap_or_default();
+    let version = rack.version.clone();
 
-    let lifecycle = maybe_rack
+    let lifecycle = rack
+        .status
         .as_ref()
-        .and_then(|r| r.status.as_ref())
         .and_then(|s| s.lifecycle.clone())
         .unwrap_or_default();
 
     let metadata_detail = super::MetadataDetail {
-        metadata: maybe_rack
-            .as_ref()
-            .and_then(|r| r.metadata.clone())
-            .unwrap_or_default(),
+        metadata: rack.metadata.clone().unwrap_or_default(),
         metadata_version: version.clone(),
     };
 
-    let rack_status = maybe_rack.as_ref().and_then(|rack| rack.status.as_ref());
+    let rack_status = rack.status.as_ref();
     let health_url = format!("/admin/rack/{rack_id}/health");
     let health_detail = super::HealthDetail::new(
         health_url,

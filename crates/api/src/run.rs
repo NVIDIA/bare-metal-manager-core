@@ -21,6 +21,7 @@ use carbide_api_core::AdminUiRoutesBuilder;
 use carbide_api_core::bootstrap::{Logging, RuntimeInputs, start_runtime, start_runtime_prelude};
 use carbide_secrets::CredentialConfig;
 use eyre::WrapErr;
+use ipnetwork::IpNetwork;
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -236,16 +237,21 @@ fn start_per_object_metrics_endpoint(
     Ok(per_object_metrics)
 }
 
+/// Returns whether two CIDR prefixes claim any of the same addresses.
+///
+/// Prefixes within one address family are nested or disjoint, so checking both network addresses
+/// covers either containment direction. `IpNetwork::contains` rejects cross-family addresses.
+fn prefixes_overlap(left: IpNetwork, right: IpNetwork) -> bool {
+    left.contains(right.network()) || right.contains(left.network())
+}
+
 fn validate_network_prefixes(
     carbide_config: &carbide_api_core::cfg::file::CarbideConfig,
 ) -> eyre::Result<()> {
     // Reject config that contains overlaps between deny_prefixes and site_fabric_prefixes.
-    // deny_prefixes are IPv4-only; only check against IPv4 site fabric prefixes.
     for deny_prefix in &carbide_config.deny_prefixes {
         for site_fabric_prefix in &carbide_config.site_fabric_prefixes {
-            if let ipnetwork::IpNetwork::V4(site_v4) = site_fabric_prefix
-                && deny_prefix.overlaps(*site_v4)
-            {
+            if prefixes_overlap(*deny_prefix, *site_fabric_prefix) {
                 return Err(eyre::eyre!(
                     "overlap found in deny_prefixes `{deny_prefix}` and site_fabric_prefixes \
                      `{site_fabric_prefix}`",
@@ -254,4 +260,82 @@ fn validate_network_prefixes(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    struct PrefixPair {
+        deny: &'static str,
+        site_fabric: &'static str,
+    }
+
+    #[test]
+    fn deny_site_fabric_overlap_is_address_family_aware() {
+        value_scenarios!(run = |pair: PrefixPair| {
+            prefixes_overlap(
+                pair.deny.parse().expect("valid deny prefix"),
+                pair.site_fabric.parse().expect("valid site fabric prefix"),
+            )
+        };
+            "IPv4 deny prefix contains site fabric prefix" {
+                PrefixPair {
+                    deny: "10.0.0.0/8",
+                    site_fabric: "10.20.0.0/16",
+                } => true,
+            }
+
+            "IPv4 site fabric prefix contains deny prefix" {
+                PrefixPair {
+                    deny: "10.20.0.0/16",
+                    site_fabric: "10.0.0.0/8",
+                } => true,
+            }
+
+            "IPv6 deny prefix contains site fabric prefix" {
+                PrefixPair {
+                    deny: "2001:db8::/32",
+                    site_fabric: "2001:db8:20::/48",
+                } => true,
+            }
+
+            "identical IPv6 prefixes overlap" {
+                PrefixPair {
+                    deny: "2001:db8:20::/48",
+                    site_fabric: "2001:db8:20::/48",
+                } => true,
+            }
+
+            "IPv4 prefixes are disjoint" {
+                PrefixPair {
+                    deny: "10.0.0.0/8",
+                    site_fabric: "192.0.2.0/24",
+                } => false,
+            }
+
+            "IPv6 prefixes are disjoint" {
+                PrefixPair {
+                    deny: "2001:db8::/32",
+                    site_fabric: "2001:db9::/32",
+                } => false,
+            }
+
+            "IPv4 deny and IPv6 site fabric prefixes are separate" {
+                PrefixPair {
+                    deny: "10.0.0.0/8",
+                    site_fabric: "2001:db8::/32",
+                } => false,
+            }
+
+            "IPv6 deny and IPv4 site fabric prefixes are separate" {
+                PrefixPair {
+                    deny: "2001:db8::/32",
+                    site_fabric: "10.0.0.0/8",
+                } => false,
+            }
+        );
+    }
 }

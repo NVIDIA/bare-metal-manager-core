@@ -68,6 +68,7 @@ russh = { workspace = true }
 
 # [local-dependencies]
 carbide-api-model = { path = "../api-model" }
+carbide-ipmi = { path = "../ipmi" }
 carbide-rpc = { path = "../rpc", features = ["model"] }
 bmc-mock = { path = "../bmc-mock" }
 carbide-tls = { path = "../tls" }

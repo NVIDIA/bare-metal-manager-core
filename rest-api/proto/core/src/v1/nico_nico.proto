@@ -70,6 +70,10 @@ service Forge {
   rpc UpdateVpcPrefix(VpcPrefixUpdateRequest) returns (VpcPrefix);
   rpc DeleteVpcPrefix(VpcPrefixDeletionRequest) returns (VpcPrefixDeletionResult);
 
+  // Site prefixes
+  rpc FindSitePrefixIds(SitePrefixSearchFilter) returns (SitePrefixIdList);
+  rpc FindSitePrefixesByIds(SitePrefixesByIdsRequest) returns (SitePrefixList);
+
   // VPC peering
   rpc CreateVpcPeering(VpcPeeringCreationRequest) returns (VpcPeering);
   rpc FindVpcPeeringIds(VpcPeeringSearchFilter) returns (VpcPeeringIdList);
@@ -9399,4 +9403,75 @@ message SetContainerRegistryCredentialRequest {
   string registry = 1;
   string username = 2;
   string password = 3;
+}
+
+// Identifies the lifecycle authority responsible for a site prefix.
+enum SitePrefixAuthority {
+  SITE_PREFIX_AUTHORITY_UNSPECIFIED = 0;
+  SITE_PREFIX_AUTHORITY_CONFIGURED = 1;
+  SITE_PREFIX_AUTHORITY_TENANT_MANAGED = 2;
+}
+
+// Describes where a site prefix may be routed.
+enum SitePrefixRoutingScope {
+  SITE_PREFIX_ROUTING_SCOPE_UNSPECIFIED = 0;
+  SITE_PREFIX_ROUTING_SCOPE_DATACENTER_ONLY = 1;
+}
+
+// Describes the current lifecycle state of a site prefix.
+enum SitePrefixLifecycleState {
+  SITE_PREFIX_LIFECYCLE_STATE_UNSPECIFIED = 0;
+  SITE_PREFIX_LIFECYCLE_STATE_PROVISIONING = 1;
+  SITE_PREFIX_LIFECYCLE_STATE_READY = 2;
+  SITE_PREFIX_LIFECYCLE_STATE_DELETING = 3;
+  SITE_PREFIX_LIFECYCLE_STATE_ERROR = 4;
+}
+
+// A site-level prefix that may contain VPC address space.
+message SitePrefix {
+  common.SitePrefixId id = 1;
+  SitePrefixConfig config = 2;
+  SitePrefixStatus status = 3;
+  Metadata metadata = 4;
+  string version = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message SitePrefixConfig {
+  // IPv4 or IPv6 prefix in canonical CIDR notation.
+  string prefix = 1;
+  // Present only for tenant-managed site prefixes.
+  optional string tenant_organization_id = 2;
+  SitePrefixRoutingScope routing_scope = 3;
+}
+
+message SitePrefixStatus {
+  SitePrefixAuthority authority = 1;
+  SitePrefixLifecycleState lifecycle_state = 2;
+}
+
+// All fields are optional. An empty filter returns the complete inventory.
+message SitePrefixSearchFilter {
+  optional string tenant_organization_id = 1;
+  optional SitePrefixAuthority authority = 2;
+  optional SitePrefixRoutingScope routing_scope = 3;
+  optional SitePrefixLifecycleState lifecycle_state = 4;
+
+  // When present, prefix_match_type is required and selects how the stored
+  // site prefix is compared with this CIDR.
+  optional string prefix_match = 5;
+  optional PrefixMatchType prefix_match_type = 6;
+}
+
+message SitePrefixesByIdsRequest {
+  repeated common.SitePrefixId site_prefix_ids = 1;
+}
+
+message SitePrefixIdList {
+  repeated common.SitePrefixId site_prefix_ids = 1;
+}
+
+message SitePrefixList {
+  repeated SitePrefix site_prefixes = 1;
 }

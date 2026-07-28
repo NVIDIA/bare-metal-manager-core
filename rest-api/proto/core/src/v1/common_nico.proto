@@ -65,6 +65,9 @@ message VpcId {
 message VpcPrefixId {
   string value = 1;
 }
+message SitePrefixId {
+  string value = 1;
+}
 message VpcPeeringId {
   string value = 1;
 }

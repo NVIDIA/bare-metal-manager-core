@@ -577,7 +577,24 @@ Configure the credentials NICo will apply to BMCs and UEFI after ingestion:
 nico-admin-cli -a <api-url> credential add-bmc --kind=site-wide-root --password='<password>'
 nico-admin-cli -a <api-url> host generate-host-uefi-password
 nico-admin-cli -a <api-url> credential add-uefi --kind=host --password='<password>'
+nico-admin-cli -a <api-url> credential add-uefi --kind=dpu --password='<password>'
 ```
+
+<Warning>
+`nico-admin-cli` accepts these passwords only as command-line arguments, so each
+one lands in your shell history and is visible in the process argument list
+while the command runs. Run them from a shell with history disabled, and clear
+any history file that captured them.
+</Warning>
+
+Site Explorer requires all three — the site-wide BMC root and both the `host`
+and `dpu` UEFI site defaults. It checks them before contacting any BMC and fails
+each iteration with `MissingCredentials` while any one is missing.
+
+When DPF is enabled, the site-wide BMC root credential is also mirrored into the
+DPF `bmc-shared-password` Secret; refer to
+[Set the site-wide BMC root credential](../manuals/dpf.md#36-set-the-site-wide-bmc-root-credential)
+for the DPF-specific details and for how to seed it ahead of time instead.
 
 ### Upload the Expected Machines Manifest
 

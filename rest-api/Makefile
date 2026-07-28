@@ -5,8 +5,19 @@
 .PHONY: build docker-build docker-build-local
 .PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow test-flow test-powershelf-manager test-nvswitch-manager migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
-.PHONY: core-proto core-proto-clean core-proto-fetch core-proto-fmt core-protogen flow-proto flow-protogen
+.PHONY: core-proto core-proto-clean core-proto-fetch core-proto-fmt core-protogen flow-proto flow-protogen tools-build tools-clean
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
+
+# CLI tool versions are pinned in go.mod's tool (...) stanza (Go 1.24+).
+# Tools that can be invoked directly use `go tool` so the exact pinned version
+# from go.mod is always used with no separate install step.
+# Tools that buf calls as subprocesses (protoc-gen-*) must be real executables
+# on PATH; they are built into .tools/ from the pinned go.mod versions by the
+# .tools-stamp target and injected via PATH in targets that need them.
+TOOLS_DIR       := $(CURDIR)/.tools
+BUF             := go tool buf
+GOLANGCI_LINT   := go tool golangci-lint
+REVIVE          := go tool revive
 
 # Build configuration
 BUILD_DIR := build/binaries
@@ -126,8 +137,8 @@ fmt-go:
 
 lint-go:
 	go vet ./...
-	golangci-lint run --issues-exit-code 0 --output.code-climate.path=stdout | jq .
-	go list ./... | xargs -L1 revive -config .revive.toml -set_exit_status
+	$(GOLANGCI_LINT) run --issues-exit-code 0 --output.code-climate.path=stdout | jq .
+	go list ./... | xargs -L1 $(REVIVE) -config .revive.toml -set_exit_status
 
 test-ipam:
 	$(MAKE) ensure-postgres
@@ -312,29 +323,22 @@ core-proto-fmt:
 	@echo "Formatting Core protobuf files"
 	cd proto/cmd/core-proto-fmt && go run main.go
 
-core-protogen:
-	if ! command -v buf >/dev/null 2>&1; then \
-		echo "buf is not installed. Please install buf: https://buf.build/docs/installation"; \
-		exit 1; \
-	fi
-	if ! command -v protoc-gen-go >/dev/null 2>&1; then \
-		echo "protoc-gen-go is not installed. Please install it: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"; \
-		exit 1; \
-	fi
-	if ! protoc-gen-go --version | grep -q "1.36.11"; then \
-		echo "protoc-gen-go is not version 1.36.11. Please install it: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11"; \
-		exit 1; \
-	fi
-	if ! command -v protoc-gen-go-grpc >/dev/null 2>&1; then \
-		echo "protoc-gen-go-grpc is not installed. Please install it: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1"; \
-		exit 1; \
-	fi
-	if ! protoc-gen-go-grpc --version | grep -q "1.6.1"; then \
-		echo "protoc-gen-go-grpc is not version 1.6.1. Please install it: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1"; \
-		exit 1; \
-	fi
+# Build pinned protoc plugins into .tools/ so buf can find them on PATH.
+# Rebuilds only when go.mod or go.sum changes.
+.tools-stamp: go.mod go.sum
+	@mkdir -p $(TOOLS_DIR)
+	go build -o $(TOOLS_DIR)/protoc-gen-go      google.golang.org/protobuf/cmd/protoc-gen-go
+	go build -o $(TOOLS_DIR)/protoc-gen-go-grpc google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	@touch $@
+
+tools-build: .tools-stamp
+
+tools-clean:
+	rm -rf $(TOOLS_DIR) .tools-stamp
+
+core-protogen: .tools-stamp
 	echo "Generating protobuf for Core"
-	cd proto/core && buf generate
+	cd proto/core && PATH="$(TOOLS_DIR):$$PATH" $(BUF) generate
 	go fmt ./...
 	python3 scripts/check_source_headers.py --fix
 
@@ -355,9 +359,9 @@ flow-proto-fetch:
 		./proto/scripts/add-go-package-option.sh "proto/flow/src/v1/$$(basename "$$file")" "github.com/NVIDIA/infra-controller/rest-api/proto/flow"; \
 	done
 
-flow-protogen:
+flow-protogen: .tools-stamp
 	echo "Generating protobuf for Flow"
-	cd proto/flow && buf generate
+	cd proto/flow && PATH="$(TOOLS_DIR):$$PATH" $(BUF) generate
 	go fmt ./...
 
 # =============================================================================

@@ -611,16 +611,13 @@ impl K8sConfigRepository for KubeRepository {
         }
     }
 
-    async fn create_secret(
+    async fn apply_secret(
         &self,
         name: &str,
         namespace: &str,
         data: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
         let api: Api<Secret> = Api::namespaced(self.client.clone(), namespace);
-        if api.get_opt(name).await?.is_some() {
-            return Ok(());
-        }
         let secret = Secret {
             metadata: kube::core::ObjectMeta {
                 name: Some(name.to_string()),
@@ -634,7 +631,15 @@ impl K8sConfigRepository for KubeRepository {
             ),
             ..Default::default()
         };
-        api.create(&PostParams::default(), &secret).await?;
+        // Server-side apply, matching `apply_configmap`: creates the Secret when
+        // absent and overwrites the data when present, so a rotated credential
+        // actually reaches the cluster.
+        api.patch(
+            name,
+            &PatchParams::apply("carbide-dpf-sdk").force(),
+            &Patch::Apply(&secret),
+        )
+        .await?;
         Ok(())
     }
 }

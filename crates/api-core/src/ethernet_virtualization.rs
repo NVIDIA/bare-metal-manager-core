@@ -26,7 +26,7 @@ use carbide_uuid::vpc::VpcId;
 use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
 use db::{self, ObjectColumnFilter, network_security_group};
-use ipnetwork::{IpNetwork, Ipv4Network};
+use ipnetwork::IpNetwork;
 use model::instance::config::network::{
     InstanceInterfaceConfig, InstanceInterfaceRoutingProfile, InstanceNetworkConfig,
     InterfaceFunctionId,
@@ -48,7 +48,7 @@ use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, VpcPeeringPolicy};
 pub struct EthVirtData {
     pub asn: u32,
     pub dhcp_servers: Vec<Ipv4Addr>,
-    pub deny_prefixes: Vec<Ipv4Network>,
+    pub deny_prefixes: Vec<IpNetwork>,
     pub site_fabric_prefixes: Option<SiteFabricPrefixList>,
 }
 
