@@ -27,9 +27,9 @@ type SkuStorageMutation struct {
 	// Number of storage devices required
 	Count *int32 `json:"count,omitempty"`
 	// Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
-	MinSizeMb NullableInt32 `json:"minSizeMb,omitempty"`
+	MinSizeMiB NullableInt32 `json:"minSizeMiB,omitempty"`
 	// Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
-	MaxSizeMb NullableInt32 `json:"maxSizeMb,omitempty"`
+	MaxSizeMiB NullableInt32 `json:"maxSizeMiB,omitempty"`
 	// Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
 	PciPatterns []string `json:"pciPatterns,omitempty"`
 }
@@ -115,90 +115,90 @@ func (o *SkuStorageMutation) SetCount(v int32) {
 	o.Count = &v
 }
 
-// GetMinSizeMb returns the MinSizeMb field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SkuStorageMutation) GetMinSizeMb() int32 {
-	if o == nil || IsNil(o.MinSizeMb.Get()) {
+// GetMinSizeMiB returns the MinSizeMiB field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SkuStorageMutation) GetMinSizeMiB() int32 {
+	if o == nil || IsNil(o.MinSizeMiB.Get()) {
 		var ret int32
 		return ret
 	}
-	return *o.MinSizeMb.Get()
+	return *o.MinSizeMiB.Get()
 }
 
-// GetMinSizeMbOk returns a tuple with the MinSizeMb field value if set, nil otherwise
+// GetMinSizeMiBOk returns a tuple with the MinSizeMiB field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SkuStorageMutation) GetMinSizeMbOk() (*int32, bool) {
+func (o *SkuStorageMutation) GetMinSizeMiBOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.MinSizeMb.Get(), o.MinSizeMb.IsSet()
+	return o.MinSizeMiB.Get(), o.MinSizeMiB.IsSet()
 }
 
-// HasMinSizeMb returns a boolean if a field has been set.
-func (o *SkuStorageMutation) HasMinSizeMb() bool {
-	if o != nil && o.MinSizeMb.IsSet() {
+// HasMinSizeMiB returns a boolean if a field has been set.
+func (o *SkuStorageMutation) HasMinSizeMiB() bool {
+	if o != nil && o.MinSizeMiB.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetMinSizeMb gets a reference to the given NullableInt32 and assigns it to the MinSizeMb field.
-func (o *SkuStorageMutation) SetMinSizeMb(v int32) {
-	o.MinSizeMb.Set(&v)
+// SetMinSizeMiB gets a reference to the given NullableInt32 and assigns it to the MinSizeMiB field.
+func (o *SkuStorageMutation) SetMinSizeMiB(v int32) {
+	o.MinSizeMiB.Set(&v)
 }
 
-// SetMinSizeMbNil sets the value for MinSizeMb to be an explicit nil
-func (o *SkuStorageMutation) SetMinSizeMbNil() {
-	o.MinSizeMb.Set(nil)
+// SetMinSizeMiBNil sets the value for MinSizeMiB to be an explicit nil
+func (o *SkuStorageMutation) SetMinSizeMiBNil() {
+	o.MinSizeMiB.Set(nil)
 }
 
-// UnsetMinSizeMb ensures that no value is present for MinSizeMb, not even an explicit nil
-func (o *SkuStorageMutation) UnsetMinSizeMb() {
-	o.MinSizeMb.Unset()
+// UnsetMinSizeMiB ensures that no value is present for MinSizeMiB, not even an explicit nil
+func (o *SkuStorageMutation) UnsetMinSizeMiB() {
+	o.MinSizeMiB.Unset()
 }
 
-// GetMaxSizeMb returns the MaxSizeMb field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *SkuStorageMutation) GetMaxSizeMb() int32 {
-	if o == nil || IsNil(o.MaxSizeMb.Get()) {
+// GetMaxSizeMiB returns the MaxSizeMiB field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *SkuStorageMutation) GetMaxSizeMiB() int32 {
+	if o == nil || IsNil(o.MaxSizeMiB.Get()) {
 		var ret int32
 		return ret
 	}
-	return *o.MaxSizeMb.Get()
+	return *o.MaxSizeMiB.Get()
 }
 
-// GetMaxSizeMbOk returns a tuple with the MaxSizeMb field value if set, nil otherwise
+// GetMaxSizeMiBOk returns a tuple with the MaxSizeMiB field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *SkuStorageMutation) GetMaxSizeMbOk() (*int32, bool) {
+func (o *SkuStorageMutation) GetMaxSizeMiBOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.MaxSizeMb.Get(), o.MaxSizeMb.IsSet()
+	return o.MaxSizeMiB.Get(), o.MaxSizeMiB.IsSet()
 }
 
-// HasMaxSizeMb returns a boolean if a field has been set.
-func (o *SkuStorageMutation) HasMaxSizeMb() bool {
-	if o != nil && o.MaxSizeMb.IsSet() {
+// HasMaxSizeMiB returns a boolean if a field has been set.
+func (o *SkuStorageMutation) HasMaxSizeMiB() bool {
+	if o != nil && o.MaxSizeMiB.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetMaxSizeMb gets a reference to the given NullableInt32 and assigns it to the MaxSizeMb field.
-func (o *SkuStorageMutation) SetMaxSizeMb(v int32) {
-	o.MaxSizeMb.Set(&v)
+// SetMaxSizeMiB gets a reference to the given NullableInt32 and assigns it to the MaxSizeMiB field.
+func (o *SkuStorageMutation) SetMaxSizeMiB(v int32) {
+	o.MaxSizeMiB.Set(&v)
 }
 
-// SetMaxSizeMbNil sets the value for MaxSizeMb to be an explicit nil
-func (o *SkuStorageMutation) SetMaxSizeMbNil() {
-	o.MaxSizeMb.Set(nil)
+// SetMaxSizeMiBNil sets the value for MaxSizeMiB to be an explicit nil
+func (o *SkuStorageMutation) SetMaxSizeMiBNil() {
+	o.MaxSizeMiB.Set(nil)
 }
 
-// UnsetMaxSizeMb ensures that no value is present for MaxSizeMb, not even an explicit nil
-func (o *SkuStorageMutation) UnsetMaxSizeMb() {
-	o.MaxSizeMb.Unset()
+// UnsetMaxSizeMiB ensures that no value is present for MaxSizeMiB, not even an explicit nil
+func (o *SkuStorageMutation) UnsetMaxSizeMiB() {
+	o.MaxSizeMiB.Unset()
 }
 
 // GetPciPatterns returns the PciPatterns field value if set, zero value otherwise.
@@ -249,11 +249,11 @@ func (o SkuStorageMutation) ToMap() (map[string]interface{}, error) {
 	if !IsNil(o.Count) {
 		toSerialize["count"] = o.Count
 	}
-	if o.MinSizeMb.IsSet() {
-		toSerialize["minSizeMb"] = o.MinSizeMb.Get()
+	if o.MinSizeMiB.IsSet() {
+		toSerialize["minSizeMiB"] = o.MinSizeMiB.Get()
 	}
-	if o.MaxSizeMb.IsSet() {
-		toSerialize["maxSizeMb"] = o.MaxSizeMb.Get()
+	if o.MaxSizeMiB.IsSet() {
+		toSerialize["maxSizeMiB"] = o.MaxSizeMiB.Get()
 	}
 	if !IsNil(o.PciPatterns) {
 		toSerialize["pciPatterns"] = o.PciPatterns

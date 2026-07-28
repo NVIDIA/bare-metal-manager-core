@@ -4771,8 +4771,8 @@ paths:
                           - vendor: ''
                             model: SAMSUNG MZ1L21T9HCLS-00A07
                             capacityMb: 0
-                            minSizeMb: 7680000
-                            maxSizeMb: 7680000
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
                             pciPatterns:
                                - ^/devices/pci.*nvme0$
                             count: 4
@@ -4878,8 +4878,8 @@ paths:
                           - vendor: ''
                             model: SAMSUNG MZ1L21T9HCLS-00A07
                             capacityMb: 0
-                            minSizeMb: 7680000
-                            maxSizeMb: 7680000
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
                             pciPatterns:
                                - ^/devices/pci.*nvme0$
                             count: 4
@@ -23270,16 +23270,16 @@ components:
           model: SAMSUNG MZ1L21T9HCLS-00A07
           capacityMb: 0
           count: 1
-          minSizeMb: 1831420
-          maxSizeMb: 1831420
+          minSizeMiB: 1831420
+          maxSizeMiB: 1831420
           pciPatterns:
             - ^/devices/pci.*nvme0$
         - vendor: ''
           model: SAMSUNG MZTL63T8HFLT-00AW7
           capacityMb: 0
           count: 8
-          minSizeMb: 3662840
-          maxSizeMb: 3662840
+          minSizeMiB: 3662840
+          maxSizeMiB: 3662840
           pciPatterns:
             - ^/devices/pci.*nvme[1-8]$
       properties:
@@ -23296,18 +23296,18 @@ components:
           format: uint32
           deprecated: true
           readOnly: true
-          description: Deprecated legacy field retained for response compatibility. Core returns zero; use minSizeMb and maxSizeMb for storage size constraints.
+          description: Deprecated legacy field retained for response compatibility. Core returns zero; use minSizeMiB and maxSizeMiB for storage size constraints.
         count:
           type: integer
           format: uint32
           description: Number of storage devices present
-        minSizeMb:
+        minSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
           description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
-        maxSizeMb:
+        maxSizeMiB:
           type:
             - integer
             - 'null'
@@ -23325,8 +23325,8 @@ components:
       examples:
         - model: SAMSUNG MZTL63T8HFLT-00AW7
           count: 8
-          minSizeMb: 3600000
-          maxSizeMb: 3900000
+          minSizeMiB: 3600000
+          maxSizeMiB: 3900000
           pciPatterns:
             - ^/devices/pci.*nvme[1-8]$
       properties:
@@ -23337,13 +23337,13 @@ components:
           type: integer
           format: uint32
           description: Number of storage devices required
-        minSizeMb:
+        minSizeMiB:
           type:
             - integer
             - 'null'
           format: uint32
           description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
-        maxSizeMb:
+        maxSizeMiB:
           type:
             - integer
             - 'null'

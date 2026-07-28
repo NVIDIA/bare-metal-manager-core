@@ -20,7 +20,7 @@ import (
 // checks if the SkuUpdateRequest type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &SkuUpdateRequest{}
 
-// SkuUpdateRequest Request data to update a SKU. At least one of description, deviceType, or components must be provided. The service preserves the schema version for metadata-only updates. Component updates require a SKU on the current schema version.
+// SkuUpdateRequest Request data to update a SKU. At least one of description, deviceType, or components must be provided. The service preserves the schema version for metadata-only updates. Component updates replace the SKU using the current schema version, migrating legacy SKU schemas to the current format.
 type SkuUpdateRequest struct {
 	// Replacement SKU description
 	Description *string `json:"description,omitempty"`

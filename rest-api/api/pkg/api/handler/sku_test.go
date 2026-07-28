@@ -727,7 +727,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 		assert.Equal(t, req.ID, response.ID)
 		assert.Equal(t, fixture.siteID, response.SiteID)
-		assert.Equal(t, req.Description, response.Description)
+		assert.Equal(t, *req.Description, response.Description)
 		assert.Equal(t, model.CoreSkuSchemaVersion, response.SchemaVersion)
 		assert.Equal(t, req.DeviceType, response.DeviceType)
 		assert.Equal(t, req.Components, response.Components)
@@ -777,6 +777,19 @@ func TestCreateSkuHandler(t *testing.T) {
 		}, fixture.createHandler.Handle)
 
 		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Empty(t, fixture.requests)
+	})
+
+	t.Run("rejects inverted storage size range", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		req := validSkuCreateRequest(fixture.siteID)
+		req.Components.Storage[0].MinSizeMiB = cutil.GetPtr(uint32(4_000_000))
+		req.Components.Storage[0].MaxSizeMiB = cutil.GetPtr(uint32(3_800_000))
+
+		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "minSizeMiB")
 		assert.Empty(t, fixture.requests)
 	})
 
@@ -912,6 +925,21 @@ func TestUpdateSkuHandler(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, saved.Components)
 		require.Len(t, saved.Components.Storage, 1)
+	})
+
+	t.Run("rejects inverted storage size range", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		components := validSkuCreateRequest(fixture.siteID).Components
+		components.Storage[0].MinSizeMiB = cutil.GetPtr(uint32(4_000_000))
+		components.Storage[0].MaxSizeMiB = cutil.GetPtr(uint32(3_800_000))
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			Components: components,
+		}, fixture.updateHandler.Handle)
+
+		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "minSizeMiB")
+		assert.Empty(t, fixture.requests)
 	})
 
 	t.Run("returns Core not found without replace", func(t *testing.T) {
@@ -1175,15 +1203,15 @@ func validSkuCreateRequest(siteID string) model.APISkuCreateRequest {
 	return model.APISkuCreateRequest{
 		SiteID:      siteID,
 		ID:          "sku-1",
-		Description: "test SKU",
+		Description: cutil.GetPtr("test SKU"),
 		DeviceType:  &deviceType,
 		Components: &model.APISkuMutationComponents{
 			Chassis: &model.APISkuChassis{Vendor: "NVIDIA", Model: "DGX H100", Architecture: "x86_64"},
 			Storage: []model.APISkuStorageMutation{{
 				Model:       "informational-model",
 				Count:       2,
-				MinSizeMb:   cutil.GetPtr(uint32(3_600_000)),
-				MaxSizeMb:   cutil.GetPtr(uint32(3_900_000)),
+				MinSizeMiB:  cutil.GetPtr(uint32(3_600_000)),
+				MaxSizeMiB:  cutil.GetPtr(uint32(3_900_000)),
 				PciPatterns: []string{`^/devices/pci.*nvme[0-1]$`},
 			}},
 		},

@@ -14,9 +14,7 @@ API version: 2.0.0
 package standard
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"time"
 )
 
@@ -26,36 +24,28 @@ var _ MappedNullable = &SkuMutationResponse{}
 // SkuMutationResponse Core-backed SKU returned after a create or update operation.
 type SkuMutationResponse struct {
 	// Unique SKU identifier
-	Id string `json:"id"`
+	Id *string `json:"id,omitempty"`
 	// ID of the Site that owns the SKU
-	SiteId string `json:"siteId"`
+	SiteId *string `json:"siteId,omitempty"`
 	// Human-readable SKU description
-	Description string `json:"description"`
+	Description *string `json:"description,omitempty"`
 	// Core SKU schema version
-	SchemaVersion int32 `json:"schemaVersion"`
+	SchemaVersion *int32 `json:"schemaVersion,omitempty"`
 	// Optional device type identifier
 	DeviceType NullableString `json:"deviceType,omitempty"`
 	// Machine IDs currently associated with the SKU
-	AssociatedMachineIds []string              `json:"associatedMachineIds"`
-	Components           SkuMutationComponents `json:"components"`
+	AssociatedMachineIds []string       `json:"associatedMachineIds,omitempty"`
+	Components           *SkuComponents `json:"components,omitempty"`
 	// Core creation timestamp when available
 	Created NullableTime `json:"created,omitempty"`
 }
-
-type _SkuMutationResponse SkuMutationResponse
 
 // NewSkuMutationResponse instantiates a new SkuMutationResponse object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSkuMutationResponse(id string, siteId string, description string, schemaVersion int32, associatedMachineIds []string, components SkuMutationComponents) *SkuMutationResponse {
+func NewSkuMutationResponse() *SkuMutationResponse {
 	this := SkuMutationResponse{}
-	this.Id = id
-	this.SiteId = siteId
-	this.Description = description
-	this.SchemaVersion = schemaVersion
-	this.AssociatedMachineIds = associatedMachineIds
-	this.Components = components
 	return &this
 }
 
@@ -67,100 +57,132 @@ func NewSkuMutationResponseWithDefaults() *SkuMutationResponse {
 	return &this
 }
 
-// GetId returns the Id field value
+// GetId returns the Id field value if set, zero value otherwise.
 func (o *SkuMutationResponse) GetId() string {
-	if o == nil {
+	if o == nil || IsNil(o.Id) {
 		var ret string
 		return ret
 	}
-
-	return o.Id
+	return *o.Id
 }
 
-// GetIdOk returns a tuple with the Id field value
+// GetIdOk returns a tuple with the Id field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *SkuMutationResponse) GetIdOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Id) {
 		return nil, false
 	}
-	return &o.Id, true
+	return o.Id, true
 }
 
-// SetId sets field value
+// HasId returns a boolean if a field has been set.
+func (o *SkuMutationResponse) HasId() bool {
+	if o != nil && !IsNil(o.Id) {
+		return true
+	}
+
+	return false
+}
+
+// SetId gets a reference to the given string and assigns it to the Id field.
 func (o *SkuMutationResponse) SetId(v string) {
-	o.Id = v
+	o.Id = &v
 }
 
-// GetSiteId returns the SiteId field value
+// GetSiteId returns the SiteId field value if set, zero value otherwise.
 func (o *SkuMutationResponse) GetSiteId() string {
-	if o == nil {
+	if o == nil || IsNil(o.SiteId) {
 		var ret string
 		return ret
 	}
-
-	return o.SiteId
+	return *o.SiteId
 }
 
-// GetSiteIdOk returns a tuple with the SiteId field value
+// GetSiteIdOk returns a tuple with the SiteId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *SkuMutationResponse) GetSiteIdOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.SiteId) {
 		return nil, false
 	}
-	return &o.SiteId, true
+	return o.SiteId, true
 }
 
-// SetSiteId sets field value
+// HasSiteId returns a boolean if a field has been set.
+func (o *SkuMutationResponse) HasSiteId() bool {
+	if o != nil && !IsNil(o.SiteId) {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteId gets a reference to the given string and assigns it to the SiteId field.
 func (o *SkuMutationResponse) SetSiteId(v string) {
-	o.SiteId = v
+	o.SiteId = &v
 }
 
-// GetDescription returns the Description field value
+// GetDescription returns the Description field value if set, zero value otherwise.
 func (o *SkuMutationResponse) GetDescription() string {
-	if o == nil {
+	if o == nil || IsNil(o.Description) {
 		var ret string
 		return ret
 	}
-
-	return o.Description
+	return *o.Description
 }
 
-// GetDescriptionOk returns a tuple with the Description field value
+// GetDescriptionOk returns a tuple with the Description field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *SkuMutationResponse) GetDescriptionOk() (*string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.Description) {
 		return nil, false
 	}
-	return &o.Description, true
+	return o.Description, true
 }
 
-// SetDescription sets field value
+// HasDescription returns a boolean if a field has been set.
+func (o *SkuMutationResponse) HasDescription() bool {
+	if o != nil && !IsNil(o.Description) {
+		return true
+	}
+
+	return false
+}
+
+// SetDescription gets a reference to the given string and assigns it to the Description field.
 func (o *SkuMutationResponse) SetDescription(v string) {
-	o.Description = v
+	o.Description = &v
 }
 
-// GetSchemaVersion returns the SchemaVersion field value
+// GetSchemaVersion returns the SchemaVersion field value if set, zero value otherwise.
 func (o *SkuMutationResponse) GetSchemaVersion() int32 {
-	if o == nil {
+	if o == nil || IsNil(o.SchemaVersion) {
 		var ret int32
 		return ret
 	}
-
-	return o.SchemaVersion
+	return *o.SchemaVersion
 }
 
-// GetSchemaVersionOk returns a tuple with the SchemaVersion field value
+// GetSchemaVersionOk returns a tuple with the SchemaVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *SkuMutationResponse) GetSchemaVersionOk() (*int32, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.SchemaVersion) {
 		return nil, false
 	}
-	return &o.SchemaVersion, true
+	return o.SchemaVersion, true
 }
 
-// SetSchemaVersion sets field value
+// HasSchemaVersion returns a boolean if a field has been set.
+func (o *SkuMutationResponse) HasSchemaVersion() bool {
+	if o != nil && !IsNil(o.SchemaVersion) {
+		return true
+	}
+
+	return false
+}
+
+// SetSchemaVersion gets a reference to the given int32 and assigns it to the SchemaVersion field.
 func (o *SkuMutationResponse) SetSchemaVersion(v int32) {
-	o.SchemaVersion = v
+	o.SchemaVersion = &v
 }
 
 // GetDeviceType returns the DeviceType field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -206,52 +228,68 @@ func (o *SkuMutationResponse) UnsetDeviceType() {
 	o.DeviceType.Unset()
 }
 
-// GetAssociatedMachineIds returns the AssociatedMachineIds field value
+// GetAssociatedMachineIds returns the AssociatedMachineIds field value if set, zero value otherwise.
 func (o *SkuMutationResponse) GetAssociatedMachineIds() []string {
-	if o == nil {
+	if o == nil || IsNil(o.AssociatedMachineIds) {
 		var ret []string
 		return ret
 	}
-
 	return o.AssociatedMachineIds
 }
 
-// GetAssociatedMachineIdsOk returns a tuple with the AssociatedMachineIds field value
+// GetAssociatedMachineIdsOk returns a tuple with the AssociatedMachineIds field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 func (o *SkuMutationResponse) GetAssociatedMachineIdsOk() ([]string, bool) {
-	if o == nil {
+	if o == nil || IsNil(o.AssociatedMachineIds) {
 		return nil, false
 	}
 	return o.AssociatedMachineIds, true
 }
 
-// SetAssociatedMachineIds sets field value
+// HasAssociatedMachineIds returns a boolean if a field has been set.
+func (o *SkuMutationResponse) HasAssociatedMachineIds() bool {
+	if o != nil && !IsNil(o.AssociatedMachineIds) {
+		return true
+	}
+
+	return false
+}
+
+// SetAssociatedMachineIds gets a reference to the given []string and assigns it to the AssociatedMachineIds field.
 func (o *SkuMutationResponse) SetAssociatedMachineIds(v []string) {
 	o.AssociatedMachineIds = v
 }
 
-// GetComponents returns the Components field value
-func (o *SkuMutationResponse) GetComponents() SkuMutationComponents {
-	if o == nil {
-		var ret SkuMutationComponents
+// GetComponents returns the Components field value if set, zero value otherwise.
+func (o *SkuMutationResponse) GetComponents() SkuComponents {
+	if o == nil || IsNil(o.Components) {
+		var ret SkuComponents
 		return ret
 	}
-
-	return o.Components
+	return *o.Components
 }
 
-// GetComponentsOk returns a tuple with the Components field value
+// GetComponentsOk returns a tuple with the Components field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuMutationResponse) GetComponentsOk() (*SkuMutationComponents, bool) {
-	if o == nil {
+func (o *SkuMutationResponse) GetComponentsOk() (*SkuComponents, bool) {
+	if o == nil || IsNil(o.Components) {
 		return nil, false
 	}
-	return &o.Components, true
+	return o.Components, true
 }
 
-// SetComponents sets field value
-func (o *SkuMutationResponse) SetComponents(v SkuMutationComponents) {
-	o.Components = v
+// HasComponents returns a boolean if a field has been set.
+func (o *SkuMutationResponse) HasComponents() bool {
+	if o != nil && !IsNil(o.Components) {
+		return true
+	}
+
+	return false
+}
+
+// SetComponents gets a reference to the given SkuComponents and assigns it to the Components field.
+func (o *SkuMutationResponse) SetComponents(v SkuComponents) {
+	o.Components = &v
 }
 
 // GetCreated returns the Created field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -307,61 +345,31 @@ func (o SkuMutationResponse) MarshalJSON() ([]byte, error) {
 
 func (o SkuMutationResponse) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["id"] = o.Id
-	toSerialize["siteId"] = o.SiteId
-	toSerialize["description"] = o.Description
-	toSerialize["schemaVersion"] = o.SchemaVersion
+	if !IsNil(o.Id) {
+		toSerialize["id"] = o.Id
+	}
+	if !IsNil(o.SiteId) {
+		toSerialize["siteId"] = o.SiteId
+	}
+	if !IsNil(o.Description) {
+		toSerialize["description"] = o.Description
+	}
+	if !IsNil(o.SchemaVersion) {
+		toSerialize["schemaVersion"] = o.SchemaVersion
+	}
 	if o.DeviceType.IsSet() {
 		toSerialize["deviceType"] = o.DeviceType.Get()
 	}
-	toSerialize["associatedMachineIds"] = o.AssociatedMachineIds
-	toSerialize["components"] = o.Components
+	if !IsNil(o.AssociatedMachineIds) {
+		toSerialize["associatedMachineIds"] = o.AssociatedMachineIds
+	}
+	if !IsNil(o.Components) {
+		toSerialize["components"] = o.Components
+	}
 	if o.Created.IsSet() {
 		toSerialize["created"] = o.Created.Get()
 	}
 	return toSerialize, nil
-}
-
-func (o *SkuMutationResponse) UnmarshalJSON(data []byte) (err error) {
-	// This validates that all required properties are included in the JSON object
-	// by unmarshalling the object into a generic map with string keys and checking
-	// that every required field exists as a key in the generic map.
-	requiredProperties := []string{
-		"id",
-		"siteId",
-		"description",
-		"schemaVersion",
-		"associatedMachineIds",
-		"components",
-	}
-
-	allProperties := make(map[string]interface{})
-
-	err = json.Unmarshal(data, &allProperties)
-
-	if err != nil {
-		return err
-	}
-
-	for _, requiredProperty := range requiredProperties {
-		if value, exists := allProperties[requiredProperty]; !exists || value == nil {
-			return fmt.Errorf("no value given for required property %v", requiredProperty)
-		}
-	}
-
-	varSkuMutationResponse := _SkuMutationResponse{}
-
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varSkuMutationResponse)
-
-	if err != nil {
-		return err
-	}
-
-	*o = SkuMutationResponse(varSkuMutationResponse)
-
-	return err
 }
 
 type NullableSkuMutationResponse struct {
