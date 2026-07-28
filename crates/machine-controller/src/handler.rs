@@ -72,11 +72,12 @@ use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
-    CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
+    CreateBossVolumeContext, CreateBossVolumeState, DecommissionState, DpuDiscoveringState,
+    DpuInitNextStateResolver, DpuInitState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineNextStateResolver,
     MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
     MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
     PowerDrainState, PowerState, ReprovisionState, RetryInfo, SecureEraseBossContext,
@@ -116,6 +117,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 
 pub mod attestation;
 mod bios_config;
+mod decommission;
 mod dpf;
 mod firmware_artifact;
 mod helpers;
@@ -834,6 +836,27 @@ impl MachineStateHandler {
                     return Ok(outcome);
                 }
 
+                // A site decommission may have placed a PreventAllocations health
+                // alert on this machine while it was in a non-Ready state.  Now that
+                // it has drained to Ready, begin the decommission sequence.
+                if mh_snapshot
+                    .host_snapshot
+                    .health_reports
+                    .merges
+                    .contains_key(decommission::DECOMMISSION_HEALTH_SOURCE)
+                {
+                    tracing::info!(
+                        machine_id = %host_machine_id,
+                        "Machine reached Ready with a pending decommission; \
+                         transitioning to Decommissioning",
+                    );
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::Decommissioning {
+                            decommission_state: DecommissionState::Init,
+                        },
+                    ));
+                }
+
                 if let Some(outcome) = maintenance::maintenance_transition_if_requested(mh_snapshot)
                 {
                     return Ok(outcome);
@@ -1300,6 +1323,9 @@ impl MachineStateHandler {
                     "Machine is marked for forced deletion. Ignoring.",
                 );
                 Ok(StateHandlerOutcome::deleted())
+            }
+            ManagedHostState::Decommissioning { .. } => {
+                decommission::handle_decommission(host_machine_id, mh_snapshot, ctx).await
             }
             ManagedHostState::Failed {
                 details,

@@ -1174,6 +1174,12 @@ pub enum ManagedHostState {
     /// State controller will no longer manage the Machine
     ForceDeletion,
 
+    /// The machine is being decommissioned: BMCs are reset to factory defaults,
+    /// credentials are removed, and MAC addresses are marked as ignored by DHCP.
+    Decommissioning {
+        decommission_state: DecommissionState,
+    },
+
     /// A dummy state used to create DPU in beginning. State will sync to Init when host will be
     /// created.
     Created,
@@ -2013,6 +2019,40 @@ pub enum CleanupContext {
     Deprovision,
     InitialDiscovery,
 }
+/// Sub-states for [`ManagedHostState::Decommissioning`].
+///
+/// Progress is strictly forward: each sub-state completes one action and
+/// advances to the next.  The final step (`MarkMacsIgnored`) causes the state
+/// controller to emit `deleted()` and remove the machine from the database.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum DecommissionState {
+    /// Entry point: attach a `PreventAllocations` health alert so the machine
+    /// cannot be assigned while decommission is in progress.
+    Init,
+    /// Reset the host BMC to factory defaults via Redfish `Manager.ResetToDefaults`.
+    BmcResetToDefaults,
+    /// Reset each attached DPU BMC to factory defaults.
+    DpuBmcResetToDefaults,
+    /// Delete per-machine credentials (SSH keys, BMC accounts) from the secret store.
+    DeleteCredentials,
+    /// Insert BMC MAC addresses into the `ignored_macs` table so the DHCP server
+    /// stops issuing leases and NAKs any outstanding requests.
+    MarkMacsIgnored,
+}
+
+impl std::fmt::Display for DecommissionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecommissionState::Init => write!(f, "Init"),
+            DecommissionState::BmcResetToDefaults => write!(f, "BmcResetToDefaults"),
+            DecommissionState::DpuBmcResetToDefaults => write!(f, "DpuBmcResetToDefaults"),
+            DecommissionState::DeleteCredentials => write!(f, "DeleteCredentials"),
+            DecommissionState::MarkMacsIgnored => write!(f, "MarkMacsIgnored"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum LockdownState {
@@ -2350,6 +2390,9 @@ impl Display for ManagedHostState {
                 write!(f, "WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => write!(f, "ForceDeletion"),
+            ManagedHostState::Decommissioning { decommission_state } => {
+                write!(f, "Decommissioning/{decommission_state}")
+            }
             ManagedHostState::Failed { details, .. } => {
                 write!(f, "Failed/{}", details.cause)
             }
@@ -2444,6 +2487,9 @@ impl ManagedHostState {
                 format!("WaitingForCleanup/{cleanup_state}")
             }
             ManagedHostState::ForceDeletion => "ForceDeletion".to_string(),
+            ManagedHostState::Decommissioning { decommission_state } => {
+                format!("Decommissioning/{decommission_state}")
+            }
             ManagedHostState::Failed { details, .. } => {
                 format!("Failed/{}", details.cause)
             }
@@ -2742,6 +2788,9 @@ pub fn state_sla(
                 }
             },
         },
+        ManagedHostState::Decommissioning { .. } => {
+            StateSla::with_sla(slas::MAINTENANCE, time_in_state)
+        }
     }
 }
 

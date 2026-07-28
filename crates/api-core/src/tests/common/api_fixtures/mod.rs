@@ -428,6 +428,7 @@ impl TestEnv {
             ManagedHostState::WaitingForCleanup { .. } => state.clone(),
             ManagedHostState::Created => state.clone(),
             ManagedHostState::ForceDeletion => state.clone(),
+            ManagedHostState::Decommissioning { .. } => state.clone(),
             ManagedHostState::Failed {
                 details,
                 machine_id,

@@ -358,6 +358,16 @@ impl StateControllerIO for MachineStateControllerIO {
                 }
                 machine::BomValidating::SkuMissing(_) => ("bomvalidating", "skumissing"),
             },
+            ManagedHostState::Decommissioning { decommission_state } => {
+                let sub = match decommission_state {
+                    machine::DecommissionState::Init => "init",
+                    machine::DecommissionState::BmcResetToDefaults => "bmcresettodefaults",
+                    machine::DecommissionState::DpuBmcResetToDefaults => "dpubmcresettodefaults",
+                    machine::DecommissionState::DeleteCredentials => "deletecredentials",
+                    machine::DecommissionState::MarkMacsIgnored => "markmacsignored",
+                };
+                ("decommissioning", sub)
+            }
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => (
                     "validation",

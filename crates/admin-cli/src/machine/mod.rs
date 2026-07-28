@@ -17,6 +17,7 @@
 
 pub mod auto_update;
 pub mod common;
+pub mod decommission;
 pub mod force_delete;
 pub mod hardware_info;
 pub mod health_report;
@@ -66,6 +67,8 @@ pub enum Cmd {
     Reboot(reboot::Args),
     #[clap(about = "Force delete a machine")]
     ForceDelete(force_delete::Args),
+    #[clap(subcommand, about = "Decommission a machine or the entire site")]
+    Decommission(decommission::Args),
     #[clap(about = "Set individual machine firmware autoupdate (host only)")]
     AutoUpdate(auto_update::Args),
     #[clap(subcommand, about = "Edit Metadata associated with a Machine")]

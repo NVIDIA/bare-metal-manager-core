@@ -19,6 +19,7 @@ use std::net::IpAddr;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
+use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
 use sqlx::FromRow;
@@ -46,4 +47,16 @@ pub struct DhcpRecord {
     pub gateway: Option<IpAddr>,
 
     pub last_invalidation_time: chrono::DateTime<chrono::Utc>,
+}
+
+/// A row from the `ignored_macs` table.
+///
+/// MAC addresses listed here are treated as blocked by the DHCP server:
+/// DISCOVER packets are dropped silently and REQUEST packets receive a NAK.
+#[derive(Debug, Clone, FromRow)]
+pub struct IgnoredMac {
+    pub mac_address: MacAddress,
+    pub machine_id: Option<MachineId>,
+    pub reason: String,
+    pub created_at: DateTime<Utc>,
 }

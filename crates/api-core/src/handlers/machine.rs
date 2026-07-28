@@ -16,6 +16,8 @@
  */
 
 use std::collections::HashMap;
+use std::str::FromStr;
+use std::sync::atomic::Ordering;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
@@ -23,10 +25,15 @@ use ::rpc::model::machine::ManagedHostStateSnapshotRpc;
 use carbide_redfish::libredfish::RedfishAuth;
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
+};
 use libredfish::SystemPowerControl;
 use model::hardware_info::MachineNvLinkInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
+use model::machine::{
+    DecommissionState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
+};
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
@@ -974,4 +981,171 @@ pub(crate) async fn update_machine_nv_link_info(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+const DECOMMISSION_HEALTH_SOURCE: &str = "decommission";
+
+/// Transition a single host machine (and all its DPUs) to
+/// `Decommissioning { Init }`.  The machine must be in the `Ready` state.
+pub(crate) async fn admin_decommission_machine(
+    api: &Api,
+    request: Request<rpc::AdminDecommissionMachineRequest>,
+) -> Result<Response<rpc::AdminDecommissionMachineResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let mut txn = api.txn_begin().await?;
+
+    let machine = match db::machine::find_by_query(&mut txn, &request.host_query).await? {
+        Some(m) => m,
+        None => {
+            return Err(CarbideError::NotFound(format!(
+                "machine not found: {}",
+                request.host_query
+            ))
+            .into());
+        }
+    };
+    log_machine_id(&machine.id);
+
+    let host_machine;
+    let dpu_machines;
+    if machine.is_dpu() {
+        if let Some(host) = db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id).await?
+        {
+            dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
+            host_machine = host;
+        } else {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "DPU {} has no associated host machine",
+                machine.id
+            ))
+            .into());
+        }
+    } else {
+        dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id).await?;
+        host_machine = machine;
+    }
+
+    if !matches!(host_machine.state.value, ManagedHostState::Ready) {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "machine {} is in state {} but must be Ready to be decommissioned",
+            host_machine.id, host_machine.state.value
+        ))
+        .into());
+    }
+
+    let decommission_state = ManagedHostState::Decommissioning {
+        decommission_state: DecommissionState::Init,
+    };
+    db::machine::advance(&host_machine, &mut txn, &decommission_state, None).await?;
+    for dpu in &dpu_machines {
+        db::machine::advance(dpu, &mut txn, &decommission_state, None).await?;
+    }
+
+    let machine_id = host_machine.id.to_string();
+    txn.commit().await?;
+
+    tracing::info!(
+        machine_id,
+        dpu_count = dpu_machines.len(),
+        "Decommission initiated for machine",
+    );
+
+    Ok(Response::new(rpc::AdminDecommissionMachineResponse { machine_id }))
+}
+
+/// Disable new machine ingestion and begin decommissioning all host machines
+/// that are currently in the `Ready` state.  Machines in other states receive
+/// a `PreventAllocations` health alert and will be decommissioned automatically
+/// once the state controller drains them to `Ready`.
+pub(crate) async fn admin_decommission_site(
+    api: &Api,
+    request: Request<rpc::AdminDecommissionSiteRequest>,
+) -> Result<Response<rpc::AdminDecommissionSiteResponse>, Status> {
+    log_request_data(&request);
+
+    // Disable new machine ingestion first so re-ingestion can't race decommission.
+    api.dynamic_settings
+        .create_machines
+        .store(false, Ordering::Relaxed);
+    tracing::info!("Decommission site: create_machines disabled");
+
+    let prevent_allocations_report = HealthReport {
+        source: DECOMMISSION_HEALTH_SOURCE.to_string(),
+        triggered_by: None,
+        observed_at: Some(chrono::Utc::now()),
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("DecommissionInProgress").expect("valid probe id"),
+            target: None,
+            in_alert_since: Some(chrono::Utc::now()),
+            message: "Machine is being decommissioned".to_string(),
+            tenant_message: None,
+            classifications: vec![HealthAlertClassification::prevent_allocations()],
+        }],
+        successes: vec![],
+    };
+
+    // Load host IDs without a transaction (cheap read, no write needed yet).
+    let host_ids = db::managed_host::load_host_ids(api.pg_pool()).await?;
+
+    let decommission_state = ManagedHostState::Decommissioning {
+        decommission_state: DecommissionState::Init,
+    };
+
+    let mut machines_started: u32 = 0;
+    let mut machines_pending: u32 = 0;
+
+    for host_id in &host_ids {
+        let mut txn = api.txn_begin().await?;
+
+        let host = match db::machine::find_one(api.pg_pool(), host_id, MachineSearchConfig::default()).await? {
+            Some(m) => m,
+            None => continue, // race: machine deleted between load_host_ids and now
+        };
+
+        if matches!(host.state.value, ManagedHostState::Ready) {
+            db::machine::advance(&host, &mut txn, &decommission_state, None).await?;
+            machines_started += 1;
+        } else {
+            db::machine::insert_health_report(
+                &mut txn,
+                &host.id,
+                HealthReportApplyMode::Merge,
+                &prevent_allocations_report,
+                false,
+            )
+            .await?;
+            machines_pending += 1;
+        }
+
+        let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
+        for dpu in &dpus {
+            if matches!(host.state.value, ManagedHostState::Ready) {
+                db::machine::advance(dpu, &mut txn, &decommission_state, None).await?;
+            } else {
+                db::machine::insert_health_report(
+                    &mut txn,
+                    &dpu.id,
+                    HealthReportApplyMode::Merge,
+                    &prevent_allocations_report,
+                    false,
+                )
+                .await?;
+            }
+        }
+
+        txn.commit().await?;
+    }
+
+    tracing::info!(
+        machines_started,
+        machines_pending,
+        "Site decommission initiated",
+    );
+
+    Ok(Response::new(rpc::AdminDecommissionSiteResponse {
+        machines_started,
+        machines_pending,
+    }))
 }

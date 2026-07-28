@@ -16,10 +16,11 @@
  */
 
 use carbide_network::ip::IpAddressFamily;
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
-use model::dhcp_record::DhcpRecord;
+use model::dhcp_record::{DhcpRecord, IgnoredMac};
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
@@ -52,6 +53,78 @@ pub async fn last_invalidation_time(
     let query = "SELECT last_deletion FROM machine_interfaces_deletion WHERE id = 1";
     sqlx::query_scalar(query)
         .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Check whether a MAC address is in the ignored list.
+pub async fn is_mac_ignored(
+    txn: &mut PgConnection,
+    mac_address: &MacAddress,
+) -> Result<bool, DatabaseError> {
+    let query = "SELECT EXISTS(SELECT 1 FROM ignored_macs WHERE mac_address = $1::macaddr)";
+    sqlx::query_scalar(query)
+        .bind(mac_address)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Insert a MAC address into the ignored list.
+///
+/// Silently succeeds if the MAC is already present (ON CONFLICT DO NOTHING).
+pub async fn ignore_mac(
+    txn: &mut PgConnection,
+    mac_address: &MacAddress,
+    machine_id: Option<&MachineId>,
+    reason: &str,
+) -> Result<(), DatabaseError> {
+    let query = "INSERT INTO ignored_macs (mac_address, machine_id, reason) \
+                 VALUES ($1::macaddr, $2, $3) ON CONFLICT DO NOTHING";
+    sqlx::query(query)
+        .bind(mac_address)
+        .bind(machine_id)
+        .bind(reason)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Remove a MAC address from the ignored list, returning whether it existed.
+pub async fn unignore_mac(
+    txn: &mut PgConnection,
+    mac_address: &MacAddress,
+) -> Result<bool, DatabaseError> {
+    let query = "DELETE FROM ignored_macs WHERE mac_address = $1::macaddr";
+    sqlx::query(query)
+        .bind(mac_address)
+        .execute(txn)
+        .await
+        .map(|r| r.rows_affected() > 0)
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// List all ignored MACs, optionally filtering by machine ID.
+pub async fn list_ignored_macs(
+    txn: &mut PgConnection,
+    machine_id: Option<&MachineId>,
+) -> Result<Vec<IgnoredMac>, DatabaseError> {
+    let (query, bind_machine_id) = match machine_id {
+        Some(_) => (
+            "SELECT * FROM ignored_macs WHERE machine_id = $1::uuid ORDER BY created_at",
+            true,
+        ),
+        None => (
+            "SELECT * FROM ignored_macs ORDER BY created_at",
+            false,
+        ),
+    };
+    let mut q = sqlx::query_as(query);
+    if bind_machine_id {
+        q = q.bind(machine_id);
+    }
+    q.fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
 }

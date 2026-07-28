@@ -331,6 +331,18 @@ service Forge {
   // appropriate customer-facing workflow available or where those workflows fail.
   rpc AdminForceDeleteMachine(AdminForceDeleteMachineRequest) returns (AdminForceDeleteMachineResponse);
 
+  // AdminDecommissionMachine begins the decommission sequence for a single machine:
+  // adds a PreventAllocations health alert, resets Host and DPU BMCs to factory
+  // defaults, removes per-machine credentials, and marks BMC MACs as DHCP-ignored.
+  // The machine must be in the Ready state.
+  rpc AdminDecommissionMachine(AdminDecommissionMachineRequest) returns (AdminDecommissionMachineResponse);
+
+  // AdminDecommissionSite begins site-wide decommission: disables new machine
+  // ingestion and starts decommissioning every machine that is currently in the
+  // Ready state.  Machines in other states receive a PreventAllocations alert and
+  // will be decommissioned automatically once they drain to Ready.
+  rpc AdminDecommissionSite(AdminDecommissionSiteRequest) returns (AdminDecommissionSiteResponse);
+
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
 
@@ -4903,6 +4915,29 @@ message AdminForceDeleteMachineResponse {
 }
 
 message DisableSecureBootResponse {
+}
+
+// AdminDecommissionMachine — request to decommission a single host machine.
+// The machine must be in the Ready state; machines in other states are rejected.
+message AdminDecommissionMachineRequest {
+  // UUID, IP address, hostname, or MAC address of the host (or its attached DPU).
+  string host_query = 1;
+}
+
+message AdminDecommissionMachineResponse {
+  // The host machine ID that was transitioned to Decommissioning.
+  string machine_id = 1;
+}
+
+// AdminDecommissionSite — request to decommission all machines at the site.
+message AdminDecommissionSiteRequest {}
+
+message AdminDecommissionSiteResponse {
+  // Number of machines immediately transitioned to Decommissioning (were in Ready state).
+  uint32 machines_started = 1;
+  // Number of machines that received a PreventAllocations alert but are not yet
+  // in Ready state and will be decommissioned once they drain.
+  uint32 machines_pending = 2;
 }
 
 message LockdownRequest {

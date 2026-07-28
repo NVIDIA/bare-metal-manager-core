@@ -1160,6 +1160,20 @@ impl Forge for Api {
         crate::handlers::machine::admin_force_delete_machine(self, request).await
     }
 
+    async fn admin_decommission_machine(
+        &self,
+        request: Request<rpc::AdminDecommissionMachineRequest>,
+    ) -> Result<Response<rpc::AdminDecommissionMachineResponse>, Status> {
+        crate::handlers::machine::admin_decommission_machine(self, request).await
+    }
+
+    async fn admin_decommission_site(
+        &self,
+        request: Request<rpc::AdminDecommissionSiteRequest>,
+    ) -> Result<Response<rpc::AdminDecommissionSiteResponse>, Status> {
+        crate::handlers::machine::admin_decommission_site(self, request).await
+    }
+
     /// Example TOML data in request.text:
     ///
     /// [lo-ip]

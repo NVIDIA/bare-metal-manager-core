@@ -413,11 +413,12 @@ impl ComponentManager {
                         if matches!(
                             machine.state.value,
                             model::machine::ManagedHostState::ForceDeletion
+                                | model::machine::ManagedHostState::Decommissioning { .. }
                         ) {
                             results.push(MachineMaintenanceRequestResult {
                                 machine_id: *machine_id,
                                 error: Some(format!(
-                                    "machine {machine_id} is marked for forced deletion"
+                                    "machine {machine_id} is marked for forced deletion or is being decommissioned"
                                 )),
                             });
                             continue;
