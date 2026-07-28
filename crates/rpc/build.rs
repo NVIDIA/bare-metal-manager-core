@@ -573,6 +573,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
+            "forge.BmcEndpoint",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.BmcStatus",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
             "forge.bmc_meta_data_update_request.DataItem",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )

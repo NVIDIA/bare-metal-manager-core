@@ -65,6 +65,32 @@ impl From<BmcInfo> for rpc::BmcInfo {
     }
 }
 
+/// Converts the ingestion-time connection fields of `BmcInfo` into the
+/// new `BmcEndpoint` message. Part of the BmcInfo -> BmcEndpoint/BmcStatus
+/// split; see #3516.
+impl From<BmcInfo> for rpc::BmcEndpoint {
+    fn from(value: BmcInfo) -> Self {
+        rpc::BmcEndpoint {
+            machine_interface_id: value.machine_interface_id,
+            ip: value.ip.map(|ip| ip.to_string()),
+            port: value.port.map(|p| p as u32),
+            mac: value.mac.map(|mac| mac.to_string()),
+        }
+    }
+}
+
+/// Converts the observed/runtime fields of `BmcInfo` into the new
+/// `BmcStatus` message. Part of the BmcInfo -> BmcEndpoint/BmcStatus
+/// split; see #3516.
+impl From<BmcInfo> for rpc::BmcStatus {
+    fn from(value: BmcInfo) -> Self {
+        rpc::BmcStatus {
+            version: value.version,
+            firmware_version: value.firmware_version,
+        }
+    }
+}
+
 impl From<rpc::UserRoles> for UserRoles {
     fn from(action: rpc::UserRoles) -> Self {
         match action {

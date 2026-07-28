@@ -347,6 +347,7 @@ impl From<Machine> for rpc::forge::Machine {
         let status_msg = rpc::forge::MachineStatus {
             interfaces: interfaces_rpc.clone(),
             discovery_info: discovery_info.clone(),
+            bmc_status: Some(machine.status.bmc_info.clone().into()),
             last_reboot_time: machine.status.last_reboot_time.map(|t| t.into()),
             last_observation_time,
             associated_host_machine_id: None, // Gets filled in the `ManagedHostStateSnapshot` conversion
@@ -411,7 +412,8 @@ impl From<Machine> for rpc::forge::Machine {
                 .collect(),
             interfaces: interfaces_rpc,
             discovery_info,
-            bmc_info: Some(machine.status.bmc_info.into()),
+            bmc_info: Some(machine.status.bmc_info.clone().into()),
+            bmc: Some(machine.status.bmc_info.clone().into()),
             last_reboot_time: machine.status.last_reboot_time.map(|t| t.into()),
             last_observation_time,
             dpu_agent_version,

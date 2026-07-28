@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+// Deprecated but still valid during the BmcInfo -> BmcEndpoint/BmcStatus
+// transition (#3516); this file will be migrated in a follow-up PR.
+#![allow(deprecated)]
+
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_managed_host_with_config,
     create_test_env, dpu,

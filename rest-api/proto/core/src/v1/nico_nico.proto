@@ -3668,13 +3668,30 @@ enum MachineType {
   POWER_SHELF = 3;
 }
 
+// Deprecated: use BmcEndpoint (ingestion-time fields, on Machine) and
+// BmcStatus (observed fields, on MachineStatus) instead.
 message BmcInfo {
+  option deprecated = true;
   optional string ip = 1;
   optional string mac = 2;
   optional string version = 3;
   optional string firmware_version = 4;
   optional uint32 port = 5;
   optional common.MachineInterfaceId machine_interface_id = 6;
+}
+
+// BMC connection details established at ingestion; not operator-mutable.
+message BmcEndpoint {
+  optional string ip = 1;
+  optional string mac = 2;
+  optional uint32 port = 3;
+  optional common.MachineInterfaceId machine_interface_id = 4;
+}
+
+// BMC observed/runtime state.
+message BmcStatus {
+  optional string version = 2;
+  optional string firmware_version = 3;
 }
 
 message SwitchNvosInfo {
@@ -3728,6 +3745,9 @@ message MachineStatus {
   optional string last_scout_observed_version = 22;
   optional InstanceNetworkRestrictions instance_network_restrictions = 23;
   LifecycleStatus lifecycle = 24;
+
+  // BMC observed/runtime state.
+  optional BmcStatus bmc_status = 25;
 }
 
 message Machine {
@@ -3768,8 +3788,9 @@ message Machine {
   // Machine type (DPU or HOST). Set at ingestion time; not operator-mutable.
   MachineType machine_type = 11;
 
-  // BMC connection details. Discovered at ingestion time; not operator-mutable.
-  BmcInfo bmc_info = 12;
+  // Deprecated: use bmc (BmcEndpoint) instead.
+  // TODO: change to reserved once rest-api uses BmcEndpoint
+  BmcInfo bmc_info = 12 [deprecated = true];
 
   // Deprecated: use status.last_reboot_time
   // TODO: change to reserved once rest-api uses MachineStatus
@@ -3907,6 +3928,9 @@ message Machine {
 
   MachineConfig config = 50;
   MachineStatus status = 51;
+
+  // BMC connection details established at ingestion; not operator-mutable.
+  BmcEndpoint bmc = 52;
 }
 
 message DpfMachineState {
