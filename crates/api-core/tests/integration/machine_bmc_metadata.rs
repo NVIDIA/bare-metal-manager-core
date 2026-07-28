@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+// Deprecated but still valid during the BmcInfo -> BmcEndpoint/BmcStatus
+// transition (#3516); this file will be migrated in a follow-up PR.
+#![allow(deprecated)]
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
