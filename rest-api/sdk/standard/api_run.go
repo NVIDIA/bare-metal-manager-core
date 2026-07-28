@@ -84,7 +84,7 @@ func (a *RunAPIService) AdvanceRunExecute(r ApiAdvanceRunRequest) (*Run, *http.R
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run/{id}/advance"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/advance"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -241,7 +241,7 @@ func (a *RunAPIService) CancelRunExecute(r ApiCancelRunRequest) (*Run, *http.Res
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run/{id}/cancel"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/cancel"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -367,7 +367,7 @@ A Run executes exactly one operation (currently firmware) over a
 candidate set of Racks, narrowed by an optional `selector` and divided
 into phases by an optional `options.phasePolicy`. The response echoes the
 assigned `id`; the Run always starts in the `Pending` state. Poll
-`GET /run/{id}` for progress.
+`GET /task/run/{id}` for progress.
 
 Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
@@ -400,7 +400,7 @@ func (a *RunAPIService) CreateRunExecute(r ApiCreateRunRequest) (*Run, *http.Res
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -552,7 +552,7 @@ func (a *RunAPIService) GetRunExecute(r ApiGetRunRequest) (*Run, *http.Response,
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run/{id}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -748,7 +748,7 @@ func (a *RunAPIService) ListRunTargetsExecute(r ApiListRunTargetsRequest) ([]Run
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run/{id}/target"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/target"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -945,7 +945,7 @@ func (a *RunAPIService) ListRunsExecute(r ApiListRunsRequest) ([]Run, *http.Resp
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 
 	localVarHeaderParams := make(map[string]string)
@@ -1101,7 +1101,7 @@ func (a *RunAPIService) PauseRunExecute(r ApiPauseRunRequest) (*Run, *http.Respo
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run/{id}/pause"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/pause"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
@@ -1258,7 +1258,7 @@ func (a *RunAPIService) ResumeRunExecute(r ApiResumeRunRequest) (*Run, *http.Res
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/run/{id}/resume"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/resume"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
