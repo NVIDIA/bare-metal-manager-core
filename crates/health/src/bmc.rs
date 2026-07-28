@@ -1523,4 +1523,141 @@ mod tests {
         );
         assert_eq!(client.credential_generation.load(Ordering::Acquire), 2);
     }
+
+    const ENTITY_BODY: &str = r#"{"@odata.id":"/redfish/v1"}"#;
+
+    /// Minimal Redfish entity, so the wire-level tests below can drive the real
+    /// `get`/`delete` implementations without depending on the shape of any
+    /// particular generated schema type.
+    #[derive(Deserialize)]
+    struct TestEntity {
+        #[serde(rename = "@odata.id")]
+        odata_id: ODataId,
+    }
+
+    impl EntityTypeRef for TestEntity {
+        fn odata_id(&self) -> &ODataId {
+            &self.odata_id
+        }
+
+        fn etag(&self) -> Option<&ODataETag> {
+            None
+        }
+    }
+
+    /// Serve a scripted sequence of raw HTTP responses on an ephemeral port,
+    /// one per connection, counting the requests actually received.
+    ///
+    /// Each response closes its connection so the client opens a fresh one per
+    /// request, making the count an exact measure of how many times the caller
+    /// hit the wire. Follows the local-server pattern used by the NVUE REST
+    /// collector tests.
+    fn spawn_scripted_http_server(
+        responses: Vec<(u16, &'static str)>,
+    ) -> (Url, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("test server binds local port");
+        let addr = listener.local_addr().expect("test server local addr");
+        let base_url = Url::parse(&format!("http://{addr}")).expect("test server url parses");
+
+        let requests = Arc::new(AtomicUsize::new(0));
+        let counter = requests.clone();
+        let handle = std::thread::spawn(move || {
+            for (status, body) in responses {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let mut buffer = [0_u8; 4096];
+                if stream.read(&mut buffer).is_err() {
+                    return;
+                }
+                counter.fetch_add(1, AtomicOrdering::SeqCst);
+
+                let reason = match status {
+                    200 => "OK",
+                    401 => "Unauthorized",
+                    _ => panic!("unsupported test response status {status}"),
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len(),
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        (base_url, requests, handle)
+    }
+
+    fn client_against(base_url: Url) -> (BmcClient, Arc<AtomicUsize>) {
+        let (provider, provider_calls) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        // `bmc_url` returns a proxy URL verbatim, so this points the client at
+        // the local server over plain HTTP without needing TLS.
+        let client = BmcClient::new(reqwest(), test_addr(), provider, Some(base_url), 10)
+            .expect("constructor ok");
+        (client, provider_calls)
+    }
+
+    #[tokio::test]
+    async fn public_read_replays_over_the_wire_after_a_401() {
+        // The helper-level tests above pin the retry logic; this one pins the
+        // wiring, end to end over real HTTP. Without it, reverting `get` to the
+        // old non-retrying body would leave every other test in this file
+        // passing. See NVBug 6506008.
+        let (base_url, requests, server) =
+            spawn_scripted_http_server(vec![(401, "{}"), (200, ENTITY_BODY)]);
+        let (client, provider_calls) = client_against(base_url);
+
+        let entity = client
+            .get::<TestEntity>(&ODataId::service_root())
+            .await
+            .map(|entity| entity.odata_id().to_string());
+
+        assert_eq!(
+            entity.as_deref().ok(),
+            Some("/redfish/v1"),
+            "the read must succeed on the replay after the refresh: {entity:?}"
+        );
+        assert_eq!(
+            requests.load(AtomicOrdering::SeqCst),
+            2,
+            "the 401 must be replayed on the wire, not just refreshed"
+        );
+        assert_eq!(
+            provider_calls.load(AtomicOrdering::SeqCst),
+            2,
+            "initial fetch plus one refresh"
+        );
+        server.join().expect("test server thread");
+    }
+
+    #[tokio::test]
+    async fn public_mutating_call_does_not_replay_after_a_401() {
+        // The read-only boundary is a safety property, not just a comment: a
+        // replayed write could apply twice.
+        let (base_url, requests, server) = spawn_scripted_http_server(vec![(401, "{}")]);
+        let (client, provider_calls) = client_against(base_url);
+
+        let result = client.delete::<TestEntity>(&ODataId::service_root()).await;
+
+        assert!(result.is_err(), "the 401 must surface to the caller");
+        assert_eq!(
+            requests.load(AtomicOrdering::SeqCst),
+            1,
+            "a mutating call must never be replayed"
+        );
+        assert_eq!(
+            provider_calls.load(AtomicOrdering::SeqCst),
+            1,
+            "mutating calls do not run the refresh-and-retry path at all"
+        );
+        server.join().expect("test server thread");
+    }
 }
