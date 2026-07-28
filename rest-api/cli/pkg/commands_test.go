@@ -419,57 +419,70 @@ func TestNewApp_MachinePowerUsesConciseCommand(t *testing.T) {
 	assert.Contains(t, output.String(), "nicocli machine power [command options] <machineId>")
 	assert.NotContains(t, output.String(), "power-control-machine")
 
-	spec, err := ParseSpec(openapi.Spec)
-	require.NoError(t, err)
-	assert.Nil(t, commandAtPath(BuildCommands(spec), []string{
-		"machine", "power-control-machine", "machine-power-control-machine",
-	}))
-}
-
-func TestNewApp_MachinePowerExecutesOriginalOperation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		assert.Equal(t, http.MethodPatch, request.Method)
-		assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/power", request.URL.Path)
-		assert.Equal(t, "Bearer test-token", request.Header.Get("Authorization"))
-
-		body, err := io.ReadAll(request.Body)
-		require.NoError(t, err)
-		assert.JSONEq(t, `{"action":"ForceRestart"}`, string(body))
-
-		response.Header().Set("Content-Type", "application/json")
-		_, err = response.Write([]byte(`{"status":"accepted"}`))
-		require.NoError(t, err)
-	}))
-	defer server.Close()
-
-	app, err := NewApp(openapi.Spec)
-	require.NoError(t, err)
-	app.Writer = io.Discard
-
+	output.Reset()
 	require.NoError(t, app.Run([]string{
-		"nicocli",
-		"--base-url", server.URL,
-		"--org", "test-org",
-		"--api-name", "nico",
-		"--token", "test-token",
-		"machine", "power",
-		"--action", "ForceRestart",
-		"machine-1",
+		"nicocli", "machine", "power-control-machine", "machine-power-control-machine", "--help",
 	}))
+	assert.Contains(t, output.String(),
+		"nicocli machine power-control-machine machine-power-control-machine [command options] <machineId>")
 }
 
-func TestBuildCommands_AppliesEveryCommandPathOverride(t *testing.T) {
+func TestNewApp_MachinePowerAliasesExecuteSameOperation(t *testing.T) {
+	tests := map[string][]string{
+		"concise alias": {"machine", "power"},
+		"generated path": {
+			"machine", "power-control-machine", "machine-power-control-machine",
+		},
+	}
+
+	for name, commandPath := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				assert.Equal(t, http.MethodPatch, request.Method)
+				assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/power", request.URL.Path)
+				assert.Equal(t, "Bearer test-token", request.Header.Get("Authorization"))
+
+				body, err := io.ReadAll(request.Body)
+				require.NoError(t, err)
+				assert.JSONEq(t, `{"action":"ForceRestart"}`, string(body))
+
+				response.Header().Set("Content-Type", "application/json")
+				_, err = response.Write([]byte(`{"status":"accepted"}`))
+				require.NoError(t, err)
+			}))
+			defer server.Close()
+
+			app, err := NewApp(openapi.Spec)
+			require.NoError(t, err)
+			app.Writer = io.Discard
+
+			args := []string{
+				"nicocli",
+				"--base-url", server.URL,
+				"--org", "test-org",
+				"--api-name", "nico",
+				"--token", "test-token",
+			}
+			args = append(args, commandPath...)
+			args = append(args, "--action", "ForceRestart", "machine-1")
+			require.NoError(t, app.Run(args))
+		})
+	}
+}
+
+func TestBuildCommands_AddsEveryCommandPathAlias(t *testing.T) {
 	spec, err := ParseSpec(openapi.Spec)
 	require.NoError(t, err)
 
 	commands := BuildCommands(spec)
+	generatedCommands := buildGeneratedCommands(spec)
 	operations := newOperationIndex(spec)
 	seenPaths := make(map[string]string)
 
-	for operationID, path := range commandPathOverrides {
+	for operationID, path := range commandPathAliases {
 		pathText := strings.Join(path, " ")
 		if previousOperationID, exists := seenPaths[pathText]; exists {
-			t.Errorf("operations %q and %q both override to %q", previousOperationID, operationID, pathText)
+			t.Errorf("operations %q and %q both alias to %q", previousOperationID, operationID, pathText)
 		}
 		seenPaths[pathText] = operationID
 
@@ -477,10 +490,18 @@ func TestBuildCommands_AppliesEveryCommandPathOverride(t *testing.T) {
 		require.NoError(t, err)
 
 		command := commandAtPath(commands, path)
-		require.NotNilf(t, command, "override for %q did not create command path %q", operationID, pathText)
+		require.NotNilf(t, command, "alias for %q did not create command path %q", operationID, pathText)
+		assert.NotNilf(t, command.Action, "alias for %q is not executable at path %q", operationID, pathText)
 		assert.Equal(t, operation.op.Summary, command.Usage)
 		assert.Truef(t, strings.HasPrefix(command.UsageText, binaryName+" "+pathText+" [command options]"),
-			"override for %q produced UsageText %q", operationID, command.UsageText)
+			"alias for %q produced UsageText %q", operationID, command.UsageText)
+
+		if generatedCommand := commandAtPath(generatedCommands, path); generatedCommand != nil {
+			if generatedCommand.Action != nil {
+				assert.Equal(t, command.Usage, generatedCommand.Usage)
+				assert.Equal(t, command.UsageText, generatedCommand.UsageText)
+			}
+		}
 	}
 }
 
@@ -501,9 +522,20 @@ func TestBuildCommands_ContainsEveryOperationAtUniquePath(t *testing.T) {
 			paths[path] = true
 		}
 	}
-	visit("", BuildCommands(spec))
+	generatedCommands := buildGeneratedCommands(spec)
+	visit("", generatedCommands)
+	require.Len(t, paths, len(collectOperations(spec)))
 
-	assert.Len(t, paths, len(collectOperations(spec)))
+	expectedPathCount := len(paths)
+	for _, path := range commandPathAliases {
+		if commandAtPath(generatedCommands, path) == nil {
+			expectedPathCount++
+		}
+	}
+
+	paths = make(map[string]bool)
+	visit("", BuildCommands(spec))
+	assert.Len(t, paths, expectedPathCount)
 }
 
 func TestAddCommandAtPathSupportsArbitraryDepth(t *testing.T) {
