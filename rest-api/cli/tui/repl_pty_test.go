@@ -97,6 +97,13 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		// Ctrl+C line clearing all go through the real raw-mode REPL.
 		terminal.send(t, "hel\t\r")
 		terminal.waitFor(t, "KEYBINDINGS")
+		helpTranscript := terminal.transcript()
+		assert.Regexp(t, `machine power\s+Machine power control`, helpTranscript)
+		assert.Regexp(
+			t,
+			`machine power-control-machine machine-power-control-machine\s+Machine power control`,
+			helpTranscript,
+		)
 		terminal.send(t, "definitely-not-a-command\r")
 		terminal.waitFor(t, "unknown command: definitely-not-a-command")
 		terminal.send(t, "discard-this-line")
@@ -121,6 +128,20 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		terminal.waitFor(t, "Scope cleared.")
 		terminal.send(t, "scope\r")
 		terminal.waitFor(t, "No scope set.")
+
+		// Both the concise alias and exact generated path remain discoverable,
+		// complete machine names, and dispatch the same REST operation.
+		for _, commandName := range []string{
+			"machine power",
+			"machine power-control-machine machine-power-control-machine",
+		} {
+			terminal.send(t, commandName+" --action ForceRestart host")
+			terminal.waitFor(t, commandName+" --action ForceRestart host-one")
+			terminal.send(t, "\t\r")
+			terminal.waitFor(t, "Run "+commandName+" (PATCH)?")
+			terminal.send(t, "y\r")
+			terminal.waitFor(t, `"status": "accepted"`)
+		}
 
 		// Flags preceding a generated path argument must not disable
 		// resource-name completion, and the structured API error must render.
@@ -227,6 +248,15 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 		)
 		require.Len(t, historyRequests, 1)
 		assert.Contains(t, historyRequests[0].Query, "pageSize=10")
+
+		powerRequests := recorder.matching(
+			http.MethodPatch,
+			"/v2/org/acme/nico/machine/machine-1/power",
+		)
+		require.Len(t, powerRequests, 2)
+		for _, request := range powerRequests {
+			assert.JSONEq(t, `{"action":"ForceRestart"}`, request.Body)
+		}
 
 		versionRequests := recorder.matching(
 			http.MethodGet,
@@ -408,6 +438,10 @@ func newInteractiveRegressionHandler(recorder *cliRegressionRecorder) http.Handl
 				w,
 				`{"message":"history unavailable","data":{"field":"machineId"}}`,
 			)
+		case request.Method == http.MethodPatch &&
+			request.URL.Path == "/v2/org/acme/nico/machine/machine-1/power":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = io.WriteString(w, `{"status":"accepted"}`)
 		case request.Method == http.MethodGet &&
 			request.URL.Path == "/v2/org/acme/nico/dpu-extension-service":
 			_, _ = io.WriteString(w, `[

@@ -19,14 +19,17 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/openapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	urfavecli "github.com/urfave/cli/v2"
 )
 
 func TestAllCommands_CoversGeneratedCLISurface(t *testing.T) {
 	spec, err := appcli.ParseSpec(openapi.Spec)
 	require.NoError(t, err)
 
-	generatedNames := flattenGeneratedCommandNames(appcli.BuildCommands(spec))
+	infos := appcli.GeneratedCommandInfos(spec)
+	generatedNames := make([]string, 0, len(infos))
+	for _, info := range infos {
+		generatedNames = append(generatedNames, info.Name)
+	}
 	generated := make(map[string]struct{}, len(generatedNames))
 	for _, name := range generatedNames {
 		generated[name] = struct{}{}
@@ -42,6 +45,8 @@ func TestAllCommands_CoversGeneratedCLISurface(t *testing.T) {
 		assert.Truef(t, sourceExists, "alias source %q is not a generated CLI command", source)
 		_, targetExists := tuiCommands[target]
 		assert.Truef(t, targetExists, "alias target %q is not a TUI command", target)
+		_, sourceAvailable := tuiCommands[source]
+		assert.Truef(t, sourceAvailable, "generated source %q is not a TUI command", source)
 		_, alsoExcluded := generatedCommandExclusions[source]
 		assert.Falsef(t, alsoExcluded, "generated command %q is both aliased and excluded", source)
 	}
@@ -56,11 +61,6 @@ func TestAllCommands_CoversGeneratedCLISurface(t *testing.T) {
 		if _, exists := tuiCommands[name]; exists {
 			continue
 		}
-		if target, aliased := generatedCommandAliases[name]; aliased {
-			if _, exists := tuiCommands[target]; exists {
-				continue
-			}
-		}
 		if _, excluded := generatedCommandExclusions[name]; excluded {
 			continue
 		}
@@ -68,6 +68,49 @@ func TestAllCommands_CoversGeneratedCLISurface(t *testing.T) {
 	}
 	sort.Strings(missing)
 	assert.Empty(t, missing, "generated CLI commands missing from the TUI")
+}
+
+func TestAllCommands_RegistersMachinePowerAliases(t *testing.T) {
+	commands := commandNames(AllCommands())
+	assert.Contains(t, commands, "machine power")
+	assert.Contains(t, commands, "machine power-control-machine machine-power-control-machine")
+}
+
+func TestMachinePowerAliasesExecuteSameOperation(t *testing.T) {
+	for _, name := range []string{
+		"machine power",
+		"machine power-control-machine machine-power-control-machine",
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, http.MethodPatch, r.Method)
+				assert.Equal(t, "/v2/org/acme/nico/machine/machine-1/power", r.URL.Path)
+				body, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				assert.JSONEq(t, `{"action":"ForceRestart"}`, string(body))
+
+				w.Header().Set("Content-Type", "application/json")
+				_, err = io.WriteString(w, `{"status":"accepted"}`)
+				require.NoError(t, err)
+			}))
+			defer server.Close()
+
+			client := appcli.NewClient(server.URL, "acme", "token", nil, false)
+			session := &Session{Client: client, Cache: NewCache()}
+			command := requireTUICommand(t, name)
+
+			_, err := withStdin(t, "y\n", func() (string, error) {
+				var runErr error
+				output := captureStdout(func() {
+					runErr = command.Run(session, []string{
+						"--action", "ForceRestart", "machine-1",
+					})
+				})
+				return output, runErr
+			})
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestAllCommands_RegistersRepresentativeFormerGaps(t *testing.T) {
@@ -524,6 +567,7 @@ func TestGeneratedPathResourcePolicy_CoversEveryParameter(t *testing.T) {
 		}
 	}
 	assert.ElementsMatch(t, []string{
+		"task cancel|id",
 		"task cancel cancel-task|id",
 		"task get|id",
 	}, freeForm)
@@ -1050,24 +1094,6 @@ func TestMatchCommandLine_UsesLongestBoundaryMatch(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "rule list-rules list-rules", command.Name)
 	assert.Equal(t, "--all", rest)
-}
-
-func flattenGeneratedCommandNames(commands []*urfavecli.Command) []string {
-	var names []string
-	var walk func([]string, []*urfavecli.Command)
-	walk = func(prefix []string, current []*urfavecli.Command) {
-		for _, command := range current {
-			path := append(append([]string(nil), prefix...), command.Name)
-			if len(command.Subcommands) == 0 {
-				names = append(names, strings.Join(path, " "))
-				continue
-			}
-			walk(path, command.Subcommands)
-		}
-	}
-	walk(nil, commands)
-	sort.Strings(names)
-	return names
 }
 
 func commandNames(commands []Command) map[string]struct{} {

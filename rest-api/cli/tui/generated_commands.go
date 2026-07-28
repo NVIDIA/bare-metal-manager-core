@@ -69,9 +69,6 @@ func appendGeneratedCommandInfos(commands []Command, infos []appcli.GeneratedCom
 		if _, exists := registered[info.Name]; exists {
 			continue
 		}
-		if _, aliased := generatedCommandAliases[info.Name]; aliased {
-			continue
-		}
 		if _, excluded := generatedCommandExclusions[info.Name]; excluded {
 			continue
 		}
