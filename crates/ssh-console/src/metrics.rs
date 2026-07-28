@@ -27,22 +27,21 @@ use hyper_util::server::conn::auto;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use prometheus::Encoder;
-use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::shutdown_handle::ShutdownHandle;
+use crate::tcp_listener;
 
 pub async fn spawn(
     config: Arc<Config>,
     metrics_state: Arc<MetricsState>,
 ) -> Result<MetricsHandle, SpawnError> {
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
-    let listener = TcpListener::bind(config.metrics_address)
+    let (listener, metrics_address) = tcp_listener::bind(config.metrics_address)
         .await
         .map_err(SpawnError::Listen)?;
-    let metrics_address = listener.local_addr().map_err(SpawnError::Listen)?;
 
     tracing::info!(
         %metrics_address,
