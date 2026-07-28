@@ -3,33 +3,21 @@
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
 {{/*
-Count active pods (same logic as deployment.yaml)
+Count active pods (pods with machines defined)
 */}}
 {{- $activePods := 0 }}
 {{- range $podName, $podConfig := .Values.pods }}
-{{- if $root.Values.bmcServices.enabled }}
-{{- if $podConfig.cidr }}
+{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
 {{- $activePods = add $activePods 1 }}
-{{- end }}
-{{- else }}
-{{- if $podConfig.machines }}
-{{- $activePods = add $activePods 1 }}
-{{- end }}
 {{- end }}
 {{- end }}
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
-Skip conditions (same as deployment.yaml)
+Skip pods without machines
 */}}
-{{- if $root.Values.bmcServices.enabled }}
-{{- if not $podConfig.cidr }}
+{{- if not (and $podConfig.machines (gt (len $podConfig.machines) 0)) }}
 {{- continue }}
-{{- end }}
-{{- else }}
-{{- if not $podConfig.machines }}
-{{- continue }}
-{{- end }}
 {{- end }}
 
 {{- $name := $baseName }}
@@ -45,6 +33,7 @@ metadata:
   labels:
     {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
     app: {{ $baseName }}
+    nvidia-infra-controller/mat-service: "true"
     {{- if gt $activePods 1 }}
     nvidia-infra-controller/pod-name: {{ $podName | quote }}
     {{- end }}
