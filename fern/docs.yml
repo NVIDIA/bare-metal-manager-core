@@ -28,9 +28,9 @@ products:
   - display-name: NVIDIA Infra Controller
     slug: /
     path: ../docs/index.yml
-    versions:
-      - display-name: v2.0
-        path: ../docs/index.yml
+    # versions:
+    #   - display-name: v2.0
+    #     path: ../docs/index.yml
 
 redirects:
   - source: "/infra-controller/index.html"
