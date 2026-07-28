@@ -730,6 +730,17 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteOperatingSystemHandler(dbSession, tc, scp, cfg),
 		},
+		// iPXE Template endpoints (read-only; templates are synced from nico-core)
+		{
+			Path:    apiPathPrefix + "/ipxe-template",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllIpxeTemplateHandler(dbSession, tc, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/ipxe-template/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetIpxeTemplateHandler(dbSession, tc, cfg),
+		},
 		// NetworkSecurityGroup endpoints
 		{
 			Path:    apiPathPrefix + "/network-security-group",
@@ -925,13 +936,13 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		// SKU endpoints
 		{
 			Path:    apiPathPrefix + "/sku",
-			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetAllSkuHandler(dbSession, tc, cfg),
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateSkuHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/sku",
-			Method:  http.MethodPost,
-			Handler: apiHandler.NewCreateSkuHandler(dbSession, scp),
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllSkuHandler(dbSession, tc, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/sku/:id",
