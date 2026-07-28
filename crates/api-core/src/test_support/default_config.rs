@@ -186,6 +186,7 @@ pub fn get() -> CarbideConfig {
             controller: StateControllerConfig::default(),
         },
         power_shelf_state_controller: PowerShelfStateControllerConfig {
+            rack_firmware_reprovisioning_enabled: false,
             controller: StateControllerConfig::default(),
         },
         rack_state_controller: RackStateControllerConfig {

@@ -206,6 +206,20 @@ impl Forge for Api {
         crate::handlers::vpc::find_by_ids(self, request).await
     }
 
+    async fn find_site_prefix_ids(
+        &self,
+        request: Request<rpc::SitePrefixSearchFilter>,
+    ) -> Result<Response<rpc::SitePrefixIdList>, Status> {
+        crate::handlers::site_prefix::find_ids(self, request).await
+    }
+
+    async fn find_site_prefixes_by_ids(
+        &self,
+        request: Request<rpc::SitePrefixesByIdsRequest>,
+    ) -> Result<Response<rpc::SitePrefixList>, Status> {
+        crate::handlers::site_prefix::find_by_ids(self, request).await
+    }
+
     async fn create_vpc_prefix(
         &self,
         request: Request<rpc::VpcPrefixCreationRequest>,

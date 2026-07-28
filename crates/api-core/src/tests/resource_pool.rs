@@ -20,8 +20,10 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
-use model::resource_pool::common::VPC_VNI;
+use model::machine::ManagedHostState;
+use model::resource_pool::common::{LOOPBACK_IP_V6, VPC_VNI};
 use model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
 };
@@ -99,6 +101,83 @@ prefix = "172.0.1.0/24"
             non_auto_assign_free: 0,
             non_auto_assign_used: 0
         }
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_grow_ipv6_loopback_pool_backfills_existing_dpus(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env = create_test_env(db_pool.clone()).await;
+    let dpu_machine_ids = [
+        MachineId::from_str("fm100dskla0ihp0pn4tv7v1js2k2mo37sl0jjr8141okqg8pjpdpfihaa80")?,
+        MachineId::from_str("fm100ds27v4uuq7sgs4gsjummskt0b3tedugtpevjrbfh6su081n9jufcq0")?,
+    ];
+
+    // These rows predate the optional pool. Growing `lo-ip-v6` at runtime must
+    // reconcile them without waiting for another API restart or discovery.
+    let mut txn = db_pool.begin().await?;
+    for machine_id in &dpu_machine_ids {
+        db::machine::create(
+            txn.as_mut(),
+            None,
+            machine_id,
+            ManagedHostState::Ready,
+            None,
+            2,
+        )
+        .await?;
+    }
+    txn.commit().await?;
+
+    let toml = r#"
+[lo-ip-v6]
+type = "ipv6"
+prefix = "2001:db8:2389::/126"
+"#;
+    let grow = || rpc::forge::GrowResourcePoolRequest {
+        text: toml.to_string(),
+    };
+    env.api
+        .admin_grow_resource_pool(tonic::Request::new(grow()))
+        .await?;
+
+    let mut assigned = HashSet::new();
+    let mut versions = Vec::new();
+    let mut txn = db_pool.begin().await?;
+    for machine_id in &dpu_machine_ids {
+        let config = db::machine::get_network_config(txn.as_mut(), machine_id).await?;
+        assigned.insert(
+            config
+                .value
+                .loopback_ip_v6
+                .expect("runtime pool growth should backfill every existing DPU"),
+        );
+        versions.push(config.version);
+    }
+    txn.commit().await?;
+    assert_eq!(assigned.len(), dpu_machine_ids.len());
+
+    let stats_after_backfill = db::resource_pool::stats(&db_pool, LOOPBACK_IP_V6).await?;
+    assert_eq!(stats_after_backfill.used, dpu_machine_ids.len());
+
+    // Replaying the additive grow request also replays reconciliation. Both the
+    // persisted addresses and their group versions must remain unchanged.
+    env.api
+        .admin_grow_resource_pool(tonic::Request::new(grow()))
+        .await?;
+    let mut txn = db_pool.begin().await?;
+    for (machine_id, version) in dpu_machine_ids.iter().zip(versions) {
+        let config = db::machine::get_network_config(txn.as_mut(), machine_id).await?;
+        assert!(assigned.contains(&config.value.loopback_ip_v6.unwrap()));
+        assert_eq!(config.version, version);
+    }
+    txn.commit().await?;
+    assert_eq!(
+        db::resource_pool::stats(&db_pool, LOOPBACK_IP_V6).await?,
+        stats_after_backfill
     );
 
     Ok(())

@@ -28,7 +28,7 @@ name = "carbide_test_support"
 
 [dependencies]
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

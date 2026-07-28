@@ -28,3 +28,4 @@ pub mod io;
 pub mod maintenance;
 pub mod metrics;
 pub mod ready;
+pub mod reprovisioning;

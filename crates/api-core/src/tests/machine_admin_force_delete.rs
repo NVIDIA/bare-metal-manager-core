@@ -48,6 +48,7 @@ use model::hardware_info::TpmEkCertificate;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{InstanceState, ManagedHostState};
+use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
 use model::site_explorer::ExploredManagedHost;
 use sqlx::{PgConnection, Row};
 use tonic::Request;
@@ -74,6 +75,30 @@ async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPa
 #[crate::sqlx_test]
 async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    db::resource_pool::define(
+        &mut txn,
+        model::resource_pool::common::LOOPBACK_IP_V6,
+        &ResourcePoolDef {
+            pool_type: ResourcePoolType::Ipv6,
+            prefix: Some("2001:db8::/125".to_string()),
+            ranges: vec![],
+            delegate_prefix_len: None,
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let initial_loopback_v6_pool_stats = db::resource_pool::stats(
+        txn.as_mut(),
+        env.common_pools.ethernet.pool_loopback_ip_v6.name(),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
     let host_config = env.managed_host_config();
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
@@ -86,6 +111,17 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
     .await
     .unwrap()
     .unwrap();
+    assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
+    let allocated_loopback_v6_pool_stats = db::resource_pool::stats(
+        txn.as_mut(),
+        env.common_pools.ethernet.pool_loopback_ip_v6.name(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        allocated_loopback_v6_pool_stats.used,
+        initial_loopback_v6_pool_stats.used + 1
+    );
     assert!(
         !db::state_history::find_by_object_ids(
             &mut txn,
@@ -103,12 +139,32 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
             .is_empty()
     );
 
+    // Model the stale snapshot race directly: the reservation still belongs
+    // to this DPU even when its persisted network config no longer names it.
+    sqlx::query(
+        "UPDATE machines
+         SET network_config = jsonb_set(
+             network_config,
+             '{loopback_ip_v6}',
+             'null'::jsonb
+         )
+         WHERE id = $1",
+    )
+    .bind(dpu_machine_id)
+    .execute(txn.as_mut())
+    .await
+    .unwrap();
+    let network_config = db::machine::get_network_config(txn.as_mut(), &dpu_machine_id)
+        .await
+        .unwrap();
+    assert_eq!(network_config.value.loopback_ip_v6, None);
+
     let host = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
         .await
         .unwrap()
         .unwrap();
 
-    txn.rollback().await.unwrap();
+    txn.commit().await.unwrap();
 
     let response = force_delete(&env, &dpu_machine_id).await;
     validate_delete_response(&response, Some(&host.id), &dpu_machine_id);
@@ -121,6 +177,18 @@ async fn test_admin_force_delete_dpu_only(pool: sqlx::PgPool) {
 
     // Validate that the DPU is gone
     validate_machine_deletion(&env, &dpu_machine_id, None).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let released_loopback_v6_pool_stats = db::resource_pool::stats(
+        txn.as_mut(),
+        env.common_pools.ethernet.pool_loopback_ip_v6.name(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        released_loopback_v6_pool_stats,
+        initial_loopback_v6_pool_stats
+    );
 }
 
 #[crate::sqlx_test]
@@ -445,6 +513,71 @@ async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::Pg
     }
 }
 
+/// Site Explorer updates a machine topology before its explored endpoint.
+/// Force-delete must take those locks in the same order: otherwise it can
+/// hold the endpoint while waiting for the topology, forming a cycle when
+/// Site Explorer proceeds to the endpoint.
+#[crate::sqlx_test]
+async fn test_admin_force_delete_orders_topology_before_endpoint(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let managed_host = create_managed_host(&env).await;
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let machine = db::machine::find_one(
+        txn.as_mut(),
+        &managed_host.id,
+        MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let bmc_ip = machine
+        .status
+        .bmc_info
+        .ip
+        .expect("managed host fixture has a BMC ip");
+    txn.commit().await.unwrap();
+
+    // Simulate Site Explorer's firmware refresh holding the topology row.
+    let mut exploration_txn = env.pool.begin().await.unwrap();
+    sqlx::query("UPDATE machine_topologies SET machine_id = machine_id WHERE machine_id = $1")
+        .bind(managed_host.id)
+        .execute(exploration_txn.as_mut())
+        .await
+        .unwrap();
+
+    let api = managed_host.api.clone();
+    let host_id = managed_host.id;
+    let force_delete_task = tokio::spawn(async move {
+        api.admin_force_delete_machine(tonic::Request::new(AdminForceDeleteMachineRequest {
+            host_query: host_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
+        }))
+        .await
+    });
+    wait_until_blocked_on_any(&env.pool, &["machine_topologies", "cleanup_machine_by_id"]).await;
+
+    // With canonical topology -> endpoint ordering, force-delete is still
+    // waiting for the topology and has not locked the endpoint.
+    sqlx::query("UPDATE explored_endpoints SET address = address WHERE address = $1")
+        .bind(bmc_ip)
+        .execute(exploration_txn.as_mut())
+        .await
+        .expect("endpoint update must not deadlock against force-delete");
+    exploration_txn.commit().await.unwrap();
+
+    let response = force_delete_task
+        .await
+        .unwrap()
+        .expect("force delete completes once exploration commits")
+        .into_inner();
+    assert!(response.all_done);
+    validate_machine_deletion(&env, &managed_host.id, None).await;
+}
+
 /// Polls `pg_stat_activity` until some backend in this test's database sits
 /// in a lock wait on a query that names `relation`. The `datname` filter
 /// keeps parallel per-test databases on the shared server out of the match,
@@ -453,20 +586,26 @@ async fn test_admin_force_delete_orders_endpoint_locks_by_address(pool: sqlx::Pg
 /// RPC's pre-transaction work (Redfish attempts against the fixture BMC)
 /// on slow CI runners.
 async fn wait_until_blocked_on(pool: &sqlx::PgPool, relation: &str) {
+    wait_until_blocked_on_any(pool, &[relation]).await;
+}
+
+async fn wait_until_blocked_on_any(pool: &sqlx::PgPool, queries: &[&str]) {
     for _ in 0..600 {
-        let waiting: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%' || $1 || '%'",
+        let waiting_queries: Vec<String> = sqlx::query_scalar(
+            "SELECT query FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
         )
-        .bind(relation)
-        .fetch_one(pool)
+        .fetch_all(pool)
         .await
         .unwrap();
-        if waiting > 0 {
+        if waiting_queries
+            .iter()
+            .any(|query| queries.iter().any(|needle| query.contains(needle)))
+        {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    panic!("force delete never blocked on {relation}");
+    panic!("force delete never blocked on any of {queries:?}");
 }
 
 async fn force_delete(

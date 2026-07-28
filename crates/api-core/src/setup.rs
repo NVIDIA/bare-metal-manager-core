@@ -66,7 +66,7 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use carbide_vpc_prefix_controller::context::VpcPrefixStateHandlerServices;
 use carbide_vpc_prefix_controller::handler::VpcPrefixStateHandler;
 use carbide_vpc_prefix_controller::io::VpcPrefixStateControllerIO;
-use db::machine::update_dpu_asns;
+use db::machine::{update_dpu_asns, update_dpu_loopback_ips_v6};
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
@@ -262,10 +262,12 @@ pub(crate) async fn start_runtime(
     };
 
     // Note: Normally we want initialize_and_start_controllers to be responsible for populating
-    // information into the database, but resource pools and route servers need to be defined first,
-    // since the controllers rely on a fully-hydrated Api object, which relies on route_servers and
-    // common_pools being populated. So if we're configured for listen_only, strictly read them from
-    // the database (assuming another instance has populated them), otherwise, populate them now.
+    // information into the database, but resource pools, route servers, and configured site
+    // prefixes need to be defined first. The controllers rely on a fully-hydrated Api object, which
+    // relies on route_servers and common_pools being populated, while site-prefix inventory must
+    // reflect the complete configured set before the API starts serving it. So if we're configured
+    // for listen_only, strictly read them from the database (assuming another instance has populated
+    // them), otherwise, populate them now.
     //
     // Pool reconciliation specifically must happen before `create_common_pools` runs below, because
     // that call queries `resource_pool` and bails if any mandatory pool is missing or empty.
@@ -289,6 +291,9 @@ pub(crate) async fn start_runtime(
             RouteServerSourceType::ConfigFile,
         )
         .await?;
+
+        db::site_prefix::reconcile_configured(&mut txn, &carbide_config.site_fabric_prefixes)
+            .await?;
 
         txn.commit().await?;
 
@@ -1031,6 +1036,13 @@ async fn initialize_and_start_controllers<'a>(
     )
     .await?;
 
+    if let Err(error) = update_dpu_loopback_ips_v6(db_pool, common_pools).await {
+        tracing::error!(
+            error = %error,
+            "Failed to update IPv6 loopback IPs for DPUs",
+        );
+    }
+
     if let Err(e) = update_dpu_asns(db_pool, common_pools).await {
         tracing::warn!(
             error = %e,
@@ -1296,6 +1308,11 @@ async fn initialize_and_start_controllers<'a>(
                         .machine_state_controller
                         .scout_reporting_timeout,
                 )
+                .waiting_for_measurements_timeout(
+                    carbide_config
+                        .machine_state_controller
+                        .waiting_for_measurements_timeout,
+                )
                 .uefi_boot_wait(carbide_config.machine_state_controller.uefi_boot_wait)
                 .hardware_models(carbide_config.get_firmware_config())
                 .firmware_downloader(&downloader)
@@ -1444,6 +1461,9 @@ async fn initialize_and_start_controllers<'a>(
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                rack_firmware_reprovisioning_enabled: carbide_config
+                    .power_shelf_state_controller
+                    .rack_firmware_reprovisioning_enabled,
             }
             .into(),
         )

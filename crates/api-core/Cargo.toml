@@ -34,6 +34,7 @@ path = "tests/integration/main.rs"
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-test-support = { path = "../test-support", optional = true }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-authn = { path = "../authn" }
 carbide-dpa = { path = "../dpa" }
@@ -187,6 +188,7 @@ linux-build = ["tss-esapi"]
 # builds (resolver v2 keeps it out of the production `carbide-api` binary); only `carbide-api-web`'s
 # dev-dependency turns it on.
 test-support = [
+  "dep:carbide-test-support",
   "carbide-api-model/test-support",
   "carbide-ib-fabric/test-support",
   "carbide-machine-controller/test-support",

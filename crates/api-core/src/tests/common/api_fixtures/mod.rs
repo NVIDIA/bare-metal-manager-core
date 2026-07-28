@@ -1484,6 +1484,9 @@ pub async fn create_test_env_with_overrides(
         power_down_wait: Duration::seconds(0),
         failure_retry_time: Duration::seconds(0),
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
+        waiting_for_measurements_timeout: config
+            .machine_state_controller
+            .waiting_for_measurements_timeout,
         uefi_boot_wait: Duration::seconds(0),
     };
 
@@ -1655,6 +1658,7 @@ pub async fn create_test_env_with_overrides(
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                rack_firmware_reprovisioning_enabled: false,
             }
             .into(),
         )

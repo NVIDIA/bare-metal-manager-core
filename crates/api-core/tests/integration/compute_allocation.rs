@@ -636,6 +636,36 @@ async fn test_create_instance_with_enough_allocations(
         .await
         .unwrap();
 
+    // Nothing in the suite had ever asked for allocation stats -- every test passed
+    // `include_allocation_stats: false`, and the only caller that passes `true` is
+    // production, over in `api-web/src/instance_type.rs`. So this is the first check on
+    // the numbers the web UI actually reads back: one allocation of one, fully consumed.
+    let instance_types = env
+        .api
+        .find_instance_types_by_ids(Request::new(rpc::forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: vec![instance_type_id.to_string()],
+            tenant_organization_id: Some(TENANT_ORG.to_string()),
+            include_allocation_stats: true,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instance_types;
+
+    assert_eq!(instance_types.len(), 1);
+    let stats = instance_types[0]
+        .allocation_stats
+        .as_ref()
+        .expect("allocation stats should come back when include_allocation_stats is set");
+    assert_eq!(stats.max_allocatable, 1, "one allocation, sized one");
+    assert_eq!(stats.used, 1, "the instance we just allocated");
+    assert_eq!(stats.unused, 0, "which leaves nothing spare");
+    assert_eq!(
+        stats.unused_usable, 0,
+        "and nothing spare on a healthy host either -- this one is computed separately \
+         from `unused`, by filtering out unused machines in bad states"
+    );
+
     Ok(())
 }
 
@@ -929,6 +959,21 @@ async fn test_delete_allocation_when_instances_not_present_passes(
         .await
         .unwrap();
 
+    // The delete returning `Ok` only says the call didn't error -- check the row is
+    // actually gone, or this passes just as happily against a delete that does nothing.
+    let remaining = env
+        .api
+        .find_compute_allocation_ids(Request::new(rpc::forge::FindComputeAllocationIdsRequest {
+            name: Some(alloc_name),
+            tenant_organization_id: Some(TENANT_ORG.to_string()),
+            instance_type_id: Some(instance_type_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ids;
+    assert!(remaining.is_empty(), "the allocation should be gone");
+
     Ok(())
 }
 
@@ -986,7 +1031,7 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
     .await;
     // Second allocation keeps remaining cap >= use.
     // Expect success with valid tenant/type.
-    let _alloc_2 = create_compute_allocation(
+    let alloc_2 = create_compute_allocation(
         &env,
         &instance_type_id,
         1,
@@ -1010,6 +1055,51 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
         )
         .await
         .unwrap();
+
+    // "Sufficient remain" is the claim in this test's name and nothing here was measuring
+    // it -- the delete returning `Ok` says only that the call didn't error. So check the
+    // row is actually gone, then prove the remaining capacity is genuinely one by deleting
+    // the *second* allocation and watching it get refused: with an instance still live,
+    // dropping to zero is exactly what the guard exists to stop.
+    let remaining = env
+        .api
+        .find_compute_allocation_ids(Request::new(rpc::forge::FindComputeAllocationIdsRequest {
+            name: None,
+            tenant_organization_id: Some(TENANT_ORG.to_string()),
+            instance_type_id: Some(instance_type_id.clone()),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ids;
+    assert_eq!(remaining, vec![alloc_2.id.unwrap()]);
+
+    let status = env
+        .api
+        .delete_compute_allocation(
+            DeleteComputeAllocationRequest::builder(TENANT_ORG)
+                .id(alloc_2.id.unwrap())
+                .tonic_request(),
+        )
+        .await
+        .expect_err("deleting the last allocation under a live instance should be refused");
+    assert_eq!(status.code(), tonic::Code::FailedPrecondition);
+
+    // And the refusal has to have left the row alone -- `FailedPrecondition` on its own
+    // would still come back from a handler that deleted the allocation and only then
+    // errored, which is the failure this guard exists to prevent.
+    let after_refusal = env
+        .api
+        .find_compute_allocation_ids(Request::new(rpc::forge::FindComputeAllocationIdsRequest {
+            name: None,
+            tenant_organization_id: Some(TENANT_ORG.to_string()),
+            instance_type_id: Some(instance_type_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .ids;
+    assert_eq!(after_refusal, vec![alloc_2.id.unwrap()]);
 
     Ok(())
 }
@@ -1414,11 +1504,37 @@ async fn test_remove_machine_association(
         ))
         .await;
 
+    // Both branches used to stop at the status code, which left the association itself
+    // unchecked either way -- a handler that returned `Ok` without unbinding, or one that
+    // errored *after* committing the unbind, would both have gone unnoticed.
+    let bound_instance_type = env
+        .api
+        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+            machine_ids: vec![host_to_remove.id],
+            ..Default::default()
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .machines
+        .remove(0)
+        .config
+        .expect("machine should have a config")
+        .instance_type_id;
+
     if should_pass {
         result.unwrap();
+        assert!(
+            bound_instance_type.is_none(),
+            "the association should be gone once removal succeeds"
+        );
     } else {
         let err = result.unwrap_err();
         assert_eq!(err.code(), Code::FailedPrecondition);
+        assert!(
+            bound_instance_type.is_some(),
+            "a refused removal should leave the association in place"
+        );
     }
 
     Ok(())

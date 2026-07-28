@@ -21,10 +21,11 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::injection::InjectionStore;
-use bmc_mock::ipmi_sim::{IpmiEndpoint, IpmiSimConfig, IpmiSimHandle, STANDARD_IPMI_PORT};
+use bmc_mock::ipmi_sim::{IpmiEndpoint, IpmiSimConfig, IpmiSimHandle};
 use bmc_mock::{
     BmcState, Callbacks, CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo,
 };
+use carbide_ipmi::DEFAULT_IPMI_PORT;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -187,7 +188,7 @@ impl BmcMockWrapper {
         bind_ip: std::net::IpAddr,
     ) -> Result<Option<BmcMockWrapperHandle>, MachineStateError> {
         Ok(self
-            .start_ipmi_sim(bind_ip, Some(STANDARD_IPMI_PORT))
+            .start_ipmi_sim(bind_ip, Some(DEFAULT_IPMI_PORT))
             .await?
             .map(|ipmi_sim_handle| BmcMockWrapperHandle {
                 _bmc_mock: None,
