@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -333,17 +334,30 @@ fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
 /// interface it finds; this instead DHCPs every matching interface, under
 /// both the predictable ("en*") and legacy ("eth*") naming conventions,
 /// so multi-NIC hosts come up with working networking on every port.
-const DEFAULT_NETWORK_CONFIG: &str = "version: 2\nethernets:\n  predictable-names:\n    match:\n      name: \"en*\"\n    dhcp4: true\n    dhcp6: true\n  legacy-names:\n    match:\n      name: \"eth*\"\n    dhcp4: true\n    dhcp6: true\n";
+const DEFAULT_NETWORK_CONFIG: &str = r#"version: 2
+ethernets:
+  predictable-names:
+    match:
+      name: "en*"
+    dhcp4: true
+    dhcp6: true
+  legacy-names:
+    match:
+      name: "eth*"
+    dhcp4: true
+    dhcp6: true
+"#;
 
 /// Resolves the network-config YAML to use for a machine: the `network:`
 /// key extracted from the tenant's custom cloud-init userdata if present,
 /// otherwise DEFAULT_NETWORK_CONFIG (DHCP on every interface), rather
 /// than an empty document that would fall back to cloud-init's own
 /// first-interface-only default.
-fn resolve_network_config(custom_cloud_init: Option<&str>) -> String {
+fn resolve_network_config(custom_cloud_init: Option<&str>) -> Cow<'static, str> {
     custom_cloud_init
         .and_then(extract_network_config)
-        .unwrap_or_else(|| DEFAULT_NETWORK_CONFIG.to_string())
+        .map(Cow::Owned)
+        .unwrap_or(Cow::Borrowed(DEFAULT_NETWORK_CONFIG))
 }
 
 /// Serves NoCloud's `network-config` document for a tenant's assigned
@@ -355,15 +369,8 @@ fn resolve_network_config(custom_cloud_init: Option<&str>) -> String {
 pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
     let network_config_yaml =
         resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
-
-    let mut template_data: HashMap<String, String> = HashMap::new();
-    template_data.insert("network_config".to_string(), network_config_yaml);
-
-    axum_template::Render(
-        "network-config".to_string(),
-        state.engine.clone(),
-        template_data,
-    )
+    let template_data = HashMap::from([("network_config", network_config_yaml)]);
+    axum_template::Render("network-config", state.engine.clone(), template_data)
 }
 
 pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
