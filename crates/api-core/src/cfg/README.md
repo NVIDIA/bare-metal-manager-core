@@ -588,7 +588,7 @@ events, so consumers handle them identically.
 | `services` | `Box<DpfMandatoryServicesConfig>` | built-in mandatory-service defaults | Helm chart, image, and pull-secret settings for the six mandatory DPF services. |
 | `docker_image_pull_secret` | `Option<String>` | — | Override for the Kubernetes `imagePullSecrets` entry used to pull mandatory-service images (applied to every mandatory service except `dts` and `doca_hbn`, which take a pull secret only from their per-service config). |
 | `proxy` | `Option<DpfProxyDetails>` | — | Proxy configuration for the DPU. When set, containerd on the DPU routes outbound HTTPS traffic through it. |
-| `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`. |
+| `deployments` | `DpfDeploymentsConfig` | *(default)* | Per-generation DPUDeployment configurations. BF3 is always present with defaults; BF4 variants are opt-in. BF4 Astra gets default Weave DHCP agent, Weave flow controller, and Xplane services; `extra_services` can replace any of those definitions. |
 
 Omitting `[dpf.dpu_agent_bootstrap_ca]` preserves the historical download URL.
 Use the following configuration to retain download mode while overriding the

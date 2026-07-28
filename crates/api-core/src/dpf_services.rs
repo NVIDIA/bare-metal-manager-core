@@ -22,9 +22,9 @@ use std::fmt::Write;
 
 use carbide_dpf::sdk::build_dpu_interfaces_vec;
 use carbide_dpf::types::{
-    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_SERVICE_NAME,
-    DOCA_XPLANE_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, FMDS_SERVICE_NAME,
-    OTEL_COLLECTOR_SERVICE_NAME,
+    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME,
+    DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME, DOCA_XPLANE_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
+    DTS_SERVICE_NAME, FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
 };
 use carbide_dpf::{
     ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
@@ -32,8 +32,8 @@ use carbide_dpf::{
 };
 
 use crate::cfg::file::{
-    DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfMandatoryServicesConfig, DpfServiceConfig,
-    DpfExtraService, DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
+    DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfExtraService,
+    DpfResolvedMandatoryServicesConfig, DpfServiceConfig,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
@@ -80,13 +80,19 @@ pub const FMDS_SERVICE_MTU: i64 = 1500;
 pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
-/// Weave service Definitions
-pub const DOCA_WEAVE_SERVICE_HELM_NAME: &str = "doca-weave";
-pub const DOCA_WEAVE_SERVICE_HELM_VERSION: &str = "1.0";
-pub const DOCA_WEAVE_SERVICE_IMAGE_NAME: &str = "doca_weave";
-pub const DOCA_WEAVE_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+/// Weave DHCP agent service definitions.
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "doca-weave-dhcp-agent";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "1.0";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "doca_weave_dhcp_agent";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 
-/// Xplane service Definitions
+/// Weave flow (ovs) controller service definitions.
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "doca-weave-flow-controller";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "1.0";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "doca_weave_flow_controller";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+
+/// Xplane service definitions.
 pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
 pub const DOCA_XPLANE_SERVICE_HELM_VERSION: &str = "1.0";
 pub const DOCA_XPLANE_SERVICE_IMAGE_NAME: &str = "doca_xplane";
@@ -231,6 +237,46 @@ pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
     }
 }
 
+pub(crate) fn default_doca_weave_dhcp_agent_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: None,
+    }
+}
+
+pub(crate) fn default_doca_weave_flow_controller_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!(
+            "{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME}"
+        ),
+        docker_image_tag: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: None,
+    }
+}
+
+pub(crate) fn default_doca_xplane_service() -> DpfServiceConfig {
+    DpfServiceConfig {
+        name: DOCA_XPLANE_SERVICE_NAME.to_string(),
+        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_chart: DOCA_XPLANE_SERVICE_HELM_NAME.to_string(),
+        helm_version: DOCA_XPLANE_SERVICE_HELM_VERSION.to_string(),
+        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
+        docker_image_tag: DOCA_XPLANE_SERVICE_IMAGE_TAG.to_string(),
+        docker_image_pull_secret: None,
+    }
+}
+
 /// Adds an `imagePullSecrets` block to a service's Helm values when the service has
 /// a configured pull secret, omitting it entirely otherwise. Mandatory services carry
 /// no pull secret by default (public-registry pulls); one is emitted only when set via
@@ -247,30 +293,6 @@ fn apply_image_pull_secrets(helm_values: &mut serde_json::Value, cfg: &DpfServic
             "imagePullSecrets".to_string(),
             serde_json::json!([{ "name": secret }]),
         );
-
-pub(crate) fn default_doca_weave_service() -> DpfServiceConfig {
-    DpfServiceConfig {
-        name: DOCA_WEAVE_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
-        helm_chart: DOCA_WEAVE_SERVICE_HELM_NAME.to_string(),
-        helm_version: DOCA_WEAVE_SERVICE_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_WEAVE_SERVICE_IMAGE_NAME}"),
-        docker_image_tag: DOCA_WEAVE_SERVICE_IMAGE_TAG.to_string(),
-        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
-    }
-}
-
-pub(crate) fn default_doca_xplane_service() -> DpfServiceConfig {
-    DpfServiceConfig {
-        name: DOCA_XPLANE_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
-        helm_chart: DOCA_XPLANE_SERVICE_HELM_NAME.to_string(),
-        helm_version: DOCA_XPLANE_SERVICE_HELM_VERSION.to_string(),
-        docker_repo_url: format!("{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_XPLANE_SERVICE_IMAGE_NAME}"),
-        docker_image_tag: DOCA_XPLANE_SERVICE_IMAGE_TAG.to_string(),
-        docker_image_pull_secret: DEFAULT_DPF_IMAGE_PULL_SECRET.to_string(),
-    }
->>>>>>> 0ca6c913a (Support for creating DPF flavor, deployment and services for BF4 Astra)
 }
 
 /// DOCA HBN service definition.
@@ -518,8 +540,35 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     }
 }
 
-pub fn doca_weave_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    let mut helm_values = serde_json::json!({
+        "image": {
+            "repository": cfg.docker_repo_url,
+            "tag": cfg.docker_image_tag,
+        }
+    });
+    apply_image_pull_secrets(&mut helm_values, cfg);
     ServiceDefinition {
+        helm_values: Some(helm_values),
+        ..ServiceDefinition::new(
+            &cfg.name,
+            &cfg.helm_repo_url,
+            &cfg.helm_chart,
+            &cfg.helm_version,
+        )
+    }
+}
+
+pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    let mut helm_values = serde_json::json!({
+        "image": {
+            "repository": cfg.docker_repo_url,
+            "tag": cfg.docker_image_tag,
+        }
+    });
+    apply_image_pull_secrets(&mut helm_values, cfg);
+    ServiceDefinition {
+        helm_values: Some(helm_values),
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,
@@ -530,7 +579,15 @@ pub fn doca_weave_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 }
 
 pub fn doca_xplane_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
+    let mut helm_values = serde_json::json!({
+        "image": {
+            "repository": cfg.docker_repo_url,
+            "tag": cfg.docker_image_tag,
+        }
+    });
+    apply_image_pull_secrets(&mut helm_values, cfg);
     ServiceDefinition {
+        helm_values: Some(helm_values),
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,
@@ -556,7 +613,12 @@ pub fn mandatory_services(
 
     for (service, cfg) in &resolved.extra {
         match service {
-            DpfExtraService::DocaWeave => service_vec.push(doca_weave_service(cfg)),
+            DpfExtraService::DocaWeaveDhcpAgent => {
+                service_vec.push(doca_weave_dhcp_agent_service(cfg))
+            }
+            DpfExtraService::DocaWeaveFlowController => {
+                service_vec.push(doca_weave_flow_controller_service(cfg))
+            }
             DpfExtraService::DocaXplane => service_vec.push(doca_xplane_service(cfg)),
         }
     }
@@ -657,6 +719,58 @@ mod tests {
         assert_eq!(
             dts_service(&dts_cfg).helm_values.unwrap()["imagePullSecrets"],
             expected
+        );
+    }
+
+    #[test]
+    fn deployment_specific_services_emit_image_pull_secrets_when_configured() {
+        value_scenarios!(
+            run = |service| {
+                let (mut config, build): (
+                    DpfServiceConfig,
+                    fn(&DpfServiceConfig) -> ServiceDefinition,
+                ) = match service {
+                    DpfExtraService::DocaWeaveDhcpAgent => (
+                        default_doca_weave_dhcp_agent_service(),
+                        doca_weave_dhcp_agent_service,
+                    ),
+                    DpfExtraService::DocaWeaveFlowController => (
+                        default_doca_weave_flow_controller_service(),
+                        doca_weave_flow_controller_service,
+                    ),
+                    DpfExtraService::DocaXplane => (
+                        default_doca_xplane_service(),
+                        doca_xplane_service,
+                    ),
+                };
+                let rendered_secret = |definition: ServiceDefinition| {
+                    definition
+                        .helm_values
+                        .and_then(|values| {
+                            values["imagePullSecrets"][0]["name"]
+                                .as_str()
+                                .map(str::to_string)
+                        })
+                };
+                let default_secret = rendered_secret(build(&config));
+                config.docker_image_pull_secret = Some("private-doca-secret".to_string());
+                let configured_secret = rendered_secret(build(&config));
+                (default_secret, configured_secret)
+            };
+            "Weave DHCP agent" {
+                DpfExtraService::DocaWeaveDhcpAgent
+                    => (None, Some("private-doca-secret".to_string())),
+            }
+
+            "Weave flow controller" {
+                DpfExtraService::DocaWeaveFlowController
+                    => (None, Some("private-doca-secret".to_string())),
+            }
+
+            "Xplane" {
+                DpfExtraService::DocaXplane
+                    => (None, Some("private-doca-secret".to_string())),
+            }
         );
     }
 

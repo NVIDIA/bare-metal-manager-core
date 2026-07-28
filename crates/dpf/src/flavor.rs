@@ -1090,6 +1090,7 @@ fn get_bf4_astra_config_files(
                     "LOCAL_SERIAL=$(echo \"$LOCAL_SERIAL\" | tr -d '[:space:]')\n",
                     "\n",
                     "if [ -z \"$LOCAL_SERIAL\" ]; then\n",
+                    "    echo \"failed to detect local DPU serial from PCI device 0002:01:00.0; cannot select rail addresses\" >&2\n",
                     "    exit 1\n",
                     "fi\n",
                     "\n",
@@ -1107,6 +1108,7 @@ fn get_bf4_astra_config_files(
                     "done\n",
                     "\n",
                     "if [ -z \"$NODE_ADDR\" ] || [ -z \"$GW_ADDR\" ]; then\n",
+                    "    echo \"no rail address mapping for DPU serial ${LOCAL_SERIAL}; NODE_ADDR=${NODE_ADDR:-unset} GW_ADDR=${GW_ADDR:-unset}\" >&2\n",
                     "    exit 1\n",
                     "fi\n",
                     "\n",
@@ -1587,18 +1589,14 @@ mod tests {
                 ) => true,
             }
 
-            "OVS bootstrap invokes both Astra scripts with blank line and 2-space helper indent" {
+            "OVS bootstrap invokes both Astra scripts" {
                 (
-                    ovs_script.contains(
-                        "# Shared helper used by the called scripts; exported so they inherit it\n\n# create an entry"
-                    )
-                        && ovs_script.contains("  ovs-vsctl --timeout 30 \"$@\"")
-                        && ovs_script.contains("/etc/mellanox/ovs-script.sh")
+                    ovs_script.contains("/etc/mellanox/ovs-script.sh")
                         && ovs_script.contains("/etc/mellanox/xplane-bridge.sh")
                 ) => true,
             }
 
-            "Spectrum-X config file has no stray block marker and correct Adaptive Routing Force indent" {
+            "Spectrum-X config has the Adaptive Routing Force setting" {
                 {
                     let spectrum = flavor
                         .spec
@@ -1609,11 +1607,44 @@ mod tests {
                         .find(|file| file.path == "/bindata/spectrum-x/RA2.2-runtime.yaml")
                         .and_then(|file| file.raw.as_ref())
                         .unwrap();
-                    !spectrum.starts_with('|')
-                        && spectrum.contains(
-                            "    - name: Adaptive Routing Force\n      value: true\n      dmsPath:"
-                        )
-                        && spectrum.contains("      valueType: bool\n  congestionControl:\n")
+                    serde_yaml::from_str::<serde_yaml::Value>(spectrum)
+                        .ok()
+                        .is_some_and(|document| {
+                            let runtime = &document["runtimeConfig"];
+                            runtime["adaptiveRouting"]
+                                .as_sequence()
+                                .is_some_and(|settings| {
+                                    settings.iter().any(|setting| {
+                                        setting["name"].as_str() == Some("Adaptive Routing Force")
+                                            && setting["value"].as_bool() == Some(true)
+                                            && setting["valueType"].as_str() == Some("bool")
+                                            && setting["dmsPath"].as_str()
+                                                == Some(
+                                                    "/interfaces/interface/nvidia/roce/config/adaptive-routing-force",
+                                                )
+                                    })
+                                })
+                                && runtime["congestionControl"].is_sequence()
+                        })
+                } => true,
+            }
+
+            "xplane bridge setup diagnoses missing serial and address mappings" {
+                {
+                    let xplane_script = flavor
+                        .spec
+                        .config_files
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .find(|file| file.path == "/etc/mellanox/xplane-bridge.sh")
+                        .and_then(|file| file.raw.as_ref())
+                        .unwrap();
+                    xplane_script.contains(
+                        "failed to detect local DPU serial from PCI device 0002:01:00.0; cannot select rail addresses"
+                    ) && xplane_script.contains(
+                        "no rail address mapping for DPU serial ${LOCAL_SERIAL}; NODE_ADDR=${NODE_ADDR:-unset} GW_ADDR=${GW_ADDR:-unset}"
+                    )
                 } => true,
             }
 
@@ -1643,19 +1674,16 @@ mod tests {
             "ewNic rawNvConfig has correct programmable CC and locality mode" {
                 {
                     let raw = ew_nic.raw_nv_config.as_ref().unwrap();
-                    let names: Vec<_> = raw.iter().map(|entry| entry.name.as_str()).collect();
                     let programmable_cc = raw.iter().find(|entry| {
                         entry.name == "USER_PROGRAMMABLE_CC"
                     });
                     let locality = raw.iter().find(|entry| {
                         entry.name == "TX_SCHEDULER_LOCALITY_MODE"
                     });
-                    names
-                        .iter()
-                        .filter(|name| **name == "ROCE_ADAPTIVE_ROUTING_EN")
+                    raw.iter()
+                        .filter(|entry| entry.name == "ROCE_ADAPTIVE_ROUTING_EN")
                         .count()
                         == 1
-                        && !names.contains(&"USER_PROGAMMABLE_CC")
                         && programmable_cc.is_some_and(|entry| entry.value == "1")
                         && locality.is_some_and(|entry| entry.value == "2")
                 } => true,

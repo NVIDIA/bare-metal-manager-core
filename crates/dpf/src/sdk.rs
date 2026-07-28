@@ -813,9 +813,9 @@ pub fn build_deployment(
     namespace: &str,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     deployment_node_labels: BTreeMap<String, String>,
-    suffix: &str,
     deployment_type: DpuDeploymentType,
 ) -> DPUDeployment {
+    let suffix = deployment_cr_suffix(deployment_type);
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
         .map(|svc| {
@@ -1287,7 +1287,6 @@ async fn create_flavor_services_and_deployment<
         namespace,
         &interfaces,
         deployment_node_labels,
-        suffix,
         deployment_type,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
@@ -2193,6 +2192,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use async_trait::async_trait;
+    use carbide_test_support::value_scenarios;
     use kube::Resource;
 
     use super::*;
@@ -2235,7 +2235,6 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            "bf3",
             DpuDeploymentType::Bf3,
         );
 
@@ -2297,7 +2296,6 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            bf4_suffix,
             DpuDeploymentType::Bf4Generic,
         );
         let entry = bf4_deployment
@@ -2312,6 +2310,39 @@ mod tests {
         assert_eq!(
             entry.service_configuration.as_deref(),
             Some("doca-hbn-bf4generic")
+        );
+    }
+
+    #[test]
+    fn deployment_type_controls_cr_suffix_and_astra_enablement() {
+        value_scenarios!(
+            run = |deployment_type| {
+                let deployment = build_deployment(
+                    &[],
+                    "deployment",
+                    &DpuProvisioningSource::Bfb("bfb".to_string()),
+                    "flavor",
+                    TEST_NAMESPACE,
+                    &[],
+                    BTreeMap::new(),
+                    deployment_type,
+                );
+                (
+                    deployment_cr_suffix(deployment_type),
+                    deployment.spec.dpus.astra_enabled,
+                )
+            };
+            "BF3 preserves unsuffixed resource names" {
+                DpuDeploymentType::Bf3 => ("", None),
+            }
+
+            "generic BF4 uses its deployment suffix" {
+                DpuDeploymentType::Bf4Generic => ("bf4generic", None),
+            }
+
+            "Astra BF4 uses its deployment suffix and enables Astra" {
+                DpuDeploymentType::Bf4Astra => ("bf4astra", Some(true)),
+            }
         );
     }
 

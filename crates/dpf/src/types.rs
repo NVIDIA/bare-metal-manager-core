@@ -46,7 +46,8 @@ pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const DTS_SERVICE_NAME: &str = "dts";
-pub const DOCA_WEAVE_SERVICE_NAME: &str = "doca-weave";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
 pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,

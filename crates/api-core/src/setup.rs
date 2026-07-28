@@ -605,9 +605,7 @@ async fn initialize_dpf_sdk(
         |deployment: &crate::cfg::file::DpfDeploymentConfig,
          deployment_type: DpuDeploymentType,
          bluefield_software: Option<carbide_dpf::BlueFieldSoftwareParams>| {
-            let services = carbide_config
-                .dpf
-                .resolved_services_for(deployment, deployment_type);
+            let services = carbide_config.dpf.resolved_services_for(deployment);
             carbide_dpf::InitDpfResourcesConfig {
                 bfb_url: deployment.bfb_url.clone().unwrap_or_default(),
                 bluefield_software,
