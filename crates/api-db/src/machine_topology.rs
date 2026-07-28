@@ -169,6 +169,25 @@ pub async fn update_firmware_version_by_machine_id(
     Ok(())
 }
 
+/// Lock every topology row for a machine.
+///
+/// Site Explorer updates topology rows before the corresponding
+/// `explored_endpoints` row. Callers that touch both tables must acquire them
+/// in the same order to avoid deadlocks.
+pub async fn lock_by_machine_id(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> DatabaseResult<()> {
+    let query = "SELECT machine_id FROM machine_topologies WHERE machine_id = $1 FOR UPDATE";
+    sqlx::query(query)
+        .bind(machine_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
 pub async fn find_by_machine_ids(
     txn: &mut PgConnection,
     machine_ids: &[MachineId],

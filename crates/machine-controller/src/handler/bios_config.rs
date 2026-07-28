@@ -194,6 +194,14 @@ pub(super) async fn advance_bios_config_job(
                 )?
                 .into());
             }
+            if matches!(job_state, libredfish::JobState::Completed) {
+                tracing::info!(
+                    %job_id,
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "BIOS job completed before scheduling was observed; skipping reboot",
+                );
+                return Ok(BiosConfigJobAdvanceOutcome::Done);
+            }
             if !matches!(job_state, libredfish::JobState::Scheduled) {
                 return Err(StateHandlerError::GenericError(eyre!(
                     "waiting for BIOS job {:#?} to be scheduled; current state: {job_state:#?}",

@@ -34,6 +34,7 @@ use model::machine::{
 };
 use tokio::time::timeout;
 
+use super::{dpf_config, get_host_state};
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_managed_host_with_dpf_multi, create_test_env_with_overrides, get_config,
@@ -91,20 +92,6 @@ fn provisioning_mock_with_dpu_count(
         }
     });
     mock
-}
-
-fn dpf_config() -> crate::cfg::file::DpfConfig {
-    crate::cfg::file::DpfConfig {
-        enabled: true,
-        deployments: crate::cfg::file::DpfDeploymentsConfig {
-            bf3: crate::cfg::file::DpfDeploymentConfig {
-                bfb_url: Some("http://example.com/test.bfb".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        ..Default::default()
-    }
 }
 
 /// Build the DPU reprovision states map for the given DPF sub-state.
@@ -173,15 +160,6 @@ async fn set_assigned_reprovision_dpf_state(
         },
     };
     write_host_state(pool, host_id, &state).await;
-}
-
-async fn get_host_state(
-    env: &crate::tests::common::api_fixtures::TestEnv,
-    mh: &TestManagedHost,
-) -> ManagedHostState {
-    let mut txn = env.db_txn().await;
-    let machine = mh.host().db_machine(&mut txn).await;
-    machine.state.value
 }
 
 async fn dpu_device_names(pool: &sqlx::PgPool, mh: &TestManagedHost) -> HashSet<String> {

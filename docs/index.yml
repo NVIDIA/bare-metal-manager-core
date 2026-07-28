@@ -160,8 +160,22 @@ navigation:
               path: manuals/dpu_extension_service.md
             - page: BlueField DPU Operations
               path: dpu-management/dpu-operations.md
-        - page: Firmware Updates
-          path: operations/firmware-updates.md
+        - section: Firmware Updates
+          contents:
+            - page: Overview
+              path: operations/firmware-updates.md
+            - page: Configure Firmware Versions
+              path: operations/firmware-updates/configuration.md
+            - page: Pre-ingestion Firmware Updates
+              path: operations/firmware-updates/pre-ingestion.md
+            - page: Managed Host Firmware Updates
+              path: operations/firmware-updates/host-firmware.md
+            - page: DPU Firmware Updates
+              path: operations/firmware-updates/dpu-firmware.md
+            - page: Rack and Tray Firmware Updates
+              path: operations/firmware-updates/rack-component-firmware.md
+            - page: Flow Operation Rules
+              path: ../rest-api/flow/docs/operation-rules-guide.md
         - page: NVOS Password Rotation
           path: operations/nvos-password-rotation.md
         - page: Monitoring and Health

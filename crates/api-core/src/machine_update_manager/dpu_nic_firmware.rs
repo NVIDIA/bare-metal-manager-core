@@ -174,11 +174,19 @@ impl MachineUpdateModule for DpuNicFirmwareUpdate {
             "found updated machines",
         );
         for updated_machine in updated_machines {
-            if self
-                .config
-                .dpu_config
-                .dpu_nic_firmware_update_versions
-                .contains(&updated_machine.firmware_version)
+            // DPF picks update targets by the DPUDeployment's expected BFB, not
+            // by `dpu_nic_firmware_update_versions` — `find_outdated_dpus` skips
+            // DPF hosts outright. Holding a DPF host's reported NIC firmware
+            // against that list therefore never matches, which used to leave the
+            // HostUpdateInProgress marker (and its prevent_allocations alert)
+            // pinned forever after a successful reprovision. The reprovision
+            // completing is the completion signal for DPF hosts.
+            if updated_machine.dpf_managed
+                || self
+                    .config
+                    .dpu_config
+                    .dpu_nic_firmware_update_versions
+                    .contains(&updated_machine.firmware_version)
             {
                 if let Err(e) =
                     MachineUpdateManager::remove_machine_update_markers(txn, &updated_machine).await

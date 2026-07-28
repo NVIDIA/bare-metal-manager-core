@@ -4,21 +4,48 @@
 package tui
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // PromptText displays a label and reads a line of text input.
 func PromptText(label string, required bool) (string, error) {
-	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Printf("%s: ", Bold(label))
-		if !scanner.Scan() {
-			return "", fmt.Errorf("input cancelled")
+		input, err := readPromptLine()
+		if err != nil {
+			return "", err
 		}
-		text := strings.TrimSpace(scanner.Text())
+		text := strings.TrimSpace(input)
+		if text == "" && required {
+			fmt.Println(Red("  (required)"))
+			continue
+		}
+		return text, nil
+	}
+}
+
+// PromptSecret reads one line without echo when stdin is a terminal. Piped
+// input keeps the normal line-input path so commands remain scriptable and tests
+// can supply deterministic input.
+func PromptSecret(label string, required bool) (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return PromptText(label, required)
+	}
+
+	for {
+		fmt.Printf("%s: ", Bold(label))
+		input, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return "", fmt.Errorf("reading secret input: %w", err)
+		}
+		text := strings.TrimSpace(string(input))
 		if text == "" && required {
 			fmt.Println(Red("  (required)"))
 			continue
@@ -29,12 +56,12 @@ func PromptText(label string, required bool) (string, error) {
 
 // PromptConfirm displays a y/N confirmation prompt.
 func PromptConfirm(label string) (bool, error) {
-	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("%s [y/N] ", Bold(label))
-	if !scanner.Scan() {
-		return false, fmt.Errorf("input cancelled")
+	input, err := readPromptLine()
+	if err != nil {
+		return false, err
 	}
-	answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+	answer := strings.TrimSpace(strings.ToLower(input))
 	return answer == "y" || answer == "yes", nil
 }
 
@@ -61,7 +88,6 @@ func PromptChoice(label string, options []string, defaultValue string) (string, 
 		}
 		defaultValue = canonical
 	}
-	scanner := bufio.NewScanner(os.Stdin)
 	display := strings.Join(options, "/")
 	suffix := fmt.Sprintf("[%s]", display)
 	if defaultValue != "" {
@@ -69,10 +95,11 @@ func PromptChoice(label string, options []string, defaultValue string) (string, 
 	}
 	for {
 		fmt.Printf("%s %s: ", Bold(label), suffix)
-		if !scanner.Scan() {
-			return "", fmt.Errorf("input cancelled")
+		input, err := readPromptLine()
+		if err != nil {
+			return "", err
 		}
-		text := strings.TrimSpace(scanner.Text())
+		text := strings.TrimSpace(input)
 		if text == "" {
 			if defaultValue != "" {
 				return defaultValue, nil
@@ -86,5 +113,37 @@ func PromptChoice(label string, options []string, defaultValue string) (string, 
 			}
 		}
 		fmt.Println(Red(fmt.Sprintf("  (must be one of %s)", display)))
+	}
+}
+
+// readPromptLine reads exactly one logical line without buffering past its
+// newline. Generated forms ask several questions in sequence; using a fresh
+// bufio.Scanner per question can consume later piped lines into the first
+// scanner's private buffer. Byte-wise reads preserve terminal behavior while
+// keeping scripted input and tests deterministic.
+func readPromptLine() (string, error) {
+	var result strings.Builder
+	var one [1]byte
+	for {
+		n, err := os.Stdin.Read(one[:])
+		if n > 0 {
+			switch one[0] {
+			case '\n':
+				return result.String(), nil
+			case '\r':
+				continue
+			default:
+				result.WriteByte(one[0])
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if result.Len() > 0 {
+					return result.String(), nil
+				}
+				return "", fmt.Errorf("input cancelled")
+			}
+			return "", fmt.Errorf("reading input: %w", err)
+		}
 	}
 }

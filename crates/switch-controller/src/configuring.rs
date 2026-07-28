@@ -39,10 +39,10 @@ pub(crate) enum NvosAdminCredentialStatus {
     /// A credential is available to resolve the component-manager endpoint.
     Available,
 
-    /// No credential source exists, so rotation is not actionable yet.
+    /// No credential source exists, so credential-dependent work is not actionable yet.
     Skip,
 
-    /// Expected-switch data required to resolve a credential is inconsistent.
+    /// Credential state required to resolve a usable credential is inconsistent.
     Error(String),
 }
 
@@ -358,6 +358,53 @@ async fn handle_configure_certificate_start(
     state: &Switch,
     ctx: &mut StateHandlerContext<'_, SwitchStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
+    // `start_configure_switch_certificate` skips certificate bring-up without
+    // either a rack association or component manager. Resolve credentials only
+    // when that operation can start so skipped configurations retain their
+    // existing behavior.
+    //
+    // Certificate endpoint construction requires a per-switch NVOS
+    // username/password. Preserve an existing effective credential. When it is
+    // absent, use the rotation resolver to seed expected-switch bootstrap data.
+    if state.rack_id.is_some()
+        && ctx.services.component_manager.is_some()
+        && let Some(bmc_mac_address) = state.bmc_mac_address
+    {
+        let key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+
+        let credential_exists = ctx
+            .services
+            .credential_manager
+            .get_credentials(&key)
+            .await
+            .map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "switch {switch_id}: failed to read NVOS credentials from credential store: {error}"
+                ))
+            })?
+            .is_some();
+
+        if !credential_exists {
+            match ensure_nvos_admin_credentials(switch_id, bmc_mac_address, ctx).await? {
+                NvosAdminCredentialStatus::Available => {}
+                NvosAdminCredentialStatus::Skip => {
+                    // Stay in `ConfigureCertificate::Start` so periodic
+                    // reconciliation retries after credentials are imported.
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "switch {switch_id}: waiting for NVOS admin credentials"
+                    )));
+                }
+                NvosAdminCredentialStatus::Error(cause) => {
+                    // Expected-switch credential metadata can be corrected
+                    // without resetting the switch controller state.
+                    return Ok(StateHandlerOutcome::wait(format!(
+                        "switch {switch_id}: waiting for valid NVOS admin credentials: {cause}"
+                    )));
+                }
+            }
+        }
+    }
+
     match start_configure_switch_certificate(
         switch_id,
         state,

@@ -21,6 +21,7 @@ description = "Carbide is bare metal provisioning system with auto-discovery and
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "carbide-dns"

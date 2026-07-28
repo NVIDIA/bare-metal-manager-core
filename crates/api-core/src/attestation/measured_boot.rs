@@ -24,6 +24,7 @@ use byteorder::{BigEndian, ByteOrder};
 use carbide_machine_controller::{MeasuringOutcome, handle_measuring_state};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementReportId;
+use chrono::Utc;
 use db::db_read::DbReader;
 use model::machine::MeasuringState;
 use pkcs1::LineEnding;
@@ -357,6 +358,8 @@ where
         machine_id,
         db,
         true,
+        Utc::now(),
+        chrono::Duration::MAX,
     )
     .await
     .map_err(|e| CarbideError::AttestQuoteError(e.to_string()))?;

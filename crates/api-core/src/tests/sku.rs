@@ -150,7 +150,10 @@ pub mod tests {
           "storage": [
             {
               "model": "Dell Ent NVMe CM6 RI 1.92TB",
-              "count": 1
+              "count": 1,
+              "min_size_mb": 1800000,
+              "max_size_mb": 2000000,
+              "pci_patterns": ["/devices/pci0000:00/0000:64:00.0/nvme/nvme0/nvme0n1"]
             }
           ],
           "tpm":

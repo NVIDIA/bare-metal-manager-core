@@ -389,6 +389,155 @@ impl DynamicLog for SiteExplorerIterationFinished {
     }
 }
 
+/// The step that left a machine's RMS location data incomplete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum SiteExplorerMachineSlotTrayFailureStage {
+    RmsRequest,
+    ResponseMissing,
+    DatabaseUpdate,
+}
+
+// `LabelValue` exports the full variant names, including the shared suffix, as
+// the established `failure_stage` values.
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum SiteExplorerMachineSlotTrayValueFailureStage {
+    SlotNumberOutOfRange,
+    TrayIndexOutOfRange,
+}
+
+/// `SiteExplorerMachineSlotTrayFetchFailed` records an RMS request failure
+/// that leaves both machine location fields unset.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_machine_slot_tray_fetch_failed",
+    metric_name = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total",
+    component = "site-explorer",
+    log = warn,
+    metric = counter,
+    message = "Failed to get device info from RMS, slot_number and tray_index will be unset",
+    describe = "Number of Site Explorer machine slot and tray enrichment failures, by failure stage."
+)]
+pub(crate) struct SiteExplorerMachineSlotTrayFetchFailed {
+    #[label]
+    failure_stage: SiteExplorerMachineSlotTrayFailureStage,
+    #[context]
+    error: String,
+}
+
+impl SiteExplorerMachineSlotTrayFetchFailed {
+    pub(crate) fn new(error: String) -> Self {
+        Self {
+            failure_stage: SiteExplorerMachineSlotTrayFailureStage::RmsRequest,
+            error,
+        }
+    }
+}
+
+/// `SiteExplorerMachineSlotTrayResponseMissing` records a successful RMS call
+/// whose response did not include device details.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_machine_slot_tray_response_missing",
+    metric_name = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total",
+    component = "site-explorer",
+    log = warn,
+    metric = counter,
+    message = "RMS returned no device info, slot_number and tray_index will be unset",
+    describe = "Number of Site Explorer machine slot and tray enrichment failures, by failure stage."
+)]
+pub(crate) struct SiteExplorerMachineSlotTrayResponseMissing {
+    #[label]
+    failure_stage: SiteExplorerMachineSlotTrayFailureStage,
+}
+
+impl SiteExplorerMachineSlotTrayResponseMissing {
+    pub(crate) fn new() -> Self {
+        Self {
+            failure_stage: SiteExplorerMachineSlotTrayFailureStage::ResponseMissing,
+        }
+    }
+}
+
+/// `SiteExplorerMachineSlotTrayValueInvalid` counts the one RMS location field
+/// that could not fit in the database while preserving the other field.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_machine_slot_tray_value_invalid",
+    metric_name = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total",
+    component = "site-explorer",
+    log = warn,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of Site Explorer machine slot and tray enrichment failures, by failure stage."
+)]
+pub(crate) struct SiteExplorerMachineSlotTrayValueInvalid {
+    #[label]
+    failure_stage: SiteExplorerMachineSlotTrayValueFailureStage,
+    #[context]
+    value: u32,
+}
+
+impl SiteExplorerMachineSlotTrayValueInvalid {
+    pub(crate) fn slot_number(value: u32) -> Self {
+        Self {
+            failure_stage: SiteExplorerMachineSlotTrayValueFailureStage::SlotNumberOutOfRange,
+            value,
+        }
+    }
+
+    pub(crate) fn tray_index(value: u32) -> Self {
+        Self {
+            failure_stage: SiteExplorerMachineSlotTrayValueFailureStage::TrayIndexOutOfRange,
+            value,
+        }
+    }
+}
+
+impl DynamicMessage for SiteExplorerMachineSlotTrayValueInvalid {
+    fn message(&self) -> &'static str {
+        match self.failure_stage {
+            SiteExplorerMachineSlotTrayValueFailureStage::SlotNumberOutOfRange => {
+                "RMS returned slot_number outside the supported range, slot_number will be unset"
+            }
+            SiteExplorerMachineSlotTrayValueFailureStage::TrayIndexOutOfRange => {
+                "RMS returned tray_index outside the supported range, tray_index will be unset"
+            }
+        }
+    }
+}
+
+/// `SiteExplorerMachineSlotTrayPersistenceFailed` records a database update
+/// failure after the best-effort RMS lookup.
+#[derive(Event)]
+#[event(
+    event_name = "site_explorer_machine_slot_tray_persistence_failed",
+    metric_name = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total",
+    component = "site-explorer",
+    log = warn,
+    metric = counter,
+    message = "Failed to update slot_number and tray_index for machine",
+    describe = "Number of Site Explorer machine slot and tray enrichment failures, by failure stage."
+)]
+pub(crate) struct SiteExplorerMachineSlotTrayPersistenceFailed {
+    #[label]
+    failure_stage: SiteExplorerMachineSlotTrayFailureStage,
+    #[context]
+    error: String,
+    #[context]
+    host_machine_id: String,
+}
+
+impl SiteExplorerMachineSlotTrayPersistenceFailed {
+    pub(crate) fn new(error: String, host_machine_id: String) -> Self {
+        Self {
+            failure_stage: SiteExplorerMachineSlotTrayFailureStage::DatabaseUpdate,
+            error,
+            host_machine_id,
+        }
+    }
+}
+
 /// The transport used for a BMC reset. Keeping this as an enum bounds the
 /// `method` label to the two reset paths Site Explorer can dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
@@ -1146,6 +1295,190 @@ mod tests {
                 DpuMigrationSignal::RegisteredZeroDpuForNic =>
                     "registered_zero_dpu_for_nic_mode".to_string(),
             }
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    enum SlotTrayFailureCase {
+        RmsRequest,
+        ResponseMissing,
+        SlotNumberOutOfRange,
+        TrayIndexOutOfRange,
+        DatabaseUpdate,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct SlotTrayFailureObservation {
+        log_count: usize,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        failure_stage: Option<String>,
+        error: Option<String>,
+        value: Option<String>,
+        host_machine_id: Option<String>,
+        counter_delta: f64,
+    }
+
+    #[test]
+    fn machine_slot_tray_failures_keep_their_logs_and_count_by_stage() {
+        const ERROR: &str = "simulated failure";
+        const HOST_MACHINE_ID: &str = "machine-1";
+        const METRIC: &str = "carbide_site_explorer_machine_slot_tray_enrichment_failures_total";
+        const OUT_OF_RANGE: u32 = i32::MAX as u32 + 1;
+
+        check_values(
+            [
+                Check {
+                    scenario: "RMS request",
+                    input: SlotTrayFailureCase::RmsRequest,
+                    expect: SlotTrayFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "Failed to get device info from RMS, slot_number and tray_index will be unset".to_string(),
+                        event_name: Some(
+                            "site_explorer_machine_slot_tray_fetch_failed".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("rms_request".to_string()),
+                        error: Some(ERROR.to_string()),
+                        value: None,
+                        host_machine_id: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "missing response",
+                    input: SlotTrayFailureCase::ResponseMissing,
+                    expect: SlotTrayFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message:
+                            "RMS returned no device info, slot_number and tray_index will be unset"
+                                .to_string(),
+                        event_name: Some(
+                            "site_explorer_machine_slot_tray_response_missing".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("response_missing".to_string()),
+                        error: None,
+                        value: None,
+                        host_machine_id: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "slot number outside i32",
+                    input: SlotTrayFailureCase::SlotNumberOutOfRange,
+                    expect: SlotTrayFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "RMS returned slot_number outside the supported range, slot_number will be unset".to_string(),
+                        event_name: Some(
+                            "site_explorer_machine_slot_tray_value_invalid".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("slot_number_out_of_range".to_string()),
+                        error: None,
+                        value: Some(OUT_OF_RANGE.to_string()),
+                        host_machine_id: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "tray index outside i32",
+                    input: SlotTrayFailureCase::TrayIndexOutOfRange,
+                    expect: SlotTrayFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message: "RMS returned tray_index outside the supported range, tray_index will be unset".to_string(),
+                        event_name: Some(
+                            "site_explorer_machine_slot_tray_value_invalid".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("tray_index_out_of_range".to_string()),
+                        error: None,
+                        value: Some(OUT_OF_RANGE.to_string()),
+                        host_machine_id: None,
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "database update",
+                    input: SlotTrayFailureCase::DatabaseUpdate,
+                    expect: SlotTrayFailureObservation {
+                        log_count: 1,
+                        level: tracing::Level::WARN,
+                        message:
+                            "Failed to update slot_number and tray_index for machine".to_string(),
+                        event_name: Some(
+                            "site_explorer_machine_slot_tray_persistence_failed".to_string(),
+                        ),
+                        metric_name: Some(METRIC.to_string()),
+                        failure_stage: Some("database_update".to_string()),
+                        error: Some(ERROR.to_string()),
+                        value: None,
+                        host_machine_id: Some(HOST_MACHINE_ID.to_string()),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            |case| {
+                let failure_stage_label = match case {
+                    SlotTrayFailureCase::RmsRequest => "rms_request",
+                    SlotTrayFailureCase::ResponseMissing => "response_missing",
+                    SlotTrayFailureCase::SlotNumberOutOfRange => {
+                        "slot_number_out_of_range"
+                    }
+                    SlotTrayFailureCase::TrayIndexOutOfRange => {
+                        "tray_index_out_of_range"
+                    }
+                    SlotTrayFailureCase::DatabaseUpdate => "database_update",
+                };
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match case {
+                    SlotTrayFailureCase::RmsRequest => {
+                        emit(SiteExplorerMachineSlotTrayFetchFailed::new(
+                            ERROR.to_string(),
+                        ));
+                    }
+                    SlotTrayFailureCase::ResponseMissing => {
+                        emit(SiteExplorerMachineSlotTrayResponseMissing::new());
+                    }
+                    SlotTrayFailureCase::SlotNumberOutOfRange => {
+                        emit(SiteExplorerMachineSlotTrayValueInvalid::slot_number(
+                            OUT_OF_RANGE,
+                        ));
+                    }
+                    SlotTrayFailureCase::TrayIndexOutOfRange => {
+                        emit(SiteExplorerMachineSlotTrayValueInvalid::tray_index(
+                            OUT_OF_RANGE,
+                        ));
+                    }
+                    SlotTrayFailureCase::DatabaseUpdate => {
+                        emit(SiteExplorerMachineSlotTrayPersistenceFailed::new(
+                            ERROR.to_string(),
+                            HOST_MACHINE_ID.to_string(),
+                        ));
+                    }
+                });
+                let log = logs.first().expect("failure Event logged");
+
+                SlotTrayFailureObservation {
+                    log_count: logs.len(),
+                    level: log.level,
+                    message: log.message.clone(),
+                    event_name: log.field("event_name").map(str::to_string),
+                    metric_name: log.field("metric_name").map(str::to_string),
+                    failure_stage: log.field("failure_stage").map(str::to_string),
+                    error: log.field("error").map(str::to_string),
+                    value: log.field("value").map(str::to_string),
+                    host_machine_id: log.field("host_machine_id").map(str::to_string),
+                    counter_delta: metrics
+                        .counter_delta(METRIC, &[("failure_stage", failure_stage_label)]),
+                }
+            },
         );
     }
 

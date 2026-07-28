@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 # Thin top-level crate: the `carbide-api` binary plus a small `carbide` library
 # that re-exports the server entrypoint. The implementation lives in

@@ -687,6 +687,12 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Machine", nil)
 	}
 
+	bmcIPAddress := apiRequest.BmcIpAddress
+	clearBmcIPAddress := bmcIPAddress != nil && *bmcIPAddress == ""
+	if clearBmcIPAddress {
+		bmcIPAddress = nil
+	}
+
 	updatedExpectedMachine, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) (*cdbm.ExpectedMachine, error) {
 		// Note: DefaultBmcUsername and BmcPassword are not stored in DB, only passed to workflow
 		em, err := emDAO.Update(
@@ -695,7 +701,7 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			cdbm.ExpectedMachineUpdateInput{
 				ExpectedMachineID:        expectedMachine.ID,
 				BmcMacAddress:            apiRequest.BmcMacAddress,
-				BmcIpAddress:             apiRequest.BmcIpAddress,
+				BmcIpAddress:             bmcIPAddress,
 				ChassisSerialNumber:      apiRequest.ChassisSerialNumber,
 				SkuID:                    apiRequest.SkuID,
 				FallbackDpuSerialNumbers: apiRequest.FallbackDPUSerialNumbers,
@@ -717,7 +723,7 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
 		}
 
-		if apiRequest.HasBmcIpAddress() && apiRequest.BmcIpAddress == nil {
+		if clearBmcIPAddress {
 			em, err = emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
 				ExpectedMachineID: expectedMachine.ID,
 				BmcIpAddress:      true,
@@ -1553,13 +1559,15 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			Username: machineReq.DefaultBmcUsername,
 			Password: machineReq.DefaultBmcPassword,
 		}
-		if machineReq.HasBmcIpAddress() && machineReq.BmcIpAddress == nil {
+		bmcIPAddress := machineReq.BmcIpAddress
+		if bmcIPAddress != nil && *bmcIPAddress == "" {
 			bmcIPClearIDs = append(bmcIPClearIDs, emID)
+			bmcIPAddress = nil
 		}
 		updateInputs = append(updateInputs, cdbm.ExpectedMachineUpdateInput{
 			ExpectedMachineID:        emID,
 			BmcMacAddress:            machineReq.BmcMacAddress,
-			BmcIpAddress:             machineReq.BmcIpAddress,
+			BmcIpAddress:             bmcIPAddress,
 			ChassisSerialNumber:      machineReq.ChassisSerialNumber,
 			SkuID:                    machineReq.SkuID,
 			FallbackDpuSerialNumbers: machineReq.FallbackDPUSerialNumbers,
@@ -1579,6 +1587,8 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 
 	// Update provided ExpectedMachines in DB
 	updatedExpectedMachines, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
+		// Clear first so UpdateMultiple's final SELECT and the workflow payload
+		// both see nil. Its scoped BMC IP update cannot restore cleared rows.
 		for _, expectedMachineID := range bmcIPClearIDs {
 			_, derr := emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
 				ExpectedMachineID: expectedMachineID,

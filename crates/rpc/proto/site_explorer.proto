@@ -314,10 +314,32 @@ message Inventory {
   optional string release_date = 4;
 }
 
-// `MachineSetupStatus` definition. Matches redfish definition
+// The result of one Redfish machine-setup check, including the logical boot
+// interface target NICo asked the backend to assess.
 message MachineSetupStatus {
   bool is_done = 1;
   repeated MachineSetupDiff diffs = 2;
+  // The logical boot-interface target NICo asked the backend to assess. A
+  // backend may match with a subset (NvRedfish currently uses the MAC) while
+  // retaining Pair identity. Reports written before target capture leave this
+  // unset.
+  MachineBootInterfaceTarget evaluated_boot_interface = 3;
+}
+
+// The logical boot-interface target NICo asked a Redfish backend to assess. It
+// retains the complete pair when Site Explorer has it while keeping older
+// MAC-only endpoint records explicit.
+message MachineBootInterfaceTarget {
+  oneof target {
+    MachineBootInterfacePair pair = 1;
+    string mac_only = 2;
+  }
+}
+
+// MAC and vendor-native Redfish EthernetInterface.Id for one interface.
+message MachineBootInterfacePair {
+  string mac_address = 1;
+  string interface_id = 2;
 }
 
 // `MachineSetupDiff` definition. Matches redfish definition

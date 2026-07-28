@@ -21,6 +21,7 @@ description = "Rack Validation Service -- external validation orchestrator for N
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_rvs"

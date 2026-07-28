@@ -177,15 +177,25 @@ pub async fn create_initial_vpcs(
             .organization_id
             .clone()
             .unwrap_or(uuid::Uuid::new_v4().into());
+        let owner_id = vpc_id.to_string();
 
         let vni = db::resource_pool::allocate(
             vni_pool,
             &mut txn,
             resource_pool::OwnerType::Vpc,
-            vpc_id.to_string().as_ref(),
+            &owner_id,
             def.vni,
         )
-        .await?;
+        .await
+        .inspect_err(|error| {
+            db::resource_pool::emit_allocation_failure(
+                vni_pool.value_type,
+                &owner_id,
+                def.vni.is_some(),
+                vni_pool.name(),
+                error,
+            );
+        })?;
 
         let vpc = NewVpc {
             id: vpc_id,

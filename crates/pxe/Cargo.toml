@@ -21,6 +21,7 @@ description = "Carbide is a Bare Metal Provisioning system with auto-discovery a
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "carbide"

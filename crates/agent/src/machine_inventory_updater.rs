@@ -19,13 +19,12 @@ use std::time::Duration;
 
 use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_instrument::emit;
 use carbide_uuid::machine::MachineId;
 
 use crate::command_line::AgentPlatformType;
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
-use crate::instrumentation::{InventoryReportFailed, InventoryReportSucceeded};
+use crate::instrumentation::InventoryReport;
 
 #[derive(Debug, Clone)]
 pub struct MachineInventoryUpdaterConfig {
@@ -111,12 +110,12 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
     .await;
 
     // `single_run` returns failures to the scheduler, which logs the error.
-    // Keep `InventoryReportFailed` metric-only to avoid a duplicate diagnostic;
-    // `InventoryReportSucceeded` owns the DEBUG record.
+    // Keep `InventoryReport::Failed` metric-only to avoid a duplicate
+    // diagnostic; `InventoryReport::Succeeded` owns the DEBUG record.
     if result.is_ok() {
-        emit(InventoryReportSucceeded::new());
+        InventoryReport::Succeeded.emit();
     } else {
-        emit(InventoryReportFailed::new());
+        InventoryReport::Failed.emit();
     }
 
     result

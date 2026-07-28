@@ -740,11 +740,11 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let _interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await;
-    assert!(matches!(
-        DatabaseError::FindOneReturnedNoResultsError(interface_id.into()),
-        _interface
-    ));
+    let found = db::machine_interface::find_one(txn.as_mut(), interface_id).await;
+    assert!(
+        matches!(found, Err(DatabaseError::FindOneReturnedNoResultsError(_))),
+        "the interface row should be gone once delete_interface succeeds"
+    );
 
     txn.commit().await?;
 

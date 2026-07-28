@@ -144,6 +144,7 @@ fn services_with_component_manager(
             password: TEST_BMC_PASSWORD.into(),
         })),
         per_object_metrics_registry: env.per_object_metrics_registry(),
+        rack_firmware_reprovisioning_enabled: false,
     }
 }
 

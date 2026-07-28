@@ -19,7 +19,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::mem::discriminant as enum_discr;
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -210,6 +210,7 @@ pub struct ReachabilityParams {
     pub power_down_wait: chrono::Duration,
     pub failure_retry_time: chrono::Duration,
     pub scout_reporting_timeout: chrono::Duration,
+    pub waiting_for_measurements_timeout: chrono::Duration,
     pub uefi_boot_wait: chrono::Duration,
 }
 
@@ -290,6 +291,7 @@ impl MachineStateHandlerBuilder {
                 power_down_wait: chrono::Duration::zero(),
                 failure_retry_time: chrono::Duration::zero(),
                 scout_reporting_timeout: chrono::Duration::zero(),
+                waiting_for_measurements_timeout: chrono::Duration::zero(),
                 uefi_boot_wait: chrono::Duration::zero(),
             },
             firmware_downloader: None,
@@ -376,6 +378,15 @@ impl MachineStateHandlerBuilder {
 
     pub fn scout_reporting_timeout(mut self, scout_reporting_timeout: chrono::Duration) -> Self {
         self.reachability_params.scout_reporting_timeout = scout_reporting_timeout;
+        self
+    }
+
+    pub fn waiting_for_measurements_timeout(
+        mut self,
+        waiting_for_measurements_timeout: chrono::Duration,
+    ) -> Self {
+        self.reachability_params.waiting_for_measurements_timeout =
+            waiting_for_measurements_timeout;
         self
     }
 
@@ -1577,6 +1588,11 @@ impl MachineStateHandler {
                 &mh_snapshot.host_snapshot.id,
                 &mut ctx.services.db_reader,
                 self.host_handler.host_handler_params.attestation_enabled,
+                mh_snapshot.host_snapshot.state.version.timestamp(),
+                self.host_handler
+                    .host_handler_params
+                    .reachability_params
+                    .waiting_for_measurements_timeout,
             )
             .await
             .map(|v| map_measuring_outcome_to_state_handler_outcome(&v, measuring_state))?,
@@ -1598,6 +1614,11 @@ impl MachineStateHandler {
                             &mh_snapshot.host_snapshot.id,
                             &mut ctx.services.db_reader,
                             self.host_handler.host_handler_params.attestation_enabled,
+                            mh_snapshot.host_snapshot.state.version.timestamp(),
+                            self.host_handler
+                                .host_handler_params
+                                .reachability_params
+                                .waiting_for_measurements_timeout,
                         )
                         .await
                         .map(|v| {
@@ -3331,12 +3352,13 @@ async fn handle_dpu_reprovision(
                                 missing: "bmc_ip",
                             }
                         })?;
+                    let bmc_address = resolve_ipmi_address(bmc_ip_address, ctx).await?;
 
                     if let Err(ipmitool_error) = ctx
                         .services
                         .ipmi_tool
                         .bmc_cold_reset(
-                            bmc_ip_address,
+                            bmc_address,
                             &CredentialKey::BmcCredentials {
                                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                             },
@@ -3852,26 +3874,18 @@ impl DpuMachineStateHandler {
             return Ok(false);
         }
 
-        let dpf_sdk = self.dpf_sdk.as_deref().ok_or_else(|| {
-            StateHandlerError::InvalidState(
-                "DPF-managed machine reached DPU platform configuration without DPF configured"
-                    .to_string(),
-            )
-        })?;
-
-        let deployment_type = dpf_sdk
-            .deployment_type_for_dpu(dpu_snapshot)
-            .map_err(|error| {
-                StateHandlerError::InvalidState(format!(
-                    "failed to determine DPF deployment type for DPU {}: {error}",
-                    dpu_snapshot.id
-                ))
+        let product = dpu_snapshot
+            .status
+            .hardware_info
+            .as_ref()
+            .and_then(|x| x.dmi_data.as_ref())
+            .map(|x| x.product_name.to_uppercase())
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: dpu_snapshot.id.to_string(),
+                missing: "product_name in topology",
             })?;
 
-        Ok(matches!(
-            deployment_type,
-            carbide_dpf::DpuDeploymentType::Bf4Generic
-        ))
+        Ok(product.contains("B4") || product.contains("BLUEFIELD-4"))
     }
 
     async fn is_secure_boot_disabled(
@@ -4314,45 +4328,51 @@ impl DpuMachineStateHandler {
                     db::credential_rotation::CredentialRotationType::DpuUefi,
                 )
                 .await?;
-                if let Err(e) = ctx
+                let credentials_updated = match ctx
                     .services
                     .redfish_client_pool
                     .uefi_setup(dpu_redfish_client.as_ref(), true, dpu_uefi_credentials)
                     .await
                 {
-                    let msg = format!(
-                        "Failed to run uefi_setup call failed for DPU {}: {}",
-                        dpu_snapshot.id, e
-                    );
-                    tracing::warn!(
-                        machine_id = %dpu_snapshot.id,
-                        error = %e,
-                        "Failed to run uefi_setup for DPU",
-                    );
-                    let reboot_status = trigger_reboot_if_needed(
+                    Err(e) => {
+                        let msg = format!(
+                            "Failed to run uefi_setup call failed for DPU {}: {}",
+                            dpu_snapshot.id, e
+                        );
+                        tracing::warn!(
+                            machine_id = %dpu_snapshot.id,
+                            error = %e,
+                            "Failed to run uefi_setup for DPU",
+                        );
+                        let reboot_status = trigger_reboot_if_needed(
+                            dpu_snapshot,
+                            state,
+                            None,
+                            &self.reachability_params,
+                            ctx,
+                        )
+                        .await?;
+
+                        return Ok(StateHandlerOutcome::wait(format!(
+                            "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
+                            dpu_snapshot.id
+                        )));
+                    }
+                    // BIOS does not expose a UEFI password field (e.g. BF4); skip
+                    // the restart and convergence record — nothing was staged.
+                    Ok(None) => false,
+                    // Password staged through Redfish BIOS settings; restart to commit.
+                    Ok(Some(_)) => true,
+                };
+
+                if credentials_updated {
+                    handler_restart_dpu(
                         dpu_snapshot,
-                        state,
-                        None,
-                        &self.reachability_params,
                         ctx,
+                        state.host_snapshot.config.dpf.used_for_ingestion,
                     )
                     .await?;
-
-                    return Ok(StateHandlerOutcome::wait(format!(
-                        "{msg};\nWaiting for DPU {} to reboot: {reboot_status:#?}",
-                        dpu_snapshot.id
-                    )));
                 }
-
-                // The UEFI password is staged through Redfish BIOS settings,
-                // so retain the restart even when BF4 skips platform setup and
-                // BIOS verification.
-                handler_restart_dpu(
-                    dpu_snapshot,
-                    ctx,
-                    state.host_snapshot.config.dpf.used_for_ingestion,
-                )
-                .await?;
 
                 let next_state = if dpf_managed_bf4 {
                     DpuInitState::WaitingForNetworkConfig
@@ -4361,27 +4381,30 @@ impl DpuMachineStateHandler {
                 }
                 .next_state(&state.managed_state, dpu_machine_id)?;
 
-                // The DPU's UEFI password is now the site-wide value (just set via
-                // uefi_setup above): record dpu_uefi convergence so the rotation
-                // engine tracks this DPU from ingestion onward (mirrors the
-                // backfill, which keys DPU UEFI by the DPU BMC MAC). The MAC was
-                // validated as a precondition at the top of this state. Committed
-                // with the state transition below.
-                let mut txn = ctx.services.db_pool.begin().await?;
-                db::credential_rotation::record_device_converged(
-                    &mut txn,
-                    dpu_bmc_mac,
-                    db::credential_rotation::CredentialRotationType::DpuUefi,
-                )
-                .await
-                .map_err(|e| {
-                    StateHandlerError::GenericError(eyre!(
-                        "record dpu_uefi credential rotation convergence failed: {}",
-                        e
-                    ))
-                })?;
-
-                Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
+                if credentials_updated {
+                    // The DPU's UEFI password is now the site-wide value (just set via
+                    // uefi_setup above): record dpu_uefi convergence so the rotation
+                    // engine tracks this DPU from ingestion onward (mirrors the
+                    // backfill, which keys DPU UEFI by the DPU BMC MAC). The MAC was
+                    // validated as a precondition at the top of this state. Committed
+                    // with the state transition below.
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::credential_rotation::record_device_converged(
+                        &mut txn,
+                        dpu_bmc_mac,
+                        db::credential_rotation::CredentialRotationType::DpuUefi,
+                    )
+                    .await
+                    .map_err(|e| {
+                        StateHandlerError::GenericError(eyre!(
+                            "record dpu_uefi credential rotation convergence failed: {}",
+                            e
+                        ))
+                    })?;
+                    Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
+                } else {
+                    Ok(StateHandlerOutcome::transition(next_state))
+                }
             }
 
             DpuInitState::PollingBiosSetup => {
@@ -5883,6 +5906,10 @@ impl StateHandler for HostMachineStateHandler {
                         &mh_snapshot.host_snapshot.id,
                         &mut ctx.services.db_reader,
                         self.host_handler_params.attestation_enabled,
+                        mh_snapshot.host_snapshot.state.version.timestamp(),
+                        self.host_handler_params
+                            .reachability_params
+                            .waiting_for_measurements_timeout,
                     )
                     .await
                     {
@@ -10707,13 +10734,28 @@ async fn do_ipmi_restart(
             bmc_mac_address: bmc_mac,
         },
     };
+    let bmc_address = resolve_ipmi_address(ip, ctx).await?;
     ctx.services
         .ipmi_tool
-        .restart(&machine.id, ip, false, &credential_key)
+        .restart(&machine.id, bmc_address, false, &credential_key)
         .await
         .map_err(|e| {
             StateHandlerError::GenericError(eyre!("IPMI restart failed for {}: {}", machine.id, e))
         })
+}
+
+async fn resolve_ipmi_address(
+    ip_address: IpAddr,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<SocketAddr, StateHandlerError> {
+    let metadata =
+        db::explored_endpoints::lookup_bmc_metadata_by_ip(ip_address, &mut ctx.services.db_reader)
+            .await?;
+    Ok(ipmi_socket_address(ip_address, metadata.ipmi_port))
+}
+
+fn ipmi_socket_address(ip_address: IpAddr, port: Option<u16>) -> SocketAddr {
+    SocketAddr::new(ip_address, port.unwrap_or(carbide_ipmi::DEFAULT_IPMI_PORT))
 }
 
 /// find_explored_refreshed_endpoint will locate the explored endpoint for the given state.
@@ -11609,6 +11651,20 @@ async fn set_host_boot_order(
                     }));
                 }
 
+                if matches!(job_state, libredfish::JobState::Completed) {
+                    tracing::info!(
+                        %job_id,
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        "SetBootOrder: job completed before scheduling was observed; skipping reboot",
+                    );
+
+                    return Ok(SetBootOrderOutcome::Continue(SetBootOrderInfo {
+                        set_boot_order_jid: set_boot_order_info.set_boot_order_jid.clone(),
+                        set_boot_order_state: SetBootOrderState::CheckBootOrder,
+                        retry_count: set_boot_order_info.retry_count,
+                    }));
+                }
+
                 if !matches!(job_state, libredfish::JobState::Scheduled) {
                     return Err(StateHandlerError::GenericError(eyre::eyre!(
                         "waiting for job {:#?} to be scheduled; current state: {job_state:#?}",
@@ -11943,6 +11999,20 @@ mod tests {
     use regex::Regex;
 
     use super::*;
+
+    #[test]
+    fn ipmi_socket_address_uses_reported_or_default_port() {
+        let ip_address = IpAddr::V4("192.0.2.10".parse().unwrap());
+
+        assert_eq!(
+            ipmi_socket_address(ip_address, Some(1623)),
+            "192.0.2.10:1623".parse().unwrap(),
+        );
+        assert_eq!(
+            ipmi_socket_address(ip_address, None),
+            "192.0.2.10:623".parse().unwrap(),
+        );
+    }
 
     /// One emit per actual retry: the INFO line carries the machine, the
     /// 1-based attempt, and the failure it recovers from, and the unlabeled

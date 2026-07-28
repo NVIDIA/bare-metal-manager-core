@@ -241,6 +241,115 @@ fn parse_tests_subcommands() {
     );
 }
 
+// img_name requires a pinned sha256 digest; the tag is optional.
+const VALID_DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"; // 64 hex chars
+
+#[test]
+fn parse_tests_add_img_name_validation() {
+    let valid_img = format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_DIGEST}");
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Tests(tests_cmd::Args::Add(args)) => args.img_name,
+                    _ => panic!("expected Tests Add variant"),
+                })
+                .map_err(drop)
+        };
+        "add accepts a pinned digest" {
+            &[
+                "machine-validation", "tests", "add",
+                "--name", "my-test",
+                "--command", "/bin/test",
+                "--args", "--verbose",
+                "--img-name", valid_img.as_str(),
+            ][..] => Yields(Some(valid_img.clone())),
+        }
+        "add accepts :latest tag when digest is present" {
+            &[
+                "machine-validation", "tests", "add",
+                "--name", "my-test",
+                "--command", "/bin/test",
+                "--args", "--verbose",
+                "--img-name", &format!("nvcr.io/foo/bar:latest@sha256:{VALID_DIGEST}"),
+            ][..] => Yields(Some(format!("nvcr.io/foo/bar:latest@sha256:{VALID_DIGEST}"))),
+        }
+        "add rejects missing digest" {
+            &[
+                "machine-validation", "tests", "add",
+                "--name", "my-test",
+                "--command", "/bin/test",
+                "--args", "--verbose",
+                "--img-name", "nvcr.io/foo/bar:v1.0",
+            ][..] => Fails,
+        }
+        "add rejects empty name before @" {
+            &[
+                "machine-validation", "tests", "add",
+                "--name", "my-test",
+                "--command", "/bin/test",
+                "--args", "--verbose",
+                "--img-name", &format!("@sha256:{VALID_DIGEST}"),
+            ][..] => Fails,
+        }
+        "add without img_name is fine" {
+            &[
+                "machine-validation", "tests", "add",
+                "--name", "my-test",
+                "--command", "/bin/test",
+                "--args", "--verbose",
+            ][..] => Yields(None),
+        }
+    );
+}
+
+#[test]
+fn parse_tests_update_img_name_validation() {
+    let valid_img = format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_DIGEST}");
+    scenarios!(
+        run = |argv| {
+            Cmd::try_parse_from(argv.iter().copied())
+                .map(|cmd| match cmd {
+                    Cmd::Tests(tests_cmd::Args::Update(args)) => args.img_name,
+                    _ => panic!("expected Tests Update variant"),
+                })
+                .map_err(drop)
+        };
+        "update accepts a pinned digest" {
+            &[
+                "machine-validation", "tests", "update",
+                "--test-id", "my-test",
+                "--version", "v1",
+                "--img-name", valid_img.as_str(),
+            ][..] => Yields(Some(valid_img.clone())),
+        }
+        "update accepts :latest tag when digest is present" {
+            &[
+                "machine-validation", "tests", "update",
+                "--test-id", "my-test",
+                "--version", "v1",
+                "--img-name", &format!("nvcr.io/foo/bar:latest@sha256:{VALID_DIGEST}"),
+            ][..] => Yields(Some(format!("nvcr.io/foo/bar:latest@sha256:{VALID_DIGEST}"))),
+        }
+        "update rejects missing digest" {
+            &[
+                "machine-validation", "tests", "update",
+                "--test-id", "my-test",
+                "--version", "v1",
+                "--img-name", "nvcr.io/foo/bar:v1.0",
+            ][..] => Fails,
+        }
+        "update rejects empty name before @" {
+            &[
+                "machine-validation", "tests", "update",
+                "--test-id", "my-test",
+                "--version", "v1",
+                "--img-name", &format!("@sha256:{VALID_DIGEST}"),
+            ][..] => Fails,
+        }
+    );
+}
+
 // Malformed invocations are rejected at parse time -- results show with none of
 // its required filters cannot parse.
 #[test]

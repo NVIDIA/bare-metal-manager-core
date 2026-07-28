@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -327,27 +328,49 @@ fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
     serde_yaml::to_string(value.get("network")?).ok()
 }
 
+/// Default network-config served when a tenant hasn't provided a custom
+/// `network:` key in their cloud-init userdata. cloud-init's own default
+/// behavior (no network-config at all) only DHCPs the first network
+/// interface it finds; this instead DHCPs every matching interface, under
+/// both the predictable ("en*") and legacy ("eth*") naming conventions,
+/// so multi-NIC hosts come up with working networking on every port.
+const DEFAULT_NETWORK_CONFIG: &str = r#"version: 2
+ethernets:
+  predictable-names:
+    match:
+      name: "en*"
+    dhcp4: true
+    dhcp6: true
+  legacy-names:
+    match:
+      name: "eth*"
+    dhcp4: true
+    dhcp6: true
+"#;
+
+/// Resolves the network-config YAML to use for a machine: the `network:`
+/// key extracted from the tenant's custom cloud-init userdata if present,
+/// otherwise DEFAULT_NETWORK_CONFIG (DHCP on every interface), rather
+/// than an empty document that would fall back to cloud-init's own
+/// first-interface-only default.
+fn resolve_network_config(custom_cloud_init: Option<&str>) -> Cow<'static, str> {
+    custom_cloud_init
+        .and_then(extract_network_config)
+        .map(Cow::Owned)
+        .unwrap_or(Cow::Borrowed(DEFAULT_NETWORK_CONFIG))
+}
+
 /// Serves NoCloud's `network-config` document for a tenant's assigned
 /// machine, extracted from any `network:` key present in their custom
-/// cloud-init userdata. Renders empty when no such key is present, which
-/// cloud-init treats as "no custom network config" and falls back to
-/// its default DHCP behavior.
+/// cloud-init userdata. When no such key is present, serves
+/// DEFAULT_NETWORK_CONFIG instead of an empty document, so hosts get
+/// DHCP on every interface by default rather than cloud-init's own
+/// first-interface-only behavior.
 pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
-    let network_config_yaml = machine
-        .instructions
-        .custom_cloud_init
-        .as_deref()
-        .and_then(extract_network_config)
-        .unwrap_or_default();
-
-    let mut template_data: HashMap<String, String> = HashMap::new();
-    template_data.insert("network_config".to_string(), network_config_yaml);
-
-    axum_template::Render(
-        "network-config".to_string(),
-        state.engine.clone(),
-        template_data,
-    )
+    let network_config_yaml =
+        resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
+    let template_data = HashMap::from([("network_config", network_config_yaml)]);
+    axum_template::Render("network-config", state.engine.clone(), template_data)
 }
 
 pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
@@ -819,6 +842,71 @@ mod tests {
                         .and_then(|e| e.get("eth0"))
                         .is_some(),
                     "case '{}': expected eth0 config present",
+                    case.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_network_config_handles_various_inputs() {
+        struct Case {
+            name: &'static str,
+            custom_cloud_init: Option<&'static str>,
+            expect_default: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "no network key in custom cloud-init",
+                custom_cloud_init: Some("#cloud-config\nwrite_files: []\n"),
+                expect_default: true,
+            },
+            Case {
+                name: "network key present in custom cloud-init",
+                custom_cloud_init: Some(
+                    "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\n",
+                ),
+                expect_default: false,
+            },
+            Case {
+                name: "no custom cloud-init at all",
+                custom_cloud_init: None,
+                expect_default: true,
+            },
+        ];
+
+        for case in cases {
+            let result = resolve_network_config(case.custom_cloud_init);
+
+            if case.expect_default {
+                assert_eq!(
+                    result, DEFAULT_NETWORK_CONFIG,
+                    "case '{}' failed",
+                    case.name
+                );
+            } else {
+                let parsed: serde_yaml::Value = serde_yaml::from_str(&result).unwrap_or_else(|e| {
+                    panic!("case '{}': result was not valid YAML: {}", case.name, e)
+                });
+                assert_eq!(
+                    parsed.get("version").unwrap().as_u64().unwrap(),
+                    2,
+                    "case '{}' failed",
+                    case.name
+                );
+                let eth0_addresses = parsed
+                    .get("ethernets")
+                    .and_then(|e| e.get("eth0"))
+                    .and_then(|e| e.get("addresses"))
+                    .and_then(|a| a.as_sequence())
+                    .unwrap_or_else(|| {
+                        panic!("case '{}': expected ethernets.eth0.addresses", case.name)
+                    });
+                assert_eq!(
+                    eth0_addresses[0].as_str().unwrap(),
+                    "10.10.10.50/24",
+                    "case '{}' failed",
                     case.name
                 );
             }

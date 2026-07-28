@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Carbide Redfish"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_redfish"

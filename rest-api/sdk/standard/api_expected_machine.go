@@ -196,7 +196,7 @@ BatchUpdateExpectedMachines Batch Update Expected Machines
 
 Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-All items in a batch update must provide the same set of fields.
+All items in a batch update must provide the same set of fields, except that `bmcIpAddress` may be omitted or set to `null` to preserve that machine's current BMC IP address.
 
 Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 

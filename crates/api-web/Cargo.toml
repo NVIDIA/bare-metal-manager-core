@@ -21,6 +21,7 @@ edition.workspace = true
 description = "Admin web UI (HTML/askama) for the carbide-api server"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_api_web"

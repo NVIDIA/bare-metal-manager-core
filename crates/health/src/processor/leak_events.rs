@@ -161,6 +161,7 @@ mod tests {
             collector_type: "leak_detector_collector",
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         }
     }
 

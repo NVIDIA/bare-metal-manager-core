@@ -21,7 +21,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSystemUuid};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
     Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
@@ -69,9 +69,11 @@ fn event_context_for_machine(machine_id: &str) -> EventContext {
             mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(),
         },
         collector_type: "sensor_collector",
+        labels: Default::default(),
         metadata: Some(EndpointMetadata::Machine(MachineData {
             machine_id: Some(machine_id.parse().expect("valid machine id")),
             machine_serial: None,
+            system_uuid: SharedSystemUuid::default(),
             slot_number: None,
             tray_index: None,
             nvlink_domain_uuid: None,

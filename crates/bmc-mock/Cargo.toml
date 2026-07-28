@@ -21,6 +21,7 @@ description = "HTTP server that pretends to be a BMC / libredfish. For integrati
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
@@ -43,8 +44,10 @@ itertools = { workspace = true }
 lazy_static = { workspace = true }
 mac_address = { features = ["serde"], workspace = true }
 nv-redfish = { workspace = true, features = ["bmc-http"] }
+nix = { features = ["fs"], workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
+quick-xml = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { features = ["derive"], workspace = true }
@@ -59,5 +62,11 @@ tracing = { workspace = true }
 tracing-subscriber = { features = ["env-filter"], workspace = true }
 url = { workspace = true }
 
+[dev-dependencies]
+tokio = { features = ["test-util"], workspace = true }
+
 [lints]
 workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

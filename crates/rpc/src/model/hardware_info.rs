@@ -707,6 +707,8 @@ mod tests {
         model: String,
         firmware_rev: String,
         serial: String,
+        size_mb: Option<u32>,
+        pci_path: Option<String>,
     }
 
     #[derive(Debug, PartialEq)]
@@ -876,6 +878,8 @@ mod tests {
                 model: value.model,
                 firmware_rev: value.firmware_rev,
                 serial: value.serial,
+                size_mb: value.size_mb,
+                pci_path: value.pci_path,
             }
         }
     }
@@ -886,6 +890,8 @@ mod tests {
                 model: value.model,
                 firmware_rev: value.firmware_rev,
                 serial: value.serial,
+                size_mb: value.size_mb,
+                pci_path: value.pci_path,
             }
         }
     }
@@ -1316,6 +1322,8 @@ mod tests {
                 model: "NVMe Model".to_string(),
                 firmware_rev: "nvme-fw".to_string(),
                 serial: "nvme-serial".to_string(),
+                size_mb: Some(3_840_000),
+                pci_path: Some("/devices/pci0000:00/0000:00:01.0/nvme/nvme0".to_string()),
             }],
             dmi_data: Some(rpc::machine_discovery::DmiData {
                 board_name: "Board".to_string(),
@@ -1422,6 +1430,8 @@ mod tests {
                 model: "NVMe Model".to_string(),
                 firmware_rev: "nvme-fw".to_string(),
                 serial: "nvme-serial".to_string(),
+                size_mb: Some(3_840_000),
+                pci_path: Some("/devices/pci0000:00/0000:00:01.0/nvme/nvme0".to_string()),
             }],
             dmi_data: Some(DmiData {
                 board_name: "Board".to_string(),
@@ -1523,6 +1533,8 @@ mod tests {
             model: "NVMe Model".to_string(),
             firmware_rev: "nvme-fw".to_string(),
             serial: "nvme-serial".to_string(),
+            size_mb: Some(3_840_000),
+            pci_path: Some("/devices/pci0000:00/0000:00:01.0/nvme/nvme0".to_string()),
         }]
     }
 

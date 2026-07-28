@@ -6,6 +6,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -262,7 +263,88 @@ func formatDebugBody(body []byte) string {
 	if len(body) == 0 {
 		return "<empty>"
 	}
-	return string(body)
+	var decoded interface{}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return string(body)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return string(body)
+	}
+	redactSensitiveJSONFields(decoded)
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(decoded); err != nil {
+		return "<JSON body unavailable>"
+	}
+	return strings.TrimSpace(buf.String())
+}
+
+func redactSensitiveJSONFields(value interface{}) {
+	redactSensitiveJSONValue(value, false)
+}
+
+func redactSensitiveJSONValue(value interface{}, inherited bool) {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		for key, nested := range typed {
+			sensitive := inherited || isSensitiveJSONField(key)
+			if sensitive && !isJSONContainer(nested) {
+				typed[key] = "<redacted>"
+				continue
+			}
+			redactSensitiveJSONValue(
+				nested,
+				inherited || isSensitiveJSONContainerField(key),
+			)
+		}
+	case []interface{}:
+		for i, nested := range typed {
+			if inherited && !isJSONContainer(nested) {
+				typed[i] = "<redacted>"
+				continue
+			}
+			redactSensitiveJSONValue(nested, inherited)
+		}
+	}
+}
+
+func isJSONContainer(value interface{}) bool {
+	switch value.(type) {
+	case map[string]interface{}, []interface{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSensitiveJSONField(name string) bool {
+	normalized := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(name))
+	for _, fragment := range []string{"credential", "password", "secret", "privatekey", "apikey"} {
+		if strings.Contains(normalized, fragment) {
+			return true
+		}
+	}
+	return normalized == "token" || strings.HasSuffix(normalized, "token")
+}
+
+func isSensitiveJSONContainerField(name string) bool {
+	normalized := strings.NewReplacer("-", "", "_", "").Replace(strings.ToLower(name))
+	for _, suffix := range []string{
+		"credential", "credentials",
+		"password", "passwords",
+		"secret", "secrets",
+		"privatekey", "privatekeys",
+		"apikey", "apikeys",
+		"token", "tokens",
+	} {
+		if strings.HasSuffix(normalized, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func formatDebugHeaders(headers http.Header) string {

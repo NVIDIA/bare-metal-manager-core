@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 
-use carbide_instrument::red;
+use carbide_instrument::{Event, emit, red};
 use carbide_rack::firmware_object::rms_access_token_or_noauth;
 use carbide_rack::rms_node_type::{
     RmsNodeIdentity, compute_node_identity_for_profile,
@@ -1397,6 +1397,53 @@ async fn query_tracked_firmware_job_status(
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct RmsSwitchSlotAndTrayObservation {
+    slot_number: Option<i32>,
+    tray_index: Option<i32>,
+    error: Option<String>,
+}
+
+fn rms_switch_location_value(value: Option<u32>) -> Result<Option<i32>, u32> {
+    value
+        .map(|value| i32::try_from(value).map_err(|_| value))
+        .transpose()
+}
+
+/// `classify_rms_switch_slot_and_tray` keeps each usable location field.
+/// Missing details and conversion failures become one diagnostic so the
+/// switch controller emits one `Event` without dropping the other valid field.
+fn classify_rms_switch_slot_and_tray(
+    details: Option<&rms::NodeDeviceInfo>,
+) -> RmsSwitchSlotAndTrayObservation {
+    let Some(details) = details else {
+        return RmsSwitchSlotAndTrayObservation {
+            slot_number: None,
+            tray_index: None,
+            error: Some("RMS returned no device info".to_string()),
+        };
+    };
+
+    let slot_number = rms_switch_location_value(details.slot_number);
+    let tray_index = rms_switch_location_value(details.tray_index);
+    let slot_number_out_of_range = slot_number.is_err();
+    let tray_index_out_of_range = tray_index.is_err();
+    let error = match (slot_number_out_of_range, tray_index_out_of_range) {
+        (false, false) => None,
+        (true, false) => Some("RMS returned slot_number outside the supported range".to_string()),
+        (false, true) => Some("RMS returned tray_index outside the supported range".to_string()),
+        (true, true) => {
+            Some("RMS returned slot_number and tray_index outside the supported range".to_string())
+        }
+    };
+
+    RmsSwitchSlotAndTrayObservation {
+        slot_number: slot_number.ok().flatten(),
+        tray_index: tray_index.ok().flatten(),
+        error,
+    }
+}
+
 #[async_trait::async_trait]
 impl NvSwitchManager for RmsBackend {
     fn name(&self) -> &str {
@@ -1827,25 +1874,13 @@ impl NvSwitchManager for RmsBackend {
                         continue;
                     }
 
-                    let Some(node_device_details) = info.node_device_details.first() else {
-                        results.push(SwitchSlotAndTrayResult {
-                            bmc_mac: ep.bmc_mac,
-                            slot_number: None,
-                            tray_index: None,
-                            error: None,
-                        });
-                        continue;
-                    };
-
+                    let observation =
+                        classify_rms_switch_slot_and_tray(info.node_device_details.first());
                     results.push(SwitchSlotAndTrayResult {
                         bmc_mac: ep.bmc_mac,
-                        slot_number: node_device_details
-                            .slot_number
-                            .and_then(|value| i32::try_from(value).ok()),
-                        tray_index: node_device_details
-                            .tray_index
-                            .and_then(|value| i32::try_from(value).ok()),
-                        error: None,
+                        slot_number: observation.slot_number,
+                        tray_index: observation.tray_index,
+                        error: observation.error,
                     });
                 }
                 Err(error) => {
@@ -2166,13 +2201,29 @@ async fn rms_get_switch_password_rotation_job_status(
     }
 }
 
-fn map_rms_configure_switch_certificate_job_state(state: &str) -> ConfigureSwitchCertificateState {
+/// RMS may add certificate job states before Carbide knows about them. Count
+/// each fallback, but keep it metric-only because polling can see the same
+/// state indefinitely while waiting for RMS to move on.
+#[derive(Event)]
+#[event(
+    event_name = "rms_switch_certificate_job_state_unrecognized",
+    metric_name = "carbide_rms_switch_certificate_unrecognized_job_states_total",
+    component = "component-manager",
+    log = off,
+    metric = counter,
+    describe = "Number of unrecognized RMS switch certificate job states."
+)]
+struct RmsSwitchCertificateJobStateUnrecognized;
+
+fn map_rms_configure_switch_certificate_job_state(
+    state: &str,
+) -> Option<ConfigureSwitchCertificateState> {
     match state.to_ascii_lowercase().as_str() {
-        "queued" | "pending" => ConfigureSwitchCertificateState::Started,
-        "running" | "in_progress" | "active" => ConfigureSwitchCertificateState::InProgress,
-        "completed" | "success" | "done" => ConfigureSwitchCertificateState::Completed,
-        "failed" | "error" => ConfigureSwitchCertificateState::Failed,
-        _ => ConfigureSwitchCertificateState::InProgress,
+        "queued" | "pending" => Some(ConfigureSwitchCertificateState::Started),
+        "running" | "in_progress" | "active" => Some(ConfigureSwitchCertificateState::InProgress),
+        "completed" | "success" | "done" => Some(ConfigureSwitchCertificateState::Completed),
+        "failed" | "error" => Some(ConfigureSwitchCertificateState::Failed),
+        _ => None,
     }
 }
 
@@ -2274,7 +2325,11 @@ async fn rms_get_configure_switch_certificate_job_status(
         });
     }
 
-    let state = map_rms_configure_switch_certificate_job_state(&response.state);
+    let state =
+        map_rms_configure_switch_certificate_job_state(&response.state).unwrap_or_else(|| {
+            emit(RmsSwitchCertificateJobStateUnrecognized);
+            ConfigureSwitchCertificateState::InProgress
+        });
     let error = if matches!(state, ConfigureSwitchCertificateState::Failed) {
         Some(
             (!response.error_message.is_empty())
@@ -2582,7 +2637,8 @@ impl ComputeTrayManager for RmsBackend {
 #[cfg(test)]
 mod tests {
     use api_test_helper::mock_rms::MockRmsApi;
-    use carbide_test_support::value_scenarios;
+    use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
+    use carbide_test_support::{Check, check_values, value_scenarios};
     use carbide_uuid::machine::MachineId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::rack::RackId;
@@ -2673,27 +2729,151 @@ mod tests {
     }
 
     #[test]
+    fn switch_slot_and_tray_response_keeps_partial_values_and_one_diagnostic() {
+        let details = |slot_number, tray_index| {
+            Some(rms::NodeDeviceInfo {
+                slot_number,
+                tray_index,
+                ..Default::default()
+            })
+        };
+        check_values(
+            [
+                Check {
+                    scenario: "missing device details",
+                    input: None,
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: None,
+                        tray_index: None,
+                        error: Some("RMS returned no device info".to_string()),
+                    },
+                },
+                Check {
+                    scenario: "valid values",
+                    input: details(Some(12), Some(4)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: Some(12),
+                        tray_index: Some(4),
+                        error: None,
+                    },
+                },
+                Check {
+                    scenario: "absent optional field",
+                    input: details(Some(12), None),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: Some(12),
+                        tray_index: None,
+                        error: None,
+                    },
+                },
+                Check {
+                    scenario: "invalid slot keeps tray",
+                    input: details(Some(i32::MAX as u32 + 1), Some(4)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: None,
+                        tray_index: Some(4),
+                        error: Some(
+                            "RMS returned slot_number outside the supported range".to_string(),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "invalid tray keeps slot",
+                    input: details(Some(12), Some(u32::MAX)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: Some(12),
+                        tray_index: None,
+                        error: Some(
+                            "RMS returned tray_index outside the supported range".to_string(),
+                        ),
+                    },
+                },
+                Check {
+                    scenario: "invalid fields share one diagnostic",
+                    input: details(Some(u32::MAX), Some(u32::MAX)),
+                    expect: RmsSwitchSlotAndTrayObservation {
+                        slot_number: None,
+                        tray_index: None,
+                        error: Some(
+                            "RMS returned slot_number and tray_index outside the supported range"
+                                .to_string(),
+                        ),
+                    },
+                },
+            ],
+            |details| classify_rms_switch_slot_and_tray(details.as_ref()),
+        );
+    }
+
+    #[test]
     fn configure_switch_certificate_job_state_maps_rms_states() {
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("queued"),
-            ConfigureSwitchCertificateState::Started,
+        value_scenarios!(
+            run = map_rms_configure_switch_certificate_job_state;
+            "started" {
+                "queued" => Some(ConfigureSwitchCertificateState::Started),
+                "pending" => Some(ConfigureSwitchCertificateState::Started),
+            }
+
+            "in progress" {
+                "running" => Some(ConfigureSwitchCertificateState::InProgress),
+                "in_progress" => Some(ConfigureSwitchCertificateState::InProgress),
+                "active" => Some(ConfigureSwitchCertificateState::InProgress),
+            }
+
+            "completed" {
+                "completed" => Some(ConfigureSwitchCertificateState::Completed),
+                "success" => Some(ConfigureSwitchCertificateState::Completed),
+                "done" => Some(ConfigureSwitchCertificateState::Completed),
+            }
+
+            "failed" {
+                "failed" => Some(ConfigureSwitchCertificateState::Failed),
+                "error" => Some(ConfigureSwitchCertificateState::Failed),
+            }
+
+            "case insensitive" {
+                "RUNNING" => Some(ConfigureSwitchCertificateState::InProgress),
+            }
+
+            "unrecognized" {
+                "waiting_for_reboot" => None,
+                "" => None,
+            }
         );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("running"),
-            ConfigureSwitchCertificateState::InProgress,
+    }
+
+    #[tokio::test]
+    async fn unrecognized_switch_certificate_job_state_keeps_polling_and_counts_silently() {
+        const METRIC: &str = "carbide_rms_switch_certificate_unrecognized_job_states_total";
+
+        let mock = MockRmsApi::new();
+        mock.enqueue_get_configure_switch_certificate_job_status(Ok(
+            MockRmsApi::configure_switch_certificate_job_status_ok("waiting_for_reboot"),
+        ))
+        .await;
+
+        let metrics = MetricsCapture::start();
+        let (status, logs) = capture_logs_async(rms_get_configure_switch_certificate_job_status(
+            &mock,
+            "cert-job-1",
+        ))
+        .await;
+        let status = status.expect("unknown RMS state keeps certificate polling active");
+
+        assert_eq!(status.state, ConfigureSwitchCertificateState::InProgress);
+        assert!(status.error.is_none());
+        assert!(
+            logs.iter().all(|log| log.field("event_name")
+                != Some("rms_switch_certificate_job_state_unrecognized")),
+            "the polling fallback remains metric-only"
         );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("completed"),
-            ConfigureSwitchCertificateState::Completed,
-        );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("failed"),
-            ConfigureSwitchCertificateState::Failed,
-        );
-        assert_eq!(
-            map_rms_configure_switch_certificate_job_state("unknown"),
-            ConfigureSwitchCertificateState::InProgress,
-        );
+        assert_eq!(metrics.counter_delta(METRIC, &[]), 1.0);
+
+        let calls = mock
+            .get_configure_switch_certificate_job_status_calls()
+            .await;
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].job_id, "cert-job-1");
     }
 
     #[test]

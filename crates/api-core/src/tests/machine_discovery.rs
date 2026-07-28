@@ -32,6 +32,7 @@ use mac_address::MacAddress;
 use model::hardware_info::{HardwareInfo, TpmEkCertificate};
 use model::machine::machine_id::from_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::resource_pool::{ResourcePoolDef, ResourcePoolType};
 use rpc::forge::forge_server::Forge;
 use tonic::{Code, Request};
 
@@ -303,6 +304,20 @@ async fn test_discover_dpu_by_source_ip(
         TestEnvOverrides::with_config(secure_discovery_config()),
     )
     .await;
+    let mut txn = env.pool.begin().await?;
+    db::resource_pool::define(
+        &mut txn,
+        model::resource_pool::common::LOOPBACK_IP_V6,
+        &ResourcePoolDef {
+            pool_type: ResourcePoolType::Ipv6,
+            prefix: Some("2001:db8::/125".to_string()),
+            ranges: vec![],
+            delegate_prefix_len: None,
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
     let host_config = env.managed_host_config();
     let dpu = host_config.get_and_assert_single_dpu();
 
@@ -342,10 +357,26 @@ async fn test_discover_dpu_by_source_ip(
 
     let response = env.api.discover_machine(req).await.unwrap().into_inner();
 
-    assert!(response.machine_id.is_some());
     assert_eq!(
         response.machine_interface_id,
         dhcp_response.machine_interface_id
+    );
+    let dpu_machine_id = response.machine_id.expect("DPU should be created");
+    let mut txn = env.pool.begin().await?;
+    let dpu_machine = db::machine::find_one(
+        txn.as_mut(),
+        &dpu_machine_id,
+        MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("DPU should exist");
+    assert!(dpu_machine.network_config.loopback_ip.is_some());
+    assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
+    assert!(
+        dpu_machine
+            .network_config
+            .secondary_overlay_vtep_ip
+            .is_some()
     );
 
     Ok(())

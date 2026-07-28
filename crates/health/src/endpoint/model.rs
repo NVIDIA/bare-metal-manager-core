@@ -16,6 +16,8 @@
  */
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::future::Future;
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -25,16 +27,48 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
+use tokio::sync::OnceCell;
 use url::Url;
 
 use crate::HealthError;
 use crate::bmc::{BmcClient, BoxFuture};
+
+/// Shared, write-once UUID reported by a machine's primary ComputerSystem.
+///
+/// Collectors clone endpoint metadata when they start, so this state must remain
+/// shared for a UUID resolved after collector startup to reach emitted events.
+#[derive(Clone, Debug, Default)]
+pub struct SharedSystemUuid(Arc<OnceCell<Option<uuid::Uuid>>>);
+
+impl SharedSystemUuid {
+    pub fn get(&self) -> Option<uuid::Uuid> {
+        self.0.get().copied().flatten()
+    }
+
+    pub(crate) async fn get_or_try_init<E, F, Fut>(&self, f: F) -> Result<Option<uuid::Uuid>, E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<Option<uuid::Uuid>, E>>,
+    {
+        self.0.get_or_try_init(f).await.copied()
+    }
+}
+
+impl From<Option<uuid::Uuid>> for SharedSystemUuid {
+    fn from(system_uuid: Option<uuid::Uuid>) -> Self {
+        match system_uuid {
+            Some(system_uuid) => Self(Arc::new(OnceCell::new_with(Some(Some(system_uuid))))),
+            None => Self::default(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct BmcEndpoint {
     pub addr: BmcAddr,
     pub metadata: Option<EndpointMetadata>,
     pub rack_id: Option<RackId>,
+    pub labels: BTreeMap<String, String>,
     pub bmc: Arc<BmcClient>,
 }
 
@@ -125,6 +159,14 @@ pub struct MachineData {
 
     /// Hardware chassis serial discovered from machine DMI data, when known.
     pub machine_serial: Option<String>,
+
+    /// UUID reported by the primary Redfish ComputerSystem resource.
+    ///
+    /// Endpoint discovery resolves this on demand. The write-once shared state
+    /// propagates enrichment to collectors that already started and records
+    /// both present and absent UUID results so successful BMC queries happen
+    /// only once.
+    pub system_uuid: SharedSystemUuid,
 
     /// Physical rack slot where the machine is installed, when known.
     pub slot_number: Option<i32>,
@@ -225,12 +267,14 @@ pub trait EndpointSource: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
     use std::net::IpAddr;
     use std::str::FromStr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use mac_address::MacAddress;
 
-    use super::{BmcAddr, BmcCredentials};
+    use super::{BmcAddr, BmcCredentials, SharedSystemUuid};
     use crate::endpoint::test_support::endpoint_with_creds;
 
     fn addr(ip: &str, port: Option<u16>) -> BmcAddr {
@@ -278,5 +322,26 @@ mod tests {
         );
 
         assert_eq!(endpoint.switch_connect_host_for_uri(), "[2001:db8::1]");
+    }
+
+    #[tokio::test]
+    async fn shared_system_uuid_caches_absent_result_across_clones() {
+        let state = SharedSystemUuid::default();
+        let clone = state.clone();
+        let query_count = AtomicUsize::new(0);
+
+        for state in [&state, &clone] {
+            state
+                .get_or_try_init(|| async {
+                    query_count.fetch_add(1, Ordering::SeqCst);
+                    Ok::<_, Infallible>(None)
+                })
+                .await
+                .expect("infallible UUID initialization");
+        }
+
+        assert_eq!(query_count.load(Ordering::SeqCst), 1);
+        assert_eq!(state.get(), None);
+        assert_eq!(clone.get(), None);
     }
 }

@@ -245,6 +245,18 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             (_, current_password) = match credentials {
                 Credentials::UsernamePassword { username, password } => (username, password),
             };
+
+            // DPU's change_uefi_password always returns Ok(None) on success (no async job).
+            // Return Ok(Some("")) here so callers can distinguish "updated" from the
+            // early-exit Ok(None) skip paths above. The host path below must NOT get
+            // this mapping — hosts may return Ok(None) to mean "no job to poll".
+            return client
+                .change_uefi_password(current_password.as_str(), new_password.as_str())
+                .await
+                .map_err(|err| redact_password(err, new_password.as_str()))
+                .map_err(|err| redact_password(err, current_password.as_str()))
+                .map_err(RedfishClientCreationError::RedfishError)
+                .map(|job_id| Some(job_id.unwrap_or_default()));
         } else {
             // For hosts, first try with empty current password (assuming no
             // password is set), using the site default handed in by the caller.
@@ -268,6 +280,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             }
         }
 
+        // Host fallback: second attempt using site default as current password.
         client
             .change_uefi_password(current_password.as_str(), new_password.as_str())
             .await
