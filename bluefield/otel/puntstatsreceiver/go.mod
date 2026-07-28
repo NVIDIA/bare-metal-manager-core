@@ -1,6 +1,6 @@
 module puntstatsreceiver
 
-go 1.26.4
+go 1.26.5
 
 require (
 	go.opentelemetry.io/collector/component v1.61.0
