@@ -94,7 +94,7 @@ mod tests {
             Case {
                 name: "ipv6 address, non-OS error -- should not retry",
                 address: ipv6_addr,
-                err: io::Error::new(io::ErrorKind::Other, "some other error"),
+                err: io::Error::other("some other error"),
                 expect_retry: false,
             },
             Case {
