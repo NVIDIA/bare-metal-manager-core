@@ -23,7 +23,7 @@ use tokio::test;
 use crate::common;
 
 #[test]
-async fn explore_bluefield4_and_generate_machine_id_from_bluefield_bmc_chassis_serial() {
+async fn explore_bluefield4_and_generate_machine_id_from_system_serial() {
     let h = test_support::dell_poweredge_r760_bluefield4_bmc(DpuMachineInfo {
         hw_type: HostHardwareType::DellPowerEdgeR760Bf4,
         bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x01]),
@@ -42,10 +42,7 @@ async fn explore_bluefield4_and_generate_machine_id_from_bluefield_bmc_chassis_s
 
     let system = report.systems.first().expect("systems must be present");
     assert_eq!(system.id, "BlueField_0");
-    assert!(
-        system.serial_number.is_none(),
-        "BF4 Redfish reports the usable serial on chassis, not system"
-    );
+    assert_eq!(system.serial_number.as_deref(), Some("MT2610604VN4"));
 
     assert_eq!(
         report.managers.first().map(|manager| manager.id.as_str()),
@@ -115,7 +112,7 @@ async fn explore_b4240v_and_generate_machine_id() {
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));
     assert!(report.chassis.iter().any(|chassis| {
-        chassis.id == "BlueField_BMC_0" && chassis.model.as_deref() == Some("B4240V")
+        chassis.id == "BlueField_0" && chassis.model.as_deref() == Some("B4240V")
     }));
     assert_eq!(
         report

@@ -21,7 +21,7 @@ use std::sync::Arc;
 use mac_address::MacAddress;
 use serde_json::json;
 
-use crate::{Callbacks, LogService, LogServices, hw, redfish};
+use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Mode {
@@ -34,6 +34,7 @@ pub enum Mode {
 pub struct Bluefield4<'a> {
     pub product_serial_number: Cow<'a, str>,
     pub host_mac_address: MacAddress,
+    pub oob_mac_address: MacAddress,
     pub bmc_mac_address: MacAddress,
     pub mode: Mode,
 }
@@ -66,9 +67,9 @@ impl Bluefield4<'_> {
             chassis: vec![
                 redfish::chassis::SingleChassisConfig {
                     id: "BlueField_0".into(),
-                    chassis_type: "Component".into(),
-                    manufacturer: Some("NVIDIA".into()),
-                    model: Some("NA".into()),
+                    chassis_type: "Card".into(),
+                    manufacturer: Some("Nvidia".into()),
+                    model: Some(self.model().into()),
                     part_number: Some(self.part_number().into()),
                     serial_number: Some(self.product_serial_number.to_string().into()),
                     network_adapters: Some(self.network_adapters()),
@@ -83,7 +84,7 @@ impl Bluefield4<'_> {
                     id: Self::BMC_CHASSIS_ID.into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some("Nvidia".into()),
-                    model: Some(self.model().into()),
+                    model: Some("BlueField-4".into()),
                     part_number: Some(self.part_number().into()),
                     pcie_devices: Some(vec![]),
                     sensors: Some(vec![]),
@@ -165,17 +166,215 @@ impl Bluefield4<'_> {
 
     pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
         let system_id = Self::SYSTEM_ID;
+        let boot_opt_builder = |id: &str, kind| {
+            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
+                .boot_option_reference(id)
+        };
+        let host_mac = self
+            .host_mac_address
+            .to_string()
+            .replace(':', "")
+            .to_ascii_uppercase();
+        let oob_mac = self
+            .oob_mac_address
+            .to_string()
+            .replace(':', "")
+            .to_ascii_uppercase();
+        let nic_base = |function: &str| {
+            format!(
+                "VenHw(1E5A432C-0466-4D31-B009-D4D9239271D3)/\
+                 MemoryMapped(0xB,0x14140000,0x14141FFF)/PciRoot(0x6)/\
+                 Pci(0x0,0x0)/Pci({function})/MAC({host_mac},0x1)"
+            )
+        };
+        let oob_base = format!(
+            "VenHw(1E5A432C-0466-4D31-B009-D4D9239271D3)/\
+             MemoryMapped(0xB,0x14180000,0x14181FFF)/PciRoot(0x8)/\
+             Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x6,0x0)/Pci(0x0,0x0)/\
+             MAC({oob_mac},0x1)"
+        );
+        let pxe_v4_display_name = format!("UEFI PXEv4 (MAC:{host_mac})");
+        let pxe_v6_display_name = format!("UEFI PXEv6 (MAC:{host_mac})");
+        let http_v4_display_name = format!("UEFI HTTPv4 (MAC:{host_mac})");
+        let http_v6_display_name = format!("UEFI HTTPv6 (MAC:{host_mac})");
+        let network_boot_options = [
+            (
+                "Boot0004",
+                "NET-OOB-IPV4",
+                format!("{oob_base}/IPv4(0.0.0.0)"),
+            ),
+            (
+                "Boot0005",
+                "NET-OOB-IPV6",
+                format!("{oob_base}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)"),
+            ),
+            (
+                "Boot0006",
+                "NET-OOB.4040-IPV4",
+                format!("{oob_base}/Vlan(4040)/IPv4(0.0.0.0)"),
+            ),
+            (
+                "Boot0007",
+                "NET-OOB.4040-IPV6",
+                format!(
+                    "{oob_base}/Vlan(4040)/\
+                     IPv6(0000:0000:0000:0000:0000:0000:0000:0000)"
+                ),
+            ),
+            (
+                "Boot0008",
+                "NET-NIC_P0-IPV4",
+                format!("{}/IPv4(0.0.0.0)", nic_base("0x0,0x0")),
+            ),
+            (
+                "Boot0009",
+                "NET-NIC_P0-IPV6",
+                format!(
+                    "{}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)",
+                    nic_base("0x0,0x0")
+                ),
+            ),
+            (
+                "Boot000A",
+                "NET-NIC_P0-IPV4-HTTP",
+                format!("{}/IPv4(0.0.0.0)/Uri()", nic_base("0x0,0x0")),
+            ),
+            (
+                "Boot000B",
+                "NET-NIC_P0-IPV6-HTTP",
+                format!(
+                    "{}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)/Uri()",
+                    nic_base("0x0,0x0")
+                ),
+            ),
+            (
+                "Boot000C",
+                "NET-NIC_P1-IPV4",
+                format!("{}/IPv4(0.0.0.0)", nic_base("0x0,0x1")),
+            ),
+            (
+                "Boot000D",
+                "NET-NIC_P1-IPV6",
+                format!(
+                    "{}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)",
+                    nic_base("0x0,0x1")
+                ),
+            ),
+            (
+                "Boot000E",
+                "NET-NIC_P1-IPV4-HTTP",
+                format!("{}/IPv4(0.0.0.0)/Uri()", nic_base("0x0,0x1")),
+            ),
+            (
+                "Boot000F",
+                "NET-NIC_P1-IPV6-HTTP",
+                format!(
+                    "{}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)/Uri()",
+                    nic_base("0x0,0x1")
+                ),
+            ),
+            (
+                "Boot0010",
+                pxe_v4_display_name.as_str(),
+                format!("{}/IPv4(0.0.0.0)", nic_base("0x0,0x2")),
+            ),
+            (
+                "Boot0011",
+                pxe_v6_display_name.as_str(),
+                format!(
+                    "{}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)",
+                    nic_base("0x0,0x2")
+                ),
+            ),
+            (
+                "Boot0012",
+                http_v4_display_name.as_str(),
+                format!("{}/IPv4(0.0.0.0)/Uri()", nic_base("0x0,0x2")),
+            ),
+            (
+                "Boot0013",
+                http_v6_display_name.as_str(),
+                format!(
+                    "{}/IPv6(0000:0000:0000:0000:0000:0000:0000:0000)/Uri()",
+                    nic_base("0x0,0x2")
+                ),
+            ),
+            (
+                "Boot0014",
+                "NET-OOB-IPV4-HTTP",
+                format!("{oob_base}/IPv4(0.0.0.0)/Uri()"),
+            ),
+            (
+                "Boot0015",
+                "NET-OOB-IPV6-HTTP",
+                format!(
+                    "{oob_base}/\
+                     IPv6(0000:0000:0000:0000:0000:0000:0000:0000)/Uri()"
+                ),
+            ),
+            (
+                "Boot0016",
+                "NET-OOB.4040-IPV4-HTTP",
+                format!("{oob_base}/Vlan(4040)/IPv4(0.0.0.0)/Uri()"),
+            ),
+            (
+                "Boot0017",
+                "NET-OOB.4040-IPV6-HTTP",
+                format!(
+                    "{oob_base}/Vlan(4040)/\
+                     IPv6(0000:0000:0000:0000:0000:0000:0000:0000)/Uri()"
+                ),
+            ),
+        ]
+        .into_iter()
+        .map(|(id, display_name, uefi_device_path)| {
+            boot_opt_builder(id, BootOptionKind::Network)
+                .display_name(display_name)
+                .uefi_device_path(&uefi_device_path)
+                .build()
+        });
+        let boot_options = [
+            boot_opt_builder("Boot0000", BootOptionKind::Disk)
+                .display_name("ubuntu0")
+                .uefi_device_path(
+                    "HD(1,GPT,3FECD8EB-847F-49EB-A0E5-A59B9D4C0B47,0x800,0x19000)/\
+                     \\EFI\\ubuntu\\shimaa64.efi",
+                )
+                .build(),
+            boot_opt_builder("Boot0003", BootOptionKind::Disk)
+                .display_name("UEFI HFS480GEJ8X176N 4425ADEAQ5394I080947 1")
+                .uefi_device_path(
+                    "VenHw(1E5A432C-0466-4D31-B009-D4D9239271D3)/\
+                     MemoryMapped(0xB,0x141A0000,0x141A1FFF)/PciRoot(0x9)/\
+                     Pci(0x0,0x0)/Pci(0x0,0x0)/\
+                     NVMe(0x1,00-55-CF-55-00-2E-E4-AC)",
+                )
+                .build(),
+        ]
+        .into_iter()
+        .chain(network_boot_options)
+        .chain(std::iter::once(
+            boot_opt_builder("Boot0019", BootOptionKind::Disk)
+                .display_name("UEFI Shell")
+                .uefi_device_path(
+                    "Fv(9AEF2E52-DEAD-4F63-B895-3A504A3E63C4)/\
+                     FvFile(7C04A583-9E3E-4F1C-AD65-E05268D0B4D1)",
+                )
+                .build(),
+        ))
+        .collect();
         redfish::computer_system::Config {
             systems: vec![redfish::computer_system::SingleSystemConfig {
                 id: Cow::Borrowed(system_id),
-                manufacturer: None,
-                model: None,
+                manufacturer: Some("Nvidia".into()),
+                model: Some("BlueField-4".into()),
+                // BF4-26.04-10 exposes this collection with no members.
                 eth_interfaces: Some(vec![]),
                 chassis: vec![Self::BMC_CHASSIS_ID.into()],
-                serial_number: None,
+                serial_number: Some(self.product_serial_number.to_string().into()),
                 boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
                 callbacks: Some(callbacks),
-                boot_options: Some(vec![]),
+                boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,
                 base_bios: Some(
@@ -210,7 +409,7 @@ impl Bluefield4<'_> {
                 ]),
                 host_interfaces: None,
                 serial_interfaces: None,
-                firmware_version: Some("BF4-26.04-4"),
+                firmware_version: Some("BF4-26.04-10"),
                 oem: None,
             }],
         }
