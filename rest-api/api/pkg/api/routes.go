@@ -51,6 +51,20 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCreateUEFICredentialHandler(dbSession, scp),
 		},
+		// Site-wide credential rotation (Provider Admin); equivalent to the admin
+		// CLI `credential rotate` / `credential rotation-status` commands. POST
+		// stages a rotation and returns the new target version; GET reports
+		// convergence for the site or a single device by MAC.
+		{
+			Path:    apiPathPrefix + "/credential/rotation",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewRotateCredentialHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/credential/rotation",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetCredentialRotationStatusHandler(dbSession, scp),
+		},
 		// User endpoint
 		{
 			Path:    apiPathPrefix + "/user/current",
