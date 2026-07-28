@@ -433,9 +433,11 @@ impl DpuMachineHandle {
                 state.to_owned(),
                 tx,
             ))?;
-        tokio::time::timeout(timeout, rx).await?.wrap_err(format!(
-            "timed out waiting for machine up with state {state}"
-        ))
+        tokio::time::timeout(timeout, rx)
+            .await
+            .wrap_err_with(|| format!("timed out waiting for machine up with state {state}"))?
+            .wrap_err_with(|| format!("machine stopped while waiting for state {state}"))?;
+        Ok(())
     }
 
     pub fn host_details(&self) -> HostDetails {
