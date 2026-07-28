@@ -425,20 +425,10 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	// Check if a SKU already exists for the given SKU ID and Site ID
-	skuDAO := cdbm.NewSkuDAO(csh.dbSession)
 	siteUUID, err := uuid.Parse(siteID)
 	if err != nil {
 		logger.Error().Err(err).Msg("error parsing Site ID")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Site ID", nil)
-	}
-	_, tot, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{siteUUID}, SkuIDs: []string{apiReq.ID}}, paginator.PageInput{})
-	if err != nil {
-		logger.Error().Err(err).Msg("error checking for existing SKUs")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to check for existing SKUs", nil)
-	}
-	if tot > 0 {
-		return cutil.NewAPIErrorResponse(c, http.StatusConflict, fmt.Sprintf("SKU with ID: %s for Site: %s already exists", apiReq.ID, siteID), nil)
 	}
 
 	logger.Info().Str("skuID", apiReq.ID).Str("siteID", siteID).Msg("creating SKU via Core proxy")

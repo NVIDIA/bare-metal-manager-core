@@ -144,18 +144,10 @@ func (r APISkuCreateRequest) ToProto() *corev1.SkuList {
 
 // Validate checks the update request and requires at least one mutable field.
 func (r APISkuUpdateRequest) Validate() error {
-	err := validation.By(r.validateHasMutableField).Validate(r)
-	if err != nil {
-		return err
-	}
-	return validateSkuMutationComponents(r.Components)
-}
-
-func (r APISkuUpdateRequest) validateHasMutableField(interface{}) error {
 	if r.Description == nil && r.DeviceType == nil && r.Components == nil {
 		return validation.Errors{"request": validation.NewError("validation_required", "at least one mutable field is required")}
 	}
-	return nil
+	return validateSkuMutationComponents(r.Components)
 }
 
 // ToMetadataProto converts a validated metadata-only PATCH request.

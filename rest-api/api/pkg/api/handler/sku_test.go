@@ -744,6 +744,18 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, uint32(3_900_000), saved.Components.Storage[0].GetMaxSizeMb())
 	})
 
+	t.Run("uses Core as the authority for duplicate IDs", func(t *testing.T) {
+		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
+			createError: status.Error(codes.AlreadyExists, "SKU already exists: sku-1"),
+		})
+
+		rec := fixture.request(t, http.MethodPost, "", validSkuCreateRequest(fixture.siteID), fixture.createHandler.Handle)
+
+		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+		require.Len(t, fixture.requests, 1)
+		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
+	})
+
 	t.Run("rejects legacy storage mutation fields", func(t *testing.T) {
 		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
 
@@ -1071,6 +1083,7 @@ type skuManagementFixture struct {
 type skuManagementFixtureOptions struct {
 	findResponse        *corev1.SkuList
 	findError           error
+	createError         error
 	replaceResponse     *corev1.Sku
 	updateMetadataError error
 	deleteError         error
@@ -1110,7 +1123,11 @@ func newSkuManagementFixtureWithOptions(t *testing.T, roles []string, options sk
 	fixture := &skuManagementFixture{org: org, siteID: site.ID.String(), user: user}
 	client := &tmocks.Client{}
 	existing := existingSkuProto()
-	fixture.addWorkflow(t, client, createSkuMethod, &corev1.SkuIdList{Ids: []string{"sku-1"}})
+	if options.createError != nil {
+		fixture.addWorkflowError(client, createSkuMethod, options.createError)
+	} else {
+		fixture.addWorkflow(t, client, createSkuMethod, &corev1.SkuIdList{Ids: []string{"sku-1"}})
+	}
 	if options.findError != nil {
 		fixture.addWorkflowError(client, findSkusByIDsMethod, options.findError)
 	} else {
