@@ -155,7 +155,7 @@ func TestOperationAction(t *testing.T) {
 		{"get-jwks", "get"},
 		{"get-spiffe-jwks", "get"},
 		{"get-openid-configuration", "get"},
-		{"start-machine-validation-on-demand", "start"},
+		{"start-machine-validation", "start"},
 	}
 
 	for _, tt := range tests {
@@ -193,7 +193,7 @@ func TestExtractResourceSuffix(t *testing.T) {
 		{"get-jwks", "jwks"},
 		{"get-spiffe-jwks", "spiffe-jwks"},
 		{"get-openid-configuration", "openid-configuration"},
-		{"start-machine-validation-on-demand", "machine-validation-on-demand"},
+		{"start-machine-validation", "machine-validation"},
 	}
 
 	for _, tt := range tests {
@@ -1018,6 +1018,26 @@ func TestNewApp_MachineValidationStartCommandSurface(t *testing.T) {
 	}
 	require.NotNil(t, start, "Machine validation must expose a start command")
 	assert.Equal(t, "nicocli machine-validation start [command options] <machineId>", start.UsageText)
+
+	for _, resourceName := range []string{"results", "runs"} {
+		var resource *cli.Command
+		for _, command := range machineValidation.Subcommands {
+			if command.Name == resourceName {
+				resource = command
+				break
+			}
+		}
+		require.NotNil(t, resource, "Machine validation must expose a %s sub-resource", resourceName)
+
+		var list *cli.Command
+		for _, command := range resource.Subcommands {
+			if command.Name == "list" {
+				list = command
+				break
+			}
+		}
+		require.NotNil(t, list, "Machine validation %s must expose a list command", resourceName)
+	}
 }
 
 func TestNewApp_MachineValidationStartExecutesRESTRequest(t *testing.T) {
@@ -1051,9 +1071,60 @@ func TestNewApp_MachineValidationStartExecutesRESTRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodPost, method)
-	assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/validation/on-demand", path)
+	assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/validation/run", path)
 	assert.Equal(t, "Bearer test-token", authorization)
 	assert.JSONEq(t, `{"allowedTests":["gpu_bandwidth"],"runUnverifiedTests":true}`, body)
+}
+
+func TestNewApp_MachineValidationReadCommandsExecuteRESTRequests(t *testing.T) {
+	tests := []struct {
+		name         string
+		resource     string
+		expectedPath string
+	}{
+		{
+			name:         "runs",
+			resource:     "runs",
+			expectedPath: "/v2/org/test-org/nico/machine/machine-1/validation/run",
+		},
+		{
+			name:         "results",
+			resource:     "results",
+			expectedPath: "/v2/org/test-org/nico/machine/machine-1/validation/result",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var method, path, authorization string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				method = request.Method
+				path = request.URL.Path
+				authorization = request.Header.Get("Authorization")
+				w.Header().Set("Content-Type", "application/json")
+				_, err := w.Write([]byte(`[]`))
+				require.NoError(t, err)
+			}))
+			t.Cleanup(server.Close)
+
+			app, err := NewApp(openapi.Spec)
+			require.NoError(t, err)
+
+			err = app.Run([]string{
+				"nicocli",
+				"--base-url", server.URL,
+				"--org", "test-org",
+				"--api-name", "nico",
+				"--token", "test-token",
+				"machine-validation", tt.resource, "list",
+				"machine-1",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, http.MethodGet, method)
+			assert.Equal(t, tt.expectedPath, path)
+			assert.Equal(t, "Bearer test-token", authorization)
+		})
+	}
 }
 
 // sortStrings is a tiny stable sort used by the order-independence test so it

@@ -9944,7 +9944,7 @@ paths:
         Execute power control actions for a specific Machine.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
-  '/v2/org/{org}/nico/machine/{machineId}/validation/on-demand':
+  '/v2/org/{org}/nico/machine/{machineId}/validation/run':
     parameters:
       - schema:
           type: string
@@ -9958,8 +9958,34 @@ paths:
         in: path
         required: true
         description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation runs
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-runs
+      description: |-
+        Retrieve validation runs for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
     post:
-      summary: Start on-demand Machine validation
+      summary: Create an on-demand Machine validation run
       tags:
         - Machine Validation
       requestBody:
@@ -9982,11 +10008,51 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '500':
           $ref: '#/components/responses/GenericHttpError'
-      operationId: start-machine-validation-on-demand
+      operationId: start-machine-validation
       description: |-
-        Start an on-demand Machine validation run. The Machine must be in a state accepted by NICo Core.
+        Create an on-demand Machine validation run. The Machine must be in a state accepted by NICo Core.
 
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/machine/{machineId}/validation/result':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+        name: machineId
+        in: path
+        required: true
+        description: ID of the Machine
+    get:
+      summary: Retrieve Machine validation results
+      tags:
+        - Machine Validation
+      responses:
+        '200':
+          description: Machine validation results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MachineValidationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: get-all-machine-validation-results
+      description: |-
+        Retrieve validation results for a specific Machine.
+
+        Org must have an Infrastructure Provider entity that owns the Machine. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
@@ -15524,6 +15590,127 @@ components:
         validationId:
           type: string
           description: ID of the accepted Machine validation run.
+    MachineValidationRun:
+      type: object
+      title: MachineValidationRun
+      description: Machine validation run
+      required:
+        - validationID
+        - machineID
+        - startTime
+        - endTime
+        - name
+        - context
+        - status
+        - durationToCompleteSecs
+      properties:
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        machineID:
+          type: string
+          description: ID of the validated Machine.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation run started.
+        endTime:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Time the validation run completed, or null while it is active.
+        name:
+          type: string
+          description: Name of the validation run.
+        context:
+          type: string
+          description: Context in which the validation run was created.
+        status:
+          $ref: '#/components/schemas/MachineValidationStatus'
+        durationToCompleteSecs:
+          type: integer
+          description: Duration of the validation run in seconds.
+    MachineValidationStatus:
+      type: object
+      title: MachineValidationStatus
+      description: Progress and outcome of a Machine validation run
+      required:
+        - state
+        - total
+        - completed
+      properties:
+        state:
+          type: string
+          description: Current state or completed outcome of the validation run.
+          enum:
+            - Started
+            - InProgress
+            - Success
+            - Failed
+            - Skipped
+        total:
+          type: integer
+          description: Total number of validation tests in the run.
+        completed:
+          type: integer
+          description: Number of validation tests that have completed.
+    MachineValidationResult:
+      type: object
+      title: MachineValidationResult
+      description: Result of one test in a Machine validation run
+      required:
+        - name
+        - description
+        - command
+        - args
+        - stdOut
+        - stdErr
+        - context
+        - exitCode
+        - startTime
+        - endTime
+        - validationID
+        - testID
+      properties:
+        name:
+          type: string
+          description: Name of the validation test.
+        description:
+          type: string
+          description: Description of the validation test.
+        command:
+          type: string
+          description: Command executed by the validation test.
+        args:
+          type: string
+          description: Arguments supplied to the validation command.
+        stdOut:
+          type: string
+          description: Standard output from the validation command.
+        stdErr:
+          type: string
+          description: Standard error from the validation command.
+        context:
+          type: string
+          description: Context in which the validation test ran.
+        exitCode:
+          type: integer
+          description: Exit code returned by the validation command.
+        startTime:
+          type: string
+          format: date-time
+          description: Time the validation test started.
+        endTime:
+          type: string
+          format: date-time
+          description: Time the validation test completed.
+        validationID:
+          type: string
+          description: ID of the Machine validation run.
+        testID:
+          type: string
+          description: ID of the validation test.
     InfrastructureProvider:
       description: Infrastructure providers own and manage datacenters
       type: object

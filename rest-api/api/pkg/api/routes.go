@@ -657,9 +657,19 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Handler: apiHandler.NewMachinePowerControlHandler(dbSession, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/machine/:id/validation/on-demand",
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewStartMachineValidationHandler(dbSession, scp, cfg),
+			Handler: apiHandler.NewCreateMachineValidationRunHandler(dbSession, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/run",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMachineValidationRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/machine/:id/validation/result",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetMachineValidationResultsHandler(dbSession, tc, scp, cfg),
 		},
 
 		// Machine GPU Stats endpoint
@@ -911,16 +921,6 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/site/:siteID/machine-validation/test/:id/version/:version",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetMachineValidationTestHandler(dbSession, tc, scp, cfg),
-		},
-		{
-			Path:    apiPathPrefix + "/site/:siteID/machine-validation/machine/:machineID/results",
-			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetMachineValidationResultsHandler(dbSession, tc, scp, cfg),
-		},
-		{
-			Path:    apiPathPrefix + "/site/:siteID/machine-validation/machine/:machineID/runs",
-			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetAllMachineValidationRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/site/:siteID/machine-validation/external-config",

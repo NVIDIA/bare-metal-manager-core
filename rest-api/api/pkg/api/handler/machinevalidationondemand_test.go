@@ -85,7 +85,7 @@ func newMachineValidationOnDemandHandlerFixture(t *testing.T, response *corev1.M
 	clientPool := sc.NewClientPool(nil)
 	clientPool.IDClientMap[site.ID.String()] = siteTemporalClient
 
-	handler := NewStartMachineValidationHandler(dbSession, clientPool, common.GetTestConfig())
+	handler := NewCreateMachineValidationRunHandler(dbSession, clientPool, common.GetTestConfig())
 	return machineValidationOnDemandHandlerFixture{
 		dbSession:  dbSession,
 		org:        org,
@@ -121,7 +121,7 @@ func (f machineValidationOnDemandHandlerFixture) request(t *testing.T, body any)
 	return recorder
 }
 
-func TestStartMachineValidationHandlerProxiesRequest(t *testing.T) {
+func TestCreateMachineValidationRunHandlerProxiesRequest(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, &corev1.MachineValidationOnDemandResponse{
 		ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
 	})
@@ -152,7 +152,7 @@ func TestStartMachineValidationHandlerProxiesRequest(t *testing.T) {
 	assert.Equal(t, "validation-1", apiResponse.ValidationID)
 }
 
-func TestStartMachineValidationHandlerAcceptsEmptyOptions(t *testing.T) {
+func TestCreateMachineValidationRunHandlerAcceptsEmptyOptions(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, &corev1.MachineValidationOnDemandResponse{
 		ValidationId: &corev1.MachineValidationId{Value: "validation-1"},
 	})
@@ -163,7 +163,7 @@ func TestStartMachineValidationHandlerAcceptsEmptyOptions(t *testing.T) {
 	assert.Equal(t, corev1.Forge_OnDemandMachineValidation_FullMethodName, fixture.proxiedReq.FullMethod)
 }
 
-func TestStartMachineValidationHandlerRequiresProviderAdmin(t *testing.T) {
+func TestCreateMachineValidationRunHandlerRequiresProviderAdmin(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
 	fixture.user = &cdbm.User{OrgData: cdbm.OrgData{fixture.org: cdbm.Org{Name: fixture.org}}}
 
@@ -173,7 +173,7 @@ func TestStartMachineValidationHandlerRequiresProviderAdmin(t *testing.T) {
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
-func TestStartMachineValidationHandlerRejectsUnknownMachine(t *testing.T) {
+func TestCreateMachineValidationRunHandlerRejectsUnknownMachine(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
 	fixture.machineID = "missing-machine"
 
@@ -183,7 +183,7 @@ func TestStartMachineValidationHandlerRejectsUnknownMachine(t *testing.T) {
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
-func TestStartMachineValidationHandlerHidesForeignMachine(t *testing.T) {
+func TestCreateMachineValidationRunHandlerHidesForeignMachine(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
 	otherOrg := "other-org"
 	otherUser := common.TestBuildUser(t, fixture.dbSession, "other-starfleet-id", otherOrg, []string{authz.ProviderAdminRole})

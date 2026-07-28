@@ -21,16 +21,16 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-// StartMachineValidationHandler starts on-demand validation for a Machine.
-type StartMachineValidationHandler struct {
+// CreateMachineValidationRunHandler creates an on-demand validation run for a Machine.
+type CreateMachineValidationRunHandler struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewStartMachineValidationHandler returns a new StartMachineValidationHandler.
-func NewStartMachineValidationHandler(dbSession *cdb.Session, scp *sc.ClientPool, _ *config.Config) StartMachineValidationHandler {
-	return StartMachineValidationHandler{
+// NewCreateMachineValidationRunHandler returns a new CreateMachineValidationRunHandler.
+func NewCreateMachineValidationRunHandler(dbSession *cdb.Session, scp *sc.ClientPool, _ *config.Config) CreateMachineValidationRunHandler {
+	return CreateMachineValidationRunHandler{
 		dbSession:  dbSession,
 		scp:        scp,
 		tracerSpan: cutil.NewTracerSpan(),
@@ -38,8 +38,8 @@ func NewStartMachineValidationHandler(dbSession *cdb.Session, scp *sc.ClientPool
 }
 
 // Handle godoc
-// @Summary Start on-demand Machine validation
-// @Description Start on-demand validation for a Machine.
+// @Summary Create an on-demand Machine validation run
+// @Description Create an on-demand validation run for a Machine.
 // @Tags Machine Validation
 // @Accept json
 // @Produce json
@@ -48,9 +48,9 @@ func NewStartMachineValidationHandler(dbSession *cdb.Session, scp *sc.ClientPool
 // @Param machineId path string true "ID of Machine"
 // @Param request body model.APIMachineValidationOnDemandRequest false "On-demand Machine validation options"
 // @Success 202 {object} model.APIMachineValidationOnDemandResponse
-// @Router /v2/org/{org}/nico/machine/{machineId}/validation/on-demand [post]
-func (h StartMachineValidationHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachineValidation", "StartOnDemand", c, h.tracerSpan)
+// @Router /v2/org/{org}/nico/machine/{machineId}/validation/run [post]
+func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("MachineValidationRun", "Create", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
