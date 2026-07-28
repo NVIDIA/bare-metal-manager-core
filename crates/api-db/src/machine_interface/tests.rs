@@ -252,6 +252,27 @@ async fn test_preallocate_machine_interface_is_idempotent_without_static_assignm
     .await?;
 
     preallocate_machine_interface(txn.as_pgconn(), mac, ip, None).await?;
+    let legacy_expected_interface = ExpectedHostNic {
+        mac_address: mac,
+        fixed_ip: Some(ip),
+        ..Default::default()
+    };
+    preallocate_expected_machine_interface(txn.as_pgconn(), &legacy_expected_interface, None)
+        .await?;
+
+    // An explicit policy requires a managed prefix even when the exact
+    // external reservation already exists. Resolve it before the idempotent
+    // `(MAC, IP)` path can return success.
+    let explicit_expected_interface = ExpectedHostNic {
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        ..legacy_expected_interface
+    };
+    let error =
+        preallocate_expected_machine_interface(txn.as_pgconn(), &explicit_expected_interface, None)
+            .await
+            .expect_err("an explicit fixed policy should require a managed prefix");
+    assert!(matches!(error, DatabaseError::InvalidArgument(_)));
+
     let interfaces = find_by_mac_address(txn.as_pgconn(), mac).await?;
     txn.commit().await?;
 
@@ -768,7 +789,7 @@ async fn test_fixed_host_preallocation_does_not_override_machine_wide_primary_se
 }
 
 #[crate::sqlx_test]
-async fn test_fixed_preallocation_derives_segment_before_applying_typed_guard(
+async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     create_static_assignments_segment(&pool).await?;
@@ -780,6 +801,7 @@ async fn test_fixed_preallocation_derives_segment_before_applying_typed_guard(
         AllocationStrategy::Reserved,
     )
     .await?;
+    let non_target_segment = create_test_segment(&pool, "fixed-address-non-target").await?;
 
     let mut txn = db::Transaction::begin(&pool).await?;
     let legacy_hint = ExpectedHostNic {
@@ -824,6 +846,96 @@ async fn test_fixed_preallocation_derives_segment_before_applying_typed_guard(
         legacy_interface.segment_id, static_assignments.id,
         "a legacy Host declaration must not turn its DHCP selector into a fixed-address guard",
     );
+
+    // The address alone cannot make an exact row idempotent when an explicit
+    // policy resolves it to a different managed segment.
+    let misplaced_mac: MacAddress = "7A:7B:7C:7D:7E:68".parse()?;
+    let misplaced_ip: IpAddr = "198.51.100.68".parse()?;
+    let misplaced_interface_id: MachineInterfaceId = sqlx::query_scalar(
+        "INSERT INTO machine_interfaces
+            (segment_id, mac_address, primary_interface, hostname)
+         VALUES ($1, $2, true, 'fixed-address-non-target')
+         RETURNING id",
+    )
+    .bind(non_target_segment)
+    .bind(misplaced_mac)
+    .fetch_one(txn.as_pgconn())
+    .await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        misplaced_interface_id,
+        misplaced_ip,
+        AllocationType::Static,
+    )
+    .await?;
+    let misplaced_reservation = ExpectedHostNic {
+        mac_address: misplaced_mac,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        fixed_ip: Some(misplaced_ip),
+        ..Default::default()
+    };
+    let error =
+        preallocate_expected_machine_interface(txn.as_pgconn(), &misplaced_reservation, None)
+            .await
+            .expect_err("an exact reservation on another segment should be rejected");
+    assert!(matches!(error, DatabaseError::InvalidArgument(_)));
+    let misplaced_interface = find_one(txn.as_pgconn(), misplaced_interface_id).await?;
+    assert_eq!(misplaced_interface.segment_id, non_target_segment);
+
+    /// One generalized fixed-address declaration that must reject the
+    /// out-of-prefix address used by this test.
+    struct OutsidePrefixCase {
+        name: &'static str,
+        suffix: u8,
+        role: ExpectedInterfaceRole,
+        ip_allocation: Option<ExpectedInterfaceIpAllocation>,
+    }
+
+    for case in [
+        OutsidePrefixCase {
+            name: "explicit Host Fixed policy",
+            suffix: 0x65,
+            role: ExpectedInterfaceRole::Host,
+            ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+        },
+        OutsidePrefixCase {
+            name: "DPU OS inferred Fixed policy",
+            suffix: 0x66,
+            role: ExpectedInterfaceRole::DpuOs,
+            ip_allocation: None,
+        },
+        OutsidePrefixCase {
+            name: "DPU BMC inferred Fixed policy",
+            suffix: 0x67,
+            role: ExpectedInterfaceRole::DpuBmc,
+            ip_allocation: None,
+        },
+    ] {
+        let expected_interface = ExpectedHostNic {
+            mac_address: MacAddress::new([0x7a, 0x7b, 0x7c, 0x7d, 0x7e, case.suffix]),
+            role: case.role,
+            ip_allocation: case.ip_allocation,
+            fixed_ip: Some(format!("203.0.113.{}", case.suffix).parse()?),
+            ..Default::default()
+        };
+
+        let error =
+            preallocate_expected_machine_interface(txn.as_pgconn(), &expected_interface, None)
+                .await
+                .expect_err(case.name);
+        assert!(
+            matches!(error, DatabaseError::InvalidArgument(_)),
+            "case: {}",
+            case.name,
+        );
+        assert!(
+            find_by_mac_address(txn.as_pgconn(), expected_interface.mac_address)
+                .await?
+                .is_empty(),
+            "case: {}",
+            case.name,
+        );
+    }
 
     let wrong_guard = ExpectedHostNic {
         mac_address: "7A:7B:7C:7D:7E:62".parse()?,

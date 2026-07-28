@@ -81,6 +81,7 @@ pub async fn update_preallocated_expected_machine_interface(
             interface_type: expected_interface.role.interface_type(),
             primary_interface: expected_interface.role.primary_interface_override(),
             segment_type_guard: expected_interface.segment_type_guard(),
+            require_managed_prefix: !expected_interface.uses_legacy_host_allocation(),
         }),
         retained_window,
     )
@@ -101,6 +102,9 @@ struct ExpectedInterfaceSettings {
     primary_interface: Option<bool>,
     /// Segment type that the fixed address must resolve to.
     segment_type_guard: Option<NetworkSegmentType>,
+    /// Require a managed prefix to contain the fixed address instead of
+    /// falling back to `static-assignments`.
+    require_managed_prefix: bool,
 }
 
 /// Create or safely update a fixed-address reservation.
@@ -117,12 +121,12 @@ async fn update_preallocated_machine_interface_with_settings(
     retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
     let segment_type_guard = settings.and_then(|settings| settings.segment_type_guard);
-    // An explicit segment type is a configuration guard, so validate it even
-    // when an addressed interface will otherwise remain unchanged. Legacy
-    // callers resolve lazily to preserve that addressed-row no-op.
-    let guarded_segment = if let Some(segment_type_guard) = segment_type_guard {
+    // Generalized ExpectedInterface declarations require a managed prefix
+    // even when an addressed interface will otherwise remain unchanged.
+    // Legacy callers resolve lazily to preserve that addressed-row no-op.
+    let resolved_segment = if settings.is_some_and(|settings| settings.require_managed_prefix) {
         Some(
-            db::network_segment::for_static_address(txn, ip_address, Some(segment_type_guard))
+            db::network_segment::for_managed_static_address(txn, ip_address, segment_type_guard)
                 .await?,
         )
     } else {
@@ -135,9 +139,9 @@ async fn update_preallocated_machine_interface_with_settings(
             // No addresses -- safe to assign the static IP.
             db::machine_interface_address::assign_static(txn, iface.id, ip_address).await?;
 
-            let segment = match guarded_segment {
+            let segment = match resolved_segment {
                 Some(segment) => segment,
-                None => db::network_segment::for_static_address(txn, ip_address, None).await?,
+                None => db::network_segment::for_static_address(txn, ip_address).await?,
             };
             if iface.segment_id != segment.id {
                 db::machine_interface::update_segment_id(
@@ -187,9 +191,9 @@ async fn update_preallocated_machine_interface_with_settings(
         }
     } else {
         // No interface yet -- create a new one.
-        let segment = match guarded_segment {
+        let segment = match resolved_segment {
             Some(segment) => segment,
-            None => db::network_segment::for_static_address(txn, ip_address, None).await?,
+            None => db::network_segment::for_static_address(txn, ip_address).await?,
         };
         let interface_type = settings
             .map(|settings| settings.interface_type)
@@ -237,7 +241,7 @@ pub async fn assign_static_address(
     // if needed. IPs within a managed prefix go on that prefix's segment.
     // External IPs go on the static-assignments anchor segment.
     let target_segment =
-        db::network_segment::for_static_address(txn.as_pgconn(), ip_address, None).await?;
+        db::network_segment::for_static_address(txn.as_pgconn(), ip_address).await?;
 
     let current_iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
     if current_iface.segment_id != target_segment.id {

@@ -1180,6 +1180,7 @@ pub async fn preallocate_machine_interface(
             interface_type: InterfaceType::Data,
             primary_interface: None,
             segment_type_guard: None,
+            require_managed_prefix: false,
             allow_associated_interface_settings_update: true,
         },
         retained_window,
@@ -1201,6 +1202,7 @@ pub async fn preallocate_bmc_machine_interface(
             interface_type: InterfaceType::Bmc,
             primary_interface: Some(false),
             segment_type_guard: None,
+            require_managed_prefix: false,
             allow_associated_interface_settings_update: true,
         },
         retained_window,
@@ -1235,6 +1237,7 @@ pub async fn preallocate_expected_machine_interface(
             interface_type: expected_interface.role.interface_type(),
             primary_interface: expected_interface.role.primary_interface_override(),
             segment_type_guard: expected_interface.segment_type_guard(),
+            require_managed_prefix: !expected_interface.uses_legacy_host_allocation(),
             allow_associated_interface_settings_update: false,
         },
         retained_window,
@@ -1362,6 +1365,9 @@ struct PreallocationOptions {
     primary_interface: Option<bool>,
     /// Segment type that the fixed address must resolve to.
     segment_type_guard: Option<NetworkSegmentType>,
+    /// Require a managed prefix to contain the fixed address instead of
+    /// falling back to `static-assignments`.
+    require_managed_prefix: bool,
     /// Allow requested interface settings to change an already-associated row.
     ///
     /// This does not disable fixed-address reconciliation. ExpectedInterface
@@ -1400,6 +1406,18 @@ async fn reconcile_existing_preallocation(
     let same_family = addresses
         .iter()
         .find(|address| address.address.is_address_family(family));
+    // An exact address is not enough when the caller has already resolved its
+    // configured segment. Existing rows must agree with both parts of the
+    // reservation before the idempotent path succeeds.
+    let ensure_target_segment = |target_segment: &NetworkSegment| -> DatabaseResult<()> {
+        if iface.segment_id == target_segment.id {
+            return Ok(());
+        }
+        Err(DatabaseError::InvalidArgument(format!(
+            "a machine interface already exists for MAC {mac_address} on segment {}; fixed IP {static_ip} belongs to segment {}; use update to change the segment",
+            iface.segment_id, target_segment.id,
+        )))
+    };
     match same_family {
         // An existing static reservation for this family is authoritative:
         // callers must use update to change it.
@@ -1416,7 +1434,12 @@ async fn reconcile_existing_preallocation(
         // still continues below to align interface type/primary flags.
         Some(address)
             if address.address == static_ip
-                && address.allocation_type == AllocationType::Static => {}
+                && address.allocation_type == AllocationType::Static =>
+        {
+            if let Some(target_segment) = known_target_segment {
+                ensure_target_segment(target_segment)?;
+            }
+        }
         // No same-family static reservation exists. DHCP/SLAAC rows for this
         // family may be replaced, but only after proving the target IP and
         // target segment are safe for this interface.
@@ -1435,18 +1458,13 @@ async fn reconcile_existing_preallocation(
                 Some(segment) => segment,
                 None => {
                     derived_segment =
-                        db_network_segment::for_static_address(&mut *txn, static_ip, None).await?;
+                        db_network_segment::for_static_address(&mut *txn, static_ip).await?;
                     &derived_segment
                 }
             };
             // Do not silently move an existing preallocated interface; changing
             // segment ownership is an explicit update operation.
-            if iface.segment_id != target_segment.id {
-                return Err(DatabaseError::InvalidArgument(format!(
-                    "a machine interface already exists for MAC {mac_address} on segment {}; fixed IP {static_ip} belongs to segment {}; use update to change the segment",
-                    iface.segment_id, target_segment.id,
-                )));
-            }
+            ensure_target_segment(target_segment)?;
             // Safe replacement point: same interface, same segment, and no
             // conflicting owner for the requested IP.
             crate::machine_interface_address::assign_static(&mut *txn, iface.id, static_ip).await?;
@@ -1484,9 +1502,9 @@ async fn reconcile_existing_preallocation(
 
 /// Create a fixed-address reservation or reconcile an existing row.
 ///
-/// `segment_type_guard` validates configured intent before either path runs.
-/// Associated-row policy affects only role-derived interface settings; it
-/// never suppresses safe fixed-address reconciliation.
+/// Managed-prefix and segment-type requirements validate configured intent
+/// before either path runs. Associated-row policy affects only role-derived
+/// interface settings; it never suppresses safe fixed-address reconciliation.
 async fn preallocate_machine_interface_with_options(
     txn: &mut PgConnection,
     mac_address: MacAddress,
@@ -1494,13 +1512,18 @@ async fn preallocate_machine_interface_with_options(
     options: PreallocationOptions,
     retained_window: Option<chrono::Duration>,
 ) -> DatabaseResult<()> {
-    // An explicit segment type is a configuration guard, so validate it even
-    // when the reservation already exists. Legacy callers resolve lazily to
-    // preserve their exact-(MAC, IP) idempotent path.
-    let guarded_segment = if let Some(segment_type_guard) = options.segment_type_guard {
+    // Generalized ExpectedInterface declarations require a managed prefix
+    // even when the reservation already exists. Legacy callers still resolve
+    // lazily so an exact external `(MAC, IP)` row remains idempotent without a
+    // `static-assignments` segment.
+    let resolved_segment = if options.require_managed_prefix {
         Some(
-            db_network_segment::for_static_address(&mut *txn, static_ip, Some(segment_type_guard))
-                .await?,
+            db_network_segment::for_managed_static_address(
+                &mut *txn,
+                static_ip,
+                options.segment_type_guard,
+            )
+            .await?,
         )
     } else {
         None
@@ -1514,7 +1537,7 @@ async fn preallocate_machine_interface_with_options(
         mac_address,
         static_ip,
         options,
-        guarded_segment.as_ref(),
+        resolved_segment.as_ref(),
     )
     .await?
     {
@@ -1530,9 +1553,9 @@ async fn preallocate_machine_interface_with_options(
         )));
     }
 
-    let segment = match guarded_segment {
+    let segment = match resolved_segment {
         Some(segment) => segment,
-        None => db_network_segment::for_static_address(&mut *txn, static_ip, None).await?,
+        None => db_network_segment::for_static_address(&mut *txn, static_ip).await?,
     };
     match create_with_type(
         txn,

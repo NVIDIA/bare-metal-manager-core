@@ -4571,8 +4571,9 @@ const (
 	// Use an expiring DHCP lease. The segment guard must match the relay's
 	// selected segment when configured.
 	ExpectedInterfaceIpAllocation_EXPECTED_INTERFACE_IP_ALLOCATION_DYNAMIC ExpectedInterfaceIpAllocation = 1
-	// Reserve `fixed_ip`. Its prefix selects the segment, and the segment guard
-	// must match that segment when configured.
+	// Reserve `fixed_ip`. Explicit Fixed, or a DPU role that infers Fixed,
+	// requires a configured managed prefix to contain the address. That prefix
+	// selects the segment, and the segment guard must match when configured.
 	ExpectedInterfaceIpAllocation_EXPECTED_INTERFACE_IP_ALLOCATION_FIXED ExpectedInterfaceIpAllocation = 2
 	// Allocate through DHCP, then make the address Static for this interface
 	// row's lifetime. It is not saved in ExpectedMachine for re-ingestion. The
@@ -35450,10 +35451,11 @@ type ExpectedHostNic struct {
 	// Optional allocation policy. On create, missing and Unspecified infer Fixed
 	// from `fixed_ip` and Dynamic otherwise. On update, omission preserves the
 	// stored policy while explicit Unspecified resets to that inference.
-	// Explicit Dynamic rejects `fixed_ip`. For a legacy Host declaration,
-	// inferred Fixed still selects the segment by address-prefix containment but
-	// does not turn `network_segment_type` into a fixed-address guard; configure
-	// Fixed explicitly to request that check.
+	// Explicit Dynamic rejects `fixed_ip`. Explicit Fixed, or a DPU role that
+	// infers Fixed, requires `fixed_ip` inside a configured managed prefix. A
+	// legacy Host declaration with an omitted policy may instead fall back to
+	// `static-assignments` and does not turn `network_segment_type` into a
+	// fixed-address guard.
 	IpAllocation  *ExpectedInterfaceIpAllocation `protobuf:"varint,9,opt,name=ip_allocation,json=ipAllocation,proto3,enum=forge.ExpectedInterfaceIpAllocation,oneof" json:"ip_allocation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
