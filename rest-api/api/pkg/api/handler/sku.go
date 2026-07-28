@@ -555,7 +555,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 		logAPIError(logger, apiErr, "failed to retrieve SKU before update")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
 	}
-	apiReq.SKUID = skuID
+	apiReq.SkuID = skuID
 	if apiReq.Components == nil {
 		updated := apiReq.ApplyMetadataToProto(response.Skus[0])
 		logger.Info().Str("skuID", skuID).Str("siteID", siteID).Msg("updating SKU metadata via Core proxy")

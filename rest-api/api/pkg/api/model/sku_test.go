@@ -119,6 +119,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 	updatedTime := time.Now()
 	minStorageSizeMb := uint32(7_600_000)
 	maxStorageSizeMb := uint32(7_800_000)
+	pciPattern := `^/devices/pci.*nvme[0-3]$`
 
 	t.Run("complete GPU server with all component types", func(t *testing.T) {
 		dbSku := &cdbm.SKU{
@@ -159,7 +160,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 							Count:       4,
 							MinSizeMb:   &minStorageSizeMb,
 							MaxSizeMb:   &maxStorageSizeMb,
-							PciPatterns: []string{`^/devices/pci.*nvme[0-3]$`},
+							PciPatterns: []string{pciPattern},
 						},
 					},
 					Chassis: &corev1.SkuComponentChassis{
@@ -213,7 +214,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 		assert.Equal(t, uint32(4), result.Components.Storage[0].Count)
 		assert.Equal(t, &minStorageSizeMb, result.Components.Storage[0].MinSizeMiB)
 		assert.Equal(t, &maxStorageSizeMb, result.Components.Storage[0].MaxSizeMiB)
-		assert.Equal(t, []string{`^/devices/pci.*nvme[0-3]$`}, result.Components.Storage[0].PciPatterns)
+		assert.Equal(t, []string{pciPattern}, result.Components.Storage[0].PciPatterns)
 
 		// Validate Chassis
 		assert.NotNil(t, result.Components.Chassis)
@@ -1013,47 +1014,53 @@ func TestAPISkuStorageMutation_UnmarshalJSON(t *testing.T) {
 	}
 }
 
-func TestNewAPISkuMutationComponents(t *testing.T) {
-	minSizeMb := uint32(3_600_000)
-	maxSizeMb := uint32(3_900_000)
-	components := NewAPISkuMutationComponents(&corev1.SkuComponents{
-		Storage: []*corev1.SkuComponentStorage{{
-			Vendor:      "ignored-vendor",
-			Model:       "informational-model",
-			Count:       2,
-			CapacityMb:  3_700_000,
-			MinSizeMb:   &minSizeMb,
-			MaxSizeMb:   &maxSizeMb,
-			PciPatterns: []string{`^/devices/pci.*nvme[0-1]$`},
-		}},
+func TestAPISkuMutationRequests_UnmarshalJSON(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		var request APISkuCreateRequest
+		err := json.Unmarshal([]byte(`{
+			"siteId":"60189e9c-7d12-438c-b9ca-6998d9c364b1",
+			"id":"sku-1",
+			"description":"description",
+			"deviceType":"gpu",
+			"components":{}
+		}`), &request)
+
+		require.NoError(t, err)
+		assert.Equal(t, "60189e9c-7d12-438c-b9ca-6998d9c364b1", request.SiteID)
+		assert.Equal(t, "sku-1", request.ID)
+		assert.Equal(t, "description", *request.Description)
+		assert.Equal(t, "gpu", *request.DeviceType)
+		require.NotNil(t, request.Components)
 	})
 
-	require.NotNil(t, components)
-	require.Len(t, components.Storage, 1)
-	assert.Equal(t, APISkuStorageMutation{
-		Model:       "informational-model",
-		Count:       2,
-		MinSizeMiB:  &minSizeMb,
-		MaxSizeMiB:  &maxSizeMb,
-		PciPatterns: []string{`^/devices/pci.*nvme[0-1]$`},
-	}, components.Storage[0])
+	t.Run("update", func(t *testing.T) {
+		var request APISkuUpdateRequest
+		err := json.Unmarshal([]byte(`{
+			"description":"description",
+			"deviceType":"gpu",
+			"components":{}
+		}`), &request)
 
-	responseJSON, err := json.Marshal(components)
-	require.NoError(t, err)
-	assert.NotContains(t, string(responseJSON), "vendor")
-	assert.NotContains(t, string(responseJSON), "capacityMb")
-	assert.Contains(t, string(responseJSON), `"minSizeMiB":3600000`)
-	assert.Contains(t, string(responseJSON), `"maxSizeMiB":3900000`)
-}
+		require.NoError(t, err)
+		assert.Equal(t, "description", *request.Description)
+		assert.Equal(t, "gpu", *request.DeviceType)
+		require.NotNil(t, request.Components)
+	})
 
-func TestAPISkuMutationRequests_RejectSchemaVersion(t *testing.T) {
-	for _, target := range []json.Unmarshaler{
-		&APISkuCreateRequest{},
-		&APISkuUpdateRequest{},
+	for name, body := range map[string]string{
+		"rejects valued schemaVersion": `{"schemaVersion":5}`,
+		"rejects null schemaVersion":   `{"schemaVersion":null}`,
 	} {
-		err := target.UnmarshalJSON([]byte(`{"schemaVersion":5}`))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "schemaVersion is a read-only SKU field")
+		t.Run(name, func(t *testing.T) {
+			for _, target := range []json.Unmarshaler{
+				&APISkuCreateRequest{},
+				&APISkuUpdateRequest{},
+			} {
+				err := target.UnmarshalJSON([]byte(body))
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "schemaVersion is a read-only SKU field")
+			}
+		})
 	}
 }
 
@@ -1061,7 +1068,7 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 	t.Run("converts metadata update to proto", func(t *testing.T) {
 		description := "updated description"
 		req := APISkuUpdateRequest{
-			SKUID:       "dgx-h100",
+			SkuID:       "dgx-h100",
 			Description: &description,
 		}
 		existing := &corev1.Sku{
@@ -1090,7 +1097,7 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 	t.Run("replaces components using current schema version", func(t *testing.T) {
 		description := "updated description"
 		req := APISkuUpdateRequest{
-			SKUID:       "dgx-h100",
+			SkuID:       "dgx-h100",
 			Description: &description,
 			Components:  testAPISkuMutationComponents(),
 		}
@@ -1131,18 +1138,39 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 
 func testAPISkuComponents() *APISkuComponents {
 	return &APISkuComponents{
-		Chassis: &APISkuChassis{Vendor: "NVIDIA", Model: "DGX H100", Architecture: "x86_64"},
-		Cpus:    []APISkuCpu{{Vendor: "Intel", Model: "Xeon", ThreadCount: 112, Count: 2}},
+		Chassis: &APISkuChassis{
+			Vendor:       "NVIDIA",
+			Model:        "DGX H100",
+			Architecture: "x86_64",
+		},
+		Cpus: []APISkuCpu{{
+			Vendor:      "Intel",
+			Model:       "Xeon",
+			ThreadCount: 112,
+			Count:       2,
+		}},
 		InfinibandDevices: []APISkuInfinibandDevice{{
-			Vendor: "NVIDIA", Model: "ConnectX-7", Count: 2, InactiveDevices: []uint32{1},
+			Vendor:          "NVIDIA",
+			Model:           "ConnectX-7",
+			Count:           2,
+			InactiveDevices: []uint32{1},
 		}},
 	}
 }
 
 func testAPISkuMutationComponents() *APISkuMutationComponents {
 	return &APISkuMutationComponents{
-		Chassis: &APISkuChassis{Vendor: "NVIDIA", Model: "DGX H100", Architecture: "x86_64"},
-		Cpus:    []APISkuCpu{{Vendor: "Intel", Model: "Xeon", ThreadCount: 112, Count: 2}},
+		Chassis: &APISkuChassis{
+			Vendor:       "NVIDIA",
+			Model:        "DGX H100",
+			Architecture: "x86_64",
+		},
+		Cpus: []APISkuCpu{{
+			Vendor:      "Intel",
+			Model:       "Xeon",
+			ThreadCount: 112,
+			Count:       2,
+		}},
 		Storage: []APISkuStorageMutation{{
 			Model:       "informational-model",
 			Count:       2,
@@ -1151,7 +1179,10 @@ func testAPISkuMutationComponents() *APISkuMutationComponents {
 			PciPatterns: []string{`^/devices/pci.*nvme0$`},
 		}},
 		InfinibandDevices: []APISkuInfinibandDevice{{
-			Vendor: "NVIDIA", Model: "ConnectX-7", Count: 2, InactiveDevices: []uint32{1},
+			Vendor:          "NVIDIA",
+			Model:           "ConnectX-7",
+			Count:           2,
+			InactiveDevices: []uint32{1},
 		}},
 	}
 }

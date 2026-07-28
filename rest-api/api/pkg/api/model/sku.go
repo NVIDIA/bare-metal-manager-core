@@ -49,8 +49,8 @@ type APISkuCreateRequest struct {
 
 // APISkuUpdateRequest is the PATCH /sku/:id request body.
 type APISkuUpdateRequest struct {
-	// SKUID is populated from the request path before proto conversion.
-	SKUID string `json:"-"`
+	// SkuID is populated from the request path before proto conversion.
+	SkuID string `json:"-"`
 	// Description replaces the description when provided.
 	Description *string `json:"description,omitempty"`
 	// DeviceType replaces the device type when provided.
@@ -62,122 +62,125 @@ type APISkuUpdateRequest struct {
 // APISkuMutationResponse is the Core-backed representation returned by SKU
 // create and update operations. Core does not expose an updated timestamp.
 type APISkuMutationResponse struct {
-	ID                   string                    `json:"id"`
-	SiteID               string                    `json:"siteId"`
-	Description          string                    `json:"description"`
-	SchemaVersion        uint32                    `json:"schemaVersion"`
-	DeviceType           *string                   `json:"deviceType,omitempty"`
-	AssociatedMachineIDs []string                  `json:"associatedMachineIds"`
-	Components           *APISkuMutationComponents `json:"components"`
-	Created              *time.Time                `json:"created,omitempty"`
+	// ID is the unique identifier for the SKU.
+	ID string `json:"id"`
+	// SiteID is the ID of the Site this SKU belongs to.
+	SiteID string `json:"siteId"`
+	// Description is the human-readable SKU description.
+	Description string `json:"description"`
+	// SchemaVersion is the Core SKU schema version.
+	SchemaVersion uint32 `json:"schemaVersion"`
+	// DeviceType is the optional device type identifier.
+	DeviceType *string `json:"deviceType,omitempty"`
+	// AssociatedMachineIDs is the list of machine IDs associated with this SKU.
+	AssociatedMachineIDs []string `json:"associatedMachineIds"`
+	// Components contains the hardware components of this SKU.
+	Components *APISkuComponents `json:"components"`
+	// Created is the date and time the entity was created.
+	Created *time.Time `json:"created,omitempty"`
 }
 
 // CoreSkuSchemaVersion is the Core wire format emitted by REST SKU mutations.
 const CoreSkuSchemaVersion uint32 = 5
 
-func rejectWritableSkuSchemaVersion(data []byte) error {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
+// UnmarshalJSON rejects caller-supplied Core schema versions.
+func (ascr *APISkuCreateRequest) UnmarshalJSON(data []byte) error {
+	type skuCreateRequest APISkuCreateRequest
+	var decoded struct {
+		skuCreateRequest
+		SchemaVersion json.RawMessage `json:"schemaVersion"`
+	}
+	err := json.Unmarshal(data, &decoded)
+	if err != nil {
 		return err
 	}
-	if _, found := fields["schemaVersion"]; found {
+	if decoded.SchemaVersion != nil {
 		return fmt.Errorf("schemaVersion is a read-only SKU field")
 	}
+	*ascr = APISkuCreateRequest(decoded.skuCreateRequest)
 	return nil
 }
 
 // UnmarshalJSON rejects caller-supplied Core schema versions.
-func (r *APISkuCreateRequest) UnmarshalJSON(data []byte) error {
-	if err := rejectWritableSkuSchemaVersion(data); err != nil {
-		return err
-	}
-
-	type skuCreateRequest APISkuCreateRequest
-	var decoded skuCreateRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*r = APISkuCreateRequest(decoded)
-	return nil
-}
-
-// UnmarshalJSON rejects caller-supplied Core schema versions.
-func (r *APISkuUpdateRequest) UnmarshalJSON(data []byte) error {
-	if err := rejectWritableSkuSchemaVersion(data); err != nil {
-		return err
-	}
-
+func (asur *APISkuUpdateRequest) UnmarshalJSON(data []byte) error {
 	type skuUpdateRequest APISkuUpdateRequest
-	var decoded skuUpdateRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	var decoded struct {
+		skuUpdateRequest
+		SchemaVersion json.RawMessage `json:"schemaVersion"`
+	}
+	err := json.Unmarshal(data, &decoded)
+	if err != nil {
 		return err
 	}
-	*r = APISkuUpdateRequest(decoded)
+	if decoded.SchemaVersion != nil {
+		return fmt.Errorf("schemaVersion is a read-only SKU field")
+	}
+	*asur = APISkuUpdateRequest(decoded.skuUpdateRequest)
 	return nil
 }
 
 // Validate checks the create request before conversion to Core protobufs.
-func (r APISkuCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&r,
-		validation.Field(&r.SiteID,
+func (ascr APISkuCreateRequest) Validate() error {
+	err := validation.ValidateStruct(&ascr,
+		validation.Field(&ascr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
-		validation.Field(&r.ID, validation.Required.Error(validationErrorValueRequired)),
-		validation.Field(&r.Components, validation.Required.Error(validationErrorValueRequired)),
+		validation.Field(&ascr.ID, validation.Required.Error(validationErrorValueRequired)),
+		validation.Field(&ascr.Components, validation.Required.Error(validationErrorValueRequired)),
 	)
 	if err != nil {
 		return err
 	}
-	return validateSkuMutationComponents(r.Components)
+	return validateSkuMutationComponents(ascr.Components)
 }
 
 // ToProto converts a validated create request into Core's single-item SkuList.
-func (r APISkuCreateRequest) ToProto() *corev1.SkuList {
+func (ascr APISkuCreateRequest) ToProto() *corev1.SkuList {
 	return &corev1.SkuList{Skus: []*corev1.Sku{{
-		Id:            r.ID,
-		Description:   r.Description,
+		Id:            ascr.ID,
+		Description:   ascr.Description,
 		SchemaVersion: CoreSkuSchemaVersion,
-		DeviceType:    r.DeviceType,
-		Components:    r.Components.ToProto(),
+		DeviceType:    ascr.DeviceType,
+		Components:    ascr.Components.ToProto(),
 	}}}
 }
 
 // Validate checks the update request and requires at least one mutable field.
-func (r APISkuUpdateRequest) Validate() error {
-	if r.Description == nil && r.DeviceType == nil && r.Components == nil {
+func (asur APISkuUpdateRequest) Validate() error {
+	if asur.Description == nil && asur.DeviceType == nil && asur.Components == nil {
 		return validation.Errors{"request": validation.NewError("validation_required", "at least one mutable field is required")}
 	}
-	return validateSkuMutationComponents(r.Components)
+	return validateSkuMutationComponents(asur.Components)
 }
 
 // ToMetadataProto converts a validated metadata-only PATCH request.
-func (r APISkuUpdateRequest) ToMetadataProto() *corev1.SkuUpdateMetadataRequest {
+func (asur APISkuUpdateRequest) ToMetadataProto() *corev1.SkuUpdateMetadataRequest {
 	return &corev1.SkuUpdateMetadataRequest{
-		SkuId:       r.SKUID,
-		Description: r.Description,
-		DeviceType:  r.DeviceType,
+		SkuId:       asur.SkuID,
+		Description: asur.Description,
+		DeviceType:  asur.DeviceType,
 	}
 }
 
 // ApplyMetadataToProto merges metadata fields into a copy of the current Core SKU.
-func (r APISkuUpdateRequest) ApplyMetadataToProto(current *corev1.Sku) *corev1.Sku {
+func (asur APISkuUpdateRequest) ApplyMetadataToProto(current *corev1.Sku) *corev1.Sku {
 	updated := proto.Clone(current).(*corev1.Sku)
-	updated.Id = r.SKUID
-	if r.Description != nil {
-		updated.Description = r.Description
+	updated.Id = asur.SkuID
+	if asur.Description != nil {
+		updated.Description = asur.Description
 	}
-	if r.DeviceType != nil {
-		updated.DeviceType = r.DeviceType
+	if asur.DeviceType != nil {
+		updated.DeviceType = asur.DeviceType
 	}
 	return updated
 }
 
 // ToReplacementProto converts a component PATCH into Core's current SKU format.
-func (r APISkuUpdateRequest) ToReplacementProto(current *corev1.Sku) *corev1.Sku {
-	updated := r.ApplyMetadataToProto(current)
+func (asur APISkuUpdateRequest) ToReplacementProto(current *corev1.Sku) *corev1.Sku {
+	updated := asur.ApplyMetadataToProto(current)
 	updated.SchemaVersion = CoreSkuSchemaVersion
-	if r.Components != nil {
-		updated.Components = r.Components.ToProto()
+	if asur.Components != nil {
+		updated.Components = asur.Components.ToProto()
 	}
 	return updated
 }
@@ -194,10 +197,11 @@ func NewAPISkuMutationResponse(sku *corev1.Sku, siteID string) *APISkuMutationRe
 		SchemaVersion:        sku.SchemaVersion,
 		DeviceType:           sku.DeviceType,
 		AssociatedMachineIDs: []string{},
-		Components:           NewAPISkuMutationComponents(sku.Components),
+		Components:           NewAPISkuComponents(sku.Components),
 	}
 	for _, machineID := range sku.AssociatedMachineIds {
-		if id := machineID.GetId(); id != "" {
+		id := machineID.GetId()
+		if id != "" {
 			response.AssociatedMachineIDs = append(response.AssociatedMachineIDs, id)
 		}
 	}
@@ -222,7 +226,7 @@ func NewAPISkuMutationResponseFromCreateRequest(req APISkuCreateRequest, skuID, 
 		SchemaVersion:        CoreSkuSchemaVersion,
 		DeviceType:           req.DeviceType,
 		AssociatedMachineIDs: []string{},
-		Components:           req.Components,
+		Components:           NewAPISkuComponents(req.Components.ToProto()),
 	}
 }
 
@@ -363,18 +367,21 @@ func validateSkuMutationComponents(components *APISkuMutationComponents) error {
 // UnmarshalJSON rejects legacy read-only storage fields on mutation requests.
 func (s *APISkuStorageMutation) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
+	err := json.Unmarshal(data, &fields)
+	if err != nil {
 		return err
 	}
 	for _, field := range []string{"vendor", "capacityMb"} {
-		if _, found := fields[field]; found {
+		_, found := fields[field]
+		if found {
 			return fmt.Errorf("%s is a deprecated read-only SKU storage field", field)
 		}
 	}
 
 	type storageMutation APISkuStorageMutation
 	var decoded storageMutation
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	err = json.Unmarshal(data, &decoded)
+	if err != nil {
 		return err
 	}
 	*s = APISkuStorageMutation(decoded)
@@ -423,6 +430,7 @@ type APISkuTpm struct {
 	Version string `json:"version"`
 }
 
+// newSkuComponents is a helper function to convert proto SkuComponents to API SKU components of one type or another
 func newSkuComponents[Storage any](
 	protoComponents *corev1.SkuComponents,
 	convertStorage func(*corev1.SkuComponentStorage) Storage,
@@ -434,17 +442,25 @@ func newSkuComponents[Storage any](
 	components := &skuComponents[Storage]{}
 	for _, cpu := range protoComponents.Cpus {
 		components.Cpus = append(components.Cpus, APISkuCpu{
-			Vendor: cpu.Vendor, Model: cpu.Model, ThreadCount: cpu.ThreadCount, Count: cpu.Count,
+			Vendor:      cpu.Vendor,
+			Model:       cpu.Model,
+			ThreadCount: cpu.ThreadCount,
+			Count:       cpu.Count,
 		})
 	}
 	for _, gpu := range protoComponents.Gpus {
 		components.Gpus = append(components.Gpus, APISkuGpu{
-			Vendor: gpu.Vendor, Model: gpu.Model, TotalMemory: gpu.TotalMemory, Count: gpu.Count,
+			Vendor:      gpu.Vendor,
+			Model:       gpu.Model,
+			TotalMemory: gpu.TotalMemory,
+			Count:       gpu.Count,
 		})
 	}
 	for _, memory := range protoComponents.Memory {
 		components.Memory = append(components.Memory, APISkuMemory{
-			CapacityMb: memory.CapacityMb, MemoryType: memory.MemoryType, Count: memory.Count,
+			CapacityMb: memory.CapacityMb,
+			MemoryType: memory.MemoryType,
+			Count:      memory.Count,
 		})
 	}
 	for _, storage := range protoComponents.Storage {
@@ -452,25 +468,31 @@ func newSkuComponents[Storage any](
 	}
 	if protoComponents.Chassis != nil {
 		components.Chassis = &APISkuChassis{
-			Vendor: protoComponents.Chassis.Vendor, Model: protoComponents.Chassis.Model,
+			Vendor:       protoComponents.Chassis.Vendor,
+			Model:        protoComponents.Chassis.Model,
 			Architecture: protoComponents.Chassis.Architecture,
 		}
 	}
 	for _, ethernet := range protoComponents.EthernetDevices {
 		components.EthernetDevices = append(components.EthernetDevices, APISkuEthernetDevice{
-			Vendor: ethernet.Vendor, Model: ethernet.Model, Count: ethernet.Count,
+			Vendor:      ethernet.Vendor,
+			Model:       ethernet.Model,
+			Count:       ethernet.Count,
 			IsConnected: ethernet.IsConnected,
 		})
 	}
 	for _, infiniband := range protoComponents.InfinibandDevices {
 		components.InfinibandDevices = append(components.InfinibandDevices, APISkuInfinibandDevice{
-			Vendor: infiniband.Vendor, Model: infiniband.Model, Count: infiniband.Count,
+			Vendor:          infiniband.Vendor,
+			Model:           infiniband.Model,
+			Count:           infiniband.Count,
 			InactiveDevices: infiniband.InactiveDevices,
 		})
 	}
 	if protoComponents.Tpm != nil {
 		components.Tpm = &APISkuTpm{
-			Vendor: protoComponents.Tpm.Vendor, Version: protoComponents.Tpm.Version,
+			Vendor:  protoComponents.Tpm.Vendor,
+			Version: protoComponents.Tpm.Version,
 		}
 	}
 	return components
@@ -492,20 +514,7 @@ func NewAPISkuComponents(protoComponents *corev1.SkuComponents) *APISkuComponent
 	return (*APISkuComponents)(components)
 }
 
-// NewAPISkuMutationComponents converts proto SkuComponents to the mutation API shape.
-func NewAPISkuMutationComponents(protoComponents *corev1.SkuComponents) *APISkuMutationComponents {
-	components := newSkuComponents(protoComponents, func(storage *corev1.SkuComponentStorage) APISkuStorageMutation {
-		return APISkuStorageMutation{
-			Model:       storage.Model,
-			Count:       storage.Count,
-			MinSizeMiB:  storage.MinSizeMb,
-			MaxSizeMiB:  storage.MaxSizeMb,
-			PciPatterns: storage.PciPatterns,
-		}
-	})
-	return (*APISkuMutationComponents)(components)
-}
-
+// skuComponentsToProto is a helper function to convert API SKU components of one type or another to proto SkuComponents
 func skuComponentsToProto[Storage any](
 	c *skuComponents[Storage],
 	convertStorage func(Storage) *corev1.SkuComponentStorage,
@@ -516,22 +525,32 @@ func skuComponentsToProto[Storage any](
 	components := &corev1.SkuComponents{}
 	if c.Chassis != nil {
 		components.Chassis = &corev1.SkuComponentChassis{
-			Vendor: c.Chassis.Vendor, Model: c.Chassis.Model, Architecture: c.Chassis.Architecture,
+			Vendor:       c.Chassis.Vendor,
+			Model:        c.Chassis.Model,
+			Architecture: c.Chassis.Architecture,
 		}
 	}
 	for _, cpu := range c.Cpus {
 		components.Cpus = append(components.Cpus, &corev1.SkuComponentCpu{
-			Vendor: cpu.Vendor, Model: cpu.Model, ThreadCount: cpu.ThreadCount, Count: cpu.Count,
+			Vendor:      cpu.Vendor,
+			Model:       cpu.Model,
+			ThreadCount: cpu.ThreadCount,
+			Count:       cpu.Count,
 		})
 	}
 	for _, gpu := range c.Gpus {
 		components.Gpus = append(components.Gpus, &corev1.SkuComponentGpu{
-			Vendor: gpu.Vendor, Model: gpu.Model, TotalMemory: gpu.TotalMemory, Count: gpu.Count,
+			Vendor:      gpu.Vendor,
+			Model:       gpu.Model,
+			TotalMemory: gpu.TotalMemory,
+			Count:       gpu.Count,
 		})
 	}
 	for _, memory := range c.Memory {
 		components.Memory = append(components.Memory, &corev1.SkuComponentMemory{
-			CapacityMb: memory.CapacityMb, MemoryType: memory.MemoryType, Count: memory.Count,
+			CapacityMb: memory.CapacityMb,
+			MemoryType: memory.MemoryType,
+			Count:      memory.Count,
 		})
 	}
 	for _, storage := range c.Storage {
@@ -539,16 +558,25 @@ func skuComponentsToProto[Storage any](
 	}
 	for _, ethernet := range c.EthernetDevices {
 		components.EthernetDevices = append(components.EthernetDevices, &corev1.SkuComponentEthernetDevices{
-			Vendor: ethernet.Vendor, Model: ethernet.Model, Count: ethernet.Count, IsConnected: ethernet.IsConnected,
+			Vendor:      ethernet.Vendor,
+			Model:       ethernet.Model,
+			Count:       ethernet.Count,
+			IsConnected: ethernet.IsConnected,
 		})
 	}
 	for _, infiniband := range c.InfinibandDevices {
 		components.InfinibandDevices = append(components.InfinibandDevices, &corev1.SkuComponentInfinibandDevices{
-			Vendor: infiniband.Vendor, Model: infiniband.Model, Count: infiniband.Count, InactiveDevices: infiniband.InactiveDevices,
+			Vendor:          infiniband.Vendor,
+			Model:           infiniband.Model,
+			Count:           infiniband.Count,
+			InactiveDevices: infiniband.InactiveDevices,
 		})
 	}
 	if c.Tpm != nil {
-		components.Tpm = &corev1.SkuComponentTpm{Vendor: c.Tpm.Vendor, Version: c.Tpm.Version}
+		components.Tpm = &corev1.SkuComponentTpm{
+			Vendor:  c.Tpm.Vendor,
+			Version: c.Tpm.Version,
+		}
 	}
 	return components
 }
@@ -557,8 +585,13 @@ func skuComponentsToProto[Storage any](
 func (c *APISkuComponents) ToProto() *corev1.SkuComponents {
 	return skuComponentsToProto((*skuComponents[APISkuStorage])(c), func(storage APISkuStorage) *corev1.SkuComponentStorage {
 		return &corev1.SkuComponentStorage{
-			Vendor: storage.Vendor, Model: storage.Model, CapacityMb: storage.CapacityMb, Count: storage.Count,
-			MinSizeMb: storage.MinSizeMiB, MaxSizeMb: storage.MaxSizeMiB, PciPatterns: storage.PciPatterns,
+			Vendor:      storage.Vendor,
+			Model:       storage.Model,
+			CapacityMb:  storage.CapacityMb,
+			Count:       storage.Count,
+			MinSizeMb:   storage.MinSizeMiB,
+			MaxSizeMb:   storage.MaxSizeMiB,
+			PciPatterns: storage.PciPatterns,
 		}
 	})
 }
@@ -567,8 +600,11 @@ func (c *APISkuComponents) ToProto() *corev1.SkuComponents {
 func (c *APISkuMutationComponents) ToProto() *corev1.SkuComponents {
 	return skuComponentsToProto((*skuComponents[APISkuStorageMutation])(c), func(storage APISkuStorageMutation) *corev1.SkuComponentStorage {
 		return &corev1.SkuComponentStorage{
-			Model: storage.Model, Count: storage.Count, MinSizeMb: storage.MinSizeMiB,
-			MaxSizeMb: storage.MaxSizeMiB, PciPatterns: storage.PciPatterns,
+			Model:       storage.Model,
+			Count:       storage.Count,
+			MinSizeMb:   storage.MinSizeMiB,
+			MaxSizeMb:   storage.MaxSizeMiB,
+			PciPatterns: storage.PciPatterns,
 		}
 	})
 }

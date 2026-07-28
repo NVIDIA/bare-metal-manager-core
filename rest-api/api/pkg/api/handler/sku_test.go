@@ -730,7 +730,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, *req.Description, response.Description)
 		assert.Equal(t, model.CoreSkuSchemaVersion, response.SchemaVersion)
 		assert.Equal(t, req.DeviceType, response.DeviceType)
-		assert.Equal(t, req.Components, response.Components)
+		assert.Equal(t, model.NewAPISkuComponents(req.Components.ToProto()), response.Components)
 		assert.Empty(t, response.AssociatedMachineIDs)
 		assert.Nil(t, response.Created)
 
