@@ -60,7 +60,8 @@ respect-gitignore = true
 flavor = "mdx"
 
 [per-file-flavor]
-"**/*.md" = "standard"
+# Fern treats all files as MDX, so best to lint accordingly
+# "**/*.md" = "standard"
 
 # Disable specific rules for specific files
 [per-file-ignores]
@@ -114,6 +115,8 @@ allow-with-separators = true    # Allow multiple H1s as document section titles 
 # - "ordered0": Zero-based sequential (0, 1, 2...)
 # - "one-or-ordered": Auto-detect per list (either all-ones OR sequential)
 # - "consistent": Document-wide consistency - uses most common style across all lists
+# TODO: move to "one-one" style when we can (except for files that are
+# going to be viewed in GitHub a lot)
 style = "consistent"
 
 [MD041]
@@ -121,7 +124,7 @@ style = "consistent"
 level = 1
 
 [MD044]
-# names = ["NVIDIA Config Manager", "NVIDIA"]
+# names = ["NVIDIA Infra Controller", "NVIDIA"]
 # code-blocks = false
 
 [MD046]
