@@ -32,6 +32,7 @@ use tonic::Request;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+use super::dpf_config;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_dpf, create_managed_host_with_dpf_bf4,
     create_test_env_with_overrides, get_config,
@@ -49,21 +50,6 @@ fn default_mock(deployment_type: DpuDeploymentType) -> MockDpfOperations {
         .returning(move |_| Ok(deployment_type));
     mock.expect_verify_node_labels().returning(|_, _| Ok(true));
     mock
-}
-
-/// DPF configuration shared by happy-path integration tests.
-fn dpf_config() -> crate::cfg::file::DpfConfig {
-    crate::cfg::file::DpfConfig {
-        enabled: true,
-        deployments: crate::cfg::file::DpfDeploymentsConfig {
-            bf3: crate::cfg::file::DpfDeploymentConfig {
-                bfb_url: Some("http://example.com/test.bfb".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        ..Default::default()
-    }
 }
 
 #[crate::sqlx_test]
