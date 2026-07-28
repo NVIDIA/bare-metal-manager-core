@@ -4673,6 +4673,8 @@ message ManagedHostNetworkConfig {
   // DPU loopback IP
   string loopback_ip = 1;
   optional ManagedHostQuarantineState quarantine_state = 2;
+  // DPU IPv6 loopback IP; unset for non-FNN agents or when the `lo-ip-v6` pool is not configured.
+  optional string loopback_ip_v6 = 3;
 }
 
 message FlatInterfaceConfig {
