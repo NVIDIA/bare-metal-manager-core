@@ -322,7 +322,7 @@ func TestGeneratedCommand_MutationConfirmsRedactsAndInvalidatesCache(t *testing.
 	assert.Equal(t, "Bearer session-token", got.authorization)
 	assert.Contains(t, output, "Run uefi-credential create (POST)?")
 	assert.Contains(t, output, "nicocli")
-	assert.Contains(t, output, "--data <redacted>")
+	assert.Contains(t, output, "--data '<redacted>'")
 	assert.NotContains(t, output, "super-secret")
 	assert.Nil(t, cache.Get("site"), "successful mutations must invalidate cached resources")
 }
@@ -440,7 +440,7 @@ func TestGeneratedCommand_DataFileArrayInheritsSiteScope(t *testing.T) {
 		`[{"siteId":"site-from-scope","bmcMacAddress":"00:11:22:33:44:55","defaultBmcPassword":"file-secret"}]`,
 		<-requestBody,
 	)
-	assert.Contains(t, output, "--data <redacted>")
+	assert.Contains(t, output, "--data '<redacted>'")
 	assert.NotContains(t, output, "file-secret")
 }
 
@@ -788,6 +788,67 @@ func TestResolveGeneratedResource_NilResolverReturnsErrorForInteractiveDependent
 	assert.Contains(t, err.Error(), "interactive resolver is required")
 }
 
+func TestResolveGeneratedPathParameters_PreservesExplicitUnsupportedID(t *testing.T) {
+	session := &Session{Resolver: NewResolver(NewCache())}
+	info := appcli.GeneratedCommandInfo{
+		Name:           "widget get",
+		PathParameters: []string{"widgetId"},
+	}
+
+	got, err := resolveGeneratedPathParameters(session, info, []string{"widget-123"})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"widget-123"}, got)
+}
+
+func TestResolveGeneratedResource_RejectsAmbiguousNames(t *testing.T) {
+	resolver := NewResolver(NewCache())
+	resolver.RegisterFetcher("machine", func(context.Context) ([]NamedItem, error) {
+		return []NamedItem{
+			{Name: "duplicate", ID: "machine-1"},
+			{Name: "duplicate", ID: "machine-2"},
+		}, nil
+	})
+	session := &Session{Resolver: resolver}
+	descriptor := GeneratedPathResourceDescriptor("machine get", "machineId")
+
+	_, supported, err := session.ResolveGeneratedResource(
+		context.Background(),
+		descriptor,
+		nil,
+		"Machine",
+		"duplicate",
+	)
+	assert.True(t, supported)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous")
+
+	item, supported, err := session.ResolveGeneratedResource(
+		context.Background(),
+		descriptor,
+		nil,
+		"Machine",
+		"machine-2",
+	)
+	require.NoError(t, err)
+	assert.True(t, supported)
+	assert.Equal(t, "machine-2", item.ID)
+}
+
+func TestFetchAllocationConstraints_UsesIDWhenDisplayPartsAreEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"allocationConstraints":[{"id":"constraint-1"}]}`)
+	}))
+	defer server.Close()
+	session := &Session{Client: appcli.NewClient(server.URL, "acme", "token", nil, false)}
+
+	items, err := session.fetchAllocationConstraints("allocation-1")
+
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "constraint-1", items[0].Name)
+}
+
 func TestGeneratedRackAndTrayPaths_SelectSiteBeforeResource(t *testing.T) {
 	for _, test := range []struct {
 		command      string
@@ -908,6 +969,52 @@ func TestSplitCommandArguments_RejectsUnterminatedQuote(t *testing.T) {
 	_, err := splitCommandArguments(`--data '{"name":"broken"}`)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unterminated")
+}
+
+func TestMergeGeneratedDataFieldPreservesJSONNumberLiterals(t *testing.T) {
+	info := appcli.GeneratedCommandInfo{
+		Flags: []appcli.GeneratedCommandFlag{{Name: "data", TakesValue: true}},
+	}
+
+	got, err := mergeGeneratedDataField(
+		info,
+		[]string{"--data", `{"count":9007199254740993}`},
+		"siteId",
+		"site-1",
+	)
+
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Contains(t, got[1], `"count":9007199254740993`)
+	assert.Contains(t, got[1], `"siteId":"site-1"`)
+}
+
+func TestMergeGeneratedDataFieldRejectsTrailingJSON(t *testing.T) {
+	info := appcli.GeneratedCommandInfo{
+		Flags: []appcli.GeneratedCommandFlag{{Name: "data", TakesValue: true}},
+	}
+
+	_, err := mergeGeneratedDataField(
+		info,
+		[]string{"--data", `{"count":1}{"count":2}`},
+		"siteId",
+		"site-1",
+	)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "request body is not JSON")
+}
+
+func TestLogGeneratedCommandQuotesShellUnsafeArguments(t *testing.T) {
+	output := captureStdout(func() {
+		logGeneratedCommand(
+			&Session{},
+			appcli.GeneratedCommandInfo{Name: "machine get"},
+			[]string{"plain", "$HOME;touch", "O'Brien"},
+		)
+	})
+
+	assert.Contains(t, output, "machine get plain '$HOME;touch' 'O'\"'\"'Brien'")
 }
 
 func TestValidateGeneratedBodyArguments_RejectsCompetingInputs(t *testing.T) {

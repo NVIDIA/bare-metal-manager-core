@@ -7,6 +7,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -285,7 +286,10 @@ func TestCLIRegression_RealTerminalAndNonInteractive(t *testing.T) {
 			`{"siteId":"site-1","kind":"SiteWideRoot","password":%q}`,
 			nonInteractiveBMCPassword,
 		)
-		command := exec.Command(
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		command := exec.CommandContext(
+			ctx,
 			binaryPath,
 			"--config", configPath,
 			"--debug",

@@ -194,6 +194,8 @@ func TestFormatDebugBodyRedactsNestedSecrets(t *testing.T) {
 		"tokenEndpoint":"https://issuer.example/token",
 		"clientSecretBasic":{"clientId":"client-one","clientSecret":"secret-value"},
 		"credentials":[{"password":"password-value"}],
+		"secret":{"value":"nested-secret-value"},
+		"databaseCredentials":[{"value":"nested-credential-value"}],
 		"accessToken":"access-token-value",
 		"publicKey":"ssh-ed25519 public"
 	}`)
@@ -202,13 +204,25 @@ func TestFormatDebugBodyRedactsNestedSecrets(t *testing.T) {
 
 	assert.NotContains(t, formatted, "secret-value")
 	assert.NotContains(t, formatted, "password-value")
+	assert.NotContains(t, formatted, "nested-secret-value")
+	assert.NotContains(t, formatted, "nested-credential-value")
 	assert.NotContains(t, formatted, "access-token-value")
 	assert.Contains(t, formatted, `"tokenEndpoint":"https://issuer.example/token"`)
 	assert.Contains(t, formatted, `"clientId":"client-one"`)
 	assert.Contains(t, formatted, `"clientSecret":"<redacted>"`)
 	assert.Contains(t, formatted, `"credentials":[{"password":"<redacted>"}]`)
+	assert.Contains(t, formatted, `"secret":{"value":"<redacted>"}`)
+	assert.Contains(t, formatted, `"databaseCredentials":[{"value":"<redacted>"}]`)
 	assert.Contains(t, formatted, `"accessToken":"<redacted>"`)
 	assert.Contains(t, formatted, `"publicKey":"ssh-ed25519 public"`)
+}
+
+func TestFormatDebugBodyPreservesJSONNumberLiterals(t *testing.T) {
+	assert.Equal(
+		t,
+		`{"epoch":1753200000000,"id":9007199254740993}`,
+		formatDebugBody([]byte(`{"epoch":1753200000000,"id":9007199254740993}`)),
+	)
 }
 
 func TestFormatDebugBodyPreservesNonJSONDiagnostics(t *testing.T) {

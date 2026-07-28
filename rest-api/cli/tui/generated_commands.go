@@ -6,7 +6,9 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -238,7 +240,7 @@ func resolveGeneratedPathParameters(s *Session, info appcli.GeneratedCommandInfo
 		}
 		if supported {
 			value = item.ID
-		} else if descriptor.FreeFormReason == "" && s.Resolver != nil {
+		} else if value == "" && descriptor.FreeFormReason == "" && s.Resolver != nil {
 			return nil, fmt.Errorf(
 				"%s has no interactive selector for path parameter %s",
 				info.Name,
@@ -711,7 +713,14 @@ func mergeGeneratedDataField(
 		}
 
 		var body interface{}
-		if err := json.Unmarshal([]byte(option.value), &body); err != nil {
+		decoder := json.NewDecoder(strings.NewReader(option.value))
+		decoder.UseNumber()
+		if err := decoder.Decode(&body); err != nil {
+			return nil, fmt.Errorf("request body is not JSON: %w", err)
+		}
+		if err := decoder.Decode(&struct{}{}); err == nil {
+			return nil, fmt.Errorf("request body is not JSON: multiple JSON values")
+		} else if !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("request body is not JSON: %w", err)
 		}
 		switch typed := body.(type) {
@@ -754,11 +763,21 @@ func logGeneratedCommand(s *Session, info appcli.GeneratedCommandInfo, args []st
 	parts = append(parts, strings.Fields(info.Name)...)
 	parts = append(parts, redactGeneratedCommandArgs(info, args)...)
 	for i, part := range parts {
-		if strings.ContainsAny(part, " \t\n") {
-			parts[i] = strconv.Quote(part)
-		}
+		parts[i] = quoteShellCommandArgument(part)
 	}
 	fmt.Printf("%s %s\n", Dim("INFO:"), strings.Join(parts, " "))
+}
+
+func quoteShellCommandArgument(value string) string {
+	if value != "" && strings.IndexFunc(value, func(char rune) bool {
+		return !(char >= 'a' && char <= 'z' ||
+			char >= 'A' && char <= 'Z' ||
+			char >= '0' && char <= '9' ||
+			strings.ContainsRune("_@%+=:,./-", char))
+	}) == -1 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func redactGeneratedCommandArgs(info appcli.GeneratedCommandInfo, args []string) []string {

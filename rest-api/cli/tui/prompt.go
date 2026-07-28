@@ -4,6 +4,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -136,10 +137,13 @@ func readPromptLine() (string, error) {
 			}
 		}
 		if err != nil {
-			if err == io.EOF && result.Len() > 0 {
-				return result.String(), nil
+			if errors.Is(err, io.EOF) {
+				if result.Len() > 0 {
+					return result.String(), nil
+				}
+				return "", fmt.Errorf("input cancelled")
 			}
-			return "", fmt.Errorf("input cancelled")
+			return "", fmt.Errorf("reading input: %w", err)
 		}
 	}
 }

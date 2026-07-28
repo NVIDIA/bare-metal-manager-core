@@ -22,6 +22,14 @@ type generatedBodyFormPrompter interface {
 
 type terminalGeneratedBodyFormPrompter struct{}
 
+var generatedBodySessionResourceTypes = map[string]struct{}{
+	"allocation-constraint":         {},
+	"dpu-extension-service-version": {},
+	"health-report-source":          {},
+	"instance-type-machine":         {},
+	"rule":                          {},
+}
+
 func (terminalGeneratedBodyFormPrompter) Text(label string, required bool) (string, error) {
 	return PromptText(label, required)
 }
@@ -268,7 +276,7 @@ func promptGeneratedBodyField(
 	)
 
 	if field.Type == "" || field.Type == "object" ||
-		field.Type == "array" && (field.ItemType == "object" || field.ItemType == "array") {
+		(field.Type == "array" && (field.ItemType == "object" || field.ItemType == "array")) {
 		return promptGeneratedBodyComposite(
 			s,
 			info,
@@ -468,13 +476,10 @@ func generatedBodyFieldResourceDescriptor(
 	if s == nil || s.Resolver == nil {
 		return descriptor, false
 	}
-	switch descriptor.ResourceType {
-	case "allocation-constraint", "dpu-extension-service-version", "health-report-source",
-		"instance-type-machine":
+	if _, ok := generatedBodySessionResourceTypes[descriptor.ResourceType]; ok {
 		return descriptor, true
-	default:
-		return descriptor, s.Resolver.HasFetcher(descriptor.ResourceType)
 	}
+	return descriptor, s.Resolver.HasFetcher(descriptor.ResourceType)
 }
 
 func promptGeneratedBodyScalar(
@@ -666,13 +671,11 @@ func generatedBodyResourceItems(
 	descriptor GeneratedResourceDescriptor,
 	resolvedValues map[string]string,
 ) ([]NamedItem, bool, error) {
-	switch descriptor.ResourceType {
-	case "allocation-constraint", "dpu-extension-service-version", "health-report-source",
-		"instance-type-machine", "rule":
-		return s.GeneratedResourceItems(ctx, descriptor, resolvedValues)
-	}
 	if s == nil || s.Resolver == nil {
 		return nil, false, nil
+	}
+	if _, ok := generatedBodySessionResourceTypes[descriptor.ResourceType]; ok {
+		return s.GeneratedResourceItems(ctx, descriptor, resolvedValues)
 	}
 	fetcher, supported := s.Resolver.fetchers[descriptor.ResourceType]
 	if !supported {

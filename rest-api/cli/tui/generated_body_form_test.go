@@ -573,6 +573,22 @@ func TestGeneratedBodyFormTrayFilterResourceMappings(t *testing.T) {
 	}
 }
 
+func TestGeneratedBodyFormRuleSelectorIsSupported(t *testing.T) {
+	info := generatedCommandInfoByName(t, "tray power-control-trays power-control-trays")
+	field := requireGeneratedBodyFormField(t, info, "ruleId")
+	session := &Session{Resolver: NewResolver(NewCache())}
+
+	descriptor, supported := generatedBodyFieldResourceDescriptor(
+		session,
+		info,
+		field.JSONName,
+		nil,
+	)
+
+	assert.True(t, supported)
+	assert.Equal(t, "rule", descriptor.ResourceType)
+}
+
 func TestGeneratedBodyFormRealSchemaUnscopedTrayFlowUsesSelectedSite(t *testing.T) {
 	info := generatedCommandInfoByName(t, "tray power-control-trays power-control-trays")
 	cache := NewCache()

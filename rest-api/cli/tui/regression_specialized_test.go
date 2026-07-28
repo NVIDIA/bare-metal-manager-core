@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -81,10 +82,12 @@ func TestSpecializedCommands_ReadOnlyRequestsPreserveSessionBehavior(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var requests atomic.Int32
+			var mu sync.Mutex
 			var got specializedRequestSnapshot
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
 				body, _ := io.ReadAll(r.Body)
+				mu.Lock()
 				got = specializedRequestSnapshot{
 					method:        r.Method,
 					path:          r.URL.Path,
@@ -94,6 +97,7 @@ func TestSpecializedCommands_ReadOnlyRequestsPreserveSessionBehavior(t *testing.
 					contentType:   r.Header.Get("Content-Type"),
 					body:          string(body),
 				}
+				mu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, test.response)
 			}))
@@ -112,18 +116,21 @@ func TestSpecializedCommands_ReadOnlyRequestsPreserveSessionBehavior(t *testing.
 			})
 
 			require.NoError(t, runErr)
+			mu.Lock()
+			gotSnapshot := got
+			mu.Unlock()
 			assert.Equal(t, int32(1), requests.Load())
-			assert.Equal(t, http.MethodGet, got.method)
-			assert.Equal(t, test.expectedPath, got.path)
-			assert.Equal(t, "Bearer specialized-token", got.authorization)
-			assert.Equal(t, "application/json", got.accept)
-			assert.Empty(t, got.contentType)
-			assert.Empty(t, got.body)
+			assert.Equal(t, http.MethodGet, gotSnapshot.method)
+			assert.Equal(t, test.expectedPath, gotSnapshot.path)
+			assert.Equal(t, "Bearer specialized-token", gotSnapshot.authorization)
+			assert.Equal(t, "application/json", gotSnapshot.accept)
+			assert.Empty(t, gotSnapshot.contentType)
+			assert.Empty(t, gotSnapshot.body)
 			if len(test.expectedQuery) == 0 {
-				assert.Empty(t, got.query)
+				assert.Empty(t, gotSnapshot.query)
 			} else {
 				for _, queryPart := range test.expectedQuery {
-					assert.Contains(t, got.query, queryPart)
+					assert.Contains(t, gotSnapshot.query, queryPart)
 				}
 			}
 			for _, outputPart := range test.expectedOutput {
@@ -198,10 +205,12 @@ func TestSpecializedCommands_MutationsRequireConfirmation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var requests atomic.Int32
+			var mu sync.Mutex
 			var got specializedRequestSnapshot
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
 				body, _ := io.ReadAll(r.Body)
+				mu.Lock()
 				got = specializedRequestSnapshot{
 					method:        r.Method,
 					path:          r.URL.Path,
@@ -209,6 +218,7 @@ func TestSpecializedCommands_MutationsRequireConfirmation(t *testing.T) {
 					contentType:   r.Header.Get("Content-Type"),
 					body:          string(body),
 				}
+				mu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(test.status)
 				_, _ = io.WriteString(w, test.response)
@@ -233,18 +243,21 @@ func TestSpecializedCommands_MutationsRequireConfirmation(t *testing.T) {
 			)
 
 			require.NoError(t, err)
+			mu.Lock()
+			gotSnapshot := got
+			mu.Unlock()
 			assert.Equal(t, test.expectedCalls, requests.Load())
 			assert.Contains(t, output, test.expectedPrompt)
 			if test.expectedCalls > 0 {
-				assert.Equal(t, test.expectedMethod, got.method)
-				assert.Equal(t, test.expectedPath, got.path)
-				assert.Equal(t, "Bearer specialized-token", got.authorization)
+				assert.Equal(t, test.expectedMethod, gotSnapshot.method)
+				assert.Equal(t, test.expectedPath, gotSnapshot.path)
+				assert.Equal(t, "Bearer specialized-token", gotSnapshot.authorization)
 				if test.expectedBody == "" {
-					assert.Empty(t, got.body)
-					assert.Empty(t, got.contentType)
+					assert.Empty(t, gotSnapshot.body)
+					assert.Empty(t, gotSnapshot.contentType)
 				} else {
-					assert.JSONEq(t, test.expectedBody, got.body)
-					assert.Equal(t, "application/json", got.contentType)
+					assert.JSONEq(t, test.expectedBody, gotSnapshot.body)
+					assert.Equal(t, "application/json", gotSnapshot.contentType)
 				}
 			}
 			if test.expectResourceCached {
@@ -427,9 +440,16 @@ func runSpecializedCommandWithInput(t *testing.T, input string, run func() error
 		_, _ = io.WriteString(stdinWriter, input)
 	}()
 
+	var output bytes.Buffer
+	readDone := make(chan error, 1)
+	go func() {
+		_, copyErr := io.Copy(&output, stdoutReader)
+		readDone <- copyErr
+	}()
+
 	runErr := run()
 	_ = stdoutWriter.Close()
-	output, readErr := io.ReadAll(stdoutReader)
+	readErr := <-readDone
 	require.NoError(t, readErr)
-	return strings.TrimSpace(string(output)), runErr
+	return strings.TrimSpace(output.String()), runErr
 }

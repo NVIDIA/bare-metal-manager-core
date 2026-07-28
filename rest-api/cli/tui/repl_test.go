@@ -8,12 +8,69 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestQuoteCommandArgumentRoundTripsEscapedCharacters(t *testing.T) {
+	for _, value := range []string{
+		"two words",
+		"tab\tseparated",
+		"line\nseparated",
+		"control\x01byte",
+		`quote"and\backslash`,
+	} {
+		t.Run(strings.ReplaceAll(value, "\n", `\n`), func(t *testing.T) {
+			args, err := splitCommandArguments(quoteCommandArgument(value))
+			require.NoError(t, err)
+			assert.Equal(t, []string{value}, args)
+		})
+	}
+}
+
+func TestGeneratedResourceSuggestionsBoundFetcherContext(t *testing.T) {
+	resolver := NewResolver(NewCache())
+	var remaining time.Duration
+	resolver.RegisterFetcher("machine", func(ctx context.Context) ([]NamedItem, error) {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		remaining = time.Until(deadline)
+		return nil, context.DeadlineExceeded
+	})
+	session := &Session{Resolver: resolver}
+
+	got := getGeneratedResourceSuggestions(
+		session,
+		appcli.GeneratedCommandInfo{
+			Name:           "machine inspect",
+			PathParameters: []string{"machineId"},
+		},
+		"",
+	)
+
+	assert.Nil(t, got)
+	assert.Greater(t, remaining, time.Duration(0))
+	assert.LessOrEqual(t, remaining, 2*time.Second)
+}
+
+func TestMatchGeneratedAutocompleteItemRejectsAmbiguousNames(t *testing.T) {
+	items := []NamedItem{
+		{Name: "duplicate", ID: "machine-1"},
+		{Name: "duplicate", ID: "machine-2"},
+	}
+
+	_, found := matchGeneratedAutocompleteItem(items, "duplicate")
+	assert.False(t, found)
+
+	item, found := matchGeneratedAutocompleteItem(items, "machine-2")
+	assert.True(t, found)
+	assert.Equal(t, "machine-2", item.ID)
+}
 
 func TestGetAllSuggestions_GeneratedResourcesUseCanonicalFetchers(t *testing.T) {
 	tests := []struct {

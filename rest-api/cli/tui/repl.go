@@ -11,12 +11,16 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	appcli "github.com/NVIDIA/infra-controller/rest-api/cli/pkg"
 )
 
-const maxSuggestions = 6
-const maxHistory = 100
+const (
+	maxSuggestions           = 6
+	maxHistory               = 100
+	autocompleteFetchTimeout = 2 * time.Second
+)
 
 // argResourceMap maps command names to the resource type whose names should
 // be offered as argument completions.
@@ -285,7 +289,7 @@ func splitCommandArguments(input string) ([]string, error) {
 		started = false
 	}
 
-	for i := range len(input) {
+	for i := 0; i < len(input); i++ {
 		char := input[i]
 		if escaped {
 			current.WriteByte(char)
@@ -299,8 +303,18 @@ func splitCommandArguments(input string) ([]string, error) {
 				started = true
 				continue
 			}
-			if char == '\\' && quote != '\'' {
-				escaped = true
+			if char == '\\' && quote == '"' {
+				value, multibyte, tail, err := strconv.UnquoteChar(input[i:], quote)
+				if err != nil {
+					return nil, fmt.Errorf("invalid escape sequence: %w", err)
+				}
+				if multibyte {
+					current.WriteRune(value)
+				} else {
+					current.WriteByte(byte(value))
+				}
+				i += len(input[i:]) - len(tail) - 1
+				started = true
 				continue
 			}
 			current.WriteByte(char)
@@ -562,6 +576,9 @@ func getGeneratedResourceSuggestions(
 		return nil
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), autocompleteFetchTimeout)
+	defer cancel()
+
 	resolvedValues := map[string]string{
 		"siteId": strings.TrimSpace(s.Scope.SiteID),
 		"vpcId":  strings.TrimSpace(s.Scope.VpcID),
@@ -570,7 +587,7 @@ func getGeneratedResourceSuggestions(
 		parameter := info.PathParameters[i]
 		descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
 		items, supported, err := s.GeneratedResourceItems(
-			context.Background(),
+			ctx,
 			descriptor,
 			resolvedValues,
 		)
@@ -591,7 +608,7 @@ func getGeneratedResourceSuggestions(
 	parameter := info.PathParameters[len(completedPaths)]
 	descriptor := GeneratedPathResourceDescriptor(info.Name, parameter)
 	items, supported, err := s.GeneratedResourceItems(
-		context.Background(),
+		ctx,
 		descriptor,
 		resolvedValues,
 	)
@@ -669,10 +686,9 @@ func endsWithWhitespace(input string) bool {
 }
 
 func matchGeneratedAutocompleteItem(items []NamedItem, value string) (NamedItem, bool) {
-	for _, item := range items {
-		if strings.EqualFold(item.Name, value) || strings.EqualFold(item.ID, value) {
-			return item, true
-		}
+	matches := matchingGeneratedResourceItems(items, value)
+	if len(matches) == 1 {
+		return matches[0], true
 	}
 	return NamedItem{}, false
 }
@@ -718,7 +734,8 @@ func resourceItemSuggestions(
 }
 
 func quoteCommandArgument(value string) string {
-	if !strings.ContainsAny(value, " \t\r\n'\"\\") {
+	if !strings.ContainsAny(value, " \t\r\n'\"\\") &&
+		strings.IndexFunc(value, func(char rune) bool { return !strconv.IsPrint(char) }) == -1 {
 		return value
 	}
 	return strconv.Quote(value)

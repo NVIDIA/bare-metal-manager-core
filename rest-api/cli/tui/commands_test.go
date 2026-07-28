@@ -936,6 +936,24 @@ func TestPromptSequenceDoesNotConsumeLaterPipedLines(t *testing.T) {
 	assert.Equal(t, "value:true", got)
 }
 
+func TestReadPromptLinePreservesNonEOFReadError(t *testing.T) {
+	oldStdin := os.Stdin
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	require.NoError(t, reader.Close())
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = oldStdin
+	}()
+
+	_, err = readPromptLine()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading input:")
+	assert.NotContains(t, err.Error(), "input cancelled")
+}
+
 // withStdin pipes the provided input into os.Stdin for the duration of f,
 // captures stdout so the prompt text does not leak into test output, and
 // restores both when it returns. All four pipe ends are closed before

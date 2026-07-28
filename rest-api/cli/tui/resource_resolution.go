@@ -116,13 +116,36 @@ func (s *Session) ResolveGeneratedResource(
 		item, err = s.Resolver.SelectFromItems(label, items)
 		return item, true, err
 	}
-	for i := range items {
-		if strings.EqualFold(items[i].Name, value) || strings.EqualFold(items[i].ID, value) {
-			fmt.Printf("%s %s %s\n", Bold(label+":"), Green(items[i].Name), Dim("(matched)"))
-			return &items[i], true, nil
-		}
+	matches := matchingGeneratedResourceItems(items, value)
+	if len(matches) > 1 {
+		return nil, true, fmt.Errorf(
+			"ambiguous %s %q matches %d resources; use an exact ID",
+			descriptor.ResourceType,
+			value,
+			len(matches),
+		)
+	}
+	if len(matches) == 1 {
+		fmt.Printf("%s %s %s\n", Bold(label+":"), Green(matches[0].Name), Dim("(matched)"))
+		return &matches[0], true, nil
 	}
 	return nil, true, fmt.Errorf("no %s matching %q found", descriptor.ResourceType, value)
+}
+
+func matchingGeneratedResourceItems(items []NamedItem, value string) []NamedItem {
+	var idMatches []NamedItem
+	var nameMatches []NamedItem
+	for i := range items {
+		if strings.EqualFold(items[i].ID, value) {
+			idMatches = append(idMatches, items[i])
+		} else if strings.EqualFold(items[i].Name, value) {
+			nameMatches = append(nameMatches, items[i])
+		}
+	}
+	if len(idMatches) > 0 {
+		return idMatches
+	}
+	return nameMatches
 }
 
 // GeneratedResourceItems returns selectable items for a generated parameter.
@@ -222,7 +245,7 @@ func (s *Session) fetchAllocationConstraints(allocationID string) ([]NamedItem, 
 		if resourceName == "" {
 			resourceName = str(constraint, "resourceTypeId")
 		}
-		name := strings.TrimSpace(strings.Join([]string{resourceType, resourceName}, " / "))
+		name := strings.Trim(strings.Join([]string{resourceType, resourceName}, " / "), " /")
 		if name == "" {
 			name = id
 		}
