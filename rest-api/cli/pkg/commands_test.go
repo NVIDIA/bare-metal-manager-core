@@ -6,6 +6,9 @@ package cli
 import (
 	"bytes"
 	"flag"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -403,6 +406,127 @@ func TestBuildCommands_NoDuplicateFlags(t *testing.T) {
 		}
 	}
 	visit("nicocli", cmds)
+}
+
+func TestNewApp_MachinePowerUsesConciseCommand(t *testing.T) {
+	app, err := NewApp(openapi.Spec)
+	require.NoError(t, err)
+
+	var output bytes.Buffer
+	app.Writer = &output
+	require.NoError(t, app.Run([]string{"nicocli", "machine", "power", "--help"}))
+
+	assert.Contains(t, output.String(), "nicocli machine power [command options] <machineId>")
+	assert.NotContains(t, output.String(), "power-control-machine")
+
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+	assert.Nil(t, commandAtPath(BuildCommands(spec), []string{
+		"machine", "power-control-machine", "machine-power-control-machine",
+	}))
+}
+
+func TestNewApp_MachinePowerExecutesOriginalOperation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		assert.Equal(t, http.MethodPatch, request.Method)
+		assert.Equal(t, "/v2/org/test-org/nico/machine/machine-1/power", request.URL.Path)
+		assert.Equal(t, "Bearer test-token", request.Header.Get("Authorization"))
+
+		body, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"action":"ForceRestart"}`, string(body))
+
+		response.Header().Set("Content-Type", "application/json")
+		_, err = response.Write([]byte(`{"status":"accepted"}`))
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	app, err := NewApp(openapi.Spec)
+	require.NoError(t, err)
+	app.Writer = io.Discard
+
+	require.NoError(t, app.Run([]string{
+		"nicocli",
+		"--base-url", server.URL,
+		"--org", "test-org",
+		"--api-name", "nico",
+		"--token", "test-token",
+		"machine", "power",
+		"--action", "ForceRestart",
+		"machine-1",
+	}))
+}
+
+func TestBuildCommands_AppliesEveryCommandPathOverride(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+
+	commands := BuildCommands(spec)
+	operations := newOperationIndex(spec)
+	seenPaths := make(map[string]string)
+
+	for operationID, path := range commandPathOverrides {
+		pathText := strings.Join(path, " ")
+		if previousOperationID, exists := seenPaths[pathText]; exists {
+			t.Errorf("operations %q and %q both override to %q", previousOperationID, operationID, pathText)
+		}
+		seenPaths[pathText] = operationID
+
+		operation, err := operations.require(operationID)
+		require.NoError(t, err)
+
+		command := commandAtPath(commands, path)
+		require.NotNilf(t, command, "override for %q did not create command path %q", operationID, pathText)
+		assert.Equal(t, operation.op.Summary, command.Usage)
+		assert.Truef(t, strings.HasPrefix(command.UsageText, binaryName+" "+pathText+" [command options]"),
+			"override for %q produced UsageText %q", operationID, command.UsageText)
+	}
+}
+
+func TestBuildCommands_ContainsEveryOperationAtUniquePath(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+
+	paths := make(map[string]bool)
+	var visit func(prefix string, commands []*cli.Command)
+	visit = func(prefix string, commands []*cli.Command) {
+		for _, command := range commands {
+			path := strings.TrimSpace(prefix + " " + command.Name)
+			if len(command.Subcommands) > 0 {
+				visit(path, command.Subcommands)
+				continue
+			}
+			assert.Falsef(t, paths[path], "duplicate generated command path %q", path)
+			paths[path] = true
+		}
+	}
+	visit("", BuildCommands(spec))
+
+	assert.Len(t, paths, len(collectOperations(spec)))
+}
+
+func TestAddCommandAtPathSupportsArbitraryDepth(t *testing.T) {
+	command := &cli.Command{Name: "generated-name"}
+	path := []string{"group", "nested", "run"}
+
+	commands := addCommandAtPath(nil, path, command)
+
+	assert.Same(t, command, commandAtPath(commands, path))
+	assert.Equal(t, "run", command.Name)
+}
+
+func commandAtPath(commands []*cli.Command, path []string) *cli.Command {
+	for _, command := range commands {
+		if command.Name != path[0] {
+			continue
+		}
+		if len(path) == 1 {
+			return command
+		}
+		return commandAtPath(command.Subcommands, path[1:])
+	}
+	return nil
 }
 
 // TestBuildActionCommand_ReservedBodyPropertyPrefixed verifies that when a

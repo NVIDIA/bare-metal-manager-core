@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,12 +24,13 @@ var (
 )
 
 type resolvedOp struct {
-	tag        string
-	action     string
-	method     string
-	path       string
-	op         *Operation
-	pathParams []Parameter
+	tag         string
+	action      string
+	commandPath []string
+	method      string
+	path        string
+	op          *Operation
+	pathParams  []Parameter
 }
 
 type operationIndex map[string]resolvedOp
@@ -85,6 +87,46 @@ var reservedBodyFlagNames = map[string]bool{
 	"data-file": true,
 }
 
+// commandPathOverrides is the final naming pass for generated commands. Each
+// value replaces the complete generated path for one OpenAPI operation ID.
+// Keep overrides here instead of adding more operation-name heuristics.
+var commandPathOverrides = map[string][]string{
+	"bringup-rack":                                      {"rack", "bringup"},
+	"bringup-racks":                                     {"rack", "bringup-all"},
+	"cancel-task":                                       {"task", "cancel"},
+	"create-or-update-host-firmware-config":             {"host-firmware-config", "update"},
+	"create-or-update-machine-health-report":            {"health-report", "update"},
+	"create-or-update-tenant-identity-config":           {"tenant-identity", "update"},
+	"create-or-update-tenant-identity-token-delegation": {"tenant-identity", "token-delegation", "update"},
+	"delete-all-expected-rack":                          {"expected-rack", "delete-all"},
+	"delete-tenant-identity-token-delegation":           {"tenant-identity", "token-delegation", "delete"},
+	"firmware-update-rack":                              {"rack", "firmware"},
+	"firmware-update-racks":                             {"rack", "firmware-all"},
+	"firmware-update-tray":                              {"tray", "firmware"},
+	"firmware-update-trays":                             {"tray", "firmware-all"},
+	"get-dpu-machines":                                  {"machine", "dpu", "get"},
+	"get-machine-gpu-stats":                             {"machine", "gpu-stats"},
+	"get-machine-instance-type-stats":                   {"machine", "instance-type-stats"},
+	"get-machine-instance-type-stats-summary":           {"machine", "instance-type-stats-summary"},
+	"get-rack-tasks":                                    {"rack", "task", "get"},
+	"get-tenant-identity-token-delegation":              {"tenant-identity", "token-delegation", "get"},
+	"get-tenant-instance-type-stats":                    {"tenant", "instance-type-stats"},
+	"get-tray-tasks":                                    {"tray", "task", "get"},
+	"list-rules":                                        {"rule", "list"},
+	"machine-power-control-machine":                     {"machine", "power"},
+	"power-control-rack":                                {"rack", "power"},
+	"power-control-racks":                               {"rack", "power-all"},
+	"power-control-tray":                                {"tray", "power"},
+	"power-control-trays":                               {"tray", "power-all"},
+	"replace-all-expected-rack":                         {"expected-rack", "replace-all"},
+	"reprovision-machine-dpu":                           {"machine", "dpu", "reprovision"},
+	"reset-machine-bmc":                                 {"machine", "bmc", "reset"},
+	"validate-rack":                                     {"rack", "validate"},
+	"validate-racks":                                    {"rack", "validate-all"},
+	"validate-tray":                                     {"tray", "validate"},
+	"validate-trays":                                    {"tray", "validate-all"},
+}
+
 // subResourceHelpTemplate renders actions and sub-resources as separate sections.
 var subResourceHelpTemplate = `NAME:
    {{.HelpName}} - {{.Usage}}
@@ -105,7 +147,7 @@ OPTIONS:
 
 // BuildCommands converts parsed OpenAPI operations into a cli.Command tree grouped by tag.
 func BuildCommands(spec *Spec) []*cli.Command {
-	ops := collectOperations(spec)
+	ops := applyCommandPathOverrides(collectOperations(spec))
 	grouped := groupByTag(ops)
 
 	tagDescriptions := make(map[string]string)
@@ -172,6 +214,22 @@ func collectOperations(spec *Spec) []resolvedOp {
 	return ops
 }
 
+func applyCommandPathOverrides(operations []resolvedOp) []resolvedOp {
+	for i := range operations {
+		path, ok := commandPathOverrides[operations[i].op.OperationID]
+		if !ok {
+			continue
+		}
+		if len(path) < 2 {
+			panic(fmt.Sprintf("command path override for %q must have at least two components", operations[i].op.OperationID))
+		}
+		operations[i].tag = path[0]
+		operations[i].action = path[len(path)-1]
+		operations[i].commandPath = path
+	}
+	return operations
+}
+
 func groupByTag(ops []resolvedOp) map[string][]resolvedOp {
 	grouped := make(map[string][]resolvedOp)
 	for _, op := range ops {
@@ -188,8 +246,13 @@ func buildTagSubcommands(spec *Spec, ops []resolvedOp) []*cli.Command {
 
 	var primaryOps []resolvedOp
 	subResourceOps := make(map[string][]resolvedOp)
+	var overriddenOps []resolvedOp
 
 	for _, op := range ops {
+		if len(op.commandPath) > 0 {
+			overriddenOps = append(overriddenOps, op)
+			continue
+		}
 		suffix := extractResourceSuffix(op.op.OperationID)
 		subRes := subResourceName(suffix, primary)
 		if subRes == "" {
@@ -254,7 +317,56 @@ func buildTagSubcommands(spec *Spec, ops []resolvedOp) []*cli.Command {
 		})
 	}
 
+	for _, op := range overriddenOps {
+		command := buildActionCommand(spec, op, "")
+		cmds = addCommandAtPath(cmds, op.commandPath[1:], command)
+	}
+	sortCommandTree(cmds)
+
 	return cmds
+}
+
+func addCommandAtPath(commands []*cli.Command, path []string, command *cli.Command) []*cli.Command {
+	if len(path) == 1 {
+		for _, existing := range commands {
+			if existing.Name == path[0] {
+				panic(fmt.Sprintf("command path override collides at %q", strings.Join(path, " ")))
+			}
+		}
+		command.Name = path[0]
+		return append(commands, command)
+	}
+
+	for _, existing := range commands {
+		if existing.Name != path[0] {
+			continue
+		}
+		if existing.Action != nil {
+			panic(fmt.Sprintf("command path override cannot place a subcommand under action %q", existing.Name))
+		}
+		existing.Subcommands = addCommandAtPath(existing.Subcommands, path[1:], command)
+		return commands
+	}
+
+	group := &cli.Command{
+		Name:     path[0],
+		Category: "Sub-resources",
+		Usage:    path[0] + " operations",
+	}
+	group.Subcommands = addCommandAtPath(group.Subcommands, path[1:], command)
+	return append(commands, group)
+}
+
+func sortCommandTree(commands []*cli.Command) {
+	sort.Slice(commands, func(i, j int) bool { return commands[i].Name < commands[j].Name })
+	for _, command := range commands {
+		sortCommandTree(command.Subcommands)
+		if slices.ContainsFunc(command.Subcommands, func(child *cli.Command) bool {
+			return child.Category != ""
+		}) {
+			command.CustomHelpTemplate = subResourceHelpTemplate
+		}
+	}
 }
 
 func detectPrimaryResource(ops []resolvedOp) string {
@@ -408,11 +520,17 @@ func buildActionCommand(spec *Spec, ro resolvedOp, subResource string) *cli.Comm
 		return flags[i].Names()[0] < flags[j].Names()[0]
 	})
 
-	usageText := binaryName + " " + tagToCommand(ro.tag)
-	if subResource != "" {
-		usageText += " " + subResource
+	usageText := binaryName
+	if len(ro.commandPath) > 0 {
+		usageText += " " + strings.Join(ro.commandPath, " ")
+	} else {
+		usageText += " " + tagToCommand(ro.tag)
+		if subResource != "" {
+			usageText += " " + subResource
+		}
+		usageText += " " + ro.action
 	}
-	usageText += " " + ro.action + " [command options]"
+	usageText += " [command options]"
 	for _, ap := range argParams {
 		usageText += " <" + ap + ">"
 	}
