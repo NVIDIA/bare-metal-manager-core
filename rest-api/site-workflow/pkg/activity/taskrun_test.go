@@ -14,27 +14,27 @@ import (
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 )
 
-func newManageRunForTest() ManageRun {
+func newManageTaskRunForTest() ManageTaskRun {
 	mockFlowGrpcClient := cClient.NewMockFlowGrpcClient()
 	flowGrpcAtomicClient := cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})
 	flowGrpcAtomicClient.SwapClient(mockFlowGrpcClient)
-	return NewManageRun(flowGrpcAtomicClient)
+	return NewManageTaskRun(flowGrpcAtomicClient)
 }
 
-func TestManageRun_CreateRunOnFlow(t *testing.T) {
-	mc := newManageRunForTest()
+func TestManageTaskRun_CreateTaskRunOnFlow(t *testing.T) {
+	mc := newManageTaskRunForTest()
 
-	_, err := mc.CreateRunOnFlow(context.Background(), nil)
+	_, err := mc.CreateTaskRunOnFlow(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty create operation run request")
 
-	resp, err := mc.CreateRunOnFlow(context.Background(), &flowv1.CreateOperationRunRequest{Name: "fw-rollout"})
+	resp, err := mc.CreateTaskRunOnFlow(context.Background(), &flowv1.CreateOperationRunRequest{Name: "fw-rollout"})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.NotEmpty(t, resp.GetId().GetId())
 }
 
-func TestManageRun_GetRunFromFlow(t *testing.T) {
+func TestManageTaskRun_GetTaskRunFromFlow(t *testing.T) {
 	tests := []struct {
 		name        string
 		request     *flowv1.GetOperationRunRequest
@@ -48,8 +48,8 @@ func TestManageRun_GetRunFromFlow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mc := newManageRunForTest()
-			resp, err := mc.GetRunFromFlow(context.Background(), tt.request)
+			mc := newManageTaskRunForTest()
+			resp, err := mc.GetTaskRunFromFlow(context.Background(), tt.request)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -61,19 +61,19 @@ func TestManageRun_GetRunFromFlow(t *testing.T) {
 	}
 }
 
-func TestManageRun_GetAllRunsFromFlow(t *testing.T) {
-	mc := newManageRunForTest()
+func TestManageTaskRun_GetAllTaskRunsFromFlow(t *testing.T) {
+	mc := newManageTaskRunForTest()
 
-	_, err := mc.GetAllRunsFromFlow(context.Background(), nil)
+	_, err := mc.GetAllTaskRunsFromFlow(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty list operation runs request")
 
-	resp, err := mc.GetAllRunsFromFlow(context.Background(), &flowv1.ListOperationRunsRequest{})
+	resp, err := mc.GetAllTaskRunsFromFlow(context.Background(), &flowv1.ListOperationRunsRequest{})
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 }
 
-func TestManageRun_GetRunTargetsFromFlow(t *testing.T) {
+func TestManageTaskRun_GetAllTaskRunTargetsFromFlow(t *testing.T) {
 	tests := []struct {
 		name        string
 		request     *flowv1.ListOperationRunTargetsRequest
@@ -86,8 +86,8 @@ func TestManageRun_GetRunTargetsFromFlow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mc := newManageRunForTest()
-			resp, err := mc.GetRunTargetsFromFlow(context.Background(), tt.request)
+			mc := newManageTaskRunForTest()
+			resp, err := mc.GetAllTaskRunTargetsFromFlow(context.Background(), tt.request)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errContains)
@@ -99,66 +99,66 @@ func TestManageRun_GetRunTargetsFromFlow(t *testing.T) {
 	}
 }
 
-func TestManageRun_PauseRunOnFlow(t *testing.T) {
-	mc := newManageRunForTest()
+func TestManageTaskRun_PauseTaskRunOnFlow(t *testing.T) {
+	mc := newManageTaskRunForTest()
 
-	_, err := mc.PauseRunOnFlow(context.Background(), nil)
+	_, err := mc.PauseTaskRunOnFlow(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty pause operation run request")
 
-	_, err = mc.PauseRunOnFlow(context.Background(), &flowv1.PauseOperationRunRequest{})
+	_, err = mc.PauseTaskRunOnFlow(context.Background(), &flowv1.PauseOperationRunRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "without operation run ID")
 
-	resp, err := mc.PauseRunOnFlow(context.Background(), &flowv1.PauseOperationRunRequest{Id: &flowv1.UUID{Id: "run-id"}})
+	resp, err := mc.PauseTaskRunOnFlow(context.Background(), &flowv1.PauseOperationRunRequest{Id: &flowv1.UUID{Id: "run-id"}})
 	require.NoError(t, err)
 	assert.Equal(t, "run-id", resp.GetSummary().GetId().GetId())
 }
 
-func TestManageRun_ResumeRunOnFlow(t *testing.T) {
-	mc := newManageRunForTest()
+func TestManageTaskRun_ResumeTaskRunOnFlow(t *testing.T) {
+	mc := newManageTaskRunForTest()
 
-	_, err := mc.ResumeRunOnFlow(context.Background(), nil)
+	_, err := mc.ResumeTaskRunOnFlow(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty resume operation run request")
 
-	_, err = mc.ResumeRunOnFlow(context.Background(), &flowv1.ResumeOperationRunRequest{})
+	_, err = mc.ResumeTaskRunOnFlow(context.Background(), &flowv1.ResumeOperationRunRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "without operation run ID")
 
-	resp, err := mc.ResumeRunOnFlow(context.Background(), &flowv1.ResumeOperationRunRequest{Id: &flowv1.UUID{Id: "run-id"}})
+	resp, err := mc.ResumeTaskRunOnFlow(context.Background(), &flowv1.ResumeOperationRunRequest{Id: &flowv1.UUID{Id: "run-id"}})
 	require.NoError(t, err)
 	assert.Equal(t, "run-id", resp.GetSummary().GetId().GetId())
 }
 
-func TestManageRun_AdvanceRunPhaseOnFlow(t *testing.T) {
-	mc := newManageRunForTest()
+func TestManageTaskRun_AdvanceTaskRunPhaseOnFlow(t *testing.T) {
+	mc := newManageTaskRunForTest()
 
-	_, err := mc.AdvanceRunPhaseOnFlow(context.Background(), nil)
+	_, err := mc.AdvanceTaskRunPhaseOnFlow(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty advance operation run phase request")
 
-	_, err = mc.AdvanceRunPhaseOnFlow(context.Background(), &flowv1.AdvanceOperationRunPhaseRequest{})
+	_, err = mc.AdvanceTaskRunPhaseOnFlow(context.Background(), &flowv1.AdvanceOperationRunPhaseRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "without operation run ID")
 
-	resp, err := mc.AdvanceRunPhaseOnFlow(context.Background(), &flowv1.AdvanceOperationRunPhaseRequest{Id: &flowv1.UUID{Id: "run-id"}})
+	resp, err := mc.AdvanceTaskRunPhaseOnFlow(context.Background(), &flowv1.AdvanceOperationRunPhaseRequest{Id: &flowv1.UUID{Id: "run-id"}})
 	require.NoError(t, err)
 	assert.Equal(t, "run-id", resp.GetSummary().GetId().GetId())
 }
 
-func TestManageRun_CancelRunOnFlow(t *testing.T) {
-	mc := newManageRunForTest()
+func TestManageTaskRun_CancelTaskRunOnFlow(t *testing.T) {
+	mc := newManageTaskRunForTest()
 
-	_, err := mc.CancelRunOnFlow(context.Background(), nil)
+	_, err := mc.CancelTaskRunOnFlow(context.Background(), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty cancel operation run request")
 
-	_, err = mc.CancelRunOnFlow(context.Background(), &flowv1.CancelOperationRunRequest{})
+	_, err = mc.CancelTaskRunOnFlow(context.Background(), &flowv1.CancelOperationRunRequest{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "without operation run ID")
 
-	resp, err := mc.CancelRunOnFlow(context.Background(), &flowv1.CancelOperationRunRequest{Id: &flowv1.UUID{Id: "run-id"}, Reason: "operator"})
+	resp, err := mc.CancelTaskRunOnFlow(context.Background(), &flowv1.CancelOperationRunRequest{Id: &flowv1.UUID{Id: "run-id"}, Reason: "operator"})
 	require.NoError(t, err)
 	assert.Equal(t, "run-id", resp.GetSummary().GetId().GetId())
 }

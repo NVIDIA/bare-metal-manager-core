@@ -15,15 +15,15 @@ import (
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 )
 
-// ManageRun is an activity wrapper for operation-run management via Flow. A
+// ManageTaskRun is an activity wrapper for operation-run management via Flow. A
 // run is a phased, policy-gated execution of one operation across many racks.
-type ManageRun struct {
+type ManageTaskRun struct {
 	flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient
 }
 
-// NewManageRun returns a new ManageRun client.
-func NewManageRun(flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient) ManageRun {
-	return ManageRun{
+// NewManageTaskRun returns a new ManageTaskRun client.
+func NewManageTaskRun(flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient) ManageTaskRun {
+	return ManageTaskRun{
 		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
@@ -38,9 +38,9 @@ func requireRunID(id *flowv1.UUID) error {
 	return nil
 }
 
-// CreateRunOnFlow creates an operation run via Flow.
-func (mr *ManageRun) CreateRunOnFlow(ctx context.Context, request *flowv1.CreateOperationRunRequest) (*flowv1.CreateOperationRunResponse, error) {
-	logger := log.With().Str("Activity", "CreateRunOnFlow").Logger()
+// CreateTaskRunOnFlow creates an operation run via Flow.
+func (mr *ManageTaskRun) CreateTaskRunOnFlow(ctx context.Context, request *flowv1.CreateOperationRunRequest) (*flowv1.CreateOperationRunResponse, error) {
+	logger := log.With().Str("Activity", "CreateTaskRunOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -66,9 +66,9 @@ func (mr *ManageRun) CreateRunOnFlow(ctx context.Context, request *flowv1.Create
 	return response, nil
 }
 
-// GetRunFromFlow retrieves an operation run by ID via Flow.
-func (mr *ManageRun) GetRunFromFlow(ctx context.Context, request *flowv1.GetOperationRunRequest) (*flowv1.GetOperationRunResponse, error) {
-	logger := log.With().Str("Activity", "GetRunFromFlow").Logger()
+// GetTaskRunFromFlow retrieves an operation run by ID via Flow.
+func (mr *ManageTaskRun) GetTaskRunFromFlow(ctx context.Context, request *flowv1.GetOperationRunRequest) (*flowv1.GetOperationRunResponse, error) {
+	logger := log.With().Str("Activity", "GetTaskRunFromFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -94,9 +94,9 @@ func (mr *ManageRun) GetRunFromFlow(ctx context.Context, request *flowv1.GetOper
 	return response, nil
 }
 
-// GetAllRunsFromFlow lists operation runs via Flow.
-func (mr *ManageRun) GetAllRunsFromFlow(ctx context.Context, request *flowv1.ListOperationRunsRequest) (*flowv1.ListOperationRunsResponse, error) {
-	logger := log.With().Str("Activity", "GetAllRunsFromFlow").Logger()
+// GetAllTaskRunsFromFlow lists operation runs via Flow.
+func (mr *ManageTaskRun) GetAllTaskRunsFromFlow(ctx context.Context, request *flowv1.ListOperationRunsRequest) (*flowv1.ListOperationRunsResponse, error) {
+	logger := log.With().Str("Activity", "GetAllTaskRunsFromFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -125,10 +125,10 @@ func (mr *ManageRun) GetAllRunsFromFlow(ctx context.Context, request *flowv1.Lis
 	return response, nil
 }
 
-// GetRunTargetsFromFlow lists the materialized rack execution targets for
+// GetAllTaskRunTargetsFromFlow lists the materialized rack execution targets for
 // one operation run via Flow.
-func (mr *ManageRun) GetRunTargetsFromFlow(ctx context.Context, request *flowv1.ListOperationRunTargetsRequest) (*flowv1.ListOperationRunTargetsResponse, error) {
-	logger := log.With().Str("Activity", "GetRunTargetsFromFlow").Logger()
+func (mr *ManageTaskRun) GetAllTaskRunTargetsFromFlow(ctx context.Context, request *flowv1.ListOperationRunTargetsRequest) (*flowv1.ListOperationRunTargetsResponse, error) {
+	logger := log.With().Str("Activity", "GetAllTaskRunTargetsFromFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -161,9 +161,9 @@ func (mr *ManageRun) GetRunTargetsFromFlow(ctx context.Context, request *flowv1.
 	return response, nil
 }
 
-// PauseRunOnFlow pauses a running operation run via Flow.
-func (mr *ManageRun) PauseRunOnFlow(ctx context.Context, request *flowv1.PauseOperationRunRequest) (*flowv1.OperationRun, error) {
-	logger := log.With().Str("Activity", "PauseRunOnFlow").Logger()
+// PauseTaskRunOnFlow pauses a running operation run via Flow.
+func (mr *ManageTaskRun) PauseTaskRunOnFlow(ctx context.Context, request *flowv1.PauseOperationRunRequest) (*flowv1.OperationRun, error) {
+	logger := log.With().Str("Activity", "PauseTaskRunOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -189,9 +189,9 @@ func (mr *ManageRun) PauseRunOnFlow(ctx context.Context, request *flowv1.PauseOp
 	return response, nil
 }
 
-// ResumeRunOnFlow resumes an operator-paused operation run via Flow.
-func (mr *ManageRun) ResumeRunOnFlow(ctx context.Context, request *flowv1.ResumeOperationRunRequest) (*flowv1.OperationRun, error) {
-	logger := log.With().Str("Activity", "ResumeRunOnFlow").Logger()
+// ResumeTaskRunOnFlow resumes an operator-paused operation run via Flow.
+func (mr *ManageTaskRun) ResumeTaskRunOnFlow(ctx context.Context, request *flowv1.ResumeOperationRunRequest) (*flowv1.OperationRun, error) {
+	logger := log.With().Str("Activity", "ResumeTaskRunOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -217,10 +217,10 @@ func (mr *ManageRun) ResumeRunOnFlow(ctx context.Context, request *flowv1.Resume
 	return response, nil
 }
 
-// AdvanceRunPhaseOnFlow opens the next phase of a phase-gated operation
+// AdvanceTaskRunPhaseOnFlow opens the next phase of a phase-gated operation
 // run via Flow.
-func (mr *ManageRun) AdvanceRunPhaseOnFlow(ctx context.Context, request *flowv1.AdvanceOperationRunPhaseRequest) (*flowv1.OperationRun, error) {
-	logger := log.With().Str("Activity", "AdvanceRunPhaseOnFlow").Logger()
+func (mr *ManageTaskRun) AdvanceTaskRunPhaseOnFlow(ctx context.Context, request *flowv1.AdvanceOperationRunPhaseRequest) (*flowv1.OperationRun, error) {
+	logger := log.With().Str("Activity", "AdvanceTaskRunPhaseOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {
@@ -246,10 +246,10 @@ func (mr *ManageRun) AdvanceRunPhaseOnFlow(ctx context.Context, request *flowv1.
 	return response, nil
 }
 
-// CancelRunOnFlow cancels an operation run and its in-flight targets via
+// CancelTaskRunOnFlow cancels an operation run and its in-flight targets via
 // Flow.
-func (mr *ManageRun) CancelRunOnFlow(ctx context.Context, request *flowv1.CancelOperationRunRequest) (*flowv1.OperationRun, error) {
-	logger := log.With().Str("Activity", "CancelRunOnFlow").Logger()
+func (mr *ManageTaskRun) CancelTaskRunOnFlow(ctx context.Context, request *flowv1.CancelOperationRunRequest) (*flowv1.OperationRun, error) {
+	logger := log.With().Str("Activity", "CancelTaskRunOnFlow").Logger()
 	logger.Info().Msg("Starting activity")
 
 	if request == nil {

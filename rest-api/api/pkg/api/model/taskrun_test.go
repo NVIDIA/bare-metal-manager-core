@@ -19,40 +19,40 @@ func int32Ptr(v int32) *int32 { return &v }
 
 // sampleRunCreateRequest returns a fully-populated create request that
 // exercises every branch of the configuration tree.
-func sampleRunCreateRequest() APIRunCreateRequest {
+func sampleRunCreateRequest() APITaskRunCreateRequest {
 	ruleID := "rule-id"
-	return APIRunCreateRequest{
+	return APITaskRunCreateRequest{
 		SiteID:      "site-id",
 		Name:        "fw-rollout",
 		Description: "desc",
-		Selector: &APIRunSelector{
-			Percentage: &APIRunPercentageSelector{Percent: 50, Seed: "seed-1"},
+		Selector: &APITaskRunSelector{
+			Percentage: &APITaskRunPercentageSelector{Percent: 50, Seed: "seed-1"},
 		},
-		Options: APIRunOptions{
+		Options: APITaskRunOptions{
 			MaxConcurrentTargets: 3,
-			SafetyPolicy: &APIRunSafetyPolicy{
-				Gates: []APIRunSafetyGate{
-					{FailureRate: &APIRunFailureRateGate{Scope: "currentPhase", ThresholdPercent: 20}},
-					{FailureCount: &APIRunFailureCountGate{Scope: "cumulativeRun", ThresholdCount: 5}},
+			SafetyPolicy: &APITaskRunSafetyPolicy{
+				Gates: []APITaskRunSafetyGate{
+					{FailureRate: &APITaskRunFailureRateGate{Scope: "currentPhase", ThresholdPercent: 20}},
+					{FailureCount: &APITaskRunFailureCountGate{Scope: "cumulativeRun", ThresholdCount: 5}},
 				},
 			},
-			ConflictPolicy: &APIRunConflictPolicy{
-				Retry: &APIRunConflictRetry{
+			ConflictPolicy: &APITaskRunConflictPolicy{
+				Retry: &APITaskRunConflictRetry{
 					RetryTimeout:      "30m",
 					InitialRetryDelay: "10s",
 					MaxRetryDelay:     "5m",
 				},
 			},
-			OrderingPolicy: &APIRunOrderingPolicy{
-				Random: &APIRunRandomOrdering{Seed: "seed-2"},
+			OrderingPolicy: &APITaskRunOrderingPolicy{
+				Random: &APITaskRunRandomOrdering{Seed: "seed-2"},
 			},
-			PhasePolicy: &APIRunPhasePolicy{
-				Equal:       &APIRunEqualPhases{PhaseCount: 4},
+			PhasePolicy: &APITaskRunPhasePolicy{
+				Equal:       &APITaskRunEqualPhases{PhaseCount: 4},
 				AutoAdvance: true,
 			},
 		},
-		Operation: APIRunOperation{
-			Firmware: &APIRunFirmwareOperation{
+		Operation: APITaskRunOperation{
+			Firmware: &APITaskRunFirmwareOperation{
 				Version:                "1.2.3",
 				RuleID:                 &ruleID,
 				OverrideReadinessCheck: true,
@@ -63,78 +63,96 @@ func sampleRunCreateRequest() APIRunCreateRequest {
 	}
 }
 
-func TestAPIRunCreateRequest_Validate(t *testing.T) {
+func TestAPITaskRunCreateRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		mutate  func(r *APIRunCreateRequest)
+		mutate  func(r *APITaskRunCreateRequest)
 		wantErr string
 	}{
-		{name: "valid full", mutate: func(r *APIRunCreateRequest) {}},
+		{name: "valid full", mutate: func(r *APITaskRunCreateRequest) {}},
 		{
 			name: "valid minimal",
-			mutate: func(r *APIRunCreateRequest) {
+			mutate: func(r *APITaskRunCreateRequest) {
 				r.Selector = nil
-				r.Options = APIRunOptions{MaxConcurrentTargets: 1}
-				r.Operation = APIRunOperation{Firmware: &APIRunFirmwareOperation{Version: "1.0.0"}}
+				r.Options = APITaskRunOptions{MaxConcurrentTargets: 1}
+				r.Operation = APITaskRunOperation{Firmware: &APITaskRunFirmwareOperation{Version: "1.0.0"}}
 			},
 		},
 		{
 			name:    "missing siteId",
-			mutate:  func(r *APIRunCreateRequest) { r.SiteID = "" },
+			mutate:  func(r *APITaskRunCreateRequest) { r.SiteID = "" },
 			wantErr: "siteId is required",
 		},
 		{
 			name:    "missing name",
-			mutate:  func(r *APIRunCreateRequest) { r.Name = "" },
+			mutate:  func(r *APITaskRunCreateRequest) { r.Name = "" },
 			wantErr: "name is required",
 		},
 		{
 			name:    "non-positive maxConcurrentTargets",
-			mutate:  func(r *APIRunCreateRequest) { r.Options.MaxConcurrentTargets = 0 },
-			wantErr: "maxConcurrentTargets must be greater than zero",
+			mutate:  func(r *APITaskRunCreateRequest) { r.Options.MaxConcurrentTargets = 0 },
+			wantErr: "maxConcurrentTargets: must be greater than zero",
+		},
+		{
+			name:    "negative maxConcurrentTargets",
+			mutate:  func(r *APITaskRunCreateRequest) { r.Options.MaxConcurrentTargets = -1 },
+			wantErr: "maxConcurrentTargets: must be greater than zero",
 		},
 		{
 			name:    "missing firmware operation",
-			mutate:  func(r *APIRunCreateRequest) { r.Operation.Firmware = nil },
-			wantErr: "operation.firmware is required",
+			mutate:  func(r *APITaskRunCreateRequest) { r.Operation.Firmware = nil },
+			wantErr: "firmware: firmware is required",
 		},
 		{
 			name:    "missing firmware version",
-			mutate:  func(r *APIRunCreateRequest) { r.Operation.Firmware.Version = "" },
-			wantErr: "operation.firmware.version is required",
+			mutate:  func(r *APITaskRunCreateRequest) { r.Operation.Firmware.Version = "" },
+			wantErr: "version: version is required",
 		},
 		{
 			name: "gate sets both",
-			mutate: func(r *APIRunCreateRequest) {
-				r.Options.SafetyPolicy.Gates = []APIRunSafetyGate{{
-					FailureRate:  &APIRunFailureRateGate{Scope: "currentPhase", ThresholdPercent: 10},
-					FailureCount: &APIRunFailureCountGate{Scope: "currentPhase", ThresholdCount: 1},
+			mutate: func(r *APITaskRunCreateRequest) {
+				r.Options.SafetyPolicy.Gates = []APITaskRunSafetyGate{{
+					FailureRate:  &APITaskRunFailureRateGate{Scope: "currentPhase", ThresholdPercent: 10},
+					FailureCount: &APITaskRunFailureCountGate{Scope: "currentPhase", ThresholdCount: 1},
 				}}
 			},
 			wantErr: "must set exactly one of failureRate or failureCount",
 		},
 		{
 			name: "gate sets neither",
-			mutate: func(r *APIRunCreateRequest) {
-				r.Options.SafetyPolicy.Gates = []APIRunSafetyGate{{}}
+			mutate: func(r *APITaskRunCreateRequest) {
+				r.Options.SafetyPolicy.Gates = []APITaskRunSafetyGate{{}}
 			},
 			wantErr: "must set exactly one of failureRate or failureCount",
 		},
 		{
 			name: "invalid gate scope",
-			mutate: func(r *APIRunCreateRequest) {
-				r.Options.SafetyPolicy.Gates = []APIRunSafetyGate{{
-					FailureRate: &APIRunFailureRateGate{Scope: "bogus", ThresholdPercent: 10},
+			mutate: func(r *APITaskRunCreateRequest) {
+				r.Options.SafetyPolicy.Gates = []APITaskRunSafetyGate{{
+					FailureRate: &APITaskRunFailureRateGate{Scope: "bogus", ThresholdPercent: 10},
 				}}
 			},
-			wantErr: "scope must be one of",
+			wantErr: "scope: must be one of",
+		},
+		{
+			name: "unparseable conflict retry duration",
+			mutate: func(r *APITaskRunCreateRequest) {
+				r.Options.ConflictPolicy.Retry.RetryTimeout = "not-a-duration"
+			},
+			wantErr: "retryTimeout: invalid duration",
+		},
+		{
+			name: "empty conflict retry durations are allowed",
+			mutate: func(r *APITaskRunCreateRequest) {
+				r.Options.ConflictPolicy.Retry = &APITaskRunConflictRetry{}
+			},
 		},
 		{
 			name: "phase policy sets more than one",
-			mutate: func(r *APIRunCreateRequest) {
-				r.Options.PhasePolicy = &APIRunPhasePolicy{
-					Equal:      &APIRunEqualPhases{PhaseCount: 2},
-					Percentage: &APIRunPercentagePhases{Phases: []int32{50, 50}},
+			mutate: func(r *APITaskRunCreateRequest) {
+				r.Options.PhasePolicy = &APITaskRunPhasePolicy{
+					Equal:      &APITaskRunEqualPhases{PhaseCount: 2},
+					Percentage: &APITaskRunPercentagePhases{Phases: []int32{50, 50}},
 				}
 			},
 			wantErr: "must set at most one of equal, percentage, count",
@@ -156,7 +174,7 @@ func TestAPIRunCreateRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestAPIRunCreateRequest_ToProto(t *testing.T) {
+func TestAPITaskRunCreateRequest_ToProto(t *testing.T) {
 	req := sampleRunCreateRequest()
 
 	pb, err := req.ToProto()
@@ -222,7 +240,7 @@ func TestAPIRunCreateRequest_ToProto(t *testing.T) {
 	assert.Equal(t, "prev-2", excludes[1].GetId())
 }
 
-func TestAPIRunCreateRequest_ToProto_OmitsUnsetRuleID(t *testing.T) {
+func TestAPITaskRunCreateRequest_ToProto_OmitsUnsetRuleID(t *testing.T) {
 	req := sampleRunCreateRequest()
 	req.Operation.Firmware.RuleID = stringPtr("")
 
@@ -231,7 +249,7 @@ func TestAPIRunCreateRequest_ToProto_OmitsUnsetRuleID(t *testing.T) {
 	assert.Nil(t, pb.GetConfiguration().GetOperation().GetUpgradeFirmware().GetRuleId())
 }
 
-func TestAPIRunCreateRequest_ToProto_InvalidDuration(t *testing.T) {
+func TestAPITaskRunCreateRequest_ToProto_InvalidDuration(t *testing.T) {
 	req := sampleRunCreateRequest()
 	req.Options.ConflictPolicy.Retry.RetryTimeout = "not-a-duration"
 
@@ -240,10 +258,10 @@ func TestAPIRunCreateRequest_ToProto_InvalidDuration(t *testing.T) {
 	assert.Contains(t, err.Error(), "retryTimeout")
 }
 
-func TestAPIRunCreateRequest_ToProto_PhasePercentageAndCount(t *testing.T) {
+func TestAPITaskRunCreateRequest_ToProto_PhasePercentageAndCount(t *testing.T) {
 	req := sampleRunCreateRequest()
 
-	req.Options.PhasePolicy = &APIRunPhasePolicy{Percentage: &APIRunPercentagePhases{Phases: []int32{30, 70}}}
+	req.Options.PhasePolicy = &APITaskRunPhasePolicy{Percentage: &APITaskRunPercentagePhases{Phases: []int32{30, 70}}}
 	pb, err := req.ToProto()
 	require.NoError(t, err)
 	pct := pb.GetConfiguration().GetOptions().GetPhasePolicy().GetPercentage().GetPhases()
@@ -251,7 +269,7 @@ func TestAPIRunCreateRequest_ToProto_PhasePercentageAndCount(t *testing.T) {
 	assert.Equal(t, int32(30), pct[0].GetPercentage())
 	assert.Equal(t, int32(70), pct[1].GetPercentage())
 
-	req.Options.PhasePolicy = &APIRunPhasePolicy{Count: &APIRunCountPhases{Phases: []int32{2, 3}}}
+	req.Options.PhasePolicy = &APITaskRunPhasePolicy{Count: &APITaskRunCountPhases{Phases: []int32{2, 3}}}
 	pb, err = req.ToProto()
 	require.NoError(t, err)
 	cnt := pb.GetConfiguration().GetOptions().GetPhasePolicy().GetCount().GetPhases()
@@ -260,7 +278,7 @@ func TestAPIRunCreateRequest_ToProto_PhasePercentageAndCount(t *testing.T) {
 	assert.Equal(t, int32(3), cnt[1].GetCount())
 }
 
-func TestAPIRun_FromProto(t *testing.T) {
+func TestAPITaskRun_FromProto(t *testing.T) {
 	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 	updated := created.Add(time.Hour)
 	started := created.Add(2 * time.Minute)
@@ -299,14 +317,15 @@ func TestAPIRun_FromProto(t *testing.T) {
 		},
 	}
 
-	got := NewAPIRunFromProto(run)
+	got := &APITaskRun{}
+	got.FromProto(run)
 	assert.Equal(t, "run-id", got.ID)
 	assert.Equal(t, "fw-rollout", got.Name)
 	assert.Equal(t, "desc", got.Description)
 	assert.Equal(t, APIOperationTypeFirmwareControl, got.OperationType)
 	assert.Equal(t, "upgrade", got.OperationCode)
-	assert.Equal(t, "Paused", got.Status)
-	assert.Equal(t, "PhaseGate", got.StatusReason)
+	assert.Equal(t, TaskRunStatusPaused, got.Status)
+	assert.Equal(t, TaskRunStatusReasonPhaseGate, got.StatusReason)
 	assert.Equal(t, "paused at phase gate", got.StatusMessage)
 	assert.Equal(t, int32(4), got.TotalPhases)
 	assert.Equal(t, created, got.Created)
@@ -323,24 +342,25 @@ func TestAPIRun_FromProto(t *testing.T) {
 	assert.Equal(t, int32(12), got.Stats.CumulativePhase.SelectedTargets)
 }
 
-func TestAPIRun_FromProtoSummary_NoStats(t *testing.T) {
-	got := NewAPIRunFromSummary(&flowv1.OperationRunSummary{
+func TestAPITaskRun_FromProtoSummary_NoStats(t *testing.T) {
+	got := &APITaskRun{}
+	got.FromProtoSummary(&flowv1.OperationRunSummary{
 		Id:    &flowv1.UUID{Id: "run-id"},
 		Name:  "fw-rollout",
 		State: &flowv1.OperationRunState{Status: flowv1.OperationRunStatus_OPERATION_RUN_STATUS_RUNNING},
 	})
 	assert.Equal(t, "run-id", got.ID)
-	assert.Equal(t, "Running", got.Status)
+	assert.Equal(t, TaskRunStatusRunning, got.Status)
 	assert.Nil(t, got.Stats)
 }
 
-func TestAPIRun_FromProto_NilSafe(t *testing.T) {
-	got := &APIRun{}
+func TestAPITaskRun_FromProto_NilSafe(t *testing.T) {
+	got := &APITaskRun{}
 	assert.NotPanics(t, func() { got.FromProto(nil) })
 	assert.NotPanics(t, func() { got.FromProtoSummary(nil) })
 }
 
-func TestAPIRunTarget_FromProto(t *testing.T) {
+func TestAPITaskRunTarget_FromProto(t *testing.T) {
 	created := time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC)
 
 	target := &flowv1.OperationRunTarget{
@@ -356,7 +376,8 @@ func TestAPIRunTarget_FromProto(t *testing.T) {
 		UpdatedAt:      timestamppb.New(created),
 	}
 
-	got := NewAPIRunTarget(target)
+	got := &APITaskRunTarget{}
+	got.FromProto(target)
 	assert.Equal(t, "target-id", got.ID)
 	assert.Equal(t, "run-id", got.RunID)
 	assert.Equal(t, "rack-id", got.RackID)
@@ -364,55 +385,56 @@ func TestAPIRunTarget_FromProto(t *testing.T) {
 	assert.Equal(t, int32(1), got.PhaseIndex)
 	require.NotNil(t, got.TaskID)
 	assert.Equal(t, "task-id", *got.TaskID)
-	assert.Equal(t, APIRunTargetStatusSubmitted, got.Status)
+	assert.Equal(t, TaskRunTargetStatusSubmitted, got.Status)
 	assert.Equal(t, "submitted", got.Message)
 }
 
-func TestAPIRunTarget_FromProto_UnsetTaskID(t *testing.T) {
-	got := NewAPIRunTarget(&flowv1.OperationRunTarget{
+func TestAPITaskRunTarget_FromProto_UnsetTaskID(t *testing.T) {
+	got := &APITaskRunTarget{}
+	got.FromProto(&flowv1.OperationRunTarget{
 		Id:     &flowv1.UUID{Id: "target-id"},
 		TaskId: &flowv1.UUID{Id: ""},
 		Status: flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_PENDING,
 	})
 	assert.Nil(t, got.TaskID)
-	assert.Equal(t, APIRunTargetStatusPending, got.Status)
+	assert.Equal(t, TaskRunTargetStatusPending, got.Status)
 }
 
-func TestAPIRunGetRequest_Validate(t *testing.T) {
-	require.Error(t, (&APIRunGetRequest{}).Validate())
-	require.NoError(t, (&APIRunGetRequest{SiteID: "site-id"}).Validate())
+func TestAPITaskRunGetRequest_Validate(t *testing.T) {
+	require.Error(t, (&APITaskRunGetRequest{}).Validate())
+	require.NoError(t, (&APITaskRunGetRequest{SiteID: "site-id"}).Validate())
 }
 
-func TestAPIRunSiteRequest_Validate(t *testing.T) {
-	require.Error(t, (&APIRunSiteRequest{}).Validate())
-	require.NoError(t, (&APIRunSiteRequest{SiteID: "site-id"}).Validate())
+func TestAPITaskRunSiteRequest_Validate(t *testing.T) {
+	require.Error(t, (&APITaskRunSiteRequest{}).Validate())
+	require.NoError(t, (&APITaskRunSiteRequest{SiteID: "site-id"}).Validate())
 }
 
-func TestAPIRunAdvanceRequest_Validate(t *testing.T) {
-	require.Error(t, (&APIRunAdvanceRequest{}).Validate())
-	require.NoError(t, (&APIRunAdvanceRequest{SiteID: "site-id"}).Validate())
-	require.NoError(t, (&APIRunAdvanceRequest{SiteID: "site-id", ExpectedPhaseIndex: int32Ptr(2)}).Validate())
+func TestAPITaskRunAdvanceRequest_Validate(t *testing.T) {
+	require.Error(t, (&APITaskRunAdvanceRequest{}).Validate())
+	require.NoError(t, (&APITaskRunAdvanceRequest{SiteID: "site-id"}).Validate())
+	require.NoError(t, (&APITaskRunAdvanceRequest{SiteID: "site-id", ExpectedPhaseIndex: int32Ptr(2)}).Validate())
 }
 
-func TestAPIRunCancelRequest_Validate(t *testing.T) {
-	require.Error(t, (&APIRunCancelRequest{}).Validate())
-	require.NoError(t, (&APIRunCancelRequest{SiteID: "site-id"}).Validate())
+func TestAPITaskRunCancelRequest_Validate(t *testing.T) {
+	require.Error(t, (&APITaskRunCancelRequest{}).Validate())
+	require.NoError(t, (&APITaskRunCancelRequest{SiteID: "site-id"}).Validate())
 }
 
-func TestAPIRunGetAllRequest_Validate(t *testing.T) {
+func TestAPITaskRunGetAllRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     APIRunGetAllRequest
+		req     APITaskRunGetAllRequest
 		wantErr string
 	}{
-		{name: "valid no filters", req: APIRunGetAllRequest{SiteID: "site-id"}},
+		{name: "valid no filters", req: APITaskRunGetAllRequest{SiteID: "site-id"}},
 		{
 			name: "valid with filters",
-			req:  APIRunGetAllRequest{SiteID: "site-id", Status: "Running", OperationType: APIOperationTypeFirmwareControl},
+			req:  APITaskRunGetAllRequest{SiteID: "site-id", Status: "Running", OperationType: APIOperationTypeFirmwareControl},
 		},
-		{name: "missing siteId", req: APIRunGetAllRequest{}, wantErr: "siteId"},
-		{name: "invalid status", req: APIRunGetAllRequest{SiteID: "site-id", Status: "bogus"}, wantErr: "status must be one of"},
-		{name: "invalid operationType", req: APIRunGetAllRequest{SiteID: "site-id", OperationType: "bogus"}, wantErr: "operationType must be one of"},
+		{name: "missing siteId", req: APITaskRunGetAllRequest{}, wantErr: "siteId"},
+		{name: "invalid status", req: APITaskRunGetAllRequest{SiteID: "site-id", Status: "bogus"}, wantErr: "status must be one of"},
+		{name: "invalid operationType", req: APITaskRunGetAllRequest{SiteID: "site-id", OperationType: "bogus"}, wantErr: "operationType must be one of"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -427,9 +449,9 @@ func TestAPIRunGetAllRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestAPIRunGetAllRequest_ToProto(t *testing.T) {
+func TestAPITaskRunGetAllRequest_ToProto(t *testing.T) {
 	pageNum, pageSize := 2, 10
-	req := APIRunGetAllRequest{SiteID: "site-id", Status: "Paused", OperationType: APIOperationTypeFirmwareControl}
+	req := APITaskRunGetAllRequest{SiteID: "site-id", Status: "Paused", OperationType: APIOperationTypeFirmwareControl}
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
 
 	pb, err := req.ToProto(page)
@@ -446,9 +468,9 @@ func TestAPIRunGetAllRequest_ToProto(t *testing.T) {
 	assert.Equal(t, int32(10), pb.GetPagination().GetOffset()) // (2-1)*10
 }
 
-func TestAPIRunGetAllRequest_QueryValues(t *testing.T) {
+func TestAPITaskRunGetAllRequest_QueryValues(t *testing.T) {
 	pageNum, pageSize := 1, 50
-	req := APIRunGetAllRequest{SiteID: "site-id", Status: "Running", OperationType: APIOperationTypeFirmwareControl}
+	req := APITaskRunGetAllRequest{SiteID: "site-id", Status: "Running", OperationType: APIOperationTypeFirmwareControl}
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
 
 	v := req.QueryValues(page)
@@ -459,20 +481,20 @@ func TestAPIRunGetAllRequest_QueryValues(t *testing.T) {
 	assert.Equal(t, "50", v.Get("pageSize"))
 }
 
-func TestAPIRunTargetGetAllRequest_Validate(t *testing.T) {
+func TestAPITaskRunTargetGetAllRequest_Validate(t *testing.T) {
 	tests := []struct {
 		name    string
-		req     APIRunTargetGetAllRequest
+		req     APITaskRunTargetGetAllRequest
 		wantErr string
 	}{
-		{name: "valid no filters", req: APIRunTargetGetAllRequest{SiteID: "site-id"}},
+		{name: "valid no filters", req: APITaskRunTargetGetAllRequest{SiteID: "site-id"}},
 		{
 			name: "valid with filters",
-			req:  APIRunTargetGetAllRequest{SiteID: "site-id", Status: APIRunTargetStatusFailed, PhaseScope: "completedPhases"},
+			req:  APITaskRunTargetGetAllRequest{SiteID: "site-id", Status: TaskRunTargetStatusFailed, PhaseScope: "completedPhases"},
 		},
-		{name: "missing siteId", req: APIRunTargetGetAllRequest{}, wantErr: "siteId"},
-		{name: "invalid status", req: APIRunTargetGetAllRequest{SiteID: "site-id", Status: "bogus"}, wantErr: "status must be one of"},
-		{name: "invalid phaseScope", req: APIRunTargetGetAllRequest{SiteID: "site-id", PhaseScope: "bogus"}, wantErr: "phaseScope must be one of"},
+		{name: "missing siteId", req: APITaskRunTargetGetAllRequest{}, wantErr: "siteId"},
+		{name: "invalid status", req: APITaskRunTargetGetAllRequest{SiteID: "site-id", Status: "bogus"}, wantErr: "status must be one of"},
+		{name: "invalid phaseScope", req: APITaskRunTargetGetAllRequest{SiteID: "site-id", PhaseScope: "bogus"}, wantErr: "phaseScope must be one of"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -487,9 +509,9 @@ func TestAPIRunTargetGetAllRequest_Validate(t *testing.T) {
 	}
 }
 
-func TestAPIRunTargetGetAllRequest_ToProto(t *testing.T) {
+func TestAPITaskRunTargetGetAllRequest_ToProto(t *testing.T) {
 	pageNum, pageSize := 3, 20
-	req := APIRunTargetGetAllRequest{SiteID: "site-id", Status: APIRunTargetStatusFailed, PhaseScope: "completedPhases"}
+	req := APITaskRunTargetGetAllRequest{SiteID: "site-id", Status: TaskRunTargetStatusFailed, PhaseScope: "completedPhases"}
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
 
 	pb := req.ToProto("run-id", page)
@@ -501,8 +523,8 @@ func TestAPIRunTargetGetAllRequest_ToProto(t *testing.T) {
 	assert.Equal(t, int32(40), pb.GetPagination().GetOffset()) // (3-1)*20
 }
 
-func TestAPIRunTargetGetAllRequest_ToProto_DefaultsPhaseScope(t *testing.T) {
-	req := APIRunTargetGetAllRequest{SiteID: "site-id"}
+func TestAPITaskRunTargetGetAllRequest_ToProto_DefaultsPhaseScope(t *testing.T) {
+	req := APITaskRunTargetGetAllRequest{SiteID: "site-id"}
 	pb := req.ToProto("run-id", pagination.PageRequest{})
 	assert.Equal(t, flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_UNKNOWN, pb.GetStatus())
 	assert.Equal(t, flowv1.OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_PHASE, pb.GetPhaseScope())

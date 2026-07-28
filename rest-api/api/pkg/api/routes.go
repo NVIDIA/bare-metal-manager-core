@@ -997,44 +997,44 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		// Run endpoints (Flow). A run is a phased, policy-gated execution of
 		// one operation across many racks; Flow calls it an operation run.
 		{
-			Path:    apiPathPrefix + "/run",
+			Path:    apiPathPrefix + "/task/run",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewCreateRunHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewCreateTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run",
+			Path:    apiPathPrefix + "/task/run",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetAllRunHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewGetAllTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run/:id",
+			Path:    apiPathPrefix + "/task/run/:id",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetRunHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewGetTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run/:id/target",
+			Path:    apiPathPrefix + "/task/run/:id/target",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewGetRunTargetsHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewGetAllTaskRunTargetHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run/:id/pause",
+			Path:    apiPathPrefix + "/task/run/:id/pause",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewPauseRunHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewPauseTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run/:id/resume",
+			Path:    apiPathPrefix + "/task/run/:id/resume",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewResumeRunHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewResumeTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run/:id/advance",
+			Path:    apiPathPrefix + "/task/run/:id/advance",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewAdvanceRunPhaseHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewAdvanceTaskRunPhaseHandler(dbSession, tc, scp, cfg),
 		},
 		{
-			Path:    apiPathPrefix + "/run/:id/cancel",
+			Path:    apiPathPrefix + "/task/run/:id/cancel",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewCancelRunHandler(dbSession, tc, scp, cfg),
+			Handler: apiHandler.NewCancelTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/rack",

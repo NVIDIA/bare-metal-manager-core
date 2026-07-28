@@ -32,19 +32,19 @@ import (
 )
 
 // testRunSampleCreateRequest returns a minimal valid create-run body.
-func testRunSampleCreateRequest(siteID string) model.APIRunCreateRequest {
-	return model.APIRunCreateRequest{
+func testRunSampleCreateRequest(siteID string) model.APITaskRunCreateRequest {
+	return model.APITaskRunCreateRequest{
 		SiteID:      siteID,
 		Name:        "fw-rollout",
 		Description: "test run",
-		Options:     model.APIRunOptions{MaxConcurrentTargets: 2},
-		Operation: model.APIRunOperation{
-			Firmware: &model.APIRunFirmwareOperation{Version: "1.2.3"},
+		Options:     model.APITaskRunOptions{MaxConcurrentTargets: 2},
+		Operation: model.APITaskRunOperation{
+			Firmware: &model.APITaskRunFirmwareOperation{Version: "1.2.3"},
 		},
 	}
 }
 
-func TestCreateRunHandler_Handle(t *testing.T) {
+func TestCreateTaskRunHandler_Handle(t *testing.T) {
 	e := echo.New()
 	dbSession := testRackInitDB(t)
 	defer dbSession.Close()
@@ -70,7 +70,7 @@ func TestCreateRunHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-run-create", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-run-create", org, []string{authz.TenantAdminRole})
 
-	handler := NewCreateRunHandler(dbSession, nil, scp, cfg)
+	handler := NewCreateTaskRunHandler(dbSession, nil, scp, cfg)
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
 
 	tests := []struct {
@@ -97,7 +97,7 @@ func TestCreateRunHandler_Handle(t *testing.T) {
 		{
 			name: "failure - missing siteId",
 			user: providerUser,
-			body: func() model.APIRunCreateRequest {
+			body: func() model.APITaskRunCreateRequest {
 				r := testRunSampleCreateRequest(site.ID.String())
 				r.SiteID = ""
 				return r
@@ -107,7 +107,7 @@ func TestCreateRunHandler_Handle(t *testing.T) {
 		{
 			name: "failure - missing firmware operation",
 			user: providerUser,
-			body: func() model.APIRunCreateRequest {
+			body: func() model.APITaskRunCreateRequest {
 				r := testRunSampleCreateRequest(site.ID.String())
 				r.Operation.Firmware = nil
 				return r
@@ -140,13 +140,13 @@ func TestCreateRunHandler_Handle(t *testing.T) {
 					resp.Id = tt.mockResp.Id
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateRun", mock.Anything).Return(mockRun, tt.mockExecErr)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CreateTaskRun", mock.Anything).Return(mockRun, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			bodyBytes, err := json.Marshal(tt.body)
 			require.NoError(t, err)
 
-			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/v2/org/%s/nico/run", org), bytes.NewReader(bodyBytes))
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/v2/org/%s/nico/task/run", org), bytes.NewReader(bodyBytes))
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
 			ec := e.NewContext(req, rec)
@@ -162,17 +162,17 @@ func TestCreateRunHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusCreated {
 				return
 			}
-			var got model.APIRun
+			var got model.APITaskRun
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, tt.mockResp.GetId().GetId(), got.ID)
 			assert.Equal(t, "fw-rollout", got.Name)
 			assert.Equal(t, model.APIOperationTypeFirmwareControl, got.OperationType)
-			assert.Equal(t, "Pending", got.Status)
+			assert.Equal(t, model.TaskRunStatusPending, got.Status)
 		})
 	}
 }
 
-func TestGetRunHandler_Handle(t *testing.T) {
+func TestGetTaskRunHandler_Handle(t *testing.T) {
 	e := echo.New()
 	dbSession := testRackInitDB(t)
 	defer dbSession.Close()
@@ -186,7 +186,7 @@ func TestGetRunHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-run-get", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-run-get", org, []string{authz.TenantAdminRole})
 
-	handler := NewGetRunHandler(dbSession, nil, scp, cfg)
+	handler := NewGetTaskRunHandler(dbSession, nil, scp, cfg)
 	runID := uuid.New().String()
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
 
@@ -257,14 +257,14 @@ func TestGetRunHandler_Handle(t *testing.T) {
 					resp.OperationRun = src
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetRun", mock.Anything).Return(mockRun, nil)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTaskRun", mock.Anything).Return(mockRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
 			for k, v := range tt.queryParams {
 				q.Set(k, v)
 			}
-			path := fmt.Sprintf("/v2/org/%s/nico/run/%s?%s", org, tt.runID, q.Encode())
+			path := fmt.Sprintf("/v2/org/%s/nico/task/run/%s?%s", org, tt.runID, q.Encode())
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -281,16 +281,16 @@ func TestGetRunHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var got model.APIRun
+			var got model.APITaskRun
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			assert.Equal(t, runID, got.ID)
 			assert.Equal(t, "fw-rollout", got.Name)
-			assert.Equal(t, "Running", got.Status)
+			assert.Equal(t, model.TaskRunStatusRunning, got.Status)
 		})
 	}
 }
 
-func TestGetAllRunHandler_Handle(t *testing.T) {
+func TestGetAllTaskRunHandler_Handle(t *testing.T) {
 	e := echo.New()
 	dbSession := testRackInitDB(t)
 	defer dbSession.Close()
@@ -304,7 +304,7 @@ func TestGetAllRunHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-run-list", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-run-list", org, []string{authz.TenantAdminRole})
 
-	handler := NewGetAllRunHandler(dbSession, nil, scp, cfg)
+	handler := NewGetAllTaskRunHandler(dbSession, nil, scp, cfg)
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
 
 	listed := []*flowv1.OperationRunSummary{
@@ -368,14 +368,14 @@ func TestGetAllRunHandler_Handle(t *testing.T) {
 					resp.Total = int32(len(tt.mockRuns))
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllRuns", mock.Anything).Return(mockRun, nil)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllTaskRuns", mock.Anything).Return(mockRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
 			for k, v := range tt.queryParams {
 				q.Set(k, v)
 			}
-			path := fmt.Sprintf("/v2/org/%s/nico/run?%s", org, q.Encode())
+			path := fmt.Sprintf("/v2/org/%s/nico/task/run?%s", org, q.Encode())
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -392,7 +392,7 @@ func TestGetAllRunHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var got []*model.APIRun
+			var got []*model.APITaskRun
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			require.Len(t, got, len(tt.mockRuns))
 			require.NotEmpty(t, rec.Header().Get("X-Pagination"))
@@ -400,7 +400,7 @@ func TestGetAllRunHandler_Handle(t *testing.T) {
 	}
 }
 
-func TestGetRunTargetsHandler_Handle(t *testing.T) {
+func TestGetAllTaskRunTargetHandler_Handle(t *testing.T) {
 	e := echo.New()
 	dbSession := testRackInitDB(t)
 	defer dbSession.Close()
@@ -414,7 +414,7 @@ func TestGetRunTargetsHandler_Handle(t *testing.T) {
 	providerUser := testRackBuildUser(t, dbSession, "provider-user-run-targets", org, []string{authz.ProviderAdminRole})
 	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-run-targets", org, []string{authz.TenantAdminRole})
 
-	handler := NewGetRunTargetsHandler(dbSession, nil, scp, cfg)
+	handler := NewGetAllTaskRunTargetHandler(dbSession, nil, scp, cfg)
 	runID := uuid.New().String()
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
 
@@ -485,14 +485,14 @@ func TestGetRunTargetsHandler_Handle(t *testing.T) {
 					resp.Total = int32(len(tt.mockTargets))
 				}).Return(nil)
 			}
-			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetRunTargets", mock.Anything).Return(mockRun, nil)
+			mockTC.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetAllTaskRunTargets", mock.Anything).Return(mockRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTC
 
 			q := url.Values{}
 			for k, v := range tt.queryParams {
 				q.Set(k, v)
 			}
-			path := fmt.Sprintf("/v2/org/%s/nico/run/%s/target?%s", org, tt.runID, q.Encode())
+			path := fmt.Sprintf("/v2/org/%s/nico/task/run/%s/target?%s", org, tt.runID, q.Encode())
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
@@ -509,7 +509,7 @@ func TestGetRunTargetsHandler_Handle(t *testing.T) {
 			if tt.expectedStatus != http.StatusOK {
 				return
 			}
-			var got []*model.APIRunTarget
+			var got []*model.APITaskRunTarget
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 			require.Len(t, got, len(tt.mockTargets))
 			require.NotEmpty(t, rec.Header().Get("X-Pagination"))
@@ -540,21 +540,21 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 	validBody := func(action string) any {
 		switch action {
 		case "advance":
-			return model.APIRunAdvanceRequest{SiteID: site.ID.String()}
+			return model.APITaskRunAdvanceRequest{SiteID: site.ID.String()}
 		case "cancel":
-			return model.APIRunCancelRequest{SiteID: site.ID.String(), Reason: "operator"}
+			return model.APITaskRunCancelRequest{SiteID: site.ID.String(), Reason: "operator"}
 		default:
-			return model.APIRunSiteRequest{SiteID: site.ID.String()}
+			return model.APITaskRunSiteRequest{SiteID: site.ID.String()}
 		}
 	}
 	emptySiteBody := func(action string) any {
 		switch action {
 		case "advance":
-			return model.APIRunAdvanceRequest{}
+			return model.APITaskRunAdvanceRequest{}
 		case "cancel":
-			return model.APIRunCancelRequest{}
+			return model.APITaskRunCancelRequest{}
 		default:
-			return model.APIRunSiteRequest{}
+			return model.APITaskRunSiteRequest{}
 		}
 	}
 
@@ -563,10 +563,10 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 		workflow string
 		handle   func(echo.Context) error
 	}{
-		{"pause", "PauseRun", NewPauseRunHandler(dbSession, nil, scp, cfg).Handle},
-		{"resume", "ResumeRun", NewResumeRunHandler(dbSession, nil, scp, cfg).Handle},
-		{"advance", "AdvanceRunPhase", NewAdvanceRunPhaseHandler(dbSession, nil, scp, cfg).Handle},
-		{"cancel", "CancelRun", NewCancelRunHandler(dbSession, nil, scp, cfg).Handle},
+		{"pause", "PauseTaskRun", NewPauseTaskRunHandler(dbSession, nil, scp, cfg).Handle},
+		{"resume", "ResumeTaskRun", NewResumeTaskRunHandler(dbSession, nil, scp, cfg).Handle},
+		{"advance", "AdvanceTaskRunPhase", NewAdvanceTaskRunPhaseHandler(dbSession, nil, scp, cfg).Handle},
+		{"cancel", "CancelTaskRun", NewCancelTaskRunHandler(dbSession, nil, scp, cfg).Handle},
 	}
 
 	for _, act := range actions {
@@ -599,7 +599,7 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 
 				bodyBytes, err := json.Marshal(tt.body)
 				require.NoError(t, err)
-				path := fmt.Sprintf("/v2/org/%s/nico/run/%s/%s", org, tt.runID, act.action)
+				path := fmt.Sprintf("/v2/org/%s/nico/task/run/%s/%s", org, tt.runID, act.action)
 				req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(bodyBytes))
 				req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 				rec := httptest.NewRecorder()
@@ -616,7 +616,7 @@ func TestRunLifecycleHandlers_Handle(t *testing.T) {
 				if tt.expectedStatus != http.StatusAccepted {
 					return
 				}
-				var got model.APIRun
+				var got model.APITaskRun
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 				assert.Equal(t, runID, got.ID)
 			})

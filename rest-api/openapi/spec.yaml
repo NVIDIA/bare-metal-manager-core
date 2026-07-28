@@ -11020,7 +11020,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rule
-  '/v2/org/{org}/nico/run':
+  '/v2/org/{org}/nico/task/run':
     parameters:
       - schema:
           type: string
@@ -11040,7 +11040,7 @@ paths:
         candidate set of Racks, narrowed by an optional `selector` and divided
         into phases by an optional `options.phasePolicy`. The response echoes the
         assigned `id`; the Run always starts in the `Pending` state. Poll
-        `GET /run/{id}` for progress.
+        `GET /task/run/{id}` for progress.
 
         Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
@@ -11139,7 +11139,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Run
-  '/v2/org/{org}/nico/run/{id}':
+  '/v2/org/{org}/nico/task/run/{id}':
     parameters:
       - schema:
           type: string
@@ -11194,7 +11194,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Run
-  '/v2/org/{org}/nico/run/{id}/target':
+  '/v2/org/{org}/nico/task/run/{id}/target':
     parameters:
       - schema:
           type: string
@@ -11295,7 +11295,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Run
-  '/v2/org/{org}/nico/run/{id}/pause':
+  '/v2/org/{org}/nico/task/run/{id}/pause':
     parameters:
       - schema:
           type: string
@@ -11344,7 +11344,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Run
-  '/v2/org/{org}/nico/run/{id}/resume':
+  '/v2/org/{org}/nico/task/run/{id}/resume':
     parameters:
       - schema:
           type: string
@@ -11393,7 +11393,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Run
-  '/v2/org/{org}/nico/run/{id}/advance':
+  '/v2/org/{org}/nico/task/run/{id}/advance':
     parameters:
       - schema:
           type: string
@@ -11443,7 +11443,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Run
-  '/v2/org/{org}/nico/run/{id}/cancel':
+  '/v2/org/{org}/nico/task/run/{id}/cancel':
     parameters:
       - schema:
           type: string

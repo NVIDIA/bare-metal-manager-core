@@ -137,7 +137,7 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath)
 			assertRouteExists(t, got, http.MethodGet, ipxeTemplatePath+"/:id")
 
-			runPath := "/org/:orgName/" + cfg.GetAPIName() + "/run"
+			runPath := "/org/:orgName/" + cfg.GetAPIName() + "/task/run"
 			assertRouteExists(t, got, http.MethodPost, runPath)
 			assertRouteExists(t, got, http.MethodGet, runPath)
 			assertRouteExists(t, got, http.MethodGet, runPath+"/:id")

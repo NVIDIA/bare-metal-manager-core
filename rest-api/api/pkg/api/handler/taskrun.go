@@ -118,8 +118,8 @@ func runWorkflowOptions(workflowID string) tClient.StartWorkflowOptions {
 
 // ~~~~~ Create Run Handler ~~~~~ //
 
-// CreateRunHandler is the API Handler for creating a Run.
-type CreateRunHandler struct {
+// CreateTaskRunHandler is the API Handler for creating a Run.
+type CreateTaskRunHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -127,9 +127,9 @@ type CreateRunHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewCreateRunHandler initializes a new CreateRunHandler.
-func NewCreateRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CreateRunHandler {
-	return CreateRunHandler{
+// NewCreateTaskRunHandler initializes a new CreateTaskRunHandler.
+func NewCreateTaskRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CreateTaskRunHandler {
+	return CreateTaskRunHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -146,16 +146,16 @@ func NewCreateRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Produce json
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
-// @Param body body model.APIRunCreateRequest true "Create run request"
-// @Success 201 {object} model.APIRun
-// @Router /v2/org/{org}/nico/run [post]
-func (h CreateRunHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "Create", c, h.tracerSpan)
+// @Param body body model.APITaskRunCreateRequest true "Create run request"
+// @Success 201 {object} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run [post]
+func (h CreateTaskRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "Create", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
 
-	apiRequest := model.APIRunCreateRequest{}
+	apiRequest := model.APITaskRunCreateRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -175,14 +175,14 @@ func (h CreateRunHandler) Handle(c echo.Context) error {
 	}
 
 	// Dedicated workflow ID per request so Create is never deduped.
-	workflowID := fmt.Sprintf("run-create-%s", uuid.NewString())
+	workflowID := fmt.Sprintf("task-run-create-%s", uuid.NewString())
 
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "CreateRun", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "CreateTaskRun", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CreateRun workflow")
+		logger.Error().Err(err).Msg("failed to schedule CreateTaskRun workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run creation workflow", nil)
 	}
 
@@ -190,10 +190,10 @@ func (h CreateRunHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "CreateRun")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "CreateTaskRun")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateRun workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from CreateTaskRun workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run creation workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -201,7 +201,7 @@ func (h CreateRunHandler) Handle(c echo.Context) error {
 	// fields so the client gets the canonical identity without an extra GET; a
 	// run always starts Pending. The operation type is firmware (the only
 	// supported operation today).
-	created := &model.APIRun{
+	created := &model.APITaskRun{
 		ID:            flowResponse.GetId().GetId(),
 		Name:          apiRequest.Name,
 		Description:   apiRequest.Description,
@@ -216,8 +216,8 @@ func (h CreateRunHandler) Handle(c echo.Context) error {
 
 // ~~~~~ Get Run Handler ~~~~~ //
 
-// GetRunHandler is the API Handler for getting a Run by ID.
-type GetRunHandler struct {
+// GetTaskRunHandler is the API Handler for getting a Run by ID.
+type GetTaskRunHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -225,9 +225,9 @@ type GetRunHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewGetRunHandler initializes a new GetRunHandler.
-func NewGetRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetRunHandler {
-	return GetRunHandler{
+// NewGetTaskRunHandler initializes a new GetTaskRunHandler.
+func NewGetTaskRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetTaskRunHandler {
+	return GetTaskRunHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -247,10 +247,10 @@ func NewGetRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientP
 // @Param id path string true "UUID of the Run"
 // @Param siteId query string true "ID of the Site"
 // @Param includeStats query boolean false "Include derived per-phase outcome stats (default false)"
-// @Success 200 {object} model.APIRun
-// @Router /v2/org/{org}/nico/run/{id} [get]
-func (h GetRunHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "Get", c, h.tracerSpan)
+// @Success 200 {object} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run/{id} [get]
+func (h GetTaskRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "Get", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -261,7 +261,7 @@ func (h GetRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Run ID specified in URL", nil)
 	}
 
-	var apiRequest model.APIRunGetRequest
+	var apiRequest model.APITaskRunGetRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
@@ -281,14 +281,17 @@ func (h GetRunHandler) Handle(c echo.Context) error {
 		Id:           &flowv1.UUID{Id: runID},
 		IncludeStats: apiRequest.IncludeStats,
 	}
-	workflowID := fmt.Sprintf("run-get-%s", runID)
+	// IncludeStats is part of the workflow ID because the conflict policy
+	// attaches to an in-flight execution with the same ID, which would
+	// otherwise return a response whose stats presence contradicts the query.
+	workflowID := fmt.Sprintf("task-run-get-%s-%t", runID, apiRequest.IncludeStats)
 
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetRun", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetTaskRun", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetRun workflow")
+		logger.Error().Err(err).Msg("failed to schedule GetTaskRun workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run retrieval workflow", nil)
 	}
 
@@ -296,10 +299,10 @@ func (h GetRunHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetRun")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetTaskRun")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetRun workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetTaskRun workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run retrieval workflow on Site: %s", unwrapErr), nil)
 	}
 
@@ -308,15 +311,16 @@ func (h GetRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Run not found", nil)
 	}
 
-	apiRun := model.NewAPIRunFromProto(run)
+	apiRun := &model.APITaskRun{}
+	apiRun.FromProto(run)
 	logger.Info().Str("RunID", apiRun.ID).Msg("finishing API handler")
 	return c.JSON(http.StatusOK, apiRun)
 }
 
 // ~~~~~ List Runs Handler ~~~~~ //
 
-// GetAllRunHandler is the API Handler for listing Runs on a Site.
-type GetAllRunHandler struct {
+// GetAllTaskRunHandler is the API Handler for listing Runs on a Site.
+type GetAllTaskRunHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -324,9 +328,9 @@ type GetAllRunHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewGetAllRunHandler initializes a new GetAllRunHandler.
-func NewGetAllRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetAllRunHandler {
-	return GetAllRunHandler{
+// NewGetAllTaskRunHandler initializes a new GetAllTaskRunHandler.
+func NewGetAllTaskRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetAllTaskRunHandler {
+	return GetAllTaskRunHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -348,15 +352,15 @@ func NewGetAllRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Param operationType query string false "Filter by operation type (PowerControl|FirmwareControl)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
-// @Success 200 {array} model.APIRun
-// @Router /v2/org/{org}/nico/run [get]
-func (h GetAllRunHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "List", c, h.tracerSpan)
+// @Success 200 {array} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run [get]
+func (h GetAllTaskRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "List", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
 
-	var apiRequest model.APIRunGetAllRequest
+	var apiRequest model.APITaskRunGetAllRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
@@ -387,14 +391,14 @@ func (h GetAllRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
 	}
 
-	workflowID := fmt.Sprintf("run-list-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	workflowID := fmt.Sprintf("task-run-get-all-%s", common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
 
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetAllRuns", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetAllTaskRuns", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetAllRuns workflow")
+		logger.Error().Err(err).Msg("failed to schedule GetAllTaskRuns workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run list workflow", nil)
 	}
 
@@ -402,16 +406,18 @@ func (h GetAllRunHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetAllRuns")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetAllTaskRuns")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllRuns workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllTaskRuns workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run list workflow on Site: %s", unwrapErr), nil)
 	}
 
-	apiRuns := make([]*model.APIRun, 0, len(flowResponse.GetOperationRuns()))
+	apiRuns := make([]*model.APITaskRun, 0, len(flowResponse.GetOperationRuns()))
 	for _, s := range flowResponse.GetOperationRuns() {
-		apiRuns = append(apiRuns, model.NewAPIRunFromSummary(s))
+		apiRun := &model.APITaskRun{}
+		apiRun.FromProtoSummary(s)
+		apiRuns = append(apiRuns, apiRun)
 	}
 
 	total := int(flowResponse.GetTotal())
@@ -429,9 +435,9 @@ func (h GetAllRunHandler) Handle(c echo.Context) error {
 
 // ~~~~~ List Run Targets Handler ~~~~~ //
 
-// GetRunTargetsHandler is the API Handler for listing a Run's
+// GetAllTaskRunTargetHandler is the API Handler for listing a Run's
 // per-rack execution targets.
-type GetRunTargetsHandler struct {
+type GetAllTaskRunTargetHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -439,9 +445,9 @@ type GetRunTargetsHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-// NewGetRunTargetsHandler initializes a new GetRunTargetsHandler.
-func NewGetRunTargetsHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetRunTargetsHandler {
-	return GetRunTargetsHandler{
+// NewGetAllTaskRunTargetHandler initializes a new GetAllTaskRunTargetHandler.
+func NewGetAllTaskRunTargetHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) GetAllTaskRunTargetHandler {
+	return GetAllTaskRunTargetHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
@@ -464,10 +470,10 @@ func NewGetRunTargetsHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.
 // @Param phaseScope query string false "Phase scope (currentPhase|completedPhases|currentAndCompletedPhases; default currentPhase)"
 // @Param pageNumber query integer false "Page number of results returned"
 // @Param pageSize query integer false "Number of results per page"
-// @Success 200 {array} model.APIRunTarget
-// @Router /v2/org/{org}/nico/run/{id}/target [get]
-func (h GetRunTargetsHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "ListTargets", c, h.tracerSpan)
+// @Success 200 {array} model.APITaskRunTarget
+// @Router /v2/org/{org}/nico/task/run/{id}/target [get]
+func (h GetAllTaskRunTargetHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRunTargets", "List", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -478,7 +484,7 @@ func (h GetRunTargetsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Run ID specified in URL", nil)
 	}
 
-	var apiRequest model.APIRunTargetGetAllRequest
+	var apiRequest model.APITaskRunTargetGetAllRequest
 	if err := common.ValidateKnownQueryParams(c.QueryParams(), apiRequest, pagination.PageRequest{}); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
 	}
@@ -505,14 +511,14 @@ func (h GetRunTargetsHandler) Handle(c echo.Context) error {
 	}
 
 	flowRequest := apiRequest.ToProto(runID, pageRequest)
-	workflowID := fmt.Sprintf("run-targets-%s-%s", runID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
+	workflowID := fmt.Sprintf("task-run-target-get-all-%s-%s", runID, common.QueryParamHash(apiRequest.QueryValues(pageRequest)))
 
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
 
-	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetRunTargets", flowRequest)
+	we, err := stc.ExecuteWorkflow(wfCtx, runWorkflowOptions(workflowID), "GetAllTaskRunTargets", flowRequest)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule GetRunTargets workflow")
+		logger.Error().Err(err).Msg("failed to schedule GetAllTaskRunTargets workflow")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule Run targets workflow", nil)
 	}
 
@@ -520,16 +526,18 @@ func (h GetRunTargetsHandler) Handle(c echo.Context) error {
 	if err := we.Get(wfCtx, &flowResponse); err != nil {
 		var timeoutErr *tp.TimeoutError
 		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || wfCtx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetRunTargets")
+			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowID, err, "Run", "GetAllTaskRunTargets")
 		}
 		code, unwrapErr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(unwrapErr).Msg("failed to get result from GetRunTargets workflow")
+		logger.Error().Err(unwrapErr).Msg("failed to get result from GetAllTaskRunTargets workflow")
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run targets workflow on Site: %s", unwrapErr), nil)
 	}
 
-	apiTargets := make([]*model.APIRunTarget, 0, len(flowResponse.GetTargets()))
+	apiTargets := make([]*model.APITaskRunTarget, 0, len(flowResponse.GetTargets()))
 	for _, t := range flowResponse.GetTargets() {
-		apiTargets = append(apiTargets, model.NewAPIRunTarget(t))
+		apiTarget := &model.APITaskRunTarget{}
+		apiTarget.FromProto(t)
+		apiTargets = append(apiTargets, apiTarget)
 	}
 
 	total := int(flowResponse.GetTotal())
@@ -565,7 +573,7 @@ func executeRunLifecycleWorkflow(
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	workflowID := fmt.Sprintf("run-%s-%s", action, runID)
+	workflowID := fmt.Sprintf("task-run-%s-%s", action, runID)
 
 	wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 	defer cancel()
@@ -587,14 +595,14 @@ func executeRunLifecycleWorkflow(
 		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute Run %s workflow on Site: %s", action, unwrapErr), nil)
 	}
 
-	apiRun := model.NewAPIRunFromProto(&flowResponse)
+	apiRun := &model.APITaskRun{}
+	apiRun.FromProto(&flowResponse)
 	logger.Info().Str("RunID", apiRun.ID).Msg("finishing API handler")
 	return c.JSON(http.StatusAccepted, apiRun)
 }
 
-// runLifecycleHandler is the shared dependency set for the run
-// lifecycle handlers (pause/resume/advance/cancel).
-type runLifecycleHandler struct {
+// PauseTaskRunHandler pauses a running Run.
+type PauseTaskRunHandler struct {
 	dbSession  *cdb.Session
 	tc         tClient.Client
 	scp        *sc.ClientPool
@@ -602,22 +610,15 @@ type runLifecycleHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
-func newRunLifecycleHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) runLifecycleHandler {
-	return runLifecycleHandler{
+// NewPauseTaskRunHandler initializes a new PauseTaskRunHandler.
+func NewPauseTaskRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) PauseTaskRunHandler {
+	return PauseTaskRunHandler{
 		dbSession:  dbSession,
 		tc:         tc,
 		scp:        scp,
 		cfg:        cfg,
 		tracerSpan: cutil.NewTracerSpan(),
 	}
-}
-
-// PauseRunHandler pauses a running Run.
-type PauseRunHandler struct{ runLifecycleHandler }
-
-// NewPauseRunHandler initializes a new PauseRunHandler.
-func NewPauseRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) PauseRunHandler {
-	return PauseRunHandler{newRunLifecycleHandler(dbSession, tc, scp, cfg)}
 }
 
 // Handle godoc
@@ -629,11 +630,11 @@ func NewPauseRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clien
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Run"
-// @Param body body model.APIRunSiteRequest true "Pause run request"
-// @Success 202 {object} model.APIRun
-// @Router /v2/org/{org}/nico/run/{id}/pause [post]
-func (h PauseRunHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "Pause", c, h.tracerSpan)
+// @Param body body model.APITaskRunSiteRequest true "Pause run request"
+// @Success 202 {object} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run/{id}/pause [post]
+func (h PauseTaskRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "Pause", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -644,7 +645,7 @@ func (h PauseRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Run ID specified in URL", nil)
 	}
 
-	apiRequest := model.APIRunSiteRequest{}
+	apiRequest := model.APITaskRunSiteRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -653,15 +654,27 @@ func (h PauseRunHandler) Handle(c echo.Context) error {
 	}
 
 	flowRequest := &flowv1.PauseOperationRunRequest{Id: &flowv1.UUID{Id: runID}}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "pause", "PauseRun", flowRequest, logger, ctx)
+	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "pause", "PauseTaskRun", flowRequest, logger, ctx)
 }
 
-// ResumeRunHandler resumes an operator-paused Run.
-type ResumeRunHandler struct{ runLifecycleHandler }
+// ResumeTaskRunHandler resumes an operator-paused Run.
+type ResumeTaskRunHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
 
-// NewResumeRunHandler initializes a new ResumeRunHandler.
-func NewResumeRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) ResumeRunHandler {
-	return ResumeRunHandler{newRunLifecycleHandler(dbSession, tc, scp, cfg)}
+// NewResumeTaskRunHandler initializes a new ResumeTaskRunHandler.
+func NewResumeTaskRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) ResumeTaskRunHandler {
+	return ResumeTaskRunHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
 }
 
 // Handle godoc
@@ -673,11 +686,11 @@ func NewResumeRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Run"
-// @Param body body model.APIRunSiteRequest true "Resume run request"
-// @Success 202 {object} model.APIRun
-// @Router /v2/org/{org}/nico/run/{id}/resume [post]
-func (h ResumeRunHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "Resume", c, h.tracerSpan)
+// @Param body body model.APITaskRunSiteRequest true "Resume run request"
+// @Success 202 {object} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run/{id}/resume [post]
+func (h ResumeTaskRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "Resume", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -688,7 +701,7 @@ func (h ResumeRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Run ID specified in URL", nil)
 	}
 
-	apiRequest := model.APIRunSiteRequest{}
+	apiRequest := model.APITaskRunSiteRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -697,15 +710,27 @@ func (h ResumeRunHandler) Handle(c echo.Context) error {
 	}
 
 	flowRequest := &flowv1.ResumeOperationRunRequest{Id: &flowv1.UUID{Id: runID}}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "resume", "ResumeRun", flowRequest, logger, ctx)
+	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "resume", "ResumeTaskRun", flowRequest, logger, ctx)
 }
 
-// AdvanceRunPhaseHandler opens the next phase of a phase-gated Run.
-type AdvanceRunPhaseHandler struct{ runLifecycleHandler }
+// AdvanceTaskRunPhaseHandler opens the next phase of a phase-gated Run.
+type AdvanceTaskRunPhaseHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
 
-// NewAdvanceRunPhaseHandler initializes a new AdvanceRunPhaseHandler.
-func NewAdvanceRunPhaseHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) AdvanceRunPhaseHandler {
-	return AdvanceRunPhaseHandler{newRunLifecycleHandler(dbSession, tc, scp, cfg)}
+// NewAdvanceTaskRunPhaseHandler initializes a new AdvanceTaskRunPhaseHandler.
+func NewAdvanceTaskRunPhaseHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) AdvanceTaskRunPhaseHandler {
+	return AdvanceTaskRunPhaseHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
 }
 
 // Handle godoc
@@ -717,11 +742,11 @@ func NewAdvanceRunPhaseHandler(dbSession *cdb.Session, tc tClient.Client, scp *s
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Run"
-// @Param body body model.APIRunAdvanceRequest true "Advance run request"
-// @Success 202 {object} model.APIRun
-// @Router /v2/org/{org}/nico/run/{id}/advance [post]
-func (h AdvanceRunPhaseHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "AdvancePhase", c, h.tracerSpan)
+// @Param body body model.APITaskRunAdvanceRequest true "Advance run request"
+// @Success 202 {object} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run/{id}/advance [post]
+func (h AdvanceTaskRunPhaseHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "AdvancePhase", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -732,7 +757,7 @@ func (h AdvanceRunPhaseHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Run ID specified in URL", nil)
 	}
 
-	apiRequest := model.APIRunAdvanceRequest{}
+	apiRequest := model.APITaskRunAdvanceRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -744,15 +769,27 @@ func (h AdvanceRunPhaseHandler) Handle(c echo.Context) error {
 		Id:                 &flowv1.UUID{Id: runID},
 		ExpectedPhaseIndex: apiRequest.ExpectedPhaseIndex,
 	}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "advance", "AdvanceRunPhase", flowRequest, logger, ctx)
+	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "advance", "AdvanceTaskRunPhase", flowRequest, logger, ctx)
 }
 
-// CancelRunHandler cancels a Run and its in-flight targets.
-type CancelRunHandler struct{ runLifecycleHandler }
+// CancelTaskRunHandler cancels a Run and its in-flight targets.
+type CancelTaskRunHandler struct {
+	dbSession  *cdb.Session
+	tc         tClient.Client
+	scp        *sc.ClientPool
+	cfg        *config.Config
+	tracerSpan *cutil.TracerSpan
+}
 
-// NewCancelRunHandler initializes a new CancelRunHandler.
-func NewCancelRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CancelRunHandler {
-	return CancelRunHandler{newRunLifecycleHandler(dbSession, tc, scp, cfg)}
+// NewCancelTaskRunHandler initializes a new CancelTaskRunHandler.
+func NewCancelTaskRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.ClientPool, cfg *config.Config) CancelTaskRunHandler {
+	return CancelTaskRunHandler{
+		dbSession:  dbSession,
+		tc:         tc,
+		scp:        scp,
+		cfg:        cfg,
+		tracerSpan: cutil.NewTracerSpan(),
+	}
 }
 
 // Handle godoc
@@ -764,11 +801,11 @@ func NewCancelRunHandler(dbSession *cdb.Session, tc tClient.Client, scp *sc.Clie
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "UUID of the Run"
-// @Param body body model.APIRunCancelRequest true "Cancel run request"
-// @Success 202 {object} model.APIRun
-// @Router /v2/org/{org}/nico/run/{id}/cancel [post]
-func (h CancelRunHandler) Handle(c echo.Context) error {
-	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("Run", "Cancel", c, h.tracerSpan)
+// @Param body body model.APITaskRunCancelRequest true "Cancel run request"
+// @Success 202 {object} model.APITaskRun
+// @Router /v2/org/{org}/nico/task/run/{id}/cancel [post]
+func (h CancelTaskRunHandler) Handle(c echo.Context) error {
+	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("TaskRun", "Cancel", c, h.tracerSpan)
 	if handlerSpan != nil {
 		defer handlerSpan.End()
 	}
@@ -779,7 +816,7 @@ func (h CancelRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Run ID specified in URL", nil)
 	}
 
-	apiRequest := model.APIRunCancelRequest{}
+	apiRequest := model.APITaskRunCancelRequest{}
 	if err := c.Bind(&apiRequest); err != nil {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data", nil)
 	}
@@ -791,5 +828,5 @@ func (h CancelRunHandler) Handle(c echo.Context) error {
 		Id:     &flowv1.UUID{Id: runID},
 		Reason: apiRequest.Reason,
 	}
-	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "cancel", "CancelRun", flowRequest, logger, ctx)
+	return executeRunLifecycleWorkflow(c, h.dbSession, h.scp, dbUser, org, apiRequest.SiteID, runID, "cancel", "CancelTaskRun", flowRequest, logger, ctx)
 }
