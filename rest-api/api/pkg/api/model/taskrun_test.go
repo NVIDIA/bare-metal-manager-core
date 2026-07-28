@@ -177,8 +177,7 @@ func TestAPITaskRunCreateRequest_Validate(t *testing.T) {
 func TestAPITaskRunCreateRequest_ToProto(t *testing.T) {
 	req := sampleRunCreateRequest()
 
-	pb, err := req.ToProto()
-	require.NoError(t, err)
+	pb := req.ToProto()
 	require.NotNil(t, pb)
 	assert.Equal(t, "fw-rollout", pb.GetName())
 	assert.Equal(t, "desc", pb.GetDescription())
@@ -244,34 +243,35 @@ func TestAPITaskRunCreateRequest_ToProto_OmitsUnsetRuleID(t *testing.T) {
 	req := sampleRunCreateRequest()
 	req.Operation.Firmware.RuleID = stringPtr("")
 
-	pb, err := req.ToProto()
-	require.NoError(t, err)
+	pb := req.ToProto()
 	assert.Nil(t, pb.GetConfiguration().GetOperation().GetUpgradeFirmware().GetRuleId())
 }
 
-func TestAPITaskRunCreateRequest_ToProto_InvalidDuration(t *testing.T) {
+// Empty durations mean "use the operation default", which Flow expresses as an
+// absent field rather than a zero duration.
+func TestAPITaskRunCreateRequest_ToProto_OmitsUnsetDurations(t *testing.T) {
 	req := sampleRunCreateRequest()
-	req.Options.ConflictPolicy.Retry.RetryTimeout = "not-a-duration"
+	req.Options.ConflictPolicy.Retry = &APITaskRunConflictRetry{}
 
-	_, err := req.ToProto()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "retryTimeout")
+	retry := req.ToProto().GetConfiguration().GetOptions().GetConflictPolicy().GetRetry()
+	require.NotNil(t, retry)
+	assert.Nil(t, retry.GetRetryTimeout())
+	assert.Nil(t, retry.GetInitialRetryDelay())
+	assert.Nil(t, retry.GetMaxRetryDelay())
 }
 
 func TestAPITaskRunCreateRequest_ToProto_PhasePercentageAndCount(t *testing.T) {
 	req := sampleRunCreateRequest()
 
 	req.Options.PhasePolicy = &APITaskRunPhasePolicy{Percentage: &APITaskRunPercentagePhases{Phases: []int32{30, 70}}}
-	pb, err := req.ToProto()
-	require.NoError(t, err)
+	pb := req.ToProto()
 	pct := pb.GetConfiguration().GetOptions().GetPhasePolicy().GetPercentage().GetPhases()
 	require.Len(t, pct, 2)
 	assert.Equal(t, int32(30), pct[0].GetPercentage())
 	assert.Equal(t, int32(70), pct[1].GetPercentage())
 
 	req.Options.PhasePolicy = &APITaskRunPhasePolicy{Count: &APITaskRunCountPhases{Phases: []int32{2, 3}}}
-	pb, err = req.ToProto()
-	require.NoError(t, err)
+	pb = req.ToProto()
 	cnt := pb.GetConfiguration().GetOptions().GetPhasePolicy().GetCount().GetPhases()
 	require.Len(t, cnt, 2)
 	assert.Equal(t, int32(2), cnt[0].GetCount())
@@ -452,7 +452,10 @@ func TestAPITaskRunGetAllRequest_Validate(t *testing.T) {
 func TestAPITaskRunGetAllRequest_ToProto(t *testing.T) {
 	pageNum, pageSize := 2, 10
 	req := APITaskRunGetAllRequest{SiteID: "site-id", Status: "Paused", OperationType: APIOperationTypeFirmwareControl}
+	// Validate derives Offset/Limit, which is what the handler does before it
+	// reaches ToProto.
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+	require.NoError(t, page.Validate(nil))
 
 	pb, err := req.ToProto(page)
 	require.NoError(t, err)
@@ -513,6 +516,7 @@ func TestAPITaskRunTargetGetAllRequest_ToProto(t *testing.T) {
 	pageNum, pageSize := 3, 20
 	req := APITaskRunTargetGetAllRequest{SiteID: "site-id", Status: TaskRunTargetStatusFailed, PhaseScope: "completedPhases"}
 	page := pagination.PageRequest{PageNumber: &pageNum, PageSize: &pageSize}
+	require.NoError(t, page.Validate(nil))
 
 	pb := req.ToProto("run-id", page)
 	assert.Equal(t, "run-id", pb.GetOperationRunId().GetId())

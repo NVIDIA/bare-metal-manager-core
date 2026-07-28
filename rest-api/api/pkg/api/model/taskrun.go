@@ -71,25 +71,25 @@ var validTaskRunStatusesAny = func() []any {
 }()
 
 // ToProto converts the REST run status to its Flow enum value.
-func (s TaskRunStatus) ToProto() flowv1.OperationRunStatus {
-	if v, ok := taskRunStatusChoiceMap[s]; ok {
+func (trs TaskRunStatus) ToProto() flowv1.OperationRunStatus {
+	if v, ok := taskRunStatusChoiceMap[trs]; ok {
 		return v
 	}
 	return flowv1.OperationRunStatus_OPERATION_RUN_STATUS_UNKNOWN
 }
 
 // FromProto populates the REST run status from a Flow enum value.
-func (s *TaskRunStatus) FromProto(p flowv1.OperationRunStatus) {
-	if s == nil {
+func (trs *TaskRunStatus) FromProto(p flowv1.OperationRunStatus) {
+	if trs == nil {
 		return
 	}
 	for rest, proto := range taskRunStatusChoiceMap {
 		if proto == p {
-			*s = rest
+			*trs = rest
 			return
 		}
 	}
-	*s = TaskRunStatusUnknown
+	*trs = TaskRunStatusUnknown
 }
 
 // TaskRunStatusReason explains why a run is paused or terminal. It is
@@ -115,17 +115,17 @@ var taskRunStatusReasonChoiceMap = map[TaskRunStatusReason]flowv1.OperationRunSt
 }
 
 // FromProto populates the REST status reason from a Flow enum value.
-func (r *TaskRunStatusReason) FromProto(p flowv1.OperationRunStatusReason) {
-	if r == nil {
+func (trsr *TaskRunStatusReason) FromProto(p flowv1.OperationRunStatusReason) {
+	if trsr == nil {
 		return
 	}
 	for rest, proto := range taskRunStatusReasonChoiceMap {
 		if proto == p {
-			*r = rest
+			*trsr = rest
 			return
 		}
 	}
-	*r = TaskRunStatusReasonUnknown
+	*trsr = TaskRunStatusReasonUnknown
 }
 
 // TaskRunTargetStatus enumerates per-rack target execution states.
@@ -175,25 +175,25 @@ var validTaskRunTargetStatusesAny = func() []any {
 }()
 
 // ToProto converts the REST target status to its Flow enum value.
-func (s TaskRunTargetStatus) ToProto() flowv1.OperationRunTargetStatus {
-	if v, ok := taskRunTargetStatusChoiceMap[s]; ok {
+func (trts TaskRunTargetStatus) ToProto() flowv1.OperationRunTargetStatus {
+	if v, ok := taskRunTargetStatusChoiceMap[trts]; ok {
 		return v
 	}
 	return flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_UNKNOWN
 }
 
 // FromProto populates the REST target status from a Flow enum value.
-func (s *TaskRunTargetStatus) FromProto(p flowv1.OperationRunTargetStatus) {
-	if s == nil {
+func (trts *TaskRunTargetStatus) FromProto(p flowv1.OperationRunTargetStatus) {
+	if trts == nil {
 		return
 	}
 	for rest, proto := range taskRunTargetStatusChoiceMap {
 		if proto == p {
-			*s = rest
+			*trts = rest
 			return
 		}
 	}
-	*s = TaskRunTargetStatusUnknown
+	*trts = TaskRunTargetStatusUnknown
 }
 
 // ~~~~~ Response model ~~~~~ //
@@ -221,6 +221,56 @@ type APITaskRun struct {
 	Stats *APITaskRunStats `json:"stats,omitempty"`
 }
 
+// FromProtoSummary populates the summary fields shared by list and get
+// responses from an OperationRunSummary.
+func (atr *APITaskRun) FromProtoSummary(s *flowv1.OperationRunSummary) {
+	if s == nil {
+		return
+	}
+	if s.GetId() != nil {
+		atr.ID = s.GetId().GetId()
+	}
+	atr.Name = s.GetName()
+	atr.Description = s.GetDescription()
+	if k := s.GetOperationKind(); k != nil {
+		atr.OperationType = enumOr(protoToAPIOperationType, k.GetType(), "")
+		atr.OperationCode = k.GetCode()
+	}
+	if st := s.GetState(); st != nil {
+		atr.Status.FromProto(st.GetStatus())
+		atr.StatusReason.FromProto(st.GetReason())
+	}
+	atr.StatusMessage = s.GetStatusMessage()
+	atr.TotalPhases = s.GetTotalPhases()
+	if ts := s.GetCreatedAt(); ts != nil {
+		atr.Created = ts.AsTime().UTC()
+	}
+	if ts := s.GetUpdatedAt(); ts != nil {
+		atr.Updated = ts.AsTime().UTC()
+	}
+	if ts := s.GetStartedAt(); ts != nil {
+		v := ts.AsTime().UTC()
+		atr.Started = &v
+	}
+	if ts := s.GetFinishedAt(); ts != nil {
+		v := ts.AsTime().UTC()
+		atr.Finished = &v
+	}
+}
+
+// FromProto populates an APITaskRun from a full OperationRun, including
+// derived stats when Flow computed them.
+func (atr *APITaskRun) FromProto(run *flowv1.OperationRun) {
+	if run == nil {
+		return
+	}
+	atr.FromProtoSummary(run.GetSummary())
+	if stats := run.GetStats(); stats != nil {
+		atr.Stats = &APITaskRunStats{}
+		atr.Stats.FromProto(stats)
+	}
+}
+
 // APITaskRunStats summarizes target outcomes for the active phase and for all
 // phases processed so far.
 type APITaskRunStats struct {
@@ -228,11 +278,30 @@ type APITaskRunStats struct {
 	CumulativePhase APITaskRunPhaseStats `json:"cumulativePhase"`
 }
 
+// FromProto populates the run stats from Flow's OperationRunStats.
+func (atrs *APITaskRunStats) FromProto(s *flowv1.OperationRunStats) {
+	if s == nil {
+		return
+	}
+	atrs.CurrentPhase.FromProto(s.GetCurrentPhaseStats())
+	atrs.CumulativePhase.FromProto(s.GetCumulativePhaseStats())
+}
+
 // APITaskRunPhaseStats summarizes target outcomes for one phase scope.
 type APITaskRunPhaseStats struct {
 	PhaseIndex      int32                   `json:"phaseIndex"`
 	SelectedTargets int32                   `json:"selectedTargets"`
 	OutcomeCounts   APITaskRunOutcomeCounts `json:"outcomeCounts"`
+}
+
+// FromProto populates the phase stats from Flow's OperationRunPhaseStats.
+func (atrps *APITaskRunPhaseStats) FromProto(p *flowv1.OperationRunPhaseStats) {
+	if p == nil {
+		return
+	}
+	atrps.PhaseIndex = p.GetPhaseIndex()
+	atrps.SelectedTargets = p.GetSelectedTargets()
+	atrps.OutcomeCounts.FromProto(p.GetOutcomeCounts())
 }
 
 // APITaskRunOutcomeCounts counts terminal target outcomes within a phase scope.
@@ -243,81 +312,15 @@ type APITaskRunOutcomeCounts struct {
 	Skipped    int32 `json:"skipped"`
 }
 
-// FromProtoSummary populates the summary fields shared by list and get
-// responses from an OperationRunSummary.
-func (a *APITaskRun) FromProtoSummary(s *flowv1.OperationRunSummary) {
-	if s == nil {
+// FromProto populates the outcome counts from Flow's target outcome counts.
+func (atroc *APITaskRunOutcomeCounts) FromProto(c *flowv1.OperationRunTargetOutcomeCounts) {
+	if c == nil {
 		return
 	}
-	if s.GetId() != nil {
-		a.ID = s.GetId().GetId()
-	}
-	a.Name = s.GetName()
-	a.Description = s.GetDescription()
-	if k := s.GetOperationKind(); k != nil {
-		a.OperationType = enumOr(protoToAPIOperationType, k.GetType(), "")
-		a.OperationCode = k.GetCode()
-	}
-	if st := s.GetState(); st != nil {
-		a.Status.FromProto(st.GetStatus())
-		a.StatusReason.FromProto(st.GetReason())
-	}
-	a.StatusMessage = s.GetStatusMessage()
-	a.TotalPhases = s.GetTotalPhases()
-	if ts := s.GetCreatedAt(); ts != nil {
-		a.Created = ts.AsTime().UTC()
-	}
-	if ts := s.GetUpdatedAt(); ts != nil {
-		a.Updated = ts.AsTime().UTC()
-	}
-	if ts := s.GetStartedAt(); ts != nil {
-		v := ts.AsTime().UTC()
-		a.Started = &v
-	}
-	if ts := s.GetFinishedAt(); ts != nil {
-		v := ts.AsTime().UTC()
-		a.Finished = &v
-	}
-}
-
-// FromProto populates an APITaskRun from a full OperationRun, including
-// derived stats when Flow computed them.
-func (a *APITaskRun) FromProto(run *flowv1.OperationRun) {
-	if run == nil {
-		return
-	}
-	a.FromProtoSummary(run.GetSummary())
-	if stats := run.GetStats(); stats != nil {
-		a.Stats = newAPITaskRunStats(stats)
-	}
-}
-
-func newAPITaskRunStats(s *flowv1.OperationRunStats) *APITaskRunStats {
-	if s == nil {
-		return nil
-	}
-	return &APITaskRunStats{
-		CurrentPhase:    phaseStatsFromProto(s.GetCurrentPhaseStats()),
-		CumulativePhase: phaseStatsFromProto(s.GetCumulativePhaseStats()),
-	}
-}
-
-func phaseStatsFromProto(p *flowv1.OperationRunPhaseStats) APITaskRunPhaseStats {
-	out := APITaskRunPhaseStats{}
-	if p == nil {
-		return out
-	}
-	out.PhaseIndex = p.GetPhaseIndex()
-	out.SelectedTargets = p.GetSelectedTargets()
-	if c := p.GetOutcomeCounts(); c != nil {
-		out.OutcomeCounts = APITaskRunOutcomeCounts{
-			Completed:  c.GetCompleted(),
-			Failed:     c.GetFailed(),
-			Terminated: c.GetTerminated(),
-			Skipped:    c.GetSkipped(),
-		}
-	}
-	return out
+	atroc.Completed = c.GetCompleted()
+	atroc.Failed = c.GetFailed()
+	atroc.Terminated = c.GetTerminated()
+	atroc.Skipped = c.GetSkipped()
 }
 
 // ~~~~~ Target response model ~~~~~ //
@@ -340,32 +343,32 @@ type APITaskRunTarget struct {
 }
 
 // FromProto populates an APITaskRunTarget from an OperationRunTarget.
-func (t *APITaskRunTarget) FromProto(p *flowv1.OperationRunTarget) {
+func (atrt *APITaskRunTarget) FromProto(p *flowv1.OperationRunTarget) {
 	if p == nil {
 		return
 	}
 	if p.GetId() != nil {
-		t.ID = p.GetId().GetId()
+		atrt.ID = p.GetId().GetId()
 	}
 	if p.GetOperationRunId() != nil {
-		t.RunID = p.GetOperationRunId().GetId()
+		atrt.RunID = p.GetOperationRunId().GetId()
 	}
 	if p.GetRackId() != nil {
-		t.RackID = p.GetRackId().GetId()
+		atrt.RackID = p.GetRackId().GetId()
 	}
-	t.SequenceIndex = p.GetSequenceIndex()
-	t.PhaseIndex = p.GetPhaseIndex()
+	atrt.SequenceIndex = p.GetSequenceIndex()
+	atrt.PhaseIndex = p.GetPhaseIndex()
 	if id := p.GetTaskId(); id != nil && id.GetId() != "" {
 		v := id.GetId()
-		t.TaskID = &v
+		atrt.TaskID = &v
 	}
-	t.Status.FromProto(p.GetStatus())
-	t.Message = p.GetMessage()
+	atrt.Status.FromProto(p.GetStatus())
+	atrt.Message = p.GetMessage()
 	if ts := p.GetCreatedAt(); ts != nil {
-		t.Created = ts.AsTime().UTC()
+		atrt.Created = ts.AsTime().UTC()
 	}
 	if ts := p.GetUpdatedAt(); ts != nil {
-		t.Updated = ts.AsTime().UTC()
+		atrt.Updated = ts.AsTime().UTC()
 	}
 }
 
@@ -377,9 +380,9 @@ type APITaskRunGetRequest struct {
 	IncludeStats bool   `query:"includeStats"`
 }
 
-func (r *APITaskRunGetRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId query parameter is required")),
+func (atrgr *APITaskRunGetRequest) Validate() error {
+	return validation.ValidateStruct(atrgr,
+		validation.Field(&atrgr.SiteID, validation.Required.Error("siteId query parameter is required")),
 	)
 }
 
@@ -393,33 +396,33 @@ type APITaskRunGetAllRequest struct {
 	OperationType APIOperationType `query:"operationType"`
 }
 
-func (r *APITaskRunGetAllRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId query parameter is required")),
-		validation.Field(&r.OperationType,
-			validation.When(r.OperationType != "",
+func (atrgar *APITaskRunGetAllRequest) Validate() error {
+	return validation.ValidateStruct(atrgar,
+		validation.Field(&atrgar.SiteID, validation.Required.Error("siteId query parameter is required")),
+		validation.Field(&atrgar.OperationType,
+			validation.When(atrgar.OperationType != "",
 				validation.In(validOperationTypesAny...).Error(
 					fmt.Sprintf("operationType must be one of %v", validOperationTypes)))),
-		validation.Field(&r.Status,
-			validation.When(r.Status != "",
+		validation.Field(&atrgar.Status,
+			validation.When(atrgar.Status != "",
 				validation.In(validTaskRunStatusesAny...).Error(
 					fmt.Sprintf("status must be one of %v", validTaskRunStatuses)))),
 	)
 }
 
 // ToProto converts the list filters into the Flow ListOperationRunsRequest.
-func (r *APITaskRunGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1.ListOperationRunsRequest, error) {
+func (atrgar *APITaskRunGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1.ListOperationRunsRequest, error) {
 	req := &flowv1.ListOperationRunsRequest{}
 	filter := &flowv1.OperationRunFilter{}
 	hasFilter := false
 
-	if r.Status != "" {
-		status := r.Status.ToProto()
+	if atrgar.Status != "" {
+		status := atrgar.Status.ToProto()
 		filter.States = []*flowv1.OperationRunStateFilter{{Status: &status}}
 		hasFilter = true
 	}
-	if r.OperationType != "" {
-		opType, err := r.OperationType.ToProto()
+	if atrgar.OperationType != "" {
+		opType, err := atrgar.OperationType.ToProto()
 		if err != nil {
 			return nil, err
 		}
@@ -430,10 +433,10 @@ func (r *APITaskRunGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1.
 		req.Filter = filter
 	}
 
-	if page.PageSize != nil && page.PageNumber != nil && *page.PageSize > 0 && *page.PageNumber > 0 {
+	if page.Offset != nil && page.Limit != nil {
 		req.Pagination = &flowv1.Pagination{
-			Offset: int32((*page.PageNumber - 1) * (*page.PageSize)),
-			Limit:  int32(*page.PageSize),
+			Offset: int32(*page.Offset),
+			Limit:  int32(*page.Limit),
 		}
 	}
 	return req, nil
@@ -441,14 +444,14 @@ func (r *APITaskRunGetAllRequest) ToProto(page pagination.PageRequest) (*flowv1.
 
 // QueryValues returns the request fields that feed the workflow ID hash,
 // including pagination so different pages map to distinct workflow IDs.
-func (r *APITaskRunGetAllRequest) QueryValues(page pagination.PageRequest) url.Values {
+func (atrgar *APITaskRunGetAllRequest) QueryValues(page pagination.PageRequest) url.Values {
 	v := url.Values{}
-	v.Set("siteId", r.SiteID)
-	if r.Status != "" {
-		v.Set("status", string(r.Status))
+	v.Set("siteId", atrgar.SiteID)
+	if atrgar.Status != "" {
+		v.Set("status", string(atrgar.Status))
 	}
-	if r.OperationType != "" {
-		v.Set("operationType", string(r.OperationType))
+	if atrgar.OperationType != "" {
+		v.Set("operationType", string(atrgar.OperationType))
 	}
 	if page.PageNumber != nil && *page.PageNumber != 0 {
 		v.Set("pageNumber", strconv.Itoa(*page.PageNumber))
@@ -486,15 +489,15 @@ var apiToProtoRunPhaseScope = map[string]flowv1.OperationRunTargetPhaseScope{
 	"currentAndCompletedPhases": flowv1.OperationRunTargetPhaseScope_OPERATION_RUN_TARGET_PHASE_SCOPE_CURRENT_AND_COMPLETED_PHASES,
 }
 
-func (r *APITaskRunTargetGetAllRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId query parameter is required")),
-		validation.Field(&r.Status,
-			validation.When(r.Status != "",
+func (atrtgar *APITaskRunTargetGetAllRequest) Validate() error {
+	return validation.ValidateStruct(atrtgar,
+		validation.Field(&atrtgar.SiteID, validation.Required.Error("siteId query parameter is required")),
+		validation.Field(&atrtgar.Status,
+			validation.When(atrtgar.Status != "",
 				validation.In(validTaskRunTargetStatusesAny...).Error(
 					fmt.Sprintf("status must be one of %v", validTaskRunTargetStatuses)))),
-		validation.Field(&r.PhaseScope,
-			validation.When(r.PhaseScope != "",
+		validation.Field(&atrtgar.PhaseScope,
+			validation.When(atrtgar.PhaseScope != "",
 				validation.In(validTaskRunPhaseScopesAny...).Error(
 					fmt.Sprintf("phaseScope must be one of %v", validTaskRunPhaseScopes)))),
 	)
@@ -502,19 +505,19 @@ func (r *APITaskRunTargetGetAllRequest) Validate() error {
 
 // ToProto converts the target-list filters into the Flow
 // ListOperationRunTargetsRequest. status UNKNOWN means no status filter.
-func (r *APITaskRunTargetGetAllRequest) ToProto(runID string, page pagination.PageRequest) *flowv1.ListOperationRunTargetsRequest {
+func (atrtgar *APITaskRunTargetGetAllRequest) ToProto(runID string, page pagination.PageRequest) *flowv1.ListOperationRunTargetsRequest {
 	req := &flowv1.ListOperationRunTargetsRequest{
 		OperationRunId: &flowv1.UUID{Id: runID},
 		Status:         flowv1.OperationRunTargetStatus_OPERATION_RUN_TARGET_STATUS_UNKNOWN,
-		PhaseScope:     apiToProtoRunPhaseScope[r.PhaseScope],
+		PhaseScope:     apiToProtoRunPhaseScope[atrtgar.PhaseScope],
 	}
-	if r.Status != "" {
-		req.Status = r.Status.ToProto()
+	if atrtgar.Status != "" {
+		req.Status = atrtgar.Status.ToProto()
 	}
-	if page.PageSize != nil && page.PageNumber != nil && *page.PageSize > 0 && *page.PageNumber > 0 {
+	if page.Offset != nil && page.Limit != nil {
 		req.Pagination = &flowv1.Pagination{
-			Offset: int32((*page.PageNumber - 1) * (*page.PageSize)),
-			Limit:  int32(*page.PageSize),
+			Offset: int32(*page.Offset),
+			Limit:  int32(*page.Limit),
 		}
 	}
 	return req
@@ -522,14 +525,14 @@ func (r *APITaskRunTargetGetAllRequest) ToProto(runID string, page pagination.Pa
 
 // QueryValues returns the fields that feed the workflow ID hash for the
 // target-list endpoint, including pagination.
-func (r *APITaskRunTargetGetAllRequest) QueryValues(page pagination.PageRequest) url.Values {
+func (atrtgar *APITaskRunTargetGetAllRequest) QueryValues(page pagination.PageRequest) url.Values {
 	v := url.Values{}
-	v.Set("siteId", r.SiteID)
-	if r.Status != "" {
-		v.Set("status", string(r.Status))
+	v.Set("siteId", atrtgar.SiteID)
+	if atrtgar.Status != "" {
+		v.Set("status", string(atrtgar.Status))
 	}
-	if r.PhaseScope != "" {
-		v.Set("phaseScope", r.PhaseScope)
+	if atrtgar.PhaseScope != "" {
+		v.Set("phaseScope", atrtgar.PhaseScope)
 	}
 	if page.PageNumber != nil && *page.PageNumber != 0 {
 		v.Set("pageNumber", strconv.Itoa(*page.PageNumber))
@@ -548,9 +551,9 @@ type APITaskRunSiteRequest struct {
 	SiteID string `json:"siteId"`
 }
 
-func (r *APITaskRunSiteRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+func (atrsr *APITaskRunSiteRequest) Validate() error {
+	return validation.ValidateStruct(atrsr,
+		validation.Field(&atrsr.SiteID, validation.Required.Error("siteId is required")),
 	)
 }
 
@@ -562,9 +565,9 @@ type APITaskRunAdvanceRequest struct {
 	ExpectedPhaseIndex *int32 `json:"expectedPhaseIndex"`
 }
 
-func (r *APITaskRunAdvanceRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+func (atrar *APITaskRunAdvanceRequest) Validate() error {
+	return validation.ValidateStruct(atrar,
+		validation.Field(&atrar.SiteID, validation.Required.Error("siteId is required")),
 	)
 }
 
@@ -574,31 +577,13 @@ type APITaskRunCancelRequest struct {
 	Reason string `json:"reason"`
 }
 
-func (r *APITaskRunCancelRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
+func (atrcr *APITaskRunCancelRequest) Validate() error {
+	return validation.ValidateStruct(atrcr,
+		validation.Field(&atrcr.SiteID, validation.Required.Error("siteId is required")),
 	)
 }
 
 // ~~~~~ Create ~~~~~ //
-
-// safety-gate scope maps between the API string and Flow's enum. The empty
-// value maps to the current-phase default.
-var validTaskRunGateScopes = []string{"currentPhase", "cumulativeRun"}
-
-var validTaskRunGateScopesAny = func() []any {
-	out := make([]any, len(validTaskRunGateScopes))
-	for i, s := range validTaskRunGateScopes {
-		out[i] = s
-	}
-	return out
-}()
-
-var apiToProtoGateScope = map[string]flowv1.OperationRunSafetyGateScope{
-	"":              flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE,
-	"currentPhase":  flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE,
-	"cumulativeRun": flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CUMULATIVE_RUN,
-}
 
 // APITaskRunCreateRequest is the JSON body for POST /task/run. A run executes
 // exactly one operation (currently firmware) across a candidate set of racks,
@@ -613,6 +598,44 @@ type APITaskRunCreateRequest struct {
 	Selector  *APITaskRunSelector `json:"selector"`
 	Options   APITaskRunOptions   `json:"options"`
 	Operation APITaskRunOperation `json:"operation"`
+}
+
+// Validate enforces request shape only; Flow performs semantic validation
+// (selector ranges, phase math, operation code membership) server-side.
+func (atrcr *APITaskRunCreateRequest) Validate() error {
+	return validation.ValidateStruct(atrcr,
+		validation.Field(&atrcr.SiteID, validation.Required.Error("siteId is required")),
+		validation.Field(&atrcr.Name, validation.Required.Error("name is required")),
+		validation.Field(&atrcr.Options),
+		validation.Field(&atrcr.Operation),
+	)
+}
+
+// ToProto converts the create request into the Flow CreateOperationRunRequest.
+// Callers must Validate first: the nested mappers dereference fields whose
+// presence only Validate enforces.
+func (atrcr *APITaskRunCreateRequest) ToProto() *flowv1.CreateOperationRunRequest {
+	cfg := &flowv1.OperationRunConfiguration{
+		Options:   atrcr.Options.ToProto(),
+		Operation: atrcr.Operation.ToProto(),
+	}
+
+	if atrcr.Selector != nil && atrcr.Selector.Percentage != nil {
+		cfg.Selector = &flowv1.OperationRunSelector{
+			Selector: &flowv1.OperationRunSelector_Percentage{
+				Percentage: &flowv1.PercentageSelector{
+					Percentage: atrcr.Selector.Percentage.Percent,
+					Seed:       atrcr.Selector.Percentage.Seed,
+				},
+			},
+		}
+	}
+
+	return &flowv1.CreateOperationRunRequest{
+		Name:          atrcr.Name,
+		Description:   atrcr.Description,
+		Configuration: cfg,
+	}
 }
 
 // APITaskRunSelector selects a subset of candidate racks. Percentage is the
@@ -640,16 +663,127 @@ type APITaskRunOptions struct {
 	PhasePolicy          *APITaskRunPhasePolicy    `json:"phasePolicy"`
 }
 
+// Validate enforces the execution policy shape. The nested policies validate
+// themselves; ozzo skips the ones left nil.
+func (atro APITaskRunOptions) Validate() error {
+	return validation.ValidateStruct(&atro,
+		// Required rejects zero (the threshold rules treat it as empty and skip
+		// it); Min rejects negatives.
+		validation.Field(&atro.MaxConcurrentTargets,
+			validation.Required.Error("must be greater than zero"),
+			validation.Min(1).Error("must be greater than zero")),
+		validation.Field(&atro.SafetyPolicy),
+		validation.Field(&atro.ConflictPolicy),
+		validation.Field(&atro.PhasePolicy),
+	)
+}
+
+// ToProto maps the execution policy onto Flow's OperationRunOptions.
+func (atro APITaskRunOptions) ToProto() *flowv1.OperationRunOptions {
+	out := &flowv1.OperationRunOptions{
+		MaxConcurrentTargets: atro.MaxConcurrentTargets,
+	}
+
+	if atro.SafetyPolicy != nil {
+		gates := make([]*flowv1.OperationRunSafetyGate, 0, len(atro.SafetyPolicy.Gates))
+		for _, g := range atro.SafetyPolicy.Gates {
+			gates = append(gates, g.ToProto())
+		}
+		out.SafetyPolicy = &flowv1.OperationRunSafetyPolicy{Gates: gates}
+	}
+
+	if atro.ConflictPolicy != nil && atro.ConflictPolicy.Retry != nil {
+		out.ConflictPolicy = &flowv1.OperationRunConflictPolicy{
+			Strategy: &flowv1.OperationRunConflictPolicy_Retry{
+				Retry: atro.ConflictPolicy.Retry.ToProto(),
+			},
+		}
+	}
+
+	if atro.OrderingPolicy != nil && atro.OrderingPolicy.Random != nil {
+		out.OrderingPolicy = &flowv1.OperationRunOrderingPolicy{
+			Ordering: &flowv1.OperationRunOrderingPolicy_Random{
+				Random: &flowv1.OperationRunRandomOrdering{Seed: atro.OrderingPolicy.Random.Seed},
+			},
+		}
+	}
+
+	if atro.PhasePolicy != nil {
+		out.PhasePolicy = atro.PhasePolicy.ToProto()
+	}
+
+	return out
+}
+
 // APITaskRunSafetyPolicy is a set of gates that pause the run when any
 // one of them trips (OR composition).
 type APITaskRunSafetyPolicy struct {
 	Gates []APITaskRunSafetyGate `json:"gates"`
 }
 
+func (atrsp APITaskRunSafetyPolicy) Validate() error {
+	return validation.ValidateStruct(&atrsp,
+		validation.Field(&atrsp.Gates),
+	)
+}
+
+// safety-gate scope maps between the API string and Flow's enum. The empty
+// value maps to the current-phase default.
+var validTaskRunGateScopes = []string{"currentPhase", "cumulativeRun"}
+
+var validTaskRunGateScopesAny = func() []any {
+	out := make([]any, len(validTaskRunGateScopes))
+	for i, s := range validTaskRunGateScopes {
+		out[i] = s
+	}
+	return out
+}()
+
+var apiToProtoGateScope = map[string]flowv1.OperationRunSafetyGateScope{
+	"":              flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE,
+	"currentPhase":  flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CURRENT_PHASE,
+	"cumulativeRun": flowv1.OperationRunSafetyGateScope_OPERATION_RUN_SAFETY_GATE_SCOPE_CUMULATIVE_RUN,
+}
+
 // APITaskRunSafetyGate is exactly one of failureRate or failureCount.
 type APITaskRunSafetyGate struct {
 	FailureRate  *APITaskRunFailureRateGate  `json:"failureRate"`
 	FailureCount *APITaskRunFailureCountGate `json:"failureCount"`
+}
+
+// Validate requires exactly one gate kind. ozzo cannot express a choice
+// between sibling fields declaratively.
+func (atrsg APITaskRunSafetyGate) Validate() error {
+	if (atrsg.FailureRate == nil) == (atrsg.FailureCount == nil) {
+		return errors.New("must set exactly one of failureRate or failureCount")
+	}
+	return validation.ValidateStruct(&atrsg,
+		validation.Field(&atrsg.FailureRate),
+		validation.Field(&atrsg.FailureCount),
+	)
+}
+
+// ToProto maps the gate onto Flow's oneof. Validate guarantees exactly one
+// side is set.
+func (atrsg APITaskRunSafetyGate) ToProto() *flowv1.OperationRunSafetyGate {
+	if atrsg.FailureRate != nil {
+		return &flowv1.OperationRunSafetyGate{
+			Gate: &flowv1.OperationRunSafetyGate_FailureRate{
+				FailureRate: &flowv1.OperationRunFailureRateGate{
+					Scope:                   apiToProtoGateScope[atrsg.FailureRate.Scope],
+					FailureThresholdPercent: atrsg.FailureRate.ThresholdPercent,
+				},
+			},
+		}
+	}
+	return &flowv1.OperationRunSafetyGate{
+		Gate: &flowv1.OperationRunSafetyGate_FailureCount{
+			FailureCount: &flowv1.OperationRunFailureCountGate{
+				Scope:                 apiToProtoGateScope[atrsg.FailureCount.Scope],
+				FailureThresholdCount: atrsg.FailureCount.ThresholdCount,
+			},
+		},
+	}
 }
 
 // APITaskRunFailureRateGate pauses when failed/planned reaches ThresholdPercent
@@ -659,6 +793,14 @@ type APITaskRunFailureRateGate struct {
 	ThresholdPercent int32  `json:"thresholdPercent"`
 }
 
+func (atrfrg APITaskRunFailureRateGate) Validate() error {
+	return validation.ValidateStruct(&atrfrg,
+		validation.Field(&atrfrg.Scope,
+			validation.In(validTaskRunGateScopesAny...).Error(
+				fmt.Sprintf("must be one of %v", validTaskRunGateScopes))),
+	)
+}
+
 // APITaskRunFailureCountGate pauses when failed targets reach ThresholdCount
 // for the scope.
 type APITaskRunFailureCountGate struct {
@@ -666,10 +808,24 @@ type APITaskRunFailureCountGate struct {
 	ThresholdCount int32  `json:"thresholdCount"`
 }
 
+func (atrfcg APITaskRunFailureCountGate) Validate() error {
+	return validation.ValidateStruct(&atrfcg,
+		validation.Field(&atrfcg.Scope,
+			validation.In(validTaskRunGateScopesAny...).Error(
+				fmt.Sprintf("must be one of %v", validTaskRunGateScopes))),
+	)
+}
+
 // APITaskRunConflictPolicy configures how blocked targets are retried. Retry
 // is the only supported strategy today.
 type APITaskRunConflictPolicy struct {
 	Retry *APITaskRunConflictRetry `json:"retry"`
+}
+
+func (atrcp APITaskRunConflictPolicy) Validate() error {
+	return validation.ValidateStruct(&atrcp,
+		validation.Field(&atrcp.Retry),
+	)
 }
 
 // APITaskRunConflictRetry configures retry backoff for blocked targets.
@@ -679,6 +835,25 @@ type APITaskRunConflictRetry struct {
 	RetryTimeout      string `json:"retryTimeout"`
 	InitialRetryDelay string `json:"initialRetryDelay"`
 	MaxRetryDelay     string `json:"maxRetryDelay"`
+}
+
+// Validate rejects unparseable durations here so ToProto stays a pure mapper.
+func (atrcr APITaskRunConflictRetry) Validate() error {
+	return validation.ValidateStruct(&atrcr,
+		validation.Field(&atrcr.RetryTimeout, validation.By(validateOptionalDuration)),
+		validation.Field(&atrcr.InitialRetryDelay, validation.By(validateOptionalDuration)),
+		validation.Field(&atrcr.MaxRetryDelay, validation.By(validateOptionalDuration)),
+	)
+}
+
+// ToProto maps the retry backoff onto Flow's policy. Validate guarantees the
+// durations parse.
+func (atrcr APITaskRunConflictRetry) ToProto() *flowv1.OperationRunConflictRetryPolicy {
+	return &flowv1.OperationRunConflictRetryPolicy{
+		RetryTimeout:      optionalDurationToProto(atrcr.RetryTimeout),
+		InitialRetryDelay: optionalDurationToProto(atrcr.InitialRetryDelay),
+		MaxRetryDelay:     optionalDurationToProto(atrcr.MaxRetryDelay),
+	}
 }
 
 // APITaskRunOrderingPolicy controls the order in which targets are processed.
@@ -704,6 +879,52 @@ type APITaskRunPhasePolicy struct {
 	// gates are not tripped. When false (default) each completed phase pauses at
 	// a phase gate until advanced explicitly.
 	AutoAdvance bool `json:"autoAdvance"`
+}
+
+// Validate allows at most one phase division. ozzo cannot express a choice
+// between sibling fields declaratively.
+func (atrpp APITaskRunPhasePolicy) Validate() error {
+	set := 0
+	for _, isSet := range []bool{atrpp.Equal != nil, atrpp.Percentage != nil, atrpp.Count != nil} {
+		if isSet {
+			set++
+		}
+	}
+	if set > 1 {
+		return errors.New("must set at most one of equal, percentage, count")
+	}
+	return nil
+}
+
+// ToProto maps the phase plan onto Flow's oneof. An unset plan yields a single
+// phase covering all targets.
+func (atrpp APITaskRunPhasePolicy) ToProto() *flowv1.OperationRunPhasePolicy {
+	out := &flowv1.OperationRunPhasePolicy{
+		AdvancePolicy: &flowv1.OperationRunPhaseAdvancePolicy{AutoAdvance: atrpp.AutoAdvance},
+	}
+	switch {
+	case atrpp.Equal != nil:
+		out.Plan = &flowv1.OperationRunPhasePolicy_Equal{
+			Equal: &flowv1.EqualOperationRunPhases{PhaseCount: atrpp.Equal.PhaseCount},
+		}
+	case atrpp.Percentage != nil:
+		phases := make([]*flowv1.OperationRunPercentagePhase, 0, len(atrpp.Percentage.Phases))
+		for _, pct := range atrpp.Percentage.Phases {
+			phases = append(phases, &flowv1.OperationRunPercentagePhase{Percentage: pct})
+		}
+		out.Plan = &flowv1.OperationRunPhasePolicy_Percentage{
+			Percentage: &flowv1.PercentageOperationRunPhases{Phases: phases},
+		}
+	case atrpp.Count != nil:
+		phases := make([]*flowv1.OperationRunCountPhase, 0, len(atrpp.Count.Phases))
+		for _, n := range atrpp.Count.Phases {
+			phases = append(phases, &flowv1.OperationRunCountPhase{Count: n})
+		}
+		out.Plan = &flowv1.OperationRunPhasePolicy_Count{
+			Count: &flowv1.CountOperationRunPhases{Phases: phases},
+		}
+	}
+	return out
 }
 
 // APITaskRunEqualPhases splits targets into PhaseCount roughly equal phases.
@@ -732,6 +953,40 @@ type APITaskRunOperation struct {
 	ExcludeRunIDs []string `json:"excludeRunIds"`
 }
 
+// Validate requires the firmware operation, the only kind Flow supports today.
+func (atro APITaskRunOperation) Validate() error {
+	return validation.ValidateStruct(&atro,
+		validation.Field(&atro.Firmware, validation.Required.Error("firmware is required")),
+	)
+}
+
+// ToProto maps the operation onto Flow's oneof. Validate guarantees Firmware
+// is set.
+func (atro APITaskRunOperation) ToProto() *flowv1.OperationRunOperation {
+	fw := &flowv1.UpgradeFirmwareRequest{
+		TargetVersion:          &atro.Firmware.Version,
+		SubTargets:             atro.Firmware.SubTargets,
+		OverrideReadinessCheck: atro.Firmware.OverrideReadinessCheck,
+	}
+	if atro.Firmware.RuleID != nil && *atro.Firmware.RuleID != "" {
+		fw.RuleId = &flowv1.UUID{Id: *atro.Firmware.RuleID}
+	}
+
+	out := &flowv1.OperationRunOperation{
+		Operation: &flowv1.OperationRunOperation_UpgradeFirmware{UpgradeFirmware: fw},
+	}
+
+	if len(atro.ExcludeRunIDs) > 0 {
+		excludes := make([]*flowv1.UUID, 0, len(atro.ExcludeRunIDs))
+		for _, id := range atro.ExcludeRunIDs {
+			excludes = append(excludes, &flowv1.UUID{Id: id})
+		}
+		out.TargetScope = &flowv1.OperationRunTargetScope{ExcludeOperationRunIds: excludes}
+	}
+
+	return out
+}
+
 // APITaskRunFirmwareOperation configures a firmware rollout.
 type APITaskRunFirmwareOperation struct {
 	Version                string   `json:"version"`
@@ -740,106 +995,9 @@ type APITaskRunFirmwareOperation struct {
 	SubTargets             []string `json:"subTargets"`
 }
 
-// Validate enforces request shape only; Flow performs semantic validation
-// (selector ranges, phase math, operation code membership) server-side.
-func (r *APITaskRunCreateRequest) Validate() error {
-	return validation.ValidateStruct(r,
-		validation.Field(&r.SiteID, validation.Required.Error("siteId is required")),
-		validation.Field(&r.Name, validation.Required.Error("name is required")),
-		validation.Field(&r.Options),
-		validation.Field(&r.Operation),
-	)
-}
-
-// Validate enforces the execution policy shape. The nested policies validate
-// themselves; ozzo skips the ones left nil.
-func (o APITaskRunOptions) Validate() error {
-	return validation.ValidateStruct(&o,
-		// Required rejects zero (the threshold rules treat it as empty and skip
-		// it); Min rejects negatives.
-		validation.Field(&o.MaxConcurrentTargets,
-			validation.Required.Error("must be greater than zero"),
-			validation.Min(1).Error("must be greater than zero")),
-		validation.Field(&o.SafetyPolicy),
-		validation.Field(&o.ConflictPolicy),
-		validation.Field(&o.PhasePolicy),
-	)
-}
-
-func (p APITaskRunSafetyPolicy) Validate() error {
-	return validation.ValidateStruct(&p,
-		validation.Field(&p.Gates),
-	)
-}
-
-// Validate requires exactly one gate kind. ozzo cannot express a choice
-// between sibling fields declaratively.
-func (g APITaskRunSafetyGate) Validate() error {
-	if (g.FailureRate == nil) == (g.FailureCount == nil) {
-		return errors.New("must set exactly one of failureRate or failureCount")
-	}
-	return validation.ValidateStruct(&g,
-		validation.Field(&g.FailureRate),
-		validation.Field(&g.FailureCount),
-	)
-}
-
-func (g APITaskRunFailureRateGate) Validate() error {
-	return validation.ValidateStruct(&g,
-		validation.Field(&g.Scope,
-			validation.In(validTaskRunGateScopesAny...).Error(
-				fmt.Sprintf("must be one of %v", validTaskRunGateScopes))),
-	)
-}
-
-func (g APITaskRunFailureCountGate) Validate() error {
-	return validation.ValidateStruct(&g,
-		validation.Field(&g.Scope,
-			validation.In(validTaskRunGateScopesAny...).Error(
-				fmt.Sprintf("must be one of %v", validTaskRunGateScopes))),
-	)
-}
-
-func (p APITaskRunConflictPolicy) Validate() error {
-	return validation.ValidateStruct(&p,
-		validation.Field(&p.Retry),
-	)
-}
-
-// Validate rejects unparseable durations here so ToProto stays a pure mapper.
-func (r APITaskRunConflictRetry) Validate() error {
-	return validation.ValidateStruct(&r,
-		validation.Field(&r.RetryTimeout, validation.By(validateOptionalDuration)),
-		validation.Field(&r.InitialRetryDelay, validation.By(validateOptionalDuration)),
-		validation.Field(&r.MaxRetryDelay, validation.By(validateOptionalDuration)),
-	)
-}
-
-// Validate allows at most one phase division. ozzo cannot express a choice
-// between sibling fields declaratively.
-func (p APITaskRunPhasePolicy) Validate() error {
-	set := 0
-	for _, isSet := range []bool{p.Equal != nil, p.Percentage != nil, p.Count != nil} {
-		if isSet {
-			set++
-		}
-	}
-	if set > 1 {
-		return errors.New("must set at most one of equal, percentage, count")
-	}
-	return nil
-}
-
-// Validate requires the firmware operation, the only kind Flow supports today.
-func (o APITaskRunOperation) Validate() error {
-	return validation.ValidateStruct(&o,
-		validation.Field(&o.Firmware, validation.Required.Error("firmware is required")),
-	)
-}
-
-func (f APITaskRunFirmwareOperation) Validate() error {
-	return validation.ValidateStruct(&f,
-		validation.Field(&f.Version, validation.Required.Error("version is required")),
+func (atrfo APITaskRunFirmwareOperation) Validate() error {
+	return validation.ValidateStruct(&atrfo,
+		validation.Field(&atrfo.Version, validation.Required.Error("version is required")),
 	)
 }
 
@@ -856,185 +1014,14 @@ func validateOptionalDuration(value any) error {
 	return nil
 }
 
-// ToProto converts the create request into the Flow CreateOperationRunRequest.
-func (r *APITaskRunCreateRequest) ToProto() (*flowv1.CreateOperationRunRequest, error) {
-	cfg := &flowv1.OperationRunConfiguration{}
-
-	if r.Selector != nil && r.Selector.Percentage != nil {
-		cfg.Selector = &flowv1.OperationRunSelector{
-			Selector: &flowv1.OperationRunSelector_Percentage{
-				Percentage: &flowv1.PercentageSelector{
-					Percentage: r.Selector.Percentage.Percent,
-					Seed:       r.Selector.Percentage.Seed,
-				},
-			},
-		}
-	}
-
-	opts, err := r.Options.toProto()
-	if err != nil {
-		return nil, err
-	}
-	cfg.Options = opts
-
-	op, err := r.Operation.toProto()
-	if err != nil {
-		return nil, err
-	}
-	cfg.Operation = op
-
-	return &flowv1.CreateOperationRunRequest{
-		Name:          r.Name,
-		Description:   r.Description,
-		Configuration: cfg,
-	}, nil
-}
-
-func (o APITaskRunOptions) toProto() (*flowv1.OperationRunOptions, error) {
-	out := &flowv1.OperationRunOptions{
-		MaxConcurrentTargets: o.MaxConcurrentTargets,
-	}
-
-	if o.SafetyPolicy != nil {
-		gates := make([]*flowv1.OperationRunSafetyGate, 0, len(o.SafetyPolicy.Gates))
-		for _, g := range o.SafetyPolicy.Gates {
-			gates = append(gates, g.toProto())
-		}
-		out.SafetyPolicy = &flowv1.OperationRunSafetyPolicy{Gates: gates}
-	}
-
-	if o.ConflictPolicy != nil && o.ConflictPolicy.Retry != nil {
-		retry, err := o.ConflictPolicy.Retry.toProto()
-		if err != nil {
-			return nil, err
-		}
-		out.ConflictPolicy = &flowv1.OperationRunConflictPolicy{
-			Strategy: &flowv1.OperationRunConflictPolicy_Retry{Retry: retry},
-		}
-	}
-
-	if o.OrderingPolicy != nil && o.OrderingPolicy.Random != nil {
-		out.OrderingPolicy = &flowv1.OperationRunOrderingPolicy{
-			Ordering: &flowv1.OperationRunOrderingPolicy_Random{
-				Random: &flowv1.OperationRunRandomOrdering{Seed: o.OrderingPolicy.Random.Seed},
-			},
-		}
-	}
-
-	if o.PhasePolicy != nil {
-		out.PhasePolicy = o.PhasePolicy.toProto()
-	}
-
-	return out, nil
-}
-
-func (g APITaskRunSafetyGate) toProto() *flowv1.OperationRunSafetyGate {
-	if g.FailureRate != nil {
-		return &flowv1.OperationRunSafetyGate{
-			Gate: &flowv1.OperationRunSafetyGate_FailureRate{
-				FailureRate: &flowv1.OperationRunFailureRateGate{
-					Scope:                   apiToProtoGateScope[g.FailureRate.Scope],
-					FailureThresholdPercent: g.FailureRate.ThresholdPercent,
-				},
-			},
-		}
-	}
-	return &flowv1.OperationRunSafetyGate{
-		Gate: &flowv1.OperationRunSafetyGate_FailureCount{
-			FailureCount: &flowv1.OperationRunFailureCountGate{
-				Scope:                 apiToProtoGateScope[g.FailureCount.Scope],
-				FailureThresholdCount: g.FailureCount.ThresholdCount,
-			},
-		},
-	}
-}
-
-func (r APITaskRunConflictRetry) toProto() (*flowv1.OperationRunConflictRetryPolicy, error) {
-	timeout, err := optionalDurationToProto(r.RetryTimeout)
-	if err != nil {
-		return nil, fmt.Errorf("options.conflictPolicy.retry.retryTimeout: %w", err)
-	}
-	initial, err := optionalDurationToProto(r.InitialRetryDelay)
-	if err != nil {
-		return nil, fmt.Errorf("options.conflictPolicy.retry.initialRetryDelay: %w", err)
-	}
-	maxDelay, err := optionalDurationToProto(r.MaxRetryDelay)
-	if err != nil {
-		return nil, fmt.Errorf("options.conflictPolicy.retry.maxRetryDelay: %w", err)
-	}
-	return &flowv1.OperationRunConflictRetryPolicy{
-		RetryTimeout:      timeout,
-		InitialRetryDelay: initial,
-		MaxRetryDelay:     maxDelay,
-	}, nil
-}
-
-func (p APITaskRunPhasePolicy) toProto() *flowv1.OperationRunPhasePolicy {
-	out := &flowv1.OperationRunPhasePolicy{
-		AdvancePolicy: &flowv1.OperationRunPhaseAdvancePolicy{AutoAdvance: p.AutoAdvance},
-	}
-	switch {
-	case p.Equal != nil:
-		out.Plan = &flowv1.OperationRunPhasePolicy_Equal{
-			Equal: &flowv1.EqualOperationRunPhases{PhaseCount: p.Equal.PhaseCount},
-		}
-	case p.Percentage != nil:
-		phases := make([]*flowv1.OperationRunPercentagePhase, 0, len(p.Percentage.Phases))
-		for _, pct := range p.Percentage.Phases {
-			phases = append(phases, &flowv1.OperationRunPercentagePhase{Percentage: pct})
-		}
-		out.Plan = &flowv1.OperationRunPhasePolicy_Percentage{
-			Percentage: &flowv1.PercentageOperationRunPhases{Phases: phases},
-		}
-	case p.Count != nil:
-		phases := make([]*flowv1.OperationRunCountPhase, 0, len(p.Count.Phases))
-		for _, n := range p.Count.Phases {
-			phases = append(phases, &flowv1.OperationRunCountPhase{Count: n})
-		}
-		out.Plan = &flowv1.OperationRunPhasePolicy_Count{
-			Count: &flowv1.CountOperationRunPhases{Phases: phases},
-		}
-	}
-	return out
-}
-
-func (o APITaskRunOperation) toProto() (*flowv1.OperationRunOperation, error) {
-	if o.Firmware == nil {
-		return nil, fmt.Errorf("operation.firmware is required")
-	}
-	fw := &flowv1.UpgradeFirmwareRequest{
-		TargetVersion:          &o.Firmware.Version,
-		SubTargets:             o.Firmware.SubTargets,
-		OverrideReadinessCheck: o.Firmware.OverrideReadinessCheck,
-	}
-	if o.Firmware.RuleID != nil && *o.Firmware.RuleID != "" {
-		fw.RuleId = &flowv1.UUID{Id: *o.Firmware.RuleID}
-	}
-
-	out := &flowv1.OperationRunOperation{
-		Operation: &flowv1.OperationRunOperation_UpgradeFirmware{UpgradeFirmware: fw},
-	}
-
-	if len(o.ExcludeRunIDs) > 0 {
-		excludes := make([]*flowv1.UUID, 0, len(o.ExcludeRunIDs))
-		for _, id := range o.ExcludeRunIDs {
-			excludes = append(excludes, &flowv1.UUID{Id: id})
-		}
-		out.TargetScope = &flowv1.OperationRunTargetScope{ExcludeOperationRunIds: excludes}
-	}
-
-	return out, nil
-}
-
-// optionalDurationToProto parses a Go duration string into a protobuf Duration.
-// An empty string returns nil so Flow falls back to the operation default.
-func optionalDurationToProto(s string) (*durationpb.Duration, error) {
-	if s == "" {
-		return nil, nil
-	}
+// optionalDurationToProto converts a Go duration string into a protobuf
+// Duration. An empty or unparseable string returns nil so Flow falls back to
+// the operation default; validateOptionalDuration rejects the latter before a
+// request reaches the mappers.
+func optionalDurationToProto(s string) *durationpb.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
-		return nil, fmt.Errorf("invalid duration %q: %w", s, err)
+		return nil
 	}
-	return durationpb.New(d), nil
+	return durationpb.New(d)
 }

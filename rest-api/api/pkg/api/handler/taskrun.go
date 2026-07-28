@@ -169,10 +169,7 @@ func (h CreateTaskRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
 	}
 
-	flowRequest, ferr := apiRequest.ToProto()
-	if ferr != nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, ferr.Error(), nil)
-	}
+	flowRequest := apiRequest.ToProto()
 
 	// Dedicated workflow ID per request so Create is never deduped.
 	workflowID := fmt.Sprintf("task-run-create-%s", uuid.NewString())
