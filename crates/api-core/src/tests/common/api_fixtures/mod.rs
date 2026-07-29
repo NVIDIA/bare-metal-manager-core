@@ -1785,7 +1785,7 @@ pub async fn create_test_env_with_overrides(
     // Create domain
     let domain: carbide_uuid::domain::DomainId = api
         .create_domain(Request::new(rpc::protos::dns::CreateDomainRequest {
-            name: "dwrt1.com".to_string(),
+            name: config.initial_domain_name.as_ref().unwrap().clone(),
         }))
         .await
         .unwrap()

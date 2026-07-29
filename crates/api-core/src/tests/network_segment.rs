@@ -660,6 +660,95 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     Ok(())
 }
 
+/// A network added to the config after bootstrap is still seeded on the next
+/// startup.
+#[crate::sqlx_test]
+pub async fn test_create_initial_networks_seeds_networks_added_after_first_run(
+    db_pool: sqlx::PgPool,
+) -> Result<(), eyre::Report> {
+    let env =
+        create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
+            .await;
+
+    async fn domain_names(pool: &sqlx::PgPool) -> Result<Vec<String>, eyre::Report> {
+        let domains =
+            db::dns::domain::find_by(pool, ObjectColumnFilter::<db::dns::domain::IdColumn>::All)
+                .await?;
+        Ok(domains.into_iter().map(|d| d.name).collect())
+    }
+
+    let before = domain_names(&db_pool).await?;
+    assert_eq!(
+        before.len(),
+        1,
+        "fixture should start with a single forward domain, got {before:?}"
+    );
+
+    let admin = |prefix: &str, gateway: &str| NetworkDefinition {
+        segment_type: NetworkDefinitionSegmentType::Admin,
+        prefix: prefix.parse().unwrap(),
+        prefix_v6: None,
+        gateway: gateway.parse().unwrap(),
+        dhcpv6_link_address: None,
+        mtu: 9000,
+        reserve_first: 5,
+        allocation_strategy: Default::default(),
+        vpc_name: None,
+    };
+
+    // Run #1: bootstrap, declaring a single network.
+    let mut networks = HashMap::from([("admin".to_string(), admin("172.20.0.0/24", "172.20.0.1"))]);
+    db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    db::network_segment::find_by_name(&mut txn, "admin")
+        .await
+        .expect("the first run must seed the declared network");
+    txn.commit().await?;
+
+    // Seeding grows `domains`: a reverse zone per octet-aligned prefix, plus the
+    // static-assignments segment's two.
+    let after_first = domain_names(&db_pool).await?;
+    assert!(
+        after_first.len() > 1,
+        "the first run should have added reverse-DNS zones, got {after_first:?}"
+    );
+    for zone in ["254.254.254.169.in-addr.arpa", "0.20.172.in-addr.arpa"] {
+        assert!(
+            after_first.iter().any(|name| name == zone),
+            "expected reverse zone {zone} among {after_first:?}"
+        );
+    }
+
+    // The operator adds a network to the site config and restarts the API.
+    networks.insert(
+        "DEV1-C09-IPMI-01".to_string(),
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::Underlay,
+            prefix: "172.99.0.0/26".parse().unwrap(),
+            prefix_v6: None,
+            gateway: "172.99.0.1".parse().unwrap(),
+            dhcpv6_link_address: None,
+            mtu: 1500,
+            reserve_first: 5,
+            allocation_strategy: Default::default(),
+            vpc_name: None,
+        },
+    );
+
+    db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let added = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await;
+    txn.commit().await?;
+    assert!(
+        added.is_ok(),
+        "a network declared after the first run must still be seeded"
+    );
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 pub async fn test_create_initial_vpc_and_attached_network(
     db_pool: sqlx::PgPool,

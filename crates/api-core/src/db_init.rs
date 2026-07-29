@@ -69,24 +69,9 @@ pub async fn create_initial_networks(
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
-    let all_domains = db::dns::domain::find_by(
-        &mut txn,
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
-    )
-    .await?;
-    if all_domains.is_empty() {
-        tracing::warn!("No domain configured, skipping initial network creation");
+    let Some(domain_id) = resolve_seed_domain(api, &mut txn).await? else {
         return Ok(());
-    }
-    if all_domains.len() > 1 {
-        // We only create initial networks if we only have a single domain - usually created
-        // as initial_domain_name in config file.
-        // Having multiple domains is fine, it means we probably created the network much
-        // earlier.
-        tracing::info!("Multiple domains, skipping initial network creation");
-        return Ok(());
-    }
-    let domain_id = all_domains[0].id;
+    };
     reconcile_network_defs(&mut txn, networks).await?;
 
     for (name, def) in networks {
@@ -152,6 +137,51 @@ pub async fn create_initial_networks(
 
     txn.commit().await?;
     Ok(())
+}
+
+/// Resolve the parent domain for config-seeded segments by name, ignoring every
+/// other domain.
+///
+/// Not by counting `domains`: that table also holds reverse-DNS zones derived
+/// from segment prefixes, so it grows as segments are created. Counting it made
+/// this seed path disable itself after its first successful run.
+///
+/// `None` (logged) means seed nothing.
+async fn resolve_seed_domain(
+    api: &Api,
+    txn: &mut Transaction<'_>,
+) -> Result<Option<carbide_uuid::domain::DomainId>, CarbideError> {
+    let Some(domain_name) = api.runtime_config.initial_domain_name.as_deref() else {
+        tracing::warn!("No initial_domain_name configured, skipping initial network creation");
+        return Ok(None);
+    };
+
+    match domain::find_by_name(&mut *txn, domain_name)
+        .await?
+        .as_slice()
+    {
+        [domain] => Ok(Some(domain.id)),
+        [] => {
+            tracing::warn!(
+                domain_name,
+                "Configured initial_domain_name matches no domain, \
+                 skipping initial network creation",
+            );
+            Ok(None)
+        }
+        matches => {
+            // `domains.name` carries no UNIQUE constraint, so duplicates are
+            // possible; parenting segments to an arbitrary one of them would be
+            // worse than seeding nothing.
+            tracing::warn!(
+                domain_name,
+                matching_domain_count = matches.len(),
+                "Multiple domains share the configured initial_domain_name, \
+                 skipping initial network creation",
+            );
+            Ok(None)
+        }
+    }
 }
 
 pub async fn create_initial_vpcs(
