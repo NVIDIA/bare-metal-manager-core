@@ -117,9 +117,30 @@ use crate::explored_endpoint_index::ExploredEndpointIndex;
 ///
 /// Host is the compatibility default for existing `host_nics` entries, so
 /// those entries remain scannable even when they look like data interfaces.
-/// DPU BMC interfaces remain scannable too.
-fn should_skip_expected_interface_redfish_scan(interface: &ExpectedHostNic) -> bool {
-    interface.role == model::expected_machine::ExpectedInterfaceRole::DpuOs
+/// DPU BMC interfaces remain scannable too. A top-level BMC MAC is an
+/// ExpectedMachine identity, so it wins over a historical DPU OS declaration
+/// that reused the same address on any row.
+fn should_skip_expected_interface_redfish_scan(
+    interface: &ExpectedHostNic,
+    expected_host_bmc_macs: &HashSet<MacAddress>,
+) -> bool {
+    !expected_host_bmc_macs.contains(&interface.mac_address)
+        && interface.role == model::expected_machine::ExpectedInterfaceRole::DpuOs
+}
+
+/// Return whether a HostInband row can be treated as a Redfish endpoint.
+///
+/// Host data interfaces also DHCP on HostInband, so only BMC rows are normally
+/// eligible. The ExpectedMachine BMC identity is the compatibility exception:
+/// a historical DPU OS declaration may have left its anonymous row typed
+/// `Data`, and successful exploration will reconcile that row back to `Bmc`.
+fn should_scan_host_inband_interface_for_redfish(
+    interface: &MachineInterfaceSnapshot,
+    expected_host_bmc_macs: &HashSet<MacAddress>,
+) -> bool {
+    interface.interface_type == InterfaceType::Bmc
+        || (interface.machine_id.is_none()
+            && expected_host_bmc_macs.contains(&interface.mac_address))
 }
 
 pub fn new_bmc_explorer(
@@ -2006,12 +2027,11 @@ impl SiteExplorer {
             .collect();
 
         // Record Expected Machine metrics and apply configured address
-        // policies. Host, DPU OS, and DPU BMC declarations all use
-        // `try_apply_expected_interface`; their roles only determine the row's
-        // interface type and primary setting. Fixed addresses create rows when
-        // needed, while Retained changes a matching DHCP address to `Static`.
-        // The database helpers are idempotent, so steady-state passes do not
-        // change rows.
+        // policies. Every role uses `try_apply_expected_interface`; its role
+        // only determines the row's interface type and primary setting. Fixed
+        // addresses create rows when needed, while Retained changes a matching
+        // DHCP address to `Static`. The database helpers are idempotent, so
+        // steady-state passes do not change rows.
         let preallocate_start = Instant::now();
         for expected_machine in &expected_machines {
             let device_type = expected_machine
@@ -2025,27 +2045,23 @@ impl SiteExplorer {
                 device_type,
             );
 
-            if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
-                try_preallocate_one(
-                    &self.database_connection,
-                    expected_machine.bmc_mac_address,
-                    bmc_ip,
-                    InterfaceType::Bmc,
-                    "expected_machine BMC",
-                    self.config.retained_boot_interface_window,
-                )
-                .await;
-            } else if expected_machine
+            // Compatibility columns may be the only Host BMC configuration on
+            // rows created before the nested role existed. Resolve that one
+            // declaration in memory, then skip any stored entry at the BMC
+            // identity so Site Explorer applies its policy exactly once.
+            let host_bmc = expected_machine.effective_host_bmc();
+            try_apply_expected_interface(
+                &self.database_connection,
+                &host_bmc,
+                self.config.retained_boot_interface_window,
+            )
+            .await;
+            for nic in expected_machine
                 .data
-                .bmc_ip_allocation
-                .retains_dynamic_ip(false)
+                .host_nics
+                .iter()
+                .filter(|interface| interface.mac_address != expected_machine.bmc_mac_address)
             {
-                // No operator-specified BMC IP, but the host's bmc_ip_allocation
-                // retains its auto-allocated address: pin the BMC interface's
-                // DHCP lease as Static so it survives lease expiry.
-                try_retain_bmc(&self.database_connection, expected_machine.bmc_mac_address).await;
-            }
-            for nic in &expected_machine.data.host_nics {
                 try_apply_expected_interface(
                     &self.database_connection,
                     nic,
@@ -2115,17 +2131,24 @@ impl SiteExplorer {
         );
 
         let expected_count = expected_machines.len();
+        let expected_host_bmc_macs = expected_machines
+            .iter()
+            .map(|machine| machine.bmc_mac_address)
+            .collect::<HashSet<_>>();
         let expected_non_redfish_interface_macs = expected_machines
             .iter()
             .flat_map(|machine| &machine.data.host_nics)
-            .filter(|interface| should_skip_expected_interface_redfish_scan(interface))
+            .filter(|interface| {
+                should_skip_expected_interface_redfish_scan(interface, &expected_host_bmc_macs)
+            })
             .map(|interface| interface.mac_address)
             .collect::<HashSet<_>>();
 
         // Tenant and Admin segments are never Redfish discovery networks. The
-        // Underlay may contain DPU OS data interfaces, so keep only explicitly
-        // declared DPU OS MACs out of the scan. Host remains the compatibility
-        // default for legacy entries, and DPU BMC interfaces remain eligible.
+        // Underlay may contain DPU OS data interfaces, so keep explicit DPU OS
+        // MACs out of the scan unless that MAC is an ExpectedMachine BMC
+        // identity. Host remains the compatibility default for legacy entries,
+        // and DPU BMC interfaces remain eligible.
         //
         // Load interfaces after allocation reconciliation so this iteration
         // also sees newly-created fixed reservations.
@@ -2149,9 +2172,14 @@ impl SiteExplorer {
                     && (is_bmc
                         || (iface.machine_id.is_none()
                             && !expected_non_redfish_interface_macs.contains(&iface.mac_address)));
-                // On HostInband only scan BMCs. The host in-band NIC also DHCPs here with no
-                // machine_id and is not a Redfish endpoint.
-                let host_inband = host_inband_segments.contains(&iface.segment_id) && is_bmc;
+                // Host data interfaces also DHCP on HostInband. Only scan BMC
+                // rows plus an anonymous row at an ExpectedMachine BMC identity,
+                // which covers historical rows that were left typed as Data.
+                let host_inband = host_inband_segments.contains(&iface.segment_id)
+                    && should_scan_host_inband_interface_for_redfish(
+                        iface,
+                        &expected_host_bmc_macs,
+                    );
                 underlay || host_inband
             })
             .collect();
@@ -3584,8 +3612,8 @@ impl SiteExplorer {
 /// `try_preallocate_one` reconciles one generic fixed-address reservation in
 /// its own transaction.
 ///
-/// Site Explorer uses this for flat BMC, switch NVOS, and power-shelf
-/// configuration. Nested expected interfaces use
+/// Site Explorer uses this for switch NVOS and switch/power-shelf BMC
+/// configuration. ExpectedMachine interfaces use
 /// [`try_apply_expected_interface`] because their role and segment guard also
 /// need to be applied. Database operations are idempotent, and a failure is
 /// logged without stopping the wider reconciliation pass.
@@ -3657,46 +3685,8 @@ pub async fn try_preallocate_one(
     }
 }
 
-/// Pin a BMC's auto-allocated (DHCP) address as `Static` so DHCP lease expiry
-/// can't reap it, for BMCs whose `bmc_ip_allocation` retains a dynamic IP and
-/// that have no operator-specified `bmc_ip_address`. Mirrors
-/// [`try_preallocate_one`]: own txn from the pool, warn-and-continue on error so
-/// a single failure never fails the whole reconcile pass. Idempotent on the
-/// api-db side -- a no-op once the address is already `Static`.
-pub async fn try_retain_bmc(pool: &PgPool, mac: MacAddress) {
-    let mut txn = match db::Transaction::begin(pool).await {
-        Ok(t) => t,
-        Err(error) => {
-            tracing::warn!(
-                %error,
-                bmc_mac_address = %mac,
-                "Site-explorer BMC retain: txn_begin failed"
-            );
-            return;
-        }
-    };
-    match db::machine_interface::retain_bmc_address_by_mac(txn.as_pgconn(), mac).await {
-        Ok(()) => {
-            if let Err(error) = txn.commit().await {
-                tracing::warn!(
-                    %error,
-                    bmc_mac_address = %mac,
-                    "Site-explorer BMC retain: commit failed"
-                );
-            }
-        }
-        Err(error) => {
-            tracing::warn!(
-                %error,
-                bmc_mac_address = %mac,
-                "Site-explorer BMC retain skipped"
-            );
-        }
-    }
-}
-
-/// `try_apply_expected_interface` applies the allocation policy for one nested
-/// expected interface.
+/// `try_apply_expected_interface` applies the allocation policy for one
+/// configured or compatibility-derived expected interface.
 ///
 /// Every role follows this same policy path. Fixed reservations are
 /// materialized while expected configuration is reconciled. Retained follows
@@ -4285,32 +4275,97 @@ mod tests {
     /// Only an explicit DPU OS role suppresses Redfish scanning.
     ///
     /// Host remains eligible because it is the default for legacy entries
-    /// that did not declare an interface role.
+    /// that did not declare an interface role. The ExpectedMachine BMC key
+    /// takes precedence over a historical conflicting DPU OS declaration.
     #[test]
     fn expected_interface_role_controls_redfish_scan_classification() {
+        let host_bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        let other_mac_address = "AA:BB:CC:DD:EE:FE".parse().unwrap();
+        let expected_host_bmc_macs = HashSet::from([host_bmc_mac_address]);
         check_values(
             [
                 Check {
                     scenario: "legacy host entry",
-                    input: ExpectedInterfaceRole::Host,
+                    input: (ExpectedInterfaceRole::Host, other_mac_address),
                     expect: false,
                 },
                 Check {
                     scenario: "DPU OS interface",
-                    input: ExpectedInterfaceRole::DpuOs,
+                    input: (ExpectedInterfaceRole::DpuOs, other_mac_address),
                     expect: true,
                 },
                 Check {
                     scenario: "DPU BMC interface",
-                    input: ExpectedInterfaceRole::DpuBmc,
+                    input: (ExpectedInterfaceRole::DpuBmc, other_mac_address),
+                    expect: false,
+                },
+                Check {
+                    scenario: "Host BMC interface",
+                    input: (ExpectedInterfaceRole::HostBmc, host_bmc_mac_address),
+                    expect: false,
+                },
+                Check {
+                    scenario: "historical DPU OS declaration at any ExpectedMachine BMC identity",
+                    input: (ExpectedInterfaceRole::DpuOs, host_bmc_mac_address),
                     expect: false,
                 },
             ],
-            |role| {
-                should_skip_expected_interface_redfish_scan(&ExpectedHostNic {
-                    role,
-                    ..Default::default()
-                })
+            |(role, mac_address)| {
+                should_skip_expected_interface_redfish_scan(
+                    &ExpectedHostNic {
+                        mac_address,
+                        role,
+                        ..Default::default()
+                    },
+                    &expected_host_bmc_macs,
+                )
+            },
+        );
+    }
+
+    /// HostInband only scans BMC rows, except for the anonymous compatibility
+    /// row at an ExpectedMachine's top-level BMC identity.
+    #[test]
+    fn host_inband_redfish_scan_allows_historical_bmc_identity() {
+        let host_bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        let other_mac_address = "AA:BB:CC:DD:EE:FE".parse().unwrap();
+        let expected_host_bmc_macs = HashSet::from([host_bmc_mac_address]);
+
+        check_values(
+            [
+                Check {
+                    scenario: "BMC row",
+                    input: (InterfaceType::Bmc, other_mac_address, false),
+                    expect: true,
+                },
+                Check {
+                    scenario: "anonymous historical Data row at the Host BMC identity",
+                    input: (InterfaceType::Data, host_bmc_mac_address, false),
+                    expect: true,
+                },
+                Check {
+                    scenario: "anonymous host Data row",
+                    input: (InterfaceType::Data, other_mac_address, false),
+                    expect: false,
+                },
+                Check {
+                    scenario: "associated Data row at the Host BMC identity",
+                    input: (InterfaceType::Data, host_bmc_mac_address, true),
+                    expect: false,
+                },
+            ],
+            |(interface_type, mac_address, associated)| {
+                let mut interface = MachineInterfaceSnapshot::mock_with_mac(mac_address);
+                interface.interface_type = interface_type;
+                interface.machine_id = associated.then(|| {
+                    carbide_uuid::machine::MachineId::new(
+                        carbide_uuid::machine::MachineIdSource::Tpm,
+                        [0; 32],
+                        MachineType::Host,
+                    )
+                });
+
+                should_scan_host_inband_interface_for_redfish(&interface, &expected_host_bmc_macs)
             },
         );
     }

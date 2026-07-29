@@ -2867,8 +2867,11 @@ func (DpuMode) EnumDescriptor() ([]byte, []int) {
 //   - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
 //     (never expires).
 //
-// Unset and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` both mean "use the default"
-// (AUTO), which preserves behavior for old clients that don't send the field.
+// On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
+// single and batch update, omission preserves the effective Host BMC policy,
+// while explicit `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` resets it to AUTO. On
+// replace-all, omission resets a legacy-only row to AUTO but preserves an
+// existing nested HostBmc policy that an older client cannot send.
 type BmcIpAllocationType int32
 
 const (
@@ -4500,9 +4503,9 @@ func (OperatingSystemType) EnumDescriptor() ([]byte, []int) {
 //
 // On create, missing and `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` mean Host. On
 // update, omission preserves the stored role, while explicit
-// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. Host BMC identity
-// remains on `ExpectedMachine.bmc_mac_address`. NVIDIA/infra-controller#4103
-// tracks adding its network settings to this same interface model.
+// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. A Host BMC entry
+// configures network allocation, while its identity remains on
+// `ExpectedMachine.bmc_mac_address`.
 type ExpectedInterfaceRole int32
 
 const (
@@ -4514,6 +4517,8 @@ const (
 	ExpectedInterfaceRole_EXPECTED_INTERFACE_ROLE_DPU_OS ExpectedInterfaceRole = 2
 	// DPU Redfish/BMC interface. Never primary.
 	ExpectedInterfaceRole_EXPECTED_INTERFACE_ROLE_DPU_BMC ExpectedInterfaceRole = 3
+	// Host Redfish/BMC interface. Never primary.
+	ExpectedInterfaceRole_EXPECTED_INTERFACE_ROLE_HOST_BMC ExpectedInterfaceRole = 4
 )
 
 // Enum value maps for ExpectedInterfaceRole.
@@ -4523,12 +4528,14 @@ var (
 		1: "EXPECTED_INTERFACE_ROLE_HOST",
 		2: "EXPECTED_INTERFACE_ROLE_DPU_OS",
 		3: "EXPECTED_INTERFACE_ROLE_DPU_BMC",
+		4: "EXPECTED_INTERFACE_ROLE_HOST_BMC",
 	}
 	ExpectedInterfaceRole_value = map[string]int32{
 		"EXPECTED_INTERFACE_ROLE_UNSPECIFIED": 0,
 		"EXPECTED_INTERFACE_ROLE_HOST":        1,
 		"EXPECTED_INTERFACE_ROLE_DPU_OS":      2,
 		"EXPECTED_INTERFACE_ROLE_DPU_BMC":     3,
+		"EXPECTED_INTERFACE_ROLE_HOST_BMC":    4,
 	}
 )
 
@@ -4560,20 +4567,26 @@ func (ExpectedInterfaceRole) EnumDescriptor() ([]byte, []int) {
 }
 
 // Controls how an expected interface receives and retains its IP address.
-// Missing and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` preserve legacy
-// behavior: `fixed_ip` implies `FIXED`, while its absence implies `DYNAMIC`.
+// On create, omission and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` use
+// legacy inference: `fixed_ip` implies `FIXED`; without one, Host BMC implies
+// `RETAINED` and every other role implies `DYNAMIC`. On single and batch update,
+// omission preserves a matching stored policy while `fixed_ip` presence is
+// unchanged; explicit `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` resets to
+// inference. New interfaces use create behavior.
 type ExpectedInterfaceIpAllocation int32
 
 const (
-	// Infer Fixed or Dynamic from whether `fixed_ip` is configured. For a legacy
-	// Host declaration, this does not opt into the fixed-address segment guard.
+	// Infer Fixed from `fixed_ip`. Without one, infer Retained for Host BMC and
+	// Dynamic for every other role. For a legacy Host declaration, this does not
+	// opt into the fixed-address segment guard.
 	ExpectedInterfaceIpAllocation_EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED ExpectedInterfaceIpAllocation = 0
 	// Use an expiring DHCP lease. The segment guard must match the relay's
 	// selected segment when configured.
 	ExpectedInterfaceIpAllocation_EXPECTED_INTERFACE_IP_ALLOCATION_DYNAMIC ExpectedInterfaceIpAllocation = 1
-	// Reserve `fixed_ip`. Explicit Fixed, or a DPU role that infers Fixed,
-	// requires a configured managed prefix to contain the address. That prefix
-	// selects the segment, and the segment guard must match when configured.
+	// Reserve `fixed_ip`. Explicit Fixed, a DPU role that infers Fixed, or an
+	// inferred Host BMC policy with a segment guard requires a configured
+	// managed prefix to contain the address. That prefix selects the segment,
+	// and the segment guard must match when configured.
 	ExpectedInterfaceIpAllocation_EXPECTED_INTERFACE_IP_ALLOCATION_FIXED ExpectedInterfaceIpAllocation = 2
 	// Allocate through DHCP, then make the address Static for this interface
 	// row's lifetime. It is not saved in ExpectedMachine for re-ingestion. The
@@ -35432,8 +35445,8 @@ type ExpectedHostNic struct {
 	// At most one Host interface per `ExpectedMachine` may set it to true; the
 	// other Host interfaces then become non-primary. False remains accepted for
 	// compatibility but does not replace that machine-wide selection. DPU OS
-	// interfaces are primary data interfaces and DPU BMC interfaces are
-	// non-primary; those roles must omit this field.
+	// interfaces are primary data interfaces, while DPU BMC and Host BMC
+	// interfaces are non-primary.
 	Primary *bool `protobuf:"varint,6,opt,name=primary,proto3,oneof" json:"primary,omitempty"`
 	// Optional guard for this interface's network segment type. An explicit
 	// allocation policy or DPU role applies the guard to DHCP-selected segments
@@ -35443,19 +35456,22 @@ type ExpectedHostNic struct {
 	// On update, omission clears this guard.
 	NetworkSegmentType *NetworkSegmentType `protobuf:"varint,7,opt,name=network_segment_type,json=networkSegmentType,proto3,enum=forge.NetworkSegmentType,oneof" json:"network_segment_type,omitempty"`
 	// Machine endpoint that owns this interface. The role selects interface type
-	// and primary behavior only; Host, DPU OS, and DPU BMC all accept the same
-	// allocation policies and optional segment guard. On create, missing and
-	// Unspecified mean Host. On update, omission preserves the stored role while
-	// explicit Unspecified resets it to Host.
+	// and primary behavior only; every role accepts the same allocation policies
+	// and optional segment guard. On create, missing and Unspecified mean Host.
+	// On update, omission preserves the stored role while explicit Unspecified
+	// resets it to Host.
 	Role *ExpectedInterfaceRole `protobuf:"varint,8,opt,name=role,proto3,enum=forge.ExpectedInterfaceRole,oneof" json:"role,omitempty"`
-	// Optional allocation policy. On create, missing and Unspecified infer Fixed
-	// from `fixed_ip` and Dynamic otherwise. On update, omission preserves the
-	// stored policy while explicit Unspecified resets to that inference.
+	// Optional allocation policy. On create, omission and explicit Unspecified
+	// infer Fixed from `fixed_ip`. Without one, Host BMC infers Retained and every
+	// other role infers Dynamic. On single and batch update, omission preserves a
+	// matching stored policy while `fixed_ip` presence is unchanged; explicit
+	// Unspecified resets to inference. New interfaces use create behavior.
 	// Explicit Dynamic rejects `fixed_ip`. Explicit Fixed, or a DPU role that
 	// infers Fixed, requires `fixed_ip` inside a configured managed prefix. A
-	// legacy Host declaration with an omitted policy may instead fall back to
-	// `static-assignments` and does not turn `network_segment_type` into a
-	// fixed-address guard.
+	// legacy Host declaration, or an inferred Host BMC Fixed policy that omits
+	// `network_segment_type`, may instead fall back to `static-assignments`; only
+	// the legacy Host case leaves `network_segment_type` as a first-DHCP
+	// selection hint.
 	IpAllocation  *ExpectedInterfaceIpAllocation `protobuf:"varint,9,opt,name=ip_allocation,json=ipAllocation,proto3,enum=forge.ExpectedInterfaceIpAllocation,oneof" json:"ip_allocation,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -35614,7 +35630,10 @@ type ExpectedMachine struct {
 	Metadata *Metadata `protobuf:"bytes,6,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	SkuId    *string   `protobuf:"bytes,7,opt,name=sku_id,json=skuId,proto3,oneof" json:"sku_id,omitempty"`
 	// Unique identifier for the expected machine. When omitted, server generates one.
-	Id                              *UUID              `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
+	Id *UUID `protobuf:"bytes,8,opt,name=id,proto3,oneof" json:"id,omitempty"`
+	// Expected interfaces. Top-level BMC fields preserve legacy-only storage
+	// and remain overrides for the effective Host BMC; a Host BMC entry appears
+	// here once it is configured through the nested interface model.
 	HostNics                        []*ExpectedHostNic `protobuf:"bytes,9,rep,name=host_nics,json=hostNics,proto3" json:"host_nics,omitempty"`
 	RackId                          *RackId            `protobuf:"bytes,10,opt,name=rack_id,json=rackId,proto3,oneof" json:"rack_id,omitempty"`
 	DefaultPauseIngestionAndPoweron *bool              `protobuf:"varint,11,opt,name=default_pause_ingestion_and_poweron,json=defaultPauseIngestionAndPoweron,proto3,oneof" json:"default_pause_ingestion_and_poweron,omitempty"`
@@ -35624,7 +35643,10 @@ type ExpectedMachine struct {
 	DpfEnabled   bool  `protobuf:"varint,12,opt,name=dpf_enabled,json=dpfEnabled,proto3" json:"dpf_enabled,omitempty"`
 	IsDpfEnabled *bool `protobuf:"varint,13,opt,name=is_dpf_enabled,json=isDpfEnabled,proto3,oneof" json:"is_dpf_enabled,omitempty"`
 	// Static BMC IP (optional). Pre-allocates a machine_interface like expected
-	// switches and power shelves; external IPs use the static-assignments segment.
+	// switches and power shelves; external IPs use the static-assignments
+	// segment. Single and batch update omission preserves the effective Host BMC
+	// setting; an explicit empty string clears it. Replace-all keeps its earlier
+	// replacement semantics for legacy-only rows.
 	BmcIpAddress *string `protobuf:"bytes,14,opt,name=bmc_ip_address,json=bmcIpAddress,proto3,oneof" json:"bmc_ip_address,omitempty"`
 	// When true, site-explorer skips BMC password rotation and stores the
 	// factory-default credentials in Vault as-is.
@@ -35637,8 +35659,18 @@ type ExpectedMachine struct {
 	// existing DB value is preserved via COALESCE.
 	HostLifecycleProfile *HostLifecycleProfile `protobuf:"bytes,17,opt,name=host_lifecycle_profile,json=hostLifecycleProfile,proto3,oneof" json:"host_lifecycle_profile,omitempty"`
 	// Per-host control over how this BMC's IP is assigned and retained. See
-	// `BmcIpAllocationType` above. Unset means "use the default" (AUTO).
+	// `BmcIpAllocationType` above. On create, omission and explicit
+	// `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On single and batch update,
+	// omission preserves the effective Host BMC policy, while explicit
+	// Unspecified resets it to AUTO. On replace-all, omission resets a
+	// legacy-only row to AUTO but preserves an existing nested HostBmc policy.
 	BmcIpAllocation *BmcIpAllocationType `protobuf:"varint,18,opt,name=bmc_ip_allocation,json=bmcIpAllocation,proto3,enum=forge.BmcIpAllocationType,oneof" json:"bmc_ip_allocation,omitempty"`
+	// Marks host_nics as a complete replacement. This is needed because a
+	// repeated protobuf field cannot distinguish an omitted list from an empty
+	// list. New update clients set this when they intentionally supply
+	// host_nics, including `[]`; older clients leave it false so an unknown
+	// nested HostBmc is not removed by a read-modify-write.
+	ReplaceHostNics bool `protobuf:"varint,19,opt,name=replace_host_nics,json=replaceHostNics,proto3" json:"replace_host_nics,omitempty"`
 	// WARNING: Following fields are not present in Core, but added directly in REST snapshot
 	Name            *string `protobuf:"bytes,21,opt,name=name,proto3,oneof" json:"name,omitempty"`
 	Manufacturer    *string `protobuf:"bytes,22,opt,name=manufacturer,proto3,oneof" json:"manufacturer,omitempty"`
@@ -35807,6 +35839,13 @@ func (x *ExpectedMachine) GetBmcIpAllocation() BmcIpAllocationType {
 		return *x.BmcIpAllocation
 	}
 	return BmcIpAllocationType_BMC_IP_ALLOCATION_TYPE_UNSPECIFIED
+}
+
+func (x *ExpectedMachine) GetReplaceHostNics() bool {
+	if x != nil {
+		return x.ReplaceHostNics
+	}
+	return false
 }
 
 func (x *ExpectedMachine) GetName() string {
@@ -65037,7 +65076,7 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x0e_ip_allocation\"[\n" +
 	"\x14HostLifecycleProfile\x12.\n" +
 	"\x10disable_lockdown\x18\x01 \x01(\bH\x00R\x0fdisableLockdown\x88\x01\x01B\x13\n" +
-	"\x11_disable_lockdown\"\xe2\v\n" +
+	"\x11_disable_lockdown\"\x8e\f\n" +
 	"\x0fExpectedMachine\x12&\n" +
 	"\x0fbmc_mac_address\x18\x01 \x01(\tR\rbmcMacAddress\x12!\n" +
 	"\fbmc_username\x18\x02 \x01(\tR\vbmcUsername\x12!\n" +
@@ -65058,7 +65097,8 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x16bmc_retain_credentials\x18\x0f \x01(\bH\x06R\x14bmcRetainCredentials\x88\x01\x01\x12.\n" +
 	"\bdpu_mode\x18\x10 \x01(\x0e2\x0e.forge.DpuModeH\aR\adpuMode\x88\x01\x01\x12V\n" +
 	"\x16host_lifecycle_profile\x18\x11 \x01(\v2\x1b.forge.HostLifecycleProfileH\bR\x14hostLifecycleProfile\x88\x01\x01\x12K\n" +
-	"\x11bmc_ip_allocation\x18\x12 \x01(\x0e2\x1a.forge.BmcIpAllocationTypeH\tR\x0fbmcIpAllocation\x88\x01\x01\x12\x17\n" +
+	"\x11bmc_ip_allocation\x18\x12 \x01(\x0e2\x1a.forge.BmcIpAllocationTypeH\tR\x0fbmcIpAllocation\x88\x01\x01\x12*\n" +
+	"\x11replace_host_nics\x18\x13 \x01(\bR\x0freplaceHostNics\x12\x17\n" +
 	"\x04name\x18\x15 \x01(\tH\n" +
 	"R\x04name\x88\x01\x01\x12'\n" +
 	"\fmanufacturer\x18\x16 \x01(\tH\vR\fmanufacturer\x88\x01\x01\x12\x19\n" +
@@ -67680,12 +67720,13 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x13OperatingSystemType\x12\x17\n" +
 	"\x13OS_TYPE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fOS_TYPE_IPXE\x10\x01\x12\x1a\n" +
-	"\x16OS_TYPE_TEMPLATED_IPXE\x10\x02*\xab\x01\n" +
+	"\x16OS_TYPE_TEMPLATED_IPXE\x10\x02*\xd1\x01\n" +
 	"\x15ExpectedInterfaceRole\x12'\n" +
 	"#EXPECTED_INTERFACE_ROLE_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cEXPECTED_INTERFACE_ROLE_HOST\x10\x01\x12\"\n" +
 	"\x1eEXPECTED_INTERFACE_ROLE_DPU_OS\x10\x02\x12#\n" +
-	"\x1fEXPECTED_INTERFACE_ROLE_DPU_BMC\x10\x03*\xda\x01\n" +
+	"\x1fEXPECTED_INTERFACE_ROLE_DPU_BMC\x10\x03\x12$\n" +
+	" EXPECTED_INTERFACE_ROLE_HOST_BMC\x10\x04*\xda\x01\n" +
 	"\x1dExpectedInterfaceIpAllocation\x120\n" +
 	",EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED\x10\x00\x12,\n" +
 	"(EXPECTED_INTERFACE_IP_ALLOCATION_DYNAMIC\x10\x01\x12*\n" +

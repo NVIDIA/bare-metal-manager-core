@@ -515,6 +515,7 @@ impl ApiClient {
                 sku_id: None,
                 id: None,
                 host_nics,
+                replace_host_nics: false,
                 rack_id,
                 default_pause_ingestion_and_poweron: None,
                 #[allow(deprecated)]

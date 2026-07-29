@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1573,6 +1574,196 @@ func TestExpectedMachineSQLDAO_UpdateMultiple_MacSwap(t *testing.T) {
 	updatedEM2, err := emsd.Get(ctx, nil, em2.ID, nil, false)
 	assert.NoError(t, err)
 	assert.Equal(t, macAddress1, updatedEM2.BmcMacAddress, "em2 should now have em1's original MAC address")
+}
+
+func TestExpectedMachineSQLDAO_LockForUpdateSerializesOverlappingBatches(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInitDB(t)
+	defer dbSession.Close()
+	testExpectedMachineSetupSchema(t, dbSession)
+
+	user := TestBuildUser(t, dbSession, "test-user", "test-org", []string{"admin"})
+	ip := TestBuildInfrastructureProvider(t, dbSession, "test-provider", "test-org", user)
+	site := TestBuildSite(t, dbSession, ip, "test-site", user)
+	emsd := NewExpectedMachineDAO(dbSession)
+
+	first, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:   uuid.New(),
+		SiteID:              site.ID,
+		BmcMacAddress:       "AA:BB:CC:DD:EE:11",
+		ChassisSerialNumber: "CHASSIS-LOCK-001",
+		BmcIpAddress:        cutil.GetPtr("192.0.2.11"),
+		CreatedBy:           user.ID,
+	})
+	require.NoError(t, err)
+	second, err := emsd.Create(ctx, nil, ExpectedMachineCreateInput{
+		ExpectedMachineID:   uuid.New(),
+		SiteID:              site.ID,
+		BmcMacAddress:       "AA:BB:CC:DD:EE:12",
+		ChassisSerialNumber: "CHASSIS-LOCK-002",
+		BmcIpAddress:        cutil.GetPtr("192.0.2.12"),
+		CreatedBy:           user.ID,
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	firstBatchName := "first-batch"
+	secondBatchName := "second-batch"
+	firstLocked := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- db.WithTx(ctx, dbSession, func(tx *db.Tx) error {
+			if err := emsd.LockForUpdate(ctx, tx, []uuid.UUID{second.ID, first.ID}); err != nil {
+				return err
+			}
+			close(firstLocked)
+			select {
+			case <-releaseFirst:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			if _, err := emsd.Clear(ctx, tx, ExpectedMachineClearInput{
+				ExpectedMachineID: second.ID,
+				BmcIpAddress:      true,
+			}); err != nil {
+				return err
+			}
+			_, err := emsd.UpdateMultiple(ctx, tx, []ExpectedMachineUpdateInput{
+				{ExpectedMachineID: second.ID, Name: &firstBatchName},
+				{ExpectedMachineID: first.ID, Name: &firstBatchName},
+			})
+			return err
+		})
+	}()
+
+	select {
+	case <-firstLocked:
+	case err := <-firstDone:
+		t.Fatalf("first transaction completed before acquiring its row locks: %v", err)
+	case <-ctx.Done():
+		firstErr := <-firstDone
+		t.Fatalf("timed out waiting for the first transaction to acquire its row locks: %v (transaction: %v)", ctx.Err(), firstErr)
+	}
+
+	secondStarted := make(chan struct{})
+	secondLockAcquired := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- db.WithTx(ctx, dbSession, func(tx *db.Tx) error {
+			close(secondStarted)
+			if err := emsd.LockForUpdate(ctx, tx, []uuid.UUID{first.ID, second.ID}); err != nil {
+				return err
+			}
+			close(secondLockAcquired)
+			if _, err := emsd.Clear(ctx, tx, ExpectedMachineClearInput{
+				ExpectedMachineID: first.ID,
+				BmcIpAddress:      true,
+			}); err != nil {
+				return err
+			}
+			_, err := emsd.UpdateMultiple(ctx, tx, []ExpectedMachineUpdateInput{
+				{ExpectedMachineID: first.ID, Name: &secondBatchName},
+				{ExpectedMachineID: second.ID, Name: &secondBatchName},
+			})
+			return err
+		})
+	}()
+	select {
+	case <-secondStarted:
+	case err := <-secondDone:
+		close(releaseFirst)
+		firstErr := <-firstDone
+		t.Fatalf("second transaction completed before attempting its canonical lock: %v (first transaction: %v)", err, firstErr)
+	case <-ctx.Done():
+		close(releaseFirst)
+		firstErr := <-firstDone
+		secondErr := <-secondDone
+		t.Fatalf(
+			"timed out waiting for the second transaction to attempt its canonical lock: %v (first transaction: %v, second transaction: %v)",
+			ctx.Err(),
+			firstErr,
+			secondErr,
+		)
+	}
+
+	// The second batch must wait at the full-row lock pass. If that lock returns
+	// before the first transaction completes, the partial-lock deadlock is
+	// possible again.
+	var secondErr error
+	secondFinishedEarly := false
+	secondLockAcquiredEarly := false
+	select {
+	case <-secondLockAcquired:
+		secondLockAcquiredEarly = true
+	case secondErr = <-secondDone:
+		secondFinishedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseFirst)
+
+	require.NoError(t, <-firstDone)
+	if !secondFinishedEarly {
+		secondErr = <-secondDone
+	}
+	require.False(t, secondLockAcquiredEarly, "the competing batch should wait at the canonical lock pass")
+	require.False(t, secondFinishedEarly, "the competing batch should wait for the first transaction")
+	require.NoError(t, secondErr)
+
+	for _, expectedMachineID := range []uuid.UUID{first.ID, second.ID} {
+		stored, err := emsd.Get(ctx, nil, expectedMachineID, nil, false)
+		require.NoError(t, err)
+		assert.Nil(t, stored.BmcIpAddress)
+		assert.Equal(t, &secondBatchName, stored.Name)
+	}
+}
+
+func TestExpectedMachineSQLDAO_LockForUpdateErrors(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testInitDB(t)
+	defer dbSession.Close()
+	testExpectedMachineSetupSchema(t, dbSession)
+
+	emsd := NewExpectedMachineDAO(dbSession)
+	missingID := uuid.New()
+	tests := []struct {
+		name            string
+		lock            func() error
+		target          error
+		messageContains string
+	}{
+		{
+			name: "transaction is required",
+			lock: func() error {
+				return emsd.LockForUpdate(ctx, nil, []uuid.UUID{missingID})
+			},
+			messageContains: "transaction is required",
+		},
+		{
+			name: "missing row keeps typed error",
+			lock: func() error {
+				return db.WithTx(ctx, dbSession, func(tx *db.Tx) error {
+					return emsd.LockForUpdate(ctx, tx, []uuid.UUID{missingID})
+				})
+			},
+			target: db.ErrDoesNotExist,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.lock()
+			require.Error(t, err)
+			if test.target != nil {
+				require.ErrorIs(t, err, test.target)
+			}
+			if test.messageContains != "" {
+				require.ErrorContains(t, err, test.messageContains)
+			}
+		})
+	}
 }
 
 func TestExpectedMachineSQLDAO_UpdateMultiple(t *testing.T) {

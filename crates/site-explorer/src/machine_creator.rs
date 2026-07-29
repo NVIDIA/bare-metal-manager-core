@@ -1185,7 +1185,8 @@ mod tests {
         let host_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
         let dpu_os_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
         let dpu_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x03]);
-        let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
+        let host_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
+        let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x05]);
         let interface = |mac_address, role| ExpectedHostNic {
             mac_address,
             role,
@@ -1200,6 +1201,7 @@ mod tests {
                 interface(host_mac, ExpectedInterfaceRole::Host),
                 interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
                 interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+                interface(host_bmc_mac, ExpectedInterfaceRole::HostBmc),
             ])
         };
         let excluded_report = |chassis_id: &str| EndpointExplorationReport {
@@ -1241,6 +1243,7 @@ mod tests {
                         Some(machine_data(vec![
                             interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
                             interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+                            interface(host_bmc_mac, ExpectedInterfaceRole::HostBmc),
                         ])),
                     ),
                     expect: vec![],
