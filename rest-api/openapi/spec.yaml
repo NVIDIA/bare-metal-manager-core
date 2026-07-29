@@ -23190,7 +23190,9 @@ components:
             - string
             - 'null'
           pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
-          description: MAC address of the Expected Machine's BMC (Baseboard Management Controller)
+          deprecated: true
+          description: |-
+            The Expected Machine's BMC MAC address is immutable after creation. Omit this field, or provide another case/separator spelling of the current MAC as a compatibility no-op.
         defaultBmcUsername:
           type:
             - string
