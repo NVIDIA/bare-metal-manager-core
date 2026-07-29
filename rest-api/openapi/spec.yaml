@@ -6686,6 +6686,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Create an Instance for Tenant.
 
@@ -6867,6 +6869,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Batch create multiple Instances for Tenant with NVLink domain-aware machine allocation.
 
@@ -7267,6 +7271,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |-
         Update an Instance by ID
 
@@ -18401,7 +18407,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18437,7 +18443,7 @@ components:
           description: 'User-defined key-value labels'
         interfaces:
           type: array
-          description: 'At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed. Only one of the Subnets or VPC Prefixes can be attached over Physical interface. If only one Subnet is specified, then it will be attached over physical interface regardless of the value of isPhysical. In case of VPC Prefix, isPhysical will always be true. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Only one network can be attached over a physical interface. If only one Subnet is specified, it will be attached over a physical interface regardless of `isPhysical`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18550,7 +18556,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18587,7 +18593,7 @@ components:
           description: 'Key-value objects to be applied to all instances (shared across all instances)'
         interfaces:
           type: array
-          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed, only one of the Subnets or VPC Prefixes can be attached over Physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Each batch member is resolved independently and may use a different prefix. Only one network can be attached over a physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18763,13 +18769,13 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
         interfaces:
           type: array
-          description: 'Update Interfaces of the Instance. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Complete updated Interface configuration for the Instance. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18840,6 +18846,18 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
+        - id: 4c53d2f4-2a51-4ac5-90c9-87ad215c5091
+          instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
+          vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
+          macAddress: 2F-FC-34-AE-9C-2D
+          ipAddresses:
+            - 200.32.11.196
+          status: Ready
+          created: '2019-08-24T14:15:22Z'
+          updated: '2019-08-24T14:15:22Z'
         - id: 45d89d4f-2dde-4fc5-a20d-9f96faa4e9fa
           instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
           vpcPrefixId: d89d8cc6-d66e-4bf2-bf62-40238837cc90
@@ -18868,7 +18886,7 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
-      description: Associates an Instance with a Subnet
+      description: Associates an Instance with a Subnet or VPC-backed network
       properties:
         id:
           type: string
@@ -18889,11 +18907,20 @@ components:
           type:
             - string
             - 'null'
-          description: 'ID of the associated VPCPrefix'
+          description: ID of the VPC Prefix explicitly selected by the caller
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller selects a prefix
+          format: uuid
+        ipFamilies:
+          type: array
+          description: Address families requested for Controller prefix selection
+          items:
+            $ref: '#/components/schemas/IPFamily'
         isPhysical:
           type: boolean
-          description: 'IsPhysical indicates whether the Subnet is bound on a physical Interface'
+          description: Indicates whether the network is bound on a physical Interface
         device:
           type:
             - string
@@ -18923,12 +18950,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. This is only used with an explicit `vpcPrefixId` and is not valid with `subnetId` or VPC-selected interfaces. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
             - type: 'null'
-          description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
+          description: Inline interface-local routing profile options. Only valid for VPC-backed interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
           description: 'Status of the Interface'
@@ -18952,6 +18979,13 @@ components:
         - Ready
         - Deleting
         - Error
+    IPFamily:
+      title: IPFamily
+      type: string
+      description: Address family requested for a VPC-selected Interface
+      enum:
+        - IPv4
+        - IPv6
     InterfaceInlineRoutingProfile:
       title: InterfaceInlineRoutingProfile
       type: object
@@ -18973,10 +19007,14 @@ components:
         - vpcPrefixId: 000bc42b-f946-472e-83d4-ddf7e365e148
           ipAddress: 10.0.0.11
           isPhysical: true
+        - vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
       description: |-
-        Request data to create an Interface for an Instance by associating it with a Subnet or VPC Prefix.
+        Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
-        If VPC specified in request has FNN virtualization type, then all interfaces must specify VPC Prefix.
+        If the VPC specified in the request has FNN virtualization type, all interfaces must specify either `vpcPrefixId` or `vpcId`.
 
         If the VPC has Ethernet network virtualization type then all interfaces must specify Subnet.
       properties:
@@ -18988,11 +19026,23 @@ components:
           type: string
           description: 'ID of the VPC Prefix to attach to the Interface'
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller should select a prefix. `ipFamilies` must also be specified, and `ipAddress` cannot be specified.
+          format: uuid
+        ipFamilies:
+          type: array
+          minItems: 1
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          items:
+            type: string
+            enum:
+              - IPv4
         ipAddress:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. It can only be specified with an explicit `vpcPrefixId`. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
@@ -19000,7 +19050,7 @@ components:
           description: Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
         isPhysical:
           type: boolean
-          description: Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
+          description: Specifies whether this network should be attached to the Instance over a physical interface.
         device:
           type: string
           description: Name of the device to use
@@ -19014,6 +19064,29 @@ components:
           description: 'Index of the virtual function to use, must be specified if isPhysical is false'
           minimum: 0
           maximum: 15
+      oneOf:
+        - required:
+            - subnetId
+        - required:
+            - vpcPrefixId
+        - required:
+            - vpcId
+      dependentRequired:
+        vpcId:
+          - ipFamilies
+        ipFamilies:
+          - vpcId
+      dependentSchemas:
+        subnetId:
+          properties:
+            ipAddress:
+              type: 'null'
+            inlineRoutingProfile:
+              type: 'null'
+        vpcId:
+          properties:
+            ipAddress:
+              type: 'null'
     InfiniBandInterface:
       title: InfiniBandInterface
       type: object
@@ -25760,6 +25833,18 @@ components:
                 message: Error validating request data
                 data:
                   name: A value is required
+    ResourceExhaustedError:
+      description: Error response when the Controller cannot allocate a requested resource because capacity is exhausted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: VPC prefix capacity exhausted
+                data: null
     HostFirmwareConfigCoreUnavailable:
       description: Core gRPC API is unavailable, so the host firmware config request cannot be served.
       content:
