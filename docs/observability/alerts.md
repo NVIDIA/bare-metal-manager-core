@@ -104,7 +104,7 @@ These are operational SLO targets, separate from alert thresholds:
 **API availability** uses `carbide_api_grpc_server_duration_milliseconds` histogram. Compute
 error rate from the `_count` series split by gRPC status:
 
-```promql
+```text
 1 - (
   sum(rate(carbide_api_grpc_server_duration_milliseconds_count{grpc_status!="OK"}[5m]))
   /
@@ -115,7 +115,7 @@ error rate from the `_count` series split by gRPC status:
 **API latency** uses the same histogram. Extract p95 or p99 percentiles and convert to
 seconds (metric is in milliseconds, SLO target is 1 second = 1000ms):
 
-```promql
+```text
 histogram_quantile(0.95,
   sum(rate(carbide_api_grpc_server_duration_milliseconds_bucket[5m])) by (le)
 ) / 1000 < 1
@@ -172,7 +172,99 @@ The alert rules include these groups:
 | `nico-capacity` | Low IP availability |
 | `nico-health` | Hosts unhealthy, DPU metrics missing |
 
-## 5. Health alert classifications
+## 5. Per-object alerting
+
+The nico-api state controller can expose optional **per-object state metrics** for
+identifying individual stuck or failing objects, not just fleet-wide counts. While
+aggregate metrics like `carbide_machines_per_state_above_sla` tell you *how many*
+machines are stuck, per-object metrics tell you *which*.
+
+This feature is **opt-in** and exposes O(fleet) cardinality. Enable it only when your
+metrics backend can handle the volume. See [metrics.md](metrics.md#4-per-object-state-metrics-endpoint)
+for configuration and collection details.
+
+### Per-object SLA alerts
+
+These alerts identify individual objects that have exceeded their configured SLA
+for the current state. The alerts are written replica-safe using `max by (...)` to
+handle multi-replica deployments.
+
+**Stuck beyond per-object SLA (warning):**
+
+```text
+max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds)
+  > on(object_type, object_id, state, substate) group_left()
+    max by (object_type, object_id, state, substate)
+        (carbide_object_state_sla_seconds)
+```
+
+**Stuck beyond 2× SLA (critical):**
+
+```text
+max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds)
+  > on(object_type, object_id, state, substate) group_left()
+    (2 * max by (object_type, object_id, state, substate)
+        (carbide_object_state_sla_seconds))
+```
+
+These rules automatically adapt when SLA policy changes - there's no need to update
+thresholds in alert rules.
+
+### Manual intervention alerts
+
+**Objects requiring operator intervention:**
+
+```text
+max by (object_type, object_id, reason)
+    (carbide_object_manual_intervention_required == 1)
+```
+
+This alert fires for objects in terminal failed states or where the handler has
+explicitly flagged manual intervention is required. The `reason` label is a bounded
+token (not free text) identifying the failure cause.
+
+**Manual intervention ratio:**
+
+```text
+count(carbide_object_manual_intervention_required{object_type="machine"} == 1)
+  /
+count(carbide_object_state_entered_timestamp_seconds{object_type="machine"})
+```
+
+### Joining with object traits
+
+Use `carbide_object_info` to add context (rack, SKU, vendor, model) to alerts:
+
+```text
+(
+  max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds)
+    > on(object_type, object_id, state, substate) group_left()
+    max by (object_type, object_id, state, substate)
+        (carbide_object_state_sla_seconds)
+)
+  * on(object_type, object_id) group_left(rack, sku, vendor, model)
+    max by (object_type, object_id, rack, sku, vendor, model)
+        (carbide_object_info)
+```
+
+### Multi-replica considerations
+
+With `replicas > 1`, per-object series live in the memory of whichever replica
+last processed the object. A stale copy can briefly appear from a different pod
+until it ages out (within the hold period). Always aggregate away the scrape
+instance **before** joining:
+
+```text
+max by (object_type, object_id, state, substate) (...)
+```
+
+Alerts using these joins should carry a `for:` duration of at least one scrape
+interval (60-120s recommended) to handle transient disagreements during transitions.
+
+## 6. Health alert classifications
 
 NICo's health system uses classifications to indicate alert severity and operational impact.
 These appear in `carbide_hosts_health_alerts_count` labels and affect threshold calculations.
@@ -194,7 +286,7 @@ this classification should be excluded from unhealthy percentage calculations.
 For detailed troubleshooting of health alerts, see the
 [health alerts playbook](../playbooks/stuck_objects/health_alerts.md).
 
-## 6. References
+## 7. References
 
 - [NICo alerting rules](https://github.com/NVIDIA/infra-controller/blob/main/helm/observability/alerts/nico-alerts.yaml) - Prometheus-compatible rule examples
 - [Health alerts playbook](../playbooks/stuck_objects/health_alerts.md)

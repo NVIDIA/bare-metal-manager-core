@@ -18,6 +18,7 @@ metrics port for each component:
 | Component | Port | Primary metrics |
 |-----------|------|-----------------|
 | nico-api | 1080 | State lifecycle, capacity, health, API performance |
+| nico-api (per-object) | 9091 | Per-object state progress (disabled by default, high cardinality) |
 | nico-hardware-health | 9009 | Hardware telemetry, sensor readings |
 | nico-bmc-proxy | 1080 | BMC connection stats |
 | nico-dhcp | 1089 | Lease counts, request handling |
@@ -212,7 +213,129 @@ service:
       exporters: [otlphttp]
 ```
 
-## 4. Dashboards
+## 4. Per-object state metrics endpoint
+
+The nico-api state controller can expose per-object state progress metrics from a
+**dedicated listener** separate from the main `/metrics` endpoint. This feature is
+disabled by default because it produces O(fleet) cardinality - one series per object
+for each metric.
+
+While aggregate metrics like `carbide_machines_per_state_above_sla` tell you *how many*
+machines are stuck, per-object metrics tell you *which* - critical at 100k-machine scale
+for identifying individual stuck objects.
+
+### Metrics exposed
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `carbide_object_state_entered_timestamp_seconds` | gauge | Current state as join key + exact state age (`time() - value`). One series per live object. |
+| `carbide_object_state_sla_seconds` | gauge | Resolved SLA for current state. Alerts never change when SLA policy does. |
+| `carbide_object_manual_intervention_required` | gauge | Value 1 when operator action needed; `reason` is a bounded token. |
+| `carbide_object_info` | gauge | Stable traits (rack, SKU, vendor, model) for joins, similar to `kube_node_info`. |
+| `carbide_machine_dpu_info` | gauge | Host-to-DPU associations (one series per DPU). |
+| `carbide_machine_instance_info` | gauge | Machine-to-instance and tenant associations. |
+
+All metrics use labels `object_type` and `object_id`. State metrics add `state` and
+`substate` labels. These series exist only while true: transitions replace entries,
+deletions clear them immediately.
+
+### Configuration
+
+Enable via TOML configuration:
+
+```toml
+[observability.per_object_state_metrics]
+enabled = true                    # default: false
+listen_address = "[::]:9091"      # dual-stack default
+# Defaults to all supported types; also valid: network_segment, vpc_prefix,
+# spdm_attestation, ib_partition
+object_types = ["machine", "switch", "power_shelf", "rack"]
+```
+
+The `object_types` field deserializes into an enum, so a mistyped token fails config
+parsing instead of silently emitting nothing.
+
+### Helm configuration
+
+Enable via Helm values:
+
+```yaml
+service:
+  perObjectStateMetrics:
+    enabled: true
+    port: 9091
+    objectTypes:
+      - machine
+      - switch
+      - power_shelf
+      - rack
+      - network_segment
+      - vpc_prefix
+      - spdm_attestation
+      - ib_partition
+
+perObjectStateMetricsServiceMonitor:
+  enabled: true
+  interval: 60s       # slow scrape is sufficient
+  scrapeTimeout: 25s
+```
+
+This creates:
+
+- The application listener and container port
+- A dedicated Kubernetes Service (`nico-api-object-metrics`)
+- An optional ServiceMonitor with a slower scrape interval
+
+If using `configFiles.nicoApiConfig` to replace the chart's bundled configuration, that
+custom TOML must include the `[observability.per_object_state_metrics]` section explicitly.
+
+### Scrape guidance
+
+- **Interval:** 60-120 seconds is sufficient. Series change only on state transitions.
+- **Same Prometheus:** Both endpoints must be scraped into the same Prometheus instance
+  for joins to work.
+- **Multi-replica caveat:** With `replicas > 1`, aggregate away the scrape instance before
+  joining:
+
+  ```text
+  max by (object_type, object_id, state, substate) (...)
+  ```
+
+### Example queries
+
+**Objects stuck beyond their SLA:**
+
+```text
+max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds)
+  > on(object_type, object_id, state, substate) group_left()
+    max by (object_type, object_id, state, substate)
+        (carbide_object_state_sla_seconds)
+```
+
+**Objects requiring manual intervention:**
+
+```text
+max by (object_type, object_id, reason)
+    (carbide_object_manual_intervention_required == 1)
+```
+
+**Join stuck machines with rack info:**
+
+```text
+(
+  max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds{object_type="machine"})
+    > 3600
+)
+  * on(object_type, object_id) group_left(rack, sku)
+    max by (object_type, object_id, rack, sku)
+        (carbide_object_info)
+```
+
+For alerting rules using these metrics, see [alerts.md](alerts.md#5-per-object-alerting).
+
+## 5. Dashboards
 
 NICo ships three Grafana dashboards in the Helm chart at `helm/observability/dashboards/`.
 Import these JSON files into your Grafana instance or enable the Helm chart's dashboard
@@ -308,7 +431,7 @@ Each dashboard provides variables for datasource selection and metric prefix cus
 The prefix defaults to `carbide_` (NICo's current emission prefix). If your site uses
 `alt_metric_prefix`, update the dashboard variable accordingly.
 
-## 5. Troubleshooting
+## 6. Troubleshooting
 
 ### Missing metrics
 
@@ -348,7 +471,7 @@ hanging. Use `kubectl describe servicemonitor` to verify scrape configuration. I
 are slow to respond, increase scrape timeout - but keep it at or below the scrape interval
 (e.g., `scrape_interval: 30s` with `scrape_timeout: 25s`).
 
-## 6. References
+## 7. References
 
 - [NICo Helm charts](https://github.com/NVIDIA/infra-controller/tree/main/helm/charts) - ServiceMonitor configs, metrics ports
 - [NICo Grafana dashboards](https://github.com/NVIDIA/infra-controller/tree/main/helm/observability/dashboards) - JSON dashboard files
