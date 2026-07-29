@@ -958,6 +958,15 @@ impl SiteExplorer {
             create_machines_res?;
         }
 
+        let reconcile_desired_boot_interfaces_start = Instant::now();
+        self.machine_creator
+            .reconcile_desired_boot_interfaces()
+            .await?;
+        metrics.record_phase_latency(
+            "reconcile_desired_boot_interfaces",
+            reconcile_desired_boot_interfaces_start.elapsed(),
+        );
+
         // Identify and create power shelves
         let identify_power_shelves_to_ingest_start = Instant::now();
         let explored_power_shelves = self.identify_power_shelves_to_ingest().await?;

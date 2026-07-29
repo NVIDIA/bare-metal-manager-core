@@ -23,6 +23,7 @@ use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 use crate::bmc_info::BmcInfo;
@@ -38,6 +39,9 @@ use crate::machine::{
     Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineConfig,
     MachineInterfaceSnapshot, MachineLastRebootRequested, MachineMaintenanceRequest, MachineStatus,
     ManagedHostState, ReprovisionRequest, UpgradeDecision,
+};
+use crate::machine_boot_interface::{
+    MachineBootInterfaceTarget, canonical_redfish_boot_interface_id,
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
@@ -100,6 +104,9 @@ pub struct MachineSnapshotPgJson {
     pub history: Vec<StateHistoryRecord>,
     pub version: String,
     pub hw_sku: Option<String>,
+    pub desired_boot_interface_mac: Option<MacAddress>,
+    pub desired_boot_interface_id: Option<String>,
+    pub desired_boot_interface_version: Option<String>,
     pub hw_sku_status: Option<SkuStatus>,
     #[serde(default)] // Power options are valid only for host, not for DPUs.
     pub power_options: Option<PowerOptions>,
@@ -115,6 +122,51 @@ pub struct MachineSnapshotPgJson {
     pub slot_number: Option<i32>,
     #[serde(default)]
     pub tray_index: Option<i32>,
+}
+
+fn desired_boot_interface_decode_error(message: impl Into<String>) -> sqlx::Error {
+    sqlx::Error::ColumnDecode {
+        index: "desired_boot_interface_(mac,id,version)".to_string(),
+        source: Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            message.into(),
+        )),
+    }
+}
+
+fn decode_desired_boot_interface(
+    mac_address: Option<MacAddress>,
+    interface_id: Option<String>,
+    version: Option<String>,
+) -> sqlx::Result<Option<Versioned<MachineBootInterfaceTarget>>> {
+    match (mac_address, interface_id, version) {
+        (None, None, None) => Ok(None),
+        (Some(mac_address), interface_id, Some(version)) => {
+            if let Some(interface_id) = interface_id.as_deref()
+                && canonical_redfish_boot_interface_id(interface_id) != Some(interface_id)
+            {
+                return Err(desired_boot_interface_decode_error(
+                    "desired boot interface id is empty or noncanonical",
+                ));
+            }
+
+            let version = version.parse().map_err(|error| sqlx::Error::ColumnDecode {
+                index: "desired_boot_interface_version".to_string(),
+                source: Box::new(error),
+            })?;
+            let value = MachineBootInterfaceTarget::from_parts(Some(mac_address), interface_id)
+                .ok_or_else(|| {
+                    desired_boot_interface_decode_error(
+                        "desired boot interface MAC did not produce a target",
+                    )
+                })?;
+
+            Ok(Some(Versioned { value, version }))
+        }
+        _ => Err(desired_boot_interface_decode_error(
+            "desired boot interface MAC and version must both be set or both be null, and an id requires a MAC",
+        )),
+    }
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -136,6 +188,12 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             description: value.description,
             labels: value.labels,
         };
+
+        let desired_boot_interface = decode_desired_boot_interface(
+            value.desired_boot_interface_mac,
+            value.desired_boot_interface_id,
+            value.desired_boot_interface_version,
+        )?;
 
         let version: ConfigVersion =
             value
@@ -195,6 +253,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
                 instance_type_id: value.instance_type_id,
                 dpf: value.dpf,
                 hw_sku: value.hw_sku,
+                desired_boot_interface,
                 maintenance_reference,
                 maintenance_start_time,
             },
@@ -238,5 +297,168 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             machine_maintenance_requested: value.machine_maintenance_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::{Fails, Yields};
+    use carbide_test_support::{Case, check_cases};
+
+    use super::*;
+    use crate::machine_boot_interface::MachineBootInterface;
+
+    #[derive(Debug)]
+    struct Input {
+        mac_address: Option<MacAddress>,
+        interface_id: Option<String>,
+        version: Option<String>,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Decoded {
+        Unset,
+        MacOnly {
+            mac_address: MacAddress,
+            version_nr: u64,
+        },
+        Pair {
+            mac_address: MacAddress,
+            interface_id: String,
+            version_nr: u64,
+        },
+    }
+
+    fn summarize(value: Option<Versioned<MachineBootInterfaceTarget>>) -> Decoded {
+        match value {
+            None => Decoded::Unset,
+            Some(Versioned {
+                value: MachineBootInterfaceTarget::MacOnly(mac_address),
+                version,
+            }) => Decoded::MacOnly {
+                mac_address,
+                version_nr: version.version_nr(),
+            },
+            Some(Versioned {
+                value:
+                    MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address,
+                        interface_id,
+                    }),
+                version,
+            }) => Decoded::Pair {
+                mac_address,
+                interface_id,
+                version_nr: version.version_nr(),
+            },
+        }
+    }
+
+    #[test]
+    fn desired_boot_interface_columns_decode_atomically() {
+        let mac_address = MacAddress::new([1, 2, 3, 4, 5, 6]);
+        let version = ConfigVersion::new(7).version_string();
+
+        check_cases(
+            [
+                Case {
+                    scenario: "all columns null",
+                    input: Input {
+                        mac_address: None,
+                        interface_id: None,
+                        version: None,
+                    },
+                    expect: Yields(Decoded::Unset),
+                },
+                Case {
+                    scenario: "MAC and version",
+                    input: Input {
+                        mac_address: Some(mac_address),
+                        interface_id: None,
+                        version: Some(version.clone()),
+                    },
+                    expect: Yields(Decoded::MacOnly {
+                        mac_address,
+                        version_nr: 7,
+                    }),
+                },
+                Case {
+                    scenario: "complete pair and version",
+                    input: Input {
+                        mac_address: Some(mac_address),
+                        interface_id: Some("NIC.Slot.7-1-1".to_string()),
+                        version: Some(version.clone()),
+                    },
+                    expect: Yields(Decoded::Pair {
+                        mac_address,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                        version_nr: 7,
+                    }),
+                },
+                Case {
+                    scenario: "MAC without version",
+                    input: Input {
+                        mac_address: Some(mac_address),
+                        interface_id: None,
+                        version: None,
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "version without MAC",
+                    input: Input {
+                        mac_address: None,
+                        interface_id: None,
+                        version: Some(version.clone()),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "id without MAC",
+                    input: Input {
+                        mac_address: None,
+                        interface_id: Some("NIC.Slot.7-1-1".to_string()),
+                        version: Some(version),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "blank id",
+                    input: Input {
+                        mac_address: Some(mac_address),
+                        interface_id: Some("\t\n".to_string()),
+                        version: Some(ConfigVersion::new(7).version_string()),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "padded valid id",
+                    input: Input {
+                        mac_address: Some(mac_address),
+                        interface_id: Some(" \tNIC.Slot.7-1-1\n ".to_string()),
+                        version: Some(ConfigVersion::new(7).version_string()),
+                    },
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "malformed version",
+                    input: Input {
+                        mac_address: Some(mac_address),
+                        interface_id: None,
+                        version: Some("not-a-version".to_string()),
+                    },
+                    expect: Fails,
+                },
+            ],
+            |Input {
+                 mac_address,
+                 interface_id,
+                 version,
+             }| {
+                decode_desired_boot_interface(mac_address, interface_id, version)
+                    .map(summarize)
+                    .map_err(drop)
+            },
+        );
     }
 }

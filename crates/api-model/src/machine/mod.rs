@@ -792,7 +792,7 @@ pub struct Machine {
     /// ingestion time; not operator-mutable).
     pub rack_id: Option<RackId>,
 
-    /// Operator-set desired state.
+    /// Desired machine configuration.
     pub config: MachineConfig,
 
     /// System-observed state.
