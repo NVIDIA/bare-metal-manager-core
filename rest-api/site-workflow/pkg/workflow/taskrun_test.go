@@ -40,9 +40,9 @@ func TestTaskRunWorkflowTestSuite(t *testing.T) {
 }
 
 func (s *RunWorkflowTestSuite) assertActivityError(err error, errMsg string) {
-	s.Error(err)
+	s.Require().Error(err)
 	var applicationErr *temporal.ApplicationError
-	s.True(errors.As(err, &applicationErr))
+	s.Require().ErrorAs(err, &applicationErr)
 	s.Equal(errMsg, applicationErr.Error())
 }
 

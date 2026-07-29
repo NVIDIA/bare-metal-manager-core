@@ -999,12 +999,11 @@ func (s *Session) fetchRunsForSite(_ context.Context, siteID string) ([]NamedIte
 			name = str(m, "id")
 		}
 		result[i] = NamedItem{
-			Name: name, ID: str(m, "id"),
+			Name: name, ID: str(m, "id"), Status: str(m, "status"),
 			Extra: map[string]string{
 				"siteId":        siteID,
 				"operationType": str(m, "operationType"),
 				"operationCode": str(m, "operationCode"),
-				"status":        str(m, "status"),
 			},
 			Raw: m,
 		}
