@@ -24,6 +24,7 @@ func TestNewAPISku(t *testing.T) {
 	}
 
 	siteID := uuid.New()
+	description := "Test SKU description"
 	deviceType := "test-device-type"
 	associatedMachineIds := []string{"machine-1", "machine-2"}
 	createdTime := time.Now()
@@ -33,6 +34,7 @@ func TestNewAPISku(t *testing.T) {
 	dbSku := &cdbm.SKU{
 		ID:                   "test-sku-id",
 		SiteID:               siteID,
+		Description:          description,
 		DeviceType:           &deviceType,
 		AssociatedMachineIds: associatedMachineIds,
 		Created:              createdTime,
@@ -55,6 +57,7 @@ func TestNewAPISku(t *testing.T) {
 			want: &APISku{
 				ID:                   dbSku.ID,
 				SiteID:               siteID.String(),
+				Description:          description,
 				DeviceType:           &deviceType,
 				AssociatedMachineIds: associatedMachineIds,
 				Created:              createdTime,
@@ -86,6 +89,7 @@ func TestNewAPISku(t *testing.T) {
 			// Compare basic fields
 			assert.Equal(t, tt.want.ID, got.ID)
 			assert.Equal(t, tt.want.SiteID, got.SiteID)
+			assert.Equal(t, tt.want.Description, got.Description)
 			assert.Equal(t, tt.want.DeviceType, got.DeviceType)
 			assert.Equal(t, tt.want.AssociatedMachineIds, got.AssociatedMachineIds)
 			assert.Equal(t, tt.want.Created, got.Created)

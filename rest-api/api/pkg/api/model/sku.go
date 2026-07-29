@@ -21,6 +21,8 @@ type APISku struct {
 	ID string `json:"id"`
 	// SiteID is the ID of the Site this SKU belongs to
 	SiteID string `json:"siteId"`
+	// Description is the human-readable SKU description
+	Description string `json:"description"`
 	// DeviceType is the optional device type identifier
 	DeviceType *string `json:"deviceType"`
 	// AssociatedMachineIds is the list of machine IDs associated with this SKU
@@ -239,6 +241,7 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 	apiSku := &APISku{
 		ID:                   dbSku.ID,
 		SiteID:               dbSku.SiteID.String(),
+		Description:          dbSku.Description,
 		DeviceType:           dbSku.DeviceType,
 		AssociatedMachineIds: dbSku.AssociatedMachineIds,
 		Created:              dbSku.Created,

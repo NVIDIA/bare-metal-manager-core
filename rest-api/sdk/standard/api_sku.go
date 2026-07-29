@@ -639,7 +639,10 @@ UpdateSku Update SKU
 
 Update selected mutable fields on a SKU. The Site is determined from the saved SKU record.
 
-Fields omitted from the request retain their current values. The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+Fields omitted from the request retain their current values. If a user updates the components field,
+the schema version will be updated to the current version (5).
+
+The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

@@ -4920,7 +4920,10 @@ paths:
       description: |-
         Update selected mutable fields on a SKU. The Site is determined from the saved SKU record.
 
-        Fields omitted from the request retain their current values. The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+        Fields omitted from the request retain their current values. If a user updates the components field,
+        the schema version will be updated to the current version (5).
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
       requestBody:
         required: true
         content:
@@ -22921,6 +22924,7 @@ components:
       examples:
         - id: lenovo.sr650v2.cpu.1
           siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          description: Lenovo SR650 V2 compute node
           deviceType: gpu
           associatedMachineIds:
             - fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -22958,6 +22962,10 @@ components:
           type: string
           format: uuid
           description: ID of the Site this SKU belongs to
+          readOnly: true
+        description:
+          type: string
+          description: Human-readable SKU description
           readOnly: true
         deviceType:
           type:

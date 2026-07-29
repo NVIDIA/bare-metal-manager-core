@@ -27,6 +27,8 @@ type Sku struct {
 	Id *string `json:"id,omitempty"`
 	// ID of the Site this SKU belongs to
 	SiteId *string `json:"siteId,omitempty"`
+	// Human-readable SKU description
+	Description *string `json:"description,omitempty"`
 	// Optional device type identifier (e.g. \"gpu\", \"cpu\", \"storage\")
 	DeviceType NullableString `json:"deviceType,omitempty"`
 	// List of machine IDs associated with this SKU
@@ -118,6 +120,38 @@ func (o *Sku) HasSiteId() bool {
 // SetSiteId gets a reference to the given string and assigns it to the SiteId field.
 func (o *Sku) SetSiteId(v string) {
 	o.SiteId = &v
+}
+
+// GetDescription returns the Description field value if set, zero value otherwise.
+func (o *Sku) GetDescription() string {
+	if o == nil || IsNil(o.Description) {
+		var ret string
+		return ret
+	}
+	return *o.Description
+}
+
+// GetDescriptionOk returns a tuple with the Description field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Sku) GetDescriptionOk() (*string, bool) {
+	if o == nil || IsNil(o.Description) {
+		return nil, false
+	}
+	return o.Description, true
+}
+
+// HasDescription returns a boolean if a field has been set.
+func (o *Sku) HasDescription() bool {
+	if o != nil && !IsNil(o.Description) {
+		return true
+	}
+
+	return false
+}
+
+// SetDescription gets a reference to the given string and assigns it to the Description field.
+func (o *Sku) SetDescription(v string) {
+	o.Description = &v
 }
 
 // GetDeviceType returns the DeviceType field value if set, zero value otherwise (both if not set or set to explicit null).
@@ -306,6 +340,9 @@ func (o Sku) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.SiteId) {
 		toSerialize["siteId"] = o.SiteId
+	}
+	if !IsNil(o.Description) {
+		toSerialize["description"] = o.Description
 	}
 	if o.DeviceType.IsSet() {
 		toSerialize["deviceType"] = o.DeviceType.Get()

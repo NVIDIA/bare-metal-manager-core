@@ -115,8 +115,7 @@ func TestUpsertSkuProjectionSkipsUnchangedFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, hook.updates.Load())
 
-	deviceType := "gpu-server"
-	projected.DeviceType = &deviceType
+	projected.Description = cutil.GetPtr("updated description")
 	err = upsertSkuProjection(
 		context.Background(),
 		fixture.updateHandler.dbSession,
@@ -126,8 +125,20 @@ func TestUpsertSkuProjectionSkipsUnchangedFields(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), hook.updates.Load())
 
+	deviceType := "gpu-server"
+	projected.DeviceType = &deviceType
+	err = upsertSkuProjection(
+		context.Background(),
+		fixture.updateHandler.dbSession,
+		uuid.MustParse(fixture.siteID),
+		projected,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), hook.updates.Load())
+
 	saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, projected.Id)
 	require.NoError(t, err)
+	assert.Equal(t, "updated description", saved.Description)
 	require.NotNil(t, saved.DeviceType)
 	assert.Equal(t, deviceType, *saved.DeviceType)
 }
@@ -190,6 +201,7 @@ func testSkuSetupTestData(t *testing.T, dbSession *cdb.Session, org string) (*cd
 	sku1 := &cdbm.SKU{
 		ID:                   "test-sku-1",
 		SiteID:               site.ID,
+		Description:          "First test SKU",
 		DeviceType:           &deviceType1,
 		AssociatedMachineIds: []string{"machine-1", "machine-2"},
 	}
@@ -200,6 +212,7 @@ func testSkuSetupTestData(t *testing.T, dbSession *cdb.Session, org string) (*cd
 	sku2 := &cdbm.SKU{
 		ID:                   "test-sku-2",
 		SiteID:               site.ID,
+		Description:          "Second test SKU",
 		DeviceType:           &deviceType2,
 		AssociatedMachineIds: []string{"machine-3"},
 	}
@@ -375,6 +388,7 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 				for _, sku := range response {
 					assert.Equal(t, site.ID.String(), sku.SiteID, "All results should be from the specified site")
 					assert.NotEqual(t, unmanagedSku.ID, sku.ID, "Unmanaged SKU should not be in response")
+					assert.NotEmpty(t, sku.Description)
 				}
 			},
 		},
@@ -641,6 +655,7 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 				assert.Nil(t, err)
 				assert.Equal(t, sku1.ID, response.ID, "SKU ID should match")
 				assert.Equal(t, site.ID.String(), response.SiteID, "Site ID should match")
+				assert.Equal(t, sku1.Description, response.Description, "SKU description should match")
 			},
 		},
 		{
@@ -796,6 +811,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)
 		assert.Equal(t, uuid.MustParse(fixture.siteID), saved.SiteID)
+		assert.Equal(t, response.Description, saved.Description)
 		assert.Equal(t, response.DeviceType, saved.DeviceType)
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
@@ -831,6 +847,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)
 		assert.Equal(t, uuid.MustParse(fixture.siteID), saved.SiteID)
+		assert.Equal(t, *req.Description, saved.Description)
 		assert.Equal(t, req.DeviceType, saved.DeviceType)
 		require.NotNil(t, saved.Components)
 		require.Len(t, saved.Components.Storage, 1)
@@ -1122,6 +1139,7 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Equal(t, "sku-1", coreReq.Id)
 		require.NotNil(t, coreReq.Components)
 		require.Len(t, coreReq.Components.Storage, 1)
+		assert.True(t, proto.Equal(components.ToProto(), coreReq.Components))
 	})
 
 	t.Run("rejects inverted storage size range", func(t *testing.T) {

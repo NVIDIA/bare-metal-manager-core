@@ -349,6 +349,7 @@ func upsertSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uui
 				_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
 					SkuID:                projected.ID,
 					SiteID:               projected.SiteID,
+					Description:          projected.Description,
 					Components:           projected.Components,
 					DeviceType:           projected.DeviceType,
 					AssociatedMachineIds: projected.AssociatedMachineIds,
@@ -374,13 +375,15 @@ func upsertSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uui
 				// are no associations in the authoritative projection.
 				associatedMachineIDs = []string{}
 			}
-			if existing.Components.Equal(components) &&
+			if existing.Description == projected.Description &&
+				existing.Components.Equal(components) &&
 				reflect.DeepEqual(existing.DeviceType, projected.DeviceType) &&
 				reflect.DeepEqual(existing.AssociatedMachineIds, associatedMachineIDs) {
 				return nil
 			}
 			_, err = skuDAO.Update(ctx, tx, cdbm.SkuUpdateInput{
 				SkuID:                projected.ID,
+				Description:          &projected.Description,
 				Components:           components,
 				DeviceType:           projected.DeviceType,
 				AssociatedMachineIds: associatedMachineIDs,
@@ -684,7 +687,7 @@ func (dsh DeleteSkuHandler) Handle(c echo.Context) error {
 		logger.Error().Err(err).Str("skuID", skuID).Msg("error retrieving SKU from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve SKU, DB error", nil)
 	}
-	if savedSKU.AssociatedMachineIds != nil && len(savedSKU.AssociatedMachineIds) > 0 {
+	if len(savedSKU.AssociatedMachineIds) > 0 {
 		logger.Warn().Str("skuID", skuID).Msg("SKU is associated with machines and cannot be deleted")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "SKU is associated with machines and cannot be deleted", nil)
 	}
