@@ -18,6 +18,27 @@ use bmc_mock::HostHardwareType;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use serde::Serialize;
 
+#[derive(Debug, Clone, Copy, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceKind {
+    Machine,
+    Dpu,
+    Switch,
+    PowerShelf,
+}
+
+impl From<HostHardwareType> for DeviceKind {
+    fn from(hardware_type: HostHardwareType) -> Self {
+        match hardware_type {
+            HostHardwareType::NvidiaSwitchNd5200Ld => Self::Switch,
+            HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf => {
+                Self::PowerShelf
+            }
+            _ => Self::Machine,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct MachineStatusConfig {
     pub redfish_reachable_port: u16,
@@ -41,6 +62,8 @@ pub struct MachinesStatusResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct MachineStatus {
     pub mat_id: String,
+    pub device_kind: DeviceKind,
+    pub device_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

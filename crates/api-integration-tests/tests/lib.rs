@@ -23,7 +23,7 @@ use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{
-    BmcMockRegistry, DhcpType, HostMachineHandle, MachineATronConfig, MachineConfig, RackConfig,
+    BmcMockRegistry, DeviceHandle, DhcpType, MachineATronConfig, MachineConfig, RackConfig,
 };
 use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
@@ -1485,7 +1485,7 @@ async fn run_machine_a_tron_test<F, O>(
     run_assertions: F,
 ) -> eyre::Result<()>
 where
-    F: Fn(HostMachineHandle) -> O,
+    F: Fn(DeviceHandle) -> O,
     O: Future<Output = eyre::Result<()>>,
 {
     let api_addr = test_env

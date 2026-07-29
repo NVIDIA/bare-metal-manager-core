@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::api_client::ClientApiError;
 use crate::config::MachineATronContext;
-use crate::host_machine::HostMachineHandle;
+use crate::host_machine::DeviceHandle;
 use crate::machine_state_machine::AddressConfigError;
 
 lazy_static! {
@@ -136,9 +136,9 @@ pub async fn send_pxe_boot_request(
 }
 
 pub async fn get_next_free_machine(
-    machine_handles: &Vec<HostMachineHandle>,
+    machine_handles: &Vec<DeviceHandle>,
     assigned_mat_ids: &HashSet<Uuid>,
-) -> Option<HostMachineHandle> {
+) -> Option<DeviceHandle> {
     for machine in machine_handles {
         if assigned_mat_ids.contains(&machine.mat_id()) {
             continue;

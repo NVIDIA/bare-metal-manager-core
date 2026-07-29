@@ -17,8 +17,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use bmc_mock::HostMachineInfo;
 use bmc_mock::mac_address_pool::PoolConfig as MacAddressPoolConfig;
-use bmc_mock::{HostHardwareType, HostMachineInfo};
 use futures::future::try_join_all;
 use model::expected_machine::HostDpuPolicy;
 use rpc::forge::{ExpectedHostNic, NetworkSegmentType, VpcVirtualizationType};
@@ -27,8 +27,10 @@ use uuid::Uuid;
 
 use crate::PersistedHostMachine;
 use crate::config::MachineATronContext;
-use crate::host_machine::{HostMachine, HostMachineHandle};
+use crate::device_simulator::{DeviceSimulator, SimulatorLifecycle};
+use crate::host_machine::{DeviceHandle, HostMachine};
 use crate::machine_utils::get_next_free_machine;
+use crate::simulator_registry::SimulatorRegistry;
 use crate::subnet::Subnet;
 use crate::tui::UiUpdate;
 use crate::vpc::Vpc;
@@ -78,7 +80,7 @@ impl MachineATron {
         Self { app_context }
     }
 
-    pub async fn make_machines(&self, paused: bool) -> eyre::Result<Vec<HostMachineHandle>> {
+    pub async fn make_devices(&self, paused: bool) -> eyre::Result<SimulatorRegistry> {
         self.app_context.app_config.validate()?;
 
         for (machine_group, machine) in &self.app_context.app_config.machines {
@@ -143,7 +145,7 @@ impl MachineATron {
                         );
                         persisted_machines
                             .into_iter()
-                            .map(|persisted| -> eyre::Result<HostMachineHandle> {
+                            .map(|persisted| -> eyre::Result<DeviceHandle> {
                                 let hw_mac_address_ranges = persisted
                                     .hw_mac_addr_pool
                                     .as_ref()
@@ -186,6 +188,8 @@ impl MachineATron {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
+        let simulators = SimulatorRegistry::try_from_handles(machines)?;
+
         if self.app_context.app_config.register_expected_machines {
             for (rack_id, rack) in &self.app_context.app_config.racks {
                 self.app_context
@@ -194,7 +198,8 @@ impl MachineATron {
                     .await?;
             }
 
-            for machine in &machines {
+            for device in simulators.devices() {
+                let machine = device.handle();
                 let host_info = machine.host_info();
                 let machine_config = self
                     .app_context
@@ -203,8 +208,8 @@ impl MachineATron {
                     .get(machine.machine_config_section())
                     .expect("machine was constructed from a configured machine group");
                 let rack_id = machine_config.rack_id.clone();
-                let result = match host_info.hw_type {
-                    HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf => {
+                let result = match device {
+                    DeviceSimulator::PowerShelf(_) => {
                         self.app_context
                             .api_client()
                             .add_expected_power_shelf(
@@ -214,7 +219,7 @@ impl MachineATron {
                             )
                             .await
                     }
-                    HostHardwareType::NvidiaSwitchNd5200Ld => {
+                    DeviceSimulator::Switch(_) => {
                         self.app_context
                             .api_client()
                             .add_expected_switch(
@@ -232,7 +237,7 @@ impl MachineATron {
                             )
                             .await
                     }
-                    _ => {
+                    DeviceSimulator::Machine(_) => {
                         // Derive the expected `dpu_policy` from the machine's
                         // MachineConfig: zero-DPU hosts declare `Ignore`, hosts
                         // running their DPUs as NICs declare `Nic`, and
@@ -272,20 +277,21 @@ impl MachineATron {
             }
         } else {
             tracing::info!(
-                machine_count = machines.len(),
+                device_count = simulators.devices().len(),
                 "register_expected_machines=false; skipping auto-registration of mock host(s)",
             );
         }
 
-        Ok(machines)
+        Ok(simulators)
     }
 
     pub async fn run(
         &mut self,
-        machine_handles: Vec<HostMachineHandle>,
+        simulators: SimulatorRegistry,
         tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
         mut app_rx: mpsc::Receiver<AppEvent>,
     ) -> eyre::Result<()> {
+        let machine_handles = simulators.machine_handles();
         let mut vpc_handles: Vec<Vpc> = Vec::new();
         let mut subnet_handles: Vec<Subnet> = Vec::new();
         // Represents the mat_id of machines which are Assigned to a forge Instance
@@ -344,9 +350,9 @@ impl MachineATron {
             }
         }
 
-        for machine_handle in &machine_handles {
-            machine_handle.attach_to_tui(tui_event_tx.clone())?;
-            machine_handle.resume()?;
+        for simulator in simulators.devices() {
+            simulator.attach_to_tui(tui_event_tx.clone())?;
+            simulator.resume()?;
         }
 
         tracing::info!("Machine construction complete");
@@ -355,26 +361,20 @@ impl MachineATron {
             match msg {
                 AppEvent::Quit => {
                     tracing::info!("quit");
-                    let persisted_machines = if self.app_context.app_config.cleanup_on_quit {
-                        try_join_all(machine_handles.into_iter().map(|m| {
+                    let cleanup_on_quit = self.app_context.app_config.cleanup_on_quit;
+                    let persisted_machines =
+                        try_join_all(simulators.devices().iter().cloned().map(|simulator| {
                             let api_client = self.app_context.api_client();
-                            let persisted = m.persisted();
-                            m.abort();
+                            let persisted = simulator.persisted();
                             async move {
-                                m.delete_from_api(api_client).await?;
+                                simulator.shutdown().await?;
+                                if cleanup_on_quit {
+                                    simulator.delete_from_api(api_client).await?;
+                                }
                                 Ok::<PersistedHostMachine, eyre::Report>(persisted)
                             }
                         }))
-                        .await?
-                    } else {
-                        machine_handles
-                            .into_iter()
-                            .map(|m| {
-                                m.abort();
-                                m.persisted()
-                            })
-                            .collect()
-                    };
+                        .await?;
 
                     // Persist the current state of the machines before quitting
                     self.app_context
@@ -504,7 +504,7 @@ fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizatio
 mod tests {
     use std::str::FromStr;
 
-    use bmc_mock::{DpuMachineInfo, DpuSettings};
+    use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
     use carbide_test_support::{Check, check_values};
     use mac_address::MacAddress;
 

@@ -39,7 +39,7 @@ use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
 use crate::saturating_add_duration_to_instant;
-use crate::status::{BmcStatus, EndpointStatus, MachineStatus, MachineStatusConfig};
+use crate::status::{BmcStatus, DeviceKind, EndpointStatus, MachineStatus, MachineStatusConfig};
 use crate::tui::{HostDetails, UiUpdate};
 
 pub struct HostMachine {
@@ -232,7 +232,7 @@ impl HostMachine {
     }
 
     #[instrument(skip_all, fields(mat_host_id = %self.mat_id))]
-    pub fn start(mut self, paused: bool) -> HostMachineHandle {
+    pub fn start(mut self, paused: bool) -> DeviceHandle {
         self.paused = paused;
         let (message_tx, mut message_rx) = mpsc::unbounded_channel();
         let live_state = self.live_state.clone();
@@ -260,7 +260,7 @@ impl HostMachine {
             })
             .unwrap();
 
-        HostMachineHandle(Arc::new(HostMachineActor {
+        DeviceHandle(Arc::new(HostMachineActor {
             message_tx,
             live_state,
             mat_id,
@@ -295,7 +295,9 @@ impl HostMachine {
             _ = tokio::time::sleep_until(self.sleep_until.into()) => {}
             _ = self.api_refresh_interval.tick() => {
                 // Wake up to refresh the API state and UI
-                if let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id {
+                if DeviceKind::from(self.host_info.hw_type) == DeviceKind::Machine
+                    && let Some(machine_id) = self.live_state.read().unwrap().observed_machine_id
+                {
                     let actor_message_tx = actor_message_tx.clone();
                     self.app_context.api_throttler.get_machine(machine_id, move |machine| {
                         if let Some(machine) = machine {
@@ -542,9 +544,9 @@ struct HostMachineActor {
 }
 
 #[derive(Debug, Clone)]
-pub struct HostMachineHandle(Arc<HostMachineActor>);
+pub struct DeviceHandle(Arc<HostMachineActor>);
 
-impl HostMachineHandle {
+impl DeviceHandle {
     #[cfg(test)]
     pub(crate) fn for_control_test(
         dpus: Vec<DpuMachineHandle>,
@@ -654,6 +656,12 @@ impl HostMachineHandle {
         let live_state = self.0.live_state.read().unwrap();
         MachineStatus {
             mat_id: self.0.mat_id.to_string(),
+            device_kind: DeviceKind::Machine,
+            device_id: live_state
+                .observed_machine_id
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| self.0.mat_id.to_string()),
             machine_id: live_state
                 .observed_machine_id
                 .as_ref()
