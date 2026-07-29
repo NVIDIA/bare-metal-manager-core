@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
@@ -71,8 +71,8 @@ pub struct MachineATronArgs {
 pub struct MachineConfig {
     #[serde(default)]
     pub rack_id: Option<RackId>,
-    #[serde(default = "default_host_hardware_type")]
-    pub hw_type: HostHardwareType,
+    #[serde(default = "default_hardware_type")]
+    pub hw_type: HardwareType,
     pub host_count: u32,
     pub vpc_count: u32,
     pub subnets_per_vpc: u32,
@@ -438,7 +438,7 @@ impl Default for DhcpType {
 pub struct PersistedDevice {
     pub mat_id: Uuid,
     pub machine_config_section: String,
-    pub hw_type: Option<HostHardwareType>,
+    pub hw_type: Option<HardwareType>,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
@@ -466,7 +466,7 @@ impl PersistedDevice {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
-    pub hw_type: Option<HostHardwareType>,
+    pub hw_type: Option<HardwareType>,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -521,8 +521,8 @@ fn default_network_status_run_interval() -> Duration {
     Duration::from_secs(20)
 }
 
-fn default_host_hardware_type() -> HostHardwareType {
-    HostHardwareType::default()
+fn default_hardware_type() -> HardwareType {
+    HardwareType::default()
 }
 
 fn default_scout_run_interval() -> Duration {

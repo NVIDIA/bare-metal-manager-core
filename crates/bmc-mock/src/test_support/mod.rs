@@ -28,7 +28,7 @@ use crate::mac_address_pool::{
 };
 use crate::machine_info::DpuSettings;
 use crate::{
-    BmcState, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo,
+    BmcState, Callbacks, DpuMachineInfo, HardwareType, HostMachineInfo, MachineInfo,
     MachineRouterOptions, MockPowerState, SetSystemPowerError, SystemPowerControl, machine_router,
 };
 
@@ -102,7 +102,7 @@ pub async fn bmc_for_machine(machine_info: MachineInfo) -> TestBmcHandle {
     .await
 }
 
-pub(crate) fn host_info(hw_type: HostHardwareType) -> MachineInfo {
+pub(crate) fn host_info(hw_type: HardwareType) -> MachineInfo {
     let ndpu = hw_type.fixed_number_of_dpu().unwrap_or(0);
     let mut pool = TEST_MAC_POOL.lock().unwrap();
     let ranges_config = pool.allocate_range_config().unwrap();
@@ -118,7 +118,7 @@ pub(crate) fn host_info(hw_type: HostHardwareType) -> MachineInfo {
 
 pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::WiwynnGB200Nvl),
+        &host_info(HardwareType::WiwynnGB200Nvl),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -129,7 +129,7 @@ pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
 
 pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::LenovoGB300Nvl),
+        &host_info(HardwareType::LenovoGB300Nvl),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -140,7 +140,7 @@ pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
 
 pub async fn dgx_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::NvidiaDgxGb300),
+        &host_info(HardwareType::NvidiaDgxGb300),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -156,7 +156,7 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
 /// it as a host tray at all. Added while investigating #3159.
 pub async fn nvidia_dgx_vr_host_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::NvidiaDgxVr),
+        &host_info(HardwareType::NvidiaDgxVr),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -167,7 +167,7 @@ pub async fn nvidia_dgx_vr_host_bmc() -> TestBmcHandle {
 
 pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::SupermicroGb300Nvl),
+        &host_info(HardwareType::SupermicroGb300Nvl),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -178,7 +178,7 @@ pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
 
 pub async fn generic_supermicro_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::GenericSupermicro),
+        &host_info(HardwareType::GenericSupermicro),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -189,7 +189,7 @@ pub async fn generic_supermicro_bmc() -> TestBmcHandle {
 
 pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::LiteOnPowerShelf),
+        &host_info(HardwareType::LiteOnPowerShelf),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -200,7 +200,7 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
 
 pub async fn delta_powershelf_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::DeltaPowerShelf),
+        &host_info(HardwareType::DeltaPowerShelf),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -213,7 +213,7 @@ pub async fn delta_powershelf_bmc() -> TestBmcHandle {
 /// `Oem.deltaenergysystems.Power`. Lets tests exercise off and mixed shelves
 /// (the default [`delta_powershelf_bmc`] is an all-on six-bay shelf).
 pub async fn delta_powershelf_bmc_with_psu_power(states: Vec<bool>) -> TestBmcHandle {
-    let machine_info = match host_info(HostHardwareType::DeltaPowerShelf) {
+    let machine_info = match host_info(HardwareType::DeltaPowerShelf) {
         MachineInfo::Host(host) => MachineInfo::Host(host.with_delta_psu_power(states)),
         MachineInfo::Dpu(_) => unreachable!("Delta power shelf must be a host"),
     };
@@ -229,7 +229,7 @@ pub async fn delta_powershelf_bmc_with_psu_power(states: Vec<bool>) -> TestBmcHa
 
 pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::NvidiaSwitchNd5200Ld),
+        &host_info(HardwareType::NvidiaSwitchNd5200Ld),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -240,7 +240,7 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
 
 pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::DellPowerEdgeR750),
+        &host_info(HardwareType::DellPowerEdgeR750),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -253,7 +253,7 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
     let machine_info = {
         let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
         MachineInfo::Dpu(DpuMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR750,
             &mut mac_pool,
             settings,
         ))
@@ -284,7 +284,7 @@ pub async fn nvidia_dgx_vr_bluefield4_dpu_bmc(settings: DpuSettings) -> TestBmcH
     let machine_info = {
         let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
         MachineInfo::Dpu(DpuMachineInfo::new(
-            HostHardwareType::NvidiaDgxVr,
+            HardwareType::NvidiaDgxVr,
             &mut mac_pool,
             settings,
         ))
@@ -301,7 +301,7 @@ pub async fn nvidia_dgx_vr_bluefield4_dpu_bmc(settings: DpuSettings) -> TestBmcH
 
 pub async fn hpe_proliant_dl380a_gen11_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::HpeProliantDl380aGen11),
+        &host_info(HardwareType::HpeProliantDl380aGen11),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -312,7 +312,7 @@ pub async fn hpe_proliant_dl380a_gen11_bmc() -> TestBmcHandle {
 
 pub async fn generic_ami_bmc() -> TestBmcHandle {
     test_bmc(machine_router(
-        &host_info(HostHardwareType::GenericAmi),
+        &host_info(HardwareType::GenericAmi),
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
@@ -349,7 +349,7 @@ mod test {
             remaining: None,
         });
         let (router, state) = crate::machine_router_with_injection_store(
-            &host_info(HostHardwareType::DellPowerEdgeR750),
+            &host_info(HardwareType::DellPowerEdgeR750),
             Arc::new(NoopCallbacks),
             "test-host-id".to_string(),
             false,
@@ -373,7 +373,7 @@ mod test {
     async fn transport_supports_expand_query_through_mock_expander() {
         let client = AxumRouterHttpClient::new(
             machine_router(
-                &host_info(HostHardwareType::DellPowerEdgeR750),
+                &host_info(HardwareType::DellPowerEdgeR750),
                 Arc::new(NoopCallbacks),
                 "test-host-id".to_string(),
                 false,

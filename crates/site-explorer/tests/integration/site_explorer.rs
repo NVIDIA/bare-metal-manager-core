@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_explorer::test_support::generate_managed_host_reports;
-use bmc_mock::HostHardwareType;
+use bmc_mock::HardwareType;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
@@ -3275,7 +3275,7 @@ async fn test_site_explorer_pairs_vr_bf4_from_bluefield_chassis(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
 
-    let reports = generate_managed_host_reports(HostHardwareType::NvidiaDgxVr).await?;
+    let reports = generate_managed_host_reports(HardwareType::NvidiaDgxVr).await?;
     let dpu = reports
         .dpus
         .first()

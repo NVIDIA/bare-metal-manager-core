@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bmc_mock::HostHardwareType;
+use bmc_mock::HardwareType;
 use clap::{Parser, ValueEnum};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -32,13 +32,13 @@ pub enum StateBackend {
     Libvirt,
 }
 
-fn parse_hardware_profile(value: &str) -> Result<HostHardwareType, String> {
+fn parse_hardware_profile(value: &str) -> Result<HardwareType, String> {
     let hardware_type = serde_json::from_value(serde_json::Value::String(value.to_string()))
         .map_err(|_| format!("unknown hardware profile: {value}"))?;
     match hardware_type {
-        HostHardwareType::LiteOnPowerShelf
-        | HostHardwareType::DeltaPowerShelf
-        | HostHardwareType::NvidiaSwitchNd5200Ld => {
+        HardwareType::LiteOnPowerShelf
+        | HardwareType::DeltaPowerShelf
+        | HardwareType::NvidiaSwitchNd5200Ld => {
             Err(format!("hardware profile is not a host or DPU: {value}"))
         }
         hardware_type => Ok(hardware_type),
@@ -96,7 +96,7 @@ pub struct Args {
         value_parser = parse_hardware_profile,
         help = "Redfish hardware profile for an explicitly configured host or DPU, using its existing snake_case name"
     )]
-    pub hardware_profile: Option<HostHardwareType>,
+    pub hardware_profile: Option<HardwareType>,
 
     #[clap(long, value_enum, help = "Expose a host BMC or one DPU BMC")]
     pub machine_role: Option<MachineRole>,
@@ -149,22 +149,22 @@ mod tests {
     #[test]
     fn parses_supported_hardware_profiles() {
         let cases = [
-            ("dell_poweredge_r750", HostHardwareType::DellPowerEdgeR750),
+            ("dell_poweredge_r750", HardwareType::DellPowerEdgeR750),
             (
                 "dell_poweredge_r760_bf4",
-                HostHardwareType::DellPowerEdgeR760Bf4,
+                HardwareType::DellPowerEdgeR760Bf4,
             ),
-            ("wiwynn_gb200_nvl", HostHardwareType::WiwynnGB200Nvl),
-            ("lenovo_gb300_nvl", HostHardwareType::LenovoGB300Nvl),
-            ("nvidia_dgx_gb300", HostHardwareType::NvidiaDgxGb300),
-            ("supermicro_gb300_nvl", HostHardwareType::SupermicroGb300Nvl),
-            ("nvidia_dgx_vr", HostHardwareType::NvidiaDgxVr),
-            ("nvidia_dgx_h100", HostHardwareType::NvidiaDgxH100),
-            ("generic_ami", HostHardwareType::GenericAmi),
-            ("generic_supermicro", HostHardwareType::GenericSupermicro),
+            ("wiwynn_gb200_nvl", HardwareType::WiwynnGB200Nvl),
+            ("lenovo_gb300_nvl", HardwareType::LenovoGB300Nvl),
+            ("nvidia_dgx_gb300", HardwareType::NvidiaDgxGb300),
+            ("supermicro_gb300_nvl", HardwareType::SupermicroGb300Nvl),
+            ("nvidia_dgx_vr", HardwareType::NvidiaDgxVr),
+            ("nvidia_dgx_h100", HardwareType::NvidiaDgxH100),
+            ("generic_ami", HardwareType::GenericAmi),
+            ("generic_supermicro", HardwareType::GenericSupermicro),
             (
                 "hpe_proliant_dl380a_gen11",
-                HostHardwareType::HpeProliantDl380aGen11,
+                HardwareType::HpeProliantDl380aGen11,
             ),
         ];
 

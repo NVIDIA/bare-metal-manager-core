@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
-    BmcCommand, DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, SetSystemPowerResult,
+    BmcCommand, DpuMachineInfo, DpuSettings, HardwareType, MachineInfo, SetSystemPowerResult,
     SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
@@ -112,7 +112,7 @@ impl DpuMachine {
     }
 
     pub fn new(
-        hw_type: HostHardwareType,
+        hw_type: HardwareType,
         mat_host: Uuid,
         dpu_index: u8,
         app_context: Arc<MachineATronContext>,
@@ -385,7 +385,7 @@ impl DpuMachineHandle {
             live_state: Arc::new(RwLock::new(live_state)),
             mat_id,
             dpu_info: DpuMachineInfo {
-                hw_type: HostHardwareType::default(),
+                hw_type: HardwareType::default(),
                 bmc_mac_address: mac,
                 host_mac_address: mac,
                 oob_mac_address: mac,

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use bmc_mock::HostHardwareType;
+use bmc_mock::HardwareType;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use serde::Serialize;
 
@@ -27,13 +27,11 @@ pub enum DeviceKind {
     PowerShelf,
 }
 
-impl From<HostHardwareType> for DeviceKind {
-    fn from(hardware_type: HostHardwareType) -> Self {
+impl From<HardwareType> for DeviceKind {
+    fn from(hardware_type: HardwareType) -> Self {
         match hardware_type {
-            HostHardwareType::NvidiaSwitchNd5200Ld => Self::Switch,
-            HostHardwareType::LiteOnPowerShelf | HostHardwareType::DeltaPowerShelf => {
-                Self::PowerShelf
-            }
+            HardwareType::NvidiaSwitchNd5200Ld => Self::Switch,
+            HardwareType::LiteOnPowerShelf | HardwareType::DeltaPowerShelf => Self::PowerShelf,
             _ => Self::Machine,
         }
     }
@@ -68,7 +66,7 @@ pub struct DeviceStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hardware_type: Option<HostHardwareType>,
+    pub hardware_type: Option<HardwareType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mat_state: Option<String>,
     pub api_state: String,

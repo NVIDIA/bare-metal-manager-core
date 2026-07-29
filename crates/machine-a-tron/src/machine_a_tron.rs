@@ -504,7 +504,7 @@ fn parse_network_virtualization_type(s: Option<&str>) -> Option<VpcVirtualizatio
 mod tests {
     use std::str::FromStr;
 
-    use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
+    use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType};
     use carbide_test_support::{Check, check_values};
     use mac_address::MacAddress;
 
@@ -516,14 +516,14 @@ mod tests {
 
     fn host_info(dpu_host_macs: &[MacAddress], non_dpu_mac: Option<MacAddress>) -> HostMachineInfo {
         HostMachineInfo {
-            hw_type: HostHardwareType::WiwynnGB200Nvl,
+            hw_type: HardwareType::WiwynnGB200Nvl,
             bmc_mac_address: mac("02:00:00:00:00:f0"),
             serial: "test-host".to_string(),
             dpus: dpu_host_macs
                 .iter()
                 .enumerate()
                 .map(|(index, host_mac_address)| DpuMachineInfo {
-                    hw_type: HostHardwareType::WiwynnGB200Nvl,
+                    hw_type: HardwareType::WiwynnGB200Nvl,
                     bmc_mac_address: mac(&format!("02:00:00:00:10:{index:02x}")),
                     host_mac_address: *host_mac_address,
                     oob_mac_address: mac(&format!("02:00:00:00:20:{index:02x}")),
