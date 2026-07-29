@@ -55,6 +55,7 @@ pub mod expected_switch;
 pub mod extension_service;
 pub mod firmware;
 pub mod hardware_info;
+pub mod ignored_bmc_mac;
 pub mod health;
 pub mod host_machine_update;
 pub mod ib;
