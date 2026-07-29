@@ -555,6 +555,7 @@ mod tests {
                 Duration::from_secs(60),
             ),
             per_object_info: None,
+            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
         };
         let mut metrics = MachineMetrics::default();
         let mut pending_db_writes = DbWriteBatch::new();

@@ -1352,9 +1352,16 @@ mod tests {
         drop(conn);
         let redfish = bmc_on_password("old");
 
+        // Hold the metrics serialization guard across the converging call: it
+        // emits `converged` into the process-global registry, and without the
+        // guard it could run concurrently with a metric-asserting test and leak
+        // that count into its delta window. This test asserts outcome/state, not
+        // metrics, so the guard is dropped before those checks.
+        let metrics = MetricsCapture::start();
         let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), true)
             .await
             .expect("a forced rotation must not raise a transient engine error");
+        drop(metrics);
 
         assert_eq!(
             outcome,
