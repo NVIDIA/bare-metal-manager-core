@@ -4,11 +4,13 @@
 package model
 
 import (
+	"fmt"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
@@ -30,11 +32,10 @@ const (
 	CredentialRotationTypeLockdownIKM CredentialRotationType = "LockdownIKM"
 )
 
-const credentialRotationTypeErr = "invalid credentialType (expected one of \"BMC\", \"HostUEFI\", \"DPUUEFI\", \"NVOS\", \"LockdownIKM\")"
-
 // credentialRotationTypeToProto is the single source of truth for the
-// REST-to-proto mapping; the reverse lookup and the ozzo allow-list both derive
-// from it so a new family cannot be added to one without the other.
+// REST-to-proto mapping; the reverse lookup, the ozzo allow-list, and the
+// validation error message all derive from it so a new family cannot be added
+// to one without the other.
 var credentialRotationTypeToProto = map[CredentialRotationType]corev1.RotationCredentialType{
 	CredentialRotationTypeBMC:         corev1.RotationCredentialType_ROTATION_BMC,
 	CredentialRotationTypeHostUEFI:    corev1.RotationCredentialType_ROTATION_HOST_UEFI,
@@ -42,6 +43,10 @@ var credentialRotationTypeToProto = map[CredentialRotationType]corev1.RotationCr
 	CredentialRotationTypeNVOS:        corev1.RotationCredentialType_ROTATION_NVOS,
 	CredentialRotationTypeLockdownIKM: corev1.RotationCredentialType_ROTATION_LOCKDOWN_IKM,
 }
+
+// credentialRotationTypeErr is the validation.In error message, derived from the
+// mapping keys so it always lists exactly the accepted values.
+var credentialRotationTypeErr = fmt.Sprintf("invalid credential type, expected one of: %s", util.SprintMapKeys(credentialRotationTypeToProto))
 
 // credentialRotationTypeValues is the ozzo validation.In allow-list built from
 // the mapping keys.
@@ -60,13 +65,12 @@ func (t CredentialRotationType) ToProto() corev1.RotationCredentialType {
 	return credentialRotationTypeToProto[t]
 }
 
-func credentialRotationTypeFromProto(p corev1.RotationCredentialType) CredentialRotationType {
-	for k, v := range credentialRotationTypeToProto {
-		if v == p {
-			return k
-		}
-	}
-	return ""
+// FromProto sets the receiver to the credential rotation type mapped from the
+// proto enum. The reverse lookup is derived from credentialRotationTypeToProto
+// so it cannot drift from the forward mapping; an unmapped proto value yields
+// the empty type, which Validate rejects.
+func (t *CredentialRotationType) FromProto(p corev1.RotationCredentialType) {
+	*t = util.ReverseMap(credentialRotationTypeToProto)[p]
 }
 
 // ValidateCredentialRotationType validates a standalone credential rotation
@@ -104,6 +108,8 @@ func (r *APICredentialRotationRequest) Validate() error {
 		validation.Field(&r.CredentialType,
 			validation.Required.Error(validationErrorValueRequired),
 			validation.In(credentialRotationTypeValues...).Error(credentialRotationTypeErr)),
+		validation.Field(&r.Password,
+			validation.NilOrNotEmpty.Error("password cannot be empty when provided")),
 	)
 }
 
@@ -133,7 +139,7 @@ func (r *APICredentialRotationResult) FromProto(p *corev1.RotateCredentialResult
 	if p == nil {
 		return
 	}
-	r.CredentialType = credentialRotationTypeFromProto(p.GetCredentialType())
+	r.CredentialType.FromProto(p.GetCredentialType())
 	r.TargetVersion = p.GetTargetVersion()
 	if ts := p.GetStartedAt(); ts != nil {
 		v := ts.AsTime().UTC()

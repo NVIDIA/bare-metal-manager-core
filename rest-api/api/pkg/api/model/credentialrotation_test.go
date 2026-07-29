@@ -27,6 +27,7 @@ func TestAPICredentialRotationRequestValidate(t *testing.T) {
 		{"bmc ok", APICredentialRotationRequest{SiteID: siteID, CredentialType: CredentialRotationTypeBMC}, false},
 		{"nvos ok", APICredentialRotationRequest{SiteID: siteID, CredentialType: CredentialRotationTypeNVOS}, false},
 		{"password optional", APICredentialRotationRequest{SiteID: siteID, CredentialType: CredentialRotationTypeBMC, Password: cutil.GetPtr("pw")}, false},
+		{"empty password rejected", APICredentialRotationRequest{SiteID: siteID, CredentialType: CredentialRotationTypeBMC, Password: cutil.GetPtr("")}, true},
 		{"missing siteId", APICredentialRotationRequest{CredentialType: CredentialRotationTypeBMC}, true},
 		{"invalid siteId", APICredentialRotationRequest{SiteID: "not-a-uuid", CredentialType: CredentialRotationTypeBMC}, true},
 		{"missing credentialType", APICredentialRotationRequest{SiteID: siteID}, true},
@@ -86,7 +87,9 @@ func TestCredentialRotationTypeToProto(t *testing.T) {
 			// ToProto and the reverse lookup must round-trip so the two
 			// derived views of the mapping cannot drift.
 			assert.Equal(t, tc.proto, tc.apiType.ToProto())
-			assert.Equal(t, tc.apiType, credentialRotationTypeFromProto(tc.proto))
+			var got CredentialRotationType
+			got.FromProto(tc.proto)
+			assert.Equal(t, tc.apiType, got)
 		})
 	}
 }
