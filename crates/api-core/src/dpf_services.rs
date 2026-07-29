@@ -25,10 +25,7 @@ use carbide_dpf::types::{
     DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME,
     FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
 };
-use carbide_dpf::{
-    ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
-    ServiceInterface, ServiceNAD, ServiceNADResourceType,
-};
+use carbide_dpf::{ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType};
 
 use crate::cfg::file::{DEFAULT_DPF_IMAGE_PULL_SECRET, DpfServiceConfig};
 
@@ -265,13 +262,8 @@ pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
         helm_values: Some(serde_json::json!({
             "exposedPorts": { "ports": { "httpserverport": true } }
         })),
-        config_ports: Some(vec![ServiceConfigPort {
-            name: "httpserverport".to_string(),
-            port: 9189,
-            protocol: ServiceConfigPortProtocol::Tcp,
-            node_port: None,
-        }]),
-        config_ports_service_type: Some(ConfigPortsServiceType::ClusterIp),
+        config_ports: None,
+        config_ports_service_type: None,
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,
