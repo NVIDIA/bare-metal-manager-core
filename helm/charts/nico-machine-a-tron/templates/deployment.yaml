@@ -50,8 +50,10 @@ spec:
         - name: machine-a-tron
           image: {{ include "nico-machine-a-tron.image" $root }}
           imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          command:
+            {{- toYaml $root.Values.command | nindent 12 }}
           args:
-            - "--config=/app/mat.toml"
+            - "/app/mat.toml"
           ports:
             - name: redfish
               containerPort: {{ $root.Values.service.bmcMock.port }}
@@ -76,7 +78,7 @@ spec:
               mountPath: /app/mat.toml
               subPath: mat.toml
             - name: tls
-              mountPath: /certs
+              mountPath: /var/run/secrets/spiffe.io
               readOnly: true
             {{- if $root.Values.persistence.enabled }}
             - name: data

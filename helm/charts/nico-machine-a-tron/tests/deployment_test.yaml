@@ -13,6 +13,22 @@ tests:
   - it: should expose named ports used by Services and probes
     asserts:
       - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - /opt/machine-a-tron/bin/machine-a-tron
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: /app/mat.toml
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls
+            mountPath: /var/run/secrets/spiffe.io
+            readOnly: true
+        template: deployment.yaml
+      - equal:
           path: spec.template.spec.containers[0].ports[0].name
           value: redfish
         template: deployment.yaml

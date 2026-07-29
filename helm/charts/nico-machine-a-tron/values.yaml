@@ -83,8 +83,6 @@ certificate:
   extraUris: []
 
 command:
-  - /bin/sh
-  - -c
   - /opt/machine-a-tron/bin/machine-a-tron
 
 env:
