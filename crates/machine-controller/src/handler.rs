@@ -3844,6 +3844,38 @@ pub struct DpuMachineStateHandler {
     pub dpf_sdk: Option<Arc<dyn DpfOperations>>,
 }
 
+pub fn is_bf4_dmi_product(product: &str) -> bool {
+    let product = product.to_uppercase();
+    product.contains("B4") || product.contains("BLUEFIELD-4")
+}
+
+/// Whether DPF owns platform configuration for this BF4 DPU.
+///
+/// The persisted ingestion marker prevents an enabled-but-unused DPF
+/// configuration from changing the legacy provisioning path.
+pub fn is_dpf_managed_bf4(
+    state: &ManagedHostStateSnapshot,
+    dpu_snapshot: &Machine,
+) -> Result<bool, StateHandlerError> {
+    if !state.host_snapshot.config.dpf.used_for_ingestion {
+        return Ok(false);
+    }
+
+    let product = dpu_snapshot
+        .status
+        .hardware_info
+        .as_ref()
+        .and_then(|x| x.dmi_data.as_ref())
+        .map(|x| x.product_name.trim())
+        .filter(|x| !x.is_empty())
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: dpu_snapshot.id.to_string(),
+            missing: "product_name in topology",
+        })?;
+
+    Ok(is_bf4_dmi_product(product))
+}
+
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
@@ -3859,33 +3891,6 @@ impl DpuMachineStateHandler {
             enable_secure_boot,
             dpf_sdk,
         }
-    }
-
-    /// Whether DPF owns platform configuration for this BF4 DPU.
-    ///
-    /// The persisted ingestion marker prevents an enabled-but-unused DPF
-    /// configuration from changing the legacy provisioning path.
-    fn is_dpf_managed_bf4(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        dpu_snapshot: &Machine,
-    ) -> Result<bool, StateHandlerError> {
-        if !state.host_snapshot.config.dpf.used_for_ingestion {
-            return Ok(false);
-        }
-
-        let product = dpu_snapshot
-            .status
-            .hardware_info
-            .as_ref()
-            .and_then(|x| x.dmi_data.as_ref())
-            .map(|x| x.product_name.to_uppercase())
-            .ok_or_else(|| StateHandlerError::MissingData {
-                object_id: dpu_snapshot.id.to_string(),
-                missing: "product_name in topology",
-            })?;
-
-        Ok(product.contains("B4") || product.contains("BLUEFIELD-4"))
     }
 
     async fn is_secure_boot_disabled(
@@ -4232,7 +4237,7 @@ impl DpuMachineStateHandler {
                     }
                 })?;
 
-                let dpf_managed_bf4 = self.is_dpf_managed_bf4(state, dpu_snapshot)?;
+                let dpf_managed_bf4 = is_dpf_managed_bf4(state, dpu_snapshot)?;
 
                 let dpu_redfish_client = match ctx
                     .services
@@ -4413,7 +4418,7 @@ impl DpuMachineStateHandler {
 
                 // Handle BF4 machines already persisted in this state when the
                 // controller is upgraded: do not issue even one more BIOS query.
-                if self.is_dpf_managed_bf4(state, dpu_snapshot)? {
+                if is_dpf_managed_bf4(state, dpu_snapshot)? {
                     tracing::info!(
                         dpu_machine_id = %dpu_snapshot.id,
                         "Skipping BIOS setup verification for DPF-managed BF4"
@@ -12274,5 +12279,106 @@ mod tests {
             },
             &host_id,
         ));
+    }
+
+    mod is_bf4_dmi_product_tests {
+        use super::*;
+
+        #[test]
+        fn bf4_product_name_is_detected() {
+            assert!(is_bf4_dmi_product("BlueField-4 SmartNIC Main Card"));
+        }
+
+        #[test]
+        fn bf4_detection_is_case_insensitive() {
+            assert!(is_bf4_dmi_product("bluefield-4 smartnic main card"));
+        }
+
+        #[test]
+        fn bf3_product_name_is_not_bf4() {
+            assert!(!is_bf4_dmi_product("BlueField SoC"));
+        }
+
+        #[test]
+        fn empty_product_name_is_not_bf4() {
+            assert!(!is_bf4_dmi_product(""));
+        }
+    }
+
+    mod is_dpf_managed_bf4_tests {
+        use model::hardware_info::{DmiData, HardwareInfo};
+        use model::test_support::machine_snapshot::{dpu_machine, managed_host_state_snapshot};
+
+        use super::*;
+
+        fn dpu_with_product_name(product_name: &str) -> Machine {
+            let mut dpu = dpu_machine(0);
+            dpu.status.hardware_info = Some(HardwareInfo {
+                dmi_data: Some(DmiData {
+                    product_name: product_name.to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+            dpu
+        }
+
+        fn state_with_ingestion(used_for_ingestion: bool) -> ManagedHostStateSnapshot {
+            let mut state = managed_host_state_snapshot();
+            state.host_snapshot.config.dpf.used_for_ingestion = used_for_ingestion;
+            state
+        }
+
+        #[test]
+        fn returns_false_when_dpf_not_used_for_ingestion() {
+            let state = state_with_ingestion(false);
+            let dpu = dpu_with_product_name("BlueField-4 SmartNIC Main Card");
+            assert!(!is_dpf_managed_bf4(&state, &dpu).unwrap());
+        }
+
+        #[test]
+        fn returns_true_for_bf4_product_name() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("BlueField-4 SmartNIC Main Card");
+            assert!(is_dpf_managed_bf4(&state, &dpu).unwrap());
+        }
+
+        #[test]
+        fn returns_false_for_bf3_product_name() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("BlueField-3 Dpu");
+            assert!(!is_dpf_managed_bf4(&state, &dpu).unwrap());
+        }
+
+        #[test]
+        fn errors_when_dmi_data_absent() {
+            let state = state_with_ingestion(true);
+            let mut dpu = dpu_machine(0);
+            dpu.status.hardware_info = Some(HardwareInfo::default());
+            assert!(matches!(
+                is_dpf_managed_bf4(&state, &dpu),
+                Err(StateHandlerError::MissingData { .. })
+            ));
+        }
+
+        #[test]
+        fn errors_when_product_name_empty() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("");
+            assert!(matches!(
+                is_dpf_managed_bf4(&state, &dpu),
+                Err(StateHandlerError::MissingData { .. })
+            ));
+        }
+
+        #[test]
+        fn errors_when_product_name_whitespace_only() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("   ");
+            assert!(matches!(
+                is_dpf_managed_bf4(&state, &dpu),
+                Err(StateHandlerError::MissingData { .. })
+            ));
+        }
     }
 }
