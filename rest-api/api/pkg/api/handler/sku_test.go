@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
@@ -25,10 +26,12 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/extra/bundebug"
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
@@ -37,6 +40,97 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
+
+type skuUpdateCountingHook struct {
+	updates atomic.Int64
+}
+
+func (hook *skuUpdateCountingHook) BeforeQuery(ctx context.Context, _ *bun.QueryEvent) context.Context {
+	return ctx
+}
+
+func (hook *skuUpdateCountingHook) AfterQuery(_ context.Context, event *bun.QueryEvent) {
+	if event.Operation() == "UPDATE" {
+		hook.updates.Add(1)
+	}
+}
+
+func TestRetryOnceOnUniqueConstraint(t *testing.T) {
+	uniqueViolation := &pgconn.PgError{Code: "23505"}
+	retryFailure := errors.New("retry failed")
+	nonUniqueFailure := errors.New("non-unique failure")
+
+	tests := []struct {
+		name         string
+		results      []error
+		expectedErr  error
+		expectedRuns int
+	}{
+		{
+			name:         "retries unique violation",
+			results:      []error{uniqueViolation, nil},
+			expectedRuns: 2,
+		},
+		{
+			name:         "returns retry failure",
+			results:      []error{uniqueViolation, retryFailure},
+			expectedErr:  retryFailure,
+			expectedRuns: 2,
+		},
+		{
+			name:         "does not retry other errors",
+			results:      []error{nonUniqueFailure},
+			expectedErr:  nonUniqueFailure,
+			expectedRuns: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			runs := 0
+			err := retryOnceOnUniqueConstraint(func() error {
+				result := tc.results[runs]
+				runs++
+				return result
+			})
+
+			assert.ErrorIs(t, err, tc.expectedErr)
+			assert.Equal(t, tc.expectedRuns, runs)
+		})
+	}
+}
+
+func TestUpsertSkuProjectionSkipsUnchangedFields(t *testing.T) {
+	fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+	hook := &skuUpdateCountingHook{}
+	fixture.updateHandler.dbSession.DB.AddQueryHook(hook)
+
+	projected := &corev1.Sku{Id: "sku-1"}
+	err := upsertSkuProjection(
+		context.Background(),
+		fixture.updateHandler.dbSession,
+		uuid.MustParse(fixture.siteID),
+		projected,
+	)
+	require.NoError(t, err)
+	assert.Zero(t, hook.updates.Load())
+
+	deviceType := "gpu-server"
+	projected.DeviceType = &deviceType
+	err = upsertSkuProjection(
+		context.Background(),
+		fixture.updateHandler.dbSession,
+		uuid.MustParse(fixture.siteID),
+		projected,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), hook.updates.Load())
+
+	saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, projected.Id)
+	require.NoError(t, err)
+	require.NotNil(t, saved.DeviceType)
+	assert.Equal(t, deviceType, *saved.DeviceType)
+}
 
 // testSkuInitDB initializes a test database session (pattern from tenant_test.go)
 func testSkuInitDB(t *testing.T) *cdb.Session {
@@ -756,6 +850,32 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
 	})
 
+	t.Run("returns error when Core create fails", func(t *testing.T) {
+		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
+			createError:      errors.New("Core unavailable"),
+			skipPersistedSKU: true,
+		})
+
+		rec := fixture.request(t, http.MethodPost, "", validSkuCreateRequest(fixture.siteID), fixture.createHandler.Handle)
+
+		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+		require.Len(t, fixture.requests, 1)
+		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
+		_, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, "sku-1")
+		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
+	})
+
+	t.Run("rejects invalid Site ID", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+		req := validSkuCreateRequest("invalid-site-id")
+
+		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
+
+		require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "siteId")
+		assert.Empty(t, fixture.requests)
+	})
+
 	t.Run("rejects legacy storage mutation fields", func(t *testing.T) {
 		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
 
@@ -817,10 +937,10 @@ func TestCreateSkuHandler(t *testing.T) {
 func TestUpdateSkuHandler(t *testing.T) {
 	t.Run("uses metadata RPC for metadata patch", func(t *testing.T) {
 		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
-		description := "updated description"
+		deviceType := "cpu-server"
 
 		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
-			Description: &description,
+			DeviceType: &deviceType,
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
@@ -830,34 +950,40 @@ func TestUpdateSkuHandler(t *testing.T) {
 		var coreReq corev1.SkuUpdateMetadataRequest
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
 		assert.Equal(t, "sku-1", coreReq.SkuId)
-		assert.Equal(t, "updated description", coreReq.GetDescription())
+		assert.Equal(t, deviceType, coreReq.GetDeviceType())
 
 		var response model.APISkuMutationResponse
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-		assert.Equal(t, "updated description", response.Description)
+		require.NotNil(t, response.DeviceType)
+		assert.Equal(t, deviceType, *response.DeviceType)
 		assert.Equal(t, uint32(4), response.SchemaVersion)
 
 		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		require.NoError(t, err)
-		assert.Equal(t, response.DeviceType, saved.DeviceType)
+		require.NotNil(t, saved.DeviceType)
+		assert.Equal(t, deviceType, *saved.DeviceType)
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
 		assert.Equal(t, "existing chassis", saved.Components.Chassis.Model)
 	})
 
-	t.Run("preserves projection when Core update fails", func(t *testing.T) {
+	t.Run("preserves projection when Core metadataupdate fails", func(t *testing.T) {
 		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
 			updateMetadataError: errors.New("Core unavailable"),
 		})
-		description := "updated description"
+		deviceType := "cpu-server"
 
 		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
-			Description: &description,
+			DeviceType: &deviceType,
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
 		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
 		assert.Equal(t, updateSkuMetadataMethod, fixture.requests[1].FullMethod)
+
+		var coreReq corev1.SkuUpdateMetadataRequest
+		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
+		assert.Equal(t, deviceType, coreReq.GetDeviceType())
 
 		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		require.NoError(t, err)
@@ -869,10 +995,10 @@ func TestUpdateSkuHandler(t *testing.T) {
 	t.Run("replaces version five components", func(t *testing.T) {
 		existing := existingSkuProto()
 		existing.SchemaVersion = model.CoreSkuSchemaVersion
-		description := "updated description"
+		deviceType := "cpu-server"
 		replacementResponse := existingSkuProto()
 		replacementResponse.SchemaVersion = model.CoreSkuSchemaVersion
-		replacementResponse.Description = &description
+		replacementResponse.DeviceType = &deviceType
 		replacementResponse.Components = validSkuCreateRequest("").ToProto().Skus[0].Components
 		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
 			findResponse:    &corev1.SkuList{Skus: []*corev1.Sku{existing}},
@@ -881,8 +1007,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 		components := validSkuCreateRequest(fixture.siteID).Components
 
 		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
-			Description: &description,
-			Components:  components,
+			DeviceType: &deviceType,
+			Components: components,
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
@@ -892,21 +1018,85 @@ func TestUpdateSkuHandler(t *testing.T) {
 		var coreReq corev1.Sku
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
 		assert.Equal(t, "sku-1", coreReq.Id)
-		assert.Equal(t, "updated description", coreReq.GetDescription())
+		assert.Equal(t, deviceType, coreReq.GetDeviceType())
 		assert.Equal(t, model.CoreSkuSchemaVersion, coreReq.SchemaVersion)
 		require.NotNil(t, coreReq.Components)
 		require.Len(t, coreReq.Components.Storage, 1)
 
 		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		require.NoError(t, err)
-		assert.Equal(t, replacementResponse.DeviceType, saved.DeviceType)
+		require.NotNil(t, saved.DeviceType)
+		assert.Equal(t, deviceType, *saved.DeviceType)
 		require.NotNil(t, saved.Components)
 		require.Len(t, saved.Components.Storage, 1)
 		assert.Equal(t, uint32(3_600_000), saved.Components.Storage[0].GetMinSizeMb())
 		assert.Equal(t, uint32(3_900_000), saved.Components.Storage[0].GetMaxSizeMb())
 	})
 
-	t.Run("migrates legacy components to version five", func(t *testing.T) {
+	t.Run("preserves projection when Core replace fails", func(t *testing.T) {
+		existing := existingSkuProto()
+		existing.SchemaVersion = model.CoreSkuSchemaVersion
+		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
+			findResponse: &corev1.SkuList{Skus: []*corev1.Sku{existing}},
+			replaceError: errors.New("Core unavailable"),
+		})
+		deviceType := "cpu-server"
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			DeviceType: &deviceType,
+			Components: validSkuCreateRequest(fixture.siteID).Components,
+		}, fixture.updateHandler.Handle)
+
+		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+		require.Len(t, fixture.requests, 2)
+		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, replaceSkuMethod, fixture.requests[1].FullMethod)
+
+		var coreReq corev1.Sku
+		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
+		assert.Equal(t, deviceType, coreReq.GetDeviceType())
+
+		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
+		require.NoError(t, err)
+		assert.Nil(t, saved.DeviceType)
+		assert.Nil(t, saved.Components)
+	})
+
+	t.Run("replaces components for SKU with associated machines", func(t *testing.T) {
+		existing := existingSkuProto()
+		existing.SchemaVersion = model.CoreSkuSchemaVersion
+		existing.AssociatedMachineIds = []*corev1.MachineId{{Id: "machine-1"}}
+		replacementResponse := proto.Clone(existing).(*corev1.Sku)
+		replacementResponse.Components = validSkuCreateRequest("").ToProto().Skus[0].Components
+		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
+			findResponse:    &corev1.SkuList{Skus: []*corev1.Sku{existing}},
+			replaceResponse: replacementResponse,
+		})
+
+		rec := fixture.request(t, http.MethodPatch, "sku-1", model.APISkuUpdateRequest{
+			Components: validSkuCreateRequest(fixture.siteID).Components,
+		}, fixture.updateHandler.Handle)
+
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		require.Len(t, fixture.requests, 2)
+		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, replaceSkuMethod, fixture.requests[1].FullMethod)
+
+		var coreReq corev1.Sku
+		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
+		require.Len(t, coreReq.AssociatedMachineIds, 1)
+		assert.Equal(t, "machine-1", coreReq.AssociatedMachineIds[0].GetId())
+
+		var response model.APISkuMutationResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+		assert.Equal(t, []string{"machine-1"}, response.AssociatedMachineIDs)
+
+		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"machine-1"}, saved.AssociatedMachineIds)
+	})
+
+	t.Run("sends version five when replacing legacy SKU components", func(t *testing.T) {
 		existing := existingSkuProto()
 		require.Equal(t, uint32(4), existing.SchemaVersion)
 		replacementResponse := proto.Clone(existing).(*corev1.Sku)
@@ -932,11 +1122,6 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Equal(t, "sku-1", coreReq.Id)
 		require.NotNil(t, coreReq.Components)
 		require.Len(t, coreReq.Components.Storage, 1)
-
-		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
-		require.NoError(t, err)
-		require.NotNil(t, saved.Components)
-		require.Len(t, saved.Components.Storage, 1)
 	})
 
 	t.Run("rejects inverted storage size range", func(t *testing.T) {
@@ -954,7 +1139,7 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Empty(t, fixture.requests)
 	})
 
-	t.Run("returns Core not found without replace", func(t *testing.T) {
+	t.Run("returns Core not found without completing update", func(t *testing.T) {
 		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
 			findResponse: &corev1.SkuList{},
 		})
@@ -969,7 +1154,7 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
 	})
 
-	t.Run("returns not found for unsaved SKU", func(t *testing.T) {
+	t.Run("returns not found for SKU not present in REST database", func(t *testing.T) {
 		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
 		description := "updated description"
 
@@ -1048,12 +1233,18 @@ func TestDeleteSkuHandler(t *testing.T) {
 	})
 
 	t.Run("preserves record when Core delete fails", func(t *testing.T) {
+		deleteErr := tp.NewApplicationErrorWithCause(
+			"Core unavailable",
+			swe.ErrTypeNICoUnavailable,
+			status.Error(codes.Unavailable, "Core unavailable"),
+		)
 		fixture := newSkuManagementFixtureWithOptions(t, []string{authz.ProviderAdminRole}, skuManagementFixtureOptions{
-			deleteError: errors.New("Core unavailable"),
+			deleteError: deleteErr,
 		})
 
 		rec := fixture.request(t, http.MethodDelete, "sku-1", nil, fixture.deleteHandler.Handle)
-		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+		require.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
+		assert.Contains(t, rec.Body.String(), "Core unavailable")
 		require.Len(t, fixture.requests, 1)
 		assert.Equal(t, deleteSkuMethod, fixture.requests[0].FullMethod)
 		_, err := cdbm.NewSkuDAO(fixture.deleteHandler.dbSession).Get(context.Background(), nil, "sku-1")
@@ -1085,6 +1276,7 @@ type skuManagementFixtureOptions struct {
 	findError           error
 	createError         error
 	replaceResponse     *corev1.Sku
+	replaceError        error
 	updateMetadataError error
 	deleteError         error
 	skipPersistedSKU    bool
@@ -1141,7 +1333,11 @@ func newSkuManagementFixtureWithOptions(t *testing.T, roles []string, options sk
 	if replaceResponse == nil {
 		replaceResponse = existing
 	}
-	fixture.addWorkflow(t, client, replaceSkuMethod, replaceResponse)
+	if options.replaceError != nil {
+		fixture.addWorkflowError(client, replaceSkuMethod, options.replaceError)
+	} else {
+		fixture.addWorkflow(t, client, replaceSkuMethod, replaceResponse)
+	}
 	if options.updateMetadataError != nil {
 		fixture.addWorkflowError(client, updateSkuMetadataMethod, options.updateMetadataError)
 	} else {
@@ -1223,7 +1419,11 @@ func validSkuCreateRequest(siteID string) model.APISkuCreateRequest {
 		Description: cutil.GetPtr("test SKU"),
 		DeviceType:  &deviceType,
 		Components: &model.APISkuMutationComponents{
-			Chassis: &model.APISkuChassis{Vendor: "NVIDIA", Model: "DGX H100", Architecture: "x86_64"},
+			Chassis: &model.APISkuChassis{
+				Vendor:       "NVIDIA",
+				Model:        "DGX H100",
+				Architecture: "x86_64",
+			},
 			Storage: []model.APISkuStorageMutation{{
 				Model:       "informational-model",
 				Count:       2,
@@ -1244,7 +1444,11 @@ func existingSkuProto() *corev1.Sku {
 		SchemaVersion: 4,
 		DeviceType:    &deviceType,
 		Components: &corev1.SkuComponents{
-			Chassis: &corev1.SkuComponentChassis{Vendor: "NVIDIA", Model: "existing chassis", Architecture: "x86_64"},
+			Chassis: &corev1.SkuComponentChassis{
+				Vendor:       "NVIDIA",
+				Model:        "existing chassis",
+				Architecture: "x86_64",
+			},
 		},
 	}
 }
