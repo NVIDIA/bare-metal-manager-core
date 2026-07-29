@@ -3,7 +3,11 @@
 
 package model
 
-import corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+import (
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
+)
 
 // APIMachineValidationOnDemandRequest contains optional filters for an
 // on-demand Machine validation run.
@@ -12,6 +16,15 @@ type APIMachineValidationOnDemandRequest struct {
 	AllowedTests       []string `json:"allowedTests,omitempty"`
 	RunUnverifiedTests bool     `json:"runUnverifiedTests,omitempty"`
 	Contexts           []string `json:"contexts,omitempty"`
+}
+
+// Validate ensures the on-demand Machine validation filters are well-formed.
+func (r APIMachineValidationOnDemandRequest) Validate() error {
+	return validation.ValidateStruct(&r,
+		validation.Field(&r.Tags, validation.Each(validation.Required)),
+		validation.Field(&r.AllowedTests, validation.Each(validation.Required)),
+		validation.Field(&r.Contexts, validation.Each(validation.Required)),
+	)
 }
 
 // ToProto converts an on-demand Machine validation request to the Core API model.

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -33,6 +34,7 @@ type machineValidationOnDemandHandlerFixture struct {
 	dbSession  *cdb.Session
 	org        string
 	machineID  string
+	siteID     uuid.UUID
 	user       interface{}
 	handler    echo.HandlerFunc
 	proxiedReq *coreproxy.Request
@@ -90,6 +92,7 @@ func newMachineValidationOnDemandHandlerFixture(t *testing.T, response *corev1.M
 		dbSession:  dbSession,
 		org:        org,
 		machineID:  machine.ID,
+		siteID:     site.ID,
 		user:       user,
 		handler:    handler.Handle,
 		proxiedReq: proxiedReq,
@@ -165,11 +168,20 @@ func TestCreateMachineValidationRunHandlerAcceptsEmptyOptions(t *testing.T) {
 
 func TestCreateMachineValidationRunHandlerRequiresProviderAdmin(t *testing.T) {
 	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
-	fixture.user = &cdbm.User{OrgData: cdbm.OrgData{fixture.org: cdbm.Org{Name: fixture.org}}}
+	fixture.user = common.TestBuildUser(t, fixture.dbSession, "viewer-starfleet-id", fixture.org, []string{authz.ProviderViewerRole})
 
 	recorder := fixture.request(t, nil)
 
 	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Empty(t, fixture.proxiedReq.FullMethod)
+}
+
+func TestCreateMachineValidationRunHandlerRejectsInvalidOptions(t *testing.T) {
+	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
+
+	recorder := fixture.request(t, model.APIMachineValidationOnDemandRequest{Tags: []string{""}})
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
@@ -180,6 +192,34 @@ func TestCreateMachineValidationRunHandlerRejectsUnknownMachine(t *testing.T) {
 	recorder := fixture.request(t, nil)
 
 	assert.Equal(t, http.StatusNotFound, recorder.Code)
+	assert.Empty(t, fixture.proxiedReq.FullMethod)
+}
+
+func TestCreateMachineValidationRunHandlerRejectsMissingMachine(t *testing.T) {
+	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
+	_, err := cdbm.NewMachineDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.MachineUpdateInput{
+		MachineID:       fixture.machineID,
+		IsMissingOnSite: cutil.GetPtr(true),
+	})
+	require.NoError(t, err)
+
+	recorder := fixture.request(t, nil)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Empty(t, fixture.proxiedReq.FullMethod)
+}
+
+func TestCreateMachineValidationRunHandlerRejectsUnregisteredSite(t *testing.T) {
+	fixture := newMachineValidationOnDemandHandlerFixture(t, nil)
+	_, err := cdbm.NewSiteDAO(fixture.dbSession).Update(context.Background(), nil, cdbm.SiteUpdateInput{
+		SiteID: fixture.siteID,
+		Status: cutil.GetPtr(cdbm.SiteStatusError),
+	})
+	require.NoError(t, err)
+
+	recorder := fixture.request(t, nil)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 

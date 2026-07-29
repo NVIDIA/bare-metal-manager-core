@@ -652,7 +652,7 @@ func (handler GetMachineValidationTestHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, model.NewAPIMachineValidationTest(getProtoResponse.Tests[0]))
 }
 
-func getMachineValidationSite(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, provider *cdbm.InfrastructureProvider, machineID string) (*cdbm.Site, *cutil.APIError) {
+func getMachineForValidation(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, provider *cdbm.InfrastructureProvider, machineID string) (*cdbm.Machine, *cutil.APIError) {
 	machine, err := cdbm.NewMachineDAO(dbSession).GetByID(ctx, nil, machineID, []string{cdbm.SiteRelationName}, false)
 	if err != nil {
 		if errors.Is(err, cdb.ErrDoesNotExist) {
@@ -672,7 +672,7 @@ func getMachineValidationSite(ctx context.Context, logger zerolog.Logger, dbSess
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Site details for Machine, DB error", nil)
 	}
 
-	return machine.Site, nil
+	return machine, nil
 }
 
 // GetMachineValidationResultsHandler is the API Handler to get MachineValidationResults
@@ -743,10 +743,11 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
-	site, apiError := getMachineValidationSite(ctx, logger, handler.dbSession, ip, machineID)
+	machine, apiError := getMachineForValidation(ctx, logger, handler.dbSession, ip, machineID)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
+	site := machine.Site
 
 	// Get the temporal client for the site we are working with
 	temporalClient, err := handler.scp.GetClientByID(site.ID)
@@ -872,10 +873,11 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
-	site, apiError := getMachineValidationSite(ctx, logger, handler.dbSession, ip, machineID)
+	machine, apiError := getMachineForValidation(ctx, logger, handler.dbSession, ip, machineID)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
+	site := machine.Site
 
 	// Get the temporal client for the site we are working with
 	temporalClient, err := handler.scp.GetClientByID(site.ID)

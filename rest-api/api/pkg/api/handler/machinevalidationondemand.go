@@ -4,7 +4,6 @@
 package handler
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -70,6 +69,11 @@ func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
+	if !auth.ValidateUserRoles(dbUser, org, nil, auth.ProviderAdminRole) {
+		logger.Warn().Msg("user does not have Provider Admin role, access denied")
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
+	}
+
 	machineID := c.Param("id")
 	if machineID == "" {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine ID was not specified in URL", nil)
@@ -80,37 +84,25 @@ func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request data, potentially invalid structure", nil)
 	}
 
-	provider, _, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, true)
+	if err := apiRequest.Validate(); err != nil {
+		logger.Warn().Err(err).Msg("error validating on-demand Machine validation request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate on-demand Machine validation request data", err)
+	}
+
+	provider, err := common.GetInfrastructureProviderForOrg(ctx, nil, h.dbSession, org)
+	if err != nil {
+		logger.Warn().Err(err).Msg("error getting infrastructure provider for org")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
+	}
+
+	machine, apiError := getMachineForValidation(ctx, logger, h.dbSession, provider, machineID)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-	if provider == nil {
-		logger.Warn().Msg("user does not have Provider role, access denied")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
-	}
-
-	machine, err := cdbm.NewMachineDAO(h.dbSession).GetByID(ctx, nil, machineID, []string{cdbm.SiteRelationName}, false)
-	if err != nil {
-		if errors.Is(err, cdb.ErrDoesNotExist) {
-			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Machine with specified ID", nil)
-		}
-		logger.Error().Err(err).Msg("failed to retrieve Machine details from DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Machine details, DB error", nil)
-	}
-
-	if machine.InfrastructureProviderID != provider.ID {
-		logger.Error().Msg("Machine doesn't belong to org's Infrastructure provider")
-		return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Machine with specified ID", nil)
 	}
 
 	if machine.IsMissingOnSite {
 		logger.Error().Msg("Machine is missing on site, unable to start on-demand validation")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is missing on site, unable to start on-demand validation", nil)
-	}
-
-	if machine.Site == nil {
-		logger.Error().Msg("Related Site was not returned for Machine DB entity")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Machine, DB error", nil)
 	}
 
 	site := machine.Site

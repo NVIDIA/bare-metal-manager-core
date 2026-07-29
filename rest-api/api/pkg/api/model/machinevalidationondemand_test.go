@@ -29,6 +29,38 @@ func TestAPIMachineValidationOnDemandRequestToProto(t *testing.T) {
 	assert.Equal(t, request.Contexts, protoRequest.GetContexts())
 }
 
+func TestAPIMachineValidationOnDemandRequestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		request APIMachineValidationOnDemandRequest
+		wantErr bool
+	}{
+		{name: "empty options accepted"},
+		{
+			name: "filters accepted",
+			request: APIMachineValidationOnDemandRequest{
+				Tags:         []string{"history"},
+				AllowedTests: []string{"gpu_bandwidth"},
+				Contexts:     []string{"OnDemand"},
+			},
+		},
+		{name: "empty tag rejected", request: APIMachineValidationOnDemandRequest{Tags: []string{""}}, wantErr: true},
+		{name: "empty allowed test rejected", request: APIMachineValidationOnDemandRequest{AllowedTests: []string{""}}, wantErr: true},
+		{name: "empty context rejected", request: APIMachineValidationOnDemandRequest{Contexts: []string{""}}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.request.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestNewAPIMachineValidationOnDemandResponse(t *testing.T) {
 	response := NewAPIMachineValidationOnDemandResponse(&corev1.MachineValidationOnDemandResponse{
 		ValidationId: &corev1.MachineValidationId{Value: "validation-1"},

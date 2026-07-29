@@ -15566,11 +15566,13 @@ components:
           description: Tags used to select validation tests.
           items:
             type: string
+            minLength: 1
         allowedTests:
           type: array
           description: Validation test names allowed for this run.
           items:
             type: string
+            minLength: 1
         runUnverifiedTests:
           type: boolean
           description: Whether unverified validation tests may run.
@@ -15580,6 +15582,7 @@ components:
           description: Contexts used to select validation tests.
           items:
             type: string
+            minLength: 1
     MachineValidationOnDemandResponse:
       type: object
       title: MachineValidationOnDemandResponse
