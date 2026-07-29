@@ -171,6 +171,7 @@ jobs:
               - 'Cargo.lock'
               - 'Makefile.toml'
               - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yaml'
       - name: Calculate version
         id: version
         run: |
@@ -1412,8 +1413,11 @@ jobs:
 
       - name: Build pull request merge result
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch --no-tags origin main:refs/remotes/origin/main
-          git merge --no-commit --no-ff origin/main
+          git -c user.name="CI merge validation" \
+            -c user.email=ci@example.invalid \
+            merge --no-commit --no-ff origin/main
 
       - name: Validate Cargo metadata
         run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
