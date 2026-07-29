@@ -4,14 +4,23 @@ templates:
 release:
   namespace: nico-system
 tests:
-  - it: renders no rms section by default
+  - it: renders rack profiles by default without rms or component_manager
     documentIndex: 0
     asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '\[rack_profiles\.NVL72\]'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '\[rack_profiles\.NVL72_GB300\]'
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[rms\]'
+      - notMatchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '\[component_manager\]'
 
-  - it: renders only api_url and enforce_tls with chart defaults when enabled
+  - it: renders component_manager and rms together when enabled
     documentIndex: 0
     set:
       rms:
@@ -19,7 +28,19 @@ tests:
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
-          pattern: '(?s)\[rms\].*api_url = "https://rms-api-server\.rack-manager\.svc\.cluster\.local:8801".*enforce_tls = true'
+          pattern: '(?m)^\[component_manager\]$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^compute_tray_backend = "rms"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^\[rms\]$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^api_url = "https://rms-api-server\.rack-manager\.svc\.cluster\.local:8801"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^enforce_tls = true$'
       # No cert paths by default: nv-rms-client auto-discovers the SPIFFE
       # mount (/var/run/secrets/spiffe.io) when they are unset.
       - notMatchRegex:
@@ -37,7 +58,13 @@ tests:
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
-          pattern: '(?s)\[rms\].*root_ca_path = "/etc/forge/rms/ca\.pem".*client_cert = "/etc/forge/rms/client\.pem".*client_key = "/etc/forge/rms/client\.key"'
+          pattern: '(?m)^root_ca_path = "/etc/forge/rms/ca\.pem"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^client_cert = "/etc/forge/rms/client\.pem"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^client_key = "/etc/forge/rms/client\.key"$'
 
   - it: keeps the rms section out of the site-config ConfigMap
     set:
