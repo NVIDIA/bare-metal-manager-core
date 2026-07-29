@@ -174,11 +174,10 @@ pub(crate) enum FirmwareUploadMethod {
     HttpPush,
 }
 
-/// A preingestion firmware upload to a BMC finished. Every outcome updates the
-/// counter; failures also own the route-specific log line.
-/// A multipart attempt a BMC rejects as unsupported uses the sibling
-/// [`MultipartFirmwareUploadUnsupported`] Event so that its distinct fallback
-/// message retains the same `multipart,error` metric labels.
+/// A preingestion firmware upload to a BMC finished. Every result updates the
+/// counter; failures also own the route-specific log line. A multipart route a
+/// BMC declines is not an upload result and does not reach this counter -- refer
+/// to [`MultipartFirmwareUploadUnsupported`].
 #[derive(Event)]
 #[event(
     event_name = "preingestion_firmware_upload_finished",
@@ -229,26 +228,20 @@ impl DynamicMessage for FirmwareUploadFinished {
     }
 }
 
-/// A multipart upload was rejected as unsupported and will fall back to
-/// HttpPushUri. It shares the existing upload counter with
-/// [`FirmwareUploadFinished`] while retaining the fallback-specific WARN
-/// message. Its metric description must remain identical to the sibling
-/// Event's because both register the same counter.
+/// A BMC declined the multipart route, so the upload falls back to
+/// `HttpPushUri`. Declining a route is not an upload result: the upload has not
+/// failed and its real result arrives on the following `http_push`
+/// [`FirmwareUploadFinished`]. This Event is therefore the WARN alone, so a
+/// fallback never counts against the multipart failure series.
 #[derive(Event)]
 #[event(
     event_name = "preingestion_firmware_upload_multipart_unsupported",
-    metric_name = "carbide_preingestion_firmware_upload_total",
     component = "preingestion-manager",
     log = warn,
-    metric = counter,
-    message = "Multipart firmware update is not supported; trying HttpPushUri",
-    describe = "Number of preingestion firmware uploads to a BMC, by upload method and outcome."
+    metric = none,
+    message = "Multipart firmware update is not supported; trying HttpPushUri"
 )]
 pub(crate) struct MultipartFirmwareUploadUnsupported {
-    #[label]
-    pub method: FirmwareUploadMethod,
-    #[label]
-    pub outcome: Outcome,
     /// The BMC whose multipart route rejected the upload.
     #[context]
     pub bmc_ip_address: IpAddr,
@@ -898,13 +891,7 @@ mod tests {
     }
 
     #[derive(Clone, Copy)]
-    enum FirmwareUploadEventKind {
-        Finished,
-        MultipartUnsupported,
-    }
-
     struct FirmwareUploadInput {
-        kind: FirmwareUploadEventKind,
         method: FirmwareUploadMethod,
         outcome: Outcome,
         error: &'static str,
@@ -934,21 +921,13 @@ mod tests {
         let bmc_ip_address = IpAddr::from([10, 0, 0, 5]);
         let method_label = input.method.label_value();
         let outcome_label = input.outcome.label_value();
-        let logs = capture_logs(|| match input.kind {
-            FirmwareUploadEventKind::Finished => emit(FirmwareUploadFinished {
+        let logs = capture_logs(|| {
+            emit(FirmwareUploadFinished {
                 method: input.method,
                 outcome: input.outcome,
                 bmc_ip_address,
                 error: input.error.to_string(),
-            }),
-            FirmwareUploadEventKind::MultipartUnsupported => {
-                emit(MultipartFirmwareUploadUnsupported {
-                    method: input.method,
-                    outcome: input.outcome,
-                    bmc_ip_address,
-                    error: input.error.to_string(),
-                });
-            }
+            });
         })
         .into_iter()
         .map(|log| {
@@ -1023,7 +1002,6 @@ mod tests {
                 Check {
                     scenario: "SimpleUpdate success",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Ok,
                         error: "",
@@ -1038,7 +1016,6 @@ mod tests {
                 Check {
                     scenario: "SimpleUpdate failure",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::SimpleUpdate,
                         outcome: Outcome::Error,
                         error: "simple update failed",
@@ -1055,62 +1032,8 @@ mod tests {
                     ),
                 },
                 Check {
-                    scenario: "multipart success",
-                    input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Ok,
-                        error: "",
-                    },
-                    expect: expected_firmware_upload(
-                        FirmwareUploadMethod::Multipart,
-                        Outcome::Ok,
-                        "",
-                        None,
-                    ),
-                },
-                Check {
-                    scenario: "multipart failure",
-                    input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Error,
-                        error: "multipart upload failed",
-                    },
-                    expect: expected_firmware_upload(
-                        FirmwareUploadMethod::Multipart,
-                        Outcome::Error,
-                        "multipart upload failed",
-                        Some((
-                            tracing::Level::WARN,
-                            "preingestion_firmware_upload_finished",
-                            "Failed to upload firmware via multipart update",
-                        )),
-                    ),
-                },
-                Check {
-                    scenario: "multipart unsupported",
-                    input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::MultipartUnsupported,
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Error,
-                        error: "multipart is unsupported",
-                    },
-                    expect: expected_firmware_upload(
-                        FirmwareUploadMethod::Multipart,
-                        Outcome::Error,
-                        "multipart is unsupported",
-                        Some((
-                            tracing::Level::WARN,
-                            "preingestion_firmware_upload_multipart_unsupported",
-                            "Multipart firmware update is not supported; trying HttpPushUri",
-                        )),
-                    ),
-                },
-                Check {
                     scenario: "HttpPush success",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::HttpPush,
                         outcome: Outcome::Ok,
                         error: "",
@@ -1125,7 +1048,6 @@ mod tests {
                 Check {
                     scenario: "HttpPush failure",
                     input: FirmwareUploadInput {
-                        kind: FirmwareUploadEventKind::Finished,
                         method: FirmwareUploadMethod::HttpPush,
                         outcome: Outcome::Error,
                         error: "HTTP push failed",
@@ -1146,15 +1068,14 @@ mod tests {
         );
     }
 
-    /// An unsupported multipart attempt counts as its own error before the
-    /// `HttpPush` fallback records a second, independent attempt.
+    /// A declined multipart route writes its WARN and leaves the upload counter
+    /// alone: the fallback that follows records the upload's only result, so the
+    /// multipart failure series stays a count of real multipart failures.
     #[test]
-    fn unsupported_multipart_preserves_the_http_push_fallback_sequence() {
+    fn a_declined_multipart_route_does_not_count_as_an_upload_failure() {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| {
             emit(MultipartFirmwareUploadUnsupported {
-                method: FirmwareUploadMethod::Multipart,
-                outcome: Outcome::Error,
                 bmc_ip_address: IpAddr::from([10, 0, 0, 6]),
                 error: "multipart is unsupported".to_string(),
             });
@@ -1166,13 +1087,24 @@ mod tests {
             });
         });
 
-        assert_eq!(logs.len(), 1, "only unsupported multipart logs: {logs:?}");
+        assert_eq!(logs.len(), 1, "only the declined route logs: {logs:?}");
+        assert_eq!(logs[0].level, tracing::Level::WARN);
+        assert_eq!(
+            logs[0].field("event_name"),
+            Some("preingestion_firmware_upload_multipart_unsupported"),
+        );
+        assert_eq!(
+            logs[0].field("metric_name"),
+            None,
+            "a declined route records no metric",
+        );
         assert_eq!(
             metrics.counter_delta(
                 "carbide_preingestion_firmware_upload_total",
                 &[("method", "multipart"), ("outcome", "error")],
             ),
-            1.0,
+            0.0,
+            "the fallback must not count against multipart failures",
         );
         assert_eq!(
             metrics.counter_delta(
@@ -1180,6 +1112,7 @@ mod tests {
                 &[("method", "http_push"), ("outcome", "ok")],
             ),
             1.0,
+            "the upload's real result is the one the counter records",
         );
     }
 
