@@ -141,7 +141,6 @@ func TestMeasuredBootHandlersRejectInvalidInput(t *testing.T) {
 	fixture := newMeasuredBootHandlerFixture(t, nil, nil)
 	createMachineHandler := NewCreateMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
 	createProfileHandler := NewCreateMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
-	deleteHandler := NewDeleteMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
 
 	tests := []struct {
 		name    string
@@ -196,8 +195,35 @@ func TestMeasuredBootHandlersRejectInvalidInput(t *testing.T) {
 		})
 	}
 
-	rec := fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector=invalid", "invalid", nil)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	deleteTests := []struct {
+		name    string
+		handler func(echo.Context) error
+		message string
+	}{
+		{
+			name:    "invalid machine deletion request",
+			handler: NewDeleteMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp).Handle,
+			message: "Error validating Measured Boot Trusted Machine deletion request data",
+		},
+		{
+			name:    "invalid profile deletion request",
+			handler: NewDeleteMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp).Handle,
+			message: "Error validating Measured Boot Trusted Profile deletion request data",
+		},
+	}
+
+	for _, tt := range deleteTests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := fixture.request(t, tt.handler, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector=invalid", "invalid", nil)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var apiErr struct {
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiErr))
+			assert.Equal(t, tt.message, apiErr.Message)
+		})
+	}
 }
 
 func TestMeasuredBootHandlerRequiresProviderAdmin(t *testing.T) {

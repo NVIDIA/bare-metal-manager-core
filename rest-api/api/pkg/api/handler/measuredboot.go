@@ -132,7 +132,7 @@ func (dmbtmh DeleteMeasuredBootTrustedMachineHandler) Handle(c echo.Context) err
 	apiReq := model.APIMeasuredBootTrustedMachineDeleteRequest{Selector: c.QueryParam("selector"), ID: c.Param("id")}
 	err := apiReq.Validate()
 	if err != nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Measured Boot Trusted Machine deletion request data", err)
 	}
 
 	stc, siteID, apiErr := common.AuthorizeProviderSiteForCore(common.AuthorizeProviderSiteForCoreInput{
@@ -267,7 +267,7 @@ func (dmbtph DeleteMeasuredBootTrustedProfileHandler) Handle(c echo.Context) err
 	apiReq := model.APIMeasuredBootTrustedProfileDeleteRequest{Selector: c.QueryParam("selector"), ID: c.Param("id")}
 	err := apiReq.Validate()
 	if err != nil {
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, err.Error(), nil)
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Measured Boot Trusted Profile deletion request data", err)
 	}
 
 	stc, siteID, apiErr := common.AuthorizeProviderSiteForCore(common.AuthorizeProviderSiteForCoreInput{
