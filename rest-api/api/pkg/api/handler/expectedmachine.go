@@ -27,6 +27,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	mapset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -37,20 +38,21 @@ import (
 
 // ValidateProviderOrTenantSiteAccess validates if the provider or tenant has access to the site
 func ValidateProviderOrTenantSiteAccess(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, site *cdbm.Site, infrastructureProvider *cdbm.InfrastructureProvider, tenant *cdbm.Tenant) (bool, *cutil.APIError) {
-	hasAccess := infrastructureProvider != nil && site.InfrastructureProviderID == infrastructureProvider.ID
+	providerHasAccess := infrastructureProvider != nil && site.InfrastructureProviderID == infrastructureProvider.ID
+	tenantHasAccess := false
 
 	if tenant != nil {
 		// Effective TargetedInstanceCreation for this Site governs tenant access.
 		// A TenantSite association alone must not bypass an explicit false override.
-		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
+		var err error
+		tenantHasAccess, err = common.TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
 		if err != nil {
 			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
 			return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
 		}
-		hasAccess = hasAccess || enabled
 	}
 
-	return hasAccess, nil
+	return providerHasAccess || tenantHasAccess, nil
 }
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -304,7 +306,7 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 
 	// Initialize SiteIDs to a non-nil empty slice so an unscoped caller (e.g. a
 	// non-privileged Tenant) matches no Sites instead of every Site.
-	filterInput := cdbm.ExpectedMachineFilterInput{SiteIDs: []uuid.UUID{}}
+	siteIDs := mapset.NewSet[uuid.UUID]()
 
 	if infrastructureProvider != nil {
 		// Get all Sites for the org's Infrastructure Provider
@@ -319,11 +321,9 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Sites for org due to DB error", nil)
 		}
 
-		siteIDs := make([]uuid.UUID, 0, len(sites))
 		for _, site := range sites {
-			siteIDs = append(siteIDs, site.ID)
+			siteIDs.Add(site.ID)
 		}
-		filterInput.SiteIDs = siteIDs
 	}
 
 	if tenant != nil {
@@ -334,10 +334,12 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error resolving privileged Site access for Tenant")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
 		}
-		filterInput.SiteIDs = append(filterInput.SiteIDs, privilegedSiteIDs...)
+		for _, siteID := range privilegedSiteIDs {
+			siteIDs.Add(siteID)
+		}
 	}
 
-	if infrastructureProvider == nil && tenant != nil && len(filterInput.SiteIDs) == 0 {
+	if infrastructureProvider == nil && tenant != nil && siteIDs.Cardinality() == 0 {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled for any Site", nil)
 	}
 
@@ -363,11 +365,12 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 
 		if !isAssociated && tenant != nil {
 			// filterInput.SiteIDs already holds the Tenant's effective privileged Sites.
-			isAssociated = slices.Contains(filterInput.SiteIDs, site.ID)
+			isAssociated = siteIDs.Contains(site.ID)
 		}
 
 		if isAssociated {
-			filterInput.SiteIDs = []uuid.UUID{site.ID}
+			siteIDs.Clear()
+			siteIDs.Add(site.ID)
 		} else {
 			logger.Error().Msg("Site is not associated with org")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
@@ -402,7 +405,9 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	expectedMachines, total, err := emDAO.GetAll(
 		ctx,
 		nil,
-		filterInput,
+		cdbm.ExpectedMachineFilterInput{
+			SiteIDs: siteIDs.ToSlice(),
+		},
 		paginator.PageInput{
 			Offset:  pageRequest.Offset,
 			Limit:   pageRequest.Limit,

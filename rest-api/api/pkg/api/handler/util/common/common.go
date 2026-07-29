@@ -53,11 +53,12 @@ const (
 	RECENT_STATUS_DETAIL_COUNT = 20
 	DefaultIpxeScript          = "#ipxe\ndefault"
 
-	// Likely to be moved into cloud-db later, similar
-	// to machine status.
-	MachineHealthStatusHealthy   = "healthy"
+	// MachineHealthStatusHealthy is the health status for a machine that is healthy
+	MachineHealthStatusHealthy = "healthy"
+	// MachineHealthStatusUnhealthy is the health status for a machine that is unhealthy
 	MachineHealthStatusUnhealthy = "unhealthy"
-	TargetedInstanceCreationKey  = "targetedInstanceCreation"
+	// TenantCapabilityTargetedInstanceCreation is the capability key for targeted instance creation
+	TenantCapabilityTargetedInstanceCreation = "targetedInstanceCreation"
 )
 
 var (
@@ -1571,7 +1572,7 @@ func TenantHasLegacyTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, db
 	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
 	disabledSites, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
 		TenantIDs: []uuid.UUID{tenant.ID},
-		ConfigKey: cutil.GetPtr(TargetedInstanceCreationKey),
+		ConfigKey: cutil.GetPtr(TenantCapabilityTargetedInstanceCreation),
 		ConfigVal: cutil.GetPtr("false"),
 	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
 	if err != nil {
