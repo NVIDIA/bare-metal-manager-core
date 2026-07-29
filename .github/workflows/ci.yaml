@@ -1407,7 +1407,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Build pull request merge result
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge --no-commit --no-ff origin/main
+
+      - name: Validate Cargo metadata
+        run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
 
       # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
       # a local database at compile time to validate SQL queries and return types.
