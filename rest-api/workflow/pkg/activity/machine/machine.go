@@ -404,7 +404,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 						Hostname:              &controllerMachineInterface.Hostname,
 						IsPrimary:             controllerMachineInterface.PrimaryInterface,
 						MacAddress:            &controllerMachineInterface.MacAddress,
-						IpAddresses:           machineInterfaceIPAddresses(controllerMachineInterface.Address),
+						IpAddresses:           normalizeMachineInterfaceIPAddresses(controllerMachineInterface.Address),
 					},
 				)
 				if serr != nil {
@@ -623,7 +623,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 							Hostname:              &controllerMachineInterface.Hostname,
 							IsPrimary:             controllerMachineInterface.PrimaryInterface,
 							MacAddress:            &controllerMachineInterface.MacAddress,
-							IpAddresses:           machineInterfaceIPAddresses(controllerMachineInterface.Address),
+							IpAddresses:           normalizeMachineInterfaceIPAddresses(controllerMachineInterface.Address),
 						},
 					)
 					if serr != nil {
@@ -642,7 +642,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 							Hostname:             &controllerMachineInterface.Hostname,
 							IsPrimary:            &controllerMachineInterface.PrimaryInterface,
 							MacAddress:           &controllerMachineInterface.MacAddress,
-							IpAddresses:          machineInterfaceIPAddresses(controllerMachineInterface.Address),
+							IpAddresses:          normalizeMachineInterfaceIPAddresses(controllerMachineInterface.Address),
 						},
 					)
 					if serr != nil {
@@ -735,9 +735,9 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 	return nil
 }
 
-// machineInterfaceIPAddresses maps Core's optional repeated addresses to the
+// normalizeMachineInterfaceIPAddresses maps Core's optional repeated addresses to the
 // non-null array required by the REST database model.
-func machineInterfaceIPAddresses(addresses []string) []string {
+func normalizeMachineInterfaceIPAddresses(addresses []string) []string {
 	if addresses == nil {
 		return []string{}
 	}
