@@ -105,7 +105,7 @@ func (s *Session) registerFetchers() {
 	s.Resolver.RegisterFetcher("tray", s.fetchTrays)
 	s.Resolver.RegisterFetcher("ipxe-template", s.fetchIPXETemplates)
 	s.Resolver.RegisterFetcher("rule", s.fetchRules)
-	s.Resolver.RegisterFetcher("run", s.fetchRuns)
+	s.Resolver.RegisterFetcher("task-run", s.fetchRuns)
 	s.Resolver.RegisterFetcher("vpc-peering", s.fetchVPCPeerings)
 	s.Resolver.RegisterFetcher("tenant", s.fetchTenants)
 	s.Resolver.RegisterFetcher("tray-component", s.fetchTrayComponents)

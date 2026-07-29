@@ -31,7 +31,7 @@ import (
 	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 )
 
-// testRunSampleCreateRequest returns a minimal valid create-run body.
+// testRunSampleCreateRequest returns a minimal valid create-task-run body.
 func testRunSampleCreateRequest(siteID string) model.APITaskRunCreateRequest {
 	return model.APITaskRunCreateRequest{
 		SiteID:      siteID,

@@ -230,9 +230,9 @@ tags:
   - name: Rule
     description: |-
       Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
-  - name: Run
+  - name: Task Run
     description: |-
-      A Run is Flow's operation run: a phased, policy-gated execution of one operation (currently firmware) across many Racks. A Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
+      A Task Run is a phased, policy-gated execution of one operation (currently firmware) across many Racks. A Task Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Task Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -11035,17 +11035,17 @@ paths:
         required: true
         description: Name of the Org
     post:
-      summary: Create a Run
-      operationId: create-run
+      summary: Create a Task Run
+      operationId: create-task-run
       description: |-
-        Create a Run: a phased, policy-gated execution of one operation across
+        Create a Task Run: a phased, policy-gated execution of one operation across
         many Racks. The configuration is validated server-side by Flow; on
         validation failure no state changes.
 
-        A Run executes exactly one operation (currently firmware) over a
+        A Task Run executes exactly one operation (currently firmware) over a
         candidate set of Racks, narrowed by an optional `selector` and divided
         into phases by an optional `options.phasePolicy`. The response echoes the
-        assigned `id`; the Run always starts in the `Pending` state. Poll
+        assigned `id`; the Task Run always starts in the `Pending` state. Poll
         `GET /task/run/{id}` for progress.
 
         Org must have an Infrastructure Provider entity. User must have
@@ -11055,25 +11055,25 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateRunRequest'
+              $ref: '#/components/schemas/CreateTaskRunRequest'
       responses:
         '201':
-          description: Run was created.
+          description: Task Run was created.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Run'
+                $ref: '#/components/schemas/TaskRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       tags:
-        - Run
+        - Task Run
     get:
-      summary: List Runs
-      operationId: list-runs
+      summary: Retrieve all Task Runs
+      operationId: get-all-task-run
       description: |-
-        List Runs on a Site. Filters compose with AND; results are paginated
+        List Task Runs on a Site. Filters compose with AND; results are paginated
         and the `X-Pagination` response header reports the total count over the
         post-filter set.
 
@@ -11086,7 +11086,7 @@ paths:
           name: siteId
           in: query
           required: true
-          description: ID of the Site that owns the Runs (Runs are site-scoped).
+          description: ID of the Site that owns the Task Runs (Task Runs are site-scoped).
         - schema:
             type: string
             enum:
@@ -11100,7 +11100,7 @@ paths:
           name: status
           in: query
           required: false
-          description: Filter by Run status.
+          description: Filter by Task Run status.
         - schema:
             type: string
             enum:
@@ -11132,7 +11132,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Run'
+                  $ref: '#/components/schemas/TaskRun'
           headers:
             X-Pagination:
               schema:
@@ -11144,7 +11144,7 @@ paths:
         '403':
           $ref: '#/components/responses/ForbiddenError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/task/run/{id}':
     parameters:
       - schema:
@@ -11159,16 +11159,16 @@ paths:
         name: id
         in: path
         required: true
-        description: UUID of the Run
+        description: UUID of the Task Run
     get:
-      summary: Retrieve a Run
-      operationId: get-run
+      summary: Retrieve a Task Run
+      operationId: get-task-run
       description: |-
-        Get a Run by UUID. Set `includeStats=true` for derived per-phase
+        Get a Task Run by UUID. Set `includeStats=true` for derived per-phase
         outcome counts (current phase and cumulative run).
 
-        Runs are site-scoped; `siteId` must be the Site that owns the
-        Run. Org must have an Infrastructure Provider entity. User must have
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
       parameters:
         - schema:
@@ -11177,7 +11177,7 @@ paths:
           name: siteId
           in: query
           required: true
-          description: ID of the Site that owns the Run (Runs are site-scoped).
+          description: ID of the Site that owns the Task Run (Task Runs are site-scoped).
         - schema:
             type: boolean
             default: false
@@ -11191,7 +11191,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Run'
+                $ref: '#/components/schemas/TaskRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11199,7 +11199,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/task/run/{id}/target':
     parameters:
       - schema:
@@ -11214,21 +11214,21 @@ paths:
         name: id
         in: path
         required: true
-        description: UUID of the Run
+        description: UUID of the Task Run
     get:
-      summary: List Run targets
-      operationId: list-run-targets
+      summary: Retrieve all Task Run Targets
+      operationId: get-all-task-run-target
       description: |-
-        List a Run's materialized per-Rack execution targets. Each target
-        references the Task the Run submitted for that Rack via `taskId`
+        List a Task Run's materialized per-Rack execution targets. Each target
+        references the Task the Task Run submitted for that Rack via `taskId`
         (null until the target is submitted); drill into execution detail via
         `GET /task/{taskId}`.
 
         Filters compose with AND. Results are paginated; the `X-Pagination`
         response header reports the total count over the post-filter set.
 
-        Runs are site-scoped; `siteId` must be the Site that owns the
-        Run. Org must have an Infrastructure Provider entity. User must have
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
       parameters:
         - schema:
@@ -11237,7 +11237,7 @@ paths:
           name: siteId
           in: query
           required: true
-          description: ID of the Site that owns the Run.
+          description: ID of the Site that owns the Task Run.
         - schema:
             type: string
             enum:
@@ -11286,7 +11286,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RunTarget'
+                  $ref: '#/components/schemas/TaskRunTarget'
           headers:
             X-Pagination:
               schema:
@@ -11300,7 +11300,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/task/run/{id}/pause':
     parameters:
       - schema:
@@ -11315,33 +11315,33 @@ paths:
         name: id
         in: path
         required: true
-        description: UUID of the Run
+        description: UUID of the Task Run
     post:
-      summary: Pause a Run
-      operationId: pause-run
+      summary: Pause a Task Run
+      operationId: pause-task-run
       description: |-
-        Pause a running Run. In-flight target Tasks continue to completion;
-        no new targets are claimed until the Run is resumed. Pausing an
-        already-paused Run is idempotent.
+        Pause a running Task Run. In-flight target Tasks continue to completion;
+        no new targets are claimed until the Task Run is resumed. Pausing an
+        already-paused Task Run is idempotent.
 
-        Runs are site-scoped; `siteId` must be the Site that owns the
-        Run. Org must have an Infrastructure Provider entity. User must have
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RunSiteRequest'
+              $ref: '#/components/schemas/TaskRunSiteRequest'
       responses:
         '202':
           description: |-
-            Accepted. The pause request was accepted and the Run's last
+            Accepted. The pause request was accepted and the Task Run's last
             known state is returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Run'
+                $ref: '#/components/schemas/TaskRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11349,7 +11349,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/task/run/{id}/resume':
     parameters:
       - schema:
@@ -11364,33 +11364,33 @@ paths:
         name: id
         in: path
         required: true
-        description: UUID of the Run
+        description: UUID of the Task Run
     post:
-      summary: Resume a Run
-      operationId: resume-run
+      summary: Resume a Task Run
+      operationId: resume-task-run
       description: |-
-        Resume an operator-paused Run. A Run paused at a phase gate
+        Resume an operator-paused Task Run. A Task Run paused at a phase gate
         (rather than by an operator) must be advanced with the advance endpoint
         instead; resume applies only to operator pauses.
 
-        Runs are site-scoped; `siteId` must be the Site that owns the
-        Run. Org must have an Infrastructure Provider entity. User must have
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RunSiteRequest'
+              $ref: '#/components/schemas/TaskRunSiteRequest'
       responses:
         '202':
           description: |-
-            Accepted. The resume request was accepted and the Run's last
+            Accepted. The resume request was accepted and the Task Run's last
             known state is returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Run'
+                $ref: '#/components/schemas/TaskRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11398,7 +11398,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/task/run/{id}/advance':
     parameters:
       - schema:
@@ -11413,34 +11413,34 @@ paths:
         name: id
         in: path
         required: true
-        description: UUID of the Run
+        description: UUID of the Task Run
     post:
-      summary: Advance a Run to its next phase
-      operationId: advance-run
+      summary: Advance a Task Run to its next phase
+      operationId: advance-task-run
       description: |-
-        Open the next phase of a Run that is paused at a phase gate.
+        Open the next phase of a Task Run that is paused at a phase gate.
         Optionally guard the transition with `expectedPhaseIndex`: when set, the
         phase that would be opened must match, otherwise Flow rejects the advance
         so a stale client cannot open the wrong phase.
 
-        Runs are site-scoped; `siteId` must be the Site that owns the
-        Run. Org must have an Infrastructure Provider entity. User must have
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdvanceRunRequest'
+              $ref: '#/components/schemas/AdvanceTaskRunRequest'
       responses:
         '202':
           description: |-
-            Accepted. The advance request was accepted and the Run's last
+            Accepted. The advance request was accepted and the Task Run's last
             known state is returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Run'
+                $ref: '#/components/schemas/TaskRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11448,7 +11448,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/task/run/{id}/cancel':
     parameters:
       - schema:
@@ -11463,33 +11463,33 @@ paths:
         name: id
         in: path
         required: true
-        description: UUID of the Run
+        description: UUID of the Task Run
     post:
-      summary: Cancel a Run
-      operationId: cancel-run
+      summary: Cancel a Task Run
+      operationId: cancel-task-run
       description: |-
-        Cancel a Run. Best-effort cancellation cascades to the current
+        Cancel a Task Run. Best-effort cancellation cascades to the current
         phase's in-flight target Tasks; targets not yet claimed are not started.
-        Cancelling an already-terminal Run returns its last known state.
+        Cancelling an already-terminal Task Run returns its last known state.
 
-        Runs are site-scoped; `siteId` must be the Site that owns the
-        Run. Org must have an Infrastructure Provider entity. User must have
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
         authorization role with `PROVIDER_ADMIN` suffix.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CancelRunRequest'
+              $ref: '#/components/schemas/CancelTaskRunRequest'
       responses:
         '202':
           description: |-
-            Accepted. The cancellation request was accepted and the Run's
+            Accepted. The cancellation request was accepted and the Task Run's
             last known state is returned.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Run'
+                $ref: '#/components/schemas/TaskRun'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -11497,7 +11497,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFoundError'
       tags:
-        - Run
+        - Task Run
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -20775,13 +20775,13 @@ components:
           description: New free-form description.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
-    Run:
-      title: Run
+    TaskRun:
+      title: TaskRun
       type: object
       description: |-
-        A Run is Flow's operation run: a phased, policy-gated execution of one
-        operation across many Racks. List responses populate the summary fields;
-        the single-Run `GET` additionally populates `stats` when
+        A Task Run is a phased, policy-gated execution of one operation across
+        many Racks. List responses populate the summary fields; the
+        single-Task-Run `GET` additionally populates `stats` when
         `includeStats=true`.
       required:
         - id
@@ -20796,10 +20796,10 @@ components:
         id:
           type: string
           format: uuid
-          description: Unique identifier of the Run.
+          description: Unique identifier of the Task Run.
         name:
           type: string
-          description: Human-readable name of the Run.
+          description: Human-readable name of the Task Run.
         description:
           type: string
           description: Optional free-form description.
@@ -20808,7 +20808,7 @@ components:
           enum:
             - PowerControl
             - FirmwareControl
-          description: Type of operation this Run executes. Currently always `FirmwareControl`.
+          description: Type of operation this Task Run executes. Currently always `FirmwareControl`.
         operationCode:
           type: string
           description: Operation code within the operation type (e.g. `upgrade`).
@@ -20823,7 +20823,7 @@ components:
             - Cancelled
             - Failed
             - CompletedWithFailures
-          description: Current lifecycle state of the Run.
+          description: Current lifecycle state of the Task Run.
         statusReason:
           type: string
           enum:
@@ -20834,7 +20834,7 @@ components:
             - SafetyGate
             - ConflictRetryTimeout
           description: |-
-            Why the Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`).
+            Why the Task Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`).
             `None` when there is no qualifying reason.
         statusMessage:
           type: string
@@ -20845,31 +20845,31 @@ components:
         created:
           type: string
           format: date-time
-          description: Timestamp when the Run was created.
+          description: Timestamp when the Task Run was created.
         updated:
           type: string
           format: date-time
-          description: Timestamp when the Run was last updated.
+          description: Timestamp when the Task Run was last updated.
         started:
           type:
             - string
             - 'null'
           format: date-time
-          description: Timestamp when the Run started execution. Null before it starts.
+          description: Timestamp when the Task Run started execution. Null before it starts.
         finished:
           type:
             - string
             - 'null'
           format: date-time
-          description: Timestamp when the Run reached a terminal state. Null while active.
+          description: Timestamp when the Task Run reached a terminal state. Null while active.
         stats:
           allOf:
-            - $ref: '#/components/schemas/RunStats'
+            - $ref: '#/components/schemas/TaskRunStats'
           description: |-
-            Derived per-phase outcome stats. Present only on the single-Run
+            Derived per-phase outcome stats. Present only on the single-Task-Run
             `GET` when `includeStats=true`; omitted otherwise.
-    RunStats:
-      title: RunStats
+    TaskRunStats:
+      title: TaskRunStats
       type: object
       description: Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
       required:
@@ -20877,11 +20877,11 @@ components:
         - cumulativePhase
       properties:
         currentPhase:
-          $ref: '#/components/schemas/RunPhaseStats'
+          $ref: '#/components/schemas/TaskRunPhaseStats'
         cumulativePhase:
-          $ref: '#/components/schemas/RunPhaseStats'
-    RunPhaseStats:
-      title: RunPhaseStats
+          $ref: '#/components/schemas/TaskRunPhaseStats'
+    TaskRunPhaseStats:
+      title: TaskRunPhaseStats
       type: object
       description: Summarizes target outcomes for one phase scope.
       required:
@@ -20896,9 +20896,9 @@ components:
           type: integer
           description: Number of targets selected within the scope.
         outcomeCounts:
-          $ref: '#/components/schemas/RunOutcomeCounts'
-    RunOutcomeCounts:
-      title: RunOutcomeCounts
+          $ref: '#/components/schemas/TaskRunOutcomeCounts'
+    TaskRunOutcomeCounts:
+      title: TaskRunOutcomeCounts
       type: object
       description: Counts terminal target outcomes within a phase scope.
       required:
@@ -20919,11 +20919,11 @@ components:
         skipped:
           type: integer
           description: Targets that were skipped.
-    RunTarget:
-      title: RunTarget
+    TaskRunTarget:
+      title: TaskRunTarget
       type: object
       description: |-
-        One materialized per-Rack execution target of a Run. Each target
+        One materialized per-Rack execution target of a Task Run. Each target
         drives at most one Task; `taskId` references it (null until the target is
         submitted).
       required:
@@ -20943,14 +20943,14 @@ components:
         runId:
           type: string
           format: uuid
-          description: ID of the Run that owns this target.
+          description: ID of the Task Run that owns this target.
         rackId:
           type: string
           format: uuid
           description: ID of the Rack this target operates on.
         sequenceIndex:
           type: integer
-          description: Position of this target in the Run's overall processing order.
+          description: Position of this target in the Task Run's overall processing order.
         phaseIndex:
           type: integer
           description: Zero-based index of the phase this target belongs to.
@@ -20986,8 +20986,8 @@ components:
           type: string
           format: date-time
           description: Timestamp when the target was last updated.
-    RunSiteRequest:
-      title: RunSiteRequest
+    TaskRunSiteRequest:
+      title: TaskRunSiteRequest
       type: object
       description: Shared request body for the pause and resume lifecycle actions.
       required:
@@ -20996,42 +20996,42 @@ components:
         siteId:
           type: string
           format: uuid
-          description: ID of the Site that owns the Run (Runs are site-scoped).
-    AdvanceRunRequest:
-      title: AdvanceRunRequest
+          description: ID of the Site that owns the Task Run (Task Runs are site-scoped).
+    AdvanceTaskRunRequest:
+      title: AdvanceTaskRunRequest
       type: object
-      description: Request body for advancing a Run to its next phase.
+      description: Request body for advancing a Task Run to its next phase.
       required:
         - siteId
       properties:
         siteId:
           type: string
           format: uuid
-          description: ID of the Site that owns the Run.
+          description: ID of the Site that owns the Task Run.
         expectedPhaseIndex:
           type: integer
           description: |-
             Optional guard: when set, the phase that would be opened must match
             this zero-based index, otherwise the advance is rejected.
-    CancelRunRequest:
-      title: CancelRunRequest
+    CancelTaskRunRequest:
+      title: CancelTaskRunRequest
       type: object
-      description: Request body for cancelling a Run.
+      description: Request body for cancelling a Task Run.
       required:
         - siteId
       properties:
         siteId:
           type: string
           format: uuid
-          description: ID of the Site that owns the Run.
+          description: ID of the Site that owns the Task Run.
         reason:
           type: string
           description: Optional free-form reason recorded with the cancellation.
-    CreateRunRequest:
-      title: CreateRunRequest
+    CreateTaskRunRequest:
+      title: CreateTaskRunRequest
       type: object
       description: |-
-        Request body for creating a Run. `operationType` is inferred from the
+        Request body for creating a Task Run. `operationType` is inferred from the
         operation and is not accepted here. Flow performs semantic validation
         (selector ranges, phase math, operation code membership) server-side.
       required:
@@ -21043,32 +21043,32 @@ components:
         siteId:
           type: string
           format: uuid
-          description: ID of the Site to create the Run on.
+          description: ID of the Site to create the Task Run on.
         name:
           type: string
-          description: Human-readable name of the Run.
+          description: Human-readable name of the Task Run.
         description:
           type: string
           description: Optional free-form description.
         selector:
           allOf:
-            - $ref: '#/components/schemas/RunSelector'
+            - $ref: '#/components/schemas/TaskRunSelector'
           description: |-
             Narrows the candidate Racks. Omit to target the full candidate scope
             (100%).
         options:
-          $ref: '#/components/schemas/RunOptions'
+          $ref: '#/components/schemas/TaskRunOptions'
         operation:
-          $ref: '#/components/schemas/RunOperation'
-    RunSelector:
-      title: RunSelector
+          $ref: '#/components/schemas/TaskRunOperation'
+    TaskRunSelector:
+      title: TaskRunSelector
       type: object
       description: Selects a subset of candidate Racks. Percentage is the only supported selector today.
       properties:
         percentage:
-          $ref: '#/components/schemas/RunPercentageSelector'
-    RunPercentageSelector:
-      title: RunPercentageSelector
+          $ref: '#/components/schemas/TaskRunPercentageSelector'
+    TaskRunPercentageSelector:
+      title: TaskRunPercentageSelector
       type: object
       description: |-
         Selects a percentage of the candidate Racks. `seed` is optional; when
@@ -21085,10 +21085,10 @@ components:
         seed:
           type: string
           description: Optional seed for the deterministic selection.
-    RunOptions:
-      title: RunOptions
+    TaskRunOptions:
+      title: TaskRunOptions
       type: object
-      description: Execution policy for the Run.
+      description: Execution policy for the Task Run.
       required:
         - maxConcurrentTargets
       properties:
@@ -21099,34 +21099,34 @@ components:
             Caps how many targets may have active child Tasks at once. Must be
             greater than zero.
         safetyPolicy:
-          $ref: '#/components/schemas/RunSafetyPolicy'
+          $ref: '#/components/schemas/TaskRunSafetyPolicy'
         conflictPolicy:
-          $ref: '#/components/schemas/RunConflictPolicy'
+          $ref: '#/components/schemas/TaskRunConflictPolicy'
         orderingPolicy:
-          $ref: '#/components/schemas/RunOrderingPolicy'
+          $ref: '#/components/schemas/TaskRunOrderingPolicy'
         phasePolicy:
-          $ref: '#/components/schemas/RunPhasePolicy'
-    RunSafetyPolicy:
-      title: RunSafetyPolicy
+          $ref: '#/components/schemas/TaskRunPhasePolicy'
+    TaskRunSafetyPolicy:
+      title: TaskRunSafetyPolicy
       type: object
-      description: A set of gates that pause the Run when any one of them trips (OR composition).
+      description: A set of gates that pause the Task Run when any one of them trips (OR composition).
       properties:
         gates:
           type: array
           description: Safety gates evaluated after each target outcome.
           items:
-            $ref: '#/components/schemas/RunSafetyGate'
-    RunSafetyGate:
-      title: RunSafetyGate
+            $ref: '#/components/schemas/TaskRunSafetyGate'
+    TaskRunSafetyGate:
+      title: TaskRunSafetyGate
       type: object
       description: Exactly one of `failureRate` or `failureCount` must be set.
       properties:
         failureRate:
-          $ref: '#/components/schemas/RunFailureRateGate'
+          $ref: '#/components/schemas/TaskRunFailureRateGate'
         failureCount:
-          $ref: '#/components/schemas/RunFailureCountGate'
-    RunFailureRateGate:
-      title: RunFailureRateGate
+          $ref: '#/components/schemas/TaskRunFailureCountGate'
+    TaskRunFailureRateGate:
+      title: TaskRunFailureRateGate
       type: object
       description: Pauses when the failed/planned ratio reaches `thresholdPercent` for the scope.
       required:
@@ -21144,8 +21144,8 @@ components:
           minimum: 0
           maximum: 100
           description: Failure-rate percentage at which the gate trips.
-    RunFailureCountGate:
-      title: RunFailureCountGate
+    TaskRunFailureCountGate:
+      title: TaskRunFailureCountGate
       type: object
       description: Pauses when the number of failed targets reaches `thresholdCount` for the scope.
       required:
@@ -21162,15 +21162,15 @@ components:
           type: integer
           minimum: 0
           description: Number of failed targets at which the gate trips.
-    RunConflictPolicy:
-      title: RunConflictPolicy
+    TaskRunConflictPolicy:
+      title: TaskRunConflictPolicy
       type: object
       description: Configures how blocked targets are retried. Retry is the only supported strategy today.
       properties:
         retry:
-          $ref: '#/components/schemas/RunConflictRetry'
-    RunConflictRetry:
-      title: RunConflictRetry
+          $ref: '#/components/schemas/TaskRunConflictRetry'
+    TaskRunConflictRetry:
+      title: TaskRunConflictRetry
       type: object
       description: |-
         Retry backoff for blocked targets. Durations are Go duration strings
@@ -21185,23 +21185,23 @@ components:
         maxRetryDelay:
           type: string
           description: Cap on the exponentially growing retry delay.
-    RunOrderingPolicy:
-      title: RunOrderingPolicy
+    TaskRunOrderingPolicy:
+      title: TaskRunOrderingPolicy
       type: object
       description: Controls the order in which targets are processed. Random is the only supported ordering today.
       properties:
         random:
-          $ref: '#/components/schemas/RunRandomOrdering'
-    RunRandomOrdering:
-      title: RunRandomOrdering
+          $ref: '#/components/schemas/TaskRunRandomOrdering'
+    TaskRunRandomOrdering:
+      title: TaskRunRandomOrdering
       type: object
       description: Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
       properties:
         seed:
           type: string
           description: Optional seed for the deterministic random ordering.
-    RunPhasePolicy:
-      title: RunPhasePolicy
+    TaskRunPhasePolicy:
+      title: TaskRunPhasePolicy
       type: object
       description: |-
         Divides the selected targets into phases. Set at most one of `equal`,
@@ -21209,11 +21209,11 @@ components:
         covering all targets.
       properties:
         equal:
-          $ref: '#/components/schemas/RunEqualPhases'
+          $ref: '#/components/schemas/TaskRunEqualPhases'
         percentage:
-          $ref: '#/components/schemas/RunPercentagePhases'
+          $ref: '#/components/schemas/TaskRunPercentagePhases'
         count:
-          $ref: '#/components/schemas/RunCountPhases'
+          $ref: '#/components/schemas/TaskRunCountPhases'
         autoAdvance:
           type: boolean
           default: false
@@ -21221,8 +21221,8 @@ components:
             When true, phases advance automatically as long as safety gates are
             not tripped. When false (default) each completed phase pauses at a
             phase gate until advanced explicitly.
-    RunEqualPhases:
-      title: RunEqualPhases
+    TaskRunEqualPhases:
+      title: TaskRunEqualPhases
       type: object
       description: Splits targets into `phaseCount` roughly equal phases.
       required:
@@ -21232,8 +21232,8 @@ components:
           type: integer
           minimum: 1
           description: Number of equally sized phases.
-    RunPercentagePhases:
-      title: RunPercentagePhases
+    TaskRunPercentagePhases:
+      title: TaskRunPercentagePhases
       type: object
       description: Splits targets by percentage. Values must sum to 100.
       required:
@@ -21246,8 +21246,8 @@ components:
             type: integer
             minimum: 0
             maximum: 100
-    RunCountPhases:
-      title: RunCountPhases
+    TaskRunCountPhases:
+      title: TaskRunCountPhases
       type: object
       description: Splits targets by explicit counts. A generated final phase covers any remaining targets.
       required:
@@ -21259,25 +21259,25 @@ components:
           items:
             type: integer
             minimum: 0
-    RunOperation:
-      title: RunOperation
+    TaskRunOperation:
+      title: TaskRunOperation
       type: object
-      description: The operation the Run executes. Firmware is the only supported operation today.
+      description: The operation the Task Run executes. Firmware is the only supported operation today.
       required:
         - firmware
       properties:
         firmware:
-          $ref: '#/components/schemas/RunFirmwareOperation'
+          $ref: '#/components/schemas/TaskRunFirmwareOperation'
         excludeRunIds:
           type: array
           description: |-
-            Excludes Racks materialized by prior Runs from this Run's
+            Excludes Racks materialized by prior Task Runs from this Task Run's
             candidate scope.
           items:
             type: string
             format: uuid
-    RunFirmwareOperation:
-      title: RunFirmwareOperation
+    TaskRunFirmwareOperation:
+      title: TaskRunFirmwareOperation
       type: object
       description: Configures a firmware rollout.
       required:
