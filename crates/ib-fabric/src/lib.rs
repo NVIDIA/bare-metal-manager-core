@@ -21,10 +21,11 @@ pub mod ib;
 mod metrics;
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fmt, io};
 
+use carbide_instrument::emit;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
@@ -33,8 +34,9 @@ use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
 use health_report::HealthReportApplyMode;
 use metrics::{
-    FabricMetrics, IbFabricMonitorMetrics, IbMonitorIterationFinished, UfmGuidPkeyChangeFinished,
-    UfmOperation,
+    FabricMetrics, IbFabricDataLoadFailed, IbFabricMonitorMetrics, IbMonitorIterationFinished,
+    IbMonitorMachineStatusObservationFailed, IbMonitorPkeyReconciliationSkipped,
+    IbMonitorSkuInactivePreloadFailed, UfmGuidPkeyChangeFinished, UfmOperation,
 };
 use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
 use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
@@ -302,7 +304,7 @@ impl IbFabricMonitor {
         let sku_inactive_cache = preload_sku_inactive_devices(&self.db_pool, &snapshots)
             .await
             .unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "Failed to preload SKU inactive devices, will skip IB port monitoring for all machines");
+                emit(IbMonitorSkuInactivePreloadFailed::new(e.to_string()));
                 HashMap::new()
             });
 
@@ -324,7 +326,10 @@ impl IbFabricMonitor {
                     reports.push(report);
                 }
                 Err(e) => {
-                    tracing::error!(error = %e, machine_id = %machine, "Failed to update IB Status observation");
+                    emit(IbMonitorMachineStatusObservationFailed::new(
+                        e.to_string(),
+                        machine.to_string(),
+                    ));
                 }
             }
         }
@@ -391,25 +396,23 @@ async fn load_single_fabric_data(
     let conn = match fabric_manager.new_client(fabric).await {
         Ok(conn) => conn,
         Err(e) => {
-            note_fabric_error(
-                fabric_metrics,
+            emit(IbFabricDataLoadFailed::build_client(
                 fabric,
                 &fabric_definition.endpoints,
                 &e,
-                FabricFailureStage::BuildClient,
-            );
+            ));
+            fabric_metrics.fabric_error = e.to_string();
             return None;
         }
     };
 
     if let Err(e) = check_ib_fabric(conn.as_ref(), fabric_metrics).await {
-        note_fabric_error(
-            fabric_metrics,
+        emit(IbFabricDataLoadFailed::health_check(
             fabric,
             &fabric_definition.endpoints,
             &e,
-            FabricFailureStage::HealthCheck,
-        );
+        ));
+        fabric_metrics.fabric_error = e.to_string();
         // There's no point in loading other information case the fabric is down
         return Some(conn);
     }
@@ -419,13 +422,12 @@ async fn load_single_fabric_data(
             fabric_data.ports_by_guid = Some(ports);
         }
         Err(e) => {
-            note_fabric_error(
-                fabric_metrics,
+            emit(IbFabricDataLoadFailed::load_ports(
                 fabric,
                 &fabric_definition.endpoints,
                 &e,
-                FabricFailureStage::LoadPorts,
-            );
+            ));
+            fabric_metrics.fabric_error = e.to_string();
             // There's no point in loading other information case the fabric is down
             return Some(conn);
         }
@@ -436,13 +438,12 @@ async fn load_single_fabric_data(
             fabric_data.partitions = Some(partitions);
         }
         Err(e) => {
-            note_fabric_error(
-                fabric_metrics,
+            emit(IbFabricDataLoadFailed::load_partitions(
                 fabric,
                 &fabric_definition.endpoints,
                 &e,
-                FabricFailureStage::LoadPartitions,
-            );
+            ));
+            fabric_metrics.fabric_error = e.to_string();
             // There's no point in loading other information case the fabric is down
             return Some(conn);
         }
@@ -452,48 +453,6 @@ async fn load_single_fabric_data(
     fabric_data.derive_partitions_by_guid();
 
     Some(conn)
-}
-
-#[derive(Clone, Copy)]
-enum FabricFailureStage {
-    BuildClient,
-    HealthCheck,
-    LoadPorts,
-    LoadPartitions,
-}
-
-impl fmt::Display for FabricFailureStage {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::BuildClient => "build_client",
-            Self::HealthCheck => "health_check",
-            Self::LoadPorts => "load_ports",
-            Self::LoadPartitions => "load_partitions",
-        })
-    }
-}
-
-/// Records a failed stage of a fabric's data load and stores the error as the
-/// fabric's error metric.
-///
-/// TODO: Storing the raw error string isn't efficient because we will get a
-/// lot of different dimensions. We need to have better defined errors from the
-/// UFM APIs, so we can convert those into a smaller set of labels.
-fn note_fabric_error(
-    fabric_metrics: &mut FabricMetrics,
-    fabric: &str,
-    endpoints: &[String],
-    error: &IbError,
-    failure_stage: FabricFailureStage,
-) {
-    tracing::error!(
-        fabric,
-        endpoints = endpoints.join(","),
-        %failure_stage,
-        error = %error,
-        "IB fabric operation failed",
-    );
-    fabric_metrics.fabric_error = error.to_string();
 }
 
 /// Checks the status of a single IB fabric over an established client connection
@@ -676,11 +635,15 @@ async fn apply_guid_pkey_changes(
     for report in reports {
         for (fabric, guid, pkey) in report.missing_guid_pkeys {
             let Some(partition_id) = partition_ids_by_pkey.get(&pkey) else {
-                tracing::warn!(%pkey, "Missing pkey does not map to a Partition ID");
+                emit(IbMonitorPkeyReconciliationSkipped::missing_partition_id(
+                    pkey.to_string(),
+                ));
                 continue;
             };
             let Some(partition) = tenant_partitions.get(partition_id) else {
-                tracing::warn!(%pkey, "Missing pkey does not map to a Partition");
+                emit(IbMonitorPkeyReconciliationSkipped::missing_partition(
+                    pkey.to_string(),
+                ));
                 continue;
             };
 
@@ -1720,6 +1683,235 @@ mod tests {
                 } => false,
             }
         );
+    }
+
+    mod fabric_load_failures {
+        use std::convert::Infallible;
+
+        use async_trait::async_trait;
+        use carbide_instrument::testing::{MetricsCapture, capture_logs_async};
+        use carbide_test_support::Outcome::Yields;
+        use carbide_test_support::{Case, check_cases_async};
+        use model::ib::IBQosConf;
+
+        use super::*;
+        use crate::ib::{
+            Filter, IBFabricConfig, IBFabricManagerConfig, IBFabricRawResponse, IBFabricVersions,
+        };
+
+        const ERROR: &str = "failed to call IBFabricManager: simulated failure";
+        const FABRIC: &str = "fabric-1";
+        const METRIC: &str = "carbide_ib_monitor_partial_failures_total";
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum FabricLoadFailure {
+            BuildClient,
+            HealthCheck,
+            LoadPorts,
+            LoadPartitions,
+        }
+
+        fn simulated_failure() -> IbError {
+            IbError::IBFabricError("simulated failure".to_string())
+        }
+
+        struct FailingFabricManager {
+            failure: FabricLoadFailure,
+        }
+
+        #[async_trait]
+        impl IBFabricManager for FailingFabricManager {
+            async fn new_client(&self, _fabric_name: &str) -> Result<Arc<dyn IBFabric>, IbError> {
+                if self.failure == FabricLoadFailure::BuildClient {
+                    return Err(simulated_failure());
+                }
+                Ok(Arc::new(FailingFabric {
+                    failure: self.failure,
+                }))
+            }
+
+            fn get_config(&self) -> IBFabricManagerConfig {
+                IBFabricManagerConfig::default()
+            }
+        }
+
+        struct FailingFabric {
+            failure: FabricLoadFailure,
+        }
+
+        #[async_trait]
+        impl IBFabric for FailingFabric {
+            async fn get_fabric_config(&self) -> Result<IBFabricConfig, IbError> {
+                Ok(IBFabricConfig::default())
+            }
+
+            async fn update_partition_qos_conf(
+                &self,
+                _pkey: u16,
+                _qos_conf: &IBQosConf,
+            ) -> Result<(), IbError> {
+                unreachable!("fabric data loading does not update partition QoS")
+            }
+
+            async fn get_ib_networks(
+                &self,
+                _options: GetPartitionOptions,
+            ) -> Result<HashMap<u16, IBNetwork>, IbError> {
+                if self.failure == FabricLoadFailure::LoadPartitions {
+                    return Err(simulated_failure());
+                }
+                Ok(HashMap::new())
+            }
+
+            async fn get_ib_network(
+                &self,
+                pkey: u16,
+                _options: GetPartitionOptions,
+            ) -> Result<IBNetwork, IbError> {
+                Ok(IBNetwork {
+                    name: "default".to_string(),
+                    pkey,
+                    ipoib: false,
+                    qos_conf: None,
+                    associated_guids: Some(HashSet::new()),
+                    membership: None,
+                })
+            }
+
+            async fn bind_ib_ports(
+                &self,
+                _ibnetwork: IBNetwork,
+                _ports: Vec<String>,
+            ) -> Result<(), IbError> {
+                unreachable!("fabric data loading does not bind ports")
+            }
+
+            async fn unbind_ib_ports(&self, _pkey: u16, _id: Vec<String>) -> Result<(), IbError> {
+                unreachable!("fabric data loading does not unbind ports")
+            }
+
+            async fn find_ib_port(&self, _filter: Option<Filter>) -> Result<Vec<IBPort>, IbError> {
+                if self.failure == FabricLoadFailure::LoadPorts {
+                    return Err(simulated_failure());
+                }
+                Ok(Vec::new())
+            }
+
+            async fn versions(&self) -> Result<IBFabricVersions, IbError> {
+                if self.failure == FabricLoadFailure::HealthCheck {
+                    return Err(simulated_failure());
+                }
+                Ok(IBFabricVersions {
+                    ufm_version: "test".to_string(),
+                })
+            }
+
+            async fn raw_get(&self, _path: &str) -> Result<IBFabricRawResponse, IbError> {
+                unreachable!("fabric data loading does not make raw requests")
+            }
+        }
+
+        #[derive(Debug, PartialEq)]
+        struct Observation {
+            client_returned: bool,
+            fabric_error: String,
+            log_count: usize,
+            event_name: Option<String>,
+            failure_stage: Option<String>,
+            counter_delta: f64,
+        }
+
+        #[tokio::test]
+        async fn fabric_load_failures_update_gauge_state_and_emit_the_stage_event() {
+            check_cases_async(
+                [
+                    Case {
+                        scenario: "client build",
+                        input: FabricLoadFailure::BuildClient,
+                        expect: Yields(Observation {
+                            client_returned: false,
+                            fabric_error: ERROR.to_string(),
+                            log_count: 1,
+                            event_name: Some("ib_fabric_data_load_failed".to_string()),
+                            failure_stage: Some("build_client".to_string()),
+                            counter_delta: 1.0,
+                        }),
+                    },
+                    Case {
+                        scenario: "health check",
+                        input: FabricLoadFailure::HealthCheck,
+                        expect: Yields(Observation {
+                            client_returned: true,
+                            fabric_error: ERROR.to_string(),
+                            log_count: 1,
+                            event_name: Some("ib_fabric_data_load_failed".to_string()),
+                            failure_stage: Some("health_check".to_string()),
+                            counter_delta: 1.0,
+                        }),
+                    },
+                    Case {
+                        scenario: "port load",
+                        input: FabricLoadFailure::LoadPorts,
+                        expect: Yields(Observation {
+                            client_returned: true,
+                            fabric_error: ERROR.to_string(),
+                            log_count: 1,
+                            event_name: Some("ib_fabric_data_load_failed".to_string()),
+                            failure_stage: Some("load_ports".to_string()),
+                            counter_delta: 1.0,
+                        }),
+                    },
+                    Case {
+                        scenario: "partition load",
+                        input: FabricLoadFailure::LoadPartitions,
+                        expect: Yields(Observation {
+                            client_returned: true,
+                            fabric_error: ERROR.to_string(),
+                            log_count: 1,
+                            event_name: Some("ib_fabric_data_load_failed".to_string()),
+                            failure_stage: Some("load_partitions".to_string()),
+                            counter_delta: 1.0,
+                        }),
+                    },
+                ],
+                |failure| async move {
+                    let manager = FailingFabricManager { failure };
+                    let definition = IbFabricDefinition {
+                        endpoints: vec!["https://ufm-1".to_string()],
+                        pkeys: Vec::new(),
+                    };
+                    let mut fabric_data = FabricData::default();
+                    let mut fabric_metrics = FabricMetrics::default();
+                    let metrics = MetricsCapture::start();
+                    let (client, logs) = capture_logs_async(load_single_fabric_data(
+                        &manager,
+                        FABRIC,
+                        &definition,
+                        &mut fabric_data,
+                        &mut fabric_metrics,
+                    ))
+                    .await;
+                    let log = logs.first().expect("fabric failure Event logged");
+                    let failure_stage = log.field("failure_stage").map(str::to_string);
+
+                    Ok::<_, Infallible>(Observation {
+                        client_returned: client.is_some(),
+                        fabric_error: fabric_metrics.fabric_error,
+                        log_count: logs.len(),
+                        event_name: log.field("event_name").map(str::to_string),
+                        counter_delta: metrics.counter_delta(
+                            METRIC,
+                            &[(
+                                "failure_stage",
+                                failure_stage.as_deref().expect("failure stage label"),
+                            )],
+                        ),
+                        failure_stage,
+                    })
+                },
+            )
+            .await;
+        }
     }
 
     // ============================================================

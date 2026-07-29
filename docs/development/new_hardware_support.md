@@ -381,7 +381,7 @@ To add one:
 
 1. Add a platform module under `crates/bmc-mock/src/hw/`, following a close existing platform such as `dell_poweredge_r750.rs` or `supermicro_gb300_nvl.rs`.
 
-1. Register the module in `crates/bmc-mock/src/hw/mod.rs` and add a typed `HostHardwareType` variant in `crates/bmc-mock/src/lib.rs`.
+1. Register the module in `crates/bmc-mock/src/hw/mod.rs` and add a typed `HardwareType` variant in `crates/bmc-mock/src/lib.rs`.
 
 1. Wire the variant through `crates/bmc-mock/src/machine_info.rs`: DPU count and type, vendor and product identity, Redfish version, manager, system, chassis, discovery, firmware inventory, and OEM behavior should match the live BMC responses relevant to the test.
 

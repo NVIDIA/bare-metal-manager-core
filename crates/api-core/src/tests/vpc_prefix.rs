@@ -1051,10 +1051,19 @@ async fn flat_vpc_accepts_ipv4_prefix(pool: PgPool) -> Result<(), Box<dyn std::e
         }),
     });
 
-    env.api
+    let created = env
+        .api
         .create_vpc_prefix(request)
         .await
-        .expect("Flat VPC should accept IPv4 prefix");
+        .expect("Flat VPC should accept IPv4 prefix")
+        .into_inner();
+
+    // Acceptance alone doesn't say the prefix landed on the right VPC, or landed at all.
+    assert_eq!(created.vpc_id, vpc.id);
+    assert_eq!(
+        created.config.as_ref().expect("prefix config").prefix,
+        "192.0.2.0/25"
+    );
 
     Ok(())
 }

@@ -49,6 +49,7 @@ explored endpoints at a Site or an explicit BMC IP address list.
 
 The operation calls Core once per endpoint. If a call fails, processing
 stops and endpoints earlier in the list may already have completed.
+
 User must have authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().

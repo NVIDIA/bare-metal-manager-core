@@ -39,8 +39,10 @@
 //! ```
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
+use tracing::instrument::WithSubscriber;
 use tracing_subscriber::layer::{Context, SubscriberExt};
 
 /// `CapturedFieldKind` identifies which `tracing::field::Visit` method
@@ -86,8 +88,9 @@ impl CapturedLog {
     }
 }
 
-/// Runs `f` under a capturing subscriber (this thread only) and returns every
-/// log event it emitted, at any level.
+/// Runs `f` under a capturing subscriber (this thread only) and returns its log
+/// events at every level. Internal diagnostics whose target starts with
+/// `opentelemetry` are excluded.
 pub fn capture_logs(f: impl FnOnce()) -> Vec<CapturedLog> {
     let captured = Arc::new(Mutex::new(Vec::new()));
     let layer = CaptureLayer {
@@ -97,6 +100,28 @@ pub fn capture_logs(f: impl FnOnce()) -> Vec<CapturedLog> {
     tracing::subscriber::with_default(subscriber, f);
     let logs = captured.lock().unwrap_or_else(|p| p.into_inner());
     logs.clone()
+}
+
+/// Polls `future` under a capturing subscriber and returns its output together
+/// with its log events at every level. Internal diagnostics whose target starts
+/// with `opentelemetry` are excluded.
+///
+/// Only events emitted while `future` itself is polled are captured. Before
+/// spawning work whose events matter, attach the current subscriber with
+/// [`WithSubscriber::with_current_subscriber`], then join that work before
+/// `future` resolves.
+pub async fn capture_logs_async<F>(future: F) -> (F::Output, Vec<CapturedLog>)
+where
+    F: Future,
+{
+    let captured = Arc::new(Mutex::new(Vec::new()));
+    let layer = CaptureLayer {
+        captured: captured.clone(),
+    };
+    let subscriber = tracing_subscriber::registry().with(layer);
+    let output = future.with_subscriber(subscriber).await;
+    let logs = captured.lock().unwrap_or_else(|p| p.into_inner());
+    (output, logs.clone())
 }
 
 struct CaptureLayer {

@@ -77,8 +77,8 @@ on every request. For exact combinations represented by the current RMS
 `NodeType` enum, NICo also sends that enum and legacy firmware-filter entries
 for compatibility with older RMS servers. Other combinations, including
 VRNVL72 power shelves, remain descriptor-only. Legacy mapping is best effort
-and never rejects startup; RMS evaluates descriptor support when an operation
-runs.
+and does not participate in startup validation; RMS evaluates descriptor support
+when an operation runs.
 
 The component-manager backend fields default to `rms`, so set any role you are
 not testing to a non-RMS backend. The rack's `rack_profile_id` must match a key

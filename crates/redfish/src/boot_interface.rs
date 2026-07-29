@@ -20,7 +20,7 @@ use std::future::Future;
 
 use ::libredfish::{BootInterfaceRef, RedfishError};
 use mac_address::MacAddress;
-use model::machine_boot_interface::MachineBootInterface;
+use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 
 /// How to target a host's boot interface for a Redfish setup operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,9 +71,35 @@ impl BootInterfaceTarget {
     }
 }
 
+impl From<MachineBootInterfaceTarget> for BootInterfaceTarget {
+    fn from(target: MachineBootInterfaceTarget) -> Self {
+        match target {
+            MachineBootInterfaceTarget::Pair(boot_interface) => Self::Pair(boot_interface),
+            MachineBootInterfaceTarget::MacOnly(mac_address) => Self::MacOnly(mac_address),
+        }
+    }
+}
+
+impl From<BootInterfaceTarget> for MachineBootInterfaceTarget {
+    fn from(target: BootInterfaceTarget) -> Self {
+        match target {
+            BootInterfaceTarget::Pair(boot_interface) => Self::Pair(boot_interface),
+            BootInterfaceTarget::MacOnly(mac_address) => Self::MacOnly(mac_address),
+        }
+    }
+}
+
+impl From<&BootInterfaceTarget> for MachineBootInterfaceTarget {
+    fn from(target: &BootInterfaceTarget) -> Self {
+        target.clone().into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use carbide_test_support::value_scenarios;
 
     use super::*;
 
@@ -121,5 +147,37 @@ mod tests {
             })
             .await;
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn model_and_redfish_targets_preserve_both_selector_forms() {
+        value_scenarios!(run = |target: MachineBootInterfaceTarget| {
+            let redfish = BootInterfaceTarget::from(target);
+            let round_trip = MachineBootInterfaceTarget::from(redfish.clone());
+            (redfish, round_trip)
+        };
+            "complete pair" {
+                MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address: mac(),
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                }) => (
+                    BootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address: mac(),
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    }),
+                    MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address: mac(),
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    }),
+                ),
+            }
+
+            "legacy MAC only" {
+                MachineBootInterfaceTarget::MacOnly(mac()) => (
+                    BootInterfaceTarget::MacOnly(mac()),
+                    MachineBootInterfaceTarget::MacOnly(mac()),
+                ),
+            }
+        );
     }
 }

@@ -24,8 +24,8 @@ use std::time::Duration;
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
-    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HardwareType, HostnameQuerying, MachineInfo,
+    MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
@@ -49,7 +49,7 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDpuMachine, PersistedHostMachine};
+use crate::{PersistedDevice, PersistedDpuMachine};
 
 pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 
@@ -224,7 +224,7 @@ pub enum BmcRegistrationMode {
 }
 
 pub enum PersistedMachine {
-    Host(PersistedHostMachine),
+    Host(PersistedDevice),
     Dpu(PersistedDpuMachine),
 }
 
@@ -406,6 +406,21 @@ impl MachineStateMachine {
                 },
                 FsmAction::PxeBootRequest => match self.pxe_boot_request().await {
                     Ok(os_image) => {
+                        // A netbooted DPU-agent image is this simulation's stand-in
+                        // for the DPF BFB install writing the OS to the DPU's disk,
+                        // so record it as installed at boot. NICo's PXE serves a DPU
+                        // EXIT in every DPUInit sub-state after Init; without a disk
+                        // OS to fall back on, any mid-walk reboot (BIOS setup, the
+                        // DPF reboot handshake, an external power-cycle) strands the
+                        // DPU OS-less and dpuinit never completes. Waiting for
+                        // initial discovery to succeed (which also sets this) is not
+                        // enough: at cold start discovery can fail before the record
+                        // exists, and the recovery reboot then EXITs into nothing.
+                        if matches!(self.machine_info, MachineInfo::Dpu(_))
+                            && matches!(os_image, OsImage::DpuAgent)
+                        {
+                            self.installed_os = OsImage::DpuAgent;
+                        }
                         self.actions.pop_front();
                         self.fsm_event(Event::PxeComplete(os_image))
                     }
@@ -708,8 +723,18 @@ impl MachineStateMachine {
             Err(MachineStateError::ClientApi(ClientApiError::InvocationError(status))) => {
                 match status.code() {
                     tonic::Code::InvalidArgument => {
-                        tracing::error!(error=%status, "Invalid argument return by discovery, likely not ingested yet.");
-                        Ok(None)
+                        // Not ingested yet: at MAT cold start the machines power on
+                        // and PXE the agent image BEFORE site-explorer has created
+                        // their machine records (on real hardware NICo powers hosts
+                        // on only after creation, so this window does not exist).
+                        // Treat it as retryable so the queued discovery action runs
+                        // again next iteration; giving up here (MachineNotFound)
+                        // permanently loses the installed OS — later reboots PXE
+                        // EXIT and boot OsImage::None, deadlocking dpuinit.
+                        tracing::warn!(error=%status, "Machine not ingested yet; retrying discovery until site-explorer creates it.");
+                        Err(MachineStateError::ClientApi(
+                            ClientApiError::InvocationError(status),
+                        ))
                     }
                     tonic::Code::NotFound => {
                         tracing::warn!(error=%status, "Machine not found in discovery, likely force deleted.");
@@ -1060,7 +1085,7 @@ impl MachineStateMachine {
         );
 
         let pw_override = match &self.machine_info {
-            MachineInfo::Host(host) if host.hw_type == HostHardwareType::LiteOnPowerShelf => None,
+            MachineInfo::Host(host) if host.hw_type == HardwareType::LiteOnPowerShelf => None,
             MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
             MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
         };
@@ -1115,8 +1140,8 @@ impl MachineStateMachine {
             MachineInfo::Dpu(_) => config.dpus_in_nic_mode,
             MachineInfo::Host(host) => matches!(
                 host.hw_type,
-                bmc_mock::HostHardwareType::LiteOnPowerShelf
-                    | bmc_mock::HostHardwareType::NvidiaSwitchNd5200Ld
+                bmc_mock::HardwareType::LiteOnPowerShelf
+                    | bmc_mock::HardwareType::NvidiaSwitchNd5200Ld
             ),
         }
     }

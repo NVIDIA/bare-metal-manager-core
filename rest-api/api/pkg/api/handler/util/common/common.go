@@ -1216,6 +1216,7 @@ func TerminateWorkflowOnTimeOut(echoCtx echo.Context, logger zerolog.Logger, tem
 	return cutil.NewAPIErrorResponse(echoCtx, http.StatusInternalServerError, fmt.Sprintf("Failed to perform %s %s - timeout occurred executing workflow on Site: %s", objectType, workflowName, originalError), nil)
 }
 
+// UnwrapWorkflowError removes Temporal wrappers and maps backend errors to HTTP status codes.
 func UnwrapWorkflowError(err error) (code int, unwrappedError error) {
 	code, unwrappedError = http.StatusInternalServerError, err
 
@@ -1261,6 +1262,8 @@ func UnwrapWorkflowError(err error) (code int, unwrappedError error) {
 			code = http.StatusPreconditionFailed
 		case codes.InvalidArgument:
 			code = http.StatusBadRequest
+		case codes.ResourceExhausted:
+			code = http.StatusTooManyRequests
 		}
 	}
 
@@ -1288,6 +1291,8 @@ func UnwrapWorkflowError(err error) (code int, unwrappedError error) {
 		code = http.StatusPreconditionFailed
 	case swe.ErrTypeNICoInvalidArgument, swe.ErrTypeCarbideInvalidArgument:
 		code = http.StatusBadRequest
+	case swe.ErrTypeNICoResourceExhausted:
+		code = http.StatusTooManyRequests
 	}
 
 	// if the error is an internal Temporal error it is mostly useless so we unwrap it but we keep

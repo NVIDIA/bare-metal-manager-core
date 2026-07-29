@@ -271,7 +271,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+    use crate::endpoint::{BmcAddr, EndpointMetadata, MachineData, SharedSystemUuid};
     use crate::sink::HealthReportTarget;
 
     #[derive(Debug, Eq, PartialEq)]
@@ -337,12 +337,14 @@ mod tests {
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: None,
                 machine_serial: None,
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
                 driver_version: None,
             })),
             rack_id: None,
+            labels: Default::default(),
         }
     }
 

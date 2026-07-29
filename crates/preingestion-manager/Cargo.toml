@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Carbide Pre-ingestion Manager"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_preingestion_manager"

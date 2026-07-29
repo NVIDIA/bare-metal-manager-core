@@ -88,6 +88,9 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     if let Some(machine_id) = context.machine_id() {
         attrs.push(kv("machine.id", machine_id.to_string()));
     }
+    if let Some(system_uuid) = context.system_uuid() {
+        attrs.push(kv("system.uuid", system_uuid.to_string()));
+    }
     if let Some(machine_serial) = context.machine_serial() {
         attrs.push(kv("machine.serial", machine_serial.to_string()));
     }
@@ -136,6 +139,12 @@ fn resource_attributes(context: &EventContext) -> Vec<KeyValue> {
     if let Some(tray) = context.switch_tray_index() {
         attrs.push(int_kv("switch.tray_index", i64::from(tray)));
     }
+    attrs.extend(
+        context
+            .labels()
+            .iter()
+            .map(|(name, value)| kv(name, value.clone())),
+    );
     attrs
 }
 
@@ -328,7 +337,8 @@ mod tests {
 
     use super::*;
     use crate::endpoint::{
-        BmcAddr, EndpointMetadata, MachineData, PowerShelfData, SwitchData, SwitchEndpointRole,
+        BmcAddr, EndpointMetadata, MachineData, PowerShelfData, SharedSystemUuid, SwitchData,
+        SwitchEndpointRole,
     };
     use crate::sink::{
         Classification, HealthReport, HealthReportAlert, LogRecord, Probe, ReportSource,
@@ -345,6 +355,7 @@ mod tests {
             collector_type: "test",
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         }
     }
 
@@ -399,6 +410,10 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
             },
             collector_type: "test",
+            labels: std::collections::BTreeMap::from([(
+                "site".to_string(),
+                "rno-dev7".to_string(),
+            )]),
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: Some(
                     "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
@@ -406,6 +421,7 @@ mod tests {
                         .expect("valid machine id"),
                 ),
                 machine_serial: Some("MN-001".to_string()),
+                system_uuid: Some(uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632")).into(),
                 slot_number: Some(15),
                 tray_index: Some(5),
                 nvlink_domain_uuid: Some(domain_uuid),
@@ -417,6 +433,11 @@ mod tests {
         let attrs = resource_attributes(&context);
 
         assert_eq!(attr_value(&attrs, "rack.id"), Some("RACK_1"));
+        assert_eq!(attr_value(&attrs, "site"), Some("rno-dev7"));
+        assert_eq!(
+            attr_value(&attrs, "system.uuid"),
+            Some("4c4c4544-0044-4710-8052-cac04f4b4632")
+        );
         assert_eq!(attr_value(&attrs, "machine.serial"), Some("MN-001"));
         assert_eq!(attr_value(&attrs, "driver.version"), Some("570.82"));
         assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
@@ -439,9 +460,11 @@ mod tests {
                 mac: MacAddress::from_str("42:9e:b1:bd:9d:dd").expect("valid mac"),
             },
             collector_type: "test",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Machine(MachineData {
                 machine_id: None,
                 machine_serial: None,
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: None,
                 tray_index: None,
                 nvlink_domain_uuid: None,
@@ -455,6 +478,7 @@ mod tests {
         assert_eq!(attr_value(&attrs, "machine.id"), None);
         assert_eq!(attr_value(&attrs, "component.type"), Some("compute_node"));
         assert_eq!(attr_value(&attrs, "machine.serial"), None);
+        assert_eq!(attr_value(&attrs, "system.uuid"), None);
         assert_eq!(attr_value(&attrs, "driver.version"), None);
         assert_eq!(attr_value(&attrs, "nvlink.domain.uuid"), None);
     }
@@ -471,6 +495,7 @@ mod tests {
                 mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
             },
             collector_type: "test",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-001".to_string(),
@@ -508,6 +533,7 @@ mod tests {
                 mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
             },
             collector_type: "nvue_gnmi",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-001".to_string(),
@@ -560,6 +586,7 @@ mod tests {
                 mac: MacAddress::from_str("22:33:44:55:66:77").expect("valid mac"),
             },
             collector_type: "sensor_collector",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-BMC-001".to_string(),
@@ -609,6 +636,7 @@ mod tests {
                 mac: MacAddress::from_str("33:44:55:66:77:88").expect("valid mac"),
             },
             collector_type: "sensor_collector",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::PowerShelf(PowerShelfData {
                 id: Some(power_shelf_id),
                 serial: "SN-PS-001".to_string(),
@@ -735,6 +763,7 @@ mod tests {
             collector_type: "test",
             metadata: None,
             rack_id: None,
+            labels: Default::default(),
         };
         let ctx2 = EventContext {
             endpoint_key: "endpoint-b".to_string(),
@@ -843,6 +872,7 @@ mod tests {
                 mac: MacAddress::from_str("11:22:33:44:55:66").expect("valid mac"),
             },
             collector_type: "nvue_gnmi",
+            labels: Default::default(),
             metadata: Some(EndpointMetadata::Switch(SwitchData {
                 id: Some(switch_id),
                 serial: "SN-SWITCH-001".to_string(),

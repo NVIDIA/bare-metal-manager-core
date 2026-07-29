@@ -166,7 +166,7 @@ impl K8sConfigRepository for DeviceRegistrationMock {
     ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
         Ok(None)
     }
-    async fn create_secret(
+    async fn apply_secret(
         &self,
         _: &str,
         _: &str,

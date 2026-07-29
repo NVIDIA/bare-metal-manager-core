@@ -47,6 +47,8 @@ const (
 	Forge_GetVpcPrefixes_FullMethodName                                     = "/forge.Forge/GetVpcPrefixes"
 	Forge_UpdateVpcPrefix_FullMethodName                                    = "/forge.Forge/UpdateVpcPrefix"
 	Forge_DeleteVpcPrefix_FullMethodName                                    = "/forge.Forge/DeleteVpcPrefix"
+	Forge_FindSitePrefixIds_FullMethodName                                  = "/forge.Forge/FindSitePrefixIds"
+	Forge_FindSitePrefixesByIds_FullMethodName                              = "/forge.Forge/FindSitePrefixesByIds"
 	Forge_CreateVpcPeering_FullMethodName                                   = "/forge.Forge/CreateVpcPeering"
 	Forge_FindVpcPeeringIds_FullMethodName                                  = "/forge.Forge/FindVpcPeeringIds"
 	Forge_FindVpcPeeringsByIds_FullMethodName                               = "/forge.Forge/FindVpcPeeringsByIds"
@@ -528,6 +530,9 @@ type ForgeClient interface {
 	GetVpcPrefixes(ctx context.Context, in *VpcPrefixGetRequest, opts ...grpc.CallOption) (*VpcPrefixList, error)
 	UpdateVpcPrefix(ctx context.Context, in *VpcPrefixUpdateRequest, opts ...grpc.CallOption) (*VpcPrefix, error)
 	DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletionRequest, opts ...grpc.CallOption) (*VpcPrefixDeletionResult, error)
+	// Site prefixes
+	FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error)
+	FindSitePrefixesByIds(ctx context.Context, in *SitePrefixesByIdsRequest, opts ...grpc.CallOption) (*SitePrefixList, error)
 	// VPC peering
 	CreateVpcPeering(ctx context.Context, in *VpcPeeringCreationRequest, opts ...grpc.CallOption) (*VpcPeering, error)
 	FindVpcPeeringIds(ctx context.Context, in *VpcPeeringSearchFilter, opts ...grpc.CallOption) (*VpcPeeringIdList, error)
@@ -1545,6 +1550,26 @@ func (c *forgeClient) DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletion
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VpcPrefixDeletionResult)
 	err := c.cc.Invoke(ctx, Forge_DeleteVpcPrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefixIdList)
+	err := c.cc.Invoke(ctx, Forge_FindSitePrefixIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindSitePrefixesByIds(ctx context.Context, in *SitePrefixesByIdsRequest, opts ...grpc.CallOption) (*SitePrefixList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefixList)
+	err := c.cc.Invoke(ctx, Forge_FindSitePrefixesByIds_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6005,6 +6030,9 @@ type ForgeServer interface {
 	GetVpcPrefixes(context.Context, *VpcPrefixGetRequest) (*VpcPrefixList, error)
 	UpdateVpcPrefix(context.Context, *VpcPrefixUpdateRequest) (*VpcPrefix, error)
 	DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error)
+	// Site prefixes
+	FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error)
+	FindSitePrefixesByIds(context.Context, *SitePrefixesByIdsRequest) (*SitePrefixList, error)
 	// VPC peering
 	CreateVpcPeering(context.Context, *VpcPeeringCreationRequest) (*VpcPeering, error)
 	FindVpcPeeringIds(context.Context, *VpcPeeringSearchFilter) (*VpcPeeringIdList, error)
@@ -6854,6 +6882,12 @@ func (UnimplementedForgeServer) UpdateVpcPrefix(context.Context, *VpcPrefixUpdat
 }
 func (UnimplementedForgeServer) DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVpcPrefix not implemented")
+}
+func (UnimplementedForgeServer) FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixIds not implemented")
+}
+func (UnimplementedForgeServer) FindSitePrefixesByIds(context.Context, *SitePrefixesByIdsRequest) (*SitePrefixList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixesByIds not implemented")
 }
 func (UnimplementedForgeServer) CreateVpcPeering(context.Context, *VpcPeeringCreationRequest) (*VpcPeering, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateVpcPeering not implemented")
@@ -8626,6 +8660,42 @@ func _Forge_DeleteVpcPrefix_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).DeleteVpcPrefix(ctx, req.(*VpcPrefixDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindSitePrefixIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixSearchFilter)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSitePrefixIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSitePrefixIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSitePrefixIds(ctx, req.(*SitePrefixSearchFilter))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindSitePrefixesByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixesByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSitePrefixesByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSitePrefixesByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSitePrefixesByIds(ctx, req.(*SitePrefixesByIdsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -16659,6 +16729,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteVpcPrefix",
 			Handler:    _Forge_DeleteVpcPrefix_Handler,
+		},
+		{
+			MethodName: "FindSitePrefixIds",
+			Handler:    _Forge_FindSitePrefixIds_Handler,
+		},
+		{
+			MethodName: "FindSitePrefixesByIds",
+			Handler:    _Forge_FindSitePrefixesByIds_Handler,
 		},
 		{
 			MethodName: "CreateVpcPeering",

@@ -21,6 +21,7 @@ description = "Helpers to launch carbide-api for integration testing"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "api_test_helper"

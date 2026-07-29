@@ -59,7 +59,8 @@ func (c *Cache) InvalidateFiltered() {
 		"ssh-key-group", "network-security-group",
 		"vpc-prefix", "rack", "expected-machine",
 		"expected-rack", "expected-switch", "expected-power-shelf", "tray", "sku",
-		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition"} {
+		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition",
+		"ipxe-template", "rule", "task-run", "vpc-peering", "tray-component"} {
 		delete(c.items, rt)
 		delete(c.fetched, rt)
 	}

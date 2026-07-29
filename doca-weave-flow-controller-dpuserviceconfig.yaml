@@ -1,0 +1,58 @@
+---
+apiVersion: svc.dpu.nvidia.com/v1alpha1
+kind: DPUServiceConfiguration
+metadata:
+  name: doca-weave-flow-controller
+  namespace: dpf-operator-system
+spec:
+  deploymentServiceName: doca-weave-flow-controller
+  upgradePolicy:
+    applyNodeEffect: false
+  serviceConfiguration:
+    helmChart:
+      values:
+        weaveFlowController:
+          enabled: true
+          underlayConfigMapData:
+            nicIDType: mac
+            interfaces:
+              - pciAddress: "0004:03:00.0"
+                underlayInterface: brcx-r0swpln0
+                overlayDHCPInterface: r0swpln0
+                dhcpBridgeName: br-dhcp-r0swpln0
+                dropBridgeName: br-drop-r0swpln0
+              - pciAddress: "0004:06:00.0"
+                underlayInterface: brcx-r1swpln0
+                overlayDHCPInterface: r1swpln0
+                dhcpBridgeName: br-dhcp-r1swpln0
+                dropBridgeName: br-drop-r1swpln0
+              - pciAddress: "0005:03:00.0"
+                underlayInterface: brcx-r0swpln1
+                overlayDHCPInterface: r0swpln1
+                dhcpBridgeName: br-dhcp-r0swpln1
+                dropBridgeName: br-drop-r0swpln1
+              - pciAddress: "0005:06:00.0"
+                underlayInterface: brcx-r1swpln1
+                overlayDHCPInterface: r1swpln1
+                dhcpBridgeName: br-dhcp-r1swpln1
+                dropBridgeName: br-drop-r1swpln1
+              - pciAddress: "0000:03:00.0"
+                underlayInterface: brcx-r2swpln0
+                overlayDHCPInterface: r2swpln0
+                dhcpBridgeName: br-dhcp-r2swpln0
+                dropBridgeName: br-drop-r2swpln0
+              - pciAddress: "0000:06:00.0"
+                underlayInterface: brcx-r3swpln0
+                overlayDHCPInterface: r3swpln0
+                dhcpBridgeName: br-dhcp-r3swpln0
+                dropBridgeName: br-drop-r3swpln0
+              - pciAddress: "0001:03:00.0"
+                underlayInterface: brcx-r2swpln1
+                overlayDHCPInterface: r2swpln1
+                dhcpBridgeName: br-dhcp-r2swpln1
+                dropBridgeName: br-drop-r2swpln1
+              - pciAddress: "0001:06:00.0"
+                underlayInterface: brcx-r3swpln1
+                overlayDHCPInterface: r3swpln1
+                dhcpBridgeName: br-dhcp-r3swpln1
+                dropBridgeName: br-drop-r3swpln1

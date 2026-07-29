@@ -48,6 +48,7 @@ pub mod task_service;
 pub mod telemetry_service;
 pub mod thermal_subsystem;
 pub mod update_service;
+pub mod virtual_media;
 
 pub mod expander_router;
 

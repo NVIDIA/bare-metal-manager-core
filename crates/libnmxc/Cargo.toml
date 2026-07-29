@@ -21,6 +21,7 @@ edition.workspace = true
 exclude = ["/tests"]
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "libnmxc"

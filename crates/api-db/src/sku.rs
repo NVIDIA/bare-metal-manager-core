@@ -26,8 +26,9 @@ use model::machine::Machine;
 use model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::sku::{
-    Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
-    SkuComponentMemory, SkuComponentStorage, SkuComponentTpm, SkuComponents, diff_skus,
+    SKU_VERSION_WITH_DRIVE_LOCATION, Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu,
+    SkuComponentInfinibandDevices, SkuComponentMemory, SkuComponentStorage, SkuComponentTpm,
+    SkuComponents, diff_skus,
 };
 use sqlx::PgConnection;
 
@@ -37,7 +38,7 @@ use crate::{DatabaseError, ObjectFilter, Transaction, machine};
 /// The current version of the SKU format.  The state machine will create older
 /// versions from hardware using the currently assigned sku's version so that
 /// SKUs can maintain backward compatibility
-pub const CURRENT_SKU_VERSION: u32 = 4;
+pub const CURRENT_SKU_VERSION: u32 = 5;
 
 /// Find a SKU that matches the specified SKU using the same comparison that
 /// the SKU validation code uses. (i.e. the description, id and others are not compared)
@@ -80,6 +81,48 @@ pub async fn find_matching_with_exclusion(
     Ok(None)
 }
 
+/// Validate storage components of an expected SKU being persisted.
+///
+/// Rejects uncompilable PCI patterns (caught at authoring time rather than at
+/// validation time), and rejects v5 storage entries that carry no constraints
+/// at all (no size bounds, no PCI patterns). Such entries would silently accept
+/// any drive at any location, providing weaker guarantees than v4 model
+/// matching. This most commonly occurs when a v5 SKU is auto-generated from
+/// hardware_info that predates the size_mb/pci_path fields; those SKUs should
+/// not be persisted until the hardware has been re-enumerated.
+fn validate_storage_for_create(sku: &Sku) -> Result<(), DatabaseError> {
+    for storage in &sku.components.storage {
+        for pattern in &storage.pci_patterns {
+            regex::Regex::new(pattern).map_err(|err| {
+                DatabaseError::InvalidArgument(format!(
+                    "invalid storage PCI pattern \"{pattern}\": {err}"
+                ))
+            })?;
+        }
+        if let (Some(min), Some(max)) = (storage.min_size_mb, storage.max_size_mb)
+            && min > max
+        {
+            return Err(DatabaseError::InvalidArgument(format!(
+                "storage entry (model {:?}) has min_size_mb ({min}) greater than max_size_mb ({max})",
+                storage.model
+            )));
+        }
+        if sku.schema_version >= SKU_VERSION_WITH_DRIVE_LOCATION
+            && storage.pci_patterns.is_empty()
+            && storage.min_size_mb.is_none()
+            && storage.max_size_mb.is_none()
+        {
+            return Err(DatabaseError::InvalidArgument(format!(
+                "v5 storage entry (model {:?}) has no size bounds or PCI patterns; \
+                 re-enumerate the machine's hardware before creating this SKU",
+                storage.model
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[allow(txn_held_across_await)]
 pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseError> {
     if sku.schema_version != CURRENT_SKU_VERSION {
         return Err(DatabaseError::InvalidArgument(
@@ -92,6 +135,8 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
             "SKU ID must not be empty".to_string(),
         ));
     }
+
+    validate_storage_for_create(sku)?;
 
     let mut inner_txn = Transaction::begin_inner(txn).await?;
 
@@ -222,6 +267,8 @@ pub async fn replace(txn: &mut PgConnection, sku: &Sku) -> Result<Sku, DatabaseE
         ));
     }
 
+    validate_storage_for_create(sku)?;
+
     let mut inner_txn = Transaction::begin_inner(txn).await?;
 
     let query = "LOCK TABLE machine_skus IN ACCESS EXCLUSIVE MODE";
@@ -281,6 +328,7 @@ pub async fn generate_sku_from_machine_at_version(
         2 => generate_sku_from_machine_at_version_2(txn, machine_id).await,
         3 => generate_sku_from_machine_at_version_3(txn, machine_id).await,
         4 => generate_sku_from_machine_at_version_4(txn, machine_id).await,
+        5 => generate_sku_from_machine_at_version_5(txn, machine_id).await,
         _ => Err(DatabaseError::new(
             "generate_sku_from_machine_at_version",
             sqlx::Error::RowNotFound,
@@ -404,6 +452,9 @@ pub async fn generate_sku_from_machine_at_version_0_or_1(
                 .or_insert(SkuComponentStorage {
                     model: block_device.model.clone(),
                     count: 1,
+                    min_size_mb: None,
+                    max_size_mb: None,
+                    pci_patterns: Vec::new(),
                 });
         }
         storage
@@ -589,6 +640,9 @@ pub async fn generate_sku_from_machine_at_version_2(
             .or_insert(SkuComponentStorage {
                 model: s.model.clone(),
                 count: 1,
+                min_size_mb: None,
+                max_size_mb: None,
+                pci_patterns: Vec::new(),
             });
     }
 
@@ -639,6 +693,9 @@ pub async fn generate_sku_from_machine_at_version_3(
             .or_insert(SkuComponentStorage {
                 model: nvme.model.clone(),
                 count: 1,
+                min_size_mb: None,
+                max_size_mb: None,
+                pci_patterns: Vec::new(),
             });
     });
     sku.components.storage = storage.into_values().collect();
@@ -688,9 +745,87 @@ pub async fn generate_sku_from_machine_at_version_4(
             .or_insert(SkuComponentStorage {
                 model: nvme.model.clone(),
                 count: 1,
+                min_size_mb: None,
+                max_size_mb: None,
+                pci_patterns: Vec::new(),
             });
     });
     sku.components.storage = storage.into_values().collect();
+
+    // Vendor and Model fields do not contain useful information.  They seem limited and encoded somehow.
+    // We really only care about the spec version supported and that a TPM exists.
+    sku.components.tpm = hardware_info
+        .tpm_description
+        .as_ref()
+        .map(|tpm| SkuComponentTpm {
+            vendor: tpm.vendor.clone(),
+            version: tpm.tpm_spec.clone(),
+        });
+
+    Ok(sku)
+}
+
+pub async fn generate_sku_from_machine_at_version_5(
+    txn: impl DbReader<'_>,
+    machine_id: &MachineId,
+) -> Result<Sku, DatabaseError> {
+    let Some(machine) = machine::find(
+        txn,
+        ObjectFilter::One(*machine_id),
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await?
+    .into_iter()
+    .next() else {
+        return Err(DatabaseError::new(
+            "generate sku: find machine (v5)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let Some(hardware_info) = machine.status.hardware_info.as_ref() else {
+        return Err(DatabaseError::new(
+            "generate sku: load hardware info (v5)",
+            sqlx::Error::RowNotFound,
+        ));
+    };
+
+    let mut sku = generate_base_sku_from_hardware(&machine, 5, hardware_info);
+
+    // Unlike earlier versions, v5 records one storage entry per NVMe drive so
+    // each drive's size and PCI location can be validated individually. The
+    // discovered size is stored as an exact point (min == max) and the concrete
+    // sysfs/PCI path is stored as the drive's single "pattern". An expected SKU
+    // authored from this can then widen the size range or replace the literal
+    // path with a regex. Drives are ordered by path for deterministic output.
+    //
+    // size_mb and pci_path may be absent on hardware_info records that predate
+    // the v5 fields (discovered before PR #3717). Rather than failing generation
+    // and wedging the machine, we include the drive with whatever fields are
+    // present. A drive without a path will not match any location-constrained
+    // expected group (which is correct — the mismatch is reported as a diff),
+    // and a drive without a size satisfies only unconstrained size ranges. The
+    // machine self-heals once hardware re-enumeration populates the new fields.
+    let mut storage: Vec<SkuComponentStorage> = hardware_info
+        .nvme_devices
+        .iter()
+        .map(|nvme| SkuComponentStorage {
+            model: nvme.model.clone(),
+            count: 1,
+            min_size_mb: nvme.size_mb,
+            max_size_mb: nvme.size_mb,
+            pci_patterns: nvme
+                .pci_path
+                .as_ref()
+                .map(|p| vec![p.clone()])
+                .unwrap_or_default(),
+        })
+        .collect();
+    storage.sort();
+    sku.components.storage = storage;
 
     // Vendor and Model fields do not contain useful information.  They seem limited and encoded somehow.
     // We really only care about the spec version supported and that a TPM exists.

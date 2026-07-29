@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -30,6 +31,25 @@ func TestNewAPIInterface(t *testing.T) {
 		Created:            time.Now(),
 		Updated:            time.Now(),
 	}
+	vpcID := uuid.New()
+	vpcFamilyMode := cdbm.InterfaceVpcIPFamilyModeDualStack
+	vpcInterface := &cdbm.Interface{
+		ID:                 uuid.New(),
+		InstanceID:         uuid.New(),
+		VpcID:              &vpcID,
+		VpcIPFamilyMode:    &vpcFamilyMode,
+		VpcPrefixID:        cutil.GetPtr(uuid.New()),
+		RequestedIpAddress: nil,
+		Created:            time.Now(),
+		Updated:            time.Now(),
+	}
+	vpcPrefixInterface := &cdbm.Interface{
+		ID:          uuid.New(),
+		InstanceID:  uuid.New(),
+		VpcPrefixID: cutil.GetPtr(uuid.New()),
+		Created:     time.Now(),
+		Updated:     time.Now(),
+	}
 
 	tests := []struct {
 		name string
@@ -51,6 +71,35 @@ func TestNewAPIInterface(t *testing.T) {
 				Updated:            dbis.Updated,
 			},
 		},
+		{
+			name: "test new API Interface explicit VPC Prefix initializer",
+			args: args{
+				dbis: vpcPrefixInterface,
+			},
+			want: &APIInterface{
+				ID:          vpcPrefixInterface.ID.String(),
+				InstanceID:  vpcPrefixInterface.InstanceID.String(),
+				VpcPrefixID: cutil.GetPtr(vpcPrefixInterface.VpcPrefixID.String()),
+				Status:      vpcPrefixInterface.Status,
+				Created:     vpcPrefixInterface.Created,
+				Updated:     vpcPrefixInterface.Updated,
+			},
+		},
+		{
+			name: "test new API Interface VPC selection initializer",
+			args: args{
+				dbis: vpcInterface,
+			},
+			want: &APIInterface{
+				ID:         vpcInterface.ID.String(),
+				InstanceID: vpcInterface.InstanceID.String(),
+				VpcID:      cutil.GetPtr(vpcID.String()),
+				IPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv6},
+				Status:     vpcInterface.Status,
+				Created:    vpcInterface.Created,
+				Updated:    vpcInterface.Updated,
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,6 +108,34 @@ func TestNewAPIInterface(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAPIInterfaceVpcSelectionRoundTrip verifies resolved prefix status does not become update intent.
+func TestAPIInterfaceVpcSelectionRoundTrip(t *testing.T) {
+	vpcID := uuid.New()
+	resolvedVpcPrefixID := uuid.New()
+	familyMode := cdbm.InterfaceVpcIPFamilyModeIPv4Only
+	apiInterface := NewAPIInterface(&cdbm.Interface{
+		ID:              uuid.New(),
+		InstanceID:      uuid.New(),
+		VpcID:           &vpcID,
+		VpcIPFamilyMode: &familyMode,
+		VpcPrefixID:     &resolvedVpcPrefixID,
+		VpcPrefix:       &cdbm.VpcPrefix{ID: resolvedVpcPrefixID},
+	})
+	assert.Nil(t, apiInterface.VpcPrefixID)
+	assert.Nil(t, apiInterface.VpcPrefix)
+
+	data, err := json.Marshal(apiInterface)
+	require.NoError(t, err)
+
+	var updateRequest APIInterfaceCreateOrUpdateRequest
+	require.NoError(t, json.Unmarshal(data, &updateRequest))
+	require.NotNil(t, updateRequest.VpcID)
+	assert.Equal(t, vpcID.String(), *updateRequest.VpcID)
+	assert.Equal(t, []IPFamily{IPFamilyIPv4}, updateRequest.IPFamilies)
+	assert.Nil(t, updateRequest.VpcPrefixID)
+	assert.NoError(t, updateRequest.Validate())
 }
 
 func TestAPIInterfaceCreateOrUpdateRequest_InlineRoutingProfileValidate(t *testing.T) {
@@ -184,6 +261,8 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 	type fields struct {
 		SubnetID    *string
 		VpcPrefixID *string
+		VpcID       *string
+		IPFamilies  []IPFamily
 		IPAddress   *string
 		IsPhysical  bool
 		Device      *string
@@ -196,6 +275,7 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 		fields           fields
 		wantErr          bool
 		wantErrorMessage string
+		wantIPFamilies   []IPFamily
 	}{
 		{
 			name: "test valid Interface Subnet request",
@@ -214,6 +294,24 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "test valid Interface VPC request",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{IPFamilyIPv4},
+				IsPhysical: true,
+			},
+			wantErr: false,
+		},
+		{
+			name: "test valid Interface VPC request normalizes duplicate IP families",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv4},
+			},
+			wantErr:        false,
+			wantIPFamilies: []IPFamily{IPFamilyIPv4},
+		},
+		{
 			name: "test invalid Interface Subnet request",
 			fields: fields{
 				SubnetID: cutil.GetPtr("bad-uuid"),
@@ -229,17 +327,116 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "test invalid Interface request",
+			name: "test invalid Interface VPC UUID",
+			fields: fields{
+				VpcID: cutil.GetPtr("bad-uuid"),
+			},
+			wantErr:          true,
+			wantErrorMessage: validationErrorInvalidUUID,
+		},
+		{
+			name: "test invalid Interface request with multiple selectors",
 			fields: fields{
 				VpcPrefixID: cutil.GetPtr(uuid.New().String()),
 				SubnetID:    cutil.GetPtr(uuid.New().String()),
 			},
-			wantErr: true,
+			wantErr:          true,
+			wantErrorMessage: "exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified",
+		},
+		{
+			name: "test invalid Interface request with VPC and VPC Prefix selectors",
+			fields: fields{
+				VpcID:       cutil.GetPtr(uuid.NewString()),
+				VpcPrefixID: cutil.GetPtr(uuid.NewString()),
+				IPFamilies:  []IPFamily{IPFamilyIPv4},
+			},
+			wantErr:          true,
+			wantErrorMessage: "exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified",
+		},
+		{
+			name: "test invalid Interface request with VPC and Subnet selectors",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				SubnetID:   cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{IPFamilyIPv4},
+			},
+			wantErr:          true,
+			wantErrorMessage: "exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified",
+		},
+		{
+			name:             "test invalid Interface request with no selector",
+			fields:           fields{},
+			wantErr:          true,
+			wantErrorMessage: "exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified",
+		},
+		{
+			name: "test invalid Interface VPC request without IP families",
+			fields: fields{
+				VpcID: cutil.GetPtr(uuid.NewString()),
+			},
+			wantErr:          true,
+			wantErrorMessage: "must be specified when `vpcId` is specified",
+		},
+		{
+			name: "test invalid Interface VPC request with empty IP families",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{},
+			},
+			wantErr:          true,
+			wantErrorMessage: "must contain at least one value when `vpcId` is specified",
+		},
+		{
+			name: "test invalid Interface request with IP families but no VPC",
+			fields: fields{
+				VpcPrefixID: cutil.GetPtr(uuid.NewString()),
+				IPFamilies:  []IPFamily{IPFamilyIPv4},
+			},
+			wantErr:          true,
+			wantErrorMessage: "cannot be specified without `vpcId`",
+		},
+		{
+			name: "test invalid Interface VPC request with unknown IP family",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{"IPX"},
+			},
+			wantErr:          true,
+			wantErrorMessage: "invalid IP family `IPX`",
+		},
+		{
+			name: "test invalid Interface IPv6-only VPC request",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{IPFamilyIPv6},
+			},
+			wantErr:          true,
+			wantErrorMessage: "invalid IP family `IPv6`",
+		},
+		{
+			name: "test invalid Interface dual-stack VPC request",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{IPFamilyIPv4, IPFamilyIPv6},
+			},
+			wantErr:          true,
+			wantErrorMessage: "invalid IP family `IPv6`",
 		},
 		{
 			name: "test valid Interface device and deviceInterface request",
 			fields: fields{
 				VpcPrefixID:    cutil.GetPtr(uuid.New().String()),
+				IsPhysical:     true,
+				Device:         cutil.GetPtr("test-device"),
+				DeviceInstance: cutil.GetPtr(15),
+			},
+			wantErr: false,
+		},
+		{
+			name: "test valid Interface VPC device and deviceInterface request",
+			fields: fields{
+				VpcID:          cutil.GetPtr(uuid.NewString()),
+				IPFamilies:     []IPFamily{IPFamilyIPv4},
 				IsPhysical:     true,
 				Device:         cutil.GetPtr("test-device"),
 				DeviceInstance: cutil.GetPtr(15),
@@ -343,7 +540,17 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 				IPAddress: cutil.GetPtr("192.0.2.11"),
 			},
 			wantErr:          true,
-			wantErrorMessage: "either `subnetId` or `vpcPrefixId` must be specified",
+			wantErrorMessage: "exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified",
+		},
+		{
+			name: "test invalid Interface ipAddress with VPC request",
+			fields: fields{
+				VpcID:      cutil.GetPtr(uuid.NewString()),
+				IPFamilies: []IPFamily{IPFamilyIPv4},
+				IPAddress:  cutil.GetPtr("192.0.2.11"),
+			},
+			wantErr:          true,
+			wantErrorMessage: "cannot be specified when `vpcId` is specified",
 		},
 		{
 			name: "test invalid Interface ipAddress with final host bit 0",
@@ -384,6 +591,8 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 			iscr := APIInterfaceCreateOrUpdateRequest{
 				SubnetID:          tt.fields.SubnetID,
 				VpcPrefixID:       tt.fields.VpcPrefixID,
+				VpcID:             tt.fields.VpcID,
+				IPFamilies:        tt.fields.IPFamilies,
 				IPAddress:         tt.fields.IPAddress,
 				IsPhysical:        tt.fields.IsPhysical,
 				Device:            tt.fields.Device,
@@ -397,6 +606,10 @@ func TestAPIInterfaceCreateRequest_Validate(t *testing.T) {
 
 			if tt.wantErrorMessage != "" && err != nil {
 				assert.Contains(t, err.Error(), tt.wantErrorMessage)
+			}
+
+			if tt.wantIPFamilies != nil {
+				assert.Equal(t, tt.wantIPFamilies, iscr.IPFamilies)
 			}
 		})
 	}

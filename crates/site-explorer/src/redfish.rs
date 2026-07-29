@@ -31,9 +31,10 @@ use carbide_secrets::credentials::Credentials;
 use libredfish::model::ODataId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
-use libredfish::{BootInterfaceRef, Redfish, RedfishError};
+use libredfish::{Redfish, RedfishError};
 use mac_address::MacAddress;
 use model::errors::{ErrorCode, ErrorSubsystem, OperatorError, OperatorErrorSchema};
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
@@ -272,7 +273,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: Option<MacAddress>,
+        boot_interface: Option<&BootInterfaceTarget>,
         vendor: Option<RedfishVendor>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
@@ -300,7 +301,7 @@ impl RedfishClient {
         let is_dpu = system.id.to_lowercase().contains("bluefield");
         let (machine_setup_status, remediation_error) = match fetch_machine_setup_status(
             client.as_ref(),
-            boot_interface_mac,
+            boot_interface,
         )
         .await
         {
@@ -386,7 +387,7 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
-        boot_interface_mac: Option<MacAddress>,
+        boot_interface: Option<&BootInterfaceTarget>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let service_root = self
             .nv_redfish_client_pool
@@ -407,12 +408,16 @@ impl RedfishClient {
                 details: format!("Cannot Redfish service root: {err}"),
             })?;
 
-        bmc_explorer::nv_generate_exploration_report(
+        let mut report = bmc_explorer::nv_generate_exploration_report(
             service_root,
-            &nv_bmc_explore_config(boot_interface_mac),
+            &nv_bmc_explore_config(boot_interface),
         )
         .await
-        .map_err(map_nv_redfish_explore_error)
+        .map_err(map_nv_redfish_explore_error)?;
+
+        record_evaluated_boot_interface(report.machine_setup_status.as_mut(), boot_interface);
+
+        Ok(report)
     }
 
     pub async fn reset_bmc(
@@ -1276,11 +1281,16 @@ async fn fetch_service(client: &dyn Redfish) -> Result<Vec<Service>, RedfishErro
 
 async fn fetch_machine_setup_status(
     client: &dyn Redfish,
-    boot_interface_mac: Option<MacAddress>,
+    boot_interface: Option<&BootInterfaceTarget>,
 ) -> Result<MachineSetupStatus, RedfishError> {
-    let status = client
-        .machine_setup_status(boot_interface_mac.map(BootInterfaceRef::Mac))
-        .await?;
+    let status = match boot_interface {
+        Some(target) => {
+            target
+                .run(|boot_interface| client.machine_setup_status(Some(boot_interface)))
+                .await?
+        }
+        None => client.machine_setup_status(None).await?,
+    };
     let mut diffs: Vec<MachineSetupDiff> = Vec::new();
 
     for diff in status.diffs {
@@ -1294,6 +1304,7 @@ async fn fetch_machine_setup_status(
     Ok(MachineSetupStatus {
         is_done: status.is_done,
         diffs,
+        evaluated_boot_interface: boot_interface.map(MachineBootInterfaceTarget::from),
     })
 }
 
@@ -1443,15 +1454,26 @@ fn nv_error_classifier(
 }
 
 fn nv_bmc_explore_config(
-    boot_interface_mac: Option<MacAddress>,
+    boot_interface: Option<&BootInterfaceTarget>,
 ) -> bmc_explorer::Config<'static, carbide_redfish::nv_redfish::RedfishBmc> {
     bmc_explorer::Config {
-        boot_interface_mac,
+        boot_interface_mac: boot_interface.map(BootInterfaceTarget::mac_address),
         error_classifier: &nv_error_classifier,
         // Chosen arbitrarily: we want to wait a bit between tries,
         // but not for too long relative to the total exploration
         // time.
         retry_timeout: Duration::from_millis(1000),
+    }
+}
+
+fn record_evaluated_boot_interface(
+    machine_setup_status: Option<&mut MachineSetupStatus>,
+    boot_interface: Option<&BootInterfaceTarget>,
+) {
+    if let Some(status) = machine_setup_status {
+        // NvRedfish currently matches by MAC, but the observation remains
+        // correlated with the complete logical target requested by NICo.
+        status.evaluated_boot_interface = boot_interface.map(MachineBootInterfaceTarget::from);
     }
 }
 
@@ -1543,14 +1565,20 @@ mod tests {
     use std::sync::Arc;
 
     use arc_swap::ArcSwap;
-    use carbide_redfish::libredfish::test_support::RedfishSim;
+    use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimBootInterfaceRef};
+    use carbide_redfish::libredfish::{RedfishAuth, RedfishClientPool};
     use carbide_redfish::nv_redfish::NvRedfishClientPool;
     use carbide_secrets::credentials::Credentials;
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases_async};
+    use carbide_test_support::{Case, check_cases_async, value_scenarios};
     use libredfish::model::service_root::RedfishVendor;
+    use mac_address::MacAddress;
+    use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 
-    use super::{EndpointExplorationError, RedfishClient};
+    use super::{
+        BootInterfaceTarget, EndpointExplorationError, MachineSetupStatus, RedfishClient,
+        fetch_machine_setup_status, nv_bmc_explore_config, record_evaluated_boot_interface,
+    };
 
     fn test_addr() -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 443)
@@ -1560,6 +1588,107 @@ mod tests {
         let proxy_address = Arc::new(ArcSwap::new(Arc::new(None)));
         let nv_pool = Arc::new(NvRedfishClientPool::new(proxy_address));
         RedfishClient::new(sim, nv_pool)
+    }
+
+    async fn machine_setup_status_target(
+        target: Option<BootInterfaceTarget>,
+    ) -> Result<
+        (
+            Option<MachineBootInterfaceTarget>,
+            Vec<Option<RedfishSimBootInterfaceRef>>,
+        ),
+        String,
+    > {
+        let sim = RedfishSim::default();
+        let client = sim
+            .create_client("test-host", None, RedfishAuth::Anonymous, None)
+            .await
+            .map_err(|error| error.to_string())?;
+        let status = fetch_machine_setup_status(client.as_ref(), target.as_ref())
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok((
+            status.evaluated_boot_interface,
+            sim.machine_setup_status_targets("test-host"),
+        ))
+    }
+
+    #[tokio::test]
+    async fn machine_setup_status_records_the_exact_evaluated_target() {
+        let mac_address = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
+        let boot_interface = MachineBootInterface {
+            mac_address,
+            interface_id: "NIC.Slot.7-1-1".to_string(),
+        };
+
+        check_cases_async(
+            [
+                Case {
+                    scenario: "complete pair",
+                    input: Some(BootInterfaceTarget::Pair(boot_interface.clone())),
+                    expect: Yields((
+                        Some(MachineBootInterfaceTarget::Pair(boot_interface.clone())),
+                        vec![Some(RedfishSimBootInterfaceRef::Pair {
+                            mac_address,
+                            interface_id: boot_interface.interface_id.clone(),
+                        })],
+                    )),
+                },
+                Case {
+                    scenario: "legacy MAC only",
+                    input: Some(BootInterfaceTarget::MacOnly(mac_address)),
+                    expect: Yields((
+                        Some(MachineBootInterfaceTarget::MacOnly(mac_address)),
+                        vec![Some(RedfishSimBootInterfaceRef::Mac(mac_address))],
+                    )),
+                },
+                Case {
+                    scenario: "no boot interface",
+                    input: None,
+                    expect: Yields((None, vec![None])),
+                },
+            ],
+            machine_setup_status_target,
+        )
+        .await;
+    }
+
+    #[test]
+    fn nvredfish_projects_the_mac_and_records_the_logical_target() {
+        let mac_address = MacAddress::new([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x01]);
+        let boot_interface = MachineBootInterface {
+            mac_address,
+            interface_id: "NIC.Slot.7-1-1".to_string(),
+        };
+
+        value_scenarios!(run = |target: Option<BootInterfaceTarget>| {
+            let config = nv_bmc_explore_config(target.as_ref());
+            let mut status = MachineSetupStatus::default();
+            record_evaluated_boot_interface(Some(&mut status), target.as_ref());
+            (
+                config.boot_interface_mac,
+                status.evaluated_boot_interface,
+            )
+        };
+            "complete pair" {
+                Some(BootInterfaceTarget::Pair(boot_interface.clone())) => (
+                    Some(mac_address),
+                    Some(MachineBootInterfaceTarget::Pair(boot_interface)),
+                ),
+            }
+
+            "legacy MAC only" {
+                Some(BootInterfaceTarget::MacOnly(mac_address)) => (
+                    Some(mac_address),
+                    Some(MachineBootInterfaceTarget::MacOnly(mac_address)),
+                ),
+            }
+
+            "no boot interface" {
+                None => (None, None),
+            }
+        );
     }
 
     /// Rotate a BMC's root password against the sim and report the vendor

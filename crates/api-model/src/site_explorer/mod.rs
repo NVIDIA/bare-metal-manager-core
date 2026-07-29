@@ -41,7 +41,7 @@ use crate::errors::{ErrorCode, ErrorSubsystem, ModelError, ModelResult, Operator
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
-use crate::machine_boot_interface::MachineBootInterface;
+use crate::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
@@ -219,8 +219,9 @@ pub struct ExploredEndpoint {
     /// The MAC address of the boot interface (primary interface) for this host endpoint
     pub boot_interface_mac: Option<MacAddress>,
     /// The vendor-native Redfish interface id of the boot interface, captured
-    /// alongside `boot_interface_mac`. Combined with the MAC via
-    /// [`ExploredEndpoint::boot_interface`] to form a [`MachineBootInterface`].
+    /// alongside `boot_interface_mac`. [`ExploredEndpoint::boot_interface`]
+    /// returns the complete pair, while
+    /// [`ExploredEndpoint::boot_interface_target`] preserves a MAC-only target.
     pub boot_interface_id: Option<String>,
 }
 
@@ -239,6 +240,19 @@ impl ExploredEndpoint {
     /// interface id.
     pub fn boot_interface(&self) -> Option<MachineBootInterface> {
         MachineBootInterface::from_parts(self.boot_interface_mac, self.boot_interface_id.clone())
+    }
+
+    /// Returns the boot interface selector Site Explorer should evaluate.
+    ///
+    /// A complete endpoint record yields [`MachineBootInterfaceTarget::Pair`].
+    /// Older records with only `boot_interface_mac` remain usable as
+    /// [`MachineBootInterfaceTarget::MacOnly`]. An interface id by itself
+    /// cannot identify the target and yields `None`.
+    pub fn boot_interface_target(&self) -> Option<MachineBootInterfaceTarget> {
+        MachineBootInterfaceTarget::from_parts(
+            self.boot_interface_mac,
+            self.boot_interface_id.clone(),
+        )
     }
 
     /// find_version will locate a version number within an ExploredEndpoint
@@ -1659,12 +1673,28 @@ pub struct Inventory {
     pub release_date: Option<String>,
 }
 
-/// `MachineSetupStatus` definition. Matches redfish definition
+/// The result of one Redfish machine-setup check.
+///
+/// `is_done` and `diffs` mirror the vendor result. The evaluated boot interface
+/// records the logical target NICo asked the backend to assess, so a later
+/// controller never has to infer it from endpoint columns that may have changed
+/// after the report was written.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct MachineSetupStatus {
     pub is_done: bool,
     pub diffs: Vec<MachineSetupDiff>,
+    /// The logical boot-interface target NICo asked the backend to assess.
+    ///
+    /// This does not claim that the backend used every identifier in the
+    /// target: a backend may match with a subset (NvRedfish currently uses the
+    /// MAC) while retaining the requested `Pair` identity. This lives inside
+    /// `MachineSetupStatus` so the report's versioned JSON stores the
+    /// observation and its target together. Reports written before target
+    /// capture leave it as `None`, which tells a later controller not to treat
+    /// the status as evidence for a newly selected interface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluated_boot_interface: Option<MachineBootInterfaceTarget>,
 }
 
 /// `BootOrder` definition.
@@ -2603,6 +2633,127 @@ mod tests {
             boot_interface_id: None,
             pause_ingestion_and_poweron: false,
         }
+    }
+
+    #[test]
+    fn endpoint_boot_interface_target_preserves_legacy_mac_only_records() {
+        let mac = MacAddress::new([0x02, 0, 0, 0, 0, 1]);
+
+        value_scenarios!(run = |(boot_interface_mac, boot_interface_id)| {
+            let mut endpoint = create_test_endpoint(Vec::new());
+            endpoint.boot_interface_mac = boot_interface_mac;
+            endpoint.boot_interface_id = boot_interface_id;
+            endpoint.boot_interface_target()
+        };
+            "complete pair" {
+                (Some(mac), Some("NIC.Slot.7-1-1".to_string())) =>
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address: mac,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+            }
+
+            "legacy MAC only" {
+                (Some(mac), None) => Some(MachineBootInterfaceTarget::MacOnly(mac)),
+            }
+
+            "interface id without MAC" {
+                (None, Some("NIC.Slot.7-1-1".to_string())) => None,
+            }
+
+            "no stored target" {
+                (None, None) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn machine_setup_status_json_correlates_the_evaluated_target() {
+        let mac = MacAddress::new([0x02, 0, 0, 0, 0, 1]);
+
+        value_scenarios!(run = |status: MachineSetupStatus| {
+            let json = serde_json::to_value(&status).expect("status serializes");
+            let round_trip =
+                serde_json::from_value(json.clone()).expect("serialized status deserializes");
+            (json, round_trip)
+        };
+            "status without a target remains backward compatible" {
+                MachineSetupStatus {
+                    is_done: true,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: None,
+                } => (
+                    serde_json::json!({
+                        "IsDone": true,
+                        "Diffs": [],
+                    }),
+                    MachineSetupStatus {
+                        is_done: true,
+                        diffs: Vec::new(),
+                        evaluated_boot_interface: None,
+                    },
+                ),
+            }
+
+            "paired target" {
+                MachineSetupStatus {
+                    is_done: false,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
+                        MachineBootInterface {
+                            mac_address: mac,
+                            interface_id: "NIC.Slot.7-1-1".to_string(),
+                        },
+                    )),
+                } => (
+                    serde_json::json!({
+                        "IsDone": false,
+                        "Diffs": [],
+                        "EvaluatedBootInterface": {
+                            "Pair": {
+                                "MacAddress": "02:00:00:00:00:01",
+                                "InterfaceId": "NIC.Slot.7-1-1",
+                            },
+                        },
+                    }),
+                    MachineSetupStatus {
+                        is_done: false,
+                        diffs: Vec::new(),
+                        evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
+                            MachineBootInterface {
+                                mac_address: mac,
+                                interface_id: "NIC.Slot.7-1-1".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            }
+
+            "legacy MAC-only target" {
+                MachineSetupStatus {
+                    is_done: true,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac)),
+                } => (
+                    serde_json::json!({
+                        "IsDone": true,
+                        "Diffs": [],
+                        "EvaluatedBootInterface": {
+                            "MacOnly": "02:00:00:00:00:01",
+                        },
+                    }),
+                    MachineSetupStatus {
+                        is_done: true,
+                        diffs: Vec::new(),
+                        evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac)),
+                    },
+                ),
+            }
+        );
+
+        let legacy: MachineSetupStatus = serde_json::from_str(r#"{"IsDone":true,"Diffs":[]}"#)
+            .expect("reports written before target capture still deserialize");
+        assert_eq!(legacy.evaluated_boot_interface, None);
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -122,11 +122,15 @@ pub(crate) async fn discover_machine(
     // Who's discovery info is this? DiscoverMachine is an anonymous call, and so normally we should
     // look it up ourselves from the client IP. But that isn't feasible in integration tests, so
     // config.allow_insecure_discovery lets the caller pass a machine_interface_id.
-    let caller_interface = if let Some(interface_id) = machine_discovery_info.machine_interface_id
-        && api.runtime_config.allow_insecure_discovery
-    {
+    let caller_interface = if api.runtime_config.allow_insecure_discovery {
+        let interface_id = machine_discovery_info.machine_interface_id.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "machine_interface_id is required for insecure discovery".to_string(),
+            )
+        })?;
         let interface = db::machine_interface::find_one(&mut txn, interface_id).await?;
         tracing::warn!(
+            machine_interface_id = %interface_id,
             "Allowing insecure discovery: trusting caller-provided machine_interface_id. This is for integration tests only and must not be done in production."
         );
         interface
@@ -136,7 +140,40 @@ pub(crate) async fn discover_machine(
                 "could not determine client IP address for discovery".to_string(),
             )
         })?;
-        db::machine_interface::find_for_update_by_ip(&mut txn, remote_ip).await?
+
+        if let Some(interface) =
+            db::machine_interface::find_optional_for_update_by_ip(&mut txn, remote_ip).await?
+        {
+            // Caller is an un-allocated machine with no instance
+            interface
+        } else {
+            // Caller may be an allocated instance running scout (e.g. for machine validation). We
+            // need the machine_interface_id in the payload to know which interface to use. We will
+            // check it against the caller's IP to make sure it belongs to instance on the same
+            // machine.
+            let machine_interface_id = machine_discovery_info.machine_interface_id.ok_or_else(|| {
+                CarbideError::InvalidArgument(
+                    "no machine_interface found for client IP address, and no machine_interface_id was provided".to_string(),
+                )
+            })?;
+            db::machine_interface::find_for_update_if_matches_instance_ip(
+                &mut txn,
+                machine_interface_id,
+                remote_ip,
+            )
+            .await?
+            .ok_or_else(|| {
+                tracing::error!(
+                    %machine_interface_id,
+                    %remote_ip,
+                    "potential machine impersonation attempt: caller provided machine_interface_id does not belong to this remote IP"
+                );
+                CarbideError::PermissionDeniedError(
+                    "selected interface and discovery source IP do not belong to the same host"
+                        .to_string(),
+                )
+            })?
+        }
     };
 
     let site_explorer_creates_machines = api
@@ -270,23 +307,26 @@ pub(crate) async fn discover_machine(
             })?
         };
 
-        if db_machine.network_config.loopback_ip.is_none() {
-            let loopback_ip = db::machine::allocate_loopback_ip(
-                &api.common_pools,
-                &mut txn,
-                &stable_machine_id.to_string(),
-            )
-            .await?;
+        // Collect every missing address into one `network_config` write. Each
+        // write bumps the whole machine group, so writing one field at a time
+        // leaves the later call with a stale `network_config_version`.
+        let (mut network_config, network_config_version) = db_machine.network_config.clone().take();
+        let owner_id = stable_machine_id.to_string();
+        let mut network_config_changed = false;
 
-            let mut network_config = db_machine.network_config.value.clone();
+        if network_config.loopback_ip.is_none() {
+            let loopback_ip =
+                db::machine::allocate_loopback_ip(&api.common_pools, &mut txn, &owner_id).await?;
             network_config.loopback_ip = Some(loopback_ip);
-            db::machine::try_update_network_config(
-                &mut txn,
-                &stable_machine_id,
-                db_machine.network_config.version,
-                &network_config,
-            )
-            .await?;
+            network_config_changed = true;
+        }
+
+        if network_config.loopback_ip_v6.is_none()
+            && let Some(loopback_ip_v6) =
+                db::machine::allocate_loopback_ip_v6(&api.common_pools, &mut txn, &owner_id).await?
+        {
+            network_config.loopback_ip_v6 = Some(loopback_ip_v6);
+            network_config_changed = true;
         }
 
         if api
@@ -295,27 +335,30 @@ pub(crate) async fn discover_machine(
             .as_ref()
             .map(|vc| vc.secondary_overlay_support)
             .unwrap_or_default()
-            && db_machine
-                .network_config
-                .secondary_overlay_vtep_ip
-                .is_none()
+            && network_config.secondary_overlay_vtep_ip.is_none()
         {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
-                &api.common_pools,
-                &mut txn,
-                &stable_machine_id.to_string(),
-            )
-            .await?;
-
-            let mut network_config = db_machine.network_config.value.clone();
+            let secondary_vtep_ip =
+                db::machine::allocate_secondary_vtep_ip(&api.common_pools, &mut txn, &owner_id)
+                    .await?;
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-            db::machine::try_update_network_config(
+            network_config_changed = true;
+        }
+
+        if network_config_changed
+            && !db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
-                db_machine.network_config.version,
+                network_config_version,
                 &network_config,
             )
-            .await?;
+            .await?
+        {
+            // The version error also rolls back the allocations above.
+            return Err(CarbideError::ConcurrentModificationError(
+                "machine",
+                network_config_version.to_string(),
+            )
+            .into());
         }
 
         db_machine.id

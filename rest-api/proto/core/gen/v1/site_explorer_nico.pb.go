@@ -2173,13 +2173,19 @@ func (x *Inventory) GetReleaseDate() string {
 	return ""
 }
 
-// `MachineSetupStatus` definition. Matches redfish definition
+// The result of one Redfish machine-setup check, including the logical boot
+// interface target NICo asked the backend to assess.
 type MachineSetupStatus struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	IsDone        bool                   `protobuf:"varint,1,opt,name=is_done,json=isDone,proto3" json:"is_done,omitempty"`
-	Diffs         []*MachineSetupDiff    `protobuf:"bytes,2,rep,name=diffs,proto3" json:"diffs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	IsDone bool                   `protobuf:"varint,1,opt,name=is_done,json=isDone,proto3" json:"is_done,omitempty"`
+	Diffs  []*MachineSetupDiff    `protobuf:"bytes,2,rep,name=diffs,proto3" json:"diffs,omitempty"`
+	// The logical boot-interface target NICo asked the backend to assess. A
+	// backend may match with a subset (NvRedfish currently uses the MAC) while
+	// retaining Pair identity. Reports written before target capture leave this
+	// unset.
+	EvaluatedBootInterface *MachineBootInterfaceTarget `protobuf:"bytes,3,opt,name=evaluated_boot_interface,json=evaluatedBootInterface,proto3" json:"evaluated_boot_interface,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *MachineSetupStatus) Reset() {
@@ -2226,6 +2232,151 @@ func (x *MachineSetupStatus) GetDiffs() []*MachineSetupDiff {
 	return nil
 }
 
+func (x *MachineSetupStatus) GetEvaluatedBootInterface() *MachineBootInterfaceTarget {
+	if x != nil {
+		return x.EvaluatedBootInterface
+	}
+	return nil
+}
+
+// The logical boot-interface target NICo asked a Redfish backend to assess. It
+// retains the complete pair when Site Explorer has it while keeping older
+// MAC-only endpoint records explicit.
+type MachineBootInterfaceTarget struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Target:
+	//
+	//	*MachineBootInterfaceTarget_Pair
+	//	*MachineBootInterfaceTarget_MacOnly
+	Target        isMachineBootInterfaceTarget_Target `protobuf_oneof:"target"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MachineBootInterfaceTarget) Reset() {
+	*x = MachineBootInterfaceTarget{}
+	mi := &file_site_explorer_nico_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MachineBootInterfaceTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MachineBootInterfaceTarget) ProtoMessage() {}
+
+func (x *MachineBootInterfaceTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_site_explorer_nico_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MachineBootInterfaceTarget.ProtoReflect.Descriptor instead.
+func (*MachineBootInterfaceTarget) Descriptor() ([]byte, []int) {
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *MachineBootInterfaceTarget) GetTarget() isMachineBootInterfaceTarget_Target {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *MachineBootInterfaceTarget) GetPair() *MachineBootInterfacePair {
+	if x != nil {
+		if x, ok := x.Target.(*MachineBootInterfaceTarget_Pair); ok {
+			return x.Pair
+		}
+	}
+	return nil
+}
+
+func (x *MachineBootInterfaceTarget) GetMacOnly() string {
+	if x != nil {
+		if x, ok := x.Target.(*MachineBootInterfaceTarget_MacOnly); ok {
+			return x.MacOnly
+		}
+	}
+	return ""
+}
+
+type isMachineBootInterfaceTarget_Target interface {
+	isMachineBootInterfaceTarget_Target()
+}
+
+type MachineBootInterfaceTarget_Pair struct {
+	Pair *MachineBootInterfacePair `protobuf:"bytes,1,opt,name=pair,proto3,oneof"`
+}
+
+type MachineBootInterfaceTarget_MacOnly struct {
+	MacOnly string `protobuf:"bytes,2,opt,name=mac_only,json=macOnly,proto3,oneof"`
+}
+
+func (*MachineBootInterfaceTarget_Pair) isMachineBootInterfaceTarget_Target() {}
+
+func (*MachineBootInterfaceTarget_MacOnly) isMachineBootInterfaceTarget_Target() {}
+
+// MAC and vendor-native Redfish EthernetInterface.Id for one interface.
+type MachineBootInterfacePair struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MacAddress    string                 `protobuf:"bytes,1,opt,name=mac_address,json=macAddress,proto3" json:"mac_address,omitempty"`
+	InterfaceId   string                 `protobuf:"bytes,2,opt,name=interface_id,json=interfaceId,proto3" json:"interface_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MachineBootInterfacePair) Reset() {
+	*x = MachineBootInterfacePair{}
+	mi := &file_site_explorer_nico_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MachineBootInterfacePair) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MachineBootInterfacePair) ProtoMessage() {}
+
+func (x *MachineBootInterfacePair) ProtoReflect() protoreflect.Message {
+	mi := &file_site_explorer_nico_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MachineBootInterfacePair.ProtoReflect.Descriptor instead.
+func (*MachineBootInterfacePair) Descriptor() ([]byte, []int) {
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *MachineBootInterfacePair) GetMacAddress() string {
+	if x != nil {
+		return x.MacAddress
+	}
+	return ""
+}
+
+func (x *MachineBootInterfacePair) GetInterfaceId() string {
+	if x != nil {
+		return x.InterfaceId
+	}
+	return ""
+}
+
 // `MachineSetupDiff` definition. Matches redfish definition
 type MachineSetupDiff struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2238,7 +2389,7 @@ type MachineSetupDiff struct {
 
 func (x *MachineSetupDiff) Reset() {
 	*x = MachineSetupDiff{}
-	mi := &file_site_explorer_nico_proto_msgTypes[30]
+	mi := &file_site_explorer_nico_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2250,7 +2401,7 @@ func (x *MachineSetupDiff) String() string {
 func (*MachineSetupDiff) ProtoMessage() {}
 
 func (x *MachineSetupDiff) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[30]
+	mi := &file_site_explorer_nico_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2263,7 +2414,7 @@ func (x *MachineSetupDiff) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MachineSetupDiff.ProtoReflect.Descriptor instead.
 func (*MachineSetupDiff) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{30}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *MachineSetupDiff) GetKey() string {
@@ -2304,7 +2455,7 @@ type PCIeDevice struct {
 
 func (x *PCIeDevice) Reset() {
 	*x = PCIeDevice{}
-	mi := &file_site_explorer_nico_proto_msgTypes[31]
+	mi := &file_site_explorer_nico_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2316,7 +2467,7 @@ func (x *PCIeDevice) String() string {
 func (*PCIeDevice) ProtoMessage() {}
 
 func (x *PCIeDevice) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[31]
+	mi := &file_site_explorer_nico_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2329,7 +2480,7 @@ func (x *PCIeDevice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PCIeDevice.ProtoReflect.Descriptor instead.
 func (*PCIeDevice) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{31}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PCIeDevice) GetDescription() string {
@@ -2406,7 +2557,7 @@ type SystemStatus struct {
 
 func (x *SystemStatus) Reset() {
 	*x = SystemStatus{}
-	mi := &file_site_explorer_nico_proto_msgTypes[32]
+	mi := &file_site_explorer_nico_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2418,7 +2569,7 @@ func (x *SystemStatus) String() string {
 func (*SystemStatus) ProtoMessage() {}
 
 func (x *SystemStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[32]
+	mi := &file_site_explorer_nico_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2431,7 +2582,7 @@ func (x *SystemStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemStatus.ProtoReflect.Descriptor instead.
 func (*SystemStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{32}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SystemStatus) GetHealth() string {
@@ -2464,7 +2615,7 @@ type BootOrder struct {
 
 func (x *BootOrder) Reset() {
 	*x = BootOrder{}
-	mi := &file_site_explorer_nico_proto_msgTypes[33]
+	mi := &file_site_explorer_nico_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2476,7 +2627,7 @@ func (x *BootOrder) String() string {
 func (*BootOrder) ProtoMessage() {}
 
 func (x *BootOrder) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[33]
+	mi := &file_site_explorer_nico_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2489,7 +2640,7 @@ func (x *BootOrder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootOrder.ProtoReflect.Descriptor instead.
 func (*BootOrder) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{33}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *BootOrder) GetBootOrder() []*BootOption {
@@ -2511,7 +2662,7 @@ type BootOption struct {
 
 func (x *BootOption) Reset() {
 	*x = BootOption{}
-	mi := &file_site_explorer_nico_proto_msgTypes[34]
+	mi := &file_site_explorer_nico_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2523,7 +2674,7 @@ func (x *BootOption) String() string {
 func (*BootOption) ProtoMessage() {}
 
 func (x *BootOption) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[34]
+	mi := &file_site_explorer_nico_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2536,7 +2687,7 @@ func (x *BootOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BootOption.ProtoReflect.Descriptor instead.
 func (*BootOption) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{34}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *BootOption) GetDisplayName() string {
@@ -2576,7 +2727,7 @@ type SecureBootStatus struct {
 
 func (x *SecureBootStatus) Reset() {
 	*x = SecureBootStatus{}
-	mi := &file_site_explorer_nico_proto_msgTypes[35]
+	mi := &file_site_explorer_nico_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2588,7 +2739,7 @@ func (x *SecureBootStatus) String() string {
 func (*SecureBootStatus) ProtoMessage() {}
 
 func (x *SecureBootStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[35]
+	mi := &file_site_explorer_nico_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2601,7 +2752,7 @@ func (x *SecureBootStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SecureBootStatus.ProtoReflect.Descriptor instead.
 func (*SecureBootStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{35}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SecureBootStatus) GetIsEnabled() bool {
@@ -2622,7 +2773,7 @@ type LockdownStatus struct {
 
 func (x *LockdownStatus) Reset() {
 	*x = LockdownStatus{}
-	mi := &file_site_explorer_nico_proto_msgTypes[36]
+	mi := &file_site_explorer_nico_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2634,7 +2785,7 @@ func (x *LockdownStatus) String() string {
 func (*LockdownStatus) ProtoMessage() {}
 
 func (x *LockdownStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_site_explorer_nico_proto_msgTypes[36]
+	mi := &file_site_explorer_nico_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2647,7 +2798,7 @@ func (x *LockdownStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LockdownStatus.ProtoReflect.Descriptor instead.
 func (*LockdownStatus) Descriptor() ([]byte, []int) {
-	return file_site_explorer_nico_proto_rawDescGZIP(), []int{36}
+	return file_site_explorer_nico_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *LockdownStatus) GetStatus() InternalLockdownStatus {
@@ -2867,10 +3018,19 @@ const file_site_explorer_nico_proto_rawDesc = "" +
 	"\f_descriptionB\n" +
 	"\n" +
 	"\b_versionB\x0f\n" +
-	"\r_release_date\"d\n" +
+	"\r_release_date\"\xc9\x01\n" +
 	"\x12MachineSetupStatus\x12\x17\n" +
 	"\ais_done\x18\x01 \x01(\bR\x06isDone\x125\n" +
-	"\x05diffs\x18\x02 \x03(\v2\x1f.site_explorer.MachineSetupDiffR\x05diffs\"X\n" +
+	"\x05diffs\x18\x02 \x03(\v2\x1f.site_explorer.MachineSetupDiffR\x05diffs\x12c\n" +
+	"\x18evaluated_boot_interface\x18\x03 \x01(\v2).site_explorer.MachineBootInterfaceTargetR\x16evaluatedBootInterface\"\x82\x01\n" +
+	"\x1aMachineBootInterfaceTarget\x12=\n" +
+	"\x04pair\x18\x01 \x01(\v2'.site_explorer.MachineBootInterfacePairH\x00R\x04pair\x12\x1b\n" +
+	"\bmac_only\x18\x02 \x01(\tH\x00R\amacOnlyB\b\n" +
+	"\x06target\"^\n" +
+	"\x18MachineBootInterfacePair\x12\x1f\n" +
+	"\vmac_address\x18\x01 \x01(\tR\n" +
+	"macAddress\x12!\n" +
+	"\finterface_id\x18\x02 \x01(\tR\vinterfaceId\"X\n" +
 	"\x10MachineSetupDiff\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1a\n" +
 	"\bexpected\x18\x02 \x01(\tR\bexpected\x12\x16\n" +
@@ -2956,7 +3116,7 @@ func file_site_explorer_nico_proto_rawDescGZIP() []byte {
 }
 
 var file_site_explorer_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_site_explorer_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_site_explorer_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_site_explorer_nico_proto_goTypes = []any{
 	(MlxDeviceKind)(0),                        // 0: site_explorer.MlxDeviceKind
 	(NicMode)(0),                              // 1: site_explorer.NicMode
@@ -2992,26 +3152,28 @@ var file_site_explorer_nico_proto_goTypes = []any{
 	(*Service)(nil),                           // 31: site_explorer.Service
 	(*Inventory)(nil),                         // 32: site_explorer.Inventory
 	(*MachineSetupStatus)(nil),                // 33: site_explorer.MachineSetupStatus
-	(*MachineSetupDiff)(nil),                  // 34: site_explorer.MachineSetupDiff
-	(*PCIeDevice)(nil),                        // 35: site_explorer.PCIeDevice
-	(*SystemStatus)(nil),                      // 36: site_explorer.SystemStatus
-	(*BootOrder)(nil),                         // 37: site_explorer.BootOrder
-	(*BootOption)(nil),                        // 38: site_explorer.BootOption
-	(*SecureBootStatus)(nil),                  // 39: site_explorer.SecureBootStatus
-	(*LockdownStatus)(nil),                    // 40: site_explorer.LockdownStatus
-	nil,                                       // 41: site_explorer.EndpointExplorationReport.FirmwareVersionsEntry
-	(*durationpb.Duration)(nil),               // 42: google.protobuf.Duration
+	(*MachineBootInterfaceTarget)(nil),        // 34: site_explorer.MachineBootInterfaceTarget
+	(*MachineBootInterfacePair)(nil),          // 35: site_explorer.MachineBootInterfacePair
+	(*MachineSetupDiff)(nil),                  // 36: site_explorer.MachineSetupDiff
+	(*PCIeDevice)(nil),                        // 37: site_explorer.PCIeDevice
+	(*SystemStatus)(nil),                      // 38: site_explorer.SystemStatus
+	(*BootOrder)(nil),                         // 39: site_explorer.BootOrder
+	(*BootOption)(nil),                        // 40: site_explorer.BootOption
+	(*SecureBootStatus)(nil),                  // 41: site_explorer.SecureBootStatus
+	(*LockdownStatus)(nil),                    // 42: site_explorer.LockdownStatus
+	nil,                                       // 43: site_explorer.EndpointExplorationReport.FirmwareVersionsEntry
+	(*durationpb.Duration)(nil),               // 44: google.protobuf.Duration
 }
 var file_site_explorer_nico_proto_depIdxs = []int32{
-	42, // 0: site_explorer.EndpointExplorationReport.last_exploration_latency:type_name -> google.protobuf.Duration
+	44, // 0: site_explorer.EndpointExplorationReport.last_exploration_latency:type_name -> google.protobuf.Duration
 	27, // 1: site_explorer.EndpointExplorationReport.managers:type_name -> site_explorer.Manager
 	26, // 2: site_explorer.EndpointExplorationReport.systems:type_name -> site_explorer.ComputerSystem
 	29, // 3: site_explorer.EndpointExplorationReport.chassis:type_name -> site_explorer.Chassis
 	31, // 4: site_explorer.EndpointExplorationReport.service:type_name -> site_explorer.Service
 	33, // 5: site_explorer.EndpointExplorationReport.machine_setup_status:type_name -> site_explorer.MachineSetupStatus
-	39, // 6: site_explorer.EndpointExplorationReport.secure_boot_status:type_name -> site_explorer.SecureBootStatus
-	40, // 7: site_explorer.EndpointExplorationReport.lockdown_status:type_name -> site_explorer.LockdownStatus
-	41, // 8: site_explorer.EndpointExplorationReport.firmware_versions:type_name -> site_explorer.EndpointExplorationReport.FirmwareVersionsEntry
+	41, // 6: site_explorer.EndpointExplorationReport.secure_boot_status:type_name -> site_explorer.SecureBootStatus
+	42, // 7: site_explorer.EndpointExplorationReport.lockdown_status:type_name -> site_explorer.LockdownStatus
+	43, // 8: site_explorer.EndpointExplorationReport.firmware_versions:type_name -> site_explorer.EndpointExplorationReport.FirmwareVersionsEntry
 	4,  // 9: site_explorer.EndpointExplorationReport.last_exploration_error_schema:type_name -> site_explorer.OperatorErrorSchema
 	5,  // 10: site_explorer.ExploredEndpoint.report:type_name -> site_explorer.EndpointExplorationReport
 	7,  // 11: site_explorer.ExploredManagedHost.dpus:type_name -> site_explorer.ExploredDpu
@@ -3027,21 +3189,23 @@ var file_site_explorer_nico_proto_depIdxs = []int32{
 	1,  // 21: site_explorer.ComputerSystemAttributes.nic_mode:type_name -> site_explorer.NicMode
 	25, // 22: site_explorer.ComputerSystem.attributes:type_name -> site_explorer.ComputerSystemAttributes
 	28, // 23: site_explorer.ComputerSystem.ethernet_interfaces:type_name -> site_explorer.EthernetInterface
-	35, // 24: site_explorer.ComputerSystem.pcie_devices:type_name -> site_explorer.PCIeDevice
+	37, // 24: site_explorer.ComputerSystem.pcie_devices:type_name -> site_explorer.PCIeDevice
 	2,  // 25: site_explorer.ComputerSystem.power_state:type_name -> site_explorer.ComputerSystemPowerState
-	37, // 26: site_explorer.ComputerSystem.boot_order:type_name -> site_explorer.BootOrder
+	39, // 26: site_explorer.ComputerSystem.boot_order:type_name -> site_explorer.BootOrder
 	28, // 27: site_explorer.Manager.ethernet_interfaces:type_name -> site_explorer.EthernetInterface
 	30, // 28: site_explorer.Chassis.network_adapters:type_name -> site_explorer.NetworkAdapter
 	32, // 29: site_explorer.Service.inventories:type_name -> site_explorer.Inventory
-	34, // 30: site_explorer.MachineSetupStatus.diffs:type_name -> site_explorer.MachineSetupDiff
-	36, // 31: site_explorer.PCIeDevice.status:type_name -> site_explorer.SystemStatus
-	38, // 32: site_explorer.BootOrder.boot_order:type_name -> site_explorer.BootOption
-	3,  // 33: site_explorer.LockdownStatus.status:type_name -> site_explorer.InternalLockdownStatus
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	36, // 30: site_explorer.MachineSetupStatus.diffs:type_name -> site_explorer.MachineSetupDiff
+	34, // 31: site_explorer.MachineSetupStatus.evaluated_boot_interface:type_name -> site_explorer.MachineBootInterfaceTarget
+	35, // 32: site_explorer.MachineBootInterfaceTarget.pair:type_name -> site_explorer.MachineBootInterfacePair
+	38, // 33: site_explorer.PCIeDevice.status:type_name -> site_explorer.SystemStatus
+	40, // 34: site_explorer.BootOrder.boot_order:type_name -> site_explorer.BootOption
+	3,  // 35: site_explorer.LockdownStatus.status:type_name -> site_explorer.InternalLockdownStatus
+	36, // [36:36] is the sub-list for method output_type
+	36, // [36:36] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_site_explorer_nico_proto_init() }
@@ -3063,16 +3227,20 @@ func file_site_explorer_nico_proto_init() {
 	file_site_explorer_nico_proto_msgTypes[25].OneofWrappers = []any{}
 	file_site_explorer_nico_proto_msgTypes[26].OneofWrappers = []any{}
 	file_site_explorer_nico_proto_msgTypes[28].OneofWrappers = []any{}
-	file_site_explorer_nico_proto_msgTypes[31].OneofWrappers = []any{}
-	file_site_explorer_nico_proto_msgTypes[32].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[30].OneofWrappers = []any{
+		(*MachineBootInterfaceTarget_Pair)(nil),
+		(*MachineBootInterfaceTarget_MacOnly)(nil),
+	}
+	file_site_explorer_nico_proto_msgTypes[33].OneofWrappers = []any{}
 	file_site_explorer_nico_proto_msgTypes[34].OneofWrappers = []any{}
+	file_site_explorer_nico_proto_msgTypes[36].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_site_explorer_nico_proto_rawDesc), len(file_site_explorer_nico_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   38,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

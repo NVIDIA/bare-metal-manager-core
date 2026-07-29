@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use bmc_mock::test_support::TestBmc;
 use bmc_mock::test_support::axum_http_client::Error as TestBmcError;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, HostMachineInfo, MachineInfo};
 use model::site_explorer::EndpointExplorationReport;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
@@ -109,7 +109,7 @@ pub async fn generate_report_for_machine(
 }
 
 pub async fn generate_managed_host_reports(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
 ) -> Result<GeneratedManagedHostReports, MockExplorerError> {
     generate_managed_host_reports_from_info(host_info_for_hw_type(hw_type)).await
 }
@@ -137,7 +137,7 @@ pub async fn generate_managed_host_reports_from_info(
     })
 }
 
-fn host_info_for_hw_type(hw_type: HostHardwareType) -> HostMachineInfo {
+fn host_info_for_hw_type(hw_type: HardwareType) -> HostMachineInfo {
     let dpu_count = hw_type.fixed_number_of_dpu().unwrap_or(0);
     let mut pool = bmc_mock::test_support::TEST_MAC_POOL.lock().unwrap();
     let hw_mac_addr_pool = pool.allocate_range_config().unwrap();

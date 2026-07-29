@@ -51,8 +51,8 @@ pub struct ComponentManagerConfig {
 
     /// Enables the NVOS password-rotation backend capability.
     ///
-    /// End-to-end rotation remains unavailable until orchestration is implemented.
-    /// TODO: Remove this gate once end-to-end rotation is enabled by default.
+    /// Keep this rollout gate until every reachable RMS supports repeat-safe
+    /// current-to-target password convergence.
     #[serde(default)]
     pub nvos_password_rotation_enabled: bool,
 }

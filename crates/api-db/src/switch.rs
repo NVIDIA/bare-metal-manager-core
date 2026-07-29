@@ -368,25 +368,19 @@ pub async fn update_controller_state_outcome(
 /// Sets switch_reprovisioning_requested on the switch. Can be called from any state machine or
 /// service. When the switch is in Ready state, the switch state controller will observe the flag
 /// and transition to ReProvisioning::Start.
+///
+/// `activities` selects which rack maintenance phases the switch should wait for.
+/// Empty means all activities.
 pub async fn set_switch_reprovisioning_requested(
     txn: &mut PgConnection,
     switch_id: SwitchId,
     initiator: &str,
-) -> DatabaseResult<()> {
-    set_switch_reprovisioning_requested_with_firmware_continuation(txn, switch_id, initiator, true)
-        .await
-}
-
-pub async fn set_switch_reprovisioning_requested_with_firmware_continuation(
-    txn: &mut PgConnection,
-    switch_id: SwitchId,
-    initiator: &str,
-    continue_after_firmware_upgrade: bool,
+    activities: Vec<model::rack::MaintenanceActivity>,
 ) -> DatabaseResult<()> {
     let req = SwitchReprovisionRequest {
         requested_at: Utc::now(),
         initiator: initiator.to_string(),
-        continue_after_firmware_upgrade,
+        activities,
     };
     let query =
         "UPDATE switches SET switch_reprovisioning_requested = $1 WHERE id = $2 RETURNING id";

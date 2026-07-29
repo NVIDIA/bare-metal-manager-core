@@ -16,7 +16,7 @@
  */
 
 use bmc_mock::mac_address_pool::MacAddressPool;
-use bmc_mock::{DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo};
+use bmc_mock::{DpuMachineInfo, HardwareType, HostMachineInfo, MachineInfo};
 use carbide_utils::arch::CpuArchitecture;
 use mac_address::MacAddress;
 use rpc::machine_discovery::{
@@ -34,19 +34,19 @@ pub(crate) fn for_machine(machine: &MachineInfo) -> DiscoveryInfo {
 
 fn for_dpu(dpu: &DpuMachineInfo) -> DiscoveryInfo {
     match dpu.hw_type {
-        HostHardwareType::DellPowerEdgeR760Bf4 | HostHardwareType::NvidiaDgxVr => bluefield4(dpu),
-        HostHardwareType::DellPowerEdgeR750
-        | HostHardwareType::WiwynnGB200Nvl
-        | HostHardwareType::LenovoGB300Nvl
-        | HostHardwareType::NvidiaDgxGb300
-        | HostHardwareType::SupermicroGb300Nvl
-        | HostHardwareType::NvidiaDgxH100
-        | HostHardwareType::GenericAmi
-        | HostHardwareType::HpeProliantDl380aGen11
-        | HostHardwareType::GenericSupermicro => bluefield3(dpu),
-        HostHardwareType::LiteOnPowerShelf
-        | HostHardwareType::DeltaPowerShelf
-        | HostHardwareType::NvidiaSwitchNd5200Ld => {
+        HardwareType::DellPowerEdgeR760Bf4 | HardwareType::NvidiaDgxVr => bluefield4(dpu),
+        HardwareType::DellPowerEdgeR750
+        | HardwareType::WiwynnGB200Nvl
+        | HardwareType::LenovoGB300Nvl
+        | HardwareType::NvidiaDgxGb300
+        | HardwareType::SupermicroGb300Nvl
+        | HardwareType::NvidiaDgxH100
+        | HardwareType::GenericAmi
+        | HardwareType::HpeProliantDl380aGen11
+        | HardwareType::GenericSupermicro => bluefield3(dpu),
+        HardwareType::LiteOnPowerShelf
+        | HardwareType::DeltaPowerShelf
+        | HardwareType::NvidiaSwitchNd5200Ld => {
             panic!("DPU discovery is not defined for {}", dpu.hw_type)
         }
     }
@@ -54,11 +54,11 @@ fn for_dpu(dpu: &DpuMachineInfo) -> DiscoveryInfo {
 
 fn for_host(host: &HostMachineInfo) -> DiscoveryInfo {
     match host.hw_type {
-        HostHardwareType::DellPowerEdgeR750 => dell_poweredge(host, "PowerEdge R750", "1.13.2"),
-        HostHardwareType::DellPowerEdgeR760Bf4 => dell_poweredge(host, "PowerEdge R760", "2.2.7"),
-        HostHardwareType::WiwynnGB200Nvl => wiwynn_gb200(host),
-        HostHardwareType::LenovoGB300Nvl => lenovo_gb300(host),
-        HostHardwareType::NvidiaDgxGb300 => DiscoveryInfo {
+        HardwareType::DellPowerEdgeR750 => dell_poweredge(host, "PowerEdge R750", "1.13.2"),
+        HardwareType::DellPowerEdgeR760Bf4 => dell_poweredge(host, "PowerEdge R760", "2.2.7"),
+        HardwareType::WiwynnGB200Nvl => wiwynn_gb200(host),
+        HardwareType::LenovoGB300Nvl => lenovo_gb300(host),
+        HardwareType::NvidiaDgxGb300 => DiscoveryInfo {
             network_interfaces: vec![generic_nic(
                 required_dpu(host).host_mac_address,
                 0x0603,
@@ -68,15 +68,15 @@ fn for_host(host: &HostMachineInfo) -> DiscoveryInfo {
             )],
             ..Default::default()
         },
-        HostHardwareType::NvidiaDgxH100 => nvidia_dgx_h100(host),
-        HostHardwareType::HpeProliantDl380aGen11 => hpe_proliant(host),
-        HostHardwareType::GenericAmi
-        | HostHardwareType::GenericSupermicro
-        | HostHardwareType::SupermicroGb300Nvl
-        | HostHardwareType::NvidiaDgxVr => DiscoveryInfo::default(),
-        HostHardwareType::LiteOnPowerShelf
-        | HostHardwareType::DeltaPowerShelf
-        | HostHardwareType::NvidiaSwitchNd5200Ld => {
+        HardwareType::NvidiaDgxH100 => nvidia_dgx_h100(host),
+        HardwareType::HpeProliantDl380aGen11 => hpe_proliant(host),
+        HardwareType::GenericAmi
+        | HardwareType::GenericSupermicro
+        | HardwareType::SupermicroGb300Nvl
+        | HardwareType::NvidiaDgxVr => DiscoveryInfo::default(),
+        HardwareType::LiteOnPowerShelf
+        | HardwareType::DeltaPowerShelf
+        | HardwareType::NvidiaSwitchNd5200Ld => {
             panic!("discovery_info requested for {}", host.hw_type)
         }
     }
@@ -91,10 +91,10 @@ fn architecture(architecture: CpuArchitecture) -> (String, Option<i32>) {
 
 fn bluefield3(dpu: &DpuMachineInfo) -> DiscoveryInfo {
     let part_number = match dpu.hw_type {
-        HostHardwareType::WiwynnGB200Nvl
-        | HostHardwareType::LenovoGB300Nvl
-        | HostHardwareType::NvidiaDgxGb300
-        | HostHardwareType::SupermicroGb300Nvl => "900-9D3B6-00CN-PA0",
+        HardwareType::WiwynnGB200Nvl
+        | HardwareType::LenovoGB300Nvl
+        | HardwareType::NvidiaDgxGb300
+        | HardwareType::SupermicroGb300Nvl => "900-9D3B6-00CN-PA0",
         _ if dpu.settings.nic_mode => "900-9D3B4-00CC-EA0",
         _ => "900-9D3B6-00CV-AA0",
     };
@@ -155,8 +155,8 @@ fn bluefield3(dpu: &DpuMachineInfo) -> DiscoveryInfo {
 
 fn bluefield4(dpu: &DpuMachineInfo) -> DiscoveryInfo {
     let part_number = match dpu.hw_type {
-        HostHardwareType::DellPowerEdgeR760Bf4 => "900-9D4B4-CWAA-TSA",
-        HostHardwareType::NvidiaDgxVr => "900-9D4A4-00CB-TS4",
+        HardwareType::DellPowerEdgeR760Bf4 => "900-9D4B4-CWAA-TSA",
+        HardwareType::NvidiaDgxVr => "900-9D4A4-00CB-TS4",
         _ => unreachable!("invalid BF4 platform"),
     };
     let (machine_type, machine_arch) = architecture(CpuArchitecture::Aarch64);
@@ -185,7 +185,7 @@ fn bluefield4(dpu: &DpuMachineInfo) -> DiscoveryInfo {
 
 fn dell_poweredge(host: &HostMachineInfo, product_name: &str, bios_version: &str) -> DiscoveryInfo {
     let (machine_type, machine_arch) = architecture(CpuArchitecture::X86_64);
-    let network_interfaces = if host.hw_type == HostHardwareType::DellPowerEdgeR760Bf4 {
+    let network_interfaces = if host.hw_type == HardwareType::DellPowerEdgeR760Bf4 {
         vec![generic_nic(
             required_dpu(host).host_mac_address,
             2,
@@ -262,10 +262,13 @@ fn hpe_proliant(host: &HostMachineInfo) -> DiscoveryInfo {
         machine_arch,
         nvme_devices: serials
             .into_iter()
-            .map(|serial| NvmeDevice {
+            .enumerate()
+            .map(|(index, serial)| NvmeDevice {
                 model: "VO001920KXPTN".into(),
                 firmware_rev: "HPK0".into(),
                 serial,
+                size_mb: Some(nvme_size_mb("VO001920KXPTN")),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -328,6 +331,8 @@ fn wiwynn_gb200(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "SAMSUNG MZTL63T8HFLT-00AW7".into(),
                 firmware_rev: "LDDL4U2Q".into(),
                 serial: format!("BDFAKESERNUM{index}"),
+                size_mb: Some(nvme_size_mb("SAMSUNG MZTL63T8HFLT-00AW7")),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -379,10 +384,13 @@ fn lenovo_gb300(host: &HostMachineInfo) -> DiscoveryInfo {
         machine_arch,
         nvme_devices: storage
             .iter()
-            .map(|(model, firmware_rev, serial)| NvmeDevice {
+            .enumerate()
+            .map(|(index, (model, firmware_rev, serial))| NvmeDevice {
                 model: (*model).into(),
                 firmware_rev: (*firmware_rev).into(),
                 serial: (*serial).into(),
+                size_mb: Some(nvme_size_mb(model)),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -514,11 +522,15 @@ fn nvidia_dgx_h100(host: &HostMachineInfo) -> DiscoveryInfo {
                 model: "Micron_7450_MTFDKBG1T9TFR".into(),
                 firmware_rev: "E2MU200".into(),
                 serial: format!("MicronFAKESERNUM{index}"),
+                size_mb: Some(nvme_size_mb("Micron_7450_MTFDKBG1T9TFR")),
+                pci_path: Some(nvme_pci_path(index)),
             })
             .chain((0..8).map(|index| NvmeDevice {
                 model: "KCM6DRUL3T84".into(),
                 firmware_rev: "0107".into(),
                 serial: format!("KCMFAKESERNUM{index}"),
+                size_mb: Some(nvme_size_mb("KCM6DRUL3T84")),
+                pci_path: Some(nvme_pci_path(index + 2)),
             }))
             .collect(),
         dmi_data: Some(DmiData {
@@ -654,6 +666,29 @@ fn memory_devices(count: usize, size_mb: u32, memory_type: &str) -> Vec<MemoryDe
             mem_type: Some(memory_type.into()),
         })
         .collect()
+}
+
+/// Mock NVMe capacity in MiB (matching what the real host enumeration reports),
+/// inferred from the capacity encoded in the model string (e.g. `…3T8…` = 3.84
+/// TB, otherwise 1.92 TB). Mock hosts must report a size so v5 SKU generation,
+/// which rejects drives with unknown size, can run against them.
+fn nvme_size_mb(model: &str) -> u32 {
+    if model.contains("3T8") {
+        3_662_840
+    } else {
+        1_831_420
+    }
+}
+
+/// Distinct fake sysfs DEVPATH for the Nth mock NVMe controller, mirroring the
+/// shape the real host enumeration reports (`…/nvme/nvmeN/nvmeNn1`). Each drive
+/// needs a unique PCI path so v5 SKU generation records one storage entry per
+/// drive.
+fn nvme_pci_path(index: usize) -> String {
+    format!(
+        "/devices/pci0000:00/0000:64:00.0/0000:{:02x}:00.0/nvme/nvme{index}/nvme{index}n1",
+        0x65 + index
+    )
 }
 
 fn gb200_gpus() -> Vec<Gpu> {
@@ -839,12 +874,12 @@ mod tests {
             pool: Some(pool_config),
         });
         let dpu = DpuMachineInfo::new(
-            HostHardwareType::LenovoGB300Nvl,
+            HardwareType::LenovoGB300Nvl,
             &mut pool,
             DpuSettings::default(),
         );
         MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::LenovoGB300Nvl,
+            HardwareType::LenovoGB300Nvl,
             vec![dpu],
             &mut pool,
             hardware_pool_config,
@@ -936,17 +971,17 @@ mod tests {
     #[test]
     fn discovery_is_defined_for_machine_platforms() {
         let platforms = [
-            HostHardwareType::DellPowerEdgeR750,
-            HostHardwareType::DellPowerEdgeR760Bf4,
-            HostHardwareType::WiwynnGB200Nvl,
-            HostHardwareType::LenovoGB300Nvl,
-            HostHardwareType::NvidiaDgxGb300,
-            HostHardwareType::SupermicroGb300Nvl,
-            HostHardwareType::NvidiaDgxVr,
-            HostHardwareType::NvidiaDgxH100,
-            HostHardwareType::GenericAmi,
-            HostHardwareType::HpeProliantDl380aGen11,
-            HostHardwareType::GenericSupermicro,
+            HardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR760Bf4,
+            HardwareType::WiwynnGB200Nvl,
+            HardwareType::LenovoGB300Nvl,
+            HardwareType::NvidiaDgxGb300,
+            HardwareType::SupermicroGb300Nvl,
+            HardwareType::NvidiaDgxVr,
+            HardwareType::NvidiaDgxH100,
+            HardwareType::GenericAmi,
+            HardwareType::HpeProliantDl380aGen11,
+            HardwareType::GenericSupermicro,
         ];
 
         for platform in platforms {
@@ -971,8 +1006,8 @@ mod tests {
     #[test]
     fn discovery_is_defined_for_bf3_and_bf4_dpus() {
         for platform in [
-            HostHardwareType::DellPowerEdgeR750,
-            HostHardwareType::DellPowerEdgeR760Bf4,
+            HardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR760Bf4,
         ] {
             let pool_config =
                 PoolConfig::new(MacAddress::new([2, 0, 0, 0, 0, 0]), 16).expect("valid pool");

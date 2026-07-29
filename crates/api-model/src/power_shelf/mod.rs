@@ -86,6 +86,17 @@ pub struct PowerShelf {
 
     pub power_shelf_maintenance_requested: Option<PowerShelfMaintenanceRequest>,
 
+    /// Set by rack maintenance to request power-shelf participation in a
+    /// rack-level firmware upgrade. When the power shelf is Ready and
+    /// rack-firmware reprovisioning is enabled on the controller, it
+    /// transitions to `ReProvisioning`.
+    pub power_shelf_reprovisioning_requested: Option<PowerShelfReprovisionRequest>,
+
+    /// Per-device firmware upgrade status written by the rack state machine
+    /// during rack-level firmware upgrades. Read by
+    /// `ReProvisioning::WaitingForRackFirmwareUpgrade`.
+    pub firmware_upgrade_status: Option<crate::rack::RackFirmwareUpgradeStatus>,
+
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
@@ -105,6 +116,12 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
         let power_shelf_maintenance_requested: Option<
             sqlx::types::Json<PowerShelfMaintenanceRequest>,
         > = row.try_get("power_shelf_maintenance_requested").ok();
+        let power_shelf_reprovisioning_requested: Option<
+            sqlx::types::Json<PowerShelfReprovisionRequest>,
+        > = row.try_get("power_shelf_reprovisioning_requested").ok();
+        let firmware_upgrade_status: Option<
+            sqlx::types::Json<crate::rack::RackFirmwareUpgradeStatus>,
+        > = row.try_get("firmware_upgrade_status").ok();
 
         let health_reports: HealthReportSources = row
             .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
@@ -137,6 +154,8 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             version: row.try_get("version")?,
             rack_id: row.try_get("rack_id").ok().flatten(),
             power_shelf_maintenance_requested: power_shelf_maintenance_requested.map(|r| r.0),
+            power_shelf_reprovisioning_requested: power_shelf_reprovisioning_requested.map(|r| r.0),
+            firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             health_reports,
         })
     }
@@ -179,6 +198,30 @@ pub struct PowerShelfMaintenanceRequest {
     pub operation: PowerShelfMaintenanceOperation,
 }
 
+/// Set by an external entity (typically rack maintenance) to request power-shelf
+/// participation in rack-level reprovisioning. When the power shelf is Ready and
+/// rack-firmware reprovisioning is enabled, the controller transitions to
+/// `ReProvisioning`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PowerShelfReprovisionRequest {
+    pub requested_at: DateTime<Utc>,
+    pub initiator: String,
+    /// Rack maintenance activities that initiated this request. The power shelf
+    /// controller uses these to decide whether to wait for firmware. Empty means
+    /// all activities.
+    #[serde(default)]
+    pub activities: Vec<crate::rack::MaintenanceActivity>,
+}
+
+/// Sub-state for PowerShelfControllerState::ReProvisioning
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
+pub enum ReProvisioningState {
+    /// Rack-level firmware upgrade in progress; the rack state machine manages the
+    /// upgrade and clears `power_shelf_reprovisioning_requested` when done.
+    WaitingForRackFirmwareUpgrade,
+}
+
 /// State of a PowerShelf as tracked by the controller
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "lowercase")]
@@ -194,6 +237,11 @@ pub enum PowerShelfControllerState {
 
     Maintenance {
         operation: PowerShelfMaintenanceOperation,
+    },
+
+    /// Rack-driven firmware wait in progress.
+    ReProvisioning {
+        reprovisioning_state: ReProvisioningState,
     },
     /// There is error in PowerShelf; PowerShelf can not be used if it's in error.
     Error { cause: String },
@@ -224,6 +272,10 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
         PowerShelfControllerState::Ready => StateSla::no_sla(),
         PowerShelfControllerState::Maintenance { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::MAINTENANCE),
+            time_in_state,
+        ),
+        PowerShelfControllerState::ReProvisioning { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::REPROVISIONING),
             time_in_state,
         ),
         PowerShelfControllerState::Error { .. } => StateSla::no_sla(),
@@ -328,6 +380,18 @@ mod tests {
                         .to_string(),
                     PowerShelfControllerState::Maintenance {
                         operation: PowerShelfMaintenanceOperation::PowerOff,
+                    },
+                )),
+            }
+
+            "reprovisioning waiting for rack firmware" {
+                PowerShelfControllerState::ReProvisioning {
+                    reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
+                } => Yields((
+                    r#"{"state":"reprovisioning","reprovisioning_state":"WaitingForRackFirmwareUpgrade"}"#
+                        .to_string(),
+                    PowerShelfControllerState::ReProvisioning {
+                        reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
                     },
                 )),
             }
@@ -449,6 +513,14 @@ mod tests {
                 r#"{"state":"maintenance","operation":{"operation":"poweroff"}}"# => Yields(PowerShelfControllerState::Maintenance {
                     operation: PowerShelfMaintenanceOperation::PowerOff,
                 }),
+            }
+
+            "reprovisioning waiting for rack firmware" {
+                r#"{"state":"reprovisioning","reprovisioning_state":"WaitingForRackFirmwareUpgrade"}"# => Yields(
+                    PowerShelfControllerState::ReProvisioning {
+                        reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
+                    },
+                ),
             }
 
             "unknown tag is rejected" {
@@ -667,6 +739,12 @@ mod tests {
                 PowerShelfControllerState::Maintenance {
                     operation: PowerShelfMaintenanceOperation::PowerOff,
                 } => (secs(slas::MAINTENANCE), true),
+            }
+
+            "reprovisioning has the reprovisioning SLA" {
+                PowerShelfControllerState::ReProvisioning {
+                    reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
+                } => (secs(slas::REPROVISIONING), true),
             }
 
             "ready carries no SLA" {

@@ -182,6 +182,16 @@ impl<T: CredentialReader + ?Sized> CredentialReader for Arc<T> {
 
 #[async_trait]
 pub trait CredentialWriter: Send + Sync {
+    /// Reads the value persisted by this writer, bypassing any composite reader
+    /// precedence or local overrides.
+    ///
+    /// Callers use this after a security-sensitive write when publishing state
+    /// requires proof that the configured write target contains the value.
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError>;
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -199,6 +209,13 @@ pub trait CredentialWriter: Send + Sync {
 
 #[async_trait]
 impl<T: CredentialWriter + ?Sized> CredentialWriter for Arc<T> {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        (**self).get_credentials_from_writer(key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -249,6 +266,13 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialReader
 impl<R: CredentialReader, W: CredentialWriter> CredentialWriter
     for CompositeCredentialManager<R, W>
 {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        self.writer.get_credentials_from_writer(key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -941,6 +965,13 @@ mod tests {
                 password: "read-pass".to_string(),
             })
         );
+
+        let writer_readback = composite
+            .get_credentials_from_writer(&key)
+            .await
+            .expect("writer readback");
+
+        assert_eq!(writer_readback, Some(write_cred));
     }
 
     #[tokio::test]

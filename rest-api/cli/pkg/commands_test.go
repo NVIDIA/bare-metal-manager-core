@@ -405,6 +405,31 @@ func TestBuildCommands_NoDuplicateFlags(t *testing.T) {
 	visit("nicocli", cmds)
 }
 
+func TestGeneratedCommandInfos_ContainsMachinePowerAliases(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+
+	operations := make(map[string]string)
+	for _, info := range GeneratedCommandInfos(spec) {
+		operations[info.Name] = info.OperationID
+	}
+
+	assert.Equal(t, "machine-power-control-machine", operations["machine power"])
+	assert.Equal(t,
+		"machine-power-control-machine",
+		operations["machine power-control-machine machine-power-control-machine"],
+	)
+
+	for operationID, path := range commandPathAliases {
+		assert.Equalf(t,
+			operationID,
+			operations[strings.Join(path, " ")],
+			"concise command path for %q does not identify the same operation",
+			operationID,
+		)
+	}
+}
+
 // TestBuildActionCommand_ReservedBodyPropertyPrefixed verifies that when a
 // request body schema has a property whose kebab-cased name collides with a
 // reserved CLI-wrapper flag (data, data-file, output, all), the generated

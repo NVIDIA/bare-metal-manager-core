@@ -1440,19 +1440,19 @@ func TestUpdateExpectedMachineHandler_BmcIpAddressPatchSemantics(t *testing.T) {
 			wantIP:     &updatedIP,
 		},
 		{
-			name:       "empty string remains invalid",
+			name:       "empty string clears address",
 			body:       `{"bmcIpAddress":""}`,
-			wantStatus: http.StatusBadRequest,
-			wantIP:     &originalIP,
-		},
-		{
-			name:       "explicit null clears address",
-			body:       `{"bmcIpAddress":null}`,
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "repeated explicit null remains cleared",
+			name:       "explicit null preserves address",
 			body:       `{"bmcIpAddress":null}`,
+			wantStatus: http.StatusOK,
+			wantIP:     &originalIP,
+		},
+		{
+			name:       "repeated empty string remains cleared",
+			body:       `{"bmcIpAddress":""}`,
 			wantStatus: http.StatusOK,
 			requests:   2,
 		},
@@ -2871,7 +2871,7 @@ func TestUpdateExpectedMachinesHandler_Handle(t *testing.T) {
 	}
 }
 
-func TestUpdateExpectedMachinesHandler_BmcIpAddress(t *testing.T) {
+func TestUpdateExpectedMachinesHandler_BmcIpAddressPatchSemantics(t *testing.T) {
 	e := echo.New()
 	dbSession := testExpectedMachineInitDB(t)
 	defer dbSession.Close()
@@ -2900,10 +2900,16 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddress(t *testing.T) {
 
 	clearedIP := "192.0.2.41"
 	updatedIP := "192.0.2.42"
+	preservedIP := "192.0.2.43"
+	nullPreservedIP := "192.0.2.44"
 	clearedName := "cleared-machine"
 	updatedName := "updated-machine"
+	preservedName := "preserved-machine"
+	nullPreservedName := "null-preserved-machine"
 	emCleared := createExpectedMachine("00:11:22:33:44:D2", "BMC-IP-BATCH-002", &clearedIP, &clearedName)
 	emUpdated := createExpectedMachine("00:11:22:33:44:D3", "BMC-IP-BATCH-003", nil, &updatedName)
+	emPreserved := createExpectedMachine("00:11:22:33:44:D4", "BMC-IP-BATCH-004", &preservedIP, &preservedName)
+	emNullPreserved := createExpectedMachine("00:11:22:33:44:D5", "BMC-IP-BATCH-005", &nullPreservedIP, &nullPreservedName)
 
 	var capturedRequest *corev1.BatchExpectedMachineOperationRequest
 	mockTemporalClient := &tmocks.Client{}
@@ -2933,11 +2939,18 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddress(t *testing.T) {
 	body, err := json.Marshal([]map[string]interface{}{
 		{
 			"id":           emCleared.ID.String(),
-			"bmcIpAddress": nil,
+			"bmcIpAddress": "",
 		},
 		{
 			"id":           emUpdated.ID.String(),
 			"bmcIpAddress": updatedIP,
+		},
+		{
+			"id": emPreserved.ID.String(),
+		},
+		{
+			"id":           emNullPreserved.ID.String(),
+			"bmcIpAddress": nil,
 		},
 	})
 	require.NoError(t, err)
@@ -2966,12 +2979,16 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddress(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "Response: %s", rec.Body.String())
 
 	wantByID := map[uuid.UUID]*string{
-		emCleared.ID: nil,
-		emUpdated.ID: &updatedIP,
+		emCleared.ID:       nil,
+		emUpdated.ID:       &updatedIP,
+		emPreserved.ID:     &preservedIP,
+		emNullPreserved.ID: &nullPreservedIP,
 	}
 	wantNameByID := map[uuid.UUID]*string{
-		emCleared.ID: &clearedName,
-		emUpdated.ID: &updatedName,
+		emCleared.ID:       &clearedName,
+		emUpdated.ID:       &updatedName,
+		emPreserved.ID:     &preservedName,
+		emNullPreserved.ID: &nullPreservedName,
 	}
 	var response []model.APIExpectedMachine
 	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))

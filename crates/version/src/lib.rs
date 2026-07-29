@@ -57,6 +57,8 @@ pub fn build() {
         run(option_env!("RUSTC").unwrap_or("rustc"), &["--version"])
     );
 
+    println!("cargo:rerun-if-env-changed=CARBIDE_BUILD_HELM_VERSION");
+
     // In a git worktree in a container (local dev) none of the git commands will work because
     // the real git directory isn't mounted.
     let can_git = Command::new("git")
@@ -70,7 +72,11 @@ pub fn build() {
         // TODO: Remove after migration to new CARBIDE_ naming
         println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG=");
         println!("cargo:rustc-env=CARBIDE_BUILD_GIT_HASH=");
-        println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION=");
+        let helm_version = std::env::var("CARBIDE_BUILD_HELM_VERSION")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_default();
+        println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={helm_version}");
         return;
     }
 
@@ -95,16 +101,39 @@ pub fn build() {
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
     println!("cargo:rustc-env=CARBIDE_BUILD_GIT_TAG={build_version}");
 
-    // Helm version: strip leading 'v', replace last '-' with '.'
-    // e.g. "v1.2.3-42-gabcdef1" → "1.2.3-42.gabcdef1"
-    let helm_version = {
-        let s = build_version.trim_start_matches('v');
-        match s.rfind('-') {
-            Some(idx) => format!("{}.{}", &s[..idx], &s[idx + 1..]),
-            None => s.to_string(),
-        }
-    };
-    println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={helm_version}");
+    // If CI pre-computed CARBIDE_BUILD_HELM_VERSION (passed as a Docker build-arg), use it
+    // directly. This avoids re-deriving helm_version in Rust and keeps CI as the single
+    // source of truth — important for RC tags like v2.0.0-rc.14 where the naive rfind('-')
+    // rewrite would produce the incorrect 2.0.0.rc.14.
+    if let Some(v) = std::env::var("CARBIDE_BUILD_HELM_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty())
+    {
+        println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={v}");
+    } else {
+        // Local fallback: strip leading 'v', then rewrite only the git-describe
+        // suffix (-<count>-g<hash>) by replacing its internal '-' with '.'.
+        // e.g. "v1.2.3-42-gabcdef1"  → "1.2.3-42.gabcdef1"
+        //      "v2.0.0-rc.14"        → "2.0.0-rc.14"  (clean tag, no rewrite)
+        //      "v2.0.0-rc.14-0-gabcdef1" → "2.0.0-rc.14-0.gabcdef1"
+        let helm_version = {
+            let s = build_version.trim_start_matches('v');
+            // git describe --long always ends in -<digits>-g<hex>. Split from the
+            // right into at most 3 parts to detect that pattern without touching
+            // semver pre-release separators (e.g. the '-' in "rc.14").
+            let parts: Vec<&str> = s.rsplitn(3, '-').collect();
+            let is_git_describe = parts.len() == 3
+                && parts[0].starts_with('g')
+                && parts[0][1..].chars().all(|c| c.is_ascii_hexdigit())
+                && parts[1].chars().all(|c| c.is_ascii_digit());
+            if is_git_describe {
+                format!("{}-{}.{}", parts[2], parts[1], parts[0])
+            } else {
+                s.to_string()
+            }
+        };
+        println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={helm_version}");
+    }
 
     // Only re-calculate all of this when there's a new commit... but use an env var to allow
     // avoiding rebuilds when the commit hash changes. (This is good for local development iteration

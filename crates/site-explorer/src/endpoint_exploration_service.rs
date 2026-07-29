@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
-use mac_address::MacAddress;
+use carbide_redfish::boot_interface::BootInterfaceTarget;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, ExploredEndpoint};
@@ -104,7 +104,7 @@ impl EndpointExplorationService {
         interface: &MachineInterfaceSnapshot,
         expected: Option<&ExpectedEntity>,
         last_exploration_error: Option<&EndpointExplorationError>,
-        boot_interface_mac: Option<MacAddress>,
+        boot_interface: Option<BootInterfaceTarget>,
     ) -> Option<EndpointProbeResult> {
         let guard = self.locks.try_claim(address.ip())?;
 
@@ -116,7 +116,7 @@ impl EndpointExplorationService {
                 interface,
                 expected,
                 last_exploration_error,
-                boot_interface_mac,
+                boot_interface.as_ref(),
             )
             .await;
         let redfish_explore_duration = redfish_explore_started_at.elapsed();
@@ -176,8 +176,8 @@ impl EndpointExplorationService {
         // The generated report is based on this row. Use its version for the eventual CAS so a
         // concurrent report update during the probe cannot be overwritten.
         let baseline_version = existing_endpoint.report_version;
+        let boot_interface = existing_endpoint.boot_interface_target().map(Into::into);
         let existing_report = existing_endpoint.report;
-        let boot_interface_mac = existing_endpoint.boot_interface_mac;
 
         let join_handle = tokio::spawn(async move {
             let probe = service
@@ -186,7 +186,7 @@ impl EndpointExplorationService {
                     &bmc_interface,
                     expected.as_ref(),
                     existing_report.last_exploration_error.as_ref(),
-                    boot_interface_mac,
+                    boot_interface,
                 )
                 .await
                 .ok_or(EndpointExplorationServiceError::AlreadyInProgress(bmc_ip))?;

@@ -107,6 +107,12 @@ pub struct NvmeDevice {
     pub firmware_rev: String,
     #[serde(default)]
     pub serial: String,
+    /// Total capacity of the drive in MB, when discoverable.
+    #[serde(default)]
+    pub size_mb: Option<u32>,
+    /// Full sysfs device path (DEVPATH), used for SKU PCI-location validation.
+    #[serde(default)]
+    pub pci_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

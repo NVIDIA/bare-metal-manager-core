@@ -44,18 +44,10 @@
 //!   mid-flight advance from mis-recording a card as converged to a version it
 //!   was never locked under.
 //!
-//! NVOS password rotation requires durable progress across process restarts.
-//! The controller stages a published target with
-//! [`record_device_rotation_started`], attaches its backend job ID with
-//! [`record_device_rotation_submitted`], and recovers progress through
-//! [`device_rotation_operation_state`]. A lost response, missing job, unknown
-//! job, or failed job claims another attempt through
-//! [`record_device_rotation_retry_started`] before redispatching the same
-//! resumable RMS mutation. A matching completed job is promoted through
-//! [`record_device_rotation_succeeded`] only after the per-device target
-//! credential has been written and read back. Each transition compares the
-//! durable attempt number so a stale worker or late backend response cannot
-//! overwrite a retry.
+//! NVOS stages its target before dispatch and records an optional backend job.
+//! Missing or terminal job observations retry that exact target. Completion is
+//! promoted only after per-device credential readback, with target, attempt, and
+//! job comparisons fencing stale responses.
 //!
 //! Teardown hooks (calling [`delete_device_converged`]) remove a marker when the
 //! credential it tracks is torn down, keeping the table honest:
@@ -72,6 +64,7 @@
 //! join `device_credential_rotation` to the live device tables when selecting
 //! work so a row orphaned by device deletion is never acted on.
 
+use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use mac_address::MacAddress;
 use sqlx::PgConnection;
@@ -277,7 +270,7 @@ pub async fn promote_rotating_to_current(
 /// `rotate_quarantined_until` so the engine skips this device until it expires.
 ///
 /// This is the BMC engine's synchronous failure recorder, distinct from the
-/// NVOS job-based [`record_device_rotation_rejected`] (which marks a *terminal*
+/// NVOS job-based [`record_device_rotation_failed`] (which marks a *terminal*
 /// backend rejection under attempt CAS). The in-flight `rotating_to_version`
 /// crash marker is deliberately left in place: once the window passes the engine
 /// re-enters and its two-candidate recovery reconciles the hardware.
@@ -322,18 +315,9 @@ pub async fn increment_rotate_attempt(
 
 /// Stages a target before dispatching a password mutation.
 ///
-/// This is the durable pre-dispatch boundary. It must commit before dispatch so
-/// a restarted worker can see that mutation work was staged and avoid replacing
-/// or blindly repeating an unresolved operation.
-///
-/// Returns the new positive attempt number when work was staged. Returns `None`
-/// when the site-wide target no longer matches, the device has already converged
-/// to that revision, unresolved work is staged, the requested target does not
-/// supersede a definitive failed attempt, or an active quarantine window
-/// prevents work from being claimed. A later target may replace a staged
-/// definitive failure, which makes publishing that target the operator retry
-/// signal. Callers must pass the attempt number to every later transition so
-/// stale responses from an earlier retry cannot mutate current state.
+/// Returns the new attempt number. `None` means the target changed, the device
+/// converged, or unresolved work cannot be replaced. Only a later target may
+/// replace a pre-dispatch rejection without a backend job.
 pub async fn record_device_rotation_started(
     conn: &mut PgConnection,
     device_mac: MacAddress,
@@ -369,7 +353,8 @@ pub async fn record_device_rotation_started(
                             AND device_credential_rotation.rotate_last_error_redacted IS NULL \
                         OR device_credential_rotation.rotating_to_version \
                                < EXCLUDED.rotating_to_version \
-                            AND device_credential_rotation.rotate_last_error_redacted IS NOT NULL) \
+                            AND device_credential_rotation.rotate_last_error_redacted IS NOT NULL \
+                            AND device_credential_rotation.rotate_job_id IS NULL) \
                        AND (device_credential_rotation.current_version IS NULL \
                             OR device_credential_rotation.current_version \
                                < EXCLUDED.rotating_to_version) \
@@ -388,13 +373,8 @@ pub async fn record_device_rotation_started(
 
 /// Records the opaque backend job ID returned for a staged target.
 ///
-/// This is the durable handoff from mutation dispatch to job reconciliation.
-/// Persisting the backend handle allows polling to resume after process restart,
-/// while matching the staged target and attempt number prevents a late response
-/// from attaching to a newer operation.
-///
-/// Returns `false` if the row no longer has the expected target, already has a
-/// different job ID, or has already reached a terminal failure.
+/// Target and attempt comparisons prevent a late response from attaching to a
+/// newer operation. Returns `false` when that operation is no longer active.
 pub async fn record_device_rotation_submitted(
     conn: &mut PgConnection,
     device_mac: MacAddress,
@@ -430,18 +410,9 @@ pub async fn record_device_rotation_submitted(
     Ok(result.rows_affected() > 0)
 }
 
-/// Claims another dispatch attempt for the same unresolved staged target.
+/// Starts another observation attempt for the same unresolved target.
 ///
-/// RMS password updates are resumable: the backend can continue with either the
-/// previous endpoint credential or the requested target credential after a
-/// partial success. This transition clears the old job handle and increments
-/// the attempt CAS before that mutation is dispatched again. `expected_job_id`
-/// is `None` after a lost submission response and `Some` after a failed,
-/// missing, or unknown job observation.
-///
-/// Returns the new attempt number on success. Returns `None` if operation state
-/// changed, an error already marked the request as non-retryable, or active
-/// quarantine blocks work.
+/// The target never changes. Attempt and job comparisons fence late results.
 pub async fn record_device_rotation_retry_started(
     conn: &mut PgConnection,
     device_mac: MacAddress,
@@ -476,14 +447,11 @@ pub async fn record_device_rotation_retry_started(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
-/// Marks a staged mutation that the backend definitively did not accept.
+/// Marks a definitive staged backend rejection without changing its target.
 ///
-/// The last confirmed credential and exact staged target remain unchanged. The
-/// terminal marker blocks unchanged redispatch; a later corrected target may
-/// supersede it. Matching the attempt number and requiring no job ID prevents a
-/// late dispatch error from terminating newer or accepted work. Returns `false`
-/// when that exact pre-submission attempt is no longer active.
-pub async fn record_device_rotation_rejected(
+/// Use only when no mutation was accepted. A row with a backend job is retained
+/// because its password outcome may be unknown.
+pub async fn record_device_rotation_failed(
     conn: &mut PgConnection,
     device_mac: MacAddress,
     credential_type: CredentialRotationType,
@@ -512,22 +480,19 @@ pub async fn record_device_rotation_rejected(
     Ok(result.rows_affected() > 0)
 }
 
-/// Promotes a target after its matching backend job completed.
+/// Promotes a target after its matching backend operation confirmed convergence.
 ///
-/// Call this only after the backend reported `Completed` and the caller wrote
-/// and read back the target under the per-device credential key. Matching the
-/// staged target, attempt number, and job ID prevents stale completion from
-/// promoting a newer retry. Returns `false` when that exact operation is no
-/// longer active.
+/// The caller must first write and read back the per-device target. Target,
+/// attempt, and job comparisons fence stale completion.
 pub async fn record_device_rotation_succeeded(
     conn: &mut PgConnection,
     device_mac: MacAddress,
     credential_type: CredentialRotationType,
     rotating_to_version: i32,
     expected_attempt: i32,
-    job_id: &str,
+    expected_job_id: &str,
 ) -> Result<bool, DatabaseError> {
-    if job_id.is_empty() {
+    if expected_job_id.is_empty() {
         return Err(DatabaseError::InvalidArgument(
             "rotation job ID must not be empty".to_string(),
         ));
@@ -542,14 +507,15 @@ pub async fn record_device_rotation_succeeded(
                  WHERE device_mac = $1 AND credential_type = $2 \
                        AND rotating_to_version = $3 \
                        AND rotate_attempts = $4 \
-                       AND rotate_job_id = $5";
+                       AND rotate_job_id = $5 \
+                       AND rotate_last_error_redacted IS NULL";
 
     let result = sqlx::query(query)
         .bind(device_mac)
         .bind(credential_type)
         .bind(rotating_to_version)
         .bind(expected_attempt)
-        .bind(job_id)
+        .bind(expected_job_id)
         .execute(&mut *conn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -708,6 +674,27 @@ struct RotationCounts {
     started_at: DateTime<Utc>,
 }
 
+/// Live switches that cannot bootstrap from complete expected-switch credentials.
+pub async fn nvos_credential_source_gaps(
+    conn: impl DbReader<'_>,
+) -> Result<Vec<(SwitchId, Option<MacAddress>, bool)>, DatabaseError> {
+    let query = "SELECT s.id AS switch_id, s.bmc_mac_address, \
+                        es.nvos_username IS NOT NULL \
+                            OR es.nvos_password IS NOT NULL AS malformed_expected_credentials \
+                 FROM switches s \
+                 LEFT JOIN expected_switches es \
+                   ON es.bmc_mac_address = s.bmc_mac_address \
+                 WHERE s.deleted IS NULL \
+                   AND (NULLIF(es.nvos_username, '') IS NULL \
+                        OR NULLIF(es.nvos_password, '') IS NULL) \
+                 ORDER BY s.id";
+
+    sqlx::query_as::<_, (SwitchId, Option<MacAddress>, bool)>(query)
+        .fetch_all(conn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))
+}
+
 /// Convergence status for `credential_type`'s current site-wide target.
 ///
 /// A device counts as `converged` once its `current_version` reaches the target,
@@ -771,24 +758,28 @@ pub async fn rotation_status(
     })
 }
 
-/// NVOS convergence uses live switches as its device universe because rows are
-/// created lazily when the switch controller first stages a target.
+/// NVOS convergence is reported over live switches.
+///
+/// The database cannot see credential-store-only per-device NVOS secrets, so
+/// filtering by expected-switch credential columns could report false
+/// convergence. Every live switch counts once; a switch without a BMC MAC or
+/// actionable credential remains pending until its inventory is corrected or it
+/// is removed from the live set.
 async fn nvos_rotation_status(conn: &mut PgConnection) -> Result<RotationStatus, DatabaseError> {
     let counts_query = "WITH live_devices AS ( \
-                            SELECT DISTINCT bmc_mac_address AS device_mac \
+                            SELECT id AS switch_id, bmc_mac_address AS device_mac \
                             FROM switches \
                             WHERE deleted IS NULL \
-                              AND bmc_mac_address IS NOT NULL \
                         ) \
                         SELECT s.target_version, \
-                            count(ld.device_mac) FILTER ( \
+                            count(ld.switch_id) FILTER ( \
                                 WHERE d.current_version >= s.target_version) AS converged, \
-                            count(ld.device_mac) FILTER ( \
+                            count(ld.switch_id) FILTER ( \
                                 WHERE (d.current_version IS NULL \
                                        OR d.current_version < s.target_version) \
                                   AND (d.rotate_quarantined_until IS NULL \
                                        OR d.rotate_quarantined_until <= now())) AS pending, \
-                            count(ld.device_mac) FILTER ( \
+                            count(ld.switch_id) FILTER ( \
                                 WHERE d.rotate_quarantined_until > now()) AS quarantined, \
                             s.started_at \
                         FROM sitewide_credential_rotation s \
@@ -876,9 +867,7 @@ pub struct DeviceRotationStatus {
 /// Query row for NVOS status while the site-wide target may be unpublished.
 ///
 /// The query starts from the live switch and left-joins the target, so these
-/// target fields must be nullable. The helper converts a complete row into
-/// [`DeviceRotationStatus`] and maps a missing target to
-/// [`DatabaseError::MissingSitewideRotationTarget`].
+/// target fields must be nullable.
 #[derive(sqlx::FromRow)]
 struct NvosDeviceRotationStatusRow {
     target_version: Option<i32>,
@@ -915,6 +904,9 @@ pub struct DeviceRotationOperationState {
     /// so the non-negative `integer` column maps directly to `i32`.
     pub rotate_attempts: i32,
 
+    /// Database time when the current attempt was staged.
+    pub rotate_last_attempt_at: Option<DateTime<Utc>>,
+
     /// Redacted reason a definitive failed attempt is blocked.
     pub rotate_last_error_redacted: Option<String>,
 }
@@ -933,6 +925,7 @@ pub async fn device_rotation_operation_state(
                         rotating_to_version, \
                         rotate_job_id, \
                         rotate_attempts, \
+                        rotate_last_attempt_at, \
                         rotate_last_error_redacted \
                  FROM device_credential_rotation \
                  WHERE credential_type = $1 AND device_mac = $2";
@@ -1064,7 +1057,7 @@ mod tests {
         BACKOFF_CAP_SECS, CredentialRotationType, backoff_until, current_target_version,
         delete_device_converged, device_rotation_operation_state, device_rotation_status,
         increment_rotate_attempt, mark_device_rotating_to_version, promote_rotating_to_current,
-        record_device_converged, record_device_rotation_rejected,
+        record_device_converged, record_device_rotation_failed,
         record_device_rotation_retry_started, record_device_rotation_started,
         record_device_rotation_submitted, record_device_rotation_succeeded, rotation_status,
         set_initial_target_version, set_next_target_version,
@@ -1086,14 +1079,23 @@ mod tests {
         .unwrap();
     }
 
-    async fn insert_switch(conn: &mut PgConnection, id: &str, bmc_mac: &str, deleted: bool) {
+    async fn insert_switch_with_nvos_credentials(
+        conn: &mut PgConnection,
+        id: &str,
+        bmc_mac: &str,
+        deleted: bool,
+        has_nvos_credentials: bool,
+    ) {
         sqlx::query(
             "INSERT INTO expected_switches \
-                 (serial_number, bmc_mac_address, bmc_username, bmc_password) \
-             VALUES ($1, $2::macaddr, 'admin', 'pw')",
+                 (serial_number, bmc_mac_address, bmc_username, bmc_password, \
+                  nvos_username, nvos_password) \
+             VALUES ($1, $2::macaddr, 'admin', 'pw', $3, $4)",
         )
         .bind(format!("sn-{id}"))
         .bind(bmc_mac)
+        .bind(has_nvos_credentials.then_some("nvos-admin"))
+        .bind(has_nvos_credentials.then_some("nvos-password"))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -1109,6 +1111,19 @@ mod tests {
         .execute(&mut *conn)
         .await
         .unwrap();
+    }
+
+    async fn insert_switch(conn: &mut PgConnection, id: &str, bmc_mac: &str, deleted: bool) {
+        insert_switch_with_nvos_credentials(conn, id, bmc_mac, deleted, true).await;
+    }
+
+    async fn insert_credentialless_switch(
+        conn: &mut PgConnection,
+        id: &str,
+        bmc_mac: &str,
+        deleted: bool,
+    ) {
+        insert_switch_with_nvos_credentials(conn, id, bmc_mac, deleted, false).await;
     }
 
     // current_version for a (mac, type) row, or None if no row exists. Takes the
@@ -1444,7 +1459,7 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn definitive_rejection_requires_a_later_target_for_retry(pool: PgPool) {
+    async fn corrected_target_supersedes_pre_dispatch_rejection(pool: PgPool) {
         let mac: MacAddress = "02:00:00:00:00:0c".parse().unwrap();
         let mut conn = pool.acquire().await.unwrap();
 
@@ -1457,7 +1472,7 @@ mod tests {
                 .expect("the first attempt should be staged");
 
         assert!(
-            record_device_rotation_rejected(
+            record_device_rotation_failed(
                 &mut conn,
                 mac,
                 CredentialRotationType::Nvos,
@@ -1486,15 +1501,14 @@ mod tests {
         .unwrap()
         .expect("operator should publish a later target");
 
-        let retry_attempt =
+        let next_attempt =
             record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 2)
                 .await
-                .unwrap()
-                .expect("a later target should reopen rejected work");
+                .unwrap();
 
-        assert_eq!(retry_attempt, attempt + 1);
+        let next_attempt = next_attempt.expect("a corrected target should replace a rejection");
 
-        let stale_release = record_device_rotation_rejected(
+        let stale_release = record_device_rotation_failed(
             &mut conn,
             mac,
             CredentialRotationType::Nvos,
@@ -1515,43 +1529,36 @@ mod tests {
         assert_eq!(state.current_version, None);
         assert_eq!(state.rotating_to_version, Some(2));
         assert_eq!(state.rotate_job_id, None);
-        assert_eq!(state.rotate_attempts, retry_attempt);
+        assert_eq!(state.rotate_attempts, next_attempt);
+
         assert_eq!(state.rotate_last_error_redacted, None);
     }
 
     #[crate::sqlx_test]
-    async fn new_target_does_not_bypass_active_quarantine(pool: PgPool) {
-        let mac: MacAddress = "02:00:00:00:00:0d".parse().unwrap();
+    async fn retry_retains_original_target_after_later_publication(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:1a".parse().unwrap();
         let mut conn = pool.acquire().await.unwrap();
 
         publish_nvos_target(&mut conn, 1).await;
 
-        let attempt =
+        let first_attempt =
             record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 1)
                 .await
                 .unwrap()
                 .expect("the first attempt should be staged");
 
-        record_device_rotation_rejected(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            1,
-            attempt,
-            "backend did not accept password rotation",
-        )
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "UPDATE device_credential_rotation \
-             SET rotate_quarantined_until = now() + interval '1 hour' \
-             WHERE device_mac = $1 AND credential_type = 'nvos'",
-        )
-        .bind(mac)
-        .execute(&mut *conn)
-        .await
-        .unwrap();
+        assert!(
+            record_device_rotation_submitted(
+                &mut conn,
+                mac,
+                CredentialRotationType::Nvos,
+                1,
+                first_attempt,
+                "first-job",
+            )
+            .await
+            .unwrap()
+        );
 
         set_next_target_version(
             &mut conn,
@@ -1561,15 +1568,84 @@ mod tests {
         )
         .await
         .unwrap()
-        .expect("operator should publish the next target");
+        .expect("operator should publish a later target");
+
+        let retry_attempt = record_device_rotation_retry_started(
+            &mut conn,
+            mac,
+            CredentialRotationType::Nvos,
+            1,
+            first_attempt,
+            Some("first-job"),
+        )
+        .await
+        .unwrap()
+        .expect("the original target should be retried");
+
+        assert_eq!(retry_attempt, first_attempt + 1);
 
         let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
             .expect("operation state should exist");
 
+        assert_eq!(state.current_version, None);
         assert_eq!(state.rotating_to_version, Some(1));
-        assert!(state.rotate_last_error_redacted.is_some());
+        assert_eq!(state.rotate_job_id, None);
+        assert_eq!(state.rotate_attempts, retry_attempt);
+
+        assert!(
+            record_device_rotation_submitted(
+                &mut conn,
+                mac,
+                CredentialRotationType::Nvos,
+                1,
+                retry_attempt,
+                "retry-job",
+            )
+            .await
+            .unwrap()
+        );
+
+        assert!(
+            record_device_rotation_succeeded(
+                &mut conn,
+                mac,
+                CredentialRotationType::Nvos,
+                1,
+                retry_attempt,
+                "retry-job",
+            )
+            .await
+            .unwrap()
+        );
+
+        let converged =
+            device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
+                .await
+                .unwrap()
+                .expect("operation state should exist");
+
+        assert_eq!(converged.current_version, Some(1));
+        assert_eq!(converged.rotating_to_version, None);
+    }
+
+    #[crate::sqlx_test]
+    async fn active_quarantine_blocks_then_allows_initial_work_claim(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:0d".parse().unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+
+        publish_nvos_target(&mut conn, 1).await;
+
+        sqlx::query(
+            "INSERT INTO device_credential_rotation \
+             (device_mac, credential_type, current_version, rotate_quarantined_until) \
+             VALUES ($1, 'nvos', 0, now() + interval '1 hour')",
+        )
+        .bind(mac)
+        .execute(&mut *conn)
+        .await
+        .unwrap();
 
         let quarantine_active: bool = sqlx::query_scalar(
             "SELECT rotate_quarantined_until > now() \
@@ -1583,51 +1659,14 @@ mod tests {
 
         assert!(quarantine_active);
 
-        let blocked =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 2)
-                .await
-                .unwrap();
-
-        assert_eq!(blocked, None, "active quarantine must still block retry");
-    }
-
-    #[crate::sqlx_test]
-    async fn active_quarantine_prevents_rotation_claim(pool: PgPool) {
-        let mac: MacAddress = "02:00:00:00:00:10".parse().unwrap();
-        let mut conn = pool.acquire().await.unwrap();
-
-        publish_nvos_target(&mut conn, 1).await;
-
-        sqlx::query(
-            "INSERT INTO device_credential_rotation \
-                 (device_mac, credential_type, current_version, rotate_quarantined_until) \
-             VALUES ($1, 'nvos', 0, now() + interval '1 hour')",
-        )
-        .bind(mac)
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-
-        let blocked =
+        let blocked_attempt =
             record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 1)
                 .await
                 .unwrap();
 
-        assert_eq!(blocked, None, "active quarantine must prevent work claim");
-
-        let quarantine_active: bool = sqlx::query_scalar(
-            "SELECT rotate_quarantined_until > now() \
-             FROM device_credential_rotation \
-             WHERE device_mac = $1 AND credential_type = 'nvos'",
-        )
-        .bind(mac)
-        .fetch_one(&mut *conn)
-        .await
-        .unwrap();
-
-        assert!(
-            quarantine_active,
-            "a blocked claim must preserve quarantine"
+        assert_eq!(
+            blocked_attempt, None,
+            "active quarantine must still block retry"
         );
 
         sqlx::query(
@@ -1640,13 +1679,13 @@ mod tests {
         .await
         .unwrap();
 
-        let attempt =
+        let next_attempt =
             record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 1)
                 .await
                 .unwrap();
 
         assert_eq!(
-            attempt,
+            next_attempt,
             Some(1),
             "expired quarantine must permit work claim"
         );
@@ -1665,129 +1704,6 @@ mod tests {
             quarantine_cleared,
             "successful claim must clear expired quarantine"
         );
-    }
-
-    #[crate::sqlx_test]
-    async fn unresolved_dispatch_retries_exact_staged_target(pool: PgPool) {
-        let mac: MacAddress = "02:00:00:00:00:0d".parse().unwrap();
-        let mut conn = pool.acquire().await.unwrap();
-
-        publish_nvos_target(&mut conn, 1).await;
-
-        let attempt =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 1)
-                .await
-                .unwrap()
-                .expect("the first attempt should be staged");
-
-        set_next_target_version(
-            &mut conn,
-            CredentialRotationType::Nvos,
-            1,
-            serde_json::json!({}),
-        )
-        .await
-        .unwrap()
-        .expect("operator should publish a later target");
-
-        let retry = record_device_rotation_retry_started(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            1,
-            attempt,
-            None,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(retry, Some(attempt + 1));
-
-        let stale_retry = record_device_rotation_retry_started(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            1,
-            attempt,
-            None,
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(stale_retry, None);
-
-        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
-            .await
-            .unwrap()
-            .expect("operation state should exist");
-
-        assert_eq!(state.current_version, None);
-        assert_eq!(state.rotating_to_version, Some(1));
-        assert_eq!(state.rotate_job_id, None);
-        assert_eq!(state.rotate_attempts, attempt + 1);
-        assert_eq!(state.rotate_last_error_redacted, None);
-    }
-
-    #[crate::sqlx_test]
-    async fn failed_or_missing_job_retries_only_matching_operation(pool: PgPool) {
-        let mac: MacAddress = "02:00:00:00:00:11".parse().unwrap();
-        let mut conn = pool.acquire().await.unwrap();
-
-        publish_nvos_target(&mut conn, 1).await;
-
-        let attempt =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 1)
-                .await
-                .unwrap()
-                .expect("the first attempt should be staged");
-
-        assert!(
-            record_device_rotation_submitted(
-                &mut conn,
-                mac,
-                CredentialRotationType::Nvos,
-                1,
-                attempt,
-                "old-job",
-            )
-            .await
-            .unwrap()
-        );
-
-        let wrong_job = record_device_rotation_retry_started(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            1,
-            attempt,
-            Some("other-job"),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(wrong_job, None);
-
-        let retry = record_device_rotation_retry_started(
-            &mut conn,
-            mac,
-            CredentialRotationType::Nvos,
-            1,
-            attempt,
-            Some("old-job"),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(retry, Some(attempt + 1));
-
-        let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
-            .await
-            .unwrap()
-            .expect("operation state should exist");
-
-        assert_eq!(state.rotating_to_version, Some(1));
-        assert_eq!(state.rotate_job_id, None);
-        assert_eq!(state.rotate_attempts, attempt + 1);
     }
 
     #[crate::sqlx_test]
@@ -1899,6 +1815,16 @@ mod tests {
 
         assert!(!promoted_again);
 
+        let restarted_same =
+            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 7)
+                .await
+                .unwrap();
+
+        assert_eq!(
+            restarted_same, None,
+            "a converged revision must not be staged again"
+        );
+
         let next_started =
             record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 8)
                 .await
@@ -1917,14 +1843,14 @@ mod tests {
     }
 
     #[crate::sqlx_test]
-    async fn completed_revision_cannot_be_restarted(pool: PgPool) {
-        let mac: MacAddress = "02:00:00:00:00:0f".parse().unwrap();
+    async fn accepted_job_cannot_be_marked_as_pre_dispatch_failure(pool: PgPool) {
+        let mac: MacAddress = "02:00:00:00:00:12".parse().unwrap();
         let mut conn = pool.acquire().await.unwrap();
 
-        publish_nvos_target(&mut conn, 0).await;
+        publish_nvos_target(&mut conn, 1).await;
 
         let attempt =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 0)
+            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 1)
                 .await
                 .unwrap()
                 .expect("the first attempt should be staged");
@@ -1934,44 +1860,49 @@ mod tests {
                 &mut conn,
                 mac,
                 CredentialRotationType::Nvos,
-                0,
+                1,
                 attempt,
-                "job-0",
+                "job-1",
             )
             .await
             .unwrap()
         );
 
         assert!(
-            record_device_rotation_succeeded(
+            !record_device_rotation_failed(
                 &mut conn,
                 mac,
                 CredentialRotationType::Nvos,
-                0,
+                1,
                 attempt,
-                "job-0",
+                "backend reported failure",
             )
             .await
             .unwrap()
         );
 
-        let restarted =
-            record_device_rotation_started(&mut conn, mac, CredentialRotationType::Nvos, 0)
-                .await
-                .unwrap();
+        let promoted = record_device_rotation_succeeded(
+            &mut conn,
+            mac,
+            CredentialRotationType::Nvos,
+            1,
+            attempt,
+            "job-1",
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(
-            restarted, None,
-            "a converged revision must not be staged again"
-        );
+        assert!(promoted);
 
         let state = device_rotation_operation_state(&mut *conn, CredentialRotationType::Nvos, mac)
             .await
             .unwrap()
-            .expect("operation state should exist");
+            .expect("failed operation state should remain");
 
-        assert_eq!(state.current_version, Some(0));
+        assert_eq!(state.current_version, Some(1));
         assert_eq!(state.rotating_to_version, None);
+        assert_eq!(state.rotate_job_id, None);
+        assert_eq!(state.rotate_last_error_redacted, None);
     }
 
     #[crate::sqlx_test]
@@ -2123,8 +2054,9 @@ mod tests {
         insert_device(&mut conn, "02:00:00:00:00:02", "host_uefi", Some(0)).await;
         // pending: not yet established (NULL current_version).
         insert_device(&mut conn, "02:00:00:00:00:03", "host_uefi", None).await;
+
         // quarantined: behind the target but with a future backoff window, so it
-        // is counted as quarantined rather than pending.
+        // counted as quarantined rather than pending.
         sqlx::query(
             "INSERT INTO device_credential_rotation \
                  (device_mac, credential_type, current_version, rotate_quarantined_until) \
@@ -2177,8 +2109,17 @@ mod tests {
 
         publish_nvos_target(&mut conn, 1).await;
         insert_switch(&mut conn, "nvos-sw-1", "02:00:00:00:40:01", false).await;
-        insert_switch(&mut conn, "nvos-sw-2", "02:00:00:00:40:02", false).await;
+        insert_credentialless_switch(&mut conn, "nvos-sw-2", "02:00:00:00:40:02", false).await;
         insert_switch(&mut conn, "nvos-sw-deleted", "02:00:00:00:40:03", true).await;
+
+        sqlx::query(
+            "INSERT INTO switches (id, name, config) \
+             VALUES ('nvos-sw-no-bmc', 'nvos-sw-no-bmc', '{}'::jsonb)",
+        )
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+
         insert_device(&mut conn, "02:00:00:00:40:01", "nvos", Some(1)).await;
         insert_device(&mut conn, "02:00:00:00:40:03", "nvos", Some(0)).await;
 
@@ -2188,8 +2129,18 @@ mod tests {
 
         assert_eq!(status.target_version, 1);
         assert_eq!(status.converged, 1);
-        assert_eq!(status.pending, 1);
+        assert_eq!(status.pending, 2);
         assert_eq!(status.quarantined, 0);
+
+        insert_device(&mut conn, "02:00:00:00:40:02", "nvos", Some(1)).await;
+
+        let complete = rotation_status(&mut conn, CredentialRotationType::Nvos)
+            .await
+            .unwrap();
+
+        assert_eq!(complete.converged, 2);
+        assert_eq!(complete.pending, 1);
+        assert_eq!(complete.quarantined, 0);
     }
 
     #[crate::sqlx_test]
@@ -2198,15 +2149,35 @@ mod tests {
         let live_mac: MacAddress = "02:00:00:00:50:01".parse().unwrap();
         let deleted_mac: MacAddress = "02:00:00:00:50:02".parse().unwrap();
         let unknown_mac: MacAddress = "02:00:00:00:50:ff".parse().unwrap();
+        let credentialless_mac: MacAddress = "02:00:00:00:50:10".parse().unwrap();
 
         insert_switch(&mut conn, "nvos-device-live", "02:00:00:00:50:01", false).await;
         insert_switch(&mut conn, "nvos-device-deleted", "02:00:00:00:50:02", true).await;
 
+        insert_credentialless_switch(
+            &mut conn,
+            "nvos-device-credentialless",
+            "02:00:00:00:50:10",
+            false,
+        )
+        .await;
+
         let before_publish =
             device_rotation_status(&mut conn, CredentialRotationType::Nvos, live_mac).await;
 
+        let credentialless_before_publish =
+            device_rotation_status(&mut conn, CredentialRotationType::Nvos, credentialless_mac)
+                .await;
+
         assert!(matches!(
             before_publish,
+            Err(crate::DatabaseError::MissingSitewideRotationTarget(
+                CredentialRotationType::Nvos
+            ))
+        ));
+
+        assert!(matches!(
+            credentialless_before_publish,
             Err(crate::DatabaseError::MissingSitewideRotationTarget(
                 CredentialRotationType::Nvos
             ))
@@ -2231,6 +2202,15 @@ mod tests {
         assert_eq!(pending.rotating_to_version, None);
         assert!(!pending.converged);
         assert_eq!(pending.rotate_attempts, 0);
+
+        let credentialless_pending =
+            device_rotation_status(&mut conn, CredentialRotationType::Nvos, credentialless_mac)
+                .await
+                .unwrap()
+                .expect("live credentialless switch should remain visible as pending");
+
+        assert!(!credentialless_pending.converged);
+        assert_eq!(credentialless_pending.rotate_attempts, 0);
 
         assert!(
             device_rotation_status(&mut conn, CredentialRotationType::Nvos, deleted_mac)
