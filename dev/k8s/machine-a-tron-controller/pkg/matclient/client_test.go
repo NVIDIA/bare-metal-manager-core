@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -109,9 +110,77 @@ func TestClient_GetMachinesStatus(t *testing.T) {
 }
 
 func TestNewClient_InvalidURL(t *testing.T) {
-	_, err := NewClient("://invalid")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid base URL")
+	tests := []struct {
+		name        string
+		url         string
+		errContains string
+	}{
+		{
+			name:        "invalid syntax",
+			url:         "://invalid",
+			errContains: "invalid base URL",
+		},
+		{
+			name:        "userinfo rejected",
+			url:         "https://user:password@example.com",
+			errContains: "userinfo not allowed",
+		},
+		{
+			name:        "query rejected",
+			url:         "https://example.com?token=secret",
+			errContains: "query string not allowed",
+		},
+		{
+			name:        "fragment rejected",
+			url:         "https://example.com#fragment",
+			errContains: "fragment not allowed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewClient(tt.url)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}
+
+func TestClient_GetMachinesStatus_InvalidBodies(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		errContains string
+	}{
+		{
+			name:        "oversized response",
+			body:        strings.Repeat(" ", maxResponseSize+1),
+			errContains: "response exceeds maximum size",
+		},
+		{
+			name:        "trailing JSON rejected",
+			body:        `{"machines":[]} {"machines":[]}`,
+			errContains: "decoding response",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write([]byte(tt.body))
+				require.NoError(t, err)
+			}))
+			defer server.Close()
+
+			client, err := NewClient(server.URL)
+			require.NoError(t, err)
+
+			_, err = client.GetMachinesStatus(context.Background())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
 }
 
 func ptr[T any](v T) *T {

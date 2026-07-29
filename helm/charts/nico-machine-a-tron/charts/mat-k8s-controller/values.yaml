@@ -8,7 +8,7 @@ enabled: false
 
 image:
   repository: mat-k8s-controller
-  tag: latest
+  tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 ## Resource limits
@@ -23,11 +23,11 @@ resources:
 ## Controller configuration
 config:
   ## Label selector for discovering machine-a-tron Services
-  ## Default: nvidia-infra-controller/mat-service=true,app.kubernetes.io/instance=<release>
+  ## Default: nvidia-infra-controller/mat-service=true
   discoverySelector: ""
 
   ## Pod selector for created Services (routes traffic to mat pods)
-  ## Default: app.kubernetes.io/name=nico-machine-a-tron,app.kubernetes.io/instance=<release>
+  ## Default: app.kubernetes.io/name=nico-machine-a-tron
   targetSelector: ""
 
   ## Reconciliation interval

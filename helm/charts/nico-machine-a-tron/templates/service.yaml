@@ -2,15 +2,7 @@
 {{- $namespace := include "nico-machine-a-tron.namespace" . }}
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
-{{/*
-Count active pods (pods with machines defined)
-*/}}
-{{- $activePods := 0 }}
-{{- range $podName, $podConfig := .Values.pods }}
-{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
-{{- $activePods = add $activePods 1 }}
-{{- end }}
-{{- end }}
+{{- $activePods := include "nico-machine-a-tron.activePods" . | int }}
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*

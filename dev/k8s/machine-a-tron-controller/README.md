@@ -29,8 +29,27 @@ kind load docker-image mat-k8s-controller:latest --name <cluster>
 | `--target-selector` | `TARGET_SELECTOR` | `app.kubernetes.io/name=nico-machine-a-tron` | Pod selector for Services |
 | `--insecure-skip-verify` | `INSECURE_SKIP_VERIFY` | `false` | Skip TLS verification (dev only) |
 | `--log-level` | `LOG_LEVEL` | `info` | Log level |
-| `--bmc-mock-port` | `BMC_MOCK_PORT` | `1266` | BMC mock service port |
 | `--kubeconfig` | `KUBECONFIG` | (empty) | Path to kubeconfig (dev only, uses in-cluster config if empty) |
+
+### Owner References
+
+The controller automatically sets an ownerReference on each created Service,
+pointing to the machine-a-tron Deployment that the Service routes traffic to.
+This enables Kubernetes garbage collection - when a machine-a-tron Deployment
+is deleted (e.g., when a pod is removed from Helm values or the release is
+uninstalled), the Services routing to it are automatically cleaned up.
+
+The owner Deployment is derived from the discovered Service name by stripping
+the `-bmc-mock` suffix (e.g., `nico-machine-a-tron-mat-0-bmc-mock` →
+`nico-machine-a-tron-mat-0`).
+
+### Port Discovery
+
+The controller automatically derives the bmc-mock API port from the discovered
+Kubernetes Service. It looks for a port named `redfish` or `bmc-mock` in the
+Service spec, falling back to the first available port. This eliminates the
+need for manual port configuration and ensures the controller always uses the
+correct port defined in the Service.
 
 ## Helm Deployment
 

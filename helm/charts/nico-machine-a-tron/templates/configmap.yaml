@@ -5,11 +5,10 @@
 {{/*
 Count active pods and build ordered list for consistent pod indexing
 */}}
-{{- $activePods := 0 }}
+{{- $activePods := include "nico-machine-a-tron.activePods" . | int }}
 {{- $podList := list }}
 {{- range $podName, $podConfig := .Values.pods }}
 {{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
-{{- $activePods = add $activePods 1 }}
 {{- $podList = append $podList $podName }}
 {{- end }}
 {{- end }}

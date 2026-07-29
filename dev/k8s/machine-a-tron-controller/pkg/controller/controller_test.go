@@ -5,8 +5,10 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -25,12 +27,12 @@ func TestBuildServiceName(t *testing.T) {
 		{
 			machineType: MachineTypeHost,
 			matID:       "12345678-1234-1234-1234-123456789abc",
-			want:        "mat-bmc-host-12345678-123",
+			want:        "mat-bmc-host-12345678-123-0cdd56f0",
 		},
 		{
 			machineType: MachineTypeDPU,
 			matID:       "abcdefgh-1234-1234-1234-123456789abc",
-			want:        "mat-bmc-dpu-abcdefgh-123",
+			want:        "mat-bmc-dpu-abcdefgh-123-e6e1a630",
 		},
 		{
 			machineType: MachineTypeHost,
@@ -45,6 +47,15 @@ func TestBuildServiceName(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestBuildServiceName_TruncatedIDsRemainUnique(t *testing.T) {
+	first := BuildServiceName(MachineTypeHost, "same-prefix-1234567890")
+	second := BuildServiceName(MachineTypeHost, "same-prefix-abcdefghij")
+
+	assert.NotEqual(t, first, second)
+	assert.Contains(t, first, "same-prefix-")
+	assert.Contains(t, second, "same-prefix-")
 }
 
 func TestServiceBuilder_BuildService(t *testing.T) {
@@ -73,7 +84,7 @@ func TestServiceBuilder_BuildService(t *testing.T) {
 	svc := builder.BuildService(machine, MachineTypeHost, "", "")
 
 	// Check basic metadata
-	assert.Equal(t, "mat-bmc-host-host-uuid-12", svc.Name)
+	assert.Equal(t, "mat-bmc-host-host-uuid-12-306c5924", svc.Name)
 	assert.Equal(t, "test-ns", svc.Namespace)
 
 	// Check labels
@@ -303,7 +314,16 @@ func TestComputeServiceDiff(t *testing.T) {
 			wantCreateCount: 1,
 		},
 		{
-			name: "delete stale service",
+			name: "dedupe duplicate desired services",
+			desired: []*corev1.Service{
+				makeTestService("svc-1", "mat-id-1"),
+				makeTestService("svc-1", "mat-id-1-duplicate"),
+			},
+			existing:        nil,
+			wantCreateCount: 1,
+		},
+		{
+			name:    "delete stale service",
 			desired: nil,
 			existing: []*corev1.Service{
 				makeTestService("svc-1", "mat-id-1"),
@@ -351,6 +371,121 @@ func TestComputeServiceDiff(t *testing.T) {
 			wantUpdateCount: 1,
 		},
 		{
+			name: "ignore foreign label and annotation changes",
+			desired: []*corev1.Service{
+				makeTestService("svc-1", "mat-id-1"),
+			},
+			existing: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.Labels["external.example.com/owner"] = "operator"
+					svc.Annotations["external.example.com/note"] = "keep"
+					return svc
+				}(),
+			},
+			wantUpdateCount: 0,
+		},
+		{
+			name: "remove stale controller-owned optional metadata",
+			desired: []*corev1.Service{
+				makeTestService("svc-1", "mat-id-1"),
+			},
+			existing: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.Labels[LabelMachineID] = "old-machine"
+					svc.Annotations[AnnotationBMCIP] = "10.0.0.10"
+					return svc
+				}(),
+			},
+			wantUpdateCount: 1,
+		},
+		{
+			name: "update owner reference added",
+			desired: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.OwnerReferences = []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "nico-machine-a-tron",
+							UID:        "owner-uid-123",
+						},
+					}
+					return svc
+				}(),
+			},
+			existing: []*corev1.Service{
+				makeTestService("svc-1", "mat-id-1"), // no owner reference
+			},
+			wantUpdateCount: 1,
+		},
+		{
+			name: "update owner reference changed",
+			desired: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.OwnerReferences = []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "nico-machine-a-tron",
+							UID:        "new-owner-uid",
+						},
+					}
+					return svc
+				}(),
+			},
+			existing: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.OwnerReferences = []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "nico-machine-a-tron",
+							UID:        "old-owner-uid",
+						},
+					}
+					return svc
+				}(),
+			},
+			wantUpdateCount: 1,
+		},
+		{
+			name: "no update when owner reference matches",
+			desired: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.OwnerReferences = []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "nico-machine-a-tron",
+							UID:        "same-uid",
+						},
+					}
+					return svc
+				}(),
+			},
+			existing: []*corev1.Service{
+				func() *corev1.Service {
+					svc := makeTestService("svc-1", "mat-id-1")
+					svc.OwnerReferences = []metav1.OwnerReference{
+						{
+							APIVersion: "apps/v1",
+							Kind:       "Deployment",
+							Name:       "nico-machine-a-tron",
+							UID:        "same-uid",
+						},
+					}
+					return svc
+				}(),
+			},
+			wantUpdateCount: 0,
+		},
+		{
 			name: "mixed operations",
 			desired: []*corev1.Service{
 				makeTestService("svc-1", "mat-id-1"), // keep
@@ -364,7 +499,7 @@ func TestComputeServiceDiff(t *testing.T) {
 			wantDeleteCount: 1,
 		},
 		{
-			name: "skip non-managed services on delete",
+			name:    "skip non-managed services on delete",
 			desired: nil,
 			existing: []*corev1.Service{
 				func() *corev1.Service {
@@ -388,10 +523,25 @@ func TestComputeServiceDiff(t *testing.T) {
 	}
 }
 
+func TestComputeServiceDiff_PreservesForeignMetadataOnUpdate(t *testing.T) {
+	desired := makeTestService("svc-1", "mat-id-1")
+	desired.Spec.Ports[0].TargetPort = intstr.FromInt32(9999)
+	existing := makeTestService("svc-1", "mat-id-1")
+	existing.Labels["external.example.com/owner"] = "operator"
+	existing.Annotations["external.example.com/note"] = "keep"
+
+	diff := ComputeServiceDiff([]*corev1.Service{desired}, []*corev1.Service{existing})
+
+	require.Len(t, diff.Update, 1)
+	assert.Equal(t, "operator", diff.Update[0].Labels["external.example.com/owner"])
+	assert.Equal(t, "keep", diff.Update[0].Annotations["external.example.com/note"])
+	assert.Equal(t, "9999", diff.Update[0].Spec.Ports[0].TargetPort.String())
+}
+
 func TestReconcileLogic(t *testing.T) {
 	ctx := context.Background()
 
-	mockK8s := &mockK8sClient{
+	mockK8s := &trackingK8sClient{
 		services: make(map[string]*corev1.Service),
 	}
 
@@ -442,7 +592,7 @@ func TestReconcileLogic(t *testing.T) {
 }
 
 // runTestReconcile tests the reconciliation logic without discovery.
-func runTestReconcile(ctx context.Context, builder *ServiceBuilder, k8s *mockK8sClient, status *matclient.MachinesStatusResponse) ReconcileResult {
+func runTestReconcile(ctx context.Context, builder *ServiceBuilder, k8s *trackingK8sClient, status *matclient.MachinesStatusResponse) ReconcileResult {
 	result := ReconcileResult{}
 
 	desired := builder.BuildServicesFromStatus(status, "")
@@ -510,11 +660,13 @@ func makeTestService(name, matID string) *corev1.Service {
 
 // Mock implementations
 
-type mockK8sClient struct {
-	services map[string]*corev1.Service
+type trackingK8sClient struct {
+	services  map[string]*corev1.Service
+	createErr error
+	deleteErr error
 }
 
-func (m *mockK8sClient) List(ctx context.Context, namespace string, labelSelector string) ([]*corev1.Service, error) {
+func (m *trackingK8sClient) List(ctx context.Context, namespace string, labelSelector string) ([]*corev1.Service, error) {
 	result := make([]*corev1.Service, 0)
 	for _, svc := range m.services {
 		if svc.Labels[LabelManagedBy] == LabelManagedByValue {
@@ -524,17 +676,23 @@ func (m *mockK8sClient) List(ctx context.Context, namespace string, labelSelecto
 	return result, nil
 }
 
-func (m *mockK8sClient) Create(ctx context.Context, svc *corev1.Service) error {
+func (m *trackingK8sClient) Create(ctx context.Context, svc *corev1.Service) error {
+	if m.createErr != nil {
+		return m.createErr
+	}
 	m.services[svc.Name] = svc.DeepCopy()
 	return nil
 }
 
-func (m *mockK8sClient) Update(ctx context.Context, svc *corev1.Service) error {
+func (m *trackingK8sClient) Update(ctx context.Context, svc *corev1.Service) error {
 	m.services[svc.Name] = svc.DeepCopy()
 	return nil
 }
 
-func (m *mockK8sClient) Delete(ctx context.Context, namespace, name string) error {
+func (m *trackingK8sClient) Delete(ctx context.Context, namespace, name string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	delete(m.services, name)
 	return nil
 }
@@ -543,3 +701,211 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
+func ptrString(s string) *string { return &s }
+
+func TestProcessRecreatesConcurrently_RecordsErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		createErr error
+		deleteErr error
+		wantErr   string
+	}{
+		{
+			name:      "delete failure",
+			deleteErr: fmt.Errorf("delete failed"),
+			wantErr:   "deleting service svc-1 for recreate",
+		},
+		{
+			name:      "create failure",
+			createErr: fmt.Errorf("create failed"),
+			wantErr:   "creating service svc-1 after recreate delete",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ReconcileResult{}
+			reconciler := &Reconciler{
+				serviceBuilder: &ServiceBuilder{Namespace: "test-ns"},
+				k8sClient: &trackingK8sClient{
+					services:  map[string]*corev1.Service{"svc-1": makeTestService("svc-1", "mat-id-1")},
+					createErr: tt.createErr,
+					deleteErr: tt.deleteErr,
+				},
+				logger:      zerolog.Nop(),
+				concurrency: 1,
+			}
+
+			recreated := reconciler.processRecreatesConcurrently(context.Background(), []*corev1.Service{makeTestService("svc-1", "mat-id-1")}, &result)
+
+			assert.Equal(t, 0, recreated)
+			require.Len(t, result.Errors, 1)
+			assert.Contains(t, result.Errors[0].Error(), tt.wantErr)
+		})
+	}
+}
+
+// mockDiscovery implements Discovery for testing.
+type mockDiscovery struct {
+	instances []DiscoveredInstance
+	err       error
+}
+
+func (m *mockDiscovery) Discover(ctx context.Context) ([]DiscoveredInstance, error) {
+	return m.instances, m.err
+}
+
+// mockDeploymentClient implements DeploymentClient for testing.
+type mockDeploymentClient struct {
+	deployments   map[string]*metav1.OwnerReference
+	failFor       map[string]bool
+	requestedKeys []string // records deployment names that were looked up
+}
+
+func (m *mockDeploymentClient) Get(ctx context.Context, namespace, name string) (*metav1.OwnerReference, error) {
+	m.requestedKeys = append(m.requestedKeys, name)
+	if m.failFor != nil && m.failFor[name] {
+		return nil, fmt.Errorf("deployment %s not found", name)
+	}
+	if ref, ok := m.deployments[name]; ok {
+		return ref, nil
+	}
+	return nil, fmt.Errorf("deployment %s not found", name)
+}
+
+// mockStatusFetcher implements StatusFetcher for testing.
+type mockStatusFetcher struct {
+	status *matclient.MachinesStatusResponse
+	err    error
+}
+
+func (m *mockStatusFetcher) GetMachinesStatus(ctx context.Context) (*matclient.MachinesStatusResponse, error) {
+	return m.status, m.err
+}
+
+func TestReconciler_OwnerReferences(t *testing.T) {
+	ip := "10.0.0.1"
+	machineStatus := &matclient.MachinesStatusResponse{
+		Machines: []matclient.MachineStatus{
+			{
+				MatID:    "mat-id-12345",
+				APIState: "Ready",
+				BMC: matclient.BMCStatus{
+					IP:      &ip,
+					Redfish: matclient.EndpointStatus{ReachablePort: 443, ListenPort: 1266},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name              string
+		instances         []DiscoveredInstance
+		deployments       map[string]*metav1.OwnerReference
+		failDeployments   map[string]bool
+		wantOwnerName     string // expected owner name on created service, empty if no owner
+		wantServiceCount  int
+		wantDeployLookups []string // expected deployment names to be looked up
+	}{
+		{
+			name: "single-pod mode derives owner from service name",
+			instances: []DiscoveredInstance{
+				{URL: "https://nico-machine-a-tron-bmc-mock.ns.svc:8443", PodName: "", ServiceName: "nico-machine-a-tron-bmc-mock"},
+			},
+			deployments: map[string]*metav1.OwnerReference{
+				"nico-machine-a-tron": {APIVersion: "apps/v1", Kind: "Deployment", Name: "nico-machine-a-tron", UID: "uid-single"},
+			},
+			wantOwnerName:     "nico-machine-a-tron",
+			wantServiceCount:  1,
+			wantDeployLookups: []string{"nico-machine-a-tron"},
+		},
+		{
+			name: "multi-pod mode maps pod to its deployment",
+			instances: []DiscoveredInstance{
+				{URL: "https://nico-machine-a-tron-mat-0-bmc-mock.ns.svc:8443", PodName: "mat-0", ServiceName: "nico-machine-a-tron-mat-0-bmc-mock"},
+			},
+			deployments: map[string]*metav1.OwnerReference{
+				"nico-machine-a-tron-mat-0": {APIVersion: "apps/v1", Kind: "Deployment", Name: "nico-machine-a-tron-mat-0", UID: "uid-mat-0"},
+			},
+			wantOwnerName:     "nico-machine-a-tron-mat-0",
+			wantServiceCount:  1,
+			wantDeployLookups: []string{"nico-machine-a-tron-mat-0"},
+		},
+		{
+			name: "multi-pod mode looks up all deployment names",
+			instances: []DiscoveredInstance{
+				{URL: "https://nico-machine-a-tron-mat-0-bmc-mock.ns.svc:8443", PodName: "mat-0", ServiceName: "nico-machine-a-tron-mat-0-bmc-mock"},
+				{URL: "https://nico-machine-a-tron-mat-1-bmc-mock.ns.svc:8443", PodName: "mat-1", ServiceName: "nico-machine-a-tron-mat-1-bmc-mock"},
+			},
+			deployments: map[string]*metav1.OwnerReference{
+				"nico-machine-a-tron-mat-0": {APIVersion: "apps/v1", Kind: "Deployment", Name: "nico-machine-a-tron-mat-0", UID: "uid-mat-0"},
+				"nico-machine-a-tron-mat-1": {APIVersion: "apps/v1", Kind: "Deployment", Name: "nico-machine-a-tron-mat-1", UID: "uid-mat-1"},
+			},
+			// Both instances return the same machine, so only 1 service is created.
+			// The key assertion is that both deployments were looked up.
+			wantOwnerName:     "nico-machine-a-tron-mat-0",
+			wantServiceCount:  1,
+			wantDeployLookups: []string{"nico-machine-a-tron-mat-0", "nico-machine-a-tron-mat-1"},
+		},
+		{
+			name: "failed deployment lookup creates services without owner",
+			instances: []DiscoveredInstance{
+				{URL: "https://nico-machine-a-tron-bmc-mock.ns.svc:8443", PodName: "", ServiceName: "nico-machine-a-tron-bmc-mock"},
+			},
+			deployments:       map[string]*metav1.OwnerReference{},
+			failDeployments:   map[string]bool{"nico-machine-a-tron": true},
+			wantOwnerName:     "", // no owner
+			wantServiceCount:  1,
+			wantDeployLookups: []string{"nico-machine-a-tron"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discovery := &mockDiscovery{instances: tt.instances}
+			deployClient := &mockDeploymentClient{
+				deployments: tt.deployments,
+				failFor:     tt.failDeployments,
+			}
+			// Use existing mockK8sClient - services map tracks created services
+			k8sClient := &trackingK8sClient{services: make(map[string]*corev1.Service)}
+
+			builder := &ServiceBuilder{
+				Namespace:    "nico-system",
+				BaseSelector: map[string]string{"app.kubernetes.io/name": "nico-machine-a-tron"},
+			}
+
+			logger := zerolog.New(zerolog.NewTestWriter(t)).Level(zerolog.Disabled)
+
+			reconciler := NewReconciler(discovery, builder, k8sClient, deployClient, nil, logger)
+			reconciler.statusFetcher = func(url string) (StatusFetcher, error) {
+				return &mockStatusFetcher{status: machineStatus}, nil
+			}
+
+			result := reconciler.Reconcile(context.Background())
+
+			require.Empty(t, result.Errors, "unexpected errors: %v", result.Errors)
+			require.Len(t, k8sClient.services, tt.wantServiceCount, "expected %d services created", tt.wantServiceCount)
+
+			// Assert the expected deployment lookups occurred
+			assert.ElementsMatch(t, tt.wantDeployLookups, deployClient.requestedKeys, "deployment lookup mismatch")
+
+			if tt.wantServiceCount > 0 {
+				// Get first service from map
+				var svc *corev1.Service
+				for _, s := range k8sClient.services {
+					svc = s
+					break
+				}
+				if tt.wantOwnerName != "" {
+					require.Len(t, svc.OwnerReferences, 1, "expected owner reference")
+					assert.Equal(t, tt.wantOwnerName, svc.OwnerReferences[0].Name)
+					assert.Equal(t, "apps/v1", svc.OwnerReferences[0].APIVersion)
+					assert.Equal(t, "Deployment", svc.OwnerReferences[0].Kind)
+				} else {
+					assert.Empty(t, svc.OwnerReferences, "expected no owner reference")
+				}
+			}
+		})
+	}
+}

@@ -73,6 +73,9 @@ func NewClient(baseURL string, opts ...Option) (*Client, error) {
 	if parsed.Host == "" {
 		return nil, fmt.Errorf("invalid base URL: missing host")
 	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("invalid base URL: userinfo not allowed")
+	}
 	if parsed.RawQuery != "" {
 		return nil, fmt.Errorf("invalid base URL: query string not allowed")
 	}
@@ -142,16 +145,22 @@ func (c *Client) GetMachinesStatus(ctx context.Context) (*MachinesStatusResponse
 	}
 	defer resp.Body.Close()
 
-	// Limit response body size to prevent memory exhaustion
-	limitedReader := io.LimitReader(resp.Body, maxResponseSize)
-
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodySize))
 		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, truncateString(string(body), maxErrorBodySize))
 	}
 
+	// Limit response body size to prevent memory exhaustion.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+	if len(body) > maxResponseSize {
+		return nil, fmt.Errorf("response exceeds maximum size of %d bytes", maxResponseSize)
+	}
+
 	var result MachinesStatusResponse
-	if err := json.NewDecoder(limitedReader).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 

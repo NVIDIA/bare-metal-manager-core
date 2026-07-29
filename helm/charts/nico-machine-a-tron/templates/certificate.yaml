@@ -2,15 +2,7 @@
 {{- $namespace := include "nico-machine-a-tron.namespace" . }}
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
-{{/*
-Count active pods (pods with machines defined)
-*/}}
-{{- $activePods := 0 }}
-{{- range $podName, $podConfig := .Values.pods }}
-{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
-{{- $activePods = add $activePods 1 }}
-{{- end }}
-{{- end }}
+{{- $activePods := include "nico-machine-a-tron.activePods" . | int }}
 
 {{- range $podName, $podConfig := .Values.pods }}
 {{/*
@@ -39,5 +31,5 @@ spec:
   {{- $bmcMockDns := printf "%s-bmc-mock.%s.svc.cluster.local" $name $namespace }}
   {{- $extraDns := prepend ($root.Values.certificate.extraDnsNames | default list) $bmcMockDns }}
   {{- $certWithExtra := merge (dict "extraDnsNames" $extraDns) $root.Values.certificate }}
-  {{- include "nico-machine-a-tron.certificateSpec" (dict "name" (printf "%s-certificate" $name) "svcName" $name "namespace" $namespace "cert" $certWithExtra "global" $root.Values.global) | nindent 2 }}
+  {{- include "nico-machine-a-tron.certificateSpec" (dict "name" (printf "%s-certificate" $name) "secretName" (printf "%s-tls" $name) "svcName" $name "namespace" $namespace "cert" $certWithExtra "global" $root.Values.global) | nindent 2 }}
 {{- end }}

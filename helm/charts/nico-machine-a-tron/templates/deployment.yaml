@@ -2,14 +2,9 @@
 {{- $namespace := include "nico-machine-a-tron.namespace" . }}
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
-{{/*
-Count pods that should be deployed (pods with machines defined)
-*/}}
-{{- $activePods := 0 }}
-{{- range $podName, $podConfig := .Values.pods }}
-{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
-{{- $activePods = add $activePods 1 }}
-{{- end }}
+{{- $activePods := include "nico-machine-a-tron.activePods" . | int }}
+{{- if and (gt $activePods 1) (not (index .Values "mat-k8s-controller").enabled) }}
+{{- fail "multi-pod machine-a-tron deployments require mat-k8s-controller.enabled=true" }}
 {{- end }}
 
 {{- range $podName, $podConfig := .Values.pods }}
@@ -58,14 +53,19 @@ spec:
           args:
             - "--config=/app/mat.toml"
           ports:
-            - name: bmc-mock
+            - name: redfish
               containerPort: {{ $root.Values.service.bmcMock.port }}
               protocol: TCP
-          {{- with $root.Values.machineATron.livenessProbe }}
+            {{- if $root.Values.machineATron.mockBmcSshServer }}
+            - name: ssh
+              containerPort: {{ $root.Values.machineATron.mockBmcSshPort }}
+              protocol: TCP
+            {{- end }}
+          {{- with $root.Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- with $root.Values.machineATron.readinessProbe }}
+          {{- with $root.Values.readinessProbe }}
           readinessProbe:
             {{- toYaml . | nindent 12 }}
           {{- end }}

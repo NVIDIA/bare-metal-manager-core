@@ -9,6 +9,9 @@ tests:
       - equal:
           path: metadata.name
           value: nico-machine-a-tron-certificate
+      - equal:
+          path: spec.secretName
+          value: nico-machine-a-tron-tls
 
   - it: should use custom certificate settings
     set:
@@ -37,3 +40,11 @@ tests:
     asserts:
       - hasDocuments:
           count: 2
+      - equal:
+          path: spec.secretName
+          value: nico-machine-a-tron-mat-0-tls
+        documentIndex: 0
+      - equal:
+          path: spec.secretName
+          value: nico-machine-a-tron-mat-1-tls
+        documentIndex: 1

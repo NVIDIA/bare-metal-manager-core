@@ -56,10 +56,14 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
-Namespace - inherited from parent release
+Namespace - always uses the same namespace as the parent chart.
 */}}
 {{- define "mat-k8s-controller.namespace" -}}
+{{- if and .Values.global .Values.global.namespaceOverride }}
+{{- .Values.global.namespaceOverride }}
+{{- else }}
 {{- .Release.Namespace }}
+{{- end }}
 {{- end }}
 
 {{/*

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -45,8 +46,6 @@ func main() {
 		"Skip TLS certificate verification (use only for development with self-signed certs)")
 	logLevel := flag.String("log-level", envOrDefault("LOG_LEVEL", "info"),
 		"Log level (debug, info, warn, error)")
-	bmcMockPort := flag.Int("bmc-mock-port", envIntOrDefault("BMC_MOCK_PORT", 1266),
-		"Port number for bmc-mock service")
 
 	flag.Parse()
 
@@ -73,7 +72,6 @@ func main() {
 		Str("discovery_selector", *discoverySelector).
 		Dur("sync_interval", *syncInterval).
 		Str("target_selector", *targetSelector).
-		Int("bmc_mock_port", *bmcMockPort).
 		Bool("insecure_skip_verify", *insecureSkipVerify).
 		Msg("starting controller")
 
@@ -112,10 +110,13 @@ func main() {
 		BaseSelector: selector,
 	}
 
+	// Create deployment client for owner reference lookups
+	deployClient := &realDeploymentClient{clientset: clientset}
+
 	// Create discovery and reconciler
-	discovery := controller.NewMatPodDiscovery(clientset, *namespace, *bmcMockPort, *discoverySelector)
+	discovery := controller.NewMatPodDiscovery(clientset, *namespace, *discoverySelector)
 	k8sClient := controller.NewRealK8sServiceClient(clientset)
-	reconciler := controller.NewReconciler(discovery, builder, k8sClient, clientOpts, logger)
+	reconciler := controller.NewReconciler(discovery, builder, k8sClient, deployClient, clientOpts, logger)
 
 	// Setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
@@ -191,15 +192,6 @@ func envBoolOrDefault(key string, defaultValue bool) bool {
 	return defaultValue
 }
 
-func envIntOrDefault(key string, defaultValue int) int {
-	if v := os.Getenv(key); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			return i
-		}
-	}
-	return defaultValue
-}
-
 func parseDurationOrDefault(envKey string, defaultValue time.Duration) time.Duration {
 	if v := os.Getenv(envKey); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -221,4 +213,22 @@ func parseSelector(s string) map[string]string {
 		}
 	}
 	return result
+}
+
+// realDeploymentClient implements controller.DeploymentClient using the Kubernetes API.
+type realDeploymentClient struct {
+	clientset kubernetes.Interface
+}
+
+func (c *realDeploymentClient) Get(ctx context.Context, namespace, name string) (*metav1.OwnerReference, error) {
+	deploy, err := c.clientset.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return &metav1.OwnerReference{
+		APIVersion: "apps/v1",
+		Kind:       "Deployment",
+		Name:       deploy.Name,
+		UID:        deploy.UID,
+	}, nil
 }

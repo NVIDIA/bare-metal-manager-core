@@ -12,6 +12,19 @@ allowing you to:
 - Perform load testing at scale (multiple pods, thousands of BMCs)
 - Run simulations alongside real hardware
 
+## Namespace Configuration
+
+Use `global.namespaceOverride` to deploy into a specific namespace:
+
+```bash
+helm upgrade --install mat ./helm/charts/nico-machine-a-tron \
+  --set global.namespaceOverride=nico-system \
+  --set createNamespace=true
+```
+
+When `mat-k8s-controller` is enabled, it always deploys into the same namespace
+as nico-machine-a-tron. The controller does not support a separate namespace.
+
 ## Deployment Modes
 
 | Mode | Use Case | Real HW Compatible | Network Setup |
@@ -34,7 +47,7 @@ Simple but **incompatible with real hardware**.
 
 ```bash
 helm upgrade --install nico ./helm \
-  --namespace nico-mat \
+  --set global.namespaceOverride=nico-system \
   --set nico-machine-a-tron.enabled=true \
   --set nico-machine-a-tron.pods.default.machines.rack-machines.hostCount=10 \
   --set nico-machine-a-tron.pods.default.machines.rack-machines.dpuPerHostCount=2
@@ -44,9 +57,12 @@ helm upgrade --install nico ./helm \
 
 ```toml
 [site_explorer]
-override_target_host = "nico-machine-a-tron-bmc-mock"
-override_target_port = 1266
+bmc_proxy = "nico-machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
 ```
+
+The port defaults to 1266 and must match the `service.bmcMock.port` value if
+you customize it. Use the cross-namespace FQDN when machine-a-tron runs outside
+the nico-api namespace.
 
 ---
 
@@ -63,6 +79,7 @@ dynamically creates/updates/deletes Kubernetes Services as machines come online.
 - No CIDR planning required per pod
 - Auto-reconciles on machine changes
 - Automatic stale service cleanup
+- OwnerReference garbage collection on Helm uninstall
 
 ### Setup
 
@@ -71,6 +88,9 @@ from the subnet.
 
 ```yaml
 # values.yaml
+global:
+  namespaceOverride: nico-system  # Deploy to nico-system namespace
+
 pods:
   default: null  # Disable default pod
   mat-0:
@@ -111,7 +131,9 @@ mat-k8s-controller:
 
 ### Service Structure
 
-Each created Service has:
+Each created Service has an ownerReference to the machine-a-tron Deployment it
+routes traffic to, enabling automatic garbage collection when that Deployment
+is deleted (e.g., when a pod is removed from Helm values or the release is uninstalled):
 
 ```yaml
 apiVersion: v1
@@ -125,18 +147,26 @@ metadata:
     nvidia-infra-controller/mat-id: "uuid-..."
     nvidia-infra-controller/mat-bmc-ip: "10.96.64.5"
     nvidia-infra-controller/mat-hardware-type: wiwynn_gb200_nvl
+  ownerReferences:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: nico-machine-a-tron-mat-0  # The mat pod this Service routes to
+    uid: <deployment-uid>
 spec:
   type: ClusterIP
   clusterIP: 10.96.64.5  # BMC IP assigned by NICo
   ports:
   - name: redfish
     port: 443
-    targetPort: 1266
+    targetPort: 1266  # Redfish listen port from machine-a-tron (default: service.bmcMock.port)
     protocol: TCP
   selector:
     app.kubernetes.io/name: nico-machine-a-tron
     nvidia-infra-controller/pod-name: mat-0
 ```
+
+The `targetPort` is the Redfish listen port reported by machine-a-tron, which
+defaults to the configured `service.bmcMock.port` (1266).
 
 ### Requirements
 
@@ -265,5 +295,5 @@ label.
 ### View Generated Config
 
 ```bash
-kubectl -n nico-mat get cm nico-machine-a-tron-mat-0-config-files -o yaml
+kubectl -n nico-system get cm nico-machine-a-tron-mat-0-config-files -o yaml
 ```

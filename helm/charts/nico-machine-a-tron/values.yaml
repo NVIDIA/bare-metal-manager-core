@@ -19,6 +19,9 @@
 ## =============================================================================
 
 global:
+  ## Namespace override (propagates to subcharts). Required when mat-k8s-controller is enabled.
+  ## Example: --set global.namespaceOverride=nico-system
+  namespaceOverride: ""
   certificate:
     duration: 720h0m0s
     renewBefore: 360h0m0s
@@ -42,9 +45,7 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
-namespaceOverride: ""
-
-## Create namespace when namespaceOverride is set
+## Create namespace when global.namespaceOverride is set
 createNamespace: true
 
 automountServiceAccountToken: true
@@ -347,10 +348,11 @@ configFiles:
 ##
 mat-k8s-controller:
   enabled: false
+  ## The controller deploys to the same namespace as nico-machine-a-tron.
 
   image:
     repository: mat-k8s-controller
-    tag: latest
+    tag: "0.1.0"
     pullPolicy: IfNotPresent
 
   config:

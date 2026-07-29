@@ -1936,6 +1936,7 @@ jobs:
           IMAGES["build-release-machine-validation-artifacts-x86-host"]="${{ needs.build-release-machine-validation-artifacts-x86-host.outputs.image_ref }}"
           IMAGES["build-release-artifacts-x86-host"]="${{ needs.build-release-artifacts-x86-host.outputs.image_ref }}"
           IMAGES["build-release-artifacts-arm-host"]="${{ needs.build-release-artifacts-arm-host.outputs.image_ref }}"
+          IMAGES["build-mat-k8s-controller"]="${{ needs.build-mat-k8s-controller.outputs.image_ref }}"
 
           for job in "${!IMAGES[@]}"; do
             image="${IMAGES[$job]}"

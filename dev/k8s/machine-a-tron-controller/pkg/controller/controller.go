@@ -8,7 +8,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -69,15 +71,24 @@ const (
 type ServiceBuilder struct {
 	Namespace    string
 	BaseSelector map[string]string
+	// OwnerRefs maps pod names to their Deployment's OwnerReference.
+	// Services are owned by the machine-a-tron Deployment they route to.
+	OwnerRefs map[string]metav1.OwnerReference
 }
 
 // BuildServiceName generates a consistent service name for a machine.
 func BuildServiceName(machineType, matID string) string {
 	shortID := matID
 	if len(matID) > 12 {
-		shortID = matID[:12]
+		shortID = fmt.Sprintf("%s-%s", matID[:12], shortHash(matID))
 	}
 	return fmt.Sprintf("mat-bmc-%s-%s", machineType, shortID)
+}
+
+func shortHash(s string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return fmt.Sprintf("%08x", h.Sum32())
 }
 
 // BuildService creates a Kubernetes Service for a machine's BMC.
@@ -152,6 +163,14 @@ func (b *ServiceBuilder) BuildService(machine *matclient.MachineStatus, machineT
 		},
 	}
 
+	// Set owner reference to the machine-a-tron Deployment this service routes to.
+	// Uses podName as key (empty string for single-pod mode).
+	if b.OwnerRefs != nil {
+		if ownerRef, ok := b.OwnerRefs[podName]; ok {
+			svc.OwnerReferences = []metav1.OwnerReference{ownerRef}
+		}
+	}
+
 	// Set ClusterIP to BMC IP for direct addressing
 	if machine.BMC.IP != nil {
 		svc.Spec.ClusterIP = *machine.BMC.IP
@@ -198,12 +217,17 @@ func ComputeServiceDiff(desired []*corev1.Service, existing []*corev1.Service) S
 	}
 
 	desiredMap := make(map[string]*corev1.Service)
+	deduped := make([]*corev1.Service, 0, len(desired))
 	for _, svc := range desired {
+		if _, exists := desiredMap[svc.Name]; exists {
+			continue
+		}
 		desiredMap[svc.Name] = svc
+		deduped = append(deduped, svc)
 	}
 
 	// Find services to create or update
-	for _, svc := range desired {
+	for _, svc := range deduped {
 		existingSvc, exists := existingMap[svc.Name]
 		if !exists {
 			diff.Create = append(diff.Create, svc)
@@ -219,6 +243,7 @@ func ComputeServiceDiff(desired []*corev1.Service, existing []*corev1.Service) S
 				if svc.Spec.ClusterIP == "" {
 					svc.Spec.ClusterIP = existingSvc.Spec.ClusterIP
 				}
+				preserveForeignMetadata(svc, existingSvc)
 				diff.Update = append(diff.Update, svc)
 			}
 		}
@@ -266,23 +291,31 @@ func needsUpdate(desired, existing *corev1.Service) bool {
 		}
 	}
 
-	// Check labels
-	if len(desired.Labels) != len(existing.Labels) {
-		return true
-	}
+	// Check labels owned by this controller, preserving foreign labels.
 	for k, v := range desired.Labels {
 		if existing.Labels[k] != v {
 			return true
 		}
 	}
-
-	// Check annotations
-	if len(desired.Annotations) != len(existing.Annotations) {
-		return true
+	for k := range existing.Labels {
+		if isControllerLabel(k) {
+			if _, exists := desired.Labels[k]; !exists {
+				return true
+			}
+		}
 	}
+
+	// Check annotations owned by this controller, preserving foreign annotations.
 	for k, v := range desired.Annotations {
 		if existing.Annotations[k] != v {
 			return true
+		}
+	}
+	for k := range existing.Annotations {
+		if isControllerAnnotation(k) {
+			if _, exists := desired.Annotations[k]; !exists {
+				return true
+			}
 		}
 	}
 
@@ -292,7 +325,60 @@ func needsUpdate(desired, existing *corev1.Service) bool {
 		return true
 	}
 
+	// Check OwnerReferences - ensures services get properly owned by the machine-a-tron Deployment
+	if len(desired.OwnerReferences) != len(existing.OwnerReferences) {
+		return true
+	}
+	for i, ref := range desired.OwnerReferences {
+		if i >= len(existing.OwnerReferences) {
+			return true
+		}
+		existingRef := existing.OwnerReferences[i]
+		if ref.APIVersion != existingRef.APIVersion ||
+			ref.Kind != existingRef.Kind ||
+			ref.Name != existingRef.Name ||
+			ref.UID != existingRef.UID {
+			return true
+		}
+	}
+
 	return false
+}
+
+func preserveForeignMetadata(desired, existing *corev1.Service) {
+	desired.Labels = mergeMetadata(existing.Labels, desired.Labels, isControllerLabel)
+	desired.Annotations = mergeMetadata(existing.Annotations, desired.Annotations, isControllerAnnotation)
+}
+
+func mergeMetadata(existing, desired map[string]string, isControllerKey func(string) bool) map[string]string {
+	merged := make(map[string]string, len(existing)+len(desired))
+	for k, v := range existing {
+		if !isControllerKey(k) {
+			merged[k] = v
+		}
+	}
+	for k, v := range desired {
+		merged[k] = v
+	}
+	return merged
+}
+
+func isControllerLabel(k string) bool {
+	switch k {
+	case LabelManagedBy, LabelPodName, LabelMatID, LabelMachineID, LabelMachineType, LabelParentMatID:
+		return true
+	default:
+		return false
+	}
+}
+
+func isControllerAnnotation(k string) bool {
+	switch k {
+	case AnnotationBMCIP, AnnotationAPIState, AnnotationPowerState, AnnotationHardwareType, AnnotationRedfishListenPort, AnnotationIPMIListenPort:
+		return true
+	default:
+		return false
+	}
 }
 
 // K8sServiceClient defines the interface for Kubernetes service operations.
@@ -312,31 +398,54 @@ type ReconcileResult struct {
 	Errors    []error
 }
 
+// Discovery is an interface for discovering machine-a-tron instances.
+type Discovery interface {
+	Discover(ctx context.Context) ([]DiscoveredInstance, error)
+}
+
+// StatusFetcher fetches machine status from a machine-a-tron instance.
+// Used for testing; production code uses matclient.Client.
+type StatusFetcher interface {
+	GetMachinesStatus(ctx context.Context) (*matclient.MachinesStatusResponse, error)
+}
+
+// StatusFetcherFunc is a function type for creating StatusFetchers per URL.
+type StatusFetcherFunc func(url string) (StatusFetcher, error)
+
 // Reconciler reconciles Kubernetes Services with machine-a-tron machine status.
 type Reconciler struct {
-	discovery      *MatPodDiscovery
-	serviceBuilder *ServiceBuilder
-	k8sClient      K8sServiceClient
-	clientOpts     []matclient.Option
-	logger         zerolog.Logger
-	concurrency    int
+	discovery        Discovery
+	serviceBuilder   *ServiceBuilder
+	k8sClient        K8sServiceClient
+	deploymentClient DeploymentClient
+	clientOpts       []matclient.Option
+	statusFetcher    StatusFetcherFunc // Optional, for testing. If nil, uses matclient.
+	logger           zerolog.Logger
+	concurrency      int
+}
+
+// DeploymentClient is an interface for fetching Deployments.
+type DeploymentClient interface {
+	Get(ctx context.Context, namespace, name string) (*metav1.OwnerReference, error)
 }
 
 // NewReconciler creates a new Reconciler.
 func NewReconciler(
-	discovery *MatPodDiscovery,
+	discovery Discovery,
 	serviceBuilder *ServiceBuilder,
 	k8sClient K8sServiceClient,
+	deploymentClient DeploymentClient,
 	clientOpts []matclient.Option,
 	logger zerolog.Logger,
 ) *Reconciler {
 	return &Reconciler{
-		discovery:      discovery,
-		serviceBuilder: serviceBuilder,
-		k8sClient:      k8sClient,
-		clientOpts:     clientOpts,
-		logger:         logger,
-		concurrency:    DefaultConcurrency,
+		discovery:        discovery,
+		serviceBuilder:   serviceBuilder,
+		k8sClient:        k8sClient,
+		deploymentClient: deploymentClient,
+		clientOpts:       clientOpts,
+		logger:           logger,
+		concurrency:      DefaultConcurrency,
 	}
 }
 
@@ -367,12 +476,44 @@ func (r *Reconciler) Reconcile(ctx context.Context) ReconcileResult {
 		Int("count", len(instances)).
 		Msg("discovered machine-a-tron instances")
 
+	// Look up owner references for each discovered machine-a-tron Deployment.
+	// Service name is "<deployment>-bmc-mock", so Deployment name is Service name minus "-bmc-mock".
+	// For single-pod mode (no pod-name label), we use empty string as the key.
+	if r.deploymentClient != nil {
+		r.serviceBuilder.OwnerRefs = make(map[string]metav1.OwnerReference)
+		for _, instance := range instances {
+			// Derive Deployment name from Service name (strip "-bmc-mock" suffix)
+			deployName := strings.TrimSuffix(instance.ServiceName, "-bmc-mock")
+			ownerRef, err := r.deploymentClient.Get(ctx, r.serviceBuilder.Namespace, deployName)
+			if err != nil {
+				r.logger.Warn().Err(err).
+					Str("deployment", deployName).
+					Str("pod", instance.PodName).
+					Msg("failed to fetch owner Deployment, Services will not have owner reference")
+			} else if ownerRef != nil {
+				// Use PodName as key (empty string for single-pod mode)
+				r.serviceBuilder.OwnerRefs[instance.PodName] = *ownerRef
+				r.logger.Debug().
+					Str("deployment", deployName).
+					Str("pod", instance.PodName).
+					Msg("using owner reference for garbage collection")
+			}
+		}
+	}
+
 	// Collect all desired services from all instances
 	var allDesired []*corev1.Service
 	fetchFailed := false
 
 	for _, instance := range instances {
-		client, err := matclient.NewClient(instance.URL, r.clientOpts...)
+		var fetcher StatusFetcher
+		var err error
+
+		if r.statusFetcher != nil {
+			fetcher, err = r.statusFetcher(instance.URL)
+		} else {
+			fetcher, err = matclient.NewClient(instance.URL, r.clientOpts...)
+		}
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("creating client for %s: %w", instance.URL, err))
 			fetchFailed = true
@@ -383,7 +524,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) ReconcileResult {
 			Str("url", instance.URL).
 			Msg("fetching machine status")
 
-		status, err := client.GetMachinesStatus(ctx)
+		status, err := fetcher.GetMachinesStatus(ctx)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Errorf("fetching status from %s: %w", instance.URL, err))
 			fetchFailed = true
@@ -493,6 +634,7 @@ func (r *Reconciler) processDeletesConcurrently(ctx context.Context, names []str
 func (r *Reconciler) processRecreatesConcurrently(ctx context.Context, services []*corev1.Service, result *ReconcileResult) int {
 	var recreated int64
 	var wg sync.WaitGroup
+	var errMu sync.Mutex
 	sem := make(chan struct{}, r.concurrency)
 
 	for i, svc := range services {
@@ -512,12 +654,18 @@ func (r *Reconciler) processRecreatesConcurrently(ctx context.Context, services 
 
 			if err := r.k8sClient.Delete(ctx, r.serviceBuilder.Namespace, svc.Name); err != nil {
 				r.logger.Error().Err(err).Str("service", svc.Name).Msg("failed to delete service for recreate")
+				errMu.Lock()
+				result.Errors = append(result.Errors, fmt.Errorf("deleting service %s for recreate: %w", svc.Name, err))
+				errMu.Unlock()
 				return
 			}
 			// Clear ResourceVersion for create
 			svc.ResourceVersion = ""
 			if err := r.k8sClient.Create(ctx, svc); err != nil {
 				r.logger.Error().Err(err).Str("service", svc.Name).Msg("failed to create service after delete")
+				errMu.Lock()
+				result.Errors = append(result.Errors, fmt.Errorf("creating service %s after recreate delete: %w", svc.Name, err))
+				errMu.Unlock()
 			} else {
 				atomic.AddInt64(&recreated, 1)
 			}
