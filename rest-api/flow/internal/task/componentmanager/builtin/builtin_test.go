@@ -83,14 +83,14 @@ func (c testServiceProviderConfig) NewProvider(context.Context) (providerapi.Pro
 func TestDefaultServiceComponentManagers(t *testing.T) {
 	componentManagers := defaultServiceComponentManagers()
 
-	assert.Equal(t, computenicolegacy.ImplementationName, componentManagers[devicetypes.ComponentTypeCompute])
+	assert.Equal(t, computenico.ImplementationName, componentManagers[devicetypes.ComponentTypeCompute])
 	assert.Equal(t, nvswitchnico.ImplementationName, componentManagers[devicetypes.ComponentTypeNVSwitch])
 	assert.Equal(t, powershelfnico.ImplementationName, componentManagers[devicetypes.ComponentTypePowerShelf])
 
 	componentManagers[devicetypes.ComponentTypeCompute] = "mutated"
 	assert.Equal(
 		t,
-		computenicolegacy.ImplementationName,
+		computenico.ImplementationName,
 		defaultServiceComponentManagers()[devicetypes.ComponentTypeCompute],
 	)
 }
@@ -110,13 +110,10 @@ func TestLoadConfigUsesDefaultsWithoutPath(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, nicoprovider.DefaultTimeout, nicoConfig.Timeout)
 
-	computeConfig, ok := config.ManagerConfigs[computenicolegacy.Descriptor().Identity()].(*computenicolegacy.Config)
-	require.True(t, ok)
-	assert.Equal(
-		t,
-		computenicolegacy.DefaultComputePowerDelay,
-		computeConfig.ComputePowerDelay,
-	)
+	// compute/nico has no manager-specific config decoder; nicolegacy's
+	// manager config is only completed when that implementation is selected.
+	_, hasLegacyComputeConfig := config.ManagerConfigs[computenicolegacy.Descriptor().Identity()]
+	assert.False(t, hasLegacyComputeConfig)
 }
 
 func TestLoadConfigUsesAuthoritativeFile(t *testing.T) {
