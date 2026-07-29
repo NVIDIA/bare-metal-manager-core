@@ -109,6 +109,17 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 15, ipu)
 	assert.NotNil(t, alc1)
 
+	// Use dedicated allocation inventory for VPC-selection coverage so the
+	// request cannot consume capacity needed by unrelated table cases.
+	istVpcSelection := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-vpc-selection", st1, cdbm.InstanceStatusReady)
+	assert.NotNil(t, istVpcSelection)
+	alcVpcSelection := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, istVpcSelection.ID, cdbm.AllocationConstraintTypeReserved, 2, ipu)
+	assert.NotNil(t, alcVpcSelection)
+	for i := 0; i < 2; i++ {
+		mc := testBatchBuildMachineWithNVLinkDomain(t, dbSession, ip.ID, st1.ID, "nvlink-domain-vpc-selection")
+		testInstanceBuildMachineInstanceType(t, dbSession, mc, istVpcSelection)
+	}
+
 	// Create 15 machines for ist1 (all on same NVLink domain for topology optimization test)
 	for i := 0; i < 15; i++ {
 		mc := testBatchBuildMachineWithNVLinkDomain(t, dbSession, ip.ID, st1.ID, "nvlink-domain-1")
@@ -275,11 +286,11 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                    string
-		fields                  fields
-		args                    args
-		expectedSecondaryVpcIDs []string
-		wantErr                 bool
+		name                     string
+		fields                   fields
+		args                     args
+		expectedControllerVpcIDs map[string]uuid.UUID
+		wantErr                  bool
 	}{
 		{
 			name: "test batch instance create API endpoint succeeds with valid request",
@@ -302,6 +313,45 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 				reqOrg:   tnOrg,
 				reqUser:  tnu1,
 				respCode: http.StatusCreated,
+			},
+			wantErr: false,
+		},
+		{
+			name: "test batch instance create API endpoint preserves VPC selection intent",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIBatchInstanceCreateRequest{
+					NamePrefix:      "test-batch-vpc-selection",
+					Count:           2,
+					TenantID:        tn1.ID.String(),
+					InstanceTypeID:  istVpcSelection.ID.String(),
+					VpcID:           vpcFNN.ID.String(),
+					SecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
+					IpxeScript:      cutil.GetPtr("test script"),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							VpcID:      cutil.GetPtr(vpcFNN.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+							IsPhysical: true,
+						},
+						{
+							VpcID:      cutil.GetPtr(vpcFNNSecondary.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+						},
+					},
+				},
+				reqOrg:   tnOrg,
+				reqUser:  tnu1,
+				respCode: http.StatusCreated,
+			},
+			expectedControllerVpcIDs: map[string]uuid.UUID{
+				vpcFNN.ID.String():          *vpcFNN.ControllerVpcID,
+				vpcFNNSecondary.ID.String(): *vpcFNNSecondary.ControllerVpcID,
 			},
 			wantErr: false,
 		},
@@ -466,8 +516,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 				reqUser:  tnu1,
 				respCode: http.StatusCreated,
 			},
-			expectedSecondaryVpcIDs: []string{vpcFNNSecondary.ID.String()},
-			wantErr:                 false,
+			wantErr: false,
 		},
 		{
 			name: "test batch instance create API endpoint fails when requested secondary VPCs do not match interface VPCs",
@@ -574,7 +623,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "test batch instance create API endpoint fails when primary physical interface uses a prefix from a secondary VPC without device info",
+			name: "test batch instance create API endpoint preserves prefix response for mixed selectors without device info",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -594,6 +643,10 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 						{
 							VpcPrefixID: cutil.GetPtr(vpcPrefixSecondary.ID.String()),
 							IsPhysical:  true,
+						},
+						{
+							VpcID:      cutil.GetPtr(vpcFNN.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
 						},
 					},
 				},
@@ -1322,10 +1375,30 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 						expectedSuffix := fmt.Sprintf("-%d", i+1)
 						assert.True(t, strings.HasPrefix(inst.Name, expectedPrefix), "Instance %d name should start with %s, got %s", i, expectedPrefix, inst.Name)
 						assert.True(t, strings.HasSuffix(inst.Name, expectedSuffix), "Instance %d name should end with %s, got %s", i, expectedSuffix, inst.Name)
-						if tt.expectedSecondaryVpcIDs != nil {
-							assert.ElementsMatch(t, tt.expectedSecondaryVpcIDs, inst.SecondaryVpcIDs)
-						} else {
-							assert.Empty(t, inst.SecondaryVpcIDs)
+						assert.ElementsMatch(t, tt.args.reqData.SecondaryVpcIDs, inst.SecondaryVpcIDs)
+
+						if len(tt.expectedControllerVpcIDs) > 0 {
+							require.Len(t, inst.Interfaces, len(tt.args.reqData.Interfaces))
+							for j, reqIfc := range tt.args.reqData.Interfaces {
+								assert.Equal(t, reqIfc.VpcID, inst.Interfaces[j].VpcID)
+								assert.Equal(t, reqIfc.IPFamilies, inst.Interfaces[j].IPFamilies)
+								assert.Nil(t, inst.Interfaces[j].VpcPrefixID)
+							}
+
+							ifcDAO := cdbm.NewInterfaceDAO(dbSession)
+							dbIfcs, _, ierr := ifcDAO.GetAll(ec.Request().Context(), nil,
+								cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{uuid.MustParse(inst.ID)}},
+								cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}},
+								nil)
+							require.NoError(t, ierr)
+							require.Len(t, dbIfcs, len(tt.args.reqData.Interfaces))
+							for j, reqIfc := range tt.args.reqData.Interfaces {
+								require.NotNil(t, dbIfcs[j].VpcID)
+								assert.Equal(t, *reqIfc.VpcID, dbIfcs[j].VpcID.String())
+								require.NotNil(t, dbIfcs[j].VpcIPFamilyMode)
+								assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *dbIfcs[j].VpcIPFamilyMode)
+								assert.Nil(t, dbIfcs[j].VpcPrefixID)
+							}
 						}
 
 						if hasInlineRoutingProfile {
@@ -1353,7 +1426,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 						}
 					}
 
-					if hasInlineRoutingProfile {
+					if hasInlineRoutingProfile || len(tt.expectedControllerVpcIDs) > 0 {
 						var batchReq *corev1.BatchInstanceAllocationRequest
 						for i := len(tsc.Calls) - 1; i >= 0; i-- {
 							call := tsc.Calls[i]
@@ -1369,6 +1442,11 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 							for j, reqIfc := range tt.args.reqData.Interfaces {
 								if reqIfc.InlineRoutingProfile != nil {
 									assertInterfaceRoutingProfilePrefixes(t, instReq.Config.Network.Interfaces[j].RoutingProfile, reqIfc.InlineRoutingProfile.AllowedAnycastPrefixes)
+								}
+								if reqIfc.VpcID != nil {
+									expectedControllerVpcID, ok := tt.expectedControllerVpcIDs[*reqIfc.VpcID]
+									require.True(t, ok)
+									assertInterfaceVpcSelection(t, instReq.Config.Network.Interfaces[j], expectedControllerVpcID)
 								}
 							}
 						}

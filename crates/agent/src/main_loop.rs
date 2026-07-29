@@ -556,6 +556,10 @@ impl CurrentNetworkVersion {
         conf.deprecated_deny_prefixes.hash(h);
         conf.dhcp_servers.hash(h);
         conf.internet_l3_vni.hash(h);
+        // `managed_host_config_version` normally follows machine-group updates,
+        // but that relies on the DPU already being attached to its host. Hash
+        // the nested config so a missed fan-out cannot hide a DPU-specific change.
+        conf.managed_host_config.hash(h);
         conf.network_security_policy_overrides.hash(h);
         conf.ntp_servers.hash(h);
         conf.remote_id.hash(h);
@@ -1637,6 +1641,42 @@ ATF: v2.2(release):4.9.3-")
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_current_network_version_hashes_nested_managed_host_config() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(run = |managed_host_config| {
+            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
+                managed_host_config: Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                }),
+                managed_host_config_version: "managed-v1".to_string(),
+                instance_network_config_version: "instance-v1".to_string(),
+                ..Default::default()
+            });
+            let mut current = CurrentNetworkVersion::default();
+            current.update_from(&conf);
+            Arc::get_mut(&mut conf).unwrap().managed_host_config = managed_host_config;
+            current.matches_versions_from(&conf)
+        };
+            "nested config changes invalidate the cache" {
+                Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.2".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                }) => false,
+                Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("2001:db8::1".to_string()),
+                    quarantine_state: None,
+                }) => false,
+                None => false,
+            }
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[tokio::test]

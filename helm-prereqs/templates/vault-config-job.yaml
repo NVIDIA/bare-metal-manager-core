@@ -263,6 +263,12 @@ spec:
               path "{{ .Values.vault.kvMount }}/destroy/switch_nvos/*" {
                 capabilities = ["update"]
               }
+              path "{{ .Values.vault.kvMount }}/data/racks/+/maintenance/access-token" {
+                capabilities = ["create", "update", "read"]
+              }
+              path "{{ .Values.vault.kvMount }}/metadata/racks/+/maintenance/access-token" {
+                capabilities = ["delete", "read"]
+              }
               POLICY
 
               # ---- K8s auth role for cert-manager ----
@@ -277,8 +283,9 @@ spec:
               # ---- K8s auth role for nico-api ----
               # nico-api authenticates to in-cluster Vault via its SA JWT
               # (vault SDK auto-detects /var/run/secrets/kubernetes.io/serviceaccount/token)
-              # and manages machine credentials in the KV mount (nico-vault-policy
-              # grants read/list plus scoped writes for machine, UFM, and NMXM secrets).
+              # and manages credentials in the KV mount (nico-vault-policy grants
+              # read/list everywhere plus scoped writes under each credential prefix
+              # nico-api owns; see CredentialPrefix in crates/secrets).
               echo "Creating K8s auth role for nico-api..."
               vault write auth/kubernetes/role/{{ .Values.vault.nicoApiK8sAuth.serviceAccountName }} \
                 bound_service_account_names={{ .Values.vault.nicoApiK8sAuth.serviceAccountName }} \

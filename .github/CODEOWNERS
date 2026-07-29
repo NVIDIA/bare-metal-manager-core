@@ -11,11 +11,11 @@
 /.github/CODEOWNERS @NVIDIA/carbide-sw-admins
 
 # CI/CD related files
-/.github/ @NVIDIA/dsx-sw-cicd @lauragra-y
+/.github/ @NVIDIA/dsx-sw-cicd
 
 # Helm charts
 /helm/ @NVIDIA/dsx-sw-helm
-/helm-prereqs/ @NVIDIA/dsx-sw-helm @shayan1995
+/helm-prereqs/ @NVIDIA/dsx-sw-helm
 
 # Documentation (To be re-enabled once as have a doc reviewer)
 #/docs/ @CoCo-Ben

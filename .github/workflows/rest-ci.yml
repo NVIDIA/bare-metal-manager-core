@@ -134,6 +134,7 @@ jobs:
       is_main_branch: ${{ needs.prepare.outputs.is_main_branch }}
       push_enabled: ${{ github.event_name != 'workflow_dispatch' && !contains(github.ref, 'pull-request/') }}
       release_tag: ${{ needs.prepare.outputs.release_tag }}
+      helm_version: ${{ needs.prepare.outputs.helm_version }}
     secrets:
       NVCR_USERNAME: ${{ secrets.NVCR_USERNAME }}
       NVCR_TOKEN: ${{ secrets.NVCR_TOKEN }}

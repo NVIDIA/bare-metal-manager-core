@@ -855,6 +855,10 @@ mod tests {
             "NVUE leakage" {
                 ReportSource::NvueLeakage => "nvue-leakage",
             }
+
+            "GPU inventory" {
+                ReportSource::GpuInventory => "gpu-inventory",
+            }
         );
     }
 
@@ -893,6 +897,17 @@ mod tests {
                 Probe::NvueLeakage => ProbeSummary {
                     as_str: "NvueLeakage",
                     health_report_id: "NvueLeakage".to_string(),
+                },
+            }
+
+            // GpuInventory is the one probe whose id is not just its own name -- it
+            // deliberately reuses "SkuValidation" so out-of-band GPU-count alerts dedup
+            // against the machine-controller's in-band SKU alerts. That makes it the row
+            // most worth pinning, and it was the only one missing.
+            "GPU inventory reuses the SkuValidation probe id" {
+                Probe::GpuInventory => ProbeSummary {
+                    as_str: "SkuValidation",
+                    health_report_id: "SkuValidation".to_string(),
                 },
             }
         );

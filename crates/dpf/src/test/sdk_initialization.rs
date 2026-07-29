@@ -339,7 +339,7 @@ impl K8sConfigRepository for InitializationMock {
     ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
         Ok(self.secrets.get(&ns_key(ns, name)).map(|r| r.clone()))
     }
-    async fn create_secret(
+    async fn apply_secret(
         &self,
         name: &str,
         ns: &str,
@@ -479,7 +479,7 @@ async fn service_versions_fail_when_referenced_template_is_missing() {
         TEST_NS,
         &[],
         BTreeMap::new(),
-        "",
+        crate::types::DpuDeploymentType::Bf3,
     );
     DpuDeploymentRepository::apply(&mock, &deployment)
         .await

@@ -150,12 +150,13 @@ mod tests {
     use crate::test_support::axum_http_client::AxumRouterHttpClient;
     use crate::test_support::{NoopCallbacks, TEST_MAC_POOL};
     use crate::{
-        DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo, MachineInfo, machine_router,
+        DpuMachineInfo, DpuSettings, HardwareType, HostMachineInfo, MachineInfo,
+        MachineRouterOptions, machine_router,
     };
 
     fn test_host_mock() -> Router {
         let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
-        let hw_type = HostHardwareType::DellPowerEdgeR750;
+        let hw_type = HardwareType::DellPowerEdgeR750;
         let ranges_config = mac_pool.allocate_range_config().unwrap();
 
         machine_router(
@@ -172,6 +173,7 @@ mod tests {
             Arc::new(NoopCallbacks),
             "test-host-id".to_string(),
             false,
+            MachineRouterOptions::default(),
         )
         .0
     }

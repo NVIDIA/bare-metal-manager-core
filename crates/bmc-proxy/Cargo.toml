@@ -39,6 +39,7 @@ logfmt = { path = "../logfmt" }
 metrics-endpoint = { path = "../metrics-endpoint" }
 carbide-utils = { path = "../utils" }
 trace-propagation = { path = "../trace-propagation" }
+libc = { workspace = true }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized

@@ -21,17 +21,21 @@ use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Stdio;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use nix::sys::stat::Mode;
+use nix::unistd::mkfifo;
 use tempfile::TempDir;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::unix::pipe;
 use tokio::net::{TcpListener as TokioTcpListener, TcpStream};
 use tokio::task::JoinHandle;
 
-use crate::BmcState;
 use crate::redfish::account_service::PasswordUpdater;
 use crate::redfish::manager::ManagerState;
+use crate::{BmcState, Callbacks, SystemPowerControl};
 
 const START_ATTEMPTS: usize = 5;
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -39,6 +43,7 @@ const READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PASSWORD_UPDATE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STANDARD_IPMI_PORT: u16 = 623;
 const IPMI_SIM_EXECUTABLE: &str = "ipmi_sim";
+const CHASSIS_CONTROL_FIFO: &str = "chassis-control.fifo";
 
 #[derive(Debug, Clone)]
 pub struct IpmiSimConfig {
@@ -67,6 +72,7 @@ impl IpmiEndpoint {
 
 pub struct IpmiSimHandle {
     child: tokio::process::Child,
+    _chassis_control: ChassisControl,
     _temp_dir: TempDir,
     _console: MockConsole,
     manager: Arc<ManagerState>,
@@ -98,6 +104,8 @@ pub enum Error {
     ExecutableUnavailable { executable: &'static str },
     #[error("the BMC mock has no administrative account")]
     MissingAdministrativeAccount,
+    #[error("the BMC mock has no power-control callback")]
+    MissingPowerControlCallback,
     #[error("the IPMI simulator {0} contains unsupported characters")]
     UnsupportedCredentialCharacters(&'static str),
     #[error("failed to prepare IPMI simulator: {0}")]
@@ -172,6 +180,11 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
     std::fs::set_permissions(temp_dir.path(), std::fs::Permissions::from_mode(0o700))?;
 
     let console = MockConsole::start(config.console_prompt.clone()).await?;
+    let callbacks = state
+        .callbacks
+        .clone()
+        .ok_or(Error::MissingPowerControlCallback)?;
+    let chassis_control = ChassisControl::start(temp_dir.path(), callbacks)?;
     let mut last_error = None;
 
     for attempt in 1..=START_ATTEMPTS {
@@ -234,6 +247,7 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
                     .set_ipmi_endpoint(Some(endpoint.reachable_port));
                 return Ok(IpmiSimHandle {
                     child,
+                    _chassis_control: chassis_control,
                     _temp_dir: temp_dir,
                     _console: console,
                     manager: state.manager.clone(),
@@ -257,6 +271,76 @@ pub async fn start(state: &BmcState, config: IpmiSimConfig) -> Result<IpmiSimHan
     Err(Error::AttemptsExhausted(Box::new(
         last_error.expect("at least one startup attempt ran"),
     )))
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum ChassisControlEvent {
+    Reset,
+}
+
+impl FromStr for ChassisControlEvent {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "chassis-reset" => Ok(Self::Reset),
+            _ => Err(()),
+        }
+    }
+}
+
+struct ChassisControl {
+    task: JoinHandle<()>,
+    _keepalive_sender: pipe::Sender,
+}
+
+impl Drop for ChassisControl {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl ChassisControl {
+    fn start(base: &Path, callbacks: Arc<dyn Callbacks>) -> Result<Self, std::io::Error> {
+        let fifo_path = base.join(CHASSIS_CONTROL_FIFO);
+        mkfifo(&fifo_path, Mode::S_IRUSR | Mode::S_IWUSR).map_err(std::io::Error::from)?;
+        let receiver = pipe::OpenOptions::new().open_receiver(&fifo_path)?;
+        let keepalive_sender = pipe::OpenOptions::new().open_sender(fifo_path)?;
+        let mut lines = BufReader::new(receiver).lines();
+        let task = tokio::spawn(async move {
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => match line.parse::<ChassisControlEvent>() {
+                        Ok(ChassisControlEvent::Reset) => {
+                            if let Err(error) =
+                                callbacks.send_power_command(SystemPowerControl::ForceRestart)
+                            {
+                                tracing::warn!(
+                                    error = %error,
+                                    "Failed to deliver IPMI chassis reset",
+                                );
+                            }
+                        }
+                        Err(()) => {
+                            tracing::warn!(event = %line, "Ignoring unknown IPMI chassis event");
+                        }
+                    },
+                    Ok(None) => break,
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            "Stopped receiving IPMI chassis events",
+                        );
+                        break;
+                    }
+                }
+            }
+        });
+        Ok(Self {
+            task,
+            _keepalive_sender: keepalive_sender,
+        })
+    }
 }
 
 struct IpmiPasswordUpdater {
@@ -491,12 +575,57 @@ async fn serve_console(mut stream: TcpStream, prompt: &str) -> Result<(), std::i
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::os::unix::fs::PermissionsExt;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use tokio::sync::Notify;
 
     use super::{
-        Error, IPMI_SIM_EXECUTABLE, IpmiEndpoint, MockConsole, stable_guid, validate_credential,
-        validate_executable_in_path,
+        ChassisControlEvent, Error, IPMI_SIM_EXECUTABLE, IpmiEndpoint, IpmiSimConfig, MockConsole,
+        stable_guid, start, validate_credential, validate_executable_in_path,
     };
+    use crate::{Callbacks, MockPowerState, SetSystemPowerError, SystemPowerControl};
+
+    #[derive(Debug, Default)]
+    struct RecordingCallbacks {
+        commands: Mutex<Vec<SystemPowerControl>>,
+        command_received: Notify,
+    }
+
+    impl RecordingCallbacks {
+        async fn wait_for_command_count(&self, expected_count: usize) {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let command_received = self.command_received.notified();
+                    if self.commands.lock().unwrap().len() >= expected_count {
+                        return;
+                    }
+                    command_received.await;
+                }
+            })
+            .await
+            .expect("timed out waiting for chassis reset callback");
+        }
+    }
+
+    impl Callbacks for RecordingCallbacks {
+        fn get_power_state(&self) -> MockPowerState {
+            MockPowerState::On
+        }
+
+        fn send_power_command(
+            &self,
+            request: SystemPowerControl,
+        ) -> Result<(), SetSystemPowerError> {
+            self.commands.lock().unwrap().push(request);
+            self.command_received.notify_one();
+            Ok(())
+        }
+
+        fn state_refresh_indication(&self) {}
+    }
 
     #[test]
     fn endpoint_uses_configured_reachable_port_or_listen_port() {
@@ -564,6 +693,101 @@ mod tests {
         assert_eq!(stable_guid("machine-1"), stable_guid("machine-1"));
         assert_ne!(stable_guid("machine-1"), stable_guid("machine-2"));
         assert_eq!(stable_guid("machine-1").len(), 32);
+    }
+
+    #[test]
+    fn chassis_control_event_parsing() {
+        for (value, expected) in [
+            ("chassis-reset", Ok(ChassisControlEvent::Reset)),
+            ("", Err(())),
+            ("reset", Err(())),
+        ] {
+            assert_eq!(value.parse(), expected, "{value:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn starting_without_power_control_callback_fails() {
+        let bmc = crate::test_support::generic_supermicro_bmc().await;
+        let mut state = bmc.state;
+        state.callbacks = None;
+        state
+            .account_service_state
+            .change_factory_default_password("password");
+
+        let error = start(
+            &state,
+            IpmiSimConfig {
+                bind_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                reachable_port: None,
+                stable_id: "missing-callback".to_string(),
+                console_prompt: "root@bmc-mock # ".to_string(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, Error::MissingPowerControlCallback));
+    }
+
+    #[tokio::test]
+    async fn real_ipmitool_resets_chassis() {
+        let bmc = crate::test_support::generic_supermicro_bmc().await;
+        let mut state = bmc.state;
+        state
+            .account_service_state
+            .change_factory_default_password("password");
+        let callbacks = Arc::new(RecordingCallbacks::default());
+        state.callbacks = Some(callbacks.clone());
+        let simulator = start(
+            &state,
+            IpmiSimConfig {
+                bind_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                reachable_port: None,
+                stable_id: "chassis-reset".to_string(),
+                console_prompt: "root@bmc-mock # ".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let port = simulator.endpoint.listen_port.to_string();
+        let output = tokio::time::timeout(
+            Duration::from_secs(10),
+            tokio::process::Command::new("ipmitool")
+                .args([
+                    "-I",
+                    "lanplus",
+                    "-C",
+                    "3",
+                    "-H",
+                    "127.0.0.1",
+                    "-p",
+                    &port,
+                    "-U",
+                    "root",
+                    "-E",
+                    "chassis",
+                    "power",
+                    "reset",
+                ])
+                .env("IPMI_PASSWORD", "password")
+                .kill_on_drop(true)
+                .output(),
+        )
+        .await
+        .expect("ipmitool timed out")
+        .expect("failed to execute ipmitool");
+        assert!(
+            output.status.success(),
+            "ipmitool failed: {}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        callbacks.wait_for_command_count(1).await;
+
+        assert_eq!(
+            *callbacks.commands.lock().unwrap(),
+            vec![SystemPowerControl::ForceRestart]
+        );
     }
 
     #[test]

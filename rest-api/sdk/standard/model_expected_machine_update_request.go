@@ -38,7 +38,7 @@ type ExpectedMachineUpdateRequest struct {
 	SkuId NullableString `json:"skuId,omitempty"`
 	// Optional rack identifier for this component
 	RackId NullableString `json:"rackId,omitempty"`
-	// Optional BMC IP address (IPv4 or IPv6). A non-null address sets the value and pre-allocates a reserved IP for the BMC. An explicit null clears the value. In an individual update, omission preserves the current value. Empty strings are invalid.
+	// Optional BMC IP address (IPv4 or IPv6). A non-empty address sets the value and pre-allocates a reserved IP for the BMC. An empty string clears the value. Omission or null preserves the current value.
 	BmcIpAddress NullableString `json:"bmcIpAddress,omitempty"`
 	// Display name for this component
 	Name NullableString `json:"name,omitempty"`

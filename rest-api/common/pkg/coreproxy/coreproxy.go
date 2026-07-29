@@ -25,12 +25,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 )
 
-// WorkflowName is the Temporal workflow type registered by the site-agent and
-// started by the cloud REST API. It must match the workflow function name in
-// site-workflow/pkg/workflow (InvokeCoreGRPC).
-const WorkflowName = "InvokeCoreGRPC"
+const (
+	// WorkflowName is the Temporal workflow type registered by the site-agent
+	// and started by the cloud REST API. It must match the workflow function
+	// name in site-workflow/pkg/workflow (InvokeCoreGRPC).
+	WorkflowName = "InvokeCoreGRPC"
+
+	// ActivityStartToCloseTimeout bounds the on-site Core request before the
+	// workflow and REST caller time out.
+	ActivityStartToCloseTimeout = 40 * time.Second
+
+	// WorkflowExecutionTimeout leaves the REST caller time to observe and
+	// translate a terminal workflow result.
+	WorkflowExecutionTimeout = 45 * time.Second
+)
 
 // RedactedPlaceholder is the value substituted for a redacted secret field in
 // the Temporal-visible request JSON.

@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
 use carbide_instrument::{
-    Event, LabelValue, LogAt, MetricKind, Outcome, emit, initialize_counter_series,
+    Event, LabelValue, LogAt, MetricFamily, MetricKind, Outcome, emit, initialize_counter_series,
 };
 use carbide_test_support::value_scenarios;
 
@@ -684,4 +684,263 @@ fn event_identity_renders_through_logfmt() {
     );
     assert_eq!(rendered.matches("event_name=").count(), 1, "{rendered}");
     assert_eq!(rendered.matches("metric_name=").count(), 1, "{rendered}");
+}
+
+/// Two Events sharing one `MetricFamily` move a single instrument with a
+/// single label set, and each keeps its own level, message, and context.
+#[test]
+fn one_family_backs_two_events() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum FamilyStage {
+        Fetch,
+        Persist,
+    }
+
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_total",
+        kind = counter,
+        component = "matrix-test",
+        describe = "Number of matrix family test failures, by stage and outcome."
+    )]
+    struct MatrixFamily {
+        stage: FamilyStage,
+        outcome: Outcome,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_fetch_failed",
+        metric_family = MatrixFamily,
+        log = warn,
+        message = "matrix family fetch failed"
+    )]
+    struct FetchFailed {
+        #[label]
+        stage: FamilyStage,
+        #[label]
+        outcome: Outcome,
+        #[context]
+        url: String,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_persist_failed",
+        metric_family = MatrixFamily,
+        log = error,
+        message = "matrix family persist failed"
+    )]
+    struct PersistFailed {
+        #[label]
+        stage: FamilyStage,
+        #[label]
+        outcome: Outcome,
+        #[context]
+        machine: String,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(FetchFailed {
+            stage: FamilyStage::Fetch,
+            outcome: Outcome::Error,
+            url: "https://example.invalid".to_string(),
+        });
+        emit(PersistFailed {
+            stage: FamilyStage::Persist,
+            outcome: Outcome::Error,
+            machine: "machine-7".to_string(),
+        });
+    });
+
+    // The family supplies the metric identity to both Events.
+    assert_eq!(
+        <FetchFailed as Event>::METRIC_NAME,
+        Some("carbide_test_matrix_family_total")
+    );
+    assert_eq!(
+        <PersistFailed as Event>::METRIC_NAME,
+        <FetchFailed as Event>::METRIC_NAME
+    );
+    assert_eq!(<PersistFailed as Event>::COMPONENT, "matrix-test");
+    assert_eq!(
+        <PersistFailed as Event>::DESCRIBE,
+        <FetchFailed as Event>::DESCRIBE
+    );
+
+    // Each Event keeps its own log surface.
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].level, tracing::Level::WARN);
+    assert_eq!(logs[0].message, "matrix family fetch failed");
+    assert_eq!(logs[0].field("stage"), Some("fetch"));
+    assert_eq!(logs[0].field("url"), Some("https://example.invalid"));
+    assert_eq!(
+        logs[0].field("metric_name"),
+        Some("carbide_test_matrix_family_total")
+    );
+    assert_eq!(logs[1].level, tracing::Level::ERROR);
+    assert_eq!(logs[1].field("machine"), Some("machine-7"));
+
+    // One instrument, two label sets on the same family.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_family_total",
+            &[("stage", "fetch"), ("outcome", "error")],
+        ),
+        1.0
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_family_total",
+            &[("stage", "persist"), ("outcome", "error")],
+        ),
+        1.0
+    );
+}
+
+/// A histogram family converts its `#[observation]` through the unit the
+/// family's name declares, not one restated on the Event.
+#[test]
+fn a_histogram_family_converts_the_observation() {
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_duration_milliseconds",
+        kind = histogram,
+        component = "matrix-test",
+        describe = "Duration of matrix family test work, by stage."
+    )]
+    struct WorkDuration {
+        stage: Stage,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_work_finished",
+        metric_family = WorkDuration,
+        log = off
+    )]
+    struct WorkFinished {
+        #[label]
+        stage: Stage,
+        #[observation]
+        took: Duration,
+    }
+
+    assert_eq!(
+        <WorkFinished as Event>::METRIC,
+        MetricKind::Histogram { unit: "ms" }
+    );
+
+    let event = WorkFinished {
+        stage: Stage::Apply,
+        took: Duration::from_millis(250),
+    };
+    // 250ms recorded in the family's declared milliseconds, not seconds.
+    assert!((Event::observation(&event) - 250.0).abs() < f64::EPSILON);
+
+    let metrics = MetricsCapture::start();
+    emit(event);
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_family_duration_milliseconds"),
+        "the family's histogram is exported under its declared name"
+    );
+}
+
+/// A derived label is computed by the family from a label the Event supplies,
+/// so it lands on the metric without the Event -- or its call sites -- ever
+/// being able to pair the two contradictorily.
+#[test]
+fn a_derived_label_is_computed_by_the_family() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum DerivedStage {
+        Decode,
+        Publish,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum DerivedKind {
+        InvalidRequest,
+        Rpc,
+    }
+
+    impl From<DerivedStage> for DerivedKind {
+        fn from(stage: DerivedStage) -> Self {
+            match stage {
+                DerivedStage::Decode => DerivedKind::InvalidRequest,
+                DerivedStage::Publish => DerivedKind::Rpc,
+            }
+        }
+    }
+
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_derived_total",
+        kind = counter,
+        component = "matrix-test",
+        describe = "Number of matrix derived-label test failures, by stage and kind."
+    )]
+    #[derived(kind: DerivedKind, from = stage)]
+    struct DerivedFailures {
+        stage: DerivedStage,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_derived_failed",
+        metric_family = DerivedFailures,
+        log = warn,
+        message = "matrix derived failed"
+    )]
+    struct DerivedFailed {
+        #[label]
+        stage: DerivedStage,
+        #[context]
+        detail: String,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(DerivedFailed {
+            stage: DerivedStage::Publish,
+            detail: "upstream refused".to_string(),
+        });
+        emit(DerivedFailed {
+            stage: DerivedStage::Decode,
+            detail: "bad frame".to_string(),
+        });
+    });
+
+    // Each stage reaches the metric paired with the kind its `From` impl gives.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_derived_total",
+            &[("stage", "publish"), ("kind", "rpc")],
+        ),
+        1.0
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_derived_total",
+            &[("stage", "decode"), ("kind", "invalid_request")],
+        ),
+        1.0
+    );
+    // ...and the contradictory pairing has no series at all.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_derived_total",
+            &[("stage", "publish"), ("kind", "invalid_request")],
+        ),
+        0.0
+    );
+
+    // The Event never declares the derived label, so it is not a log field --
+    // its source is, and the mapping is the family's `From` impl.
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].field("stage"), Some("publish"));
+    assert_eq!(logs[0].field("kind"), None);
+    assert_eq!(logs[0].field("detail"), Some("upstream refused"));
 }

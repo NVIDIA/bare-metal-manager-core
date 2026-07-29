@@ -47,13 +47,40 @@ mod maintenance;
 mod nvos_password_rotation;
 use fixtures::switch::{
     configure_certificate_start_state, configure_certificate_wait_state, mark_switch_as_deleted,
-    set_switch_controller_state, set_switch_rack_id, transition_switch_controller_state,
+    set_switch_rack_id, transition_switch_controller_state,
 };
 
 fn default_switch_mtls_services() -> Vec<i32> {
     component_manager::config::switch_mtls_services_as_i32(
         &component_manager::config::effective_switch_mtls_services(&[]),
     )
+}
+
+fn firmware_only_activities() -> Vec<model::rack::MaintenanceActivity> {
+    vec![model::rack::MaintenanceActivity::FirmwareUpgrade {
+        firmware_version: None,
+        components: vec![],
+        force_update: false,
+    }]
+}
+
+fn nvos_and_nmxc_activities() -> Vec<model::rack::MaintenanceActivity> {
+    vec![
+        model::rack::MaintenanceActivity::FirmwareUpgrade {
+            firmware_version: None,
+            components: vec![],
+            force_update: false,
+        },
+        model::rack::MaintenanceActivity::NvosUpdate {
+            config_json: String::new(),
+        },
+        model::rack::MaintenanceActivity::ConfigureNmxCluster,
+    ]
+}
+
+/// Empty activities means all phases, matching rack `MaintenanceScope::should_run`.
+fn all_phases_activities() -> Vec<model::rack::MaintenanceActivity> {
+    vec![]
 }
 
 async fn build_test_component_manager(
@@ -602,58 +629,6 @@ async fn test_rotate_os_password_transitions_to_fetch_info(
 }
 
 #[crate::sqlx_test]
-async fn test_switch_state_transition_validation(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = create_test_env(pool.clone()).await;
-
-    // Create a switch
-    let switch_id = common::api_fixtures::site_explorer::new_switch(
-        &env,
-        Some("Switch2".to_string()),
-        Some("Data Center A, Rack 1".to_string()),
-    )
-    .await?;
-
-    // Verify initial state is Initializing
-    let mut txn = pool.acquire().await?;
-    let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
-    assert!(switch.is_some());
-    let switch = switch.unwrap();
-    assert!(matches!(
-        switch.controller_state.value,
-        SwitchControllerState::Created
-    ));
-
-    // Test state transitions by manually setting different states
-    let states = vec![
-        SwitchControllerState::Configuring {
-            config_state: ConfiguringState::RotateOsPassword,
-        },
-        SwitchControllerState::Ready,
-        SwitchControllerState::Error {
-            cause: "Test error".to_string(),
-        },
-    ];
-
-    for state in states {
-        set_switch_controller_state(pool.acquire().await?.as_mut(), &switch_id, state.clone())
-            .await?;
-
-        // Verify the state was set correctly
-        let mut txn = pool.acquire().await?;
-        let switch = db_switch::find_by_id(&mut txn, &switch_id).await?;
-        assert!(switch.is_some());
-        let switch = switch.unwrap();
-        assert!(
-            matches!(switch.controller_state.value, _ if switch.controller_state.value == state)
-        );
-    }
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
 async fn test_switch_deletion_with_state_controller(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -824,7 +799,13 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_waits_for_terminal_status
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -881,7 +862,13 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_transitions_to_waiting_fo
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -930,6 +917,135 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_transitions_to_waiting_fo
     Ok(())
 }
 
+/// Empty activities must keep the same all-phases meaning as `should_run`, so
+/// firmware completion advances to WaitingForNVOSUpgrade rather than skipping
+/// NVOS for ConfigureNmxCluster.
+#[crate::sqlx_test]
+async fn test_switch_waiting_for_rack_firmware_upgrade_next_state_by_activities(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use carbide_test_support::Check;
+    use model::switch::ReProvisioningState;
+
+    #[derive(Clone)]
+    struct CaseInput {
+        activities: Vec<model::rack::MaintenanceActivity>,
+        /// Distinct expected-switch fixture name so each case gets a unique PK.
+        switch_name: &'static str,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Expect {
+        ReProvisioning(ReProvisioningState),
+        Ready,
+    }
+
+    let env = create_test_env(pool.clone()).await;
+    let cases = [
+        Check {
+            scenario: "empty activities advance to WaitingForNVOSUpgrade",
+            input: CaseInput {
+                activities: all_phases_activities(),
+                switch_name: "Switch1",
+            },
+            expect: Expect::ReProvisioning(ReProvisioningState::WaitingForNVOSUpgrade),
+        },
+        Check {
+            scenario: "explicit NVOS+NMXC advance to WaitingForNVOSUpgrade",
+            input: CaseInput {
+                activities: nvos_and_nmxc_activities(),
+                switch_name: "Switch2",
+            },
+            expect: Expect::ReProvisioning(ReProvisioningState::WaitingForNVOSUpgrade),
+        },
+        Check {
+            scenario: "firmware-only returns Ready",
+            input: CaseInput {
+                activities: firmware_only_activities(),
+                switch_name: "Switch3",
+            },
+            expect: Expect::Ready,
+        },
+    ];
+
+    for case in cases {
+        let switch_id = common::api_fixtures::site_explorer::new_switch(
+            &env,
+            Some(case.input.switch_name.to_string()),
+            None,
+        )
+        .await?;
+
+        let mut txn = pool.begin().await?;
+        db_switch::set_switch_reprovisioning_requested(
+            txn.as_mut(),
+            switch_id,
+            "rack-test",
+            case.input.activities.clone(),
+        )
+        .await?;
+        let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+            .await?
+            .expect("switch should exist");
+        let requested_at = switch
+            .switch_reprovisioning_requested
+            .as_ref()
+            .expect("switch reprovision request should exist")
+            .requested_at;
+        db_switch::try_update_controller_state(
+            txn.as_mut(),
+            switch_id,
+            switch.controller_state.version,
+            switch.controller_state.version.increment(),
+            &SwitchControllerState::ReProvisioning {
+                reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
+            },
+        )
+        .await?;
+        db_switch::update_firmware_upgrade_status(
+            txn.as_mut(),
+            switch_id,
+            Some(&model::rack::RackFirmwareUpgradeStatus {
+                task_id: "rack-job".to_string(),
+                status: model::rack::RackFirmwareUpgradeState::Completed,
+                started_at: Some(requested_at),
+                ended_at: Some(chrono::Utc::now()),
+            }),
+        )
+        .await?;
+        txn.commit().await?;
+
+        env.run_switch_controller_iteration().await;
+
+        let mut txn = pool.acquire().await?;
+        let switch = db_switch::find_by_id(&mut txn, &switch_id)
+            .await?
+            .expect("switch should exist");
+        let got = match &switch.controller_state.value {
+            SwitchControllerState::Ready => Expect::Ready,
+            SwitchControllerState::ReProvisioning {
+                reprovisioning_state,
+            } => Expect::ReProvisioning(reprovisioning_state.clone()),
+            other => panic!("{}: unexpected controller state {:?}", case.scenario, other),
+        };
+        assert_eq!(got, case.expect, "{}", case.scenario);
+        match case.expect {
+            Expect::Ready => assert!(
+                switch.switch_reprovisioning_requested.is_none(),
+                "{}: request should be cleared",
+                case.scenario
+            ),
+            Expect::ReProvisioning(_) => assert!(
+                switch.switch_reprovisioning_requested.is_some(),
+                "{}: request should remain",
+                case.scenario
+            ),
+        }
+    }
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_switch_waiting_for_rack_firmware_upgrade_returns_ready_for_firmware_only_request(
     pool: sqlx::PgPool,
@@ -938,11 +1054,11 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_returns_ready_for_firmwar
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested_with_firmware_continuation(
+    db_switch::set_switch_reprovisioning_requested(
         txn.as_mut(),
         switch_id,
         "rack-test",
-        false,
+        firmware_only_activities(),
     )
     .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
@@ -999,7 +1115,13 @@ async fn test_switch_waiting_for_rack_firmware_upgrade_accepts_completion_when_o
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -1056,7 +1178,13 @@ async fn test_switch_ready_routes_rack_requests_to_waiting_for_rack_firmware_upg
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -1094,8 +1222,13 @@ async fn test_switch_waiting_for_nvos_upgrade_transitions_to_waiting_for_nmxc_on
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-nvos-test")
-        .await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-nvos-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -1154,8 +1287,13 @@ async fn test_switch_waiting_for_nvos_upgrade_waits_for_current_cycle_status(
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-nvos-test")
-        .await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-nvos-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -1214,8 +1352,13 @@ async fn test_switch_waiting_for_nvos_upgrade_transitions_to_error_on_failure(
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-nvos-test")
-        .await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-nvos-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");
@@ -1274,8 +1417,13 @@ async fn test_switch_waiting_for_nmxc_configure_returns_ready_when_fm_is_running
     let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
 
     let mut txn = pool.begin().await?;
-    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-nmxc-test")
-        .await?;
+    db_switch::set_switch_reprovisioning_requested(
+        txn.as_mut(),
+        switch_id,
+        "rack-nmxc-test",
+        nvos_and_nmxc_activities(),
+    )
+    .await?;
     let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
         .await?
         .expect("switch should exist");

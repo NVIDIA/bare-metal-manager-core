@@ -394,12 +394,15 @@ func TestUnwrapWorkflowError(t *testing.T) {
 	causeErr := errors.New("other error")
 	grpcPerm := status.Error(codes.PermissionDenied, "forbidden")
 	grpcInvalid := status.Error(codes.InvalidArgument, "Maximum Limit of Infiniband partitions had been reached")
+	grpcResourceExhausted := status.Error(codes.ResourceExhausted, "VPC prefix capacity exhausted")
+	wrappedResourceExhausted := swe.WrapErr(grpcResourceExhausted)
 
 	tests := []struct {
-		name     string
-		err      error
-		wantCode int
-		wantErr  error
+		name                     string
+		err                      error
+		wantCode                 int
+		wantErr                  error
+		wantApplicationErrorType string
 	}{
 		{
 			name:     "unwraps Temporal cause",
@@ -426,10 +429,23 @@ func TestUnwrapWorkflowError(t *testing.T) {
 			wantErr:  grpcInvalid,
 		},
 		{
+			name:     "maps gRPC resource exhausted",
+			err:      temporal.NewApplicationErrorWithCause("wrapper", "error", grpcResourceExhausted),
+			wantCode: http.StatusTooManyRequests,
+			wantErr:  grpcResourceExhausted,
+		},
+		{
 			name:     "maps non-gRPC error with collected invalid argument (nvbugs 5778658)",
 			err:      temporal.NewApplicationErrorWithCause("wrapper", swe.ErrTypeNICoInvalidArgument, causeErr),
 			wantCode: http.StatusBadRequest,
 			wantErr:  causeErr,
+		},
+		{
+			name:                     "maps wrapped gRPC resource exhausted",
+			err:                      wrappedResourceExhausted,
+			wantCode:                 http.StatusTooManyRequests,
+			wantErr:                  grpcResourceExhausted,
+			wantApplicationErrorType: swe.ErrTypeNICoResourceExhausted,
 		},
 		{
 			name:     "unwraps ApplicationError wrapped in generic error chain",
@@ -441,6 +457,13 @@ func TestUnwrapWorkflowError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantApplicationErrorType != "" {
+				var applicationErr *temporal.ApplicationError
+				require.ErrorAs(t, tt.err, &applicationErr)
+				assert.Equal(t, tt.wantApplicationErrorType, applicationErr.Type())
+				assert.True(t, applicationErr.NonRetryable())
+			}
+
 			code, gotErr := UnwrapWorkflowError(tt.err)
 			assert.Equal(t, tt.wantCode, code)
 			assert.Equal(t, tt.wantErr, gotErr)

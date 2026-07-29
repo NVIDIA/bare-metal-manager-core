@@ -3241,6 +3241,12 @@ request_timeout = "45s"
 
     #[test]
     fn test_nvue_config_explicit_disable() {
+        // nvue is already off by default (test_nvue_config_disabled_by_default), so
+        // merging a bare `enabled = false` over the defaults would pass even if the key
+        // were ignored outright. Populating `[collectors.nvue.rest]` is what makes this
+        // worth running -- on its own that turns nvue *on*
+        // (test_nvue_config_rest_only), so this pins the half that can actually break:
+        // an explicit `enabled = false` still wins over a populated sub-table.
         let toml_content = r#"
 [endpoint_sources.carbide_api]
 enabled = false
@@ -3250,6 +3256,9 @@ enabled = false
 
 [collectors.nvue]
 enabled = false
+
+[collectors.nvue.rest]
+poll_interval = "1m"
 "#;
 
         let config: Config = Figment::new()

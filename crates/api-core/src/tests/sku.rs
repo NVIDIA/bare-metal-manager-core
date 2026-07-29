@@ -150,7 +150,10 @@ pub mod tests {
           "storage": [
             {
               "model": "Dell Ent NVMe CM6 RI 1.92TB",
-              "count": 1
+              "count": 1,
+              "min_size_mb": 1800000,
+              "max_size_mb": 2000000,
+              "pci_patterns": ["/devices/pci0000:00/0000:64:00.0/nvme/nvme0/nvme0n1"]
             }
           ],
           "tpm":
@@ -430,6 +433,37 @@ pub mod tests {
                 expected_sku.id
             )
         );
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    pub async fn test_sku_create_duplicate_id_returns_already_exists(
+        pool: sqlx::PgPool,
+    ) -> Result<(), eyre::Error> {
+        use rpc::forge::SkuList;
+        use rpc::forge::forge_server::Forge;
+
+        let env = create_test_env(pool).await;
+        let sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let sku_id = sku.id.clone();
+        let mut conflicting_sku = sku.clone();
+        conflicting_sku.components.as_mut().unwrap().cpus[0].thread_count *= 2;
+
+        env.api
+            .create_sku(tonic::Request::new(SkuList { skus: vec![sku] }))
+            .await?;
+
+        let error = env
+            .api
+            .create_sku(tonic::Request::new(SkuList {
+                skus: vec![conflicting_sku],
+            }))
+            .await
+            .expect_err("Creating a SKU with a duplicate ID should fail");
+
+        assert_eq!(error.code(), tonic::Code::AlreadyExists);
+        assert_eq!(error.message(), format!("SKU already exists: {sku_id}"));
+
         Ok(())
     }
 

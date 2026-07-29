@@ -26,7 +26,9 @@
 
 use std::time::Duration;
 
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome};
+use carbide_instrument::{
+    DynamicLog, DynamicMessage, Event, LabelValue, LogAt, MetricFamily, Outcome,
+};
 use carbide_uuid::machine::MachineId;
 use rpc::forge_agent_control_response as fac;
 
@@ -248,51 +250,70 @@ pub(crate) enum ScoutMlxFailureKind {
     Rpc,
 }
 
-impl ScoutMlxFailureStage {
-    fn failure_kind(self) -> ScoutMlxFailureKind {
-        match self {
-            Self::Create | Self::Discover | Self::Initialize | Self::Execute => {
-                ScoutMlxFailureKind::Backend
+/// Every failure stage belongs to exactly one failure kind, so the family
+/// derives the `failure_kind` label from `failure_stage` through this
+/// conversion rather than letting a call site supply the pair.
+impl From<ScoutMlxFailureStage> for ScoutMlxFailureKind {
+    fn from(stage: ScoutMlxFailureStage) -> Self {
+        match stage {
+            ScoutMlxFailureStage::Create
+            | ScoutMlxFailureStage::Discover
+            | ScoutMlxFailureStage::Initialize
+            | ScoutMlxFailureStage::Execute => ScoutMlxFailureKind::Backend,
+            ScoutMlxFailureStage::Publish => ScoutMlxFailureKind::Rpc,
+            ScoutMlxFailureStage::Decode | ScoutMlxFailureStage::Validate => {
+                ScoutMlxFailureKind::InvalidRequest
             }
-            Self::Publish => ScoutMlxFailureKind::Rpc,
-            Self::Decode | Self::Validate => ScoutMlxFailureKind::InvalidRequest,
-            Self::Lookup => ScoutMlxFailureKind::NotFound,
-            Self::Serialize => ScoutMlxFailureKind::Serialization,
+            ScoutMlxFailureStage::Lookup => ScoutMlxFailureKind::NotFound,
+            ScoutMlxFailureStage::Serialize => ScoutMlxFailureKind::Serialization,
         }
     }
 }
 
+/// `ScoutMlxFailures` is the one metric behind every Scout MLX failure below:
+/// which operation failed, where it failed, and what class of failure it was.
+/// The Events that record it keep their own severity, wording, and diagnostic
+/// context, and the derive checks each one against the labels they supply.
+///
+/// `failure_kind` is not one of those: it follows from `failure_stage`, so the
+/// family computes it and no call site can pair the two contradictorily.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_scout_mlx_failures_total",
+    kind = counter,
+    component = "nico-scout",
+    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+)]
+#[derived(failure_kind: ScoutMlxFailureKind, from = failure_stage)]
+pub(crate) struct ScoutMlxFailures {
+    operation: ScoutMlxOperation,
+    failure_stage: ScoutMlxFailureStage,
+}
+
 // The operation, request, device, profile, registry, config, firmware, and
-// reconciliation families all feed `carbide_scout_mlx_failures_total`, but
-// their existing diagnostics need different context. Keep separate `Event`
-// structs so each log retains its fields without filling unrelated fields
-// with empty values.
+// reconciliation groups all record `ScoutMlxFailures`, but their existing
+// diagnostics need different context. Keep separate `Event` structs so each log
+// retains its fields without filling unrelated fields with empty values.
 //
-// Named constructors own each valid (`operation`, `failure_stage`) pair and
-// derive `failure_kind` from the stage. That makes contradictory metric
-// series unrepresentable at call sites. The dynamic log and message matches
-// still have generic fallbacks: `emit()` is diagnostic plumbing and must not
-// panic if a future constructor reaches a pair its matching table does not
-// know yet.
+// Named constructors still own each valid (`operation`, `failure_stage`) pair,
+// so a call site names the situation rather than assembling one. The dynamic
+// log and message matches keep generic fallbacks: `emit()` is diagnostic
+// plumbing and must not panic if a future constructor reaches a pair its
+// matching table does not know yet.
 
 /// An MLX failure whose existing diagnostic only carries an error.
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_operation_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = dynamic
 )]
 pub(crate) struct ScoutMlxOperationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     error: String,
 }
@@ -306,7 +327,6 @@ impl ScoutMlxOperationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             error,
         }
     }
@@ -463,20 +483,15 @@ impl DynamicMessage for ScoutMlxOperationFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_request_rejected",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = dynamic
 )]
 pub(crate) struct ScoutMlxRequestRejected {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
 }
 
 impl ScoutMlxRequestRejected {
@@ -485,7 +500,6 @@ impl ScoutMlxRequestRejected {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
         }
     }
 
@@ -527,20 +541,15 @@ impl DynamicMessage for ScoutMlxRequestRejected {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_device_operation_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = dynamic
 )]
 pub(crate) struct ScoutMlxDeviceOperationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -557,7 +566,6 @@ impl ScoutMlxDeviceOperationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             error,
         }
@@ -624,20 +632,15 @@ impl DynamicMessage for ScoutMlxDeviceOperationFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_profile_operation_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = dynamic
 )]
 pub(crate) struct ScoutMlxProfileOperationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -656,7 +659,6 @@ impl ScoutMlxProfileOperationFailed {
         Self {
             operation: ScoutMlxOperation::ProfileCompare,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             profile_name,
             error,
@@ -672,7 +674,6 @@ impl ScoutMlxProfileOperationFailed {
         Self {
             operation: ScoutMlxOperation::ProfileSync,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             profile_name,
             error,
@@ -701,20 +702,15 @@ impl DynamicMessage for ScoutMlxProfileOperationFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_registry_lookup_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = "[scout_stream::mlx_device] variable registry not found",
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = "[scout_stream::mlx_device] variable registry not found"
 )]
 pub(crate) struct ScoutMlxRegistryLookupFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     registry_name: String,
 }
@@ -725,7 +721,6 @@ impl ScoutMlxRegistryLookupFailed {
         Self {
             operation: ScoutMlxOperation::RegistryShow,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             registry_name,
         }
     }
@@ -735,20 +730,15 @@ impl ScoutMlxRegistryLookupFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_config_registry_lookup_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = warn,
-    metric = counter,
-    message = "[scout_stream::mlx_device] config registry not found",
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = "[scout_stream::mlx_device] config registry not found"
 )]
 pub(crate) struct ScoutMlxConfigRegistryLookupFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -761,7 +751,6 @@ impl ScoutMlxConfigRegistryLookupFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             registry_name,
         }
@@ -788,20 +777,15 @@ impl ScoutMlxConfigRegistryLookupFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_config_operation_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = dynamic
 )]
 pub(crate) struct ScoutMlxConfigOperationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device_id: String,
     #[context]
@@ -821,7 +805,6 @@ impl ScoutMlxConfigOperationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device_id,
             registry_name,
             error,
@@ -960,20 +943,15 @@ impl DynamicMessage for ScoutMlxConfigOperationFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_profile_reset_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = "mlxconfig reset failed",
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = "mlxconfig reset failed"
 )]
 pub(crate) struct ScoutMlxProfileResetFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -986,7 +964,6 @@ impl ScoutMlxProfileResetFailed {
         Self {
             operation: ScoutMlxOperation::ProfileReset,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             error,
         }
@@ -997,20 +974,15 @@ impl ScoutMlxProfileResetFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_profile_apply_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = "mlxconfig profile sync failed",
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = "mlxconfig profile sync failed"
 )]
 pub(crate) struct ScoutMlxProfileApplyFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -1025,7 +997,6 @@ impl ScoutMlxProfileApplyFailed {
         Self {
             operation: ScoutMlxOperation::ProfileApply,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             profile,
             error,
@@ -1037,20 +1008,15 @@ impl ScoutMlxProfileApplyFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_firmware_flasher_initialization_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = "failed to create FirmwareFlasher",
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = "failed to create FirmwareFlasher"
 )]
 pub(crate) struct ScoutMlxFirmwareFlasherInitializationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -1067,7 +1033,6 @@ impl ScoutMlxFirmwareFlasherInitializationFailed {
         Self {
             operation: ScoutMlxOperation::FirmwareFlash,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             part_number,
             psid,
@@ -1080,20 +1045,15 @@ impl ScoutMlxFirmwareFlasherInitializationFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_firmware_flash_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = error,
-    metric = counter,
-    message = "firmware flash failed",
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = "firmware flash failed"
 )]
 pub(crate) struct ScoutMlxFirmwareFlashFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     device: String,
     #[context]
@@ -1121,7 +1081,6 @@ impl ScoutMlxFirmwareFlashFailed {
         Self {
             operation: ScoutMlxOperation::FirmwareFlash,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             device,
             part_number,
             psid,
@@ -1136,20 +1095,15 @@ impl ScoutMlxFirmwareFlashFailed {
 #[derive(Event)]
 #[event(
     event_name = "scout_mlx_reconciliation_failed",
-    metric_name = "carbide_scout_mlx_failures_total",
-    component = "nico-scout",
+    metric_family = ScoutMlxFailures,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of Scout MLX observation, read, mutation, and recovery failures, by operation, failure stage, and failure kind."
+    message = dynamic
 )]
 pub(crate) struct ScoutMlxReconciliationFailed {
     #[label]
     operation: ScoutMlxOperation,
     #[label]
     failure_stage: ScoutMlxFailureStage,
-    #[label]
-    failure_kind: ScoutMlxFailureKind,
     #[context]
     pci_name: String,
     #[context]
@@ -1166,7 +1120,6 @@ impl ScoutMlxReconciliationFailed {
         Self {
             operation,
             failure_stage,
-            failure_kind: failure_stage.failure_kind(),
             pci_name,
             error,
         }
@@ -1486,7 +1439,7 @@ mod tests {
                     expect: ScoutMlxFailureKind::Serialization,
                 },
             ],
-            ScoutMlxFailureStage::failure_kind,
+            ScoutMlxFailureKind::from,
         );
     }
 

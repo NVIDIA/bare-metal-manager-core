@@ -235,13 +235,35 @@ where
 {
     /// Fetch password, write the K8s BMC secret, spawn refresh task,
     /// and return the constructed SDK.
+    ///
+    /// The BMC password is not necessarily available the first time this runs.
+    /// It comes from the site-wide BMC root credential, which operators set
+    /// *through the API this SDK is initializing*, so on a fresh site the
+    /// credential does not exist yet. When a refresh interval is configured the
+    /// initial read is therefore best-effort: initialization continues without
+    /// the Secret, and the refresh task writes it as soon as the credential
+    /// appears — no restart needed. Without a refresh interval nothing would
+    /// ever retry, so there a failed read stays fatal.
     async fn init_secret_and_task(self) -> Result<DpfSdk<R, L>, DpfError> {
         let repo = Arc::new(self.repo);
         let namespace = self.namespace;
         let provider = self.bmc_password_provider;
 
-        let password = provider.get_bmc_password().await?;
-        write_bmc_secret::<R>(&repo, &namespace, &password).await?;
+        let password = match provider.get_bmc_password().await {
+            Ok(password) => {
+                write_bmc_secret::<R>(&repo, &namespace, &password).await?;
+                Some(password)
+            }
+            Err(error) if self.bmc_password_refresh_interval.is_some() => {
+                tracing::warn!(
+                    %error,
+                    secret = SECRET_NAME,
+                    "BMC password unavailable; DPF secret will be written once the credential is set"
+                );
+                None
+            }
+            Err(error) => return Err(error),
+        };
 
         let guard = if let Some(interval) = self.bmc_password_refresh_interval {
             Some(spawn_bmc_refresh(
@@ -306,25 +328,30 @@ async fn write_bmc_secret<R: K8sConfigRepository>(
 ) -> Result<(), DpfError> {
     let mut data = BTreeMap::new();
     data.insert("password".to_string(), password.as_bytes().to_vec());
-    K8sConfigRepository::create_secret(repo, SECRET_NAME, namespace, data).await
+    K8sConfigRepository::apply_secret(repo, SECRET_NAME, namespace, data).await
 }
 
 /// Fetch the current BMC password from the provider and update the K8s
 /// secret when it differs from `last_password`. Returns the password
 /// value that should be remembered for the next comparison.
+///
+/// `last_password` is `None` when no password has been written yet — either
+/// because the credential was unset at startup, or because every write since
+/// has failed. That case writes on the next successful read, which is how a
+/// site that boots without the site-wide BMC root recovers on its own.
 async fn refresh_bmc_secret_if_changed<R: K8sConfigRepository>(
     repo: &R,
     namespace: &str,
     provider: &impl BmcPasswordProvider,
-    last_password: String,
-) -> String {
+    last_password: Option<String>,
+) -> Option<String> {
     match provider.get_bmc_password().await {
-        Ok(new_pw) if new_pw != last_password => {
+        Ok(new_pw) if Some(&new_pw) != last_password.as_ref() => {
             if let Err(e) = write_bmc_secret::<R>(repo, namespace, &new_pw).await {
                 tracing::error!(error = %e, "Failed to refresh BMC secret");
                 last_password
             } else {
-                new_pw
+                Some(new_pw)
             }
         }
         Err(e) => {
@@ -340,7 +367,7 @@ fn spawn_bmc_refresh<R, P>(
     repo: Arc<R>,
     namespace: String,
     provider: P,
-    password: String,
+    password: Option<String>,
     interval: Duration,
     join_set: Option<&mut tokio::task::JoinSet<()>>,
 ) -> Result<tokio_util::sync::DropGuard, DpfError>
@@ -590,6 +617,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
         DpuDeploymentType::Bf4Generic => "bf4generic",
+        DpuDeploymentType::Bf4Astra => "bf4astra",
     }
 }
 
@@ -785,8 +813,9 @@ pub fn build_deployment(
     namespace: &str,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     deployment_node_labels: BTreeMap<String, String>,
-    suffix: &str,
+    deployment_type: DpuDeploymentType,
 ) -> DPUDeployment {
+    let suffix = deployment_cr_suffix(deployment_type);
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
         .map(|svc| {
@@ -923,7 +952,8 @@ pub fn build_deployment(
                     r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
                 },
                 secure_boot: None,
-                astra_enabled: None,
+                astra_enabled: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
+                    .then_some(true),
                 blue_field_software: match source {
                     DpuProvisioningSource::Bfb(_) => None,
                     DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
@@ -1257,7 +1287,7 @@ async fn create_flavor_services_and_deployment<
         namespace,
         &interfaces,
         deployment_node_labels,
-        suffix,
+        deployment_type,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())
@@ -2162,6 +2192,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use async_trait::async_trait;
+    use carbide_test_support::value_scenarios;
     use kube::Resource;
 
     use super::*;
@@ -2204,7 +2235,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            "bf3",
+            DpuDeploymentType::Bf3,
         );
 
         let otel = deployment
@@ -2265,7 +2296,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            bf4_suffix,
+            DpuDeploymentType::Bf4Generic,
         );
         let entry = bf4_deployment
             .spec
@@ -2279,6 +2310,39 @@ mod tests {
         assert_eq!(
             entry.service_configuration.as_deref(),
             Some("doca-hbn-bf4generic")
+        );
+    }
+
+    #[test]
+    fn deployment_type_controls_cr_suffix_and_astra_enablement() {
+        value_scenarios!(
+            run = |deployment_type| {
+                let deployment = build_deployment(
+                    &[],
+                    "deployment",
+                    &DpuProvisioningSource::Bfb("bfb".to_string()),
+                    "flavor",
+                    TEST_NAMESPACE,
+                    &[],
+                    BTreeMap::new(),
+                    deployment_type,
+                );
+                (
+                    deployment_cr_suffix(deployment_type),
+                    deployment.spec.dpus.astra_enabled,
+                )
+            };
+            "BF3 preserves unsuffixed resource names" {
+                DpuDeploymentType::Bf3 => ("", None),
+            }
+
+            "generic BF4 uses its deployment suffix" {
+                DpuDeploymentType::Bf4Generic => ("bf4generic", None),
+            }
+
+            "Astra BF4 uses its deployment suffix and enables Astra" {
+                DpuDeploymentType::Bf4Astra => ("bf4astra", Some(true)),
+            }
         );
     }
 
@@ -2491,7 +2555,7 @@ mod tests {
         ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
             Ok(None)
         }
-        async fn create_secret(
+        async fn apply_secret(
             &self,
             _name: &str,
             _ns: &str,
@@ -3091,7 +3155,7 @@ mod tests {
         ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
             Ok(None)
         }
-        async fn create_secret(
+        async fn apply_secret(
             &self,
             _name: &str,
             _ns: &str,
@@ -3115,16 +3179,33 @@ mod tests {
         }
     }
 
+    /// Provider that always fails, standing in for a site where the site-wide
+    /// BMC root credential has not been set yet.
+    struct UnsetBmcPasswordProvider;
+
+    #[async_trait]
+    impl BmcPasswordProvider for UnsetBmcPasswordProvider {
+        async fn get_bmc_password(&self) -> Result<String, DpfError> {
+            Err(DpfError::InvalidState(
+                "Site wide BMC root credentials not set".into(),
+            ))
+        }
+    }
+
     #[tokio::test]
     async fn test_refresh_writes_secret_when_password_changes() {
         let mock = SecretTrackingMock::default();
         let provider = "new-password".to_string();
 
-        let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "old-password".into())
-                .await;
+        let result = refresh_bmc_secret_if_changed(
+            &mock,
+            TEST_NAMESPACE,
+            &provider,
+            Some("old-password".into()),
+        )
+        .await;
 
-        assert_eq!(result, "new-password");
+        assert_eq!(result.as_deref(), Some("new-password"));
         assert_eq!(
             mock.secrets_written.lock().unwrap().as_slice(),
             &["new-password"]
@@ -3137,9 +3218,10 @@ mod tests {
         let provider = "same".to_string();
 
         let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "same".into()).await;
+            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, Some("same".into()))
+                .await;
 
-        assert_eq!(result, "same");
+        assert_eq!(result.as_deref(), Some("same"));
         assert!(mock.secrets_written.lock().unwrap().is_empty());
     }
 
@@ -3151,11 +3233,80 @@ mod tests {
         };
         let provider = "new-password".to_string();
 
+        let result = refresh_bmc_secret_if_changed(
+            &mock,
+            TEST_NAMESPACE,
+            &provider,
+            Some("old-password".into()),
+        )
+        .await;
+
+        assert_eq!(result.as_deref(), Some("old-password"));
+    }
+
+    /// The recovery path for a site that booted before the site-wide BMC root
+    /// credential was set: nothing has been written yet, so the first
+    /// successful read must write the Secret.
+    #[tokio::test]
+    async fn test_refresh_writes_secret_when_no_password_written_yet() {
+        let mock = SecretTrackingMock::default();
+        let provider = "first-password".to_string();
+
+        let result = refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, None).await;
+
+        assert_eq!(result.as_deref(), Some("first-password"));
+        assert_eq!(
+            mock.secrets_written.lock().unwrap().as_slice(),
+            &["first-password"]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refresh_stays_unwritten_while_password_unavailable() {
+        let mock = SecretTrackingMock::default();
+
         let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "old-password".into())
+            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &UnsetBmcPasswordProvider, None)
                 .await;
 
-        assert_eq!(result, "old-password");
+        assert_eq!(result, None);
+        assert!(mock.secrets_written.lock().unwrap().is_empty());
+    }
+
+    /// A fresh site sets the site-wide BMC root credential *through* the API,
+    /// so initialization must survive the credential being unset, leaving the
+    /// Secret to the refresh task.
+    #[tokio::test]
+    async fn test_build_succeeds_when_bmc_password_unset_and_refresh_configured() {
+        let mock = SecretTrackingMock::default();
+
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, UnsetBmcPasswordProvider)
+            .with_bmc_password_refresh_interval(Duration::from_secs(3600))
+            .build_without_resources()
+            .await
+            .expect("initialization tolerates an unset BMC password");
+
+        assert_eq!(sdk.namespace(), TEST_NAMESPACE);
+        assert!(mock.secrets_written.lock().unwrap().is_empty());
+    }
+
+    /// Without a refresh task nothing would ever retry the read, so an unset
+    /// credential stays fatal rather than leaving the Secret permanently absent.
+    #[tokio::test]
+    async fn test_build_fails_when_bmc_password_unset_and_no_refresh_configured() {
+        let mock = SecretTrackingMock::default();
+
+        let Err(error) = DpfSdkBuilder::new(mock, TEST_NAMESPACE, UnsetBmcPasswordProvider)
+            .build_without_resources()
+            .await
+        else {
+            panic!("an unset BMC password with no refresh task is fatal");
+        };
+
+        assert!(
+            matches!(error, DpfError::InvalidState(msg) if msg.contains("BMC root credentials")),
+            "unexpected error"
+        );
     }
 
     fn terminating_timestamp() -> k8s_openapi::apimachinery::pkg::apis::meta::v1::Time {
@@ -3257,6 +3408,11 @@ mod tests {
             is_primary: true,
         };
         sdk.register_dpu_device(info).await.unwrap();
+
+        // This branch is a deliberate no-op: an existing, non-terminating device is left
+        // alone. `.unwrap()` only said no error came back -- assert no second device was
+        // created alongside it, which is the whole of what "left alone" means here.
+        assert_eq!(mock.devices.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3334,6 +3490,9 @@ mod tests {
             deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_node(info).await.unwrap();
+
+        // Same no-op branch for nodes.
+        assert_eq!(mock.nodes.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3485,12 +3644,14 @@ mod tests {
                 .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
                 .unwrap(),
         );
+        let flavor_name = flavor.metadata.name.clone().unwrap();
         mock.flavors
             .write()
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(
+        let expected_name = flavor_name.clone();
+        let returned = create_dpu_flavor(
             &mock,
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
@@ -3499,6 +3660,12 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // The whole contract of this branch is "reuse what's already there". `.unwrap()`
+        // only proved it didn't error -- so check it hands back the existing flavor's name
+        // and, more to the point, that it didn't quietly create a second one alongside it.
+        assert_eq!(returned, expected_name);
+        assert_eq!(mock.flavors.read().unwrap().len(), 1);
     }
 
     #[derive(Clone, Default)]

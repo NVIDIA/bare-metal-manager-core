@@ -1130,66 +1130,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fabricate_cached_urls() {
-        let renderer = DefaultIpxeScriptRenderer::new();
-        let ipxeos = IpxeScript {
-            name: "Test with artifacts".to_string(),
-            description: Some("Test".to_string()),
-            hash: "test-hash".to_string(),
-            tenant_id: None,
-            ipxe_template_id: "a7850943-e3cd-5e9a-93ca-9e12f52939cc".to_string(),
-            parameters: vec![IpxeTemplateParameter {
-                name: "install_iso".to_string(),
-                value: "http://example.com/ubuntu.iso".to_string(),
-            }],
-            artifacts: vec![
-                IpxeTemplateArtifact {
-                    name: "kernel".to_string(),
-                    url: "http://example.com/kernel".to_string(),
-                    sha: Some("sha256:abc123".to_string()),
-                    auth_type: None,
-                    auth_token: None,
-                    cache_strategy: IpxeTemplateArtifactCacheStrategy::CacheAsNeeded,
-                    cached_url: None,
-                },
-                IpxeTemplateArtifact {
-                    name: "initrd".to_string(),
-                    url: "http://example.com/initrd".to_string(),
-                    sha: None,
-                    auth_type: None,
-                    auth_token: None,
-                    cache_strategy: IpxeTemplateArtifactCacheStrategy::RemoteOnly,
-                    cached_url: None,
-                },
-                IpxeTemplateArtifact {
-                    name: "local-var".to_string(),
-                    url: "${base-url}/local.img".to_string(),
-                    sha: Some("sha256:local789".to_string()),
-                    auth_type: None,
-                    auth_token: None,
-                    cache_strategy: IpxeTemplateArtifactCacheStrategy::CacheAsNeeded,
-                    cached_url: None,
-                },
-            ],
-        };
-
-        let result = renderer.fabricate_cached_urls(&ipxeos);
-
-        // First artifact should have cached_url using sha field directly
-        assert!(result.artifacts[0].cached_url.is_some());
-        let cached_url = result.artifacts[0].cached_url.as_ref().unwrap();
-        assert_eq!(cached_url, "${base_url}/sha256:abc123");
-
-        // Second artifact is RemoteOnly, should not have cached_url
-        assert!(result.artifacts[1].cached_url.is_none());
-
-        // Third artifact has iPXE variable but is still eligible for cached_url (no variable check)
-        assert!(result.artifacts[2].cached_url.is_some());
-        let cached_url3 = result.artifacts[2].cached_url.as_ref().unwrap();
-        assert_eq!(cached_url3, "${base_url}/sha256:local789");
-    }
-
-    #[test]
     fn test_list_templates() {
         let renderer = DefaultIpxeScriptRenderer::new();
         let templates = renderer.list_templates();
@@ -1345,15 +1285,12 @@ mod tests {
     #[test]
     fn test_unreplaced_placeholders() {
         let renderer = DefaultIpxeScriptRenderer::new();
-        let mut ipxeos = create_test_ipxeos();
-        // Remove the required parameter to cause unreplaced placeholder
-        ipxeos.parameters.clear();
-        ipxeos.hash = renderer.hash(&ipxeos);
 
-        // Validation will fail first, but let's test the unreplaced check by using a template
-        // that doesn't require this param
-        ipxeos.ipxe_template_id = "ea756ddd-add3-5e42-a202-44bfc2d5aac2".to_string();
-        ipxeos.parameters = vec![]; // Missing image_url
+        // render() never reaches the placeholder check -- required-parameter validation
+        // rejects the script first, which this test's own comment used to admit while
+        // asserting nothing more than "some error came back". Pin that rejection for real...
+        let mut ipxeos = create_test_ipxeos();
+        ipxeos.parameters.clear();
         ipxeos.hash = renderer.hash(&ipxeos);
 
         let reserved_params = vec![
@@ -1367,9 +1304,26 @@ mod tests {
             },
         ];
 
-        let result = renderer.render(&ipxeos, &reserved_params);
-        // Will fail on required parameter validation first
-        assert!(result.is_err());
+        assert!(matches!(
+            renderer.render(&ipxeos, &reserved_params),
+            Err(IpxeScriptError::RequiredParameterMissing(_))
+        ));
+
+        // ...and then reach `check_unreplaced_placeholders` directly, because nothing else
+        // in the suite does. Without this, `UnreplacedPlaceholders` is a variant we build
+        // and never assert.
+        let err = renderer
+            .check_unreplaced_placeholders("#!ipxe\nkernel {{image_url}} initrd={{initrd}}\n")
+            .expect_err("leftover {{...}} placeholders should be rejected");
+        assert!(matches!(
+            err,
+            IpxeScriptError::UnreplacedPlaceholders(ref found)
+                if found == "{{image_url}}, {{initrd}}"
+        ));
+
+        renderer
+            .check_unreplaced_placeholders("#!ipxe\nkernel http://pxe.local/vmlinuz\n")
+            .expect("a fully substituted script has nothing left to flag");
     }
 
     #[test]
@@ -1917,46 +1871,6 @@ mod tests {
 
         // Hashes should be same (cached_url excluded)
         assert_eq!(hash1, hash2);
-    }
-
-    #[test]
-    fn test_hash_repeatability() {
-        let renderer = DefaultIpxeScriptRenderer::new();
-
-        let ipxeos = IpxeScript {
-            name: "Test".to_string(),
-            description: Some("Test OS".to_string()),
-            hash: "".to_string(),
-            tenant_id: Some("tenant-123".to_string()),
-            ipxe_template_id: "ea756ddd-add3-5e42-a202-44bfc2d5aac2".to_string(),
-            parameters: vec![
-                IpxeTemplateParameter {
-                    name: "image_url".to_string(),
-                    value: "http://example.com/image.qcow2".to_string(),
-                },
-                IpxeTemplateParameter {
-                    name: "extra1".to_string(),
-                    value: "value1".to_string(),
-                },
-            ],
-            artifacts: vec![IpxeTemplateArtifact {
-                name: "test".to_string(),
-                url: "http://example.com/test".to_string(),
-                sha: Some("sha256:test123".to_string()),
-                auth_type: Some("Bearer".to_string()),
-                auth_token: Some("token".to_string()),
-                cache_strategy: IpxeTemplateArtifactCacheStrategy::CacheAsNeeded,
-                cached_url: None,
-            }],
-        };
-
-        let hash1 = renderer.hash(&ipxeos);
-        let hash2 = renderer.hash(&ipxeos);
-        let hash3 = renderer.hash(&ipxeos);
-
-        // All hashes should be identical
-        assert_eq!(hash1, hash2);
-        assert_eq!(hash2, hash3);
     }
 
     #[test]

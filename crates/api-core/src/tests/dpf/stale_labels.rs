@@ -33,26 +33,12 @@ use carbide_uuid::machine::MachineId;
 use model::machine::{DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState};
 use tokio::time::timeout;
 
+use super::{dpf_config, get_host_state};
 use crate::tests::common::api_fixtures::{
-    TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
-    create_test_env_with_overrides, get_config,
+    TestEnvOverrides, create_managed_host_with_dpf, create_test_env_with_overrides, get_config,
 };
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
-
-fn dpf_config() -> crate::cfg::file::DpfConfig {
-    crate::cfg::file::DpfConfig {
-        enabled: true,
-        deployments: crate::cfg::file::DpfDeploymentsConfig {
-            bf3: crate::cfg::file::DpfDeploymentConfig {
-                bfb_url: Some("http://example.com/test.bfb".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        ..Default::default()
-    }
-}
 
 fn provisioning_mock_with_labels_valid(labels_valid: Arc<AtomicBool>) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
@@ -131,15 +117,6 @@ async fn reset_host_to_waiting_for_ready(
     .execute(pool)
     .await
     .unwrap();
-}
-
-async fn get_host_state(
-    env: &crate::tests::common::api_fixtures::TestEnv,
-    mh: &TestManagedHost,
-) -> ManagedHostState {
-    let mut txn = env.db_txn().await;
-    let machine = mh.host().db_machine(&mut txn).await;
-    machine.state.value
 }
 
 /// A node with stale labels during Provisioning transitions to Failed

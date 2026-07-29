@@ -38,7 +38,9 @@ pub(crate) async fn create(
 
     for sku in sku_list.skus {
         let sku: Sku = sku.into();
-        db::sku::create(&mut txn, &sku).await?;
+        db::sku::create(&mut txn, &sku)
+            .await
+            .map_err(CarbideError::from)?;
         sku_ids.ids.push(sku.id);
     }
 

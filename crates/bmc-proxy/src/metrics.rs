@@ -26,7 +26,6 @@ use std::time::Duration;
 use carbide_instrument::{Event, LabelValue};
 use http::Method;
 use metrics_endpoint::{MetricsEndpointConfig, MetricsSetup};
-use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -36,7 +35,7 @@ pub async fn start(
     cancellation_token: CancellationToken,
     join_set: &mut JoinSet<()>,
 ) -> io::Result<()> {
-    let listener = TcpListener::bind(&address).await?;
+    let listener = crate::net::bind_with_ipv4_fallback(address).await?;
     tracing::info!(metrics_address = %address, "Starting metrics listener");
 
     join_set
@@ -307,7 +306,8 @@ mod tests {
 
     use carbide_instrument::emit;
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
-    use carbide_test_support::{Check, check_values};
+    use carbide_test_support::{Check, check_values, value_scenarios};
+    use opentelemetry::StringValue;
     use tokio::time::timeout;
 
     use super::*;
@@ -598,80 +598,30 @@ mod tests {
     /// as its snake_case name, byte for byte.
     #[test]
     fn label_values_render_as_snake_case() {
-        check_values(
-            [
-                Check {
-                    scenario: "principal allow-list authorization layer",
-                    input: AuthorizationLayer::PrincipalAllowList.label_value(),
-                    expect: "principal_allow_list".to_string(),
-                },
-                Check {
-                    scenario: "request ACL authorization layer",
-                    input: AuthorizationLayer::RequestAcl.label_value(),
-                    expect: "request_acl".to_string(),
-                },
-                Check {
-                    scenario: "get",
-                    input: MethodLabel::Get.label_value(),
-                    expect: "get".to_string(),
-                },
-                Check {
-                    scenario: "head",
-                    input: MethodLabel::Head.label_value(),
-                    expect: "head".to_string(),
-                },
-                Check {
-                    scenario: "post",
-                    input: MethodLabel::Post.label_value(),
-                    expect: "post".to_string(),
-                },
-                Check {
-                    scenario: "put",
-                    input: MethodLabel::Put.label_value(),
-                    expect: "put".to_string(),
-                },
-                Check {
-                    scenario: "patch",
-                    input: MethodLabel::Patch.label_value(),
-                    expect: "patch".to_string(),
-                },
-                Check {
-                    scenario: "delete",
-                    input: MethodLabel::Delete.label_value(),
-                    expect: "delete".to_string(),
-                },
-                Check {
-                    scenario: "other method",
-                    input: MethodLabel::Other.label_value(),
-                    expect: "other".to_string(),
-                },
-                Check {
-                    scenario: "2xx class",
-                    input: UpstreamStatus::Http2xx.label_value(),
-                    expect: "http2xx".to_string(),
-                },
-                Check {
-                    scenario: "3xx class",
-                    input: UpstreamStatus::Http3xx.label_value(),
-                    expect: "http3xx".to_string(),
-                },
-                Check {
-                    scenario: "4xx class",
-                    input: UpstreamStatus::Http4xx.label_value(),
-                    expect: "http4xx".to_string(),
-                },
-                Check {
-                    scenario: "5xx class",
-                    input: UpstreamStatus::Http5xx.label_value(),
-                    expect: "http5xx".to_string(),
-                },
-                Check {
-                    scenario: "no response",
-                    input: UpstreamStatus::Error.label_value(),
-                    expect: "error".to_string(),
-                },
-            ],
-            |value| value.to_string(),
+        value_scenarios!(
+            run = |value: StringValue| value.to_string();
+            "authorization layer" {
+                AuthorizationLayer::PrincipalAllowList.label_value() => "principal_allow_list".to_string(),
+                AuthorizationLayer::RequestAcl.label_value() => "request_acl".to_string(),
+            }
+
+            "proxied method" {
+                MethodLabel::Get.label_value() => "get".to_string(),
+                MethodLabel::Head.label_value() => "head".to_string(),
+                MethodLabel::Post.label_value() => "post".to_string(),
+                MethodLabel::Put.label_value() => "put".to_string(),
+                MethodLabel::Patch.label_value() => "patch".to_string(),
+                MethodLabel::Delete.label_value() => "delete".to_string(),
+                MethodLabel::Other.label_value() => "other".to_string(),
+            }
+
+            "upstream status class" {
+                UpstreamStatus::Http2xx.label_value() => "http2xx".to_string(),
+                UpstreamStatus::Http3xx.label_value() => "http3xx".to_string(),
+                UpstreamStatus::Http4xx.label_value() => "http4xx".to_string(),
+                UpstreamStatus::Http5xx.label_value() => "http5xx".to_string(),
+                UpstreamStatus::Error.label_value() => "error".to_string(),
+            }
         );
     }
 

@@ -2093,10 +2093,20 @@ async fn flat_vpc_accepts_host_inband_segment(
         segment_type: rpc::forge::NetworkSegmentType::HostInband as i32,
     };
 
-    env.api
+    let created = env
+        .api
         .create_network_segment(Request::new(request))
         .await
-        .expect("Flat VPC + HostInband segment is the canonical pairing");
+        .expect("Flat VPC + HostInband segment is the canonical pairing")
+        .into_inner();
+
+    // Accepting the request is only half of it -- check the segment came back attached to
+    // the flat VPC, with the type we asked for.
+    assert_eq!(created.vpc_id, vpc.id);
+    assert_eq!(
+        created.segment_type,
+        rpc::forge::NetworkSegmentType::HostInband as i32
+    );
 
     Ok(())
 }

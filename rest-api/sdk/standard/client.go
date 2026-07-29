@@ -59,6 +59,8 @@ type APIClient struct {
 
 	BMCResetAPI *BMCResetAPIService
 
+	CredentialRotationAPI *CredentialRotationAPIService
+
 	DPUExtensionServiceAPI *DPUExtensionServiceAPIService
 
 	DPUReprovisionAPI *DPUReprovisionAPIService
@@ -117,6 +119,8 @@ type APIClient struct {
 
 	TaskAPI *TaskAPIService
 
+	TaskRunAPI *TaskRunAPIService
+
 	TenantAPI *TenantAPIService
 
 	TenantAccountAPI *TenantAccountAPIService
@@ -156,6 +160,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.AuditAPI = (*AuditAPIService)(&c.common)
 	c.BMCCredentialAPI = (*BMCCredentialAPIService)(&c.common)
 	c.BMCResetAPI = (*BMCResetAPIService)(&c.common)
+	c.CredentialRotationAPI = (*CredentialRotationAPIService)(&c.common)
 	c.DPUExtensionServiceAPI = (*DPUExtensionServiceAPIService)(&c.common)
 	c.DPUReprovisionAPI = (*DPUReprovisionAPIService)(&c.common)
 	c.ExpectedMachineAPI = (*ExpectedMachineAPIService)(&c.common)
@@ -185,6 +190,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.SiteExplorerAPI = (*SiteExplorerAPIService)(&c.common)
 	c.SubnetAPI = (*SubnetAPIService)(&c.common)
 	c.TaskAPI = (*TaskAPIService)(&c.common)
+	c.TaskRunAPI = (*TaskRunAPIService)(&c.common)
 	c.TenantAPI = (*TenantAPIService)(&c.common)
 	c.TenantAccountAPI = (*TenantAccountAPIService)(&c.common)
 	c.TenantIdentityAPI = (*TenantIdentityAPIService)(&c.common)
