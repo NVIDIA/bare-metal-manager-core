@@ -32,9 +32,43 @@ tests:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '(?m)^compute_tray_backend = "rms"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^compute_tray_use_state_controller = true$'
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[rms\]'
+
+  - it: renders non-default backends and state controller flags from values
+    documentIndex: 0
+    set:
+      componentManager:
+        enabled: true
+        computeTrayBackend: "core"
+        nvSwitchBackend: "nsm"
+        powerShelfBackend: "psm"
+        computeTrayUseStateController: false
+        nvSwitchUseStateController: false
+        powerShelfUseStateController: false
+    asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^compute_tray_backend = "core"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^nv_switch_backend = "nsm"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^power_shelf_backend = "psm"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^compute_tray_use_state_controller = false$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^nv_switch_use_state_controller = false$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^power_shelf_use_state_controller = false$'
 
   - it: renders rms alone when only rms is enabled
     documentIndex: 0
