@@ -339,6 +339,7 @@ seeds, SPIFFE URI). Multi-pod with controller adds the following requirements:
    Check with: `kubectl cluster-info dump | grep service-cluster-ip-range`
 
 1. **NICo siteConfig requirements:**
+
    ```toml
    allow_insecure_discovery = true
 
@@ -363,36 +364,37 @@ seeds, SPIFFE URI). Multi-pod with controller adds the following requirements:
 
    Enable with `macAddressPool.enabled: true`.
 
-Example values:
+   Example values:
 
-```yaml
-pods:
-  default: null
-  mat-0:
-    machines:
-      compute:
-        hwType: wiwynn_gb200_nvl
-        hostCount: 100
-        dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
-        adminDhcpRelayAddress: "192.168.176.1"
-  mat-1:
-    machines:
-      compute:
-        hwType: wiwynn_gb200_nvl
-        hostCount: 100
-        dpuPerHostCount: 2
-        oobDhcpRelayAddress: "10.96.64.1"  # NICo assigns unique IPs
-        adminDhcpRelayAddress: "192.168.176.1"
+    ```yaml
+    pods:
+      default: null
+      mat-0:
+        machines:
+          compute:
+            hwType: wiwynn_gb200_nvl
+            hostCount: 100
+            dpuPerHostCount: 2
+            oobDhcpRelayAddress: "10.96.64.1"  # All pods share same relay
+            adminDhcpRelayAddress: "192.168.176.1"
+      mat-1:
+        machines:
+          compute:
+            hwType: wiwynn_gb200_nvl
+            hostCount: 100
+            dpuPerHostCount: 2
+            oobDhcpRelayAddress: "10.96.64.1"  # NICo assigns unique IPs
+            adminDhcpRelayAddress: "192.168.176.1"
 
-macAddressPool:
-  enabled: true
+    macAddressPool:
+      enabled: true
 
-mat-k8s-controller:
-  enabled: true
-  config:
-    insecureSkipVerify: true  # For self-signed certs
-```
+    mat-k8s-controller:
+      enabled: true
+      config:
+        insecureSkipVerify: true  # For self-signed certs
+    ```
+
 1. **Hardware-type specifics.** Vendors libredfish does not recognize (e.g.
    `wiwynn_gb200_nvl` reports `WIWYNN`) resolve to `unknown`, so seed the
    host factory credential at
