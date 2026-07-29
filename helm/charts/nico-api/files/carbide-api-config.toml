@@ -109,10 +109,18 @@ test_selection_mode = "EnableAll"
 [oem_manager_profiles.Dell.PowerEdge_R760.powerefficiency]
 "ServerPwr.1.PSRapidOn" = "Disabled"
 
-# Keyed by the rack_profile_id of an expected rack. Each count is the minimum
-# number of devices required to exit Created (present) and Discovering (ready).
-# Sites with a different OEM than the vendors below override the matching
-# rack_capabilities.<role>.vendor (or define their own profile) in site-config.
+# Qualified platform baselines, keyed by the rack_profile_id on an expected
+# rack. Each count is the minimum number of devices required to exit Created
+# (present) and Discovering (ready).
+#
+# Profile ids name the platform (NVL72 / NVL72_GB300), not a single OEM —
+# inventory references stay stable as vendors change. The vendor fields below
+# are the currently qualified defaults (e.g. Lenovo compute on GB300); they are
+# per-OEM facts, not properties of the topology. Figment merges site-config
+# over this file per-key, so a site with different hardware overrides only
+# rack_capabilities.<role>.vendor (or adds a new profile id for test / custom
+# racks) without forking the platform id. New production-supported platforms
+# land here through the normal qualification / PR process.
 [rack_profiles.NVL72]
 product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
@@ -149,10 +157,11 @@ count = 6
 enabled = {{ .Values.service.perObjectStateMetrics.enabled }}
 listen_address = "[::]:{{ .Values.service.perObjectStateMetrics.port }}"
 object_types = {{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}
-{{- if .Values.rms.enabled }}
+{{- if .Values.componentManager.enabled }}
 
-# Defining this section is what enables the component manager. Rendered only
-# when rms.enabled is set — presence cannot be undone via site-config merge.
+# Presence of this section enables the component manager; site-config can
+# override fields but cannot un-define the section once rendered. Independent
+# of rms.enabled — pair with RMS when backends are "rms".
 [component_manager]
 compute_tray_backend = "rms"
 nv_switch_backend = "rms"
@@ -161,6 +170,8 @@ power_shelf_backend = "rms"
 nv_switch_use_state_controller = true
 power_shelf_use_state_controller = true
 compute_tray_use_state_controller = true
+{{- end }}
+{{- if .Values.rms.enabled }}
 
 # RMS (Rack Management Service) connectivity, used by the component manager
 # and rack controller for rack-level firmware upgrades and power sequencing.
