@@ -163,13 +163,13 @@ object_types = {{ default list .Values.service.perObjectStateMetrics.objectTypes
 # override fields but cannot un-define the section once rendered. Independent
 # of rms.enabled — pair with RMS when backends are "rms".
 [component_manager]
-compute_tray_backend = "rms"
-nv_switch_backend = "rms"
-power_shelf_backend = "rms"
+compute_tray_backend = {{ .Values.componentManager.computeTrayBackend | quote }}
+nv_switch_backend = {{ .Values.componentManager.nvSwitchBackend | quote }}
+power_shelf_backend = {{ .Values.componentManager.powerShelfBackend | quote }}
 
-nv_switch_use_state_controller = true
-power_shelf_use_state_controller = true
-compute_tray_use_state_controller = true
+nv_switch_use_state_controller = {{ .Values.componentManager.nvSwitchUseStateController }}
+power_shelf_use_state_controller = {{ .Values.componentManager.powerShelfUseStateController }}
+compute_tray_use_state_controller = {{ .Values.componentManager.computeTrayUseStateController }}
 {{- end }}
 {{- if .Values.rms.enabled }}
 

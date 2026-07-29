@@ -188,6 +188,19 @@ dsxExchangeEventBusConfig: ""
 ## uninitialized and logs a build error.
 componentManager:
   enabled: false
+  ## Backend per role. computeTray: rms | core | mock. nvSwitch: rms | nsm |
+  ## mock. powerShelf: rms | psm | mock. The binary defaults all three to rms;
+  ## nsm/psm select the standalone managers instead of RMS.
+  computeTrayBackend: "rms"
+  nvSwitchBackend: "rms"
+  powerShelfBackend: "rms"
+  ## Route power control and firmware updates through the state controllers
+  ## rather than dispatching straight to the device. The binary's field default
+  ## is false (legacy direct dispatch); state-controlled dispatch is the
+  ## recommended mode, so the chart turns it on.
+  computeTrayUseStateController: true
+  nvSwitchUseStateController: true
+  powerShelfUseStateController: true
 
 ## =============================================================================
 ## RMS (Rack Management Service) connectivity
