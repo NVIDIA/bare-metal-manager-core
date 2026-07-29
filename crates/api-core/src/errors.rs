@@ -22,8 +22,10 @@ use ::rpc::errors::RpcDataConversionError;
 use carbide_ib_fabric::errors::IbError;
 use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_redfish::libredfish::dpu_bios::is_dpu_bios_attributes_not_ready;
+use carbide_site_explorer::EndpointExplorationServiceError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
+use db::credential_rotation::CredentialRotationType;
 use db::ip_allocator::DhcpError;
 use db::machine_interface_address::AddressAlreadyInUseError;
 use db::resource_pool::ResourcePoolDatabaseError;
@@ -304,8 +306,15 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::InvalidArgument(e) => InvalidArgument(e),
             DatabaseError::InvalidConfiguration(e) => InvalidConfiguration(e),
             DatabaseError::MissingArgument(e) => MissingArgument(e),
-            // A corrupted/absent site-wide rotation invariant is an internal
-            // state error, not a client-correctable one.
+            // NVOS intentionally has no target until its first versioned secret
+            // is published, so status requests can encounter this normal state.
+            DatabaseError::MissingSitewideRotationTarget(CredentialRotationType::Nvos) => {
+                FailedPrecondition(
+                    "no site-wide NVOS credential rotation target has been published".to_string(),
+                )
+            }
+            // Other credential families are seeded during migration. A missing
+            // target for them is a corrupted invariant.
             DatabaseError::MissingSitewideRotationTarget(credential_type) => Internal {
                 message: format!(
                     "no site-wide rotation target for credential type: {credential_type:?}"
@@ -330,6 +339,28 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::TryAgain => Internal {
                 message: DatabaseError::TryAgain.to_string(),
             },
+        }
+    }
+}
+
+impl From<EndpointExplorationServiceError> for CarbideError {
+    fn from(error: EndpointExplorationServiceError) -> Self {
+        match error {
+            EndpointExplorationServiceError::Database(error) => error.into(),
+            EndpointExplorationServiceError::NotFound { kind, id } => {
+                CarbideError::NotFoundError { kind, id }
+            }
+            EndpointExplorationServiceError::AlreadyInProgress(bmc_ip) => {
+                CarbideError::AlreadyInProgress(format!(
+                    "endpoint exploration already in progress for {bmc_ip}"
+                ))
+            }
+            EndpointExplorationServiceError::ConcurrentModification { kind, version } => {
+                CarbideError::ConcurrentModificationError(kind, version)
+            }
+            background_error @ EndpointExplorationServiceError::BackgroundTaskFailed { .. } => {
+                CarbideError::internal(background_error.to_string())
+            }
         }
     }
 }

@@ -19,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 
 use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_ib_fabric::ib::{Filter, IBFabric, IBFabricManager};
+use carbide_instrument::testing::MetricsCapture;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
@@ -48,6 +49,24 @@ async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPa
         .remove(0);
 
     segment.status.unwrap()
+}
+
+fn assert_successful_ufm_changes(metrics: &MetricsCapture, operation: &str, minimum: f64) {
+    let observed = metrics.counter_delta(
+        "carbide_ib_monitor_ufm_changes_applied_total",
+        &[
+            ("fabric", "default"),
+            ("operation", operation),
+            ("status", "ok"),
+        ],
+    );
+    // Event metrics share one process-global test meter. Focused Event tests
+    // pin exact counts; these checks only need to prove the instance lifecycle
+    // reached the expected UFM operation.
+    assert!(
+        observed >= minimum,
+        "expected at least {minimum} successful {operation} changes, observed {observed}"
+    );
 }
 
 #[crate::sqlx_test]
@@ -160,8 +179,11 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let guid_cx7 = machine_guids.get("MT2910 Family [ConnectX-7]").unwrap()[1].clone();
     let guid_cx5 = machine_guids.get("MT27800 Family [ConnectX-5]").unwrap()[0].clone();
 
+    let creation_metrics = MetricsCapture::start();
     let (tinstance, instance) =
         create_instance_with_ib_config(&env, &mh, ib_config.clone(), segment_id).await;
+    assert_successful_ufm_changes(&creation_metrics, "bind_guid_to_pkey", 2.0);
+    drop(creation_metrics);
 
     let machine = mh.host().rpc_machine().await;
     assert_eq!(&machine.state, "Assigned/Ready");
@@ -183,31 +205,6 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
             .unwrap(),
         "0"
     );
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "2".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "0".to_string()
-            )
-        ]
-    );
-
     let check_instance = tinstance.rpc_instance().await;
     assert_eq!(instance.machine_id(), mh.id);
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
@@ -260,34 +257,13 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
         "The expected amount of ports for pkey {hex_pkey} has not been registered"
     );
 
+    let deletion_metrics = MetricsCapture::start();
     tinstance.delete().await;
+    assert_successful_ufm_changes(&deletion_metrics, "unbind_guid_from_pkey", 2.0);
+    drop(deletion_metrics);
 
     // Check whether the IB ports are still bound to the partition
     verify_pkey_guids(ib_conn.clone(), &[(pkey_u16, vec![])]).await;
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "2".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "2".to_string()
-            )
-        ]
-    );
 }
 
 #[crate::sqlx_test]
@@ -765,8 +741,11 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     let guid_cx7_2 = machine_guids.get("MT2910 Family [ConnectX-7]").unwrap()[1].clone();
     let guid_cx5_1 = machine_guids.get("MT27800 Family [ConnectX-5]").unwrap()[0].clone();
 
+    let creation_metrics = MetricsCapture::start();
     let (tinstance, instance) =
         create_instance_with_ib_config(&env, &mh, ib_config.clone(), segment_id).await;
+    assert_successful_ufm_changes(&creation_metrics, "bind_guid_to_pkey", 2.0);
+    drop(creation_metrics);
 
     let machine = mh.host().rpc_machine().await;
     assert_eq!(&machine.state, "Assigned/Ready");
@@ -788,31 +767,6 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
             .unwrap(),
         "0"
     );
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "2".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "0".to_string()
-            )
-        ]
-    );
-
     let check_instance = tinstance.rpc_instance().await;
     assert_eq!(instance.machine_id(), mh.id);
     assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
@@ -933,7 +887,11 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     mh.network_configured(&env).await;
 
     // First IB partition fabric monitor iteration detects the desync and fixes it
+    let update_metrics = MetricsCapture::start();
     env.run_ib_fabric_monitor_iteration().await;
+    assert_successful_ufm_changes(&update_metrics, "bind_guid_to_pkey", 1.0);
+    assert_successful_ufm_changes(&update_metrics, "unbind_guid_from_pkey", 1.0);
+    drop(update_metrics);
     assert_eq!(
         env.test_meter
             .formatted_metric("carbide_ib_monitor_machine_ib_status_updates_count")
@@ -951,30 +909,6 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
             .formatted_metric("carbide_ib_monitor_machines_with_unexpected_pkeys_count")
             .unwrap(),
         "1"
-    );
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "3".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "1".to_string()
-            )
-        ]
     );
     verify_pkey_guids(
         ib_conn.clone(),
@@ -1005,31 +939,6 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
             .unwrap(),
         "0"
     );
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "3".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "1".to_string()
-            )
-        ]
-    );
-
     // Instance shows ready state again
     let instance = tinstance.rpc_instance().await;
     let instance_status = instance.status();
@@ -1069,7 +978,10 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
         panic!("ib configuration is incorrect.");
     }
 
+    let deletion_metrics = MetricsCapture::start();
     tinstance.delete().await;
+    assert_successful_ufm_changes(&deletion_metrics, "unbind_guid_from_pkey", 2.0);
+    drop(deletion_metrics);
 
     // Check whether all partition bindings have been removed
     verify_pkey_guids(
@@ -1080,30 +992,6 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
         ],
     )
     .await;
-    assert_eq!(
-        env.test_meter
-            .parsed_metrics("carbide_ib_monitor_ufm_changes_applied_total"),
-        vec![
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"error\"}".to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"bind_guid_to_pkey\",status=\"ok\"}".to_string(),
-                "3".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"error\"}"
-                    .to_string(),
-                "0".to_string()
-            ),
-            (
-                "{fabric=\"default\",operation=\"unbind_guid_from_pkey\",status=\"ok\"}"
-                    .to_string(),
-                "3".to_string()
-            )
-        ]
-    );
 }
 
 /// Tries to create an Instance using the Forge API

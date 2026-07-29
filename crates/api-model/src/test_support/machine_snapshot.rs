@@ -172,6 +172,8 @@ pub fn host_hardware_info() -> HardwareInfo {
                 model: "Dell Ent NVMe CM6 RI 3.84TB".to_string(),
                 firmware_rev: "2.2.0".to_string(),
                 serial: format!("Y2Q0A05DT2Q{i}"),
+                size_mb: None,
+                pci_path: None,
             })
             .collect(),
         dmi_data: Some(DmiData {
@@ -382,6 +384,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         network_config_version: config_version(3).version_string(),
         network_config: ManagedHostNetworkConfig {
             loopback_ip: Some(IpAddr::from([172, 20, 0, 42])),
+            loopback_ip_v6: None,
             secondary_overlay_vtep_ip: None,
             use_admin_network: Some(false),
             quarantine_state: None,

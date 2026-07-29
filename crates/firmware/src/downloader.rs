@@ -29,6 +29,54 @@ use reqwest_middleware::ClientWithMiddleware as Client;
 use sha2::{Digest, Sha256};
 use tokio::fs::File;
 
+/// `ArtifactUnavailableReason` names the bounded blocker that kept an
+/// artifact from reaching the download path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum ArtifactUnavailableReason {
+    MissingUrl,
+    StaleCacheRemovalFailed,
+}
+
+// Both failures increment the same counter, but their existing log fields
+// differ. Separate Event types keep each record intact instead of adding empty
+// context. Their descriptions must stay identical so OpenTelemetry treats them
+// as one instrument.
+#[derive(Event)]
+#[event(
+    event_name = "firmware_artifact_missing_url",
+    metric_name = "carbide_firmware_artifact_unavailable_total",
+    component = "carbide-firmware",
+    log = error,
+    metric = counter,
+    message = "Firmware artifact is missing and has no URL",
+    describe = "Number of firmware artifacts unavailable before download, by reason."
+)]
+pub(crate) struct FirmwareArtifactMissingUrl {
+    #[label]
+    pub reason: ArtifactUnavailableReason,
+    #[context]
+    pub firmware_path: String,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "firmware_stale_cached_artifact_removal_failed",
+    metric_name = "carbide_firmware_artifact_unavailable_total",
+    component = "carbide-firmware",
+    log = error,
+    metric = counter,
+    message = "Failed to remove stale cached firmware artifact",
+    describe = "Number of firmware artifacts unavailable before download, by reason."
+)]
+pub(crate) struct FirmwareStaleCachedArtifactRemovalFailed {
+    #[label]
+    pub reason: ArtifactUnavailableReason,
+    #[context]
+    pub filename: String,
+    #[context]
+    pub error: String,
+}
+
 /// How a background firmware download attempt ended, as a bounded metric
 /// label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
@@ -160,10 +208,10 @@ impl FirmwareDownloader {
         }
 
         if url.is_empty() {
-            tracing::error!(
-                firmware_path = ?filename,
-                "Firmware artifact is missing and has no URL",
-            );
+            emit(FirmwareArtifactMissingUrl {
+                reason: ArtifactUnavailableReason::MissingUrl,
+                firmware_path: format!("{filename:?}"),
+            });
             return false;
         }
 
@@ -283,11 +331,11 @@ fn cached_file_status(filename: &Path, sha256: &str) -> CachedFileStatus {
             );
 
             if let Err(err) = std::fs::remove_file(filename) {
-                tracing::error!(
-                    filename = %filename.display(),
-                    error = %err,
-                    "Failed to remove stale cached firmware artifact",
-                );
+                emit(FirmwareStaleCachedArtifactRemovalFailed {
+                    reason: ArtifactUnavailableReason::StaleCacheRemovalFailed,
+                    filename: filename.display().to_string(),
+                    error: err.to_string(),
+                });
                 return CachedFileStatus::Unusable;
             }
 

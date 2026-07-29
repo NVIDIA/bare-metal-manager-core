@@ -60,6 +60,9 @@ struct PendingReWrap {
 /// Historical journal entries are re-wrapped too: they must stay
 /// decryptable, and re-wrapping them is what lets an old KEK be retired
 /// completely.
+/// TODO(@chet): Migrate this to using WorkLockManager to do scoped locks of
+/// work without holding open a database connection or transaction.
+#[allow(txn_held_across_await)]
 pub async fn re_wrap_stale(
     pool: &PgPool,
     kms: &dyn KmsBackend,

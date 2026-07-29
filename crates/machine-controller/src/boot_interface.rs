@@ -25,10 +25,10 @@ use model::predicted_machine_interface::PredictedMachineInterface;
 /// Resolve how to target this host's boot interface for Redfish setup calls.
 ///
 /// The host's own `machine_interface` row wins the moment it exists: when that
-/// row has a captured Redfish interface id, the full pair is returned (enabling
-/// the MAC-first / interface-id fallback); otherwise it targets the MAC alone.
-/// Both come from the same row, so the pair can never name a different interface
-/// than the MAC.
+/// row has a captured `boot_interface_id`, the full pair is supplied to
+/// `libredfish` in one operation; otherwise the target contains only the MAC.
+/// Both identifiers come from the same row, so the pair cannot name a different
+/// interface than the MAC.
 ///
 /// Before that first DHCP lease creates a row -- the window a zero-DPU or
 /// NIC-mode host sits in, since it gets no primary row at ingestion -- the host's

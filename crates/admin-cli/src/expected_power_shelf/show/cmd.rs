@@ -20,29 +20,73 @@ use std::collections::HashMap;
 use mac_address::MacAddress;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::ExpectedPowerShelfRequest;
+use rpc::forge::{ExpectedPowerShelf, ExpectedPowerShelfList, ExpectedPowerShelfRequest};
 
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
+use crate::{async_write, async_writeln};
+
+enum ShowResult {
+    Single(ExpectedPowerShelf),
+    List(ExpectedPowerShelfList),
+}
+
+enum RenderOutcome {
+    Complete,
+    TableRequired(ExpectedPowerShelfList),
+}
+
+async fn render_show_result(
+    result: ShowResult,
+    output_format: OutputFormat,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+) -> CarbideCliResult<RenderOutcome> {
+    match result {
+        ShowResult::Single(expected_power_shelf) => {
+            if output_format == OutputFormat::Json {
+                async_writeln!(
+                    output,
+                    "{}",
+                    serde_json::to_string_pretty(&expected_power_shelf)?
+                )?;
+            } else {
+                async_writeln!(output, "{:#?}", expected_power_shelf)?;
+            }
+            Ok(RenderOutcome::Complete)
+        }
+        ShowResult::List(expected_power_shelves) if output_format == OutputFormat::Json => {
+            async_writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&expected_power_shelves)?
+            )?;
+            Ok(RenderOutcome::Complete)
+        }
+        ShowResult::List(expected_power_shelves) => {
+            Ok(RenderOutcome::TableRequired(expected_power_shelves))
+        }
+    }
+}
 
 pub async fn show(
     query: Args,
     api_client: &ApiClient,
     output_format: OutputFormat,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
 ) -> CarbideCliResult<()> {
     let req: Option<ExpectedPowerShelfRequest> = query.try_into()?;
 
-    if let Some(req) = req {
-        let expected_power_shelf = api_client.0.get_expected_power_shelf(req).await?;
-        println!("{:#?}", expected_power_shelf);
-        return Ok(());
-    }
+    let result = if let Some(req) = req {
+        ShowResult::Single(api_client.0.get_expected_power_shelf(req).await?)
+    } else {
+        ShowResult::List(api_client.0.get_all_expected_power_shelves().await?)
+    };
 
-    let expected_power_shelves = api_client.0.get_all_expected_power_shelves().await?;
-    if output_format == OutputFormat::Json {
-        println!("{}", serde_json::to_string_pretty(&expected_power_shelves)?);
-    }
+    let expected_power_shelves = match render_show_result(result, output_format, output).await? {
+        RenderOutcome::Complete => return Ok(()),
+        RenderOutcome::TableRequired(expected_power_shelves) => expected_power_shelves,
+    };
 
     // TODO: This should be optimised. `find_interfaces` should accept a list of macs also and
     // return related interfaces details.
@@ -87,15 +131,18 @@ pub async fn show(
     );
 
     convert_and_print_into_nice_table(
+        output,
         &expected_power_shelves,
         &expected_bmc_ip_vs_ids,
         &expected_mi,
-    )?;
+    )
+    .await?;
 
     Ok(())
 }
 
-fn convert_and_print_into_nice_table(
+async fn convert_and_print_into_nice_table(
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     expected_power_shelves: &::rpc::forge::ExpectedPowerShelfList,
     expected_discovered_machine_ids: &HashMap<String, String>,
     expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,
@@ -150,7 +197,56 @@ fn convert_and_print_into_nice_table(
         ]);
     }
 
-    table.printstd();
+    async_write!(output, "{}", table)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+    use crate::async_write::CapturedOutput;
+
+    fn expected_power_shelf() -> ExpectedPowerShelf {
+        ExpectedPowerShelf {
+            bmc_mac_address: "00:11:22:33:44:55".to_string(),
+            shelf_serial_number: "shelf-1".to_string(),
+            ..Default::default()
+        }
+    }
+
+    async fn render_json(result: ShowResult) -> (RenderOutcome, Value) {
+        let mut captured = CapturedOutput::new();
+        let outcome = render_show_result(result, OutputFormat::Json, captured.writer())
+            .await
+            .expect("JSON output should render");
+        let output = captured.into_bytes().await;
+        let json = serde_json::from_slice(&output)
+            .expect("the complete captured output should be one JSON document");
+        (outcome, json)
+    }
+
+    #[tokio::test]
+    async fn single_json_output_is_complete_document() {
+        let (outcome, json) = render_json(ShowResult::Single(expected_power_shelf())).await;
+
+        assert!(matches!(outcome, RenderOutcome::Complete));
+        assert_eq!(json["shelf_serial_number"], "shelf-1");
+    }
+
+    #[tokio::test]
+    async fn list_json_output_is_complete_document() {
+        let list = ExpectedPowerShelfList {
+            expected_power_shelves: vec![expected_power_shelf()],
+        };
+        let (outcome, json) = render_json(ShowResult::List(list)).await;
+
+        assert!(matches!(outcome, RenderOutcome::Complete));
+        assert_eq!(
+            json["expected_power_shelves"][0]["shelf_serial_number"],
+            "shelf-1"
+        );
+    }
 }

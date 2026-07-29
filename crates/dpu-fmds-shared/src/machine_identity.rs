@@ -29,6 +29,7 @@ use async_trait::async_trait;
 use axum::http::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use carbide_instrument::{Event, LabelValue, emit};
 use forge_dpu_agent_utils::machine_identity::defaults::{
     BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
 };
@@ -47,6 +48,84 @@ pub const META_DATA_IDENTITY_CATEGORY: &str = "identity";
 
 /// Upstream path appended to `sign-proxy-url` for HTTP pass-through (`{base}/latest/...`).
 pub const SIGN_PROXY_UPSTREAM_IMDS_PREFIX: &str = "latest/meta-data/identity";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum SignProxyFailureStage {
+    RequestTimeout,
+    RequestTransport,
+    ResponseBody,
+    ResponseBuild,
+    UpstreamServer,
+}
+
+/// The sign-proxy request failed before an HTTP response was available.
+#[derive(Event)]
+#[event(
+    event_name = "machine_identity_sign_proxy_request_failed",
+    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
+    component = "machine-identity",
+    log = warn,
+    metric = counter,
+    message = "machine identity sign proxy request failed",
+    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
+)]
+struct MachineIdentitySignProxyRequestFailed {
+    #[label]
+    failure_stage: SignProxyFailureStage,
+    #[context]
+    error: String,
+}
+
+/// The sign proxy answered, but its response body could not be read.
+#[derive(Event)]
+#[event(
+    event_name = "machine_identity_sign_proxy_response_read_failed",
+    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
+    component = "machine-identity",
+    log = warn,
+    metric = counter,
+    message = "machine identity sign proxy response body read failed",
+    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
+)]
+struct MachineIdentitySignProxyResponseReadFailed {
+    #[label]
+    failure_stage: SignProxyFailureStage,
+    #[context]
+    error: String,
+}
+
+/// The sign-proxy response could not be represented by the local HTTP server.
+#[derive(Event)]
+#[event(
+    event_name = "machine_identity_sign_proxy_response_build_failed",
+    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
+    component = "machine-identity",
+    log = warn,
+    metric = counter,
+    message = "machine identity sign proxy response build failed",
+    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
+)]
+struct MachineIdentitySignProxyResponseBuildFailed {
+    #[label]
+    failure_stage: SignProxyFailureStage,
+    #[context]
+    error: String,
+}
+
+/// The sign proxy returned a server-error response that was forwarded unchanged.
+#[derive(Event)]
+#[event(
+    event_name = "machine_identity_sign_proxy_upstream_server_failed",
+    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
+    component = "machine-identity",
+    log = off,
+    metric = counter,
+    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
+)]
+struct MachineIdentitySignProxyUpstreamServerFailed {
+    #[label]
+    failure_stage: SignProxyFailureStage,
+}
 
 /// Validated, normalized machine-identity limits.
 ///
@@ -422,6 +501,28 @@ pub fn build_sign_proxy_request_url(base_url: &str, query: Option<&str>) -> Resu
     Ok(format!("{base}/{SIGN_PROXY_UPSTREAM_IMDS_PREFIX}{q}"))
 }
 
+struct SignProxyReqwestErrorText {
+    response_body: String,
+    log_error: String,
+}
+
+fn sign_proxy_reqwest_error_text(error: reqwest::Error) -> SignProxyReqwestErrorText {
+    // Keep the existing reqwest text in the IMDS response. Remove the URL from
+    // `log_error` so configured userinfo and forwarded `aud` values do not reach the log.
+    let response_body = error.to_string();
+    let log_error = error.without_url().to_string();
+    SignProxyReqwestErrorText {
+        response_body,
+        log_error,
+    }
+}
+
+fn sign_proxy_log_origin(upstream_url: &str) -> String {
+    reqwest::Url::parse(upstream_url)
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_else(|_| "<invalid sign proxy URL>".to_string())
+}
+
 pub async fn forward_sign_proxy_http(
     client: &reqwest::Client,
     base_url: &str,
@@ -433,7 +534,11 @@ pub async fn forward_sign_proxy_http(
         Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
     };
 
-    tracing::debug!(%upstream_url, "forwarding machine identity request to HTTP sign proxy");
+    let upstream_origin = sign_proxy_log_origin(&upstream_url);
+    tracing::debug!(
+        upstream = %upstream_origin,
+        "forwarding machine identity request to HTTP sign proxy"
+    );
 
     let mut req = client.get(upstream_url);
     if let Some(v) = headers.get("metadata")
@@ -449,13 +554,24 @@ pub async fn forward_sign_proxy_http(
 
     let upstream = match req.send().await {
         Ok(r) => r,
-        Err(e) => {
-            let code = if e.is_timeout() {
+        Err(error) => {
+            let is_timeout = error.is_timeout();
+            let failure_stage = if is_timeout {
+                SignProxyFailureStage::RequestTimeout
+            } else {
+                SignProxyFailureStage::RequestTransport
+            };
+            let code = if is_timeout {
                 StatusCode::GATEWAY_TIMEOUT
             } else {
                 StatusCode::BAD_GATEWAY
             };
-            return (code, e.to_string()).into_response();
+            let error_text = sign_proxy_reqwest_error_text(error);
+            emit(MachineIdentitySignProxyRequestFailed {
+                failure_stage,
+                error: error_text.log_error,
+            });
+            return (code, error_text.response_body).into_response();
         }
     };
 
@@ -469,21 +585,41 @@ pub async fn forward_sign_proxy_http(
 
     let body_bytes = match upstream.bytes().await {
         Ok(b) => b,
-        Err(e) => return (StatusCode::BAD_GATEWAY, e.to_string()).into_response(),
+        Err(error) => {
+            let error_text = sign_proxy_reqwest_error_text(error);
+            emit(MachineIdentitySignProxyResponseReadFailed {
+                failure_stage: SignProxyFailureStage::ResponseBody,
+                error: error_text.log_error,
+            });
+            return (StatusCode::BAD_GATEWAY, error_text.response_body).into_response();
+        }
     };
 
     let mut res = Response::builder().status(status);
     if let Some(ct) = content_type {
         res = res.header(CONTENT_TYPE, ct);
     }
-    match res.body(axum::body::Body::from(body_bytes)) {
-        Ok(r) => r,
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("machine-identity.sign-proxy-url: failed to build HTTP response ({e})"),
-        )
-            .into_response(),
+    let response = match res.body(axum::body::Body::from(body_bytes)) {
+        Ok(response) => response,
+        Err(error) => {
+            let error = error.to_string();
+            emit(MachineIdentitySignProxyResponseBuildFailed {
+                failure_stage: SignProxyFailureStage::ResponseBuild,
+                error: error.clone(),
+            });
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("machine-identity.sign-proxy-url: failed to build HTTP response ({error})"),
+            )
+                .into_response();
+        }
+    };
+    if status.is_server_error() {
+        emit(MachineIdentitySignProxyUpstreamServerFailed {
+            failure_stage: SignProxyFailureStage::UpstreamServer,
+        });
     }
+    response
 }
 
 /// When `sign-proxy-url` is configured (`sign_proxy_base` is [`Some`]), forward the identity request
@@ -582,9 +718,229 @@ pub async fn serve_meta_data_identity<S: MetaDataIdentitySigner + ?Sized>(
 mod tests {
     use axum::Router;
     use axum::routing::get;
+    use carbide_instrument::testing::{CapturedLog, MetricsCapture, capture_logs};
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, Check, check_cases_async, check_values};
     use http_body_util::BodyExt;
+    use tokio::io::AsyncWriteExt;
 
     use super::*;
+
+    const SIGN_PROXY_FAILURE_METRIC: &str = "carbide_machine_identity_sign_proxy_failures_total";
+
+    #[derive(Debug, PartialEq)]
+    struct SignProxyFailureObservation {
+        counter_deltas: [f64; 5],
+        log_count: usize,
+        level: Option<tracing::Level>,
+        metadata_name: Option<String>,
+        message: Option<String>,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        failure_stage: Option<String>,
+        error: Option<String>,
+        exposes_sensitive_fields: bool,
+    }
+
+    #[test]
+    fn sign_proxy_failures_share_one_bounded_metric() {
+        assert_eq!(
+            <MachineIdentitySignProxyRequestFailed as Event>::COMPONENT,
+            "machine-identity"
+        );
+        assert_eq!(
+            <MachineIdentitySignProxyResponseReadFailed as Event>::COMPONENT,
+            "machine-identity"
+        );
+        assert_eq!(
+            <MachineIdentitySignProxyResponseBuildFailed as Event>::COMPONENT,
+            "machine-identity"
+        );
+        assert_eq!(
+            <MachineIdentitySignProxyUpstreamServerFailed as Event>::COMPONENT,
+            "machine-identity"
+        );
+        check_values(
+            [
+                Check {
+                    scenario: "request timeout",
+                    input: SignProxyFailureStage::RequestTimeout,
+                    expect: SignProxyFailureObservation {
+                        counter_deltas: [1.0, 0.0, 0.0, 0.0, 0.0],
+                        log_count: 1,
+                        level: Some(tracing::Level::WARN),
+                        metadata_name: Some(
+                            "machine_identity_sign_proxy_request_failed".to_string(),
+                        ),
+                        message: Some("machine identity sign proxy request failed".to_string()),
+                        event_name: Some("machine_identity_sign_proxy_request_failed".to_string()),
+                        metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
+                        failure_stage: Some("request_timeout".to_string()),
+                        error: Some("sanitized proxy error".to_string()),
+                        exposes_sensitive_fields: false,
+                    },
+                },
+                Check {
+                    scenario: "request transport error",
+                    input: SignProxyFailureStage::RequestTransport,
+                    expect: SignProxyFailureObservation {
+                        counter_deltas: [0.0, 1.0, 0.0, 0.0, 0.0],
+                        log_count: 1,
+                        level: Some(tracing::Level::WARN),
+                        metadata_name: Some(
+                            "machine_identity_sign_proxy_request_failed".to_string(),
+                        ),
+                        message: Some("machine identity sign proxy request failed".to_string()),
+                        event_name: Some("machine_identity_sign_proxy_request_failed".to_string()),
+                        metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
+                        failure_stage: Some("request_transport".to_string()),
+                        error: Some("sanitized proxy error".to_string()),
+                        exposes_sensitive_fields: false,
+                    },
+                },
+                Check {
+                    scenario: "response body read error",
+                    input: SignProxyFailureStage::ResponseBody,
+                    expect: SignProxyFailureObservation {
+                        counter_deltas: [0.0, 0.0, 1.0, 0.0, 0.0],
+                        log_count: 1,
+                        level: Some(tracing::Level::WARN),
+                        metadata_name: Some(
+                            "machine_identity_sign_proxy_response_read_failed".to_string(),
+                        ),
+                        message: Some(
+                            "machine identity sign proxy response body read failed".to_string(),
+                        ),
+                        event_name: Some(
+                            "machine_identity_sign_proxy_response_read_failed".to_string(),
+                        ),
+                        metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
+                        failure_stage: Some("response_body".to_string()),
+                        error: Some("sanitized proxy error".to_string()),
+                        exposes_sensitive_fields: false,
+                    },
+                },
+                Check {
+                    scenario: "response build error",
+                    input: SignProxyFailureStage::ResponseBuild,
+                    expect: SignProxyFailureObservation {
+                        counter_deltas: [0.0, 0.0, 0.0, 1.0, 0.0],
+                        log_count: 1,
+                        level: Some(tracing::Level::WARN),
+                        metadata_name: Some(
+                            "machine_identity_sign_proxy_response_build_failed".to_string(),
+                        ),
+                        message: Some(
+                            "machine identity sign proxy response build failed".to_string(),
+                        ),
+                        event_name: Some(
+                            "machine_identity_sign_proxy_response_build_failed".to_string(),
+                        ),
+                        metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
+                        failure_stage: Some("response_build".to_string()),
+                        error: Some("sanitized proxy error".to_string()),
+                        exposes_sensitive_fields: false,
+                    },
+                },
+                Check {
+                    scenario: "upstream server error",
+                    input: SignProxyFailureStage::UpstreamServer,
+                    expect: SignProxyFailureObservation {
+                        counter_deltas: [0.0, 0.0, 0.0, 0.0, 1.0],
+                        log_count: 0,
+                        level: None,
+                        metadata_name: None,
+                        message: None,
+                        event_name: None,
+                        metric_name: None,
+                        failure_stage: None,
+                        error: None,
+                        exposes_sensitive_fields: false,
+                    },
+                },
+            ],
+            |failure_stage| {
+                let metrics = MetricsCapture::start();
+                let logs = capture_logs(|| match failure_stage {
+                    SignProxyFailureStage::RequestTimeout
+                    | SignProxyFailureStage::RequestTransport => {
+                        emit(MachineIdentitySignProxyRequestFailed {
+                            failure_stage,
+                            error: "sanitized proxy error".to_string(),
+                        });
+                    }
+                    SignProxyFailureStage::ResponseBody => {
+                        emit(MachineIdentitySignProxyResponseReadFailed {
+                            failure_stage,
+                            error: "sanitized proxy error".to_string(),
+                        });
+                    }
+                    SignProxyFailureStage::ResponseBuild => {
+                        emit(MachineIdentitySignProxyResponseBuildFailed {
+                            failure_stage,
+                            error: "sanitized proxy error".to_string(),
+                        });
+                    }
+                    SignProxyFailureStage::UpstreamServer => {
+                        emit(MachineIdentitySignProxyUpstreamServerFailed { failure_stage });
+                    }
+                });
+                let log = logs.first();
+
+                SignProxyFailureObservation {
+                    counter_deltas: [
+                        metrics.counter_delta(
+                            SIGN_PROXY_FAILURE_METRIC,
+                            &[("failure_stage", "request_timeout")],
+                        ),
+                        metrics.counter_delta(
+                            SIGN_PROXY_FAILURE_METRIC,
+                            &[("failure_stage", "request_transport")],
+                        ),
+                        metrics.counter_delta(
+                            SIGN_PROXY_FAILURE_METRIC,
+                            &[("failure_stage", "response_body")],
+                        ),
+                        metrics.counter_delta(
+                            SIGN_PROXY_FAILURE_METRIC,
+                            &[("failure_stage", "response_build")],
+                        ),
+                        metrics.counter_delta(
+                            SIGN_PROXY_FAILURE_METRIC,
+                            &[("failure_stage", "upstream_server")],
+                        ),
+                    ],
+                    log_count: logs.len(),
+                    level: log.map(|log| log.level),
+                    metadata_name: log.map(|log| log.metadata_name.clone()),
+                    message: log.map(|log| log.message.clone()),
+                    event_name: log
+                        .and_then(|log| log.field("event_name"))
+                        .map(str::to_string),
+                    metric_name: log
+                        .and_then(|log| log.field("metric_name"))
+                        .map(str::to_string),
+                    failure_stage: log
+                        .and_then(|log| log.field("failure_stage"))
+                        .map(str::to_string),
+                    error: log.and_then(|log| log.field("error")).map(str::to_string),
+                    exposes_sensitive_fields: log.is_some_and(|log| {
+                        [
+                            "upstream_url",
+                            "request_uri",
+                            "audience",
+                            "headers",
+                            "authorization",
+                            "response_body",
+                            "access_token",
+                        ]
+                        .into_iter()
+                        .any(|field| log.field(field).is_some())
+                    }),
+                }
+            },
+        );
+    }
 
     #[test]
     fn parse_identity_audiences_repeated_and_decoded() {
@@ -783,28 +1139,43 @@ mod tests {
         );
     }
 
+    #[derive(Debug, PartialEq)]
+    struct SignProxyResponseObservation {
+        status: StatusCode,
+        content_type: Option<String>,
+        body: String,
+        counter_deltas: [f64; 5],
+    }
+
     #[tokio::test]
-    async fn forward_sign_proxy_http_passes_through() {
+    async fn forward_sign_proxy_http_passes_through_upstream_statuses() {
         let path = format!("/{}", SIGN_PROXY_UPSTREAM_IMDS_PREFIX);
         let app = Router::new().route(
             path.as_str(),
-            get(|| async {
+            get(|uri: Uri| async move {
+                let status =
+                    url::form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+                        .find_map(|(key, value)| {
+                            if key == "status" {
+                                value.parse::<u16>().ok()
+                            } else {
+                                None
+                            }
+                        })
+                        .and_then(|status| StatusCode::from_u16(status).ok())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
                 (
-                    StatusCode::CREATED,
+                    status,
                     [(CONTENT_TYPE, "application/special")],
-                    "custom-token-body",
+                    format!("upstream status {}", status.as_u16()),
                 )
             }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
         let base = format!("http://{}", addr);
-        let uri: Uri = "http://client/latest/meta-data/identity?aud=test"
-            .parse()
-            .unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("metadata", HeaderValue::from_static("true"));
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
@@ -814,15 +1185,339 @@ mod tests {
             .build()
             .unwrap();
 
-        let res = forward_sign_proxy_http(&client, &base, &uri, &headers).await;
-        assert_eq!(res.status(), StatusCode::CREATED);
-        assert_eq!(
-            res.headers().get(CONTENT_TYPE).unwrap().as_bytes(),
-            b"application/special"
-        );
-        let body = res.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&body[..], b"custom-token-body");
+        check_cases_async(
+            [
+                Case {
+                    scenario: "successful upstream response",
+                    input: StatusCode::CREATED,
+                    expect: Yields(SignProxyResponseObservation {
+                        status: StatusCode::CREATED,
+                        content_type: Some("application/special".to_string()),
+                        body: "upstream status 201".to_string(),
+                        counter_deltas: [0.0; 5],
+                    }),
+                },
+                Case {
+                    scenario: "upstream client rejection",
+                    input: StatusCode::BAD_REQUEST,
+                    expect: Yields(SignProxyResponseObservation {
+                        status: StatusCode::BAD_REQUEST,
+                        content_type: Some("application/special".to_string()),
+                        body: "upstream status 400".to_string(),
+                        counter_deltas: [0.0; 5],
+                    }),
+                },
+                Case {
+                    scenario: "upstream service failure",
+                    input: StatusCode::SERVICE_UNAVAILABLE,
+                    expect: Yields(SignProxyResponseObservation {
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        content_type: Some("application/special".to_string()),
+                        body: "upstream status 503".to_string(),
+                        counter_deltas: [0.0, 0.0, 0.0, 0.0, 1.0],
+                    }),
+                },
+            ],
+            |upstream_status| {
+                let client = client.clone();
+                let base = base.clone();
+                let headers = headers.clone();
+                async move {
+                    let metrics = MetricsCapture::start();
+                    let uri: Uri = format!(
+                        "http://client/latest/meta-data/identity?status={}",
+                        upstream_status.as_u16()
+                    )
+                    .parse()
+                    .unwrap();
+                    let response = forward_sign_proxy_http(&client, &base, &uri, &headers).await;
+                    let status = response.status();
+                    let content_type = response
+                        .headers()
+                        .get(CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_string);
+                    let body = response.into_body().collect().await.unwrap().to_bytes();
+
+                    Ok::<_, ()>(SignProxyResponseObservation {
+                        status,
+                        content_type,
+                        body: String::from_utf8(body.to_vec()).unwrap(),
+                        counter_deltas: [
+                            metrics.counter_delta(
+                                SIGN_PROXY_FAILURE_METRIC,
+                                &[("failure_stage", "request_timeout")],
+                            ),
+                            metrics.counter_delta(
+                                SIGN_PROXY_FAILURE_METRIC,
+                                &[("failure_stage", "request_transport")],
+                            ),
+                            metrics.counter_delta(
+                                SIGN_PROXY_FAILURE_METRIC,
+                                &[("failure_stage", "response_body")],
+                            ),
+                            metrics.counter_delta(
+                                SIGN_PROXY_FAILURE_METRIC,
+                                &[("failure_stage", "response_build")],
+                            ),
+                            metrics.counter_delta(
+                                SIGN_PROXY_FAILURE_METRIC,
+                                &[("failure_stage", "upstream_server")],
+                            ),
+                        ],
+                    })
+                }
+            },
+        )
+        .await;
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn sign_proxy_reqwest_error_text_keeps_response_and_strips_log_url() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap();
+        let error = client
+            .get(format!(
+                "http://{addr}/private-signing-path?aud=sensitive-audience"
+            ))
+            .send()
+            .await
+            .unwrap_err();
+        let error_url = error.url().expect("reqwest error should retain its URL");
+        let error_url = error_url.to_string();
+        let original_response = error.to_string();
+        let error_text = sign_proxy_reqwest_error_text(error);
+
+        assert_eq!(error_text.response_body, original_response);
+        assert!(!error_text.log_error.contains(&error_url));
+        assert!(!error_text.log_error.contains("sensitive-audience"));
+        assert!(!error_text.log_error.contains("private-signing-path"));
+    }
+
+    fn assert_redacted_sign_proxy_event(
+        logs: &[CapturedLog],
+        event_name: &str,
+        failure_stage: &str,
+        expected_error: &str,
+        forbidden_values: &[&str],
+    ) {
+        let event_logs = logs
+            .iter()
+            .filter(|log| log.field("event_name") == Some(event_name))
+            .collect::<Vec<_>>();
+        assert_eq!(event_logs.len(), 1, "one Event owns this failure");
+        let log = event_logs[0];
+        assert_eq!(log.field("failure_stage"), Some(failure_stage));
+        assert_eq!(log.field("error"), Some(expected_error));
+
+        for captured in logs {
+            for value in std::iter::once(captured.metadata_name.as_str())
+                .chain(std::iter::once(captured.target.as_str()))
+                .chain(std::iter::once(captured.message.as_str()))
+                .chain(
+                    captured
+                        .fields
+                        .iter()
+                        .flat_map(|(name, value)| [name.as_str(), value.as_str()]),
+                )
+            {
+                for forbidden in forbidden_values {
+                    assert!(
+                        !value.contains(forbidden),
+                        "captured log exposed `{forbidden}` in `{value}`",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forward_sign_proxy_http_counts_and_redacts_transport_failure() {
+        const PRIVATE_PATH: &str = "private-signing-root";
+        const USERINFO_NAME: &str = "proxy-user";
+        const USERINFO_SECRET: &str = "proxy-password-secret";
+        const QUERY_SECRET: &str = "transport-audience-secret";
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let listener = runtime
+            .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap();
+        let base = format!("http://{USERINFO_NAME}:{USERINFO_SECRET}@{addr}/{PRIVATE_PATH}");
+        let uri: Uri = format!("http://client/latest/meta-data/identity?aud={QUERY_SECRET}")
+            .parse()
+            .unwrap();
+        let upstream_url = build_sign_proxy_request_url(&base, uri.query()).unwrap();
+        let response_url = format!(
+            "http://{addr}/{PRIVATE_PATH}/{SIGN_PROXY_UPSTREAM_IMDS_PREFIX}?aud={QUERY_SECRET}"
+        );
+        let metrics = MetricsCapture::start();
+        let mut response = None;
+        let logs = capture_logs(|| {
+            response = Some(runtime.block_on(forward_sign_proxy_http(
+                &client,
+                &base,
+                &uri,
+                &HeaderMap::new(),
+            )));
+        });
+        let response = response.expect("forwarding returns an HTTP response");
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = runtime
+            .block_on(response.into_body().collect())
+            .unwrap()
+            .to_bytes();
+        assert_eq!(
+            String::from_utf8(body.to_vec()).unwrap(),
+            format!("error sending request for url ({response_url})"),
+            "the IMDS client keeps the historical reqwest error body",
+        );
+        assert_redacted_sign_proxy_event(
+            &logs,
+            "machine_identity_sign_proxy_request_failed",
+            "request_transport",
+            "error sending request",
+            &[
+                upstream_url.as_str(),
+                PRIVATE_PATH,
+                USERINFO_NAME,
+                USERINFO_SECRET,
+                QUERY_SECRET,
+            ],
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                SIGN_PROXY_FAILURE_METRIC,
+                &[("failure_stage", "request_transport")],
+            ),
+            1.0
+        );
+    }
+
+    #[tokio::test]
+    async fn forward_sign_proxy_http_counts_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(50))
+            .build()
+            .unwrap();
+        let uri: Uri = "http://client/latest/meta-data/identity".parse().unwrap();
+        let metrics = MetricsCapture::start();
+        let response =
+            forward_sign_proxy_http(&client, &format!("http://{addr}"), &uri, &HeaderMap::new())
+                .await;
+
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+        assert_eq!(
+            metrics.counter_delta(
+                SIGN_PROXY_FAILURE_METRIC,
+                &[("failure_stage", "request_timeout")],
+            ),
+            1.0
+        );
+        server.abort();
+    }
+
+    #[test]
+    fn forward_sign_proxy_http_counts_and_redacts_truncated_response_body() {
+        const PRIVATE_PATH: &str = "private-response-root";
+        const QUERY_SECRET: &str = "response-audience-secret";
+        const RESPONSE_SECRET: &str = "partial-response-secret";
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let listener = runtime
+            .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+            .unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap();
+        let base = format!("http://{addr}/{PRIVATE_PATH}");
+        let uri: Uri = format!("http://client/latest/meta-data/identity?aud={QUERY_SECRET}")
+            .parse()
+            .unwrap();
+        let upstream_url = build_sign_proxy_request_url(&base, uri.query()).unwrap();
+        let metrics = MetricsCapture::start();
+        let mut response = None;
+        let logs = capture_logs(|| {
+            response = Some(runtime.block_on(async {
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    socket
+                        .write_all(
+                            format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\n{RESPONSE_SECRET}"
+                            )
+                            .as_bytes(),
+                        )
+                        .await
+                        .unwrap();
+                });
+                let response =
+                    forward_sign_proxy_http(&client, &base, &uri, &HeaderMap::new()).await;
+                server.await.unwrap();
+                response
+            }));
+        });
+        let response = response.expect("forwarding returns an HTTP response");
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = runtime
+            .block_on(response.into_body().collect())
+            .unwrap()
+            .to_bytes();
+        assert_eq!(
+            String::from_utf8(body.to_vec()).unwrap(),
+            format!("error decoding response body for url ({upstream_url})"),
+            "the IMDS client keeps the historical reqwest error body",
+        );
+        assert_redacted_sign_proxy_event(
+            &logs,
+            "machine_identity_sign_proxy_response_read_failed",
+            "response_body",
+            "error decoding response body",
+            &[
+                upstream_url.as_str(),
+                PRIVATE_PATH,
+                QUERY_SECRET,
+                RESPONSE_SECRET,
+            ],
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                SIGN_PROXY_FAILURE_METRIC,
+                &[("failure_stage", "response_body")],
+            ),
+            1.0
+        );
     }
 
     #[tokio::test]

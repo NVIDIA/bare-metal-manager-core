@@ -21,7 +21,9 @@
 use std::time::Duration;
 
 use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
-use carbide_instrument::{Event, LabelValue, LogAt, MetricKind, Outcome, emit};
+use carbide_instrument::{
+    Event, LabelValue, LogAt, MetricFamily, MetricKind, Outcome, emit, initialize_counter_series,
+};
 use carbide_test_support::value_scenarios;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
@@ -82,6 +84,94 @@ fn both_sides_from_one_emit() {
             &[("stage", "apply"), ("outcome", "error")],
         ),
         1.0
+    );
+}
+
+/// Counter initialization needs to expose the series without pretending the
+/// Event happened. The first real `emit` must therefore move the same series
+/// from zero to one and write exactly one log line.
+#[test]
+fn counter_series_initialization_does_not_emit_the_event() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_counter_initialized",
+        metric_name = "carbide_test_matrix_initialized_total",
+        component = "matrix-test",
+        log = warn,
+        metric = counter,
+        describe = "Number of initialized counter test events",
+        message = "initialized counter fired"
+    )]
+    struct InitializedCounter {
+        #[label]
+        stage: Stage,
+        #[context]
+        detail: String,
+    }
+
+    let event = InitializedCounter {
+        stage: Stage::PreFlight,
+        detail: "first real event".to_string(),
+    };
+    let metrics = MetricsCapture::start();
+    let initialization_logs = capture_logs(|| {
+        assert!(initialize_counter_series(&event));
+    });
+
+    assert!(initialization_logs.is_empty());
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_initialized_total",
+            &[("stage", "pre_flight")],
+        ),
+        0.0
+    );
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_initialized_total{stage=\"pre_flight\"} 0")
+    );
+
+    let logs = capture_logs(|| emit(event));
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].message, "initialized counter fired");
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_initialized_total",
+            &[("stage", "pre_flight")],
+        ),
+        1.0
+    );
+}
+
+#[test]
+fn non_counter_event_cannot_initialize_a_counter_series() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_histogram_initialization_rejected",
+        metric_name = "carbide_test_matrix_initialization_milliseconds",
+        component = "matrix-test",
+        log = off,
+        metric = histogram,
+        describe = "Test initialization duration"
+    )]
+    struct Histogram {
+        #[observation]
+        latency: Duration,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        assert!(!initialize_counter_series(&Histogram {
+            latency: Duration::from_millis(10),
+        }));
+    });
+
+    assert!(logs.is_empty());
+    assert!(
+        !metrics
+            .render()
+            .contains("carbide_test_matrix_initialization_milliseconds")
     );
 }
 
@@ -594,4 +684,167 @@ fn event_identity_renders_through_logfmt() {
     );
     assert_eq!(rendered.matches("event_name=").count(), 1, "{rendered}");
     assert_eq!(rendered.matches("metric_name=").count(), 1, "{rendered}");
+}
+
+/// Two Events sharing one `MetricFamily` move a single instrument with a
+/// single label set, and each keeps its own level, message, and context.
+#[test]
+fn one_family_backs_two_events() {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+    enum FamilyStage {
+        Fetch,
+        Persist,
+    }
+
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_total",
+        kind = counter,
+        component = "matrix-test",
+        describe = "Number of matrix family test failures, by stage and outcome."
+    )]
+    struct MatrixFamily {
+        stage: FamilyStage,
+        outcome: Outcome,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_fetch_failed",
+        metric_family = MatrixFamily,
+        log = warn,
+        message = "matrix family fetch failed"
+    )]
+    struct FetchFailed {
+        #[label]
+        stage: FamilyStage,
+        #[label]
+        outcome: Outcome,
+        #[context]
+        url: String,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_persist_failed",
+        metric_family = MatrixFamily,
+        log = error,
+        message = "matrix family persist failed"
+    )]
+    struct PersistFailed {
+        #[label]
+        stage: FamilyStage,
+        #[label]
+        outcome: Outcome,
+        #[context]
+        machine: String,
+    }
+
+    let metrics = MetricsCapture::start();
+    let logs = capture_logs(|| {
+        emit(FetchFailed {
+            stage: FamilyStage::Fetch,
+            outcome: Outcome::Error,
+            url: "https://example.invalid".to_string(),
+        });
+        emit(PersistFailed {
+            stage: FamilyStage::Persist,
+            outcome: Outcome::Error,
+            machine: "machine-7".to_string(),
+        });
+    });
+
+    // The family supplies the metric identity to both Events.
+    assert_eq!(
+        <FetchFailed as Event>::METRIC_NAME,
+        Some("carbide_test_matrix_family_total")
+    );
+    assert_eq!(
+        <PersistFailed as Event>::METRIC_NAME,
+        <FetchFailed as Event>::METRIC_NAME
+    );
+    assert_eq!(<PersistFailed as Event>::COMPONENT, "matrix-test");
+    assert_eq!(
+        <PersistFailed as Event>::DESCRIBE,
+        <FetchFailed as Event>::DESCRIBE
+    );
+
+    // Each Event keeps its own log surface.
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].level, tracing::Level::WARN);
+    assert_eq!(logs[0].message, "matrix family fetch failed");
+    assert_eq!(logs[0].field("stage"), Some("fetch"));
+    assert_eq!(logs[0].field("url"), Some("https://example.invalid"));
+    assert_eq!(
+        logs[0].field("metric_name"),
+        Some("carbide_test_matrix_family_total")
+    );
+    assert_eq!(logs[1].level, tracing::Level::ERROR);
+    assert_eq!(logs[1].field("machine"), Some("machine-7"));
+
+    // One instrument, two label sets on the same family.
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_family_total",
+            &[("stage", "fetch"), ("outcome", "error")],
+        ),
+        1.0
+    );
+    assert_eq!(
+        metrics.counter_delta(
+            "carbide_test_matrix_family_total",
+            &[("stage", "persist"), ("outcome", "error")],
+        ),
+        1.0
+    );
+}
+
+/// A histogram family converts its `#[observation]` through the unit the
+/// family's name declares, not one restated on the Event.
+#[test]
+fn a_histogram_family_converts_the_observation() {
+    #[derive(MetricFamily)]
+    #[metric(
+        name = "carbide_test_matrix_family_duration_milliseconds",
+        kind = histogram,
+        component = "matrix-test",
+        describe = "Duration of matrix family test work, by stage."
+    )]
+    struct WorkDuration {
+        stage: Stage,
+    }
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_family_work_finished",
+        metric_family = WorkDuration,
+        log = off
+    )]
+    struct WorkFinished {
+        #[label]
+        stage: Stage,
+        #[observation]
+        took: Duration,
+    }
+
+    assert_eq!(
+        <WorkFinished as Event>::METRIC,
+        MetricKind::Histogram { unit: "ms" }
+    );
+
+    let event = WorkFinished {
+        stage: Stage::Apply,
+        took: Duration::from_millis(250),
+    };
+    // 250ms recorded in the family's declared milliseconds, not seconds.
+    assert!((Event::observation(&event) - 250.0).abs() < f64::EPSILON);
+
+    let metrics = MetricsCapture::start();
+    emit(event);
+    assert!(
+        metrics
+            .render()
+            .contains("carbide_test_matrix_family_duration_milliseconds"),
+        "the family's histogram is exported under its declared name"
+    );
 }

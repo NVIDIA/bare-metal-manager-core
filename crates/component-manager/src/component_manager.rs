@@ -465,14 +465,14 @@ impl ComponentManager {
             .await
     }
 
-    /// Starts an NVOS password rotation through the configured switch backend.
-    pub async fn start_switch_password_rotation(
+    /// Converges an NVOS password through the configured switch backend.
+    pub async fn ensure_switch_password_rotation(
         &self,
         endpoint: &SwitchEndpoint,
         next_password: &str,
     ) -> Result<String, ComponentManagerError> {
         self.nv_switch
-            .start_password_rotation(endpoint, next_password)
+            .ensure_password_rotation(endpoint, next_password)
             .await
     }
 
@@ -510,9 +510,9 @@ impl ComponentManager {
 /// The factory inspects the configured nv-switch, power-shelf, and compute-tray
 /// backend selectors to decide which concrete implementations to instantiate.
 /// Unknown backend names are rejected at config-deserialization time by the
-/// backend enums. When any backend uses RMS, `rack_profiles` must contain enough
-/// product-family and vendor data to resolve RMS node types before startup
-/// continues.
+/// backend enums. When any backend uses RMS, `rack_profiles` must contain the
+/// product-family and vendor data required to build RMS node descriptors before
+/// startup continues.
 pub async fn build_component_manager(
     config: &ComponentManagerConfig,
     rack_profiles: RackProfileConfig,
@@ -671,6 +671,13 @@ mod tests {
 
     #[async_trait]
     impl CredentialWriter for FailingCredentialManager {
+        async fn get_credentials_from_writer(
+            &self,
+            _key: &CredentialKey,
+        ) -> Result<Option<Credentials>, SecretsError> {
+            Ok(None)
+        }
+
         async fn set_credentials(
             &self,
             _key: &CredentialKey,
@@ -1172,31 +1179,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "invalid argument: rack profile NVL72 rack_capabilities.power_shelf.vendor is required when power_shelf_backend is 'rms'"
-        );
-    }
-
-    #[tokio::test]
-    async fn build_validates_rms_backend_vendor_value() {
-        let mut profile = rms_rack_profile();
-        profile.rack_capabilities.switch.vendor = Some("Other".to_string());
-
-        let rack_profiles = rms_rack_profiles(profile);
-        let config = ComponentManagerConfig {
-            nv_switch_backend: NvSwitchBackend::Rms,
-            power_shelf_backend: PowerShelfBackend::Mock,
-            compute_tray_backend: ComputeBackend::Mock,
-            ..Default::default()
-        };
-
-        let result = build_component_manager(&config, rack_profiles, None, None, None, None).await;
-        let Err(error) = result else {
-            panic!("unsupported RMS vendor should be rejected");
-        };
-
-        assert_eq!(
-            error.to_string(),
-            "invalid argument: rack profile NVL72 cannot resolve RMS switch node type: RMS does not support switch vendor Other"
+            "invalid argument: rack profile NVL72 cannot build RMS power shelf node descriptor: rack profile does not identify an RMS power shelf vendor"
         );
     }
 }

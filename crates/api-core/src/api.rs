@@ -39,7 +39,7 @@ use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
-use carbide_site_explorer::{EndpointExplorationLocks, EndpointExplorer};
+use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -78,14 +78,12 @@ pub struct Api {
     pub(crate) dpu_health_log_limiter: LogLimiter<MachineId>,
     pub dynamic_settings: DynamicSettings,
     pub(crate) endpoint_explorer: Arc<dyn EndpointExplorer>,
+    pub(crate) endpoint_exploration_service: Arc<EndpointExplorationService>,
     pub(crate) scout_stream_registry: ConnectionRegistry,
     #[allow(unused)]
     pub(crate) rms_client: Option<Arc<dyn RmsApi>>,
     pub(crate) nmxc_client_pool: Arc<dyn NmxcPool>,
     pub(crate) work_lock_manager_handle: WorkLockManagerHandle,
-    /// In-process per-endpoint exploration locks, shared with the site-explorer loop so periodic
-    /// exploration and ad-hoc `RefreshEndpointReport` calls never probe the same BMC at once.
-    pub(crate) endpoint_exploration_locks: EndpointExplorationLocks,
     pub(crate) dpf_sdk: Option<Arc<dyn DpfOperations>>,
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
@@ -206,6 +204,20 @@ impl Forge for Api {
         request: Request<rpc::VpcsByIdsRequest>,
     ) -> Result<Response<rpc::VpcList>, Status> {
         crate::handlers::vpc::find_by_ids(self, request).await
+    }
+
+    async fn find_site_prefix_ids(
+        &self,
+        request: Request<rpc::SitePrefixSearchFilter>,
+    ) -> Result<Response<rpc::SitePrefixIdList>, Status> {
+        crate::handlers::site_prefix::find_ids(self, request).await
+    }
+
+    async fn find_site_prefixes_by_ids(
+        &self,
+        request: Request<rpc::SitePrefixesByIdsRequest>,
+    ) -> Result<Response<rpc::SitePrefixList>, Status> {
+        crate::handlers::site_prefix::find_by_ids(self, request).await
     }
 
     async fn create_vpc_prefix(
@@ -968,6 +980,20 @@ impl Forge for Api {
         request: Request<rpc::GetSwitchNvosCredentialsRequest>,
     ) -> Result<Response<rpc::GetBmcCredentialsResponse>, Status> {
         crate::handlers::credential::get_switch_nvos_credentials(self, request).await
+    }
+
+    async fn get_container_registry_credential(
+        &self,
+        request: Request<rpc::GetContainerRegistryCredentialRequest>,
+    ) -> Result<Response<rpc::GetContainerRegistryCredentialResponse>, Status> {
+        crate::handlers::credential::get_container_registry_credential(self, request).await
+    }
+
+    async fn set_container_registry_credential(
+        &self,
+        request: Request<rpc::SetContainerRegistryCredentialRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::credential::set_container_registry_credential(self, request).await
     }
 
     /// Network status of each managed host, as reported by forge-dpu-agent.

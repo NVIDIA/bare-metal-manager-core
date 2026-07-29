@@ -6,6 +6,7 @@ package tui
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -917,6 +918,40 @@ func TestPromptChoice(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not in allowed options")
 	})
+}
+
+func TestPromptSequenceDoesNotConsumeLaterPipedLines(t *testing.T) {
+	got, err := withStdin(t, "value\ny\n", func() (string, error) {
+		value, promptErr := PromptText("Value", true)
+		if promptErr != nil {
+			return "", promptErr
+		}
+		confirmed, promptErr := PromptConfirm("Continue?")
+		if promptErr != nil {
+			return "", promptErr
+		}
+		return fmt.Sprintf("%s:%t", value, confirmed), nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "value:true", got)
+}
+
+func TestReadPromptLinePreservesNonEOFReadError(t *testing.T) {
+	oldStdin := os.Stdin
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	require.NoError(t, reader.Close())
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = oldStdin
+	}()
+
+	_, err = readPromptLine()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading input:")
+	assert.NotContains(t, err.Error(), "input cancelled")
 }
 
 // withStdin pipes the provided input into os.Stdin for the duration of f,

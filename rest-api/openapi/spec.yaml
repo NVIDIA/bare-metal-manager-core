@@ -124,6 +124,9 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Site Explorer
+    description: |-
+      Site Explorer discovers BMC endpoints on a Site and tracks their exploration state.
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -189,6 +192,9 @@ tags:
       Deprecation history:
 
       - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
+  - name: iPXE Template
+    description: |-
+      iPXE Templates are read-only definitions propagated from nico-core into the REST API. Each template has a stable core UUID and a globally unique name; per-site availability is tracked in IpxeTemplateSiteAssociation records rather than on the template row itself. List and retrieve operations return templates reported at sites the caller is authorized for (optionally filtered by `siteId`). Templated iPXE Operating Systems reference a template by `ipxeTemplateId`.
   - name: Instance Type
     description: |-
       Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
@@ -1247,6 +1253,52 @@ paths:
       description: |-
         Create a site-default host or DPU UEFI credential. The request fails
         if the selected site-default credential already exists.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/site-explorer/endpoint/action':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Trigger Site Explorer Endpoint Action
+      tags:
+        - Site Explorer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteExplorerEndpointActionRequest'
+      responses:
+        '200':
+          description: The action completed for every selected endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteExplorerEndpointAction'
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '412':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: create-site-explorer-endpoint-action
+      description: |-
+        Clear the last exploration error or queue re-exploration for all
+        explored endpoints at a Site or an explicit BMC IP address list.
+
+        The operation calls Core once per endpoint. If a call fails, processing
+        stops and endpoints earlier in the list may already have completed.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/allocation':
@@ -3747,7 +3799,7 @@ paths:
       description: |-
         Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-        All items in a batch update must provide the same set of fields.
+        All items in a batch update must provide the same set of fields, except that `bmcIpAddress` may be omitted or set to `null` to preserve that machine's current BMC IP address.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -6634,6 +6686,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Create an Instance for Tenant.
 
@@ -6815,6 +6869,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Batch create multiple Instances for Tenant with NVLink domain-aware machine allocation.
 
@@ -7215,6 +7271,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |-
         Update an Instance by ID
 
@@ -8018,11 +8076,9 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-operating-system
       description: |-
-        Get an Operating System by ID
+        List Operating Systems visible to the caller's Tenant.
 
-        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
+        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
       parameters:
         - schema:
             type: string
@@ -8034,6 +8090,7 @@ paths:
             enum:
               - Image
               - iPXE
+              - TemplatedIpxe
           in: query
           name: type
           description: Filter Operating Systems by Type
@@ -9580,7 +9637,7 @@ paths:
     get:
       summary: Retrieve DPU Machines attached to a host Machine
       description: |
-        Retrieve DPU Machines attached to the host Machine, including the full network configuration sent to the DPU agent.
+        Retrieve DPU Machines attached to the host Machine, including network configuration fields exposed by the REST API. Internal-only and sensitive fields from the Core configuration are omitted.
 
         The response is built by scheduling a synchronous Temporal `GetDpuMachines` workflow against the Machine's Site for the DPU Machine IDs referenced by the host Machine's interfaces.
 
@@ -11711,6 +11768,113 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Tray
+  '/v2/org/{org}/nico/ipxe-template':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      summary: Get all iPXE templates
+      description: |-
+        Get all iPXE templates propagated from nico-core. Optionally restrict to one or more sites with the siteId query parameter.
+
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
+      operationId: get-all-ipxe-template
+      tags:
+        - iPXE Template
+      parameters:
+        - schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          name: siteId
+          in: query
+          required: false
+          description: 'Optional site ID(s); may be repeated to restrict results to templates available at any of the sites'
+        - schema:
+            type: integer
+            example: 1
+            default: 1
+            minimum: 1
+          in: query
+          name: pageNumber
+          description: Page number for pagination query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            example: 20
+          in: query
+          name: pageSize
+          description: Page size for pagination query
+        - schema:
+            type: string
+            enum:
+              - NAME_ASC
+              - NAME_DESC
+              - CREATED_ASC
+              - CREATED_DESC
+              - UPDATED_ASC
+              - UPDATED_DESC
+          in: query
+          name: orderBy
+          description: Ordering for pagination query
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IpxeTemplate'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "NAME_ASC"}'
+              description: Pagination result in JSON format
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  '/v2/org/{org}/nico/ipxe-template/{ipxeTemplateId}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: ipxeTemplateId
+        in: path
+        required: true
+        description: Stable template ID (UUID from core)
+    get:
+      summary: Retrieve an iPXE template
+      description: |-
+        Retrieve an iPXE template by its stable core ID. The caller must be authorized for at least one Site at which the template is available.
+
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
+      operationId: get-ipxe-template
+      tags:
+        - iPXE Template
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IpxeTemplate'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   '/v2/org/{org}/nico/network-security-group':
     parameters:
       - schema:
@@ -13646,6 +13810,67 @@ components:
           enum:
             - Host
             - DPU
+    SiteExplorerEndpointActionRequest:
+      type: object
+      title: SiteExplorerEndpointActionRequest
+      description: Request to trigger a Site Explorer action for explored endpoints.
+      required:
+        - siteId
+        - action
+        - target
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose explored endpoints are targeted.
+        action:
+          type: string
+          description: Site Explorer endpoint action to trigger.
+          enum:
+            - ClearError
+            - ReExplore
+        target:
+          type: string
+          description: Endpoint set to target.
+          enum:
+            - All
+            - EndpointIds
+        endpointIds:
+          type: array
+          description: BMC IP addresses to target when target is EndpointIds.
+          items:
+            type: string
+    SiteExplorerEndpointAction:
+      type: object
+      title: SiteExplorerEndpointAction
+      description: Completed Site Explorer endpoint action.
+      required:
+        - siteId
+        - action
+        - target
+        - endpointIds
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose explored endpoints were targeted.
+        action:
+          type: string
+          description: Site Explorer endpoint action that completed.
+          enum:
+            - ClearError
+            - ReExplore
+        target:
+          type: string
+          description: Endpoint set that was selected.
+          enum:
+            - All
+            - EndpointIds
+        endpointIds:
+          type: array
+          description: BMC IP addresses for which the action completed.
+          items:
+            type: string
     BMCResetRequest:
       type: object
       title: BMCResetRequest
@@ -16773,6 +16998,7 @@ components:
           enum:
             - iPXE
             - Image
+            - TemplatedIpxe
         imageUrl:
           type:
             - string
@@ -16814,6 +17040,21 @@ components:
             - string
             - 'null'
           description: 'iPXE script or URL, only applicable for iPXE-based Operating System'
+        ipxeTemplateId:
+          type:
+            - string
+            - 'null'
+          description: 'ID of the iPXE template used, only present for Templated iPXE Operating System'
+        ipxeTemplateParameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeParameter'
+          description: 'Parameters passed to the iPXE template (Templated iPXE only)'
+        ipxeTemplateArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeArtifact'
+          description: 'Artifacts for the iPXE OS definition (Templated iPXE only). authToken is redacted.'
         userData:
           type:
             - string
@@ -16871,6 +17112,125 @@ components:
         - Deleting
         - Error
         - Deactivated
+    OperatingSystemIpxeParameter:
+      title: OperatingSystemIpxeParameter
+      type: object
+      description: A name/value parameter passed to an iPXE template
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          description: Parameter name (used as a variable in the template)
+        value:
+          type: string
+          description: Parameter value
+    OperatingSystemIpxeArtifact:
+      title: OperatingSystemIpxeArtifact
+      type: object
+      description: An artifact (kernel, initrd, ISO, ...) referenced by an iPXE OS definition
+      required:
+        - name
+        - url
+      properties:
+        name:
+          type: string
+          description: Artifact name
+        url:
+          type: string
+          description: Original URL for the artifact
+        sha:
+          type:
+            - string
+            - 'null'
+          description: Optional SHA256 checksum
+        authType:
+          type:
+            - string
+            - 'null'
+          description: 'Optional auth type: Basic or Bearer'
+        authToken:
+          type:
+            - string
+            - 'null'
+          description: 'Optional auth token. Redacted in API responses.'
+        cacheStrategy:
+          type: string
+          enum:
+            - CacheAsNeeded
+            - LocalOnly
+            - CachedOnly
+            - RemoteOnly
+          description: How to handle caching for this artifact
+    IpxeTemplate:
+      title: IpxeTemplate
+      type: object
+      description: An iPXE script template propagated (read-only) from nico-core
+      required:
+        - id
+        - name
+        - template
+        - requiredParams
+        - reservedParams
+        - requiredArtifacts
+        - visibility
+      examples:
+        - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+          name: ubuntu-autoinstall
+          template: |
+            #!ipxe
+            kernel ${kernel_url} initrd=initrd autoinstall
+            initrd ${initrd_url}
+            boot
+          requiredParams:
+            - kernel_url
+            - initrd_url
+          reservedParams:
+            - mac
+          requiredArtifacts:
+            - kernel
+            - initrd
+          visibility: Public
+          created: '2026-07-14T14:15:22Z'
+          updated: '2026-07-14T14:15:22Z'
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable template UUID assigned by core
+        name:
+          type: string
+          description: Globally unique template name
+        template:
+          type: string
+          description: Raw iPXE script content
+        requiredParams:
+          type: array
+          items:
+            type: string
+          description: Parameters that must be provided to render the template
+        reservedParams:
+          type: array
+          items:
+            type: string
+          description: Parameters reserved by the template and not user-supplied
+        requiredArtifacts:
+          type: array
+          items:
+            type: string
+          description: Artifact names required for the template
+        visibility:
+          type: string
+          description: 'Template visibility: Internal or Public'
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+        updated:
+          type: string
+          format: date-time
+          readOnly: true
     OperatingSystemSiteAssociation:
       title: OperatingSystemSiteAssociation
       type: object
@@ -16987,12 +17347,20 @@ components:
           items:
             type: string
             format: uuid
-          description: 'Specify only one Site if an Operating System is image-based; more than one Site is not supported.'
+          description: >-
+            Target Sites for the Operating System. For image-based OS specify exactly one
+            Site (more than one is not supported). For Templated iPXE OS at least one Site
+            is required and the list is fixed at creation: it cannot be changed on update.
+            Not applicable to raw iPXE OS.
         ipxeScript:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified'
+          deprecated: true
+          description: >-
+            Deprecated: raw iPXE Operating Systems are superseded by Templated iPXE
+            (ipxeTemplateId). iPXE script or URL, only applicable for iPXE-based OS.
+            Cannot be specified if imageUrl is specified.
         imageUrl:
           type:
             - string
@@ -17046,6 +17414,21 @@ components:
         allowOverride:
           type: boolean
           description: Indicates if the user data can be overridden at Instance creation time
+        ipxeTemplateId:
+          type:
+            - string
+            - 'null'
+          description: 'ID of the iPXE template to use; identifies a Templated iPXE Operating System. Mutually exclusive with ipxeScript and imageUrl.'
+        ipxeTemplateParameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeParameter'
+          description: 'Parameters passed to the iPXE template (Templated iPXE only).'
+        ipxeTemplateArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeArtifact'
+          description: 'Artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition (Templated iPXE only).'
       required:
         - name
     OperatingSystemUpdateRequest:
@@ -17152,6 +17535,21 @@ components:
             - string
             - 'null'
           description: Optional deactivation note if OS is inactive
+        ipxeTemplateId:
+          type:
+            - string
+            - 'null'
+          description: 'ID of the iPXE template to use (Templated iPXE only). Mutually exclusive with ipxeScript and imageUrl.'
+        ipxeTemplateParameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeParameter'
+          description: 'Parameters passed to the iPXE template (Templated iPXE only).'
+        ipxeTemplateArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeArtifact'
+          description: 'Artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition (Templated iPXE only).'
     InstanceType:
       title: InstanceType
       type: object
@@ -18009,7 +18407,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18045,7 +18443,7 @@ components:
           description: 'User-defined key-value labels'
         interfaces:
           type: array
-          description: 'At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed. Only one of the Subnets or VPC Prefixes can be attached over Physical interface. If only one Subnet is specified, then it will be attached over physical interface regardless of the value of isPhysical. In case of VPC Prefix, isPhysical will always be true. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Only one network can be attached over a physical interface. If only one Subnet is specified, it will be attached over a physical interface regardless of `isPhysical`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18158,7 +18556,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18195,7 +18593,7 @@ components:
           description: 'Key-value objects to be applied to all instances (shared across all instances)'
         interfaces:
           type: array
-          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed, only one of the Subnets or VPC Prefixes can be attached over Physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Each batch member is resolved independently and may use a different prefix. Only one network can be attached over a physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18371,13 +18769,13 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
         interfaces:
           type: array
-          description: 'Update Interfaces of the Instance. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Complete updated Interface configuration for the Instance. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18448,6 +18846,18 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
+        - id: 4c53d2f4-2a51-4ac5-90c9-87ad215c5091
+          instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
+          vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
+          macAddress: 2F-FC-34-AE-9C-2D
+          ipAddresses:
+            - 200.32.11.196
+          status: Ready
+          created: '2019-08-24T14:15:22Z'
+          updated: '2019-08-24T14:15:22Z'
         - id: 45d89d4f-2dde-4fc5-a20d-9f96faa4e9fa
           instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
           vpcPrefixId: d89d8cc6-d66e-4bf2-bf62-40238837cc90
@@ -18476,7 +18886,7 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
-      description: Associates an Instance with a Subnet
+      description: Associates an Instance with a Subnet or VPC-backed network
       properties:
         id:
           type: string
@@ -18497,11 +18907,20 @@ components:
           type:
             - string
             - 'null'
-          description: 'ID of the associated VPCPrefix'
+          description: ID of the VPC Prefix explicitly selected by the caller
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller selects a prefix
+          format: uuid
+        ipFamilies:
+          type: array
+          description: Address families requested for Controller prefix selection
+          items:
+            $ref: '#/components/schemas/IPFamily'
         isPhysical:
           type: boolean
-          description: 'IsPhysical indicates whether the Subnet is bound on a physical Interface'
+          description: Indicates whether the network is bound on a physical Interface
         device:
           type:
             - string
@@ -18531,12 +18950,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. This is only used with an explicit `vpcPrefixId` and is not valid with `subnetId` or VPC-selected interfaces. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
             - type: 'null'
-          description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
+          description: Inline interface-local routing profile options. Only valid for VPC-backed interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
           description: 'Status of the Interface'
@@ -18560,6 +18979,13 @@ components:
         - Ready
         - Deleting
         - Error
+    IPFamily:
+      title: IPFamily
+      type: string
+      description: Address family requested for a VPC-selected Interface
+      enum:
+        - IPv4
+        - IPv6
     InterfaceInlineRoutingProfile:
       title: InterfaceInlineRoutingProfile
       type: object
@@ -18581,10 +19007,14 @@ components:
         - vpcPrefixId: 000bc42b-f946-472e-83d4-ddf7e365e148
           ipAddress: 10.0.0.11
           isPhysical: true
+        - vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
       description: |-
-        Request data to create an Interface for an Instance by associating it with a Subnet or VPC Prefix.
+        Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
-        If VPC specified in request has FNN virtualization type, then all interfaces must specify VPC Prefix.
+        If the VPC specified in the request has FNN virtualization type, all interfaces must specify either `vpcPrefixId` or `vpcId`.
 
         If the VPC has Ethernet network virtualization type then all interfaces must specify Subnet.
       properties:
@@ -18596,11 +19026,23 @@ components:
           type: string
           description: 'ID of the VPC Prefix to attach to the Interface'
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller should select a prefix. `ipFamilies` must also be specified, and `ipAddress` cannot be specified.
+          format: uuid
+        ipFamilies:
+          type: array
+          minItems: 1
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          items:
+            type: string
+            enum:
+              - IPv4
         ipAddress:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. It can only be specified with an explicit `vpcPrefixId`. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
@@ -18608,7 +19050,7 @@ components:
           description: Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
         isPhysical:
           type: boolean
-          description: Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
+          description: Specifies whether this network should be attached to the Instance over a physical interface.
         device:
           type: string
           description: Name of the device to use
@@ -18622,6 +19064,29 @@ components:
           description: 'Index of the virtual function to use, must be specified if isPhysical is false'
           minimum: 0
           maximum: 15
+      oneOf:
+        - required:
+            - subnetId
+        - required:
+            - vpcPrefixId
+        - required:
+            - vpcId
+      dependentRequired:
+        vpcId:
+          - ipFamilies
+        ipFamilies:
+          - vpcId
+      dependentSchemas:
+        subnetId:
+          properties:
+            ipAddress:
+              type: 'null'
+            inlineRoutingProfile:
+              type: 'null'
+        vpcId:
+          properties:
+            ipAddress:
+              type: 'null'
     InfiniBandInterface:
       title: InfiniBandInterface
       type: object
@@ -20215,6 +20680,7 @@ components:
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
           maintenanceMessage: null
+          scoutVersion: 2.6.1
           health:
             source: aggregate-host-health
             observedAt: null
@@ -20345,6 +20811,12 @@ components:
             - string
             - 'null'
           description: 'If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance'
+        scoutVersion:
+          type:
+            - string
+            - 'null'
+          description: 'Scout version reported by the Machine, if known'
+          readOnly: true
         health:
           $ref: '#/components/schemas/MachineHealth'
           description: 'Health information about the machine'
@@ -21510,7 +21982,7 @@ components:
             - string
             - 'null'
           description: |-
-            Optional BMC IP address (IPv4 or IPv6). A non-null address sets the value and pre-allocates a reserved IP for the BMC. An explicit null clears the value. In an individual update, omission preserves the current value. Empty strings are invalid.
+            Optional BMC IP address (IPv4 or IPv6). A non-empty address sets the value and pre-allocates a reserved IP for the BMC. An empty string clears the value. Omission or null preserves the current value.
         name:
           type:
             - string
@@ -24851,7 +25323,7 @@ components:
     DpuMachine:
       title: DpuMachine
       type: object
-      description: A DPU Machine with its complete network configuration sent to the DPU agent.
+      description: A DPU Machine with network configuration fields exposed by the REST API.
       properties:
         id:
           type: string
@@ -24899,7 +25371,7 @@ components:
           description: Lifecycle state of the DPU
         dpuNetworkConfig:
           $ref: '#/components/schemas/DpuNetworkConfig'
-          description: Complete network configuration sent to the DPU agent
+          description: Network configuration fields exposed by the REST API
         lastRebooted:
           type:
             - string
@@ -24981,7 +25453,7 @@ components:
     DpuNetworkConfig:
       title: DpuNetworkConfig
       type: object
-      description: Complete network configuration for a DPU Machine sent to the DPU agent
+      description: Network configuration fields exposed for a DPU Machine. Internal-only and sensitive fields from the Core configuration are omitted.
       properties:
         asn:
           type: integer
@@ -25361,6 +25833,18 @@ components:
                 message: Error validating request data
                 data:
                   name: A value is required
+    ResourceExhaustedError:
+      description: Error response when the Controller cannot allocate a requested resource because capacity is exhausted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: VPC prefix capacity exhausted
+                data: null
     HostFirmwareConfigCoreUnavailable:
       description: Core gRPC API is unavailable, so the host firmware config request cannot be served.
       content:

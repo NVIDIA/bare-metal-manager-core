@@ -83,11 +83,8 @@ impl SwitchCertApplyStatus {
 
 #[derive(Clone, Debug)]
 struct ObservedSwitchCertMetrics {
-    desired_cert: Option<CertificateInfo>,
-    desired_cert_error: String,
     probe_success: bool,
-    fingerprint_matches: bool,
-    expires_within_warning_window: bool,
+    rotation_required: bool,
     observed_cert: Option<CertificateInfo>,
     error: String,
     apply_status: SwitchCertApplyStatus,
@@ -147,15 +144,10 @@ impl fmt::Display for SwitchCertMonitorMetrics {
             .iter()
             .filter(|cert| cert.probe_success)
             .count();
-        let matching_fingerprints = self
+        let certificates_needing_rotation = self
             .observed_certs
             .iter()
-            .filter(|cert| cert.fingerprint_matches)
-            .count();
-        let desired_cert_errors = self
-            .observed_certs
-            .iter()
-            .filter(|cert| !cert.desired_cert_error.is_empty())
+            .filter(|cert| cert.rotation_required)
             .count();
         let pending_updates = self
             .observed_certs
@@ -164,11 +156,10 @@ impl fmt::Display for SwitchCertMonitorMetrics {
             .count();
         write!(
             f,
-            "{{ observed_endpoints: {}, desired_cert_errors: {}, successful_probes: {}, matching_fingerprints: {}, pending_updates: {}, duration: {} }}",
+            "{{ observed_endpoints: {}, successful_probes: {}, certificates_needing_rotation: {}, pending_updates: {}, duration: {} }}",
             self.observed_certs.len(),
-            desired_cert_errors,
             successful_probes,
-            matching_fingerprints,
+            certificates_needing_rotation,
             pending_updates,
             self.recording_started_at.elapsed().as_millis(),
         )
@@ -216,66 +207,6 @@ impl SwitchCertMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .i64_observable_gauge(
-                    "carbide_nvlink_switch_cert_monitor_desired_cert_expiration_time",
-                )
-                .with_description(
-                    "Earliest expiration time (epoch seconds) for desired NMX-C server certificates",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        let earliest_desired_expiration = metrics
-                            .observed_certs
-                            .iter()
-                            .filter_map(|cert| cert.desired_cert.as_ref())
-                            .map(|cert| cert.not_after_timestamp)
-                            .min();
-                        if let Some(not_after) = earliest_desired_expiration {
-                            observer.observe(
-                                not_after,
-                                &metric_attrs(attrs, &[KeyValue::new("status", "ok")]),
-                            );
-                        }
-                    })
-                })
-                .build();
-        }
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_nvlink_switch_cert_monitor_desired_cert_error_count")
-                .with_description(
-                    "Number of desired NMX-C server certificate read failures by error kind",
-                )
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        let error_counts = count_errors_by_kind(
-                            metrics
-                                .observed_certs
-                                .iter()
-                                .map(|cert| cert.desired_cert_error.as_str()),
-                        );
-                        for (error_kind, count) in error_counts {
-                            observer.observe(
-                                count,
-                                &metric_attrs(
-                                    attrs,
-                                    &[
-                                        KeyValue::new("status", "error"),
-                                        KeyValue::new("error_kind", error_kind.as_metric_label()),
-                                    ],
-                                ),
-                            );
-                        }
-                    })
-                })
-                .build();
-        }
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .i64_observable_gauge(
                     "carbide_nvlink_switch_cert_monitor_observed_cert_expiration_time",
                 )
                 .with_description(
@@ -287,7 +218,7 @@ impl SwitchCertMonitorInstruments {
                         for cert in &metrics.observed_certs {
                             if let Some(observed_cert) = &cert.observed_cert {
                                 let entry = expirations_by_status
-                                    .entry(expiry_status(cert))
+                                    .entry(rotation_window_status(cert))
                                     .or_insert(observed_cert.not_after_timestamp);
                                 *entry = (*entry).min(observed_cert.not_after_timestamp);
                             }
@@ -327,32 +258,12 @@ impl SwitchCertMonitorInstruments {
         {
             let metrics = shared_metrics.clone();
             meter
-                .u64_observable_gauge("carbide_nvlink_switch_cert_monitor_fingerprint_match")
-                .with_description("Number of NMX-C certificates by fingerprint match status")
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        for (status, count) in
-                            count_by_status(&metrics.observed_certs, fingerprint_status)
-                        {
-                            observer.observe(
-                                count,
-                                &metric_attrs(attrs, &[KeyValue::new("status", status)]),
-                            );
-                        }
-                    })
-                })
-                .build();
-        }
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
                 .u64_observable_gauge("carbide_nvlink_switch_cert_monitor_expiring_soon")
-                .with_description("Number of NMX-C certificates by expiration warning status")
+                .with_description("Number of NMX-C certificates by rotation-window status")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for (status, count) in
-                            count_by_status(&metrics.observed_certs, expiry_status)
+                            count_by_status(&metrics.observed_certs, rotation_window_status)
                         {
                             observer.observe(
                                 count,
@@ -476,8 +387,7 @@ pub struct SwitchCertificateMonitor {
 pub struct SwitchCertificateMonitorIterationResult {
     pub observed_endpoints: usize,
     pub successful_probes: usize,
-    pub fingerprint_mismatches: usize,
-    pub desired_cert_errors: usize,
+    pub certificates_needing_rotation: usize,
     pub probe_errors: usize,
     pub applied_updates: usize,
     pub pending_updates: usize,
@@ -493,15 +403,10 @@ impl SwitchCertificateMonitorIterationResult {
                 .iter()
                 .filter(|cert| cert.probe_success)
                 .count(),
-            fingerprint_mismatches: metrics
+            certificates_needing_rotation: metrics
                 .observed_certs
                 .iter()
-                .filter(|cert| cert.probe_success && !cert.fingerprint_matches)
-                .count(),
-            desired_cert_errors: metrics
-                .observed_certs
-                .iter()
-                .filter(|cert| !cert.desired_cert_error.is_empty())
+                .filter(|cert| cert.rotation_required)
                 .count(),
             probe_errors: metrics
                 .observed_certs
@@ -634,69 +539,6 @@ impl SwitchCertificateMonitor {
         for target in targets {
             let rack_id_label = target.rack_id.to_string();
 
-            let desired_cert_path = desired_server_cert_path(&self.config, &target.rack_id);
-            let desired_cert = match desired_cert_path {
-                Ok(desired_cert_path) => {
-                    match read_leaf_cert_info_from_pem_file(&desired_cert_path).await {
-                        Ok(cert) => {
-                            if cert_expires_within(
-                                &cert,
-                                self.config.nmx_c_certificate_rotation.expiry_warning_window,
-                            ) {
-                                tracing::warn!(
-                                    switch_id = %target.switch_id,
-                                    rack_id = %rack_id_label,
-                                    endpoint = %target.endpoint_url,
-                                    path = %desired_cert_path,
-                                    not_after = cert.not_after_timestamp,
-                                    "Desired NMX-C server certificate expires within the warning window"
-                                );
-                            }
-                            Ok(cert)
-                        }
-                        Err(error) => {
-                            tracing::warn!(
-                                switch_id = %target.switch_id,
-                                rack_id = %rack_id_label,
-                                endpoint = %target.endpoint_url,
-                                path = %desired_cert_path,
-                                error = %error,
-                                "Failed to read desired NMX-C server certificate"
-                            );
-                            Err(error)
-                        }
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        switch_id = %target.switch_id,
-                        rack_id = %rack_id_label,
-                        endpoint = %target.endpoint_url,
-                        error = %error,
-                        "Failed to resolve desired NMX-C server certificate path"
-                    );
-                    Err(error)
-                }
-            };
-
-            let desired_cert = match desired_cert {
-                Ok(desired_cert) => desired_cert,
-                Err(error) => {
-                    metrics.observed_certs.push(ObservedSwitchCertMetrics {
-                        desired_cert: None,
-                        desired_cert_error: error,
-                        probe_success: false,
-                        fingerprint_matches: false,
-                        expires_within_warning_window: false,
-                        observed_cert: None,
-                        error: String::new(),
-                        apply_status: SwitchCertApplyStatus::Skipped,
-                        apply_error: String::new(),
-                    });
-                    continue;
-                }
-            };
-
             let observed_cert = tokio::select! {
                 _ = cancel_token.cancelled() => {
                     tracing::info!("SwitchCertificateMonitor stop was requested");
@@ -709,29 +551,33 @@ impl SwitchCertificateMonitor {
 
             let observed = match observed_cert {
                 Ok(observed_cert) => {
-                    let fingerprint_matches =
-                        observed_cert.fingerprint_sha256 == desired_cert.fingerprint_sha256;
-                    let expires_within_warning_window = cert_expires_within(
+                    let rotation_required = cert_expires_within(
                         &observed_cert,
-                        self.config.nmx_c_certificate_rotation.expiry_warning_window,
+                        self.config.nmx_c_certificate_rotation.rotate_before_expiry,
                     );
 
-                    if !fingerprint_matches {
+                    if rotation_required {
                         tracing::warn!(
                             switch_id = %target.switch_id,
                             rack_id = %rack_id_label,
                             endpoint = %target.endpoint_url,
-                            desired_fingerprint = %desired_cert.fingerprint_sha256,
                             observed_fingerprint = %observed_cert.fingerprint_sha256,
-                            "NMX-C is not serving the desired server certificate"
+                            observed_not_after = observed_cert.not_after_timestamp,
+                            rotate_before_expiry_seconds = self
+                                .config
+                                .nmx_c_certificate_rotation
+                                .rotate_before_expiry
+                                .as_secs(),
+                            "NMX-C server certificate is due for rotation"
                         );
                     }
 
-                    let (apply_status, apply_error) = if fingerprint_matches {
-                        (SwitchCertApplyStatus::NotNeeded, String::new())
-                    } else {
+                    let (apply_status, apply_error) = if rotation_required {
                         match self
-                            .reconcile_desired_certificate_apply(&target, cancel_token)
+                            .request_nmx_cluster_configuration_with_rack_state_controller(
+                                &target,
+                                cancel_token,
+                            )
                             .await
                         {
                             Ok(apply_status) => (apply_status, String::new()),
@@ -750,35 +596,23 @@ impl SwitchCertificateMonitor {
                                 (SwitchCertApplyStatus::Error, error)
                             }
                         }
+                    } else {
+                        (SwitchCertApplyStatus::NotNeeded, String::new())
                     };
-
-                    if expires_within_warning_window {
-                        tracing::warn!(
-                            switch_id = %target.switch_id,
-                            rack_id = %rack_id_label,
-                            endpoint = %target.endpoint_url,
-                            not_after = observed_cert.not_after_timestamp,
-                            "NMX-C server certificate expires within the warning window"
-                        );
-                    }
 
                     tracing::debug!(
                         switch_id = %target.switch_id,
                         rack_id = %rack_id_label,
                         endpoint = %target.endpoint_url,
-                        desired_not_after = desired_cert.not_after_timestamp,
                         observed_not_after = observed_cert.not_after_timestamp,
-                        fingerprint_matches,
-                        expires_within_warning_window,
+                        observed_fingerprint = %observed_cert.fingerprint_sha256,
+                        rotation_required,
                         "Observed NMX-C server certificate"
                     );
 
                     ObservedSwitchCertMetrics {
-                        desired_cert: Some(desired_cert),
-                        desired_cert_error: String::new(),
                         probe_success: true,
-                        fingerprint_matches,
-                        expires_within_warning_window,
+                        rotation_required,
                         observed_cert: Some(observed_cert),
                         error: String::new(),
                         apply_status,
@@ -798,11 +632,8 @@ impl SwitchCertificateMonitor {
                         "Failed to probe NMX-C server certificate"
                     );
                     ObservedSwitchCertMetrics {
-                        desired_cert: Some(desired_cert),
-                        desired_cert_error: String::new(),
                         probe_success: false,
-                        fingerprint_matches: false,
-                        expires_within_warning_window: false,
+                        rotation_required: false,
                         observed_cert: None,
                         error,
                         apply_status: SwitchCertApplyStatus::Skipped,
@@ -814,15 +645,6 @@ impl SwitchCertificateMonitor {
         }
 
         Ok(())
-    }
-
-    async fn reconcile_desired_certificate_apply(
-        &self,
-        target: &SwitchCertificateMonitorTarget,
-        cancel_token: &CancellationToken,
-    ) -> Result<SwitchCertApplyStatus, String> {
-        self.request_nmx_cluster_configuration_with_rack_state_controller(target, cancel_token)
-            .await
     }
 
     async fn load_switch_certificate_monitor_targets(
@@ -1000,21 +822,6 @@ impl SwitchCertificateMonitor {
     }
 }
 
-fn desired_server_cert_path(config: &NvLinkConfig, rack_id: &RackId) -> Result<String, String> {
-    if let Some(path_template) = &config.nmx_c_certificate_rotation.server_cert_path_template {
-        return Ok(path_template.replace("{rack_id}", rack_id.as_ref()));
-    }
-
-    config
-        .nmx_c_certificate_rotation
-        .server_cert_path
-        .clone()
-        .ok_or_else(|| {
-            "nmx_c_certificate_rotation.server_cert_path or server_cert_path_template is not configured"
-                .to_string()
-        })
-}
-
 async fn build_tls_client_config(config: &NvLinkConfig) -> Result<ClientConfig, String> {
     let mut roots = RootCertStore::empty();
     let ca_cert_path = config
@@ -1055,14 +862,6 @@ async fn build_tls_client_config(config: &NvLinkConfig) -> Result<ClientConfig, 
     }
 }
 
-async fn read_leaf_cert_info_from_pem_file(path: &str) -> Result<CertificateInfo, String> {
-    let certs = read_certs_from_pem_file(path).await?;
-    let leaf_cert = certs
-        .first()
-        .ok_or_else(|| format!("no certificates found in {path}"))?;
-    certificate_info_from_der(leaf_cert.as_ref())
-}
-
 async fn read_certs_from_pem_file(path: &str) -> Result<Vec<CertificateDer<'static>>, String> {
     let pem = tokio::fs::read(path)
         .await
@@ -1094,16 +893,24 @@ fn certificate_info_from_der(der: &[u8]) -> Result<CertificateInfo, String> {
 }
 
 fn cert_expires_within(cert: &CertificateInfo, window: Duration) -> bool {
+    cert_expires_within_at(cert, window, Utc::now())
+}
+
+fn cert_expires_within_at(
+    cert: &CertificateInfo,
+    window: Duration,
+    now: chrono::DateTime<Utc>,
+) -> bool {
     let Some(not_after) = chrono::DateTime::from_timestamp(cert.not_after_timestamp, 0) else {
         return true;
     };
     let Ok(window) = chrono::Duration::from_std(window) else {
         return true;
     };
-    let Some(warning_threshold) = Utc::now().checked_add_signed(window) else {
+    let Some(rotation_threshold) = now.checked_add_signed(window) else {
         return true;
     };
-    not_after <= warning_threshold
+    not_after <= rotation_threshold
 }
 
 fn metric_attrs(base_attrs: &[KeyValue], extra_attrs: &[KeyValue]) -> Vec<KeyValue> {
@@ -1139,20 +946,10 @@ fn probe_status(cert: &ObservedSwitchCertMetrics) -> &'static str {
     if cert.probe_success { "ok" } else { "error" }
 }
 
-fn fingerprint_status(cert: &ObservedSwitchCertMetrics) -> &'static str {
-    if !cert.probe_success {
-        "unknown"
-    } else if cert.fingerprint_matches {
-        "match"
-    } else {
-        "mismatch"
-    }
-}
-
-fn expiry_status(cert: &ObservedSwitchCertMetrics) -> &'static str {
+fn rotation_window_status(cert: &ObservedSwitchCertMetrics) -> &'static str {
     if cert.observed_cert.is_none() {
         "unknown"
-    } else if cert.expires_within_warning_window {
+    } else if cert.rotation_required {
         "expiring_soon"
     } else {
         "ok"
@@ -1206,68 +1003,76 @@ mod tests {
     use rcgen::{CertifiedKey, generate_simple_self_signed};
 
     use super::*;
-    use crate::config::NmxCCertificateRotationConfig;
 
     #[test]
-    fn desired_server_cert_path_uses_single_path_fallback() {
-        let config = NvLinkConfig {
-            nmx_c_certificate_rotation: NmxCCertificateRotationConfig {
-                server_cert_path: Some("/var/run/nmxc/site/tls.crt".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let actual = desired_server_cert_path(&config, &RackId::new("rack-1")).unwrap();
-
-        assert_eq!(actual, "/var/run/nmxc/site/tls.crt");
-    }
-
-    #[test]
-    fn desired_server_cert_path_expands_rack_template() {
-        let config = NvLinkConfig {
-            nmx_c_certificate_rotation: NmxCCertificateRotationConfig {
-                server_cert_path: Some("/var/run/nmxc/site/tls.crt".to_string()),
-                server_cert_path_template: Some("/var/run/nmxc/{rack_id}/tls.crt".to_string()),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let actual = desired_server_cert_path(&config, &RackId::new("rack-42")).unwrap();
-
-        assert_eq!(actual, "/var/run/nmxc/rack-42/tls.crt");
-    }
-
-    #[test]
-    fn desired_server_cert_path_requires_some_cert_path_config() {
-        let config = NvLinkConfig::default();
-
-        let error = desired_server_cert_path(&config, &RackId::new("rack-42")).unwrap_err();
-
-        assert_eq!(
-            error,
-            "nmx_c_certificate_rotation.server_cert_path or server_cert_path_template is not configured"
-        );
-    }
-
-    #[tokio::test]
-    async fn read_leaf_cert_info_from_pem_file_returns_fingerprint_and_expiry() {
+    fn certificate_info_from_der_returns_fingerprint_and_expiry() {
         let CertifiedKey { cert, .. } =
             generate_simple_self_signed(vec!["nmxc.example.test".to_string()]).unwrap();
         let expected_fingerprint = hex::encode_upper(Sha256::digest(cert.der().as_ref()));
 
-        let cert_file = tempfile::NamedTempFile::new().unwrap();
-        tokio::fs::write(cert_file.path(), cert.pem())
-            .await
-            .unwrap();
-
-        let actual = read_leaf_cert_info_from_pem_file(&cert_file.path().to_string_lossy())
-            .await
-            .unwrap();
+        let actual = certificate_info_from_der(cert.der().as_ref()).unwrap();
 
         assert_eq!(actual.fingerprint_sha256, expected_fingerprint);
         assert!(actual.not_after_timestamp > Utc::now().timestamp());
+    }
+
+    #[test]
+    fn certificate_rotation_window_includes_expired_and_boundary_certificates() {
+        const DAY_SECONDS: i64 = 24 * 60 * 60;
+
+        #[derive(Clone, Copy, Debug)]
+        struct ExpiryCase {
+            not_after_offset_seconds: i64,
+            rotation_window: Duration,
+        }
+
+        let now = chrono::DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        check_values(
+            [
+                Check {
+                    scenario: "already expired",
+                    input: ExpiryCase {
+                        not_after_offset_seconds: -1,
+                        rotation_window: Duration::ZERO,
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "exactly at rotation boundary",
+                    input: ExpiryCase {
+                        not_after_offset_seconds: 7 * DAY_SECONDS,
+                        rotation_window: Duration::from_secs(7 * DAY_SECONDS as u64),
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "inside rotation window",
+                    input: ExpiryCase {
+                        not_after_offset_seconds: 7 * DAY_SECONDS - 1,
+                        rotation_window: Duration::from_secs(7 * DAY_SECONDS as u64),
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "outside rotation window",
+                    input: ExpiryCase {
+                        not_after_offset_seconds: 7 * DAY_SECONDS + 1,
+                        rotation_window: Duration::from_secs(7 * DAY_SECONDS as u64),
+                    },
+                    expect: false,
+                },
+            ],
+            |case| {
+                cert_expires_within_at(
+                    &CertificateInfo {
+                        fingerprint_sha256: "test-fingerprint".to_string(),
+                        not_after_timestamp: now.timestamp() + case.not_after_offset_seconds,
+                    },
+                    case.rotation_window,
+                    now,
+                )
+            },
+        );
     }
 
     #[test]

@@ -83,6 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.VpcId", "::carbide_uuid::vpc::VpcId")
         .extern_path(".common.VpcPeeringId", "::carbide_uuid::vpc_peering::VpcPeeringId")
         .extern_path(".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId")
+        .extern_path(".common.SitePrefixId", "::carbide_uuid::site_prefix::SitePrefixId")
         .extern_path(".common.ComputeAllocationId", "::carbide_uuid::compute_allocation::ComputeAllocationId")
         .extern_path(".common.OperatingSystemId", "::carbide_uuid::operating_system::OperatingSystemId")
         .extern_path(".common.IpxeTemplateId", "::carbide_uuid::ipxe_template::IpxeTemplateId")
@@ -480,6 +481,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.VpcPrefixStatus",
             "#[derive(serde::Serialize)]",
         )
+        .type_attribute("forge.SitePrefix", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SitePrefixConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SitePrefixStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SitePrefixAuthority", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.SitePrefixRoutingScope",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.SitePrefixLifecycleState",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute("forge.SitePrefixIdList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SitePrefixList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcPeering", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcPeeringList", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -606,6 +621,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("ExpectedHostNic", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Deserialize)]")
+        .field_attribute(
+            "ExpectedHostNic.role",
+            "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"ExpectedInterfaceRole::deserialize_optional\", serialize_with = \"ExpectedInterfaceRole::serialize_optional\")]",
+        )
+        .field_attribute(
+            "ExpectedHostNic.ip_allocation",
+            "#[serde(default, skip_serializing_if = \"Option::is_none\", deserialize_with = \"ExpectedInterfaceIpAllocation::deserialize_optional\", serialize_with = \"ExpectedInterfaceIpAllocation::serialize_optional\")]",
+        )
         .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
@@ -798,6 +821,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .field_attribute("SkuComponentStorage.vendor", "#[serde(default)]")
         .field_attribute("SkuComponentStorage.capacity_mb", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.min_size_mb", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.max_size_mb", "#[serde(default)]")
+        .field_attribute("SkuComponentStorage.pci_patterns", "#[serde(default)]")
         .type_attribute(
             "SkuComponentTpm",
             "#[derive(serde::Serialize, serde::Deserialize)]",
@@ -1012,6 +1038,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
+            "forge.GetContainerRegistryCredentialRequest",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.GetContainerRegistryCredentialResponse",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
             ".forge.NetworkSegmentType",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
@@ -1058,6 +1092,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
             (".common.VpcId", "::carbide_uuid::vpc::VpcId"),
             (".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId"),
+            (
+                ".common.SitePrefixId",
+                "::carbide_uuid::site_prefix::SitePrefixId",
+            ),
             (
                 ".common.VpcPeeringId",
                 "::carbide_uuid::vpc_peering::VpcPeeringId",

@@ -128,6 +128,136 @@ enum MetricSpec {
     None,
 }
 
+/// The metric-side declaration shared by an inline `#[event(...)]` metric and a
+/// `#[metric(...)]` family: one validator, so a family and an inline metric are
+/// held to the same naming and documentation conventions.
+struct MetricDeclaration<'a> {
+    metric_name: &'a LitStr,
+    counter: bool,
+    unit: Option<&'a LitStr>,
+    describe: Option<&'a LitStr>,
+    metric_name_unchecked: bool,
+    describe_unchecked: bool,
+}
+
+/// Validates a metric name, its `describe`, and its unit, and returns the
+/// OpenTelemetry unit string a histogram records in (empty for a counter).
+///
+/// `item` spans the diagnostics belonging to the declaration as a whole rather
+/// than to one attribute value.
+fn validate_metric(
+    decl: &MetricDeclaration<'_>,
+    item: &dyn quote::ToTokens,
+) -> syn::Result<String> {
+    // The metric name in the attribute is the exposed name, verbatim, so a
+    // dashboard greps straight back to this line. Validate the conventions
+    // unless the site is migrating a grandfathered pre-standard name.
+    let metric_name_value = decl.metric_name.value();
+    let mut histogram_unit: Option<&'static str> = None;
+    if !decl.counter {
+        histogram_unit = UNIT_SUFFIXES
+            .iter()
+            .find(|(suffix, _)| metric_name_value.ends_with(suffix))
+            .map(|(_, unit)| *unit);
+    }
+    // A counter never takes a unit, whatever its name, so answer that first --
+    // otherwise the histogram rule below reports a condition a counter cannot
+    // satisfy and the diagnostic names the wrong mistake.
+    if let Some(unit) = decl.unit
+        && decl.counter
+    {
+        return Err(syn::Error::new_spanned(
+            unit,
+            "`unit` is only valid for histogram metrics",
+        ));
+    }
+    if !decl.metric_name_unchecked {
+        if !metric_name_value.starts_with("carbide_") {
+            return Err(syn::Error::new_spanned(
+                decl.metric_name,
+                "metric names use the `carbide_` prefix (use metric_name_unchecked only to \
+                 keep a grandfathered pre-standard name)",
+            ));
+        }
+        if decl.counter {
+            if !metric_name_value.ends_with("_total") {
+                return Err(syn::Error::new_spanned(
+                    decl.metric_name,
+                    "counter names end in `_total` (Prometheus convention)",
+                ));
+            }
+            // The OpenTelemetry instrument name must not carry `_total`
+            // itself: the Prometheus exporter appends it, so a name that
+            // still ends in `_total` after one is stripped ships a doubled
+            // `_total_total` series (the #3431 footgun).
+            if metric_name_value
+                .strip_suffix("_total")
+                .is_some_and(|base| base.ends_with("_total"))
+            {
+                return Err(syn::Error::new_spanned(
+                    decl.metric_name,
+                    "counter name ends in `_total_total`: the Prometheus exporter appends the \
+                     `_total` suffix, so the instrument name must carry only one. Drop a \
+                     `_total` (use metric_name_unchecked only to keep a grandfathered doubled name)",
+                ));
+            }
+        } else if histogram_unit.is_none() {
+            return Err(syn::Error::new_spanned(
+                decl.metric_name,
+                "histogram names end in their unit: one of `_seconds`, `_milliseconds`, \
+                 `_microseconds`, `_bytes`",
+            ));
+        }
+        if let Some(unit) = decl.unit {
+            return Err(syn::Error::new_spanned(
+                unit,
+                "`unit` is only for metric_name_unchecked histograms; a standard histogram \
+                 name already declares its unit as the suffix",
+            ));
+        }
+    }
+    // A counter's `describe` is its Prometheus HELP text and the row the
+    // `core_metrics.md` catalogue records, so a counter must document itself,
+    // and the tech-writer house rule is that the text opens with "Number of ".
+    // `describe_unchecked` is the escape hatch for a grandfathered describe --
+    // legacy phrasings, or the "Total number of ..." on a metric_name_unchecked
+    // counter -- mirroring `metric_name_unchecked` for names.
+    if decl.counter && !decl.describe_unchecked {
+        match decl.describe {
+            None => {
+                return Err(syn::Error::new_spanned(
+                    item,
+                    "a counter must document itself: add describe = \"Number of ...\" (its \
+                     Prometheus HELP text, and the core_metrics.md catalogue row). Use \
+                     describe_unchecked to keep a grandfathered counter's describe",
+                ));
+            }
+            Some(describe) if !describe.value().starts_with("Number of ") => {
+                return Err(syn::Error::new_spanned(
+                    describe,
+                    "a counter's describe opens with \"Number of ...\" (the tech-writer house \
+                     rule). Use describe_unchecked to keep a grandfathered describe",
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+
+    let unit_value: String = match (decl.unit, histogram_unit) {
+        (Some(explicit), _) => explicit.value(),
+        (None, Some(from_suffix)) => from_suffix.to_string(),
+        (None, None) => String::new(),
+    };
+    if !decl.counter && unit_value.is_empty() {
+        return Err(syn::Error::new_spanned(
+            decl.metric_name,
+            "a metric_name_unchecked histogram without a recognized suffix needs an explicit \
+             unit = \"...\"",
+        ));
+    }
+    Ok(unit_value)
+}
+
 /// The `message` knob: absent, a static string, or `dynamic` -- the last routed
 /// through the hand-implemented `DynamicMessage`.
 enum MessageSpec {
@@ -145,6 +275,7 @@ struct EventArgs {
     unit: Option<LitStr>,
     log: LogSpec,
     metric: MetricSpec,
+    metric_family: Option<syn::Path>,
     metric_name_unchecked: bool,
     describe_unchecked: bool,
 }
@@ -159,6 +290,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
         unit: None,
         log: LogSpec::Info,
         metric: MetricSpec::None,
+        metric_family: None,
         metric_name_unchecked: false,
         describe_unchecked: false,
     };
@@ -237,14 +369,22 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                     "none" => MetricSpec::None,
                     other => {
                         return Err(meta.error(format!(
-                            "unknown metric kind `{other}`; expected counter | histogram | none"
+                            "unknown metric kind `{other}`; expected counter | histogram | none \
+                             (a shared metric declares its kind on its MetricFamily, named here \
+                             with metric_family = ...)"
                         )));
                     }
                 };
+            } else if meta.path.is_ident("metric_family") {
+                if args.metric_family.is_some() {
+                    return Err(meta.error("duplicate `metric_family`"));
+                }
+                args.metric_family = Some(meta.value()?.parse()?);
             } else {
                 return Err(meta.error(
-                    "unknown `event` key; expected event_name, metric_name, component, message, \
-                     describe, log, metric, unit, metric_name_unchecked, or describe_unchecked",
+                    "unknown `event` key; expected event_name, metric_name, metric_family, \
+                     component, message, describe, log, metric, unit, metric_name_unchecked, or \
+                     describe_unchecked",
                 ));
             }
             Ok(())
@@ -429,18 +569,66 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     if let Err(error) = validate_event_name(&event_name.value()) {
         return Err(syn::Error::new_spanned(event_name, error));
     }
-    let component = args.component.as_ref().ok_or_else(|| {
-        syn::Error::new_spanned(&input.ident, "#[event(...)] requires component = \"...\"")
-    })?;
+    // A family already declares the metric side, so an Event that names one
+    // states only what is its own: identity, level, and message.
+    let family = args.metric_family.as_ref();
+    if let Some(family) = family {
+        if args.metric != MetricSpec::None {
+            return Err(syn::Error::new_spanned(
+                family,
+                format!(
+                    "`metric` is declared by the `{}` metric family, not by an Event that uses it; \
+                     remove it here",
+                    family_name(family)
+                ),
+            ));
+        }
+        let moved: [(Option<&LitStr>, &str); 4] = [
+            (args.metric_name.as_ref(), "metric_name"),
+            (args.describe.as_ref(), "describe"),
+            (args.unit.as_ref(), "unit"),
+            (args.component.as_ref(), "component"),
+        ];
+        for (value, key) in moved {
+            if let Some(value) = value {
+                return Err(syn::Error::new_spanned(
+                    value,
+                    format!(
+                        "`{key}` is declared by the `{}` metric family, not by an Event that uses \
+                         it; remove it here",
+                        family_name(family)
+                    ),
+                ));
+            }
+        }
+        if args.metric_name_unchecked || args.describe_unchecked {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "the metric_name_unchecked and describe_unchecked escape hatches belong on the \
+                 metric family's #[metric(...)], not on an Event that uses it",
+            ));
+        }
+    }
 
-    let metric_name = match (args.metric, args.metric_name.as_ref()) {
+    let component = match (family, args.component.as_ref()) {
+        (Some(_), _) => None,
+        (None, Some(component)) => Some(component),
+        (None, None) => {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "#[event(...)] requires component = \"...\"",
+            ));
+        }
+    };
+
+    let metric_name = match (&args.metric, args.metric_name.as_ref()) {
         (MetricSpec::None, Some(metric_name)) => {
             return Err(syn::Error::new_spanned(
                 metric_name,
                 "metric_name is only valid when metric is counter or histogram",
             ));
         }
-        (MetricSpec::None, None) => None,
+        (MetricSpec::None, _) => None,
         (_, Some(metric_name)) => Some(metric_name),
         (_, None) => {
             return Err(syn::Error::new_spanned(
@@ -455,80 +643,6 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             "metric_name_unchecked is only valid for a metric-backed Event",
         ));
     }
-
-    // The metric name in the attribute is the exposed name, verbatim, so a
-    // dashboard greps straight back to this line. Validate the conventions
-    // unless the site is migrating a grandfathered pre-standard name.
-    let mut histogram_unit: Option<&'static str> = None;
-    if args.metric == MetricSpec::Histogram
-        && let Some(metric_name) = metric_name
-    {
-        let metric_name_value = metric_name.value();
-        histogram_unit = UNIT_SUFFIXES
-            .iter()
-            .find(|(suffix, _)| metric_name_value.ends_with(suffix))
-            .map(|(_, unit)| *unit);
-    }
-    if !args.metric_name_unchecked
-        && let Some(metric_name) = metric_name
-    {
-        let metric_name_value = metric_name.value();
-        if !metric_name_value.starts_with("carbide_") {
-            return Err(syn::Error::new_spanned(
-                metric_name,
-                "metric names use the `carbide_` prefix (use metric_name_unchecked only to \
-                 keep a grandfathered pre-standard name)",
-            ));
-        }
-        match args.metric {
-            MetricSpec::Counter => {
-                if !metric_name_value.ends_with("_total") {
-                    return Err(syn::Error::new_spanned(
-                        metric_name,
-                        "counter names end in `_total` (Prometheus convention)",
-                    ));
-                }
-                // The OpenTelemetry instrument name must not carry `_total`
-                // itself: the Prometheus exporter appends it, so a name that
-                // still ends in `_total` after one is stripped ships a doubled
-                // `_total_total` series (the #3431 footgun).
-                if metric_name_value
-                    .strip_suffix("_total")
-                    .is_some_and(|base| base.ends_with("_total"))
-                {
-                    return Err(syn::Error::new_spanned(
-                        metric_name,
-                        "counter name ends in `_total_total`: the Prometheus exporter appends the \
-                         `_total` suffix, so the instrument name must carry only one. Drop a \
-                         `_total` (use metric_name_unchecked only to keep a grandfathered doubled name)",
-                    ));
-                }
-            }
-            MetricSpec::Histogram if histogram_unit.is_none() => {
-                return Err(syn::Error::new_spanned(
-                    metric_name,
-                    "histogram names end in their unit: one of `_seconds`, `_milliseconds`, \
-                     `_microseconds`, `_bytes`",
-                ));
-            }
-            _ => {}
-        }
-        if let Some(unit) = &args.unit {
-            return Err(syn::Error::new_spanned(
-                unit,
-                "`unit` is only for metric_name_unchecked histograms; a standard histogram \
-                 name already declares its unit as the suffix",
-            ));
-        }
-    }
-    if let Some(unit) = &args.unit
-        && args.metric != MetricSpec::Histogram
-    {
-        return Err(syn::Error::new_spanned(
-            unit,
-            "`unit` is only valid for histogram metrics",
-        ));
-    }
     if let Some(describe) = &args.describe
         && args.metric == MetricSpec::None
     {
@@ -538,44 +652,29 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
              metric = none",
         ));
     }
-    // A counter's `describe` is its Prometheus HELP text and the row the
-    // `core_metrics.md` catalogue records, so a counter must document itself,
-    // and the tech-writer house rule is that the text opens with "Number of ".
-    // `describe_unchecked` is the escape hatch for a grandfathered describe --
-    // legacy phrasings, or the "Total number of ..." on a metric_name_unchecked
-    // counter -- mirroring `metric_name_unchecked` for names.
-    if args.metric == MetricSpec::Counter && !args.describe_unchecked {
-        match &args.describe {
-            None => {
-                return Err(syn::Error::new_spanned(
-                    &input.ident,
-                    "a counter must document itself: add describe = \"Number of ...\" (its \
-                     Prometheus HELP text, and the core_metrics.md catalogue row). Use \
-                     describe_unchecked to keep a grandfathered counter's describe",
-                ));
-            }
-            Some(describe) if !describe.value().starts_with("Number of ") => {
-                return Err(syn::Error::new_spanned(
-                    describe,
-                    "a counter's describe opens with \"Number of ...\" (the tech-writer house \
-                     rule). Use describe_unchecked to keep a grandfathered describe",
-                ));
-            }
-            Some(_) => {}
-        }
-    }
-    let unit_value: String = match (&args.unit, histogram_unit) {
-        (Some(explicit), _) => explicit.value(),
-        (None, Some(from_suffix)) => from_suffix.to_string(),
-        (None, None) => String::new(),
-    };
-    if args.metric == MetricSpec::Histogram && unit_value.is_empty() {
+    if let Some(unit) = &args.unit
+        && args.metric == MetricSpec::None
+    {
         return Err(syn::Error::new_spanned(
-            metric_name.expect("histogram metric name was required above"),
-            "a metric_name_unchecked histogram without a recognized suffix needs an explicit \
-             unit = \"...\"",
+            unit,
+            "`unit` is only valid for histogram metrics",
         ));
     }
+
+    let unit_value = match metric_name {
+        Some(metric_name) => validate_metric(
+            &MetricDeclaration {
+                metric_name,
+                counter: matches!(args.metric, MetricSpec::Counter),
+                unit: args.unit.as_ref(),
+                describe: args.describe.as_ref(),
+                metric_name_unchecked: args.metric_name_unchecked,
+                describe_unchecked: args.describe_unchecked,
+            },
+            &input.ident,
+        )?,
+        None => String::new(),
+    };
 
     if matches!(args.message, MessageSpec::None) && args.log != LogSpec::Off {
         return Err(syn::Error::new_spanned(
@@ -584,7 +683,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
              message = dynamic (or set log = off for a metric-only event)",
         ));
     }
-    if args.log == LogSpec::Off && args.metric == MetricSpec::None {
+    if args.log == LogSpec::Off && args.metric == MetricSpec::None && family.is_none() {
         return Err(syn::Error::new_spanned(
             &input.ident,
             "an event with log = off and metric = none emits nothing; declare at least one side",
@@ -619,6 +718,21 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         match field_kind {
             FieldKind::Label => {
                 let metric_name = label_metric_name(field)?;
+                // A family-backed Event supplies label *values*; the metric
+                // keys come from the family's own fields, so an alias here
+                // would silently do nothing.
+                if let Some(family) = family
+                    && *ident != metric_name
+                {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        format!(
+                            "#[label(name = \"...\")] aliases a metric label key, which the `{}` \
+                             metric family owns; declare the alias on the family's field instead",
+                            family_name(family)
+                        ),
+                    ));
+                }
                 if labels.iter().any(|(_, name)| name == &metric_name) {
                     return Err(syn::Error::new_spanned(
                         field,
@@ -632,12 +746,22 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         }
     }
 
-    match (args.metric, observations.len()) {
+    match (&args.metric, observations.len()) {
         (MetricSpec::Histogram, 1) => {}
         (MetricSpec::Histogram, _) => {
             return Err(syn::Error::new_spanned(
                 &input.ident,
                 "a histogram event needs exactly one #[observation] field",
+            ));
+        }
+        // A family declares the kind, which is only known at the type level
+        // from here, so the generated const assertion checks that a histogram
+        // family got its observation and a counter family did not.
+        (_, 0 | 1) if family.is_some() => {}
+        (_, _) if family.is_some() => {
+            return Err(syn::Error::new_spanned(
+                observations[1],
+                "an Event records at most one #[observation]",
             ));
         }
         (_, 0) => {}
@@ -674,32 +798,133 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         LogSpec::Debug => log_const_item(level_const(quote! { DEBUG })),
         LogSpec::Trace => log_const_item(level_const(quote! { TRACE })),
     };
-    let metric_const = match args.metric {
-        MetricSpec::Counter => quote! { ::carbide_instrument::MetricKind::Counter },
-        MetricSpec::Histogram => {
-            quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+    // The metric side is either declared inline or delegated wholesale to the
+    // named family, which owns the name, kind, description, and label array.
+    let (
+        metric_const,
+        metric_name_const,
+        component_const,
+        describe_const,
+        labels_type,
+        labels_fn,
+        instrument_fn,
+    ) = match family {
+        Some(family) => (
+            quote! { <#family as ::carbide_instrument::MetricFamily>::METRIC },
+            quote! {
+                ::std::option::Option::Some(
+                    <#family as ::carbide_instrument::MetricFamily>::METRIC_NAME,
+                )
+            },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::COMPONENT },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::DESCRIBE },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::Labels },
+            // Building the family by name is the whole check: a missing
+            // label is E0063, an extra one E0560, a wrong type E0308 --
+            // ordinary rustc diagnostics that name the family.
+            quote! {
+                fn labels(&self) -> Self::Labels {
+                    ::carbide_instrument::MetricFamily::labels(&#family {
+                        #(
+                            #label_idents: ::std::clone::Clone::clone(&self.#label_idents),
+                        )*
+                    })
+                }
+            },
+            quote! {
+                fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
+                    <#family as ::carbide_instrument::MetricFamily>::__instrument()
+                }
+            },
+        ),
+        None => {
+            let metric_const = match &args.metric {
+                MetricSpec::Counter => quote! { ::carbide_instrument::MetricKind::Counter },
+                MetricSpec::Histogram => {
+                    quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+                }
+                _ => quote! { ::carbide_instrument::MetricKind::None },
+            };
+            let metric_name_const = match metric_name {
+                Some(metric_name) => quote! { ::std::option::Option::Some(#metric_name) },
+                None => quote! { ::std::option::Option::None },
+            };
+            let describe_value = args
+                .describe
+                .as_ref()
+                .map(LitStr::value)
+                .unwrap_or_default();
+            let component = component.expect("a non-family Event requires component");
+            (
+                metric_const,
+                metric_name_const,
+                quote! { #component },
+                quote! { #describe_value },
+                quote! { [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels] },
+                quote! {
+                    fn labels(&self) -> Self::Labels {
+                        [
+                            #(
+                                ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                                    #label_names,
+                                    ::carbide_instrument::LabelValue::label_value(&self.#label_idents),
+                                ),
+                            )*
+                        ]
+                    }
+                },
+                quote! {
+                    fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
+                        static INSTRUMENT: ::std::sync::OnceLock<
+                            ::carbide_instrument::__private::CachedInstrument,
+                        > = ::std::sync::OnceLock::new();
+                        INSTRUMENT.get_or_init(|| {
+                            ::carbide_instrument::__private::new_instrument(
+                                <Self as ::carbide_instrument::Event>::METRIC_NAME,
+                                <Self as ::carbide_instrument::Event>::METRIC,
+                                <Self as ::carbide_instrument::Event>::DESCRIBE,
+                            )
+                        })
+                    }
+                },
+            )
         }
-        MetricSpec::None => quote! { ::carbide_instrument::MetricKind::None },
-    };
-    let metric_name_const = match metric_name {
-        Some(metric_name) => quote! { ::std::option::Option::Some(#metric_name) },
-        None => quote! { ::std::option::Option::None },
     };
     let message_body = match &args.message {
         MessageSpec::Static(message) => quote! { #message },
         MessageSpec::Dynamic => quote! { ::carbide_instrument::DynamicMessage::message(self) },
         MessageSpec::None => quote! { "" },
     };
-    let describe_value = args
-        .describe
-        .as_ref()
-        .map(LitStr::value)
-        .unwrap_or_default();
 
+    // A family's kind is only known at the type level from here, so the
+    // histogram/observation agreement becomes a const assertion instead of a
+    // macro-time check.
+    let has_observation = !observations.is_empty();
+    let observation_agreement = family.map(|family| {
+        quote! {
+            const _: () = {
+                assert!(
+                    ::carbide_instrument::__private::is_histogram(
+                        <#family as ::carbide_instrument::MetricFamily>::METRIC,
+                    ) == #has_observation,
+                    "a histogram metric family needs exactly one #[observation] field on each \
+                     Event that uses it, and a counter family needs none",
+                );
+            };
+        }
+    });
     let observation_fn = observations.first().map(|obs| {
+        let unit = match family {
+            Some(family) => quote! {
+                ::carbide_instrument::__private::metric_unit(
+                    <#family as ::carbide_instrument::MetricFamily>::METRIC,
+                )
+            },
+            None => quote! { #unit_value },
+        };
         quote! {
             fn observation(&self) -> f64 {
-                ::carbide_instrument::Observation::observe_as(&self.#obs, #unit_value)
+                ::carbide_instrument::Observation::observe_as(&self.#obs, #unit)
             }
         }
     });
@@ -707,8 +932,12 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     // One tracing::event! per level: the macro needs a const level and static
     // field names, so the dispatch is generated here rather than written by hand.
     let mut log_fields = vec![quote! { event_name = #event_name }];
-    if let Some(metric_name) = metric_name {
-        log_fields.push(quote! { metric_name = #metric_name });
+    match (family, metric_name) {
+        (Some(family), _) => log_fields.push(quote! {
+            metric_name = <#family as ::carbide_instrument::MetricFamily>::METRIC_NAME
+        }),
+        (None, Some(metric_name)) => log_fields.push(quote! { metric_name = #metric_name }),
+        (None, None) => {}
     }
     log_fields.extend(label_idents.iter().map(|ident| {
         quote! {
@@ -780,18 +1009,258 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     };
 
     Ok(quote! {
+        #observation_agreement
+
         impl ::carbide_instrument::Event for #struct_ident {
             const EVENT_NAME: &'static str = #event_name;
             const METRIC_NAME: ::std::option::Option<&'static str> = #metric_name_const;
-            const COMPONENT: &'static str = #component;
-            const DESCRIBE: &'static str = #describe_value;
+            const COMPONENT: &'static str = #component_const;
+            const DESCRIBE: &'static str = #describe_const;
             #log_items
             const METRIC: ::carbide_instrument::MetricKind = #metric_const;
-            type Labels = [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels];
+            type Labels = #labels_type;
 
             fn message(&self) -> &'static str {
                 #message_body
             }
+
+            #labels_fn
+
+            fn context(&self) -> ::std::vec::Vec<::carbide_instrument::__private::opentelemetry::KeyValue> {
+                ::std::vec![
+                    #(#context_values,)*
+                ]
+            }
+
+            #observation_fn
+            #log_fn
+            #instrument_fn
+        }
+    }
+    .into())
+}
+
+/// The family's own name, for a diagnostic that points at the declaration a
+/// contributor has to go read.
+fn family_name(path: &syn::Path) -> String {
+    path.segments
+        .last()
+        .map(|segment| segment.ident.to_string())
+        .unwrap_or_default()
+}
+
+/// Derives `carbide_instrument::MetricFamily` for a struct declared with a
+/// `#[metric(...)]` attribute, whose fields are the metric's labels. The family
+/// owns the whole metric side -- `name`, `kind`, `component`, `describe`, and a
+/// histogram's `unit` -- so every Event that names it moves one instrument with
+/// one label set. Metric names and describe text are validated exactly as they
+/// are for a metric declared inline on an Event, with the same
+/// `metric_name_unchecked` and `describe_unchecked` escape hatches.
+#[proc_macro_derive(MetricFamily, attributes(metric, label))]
+pub fn derive_metric_family(input: TokenStream) -> TokenStream {
+    let input = syn::parse_macro_input!(input as DeriveInput);
+    match expand_metric_family(input) {
+        Ok(ts) => ts,
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
+struct MetricArgs {
+    name: Option<LitStr>,
+    counter: Option<bool>,
+    component: Option<LitStr>,
+    describe: Option<LitStr>,
+    unit: Option<LitStr>,
+    metric_name_unchecked: bool,
+    describe_unchecked: bool,
+}
+
+fn parse_metric_args(input: &DeriveInput) -> syn::Result<MetricArgs> {
+    let mut args = MetricArgs {
+        name: None,
+        counter: None,
+        component: None,
+        describe: None,
+        unit: None,
+        metric_name_unchecked: false,
+        describe_unchecked: false,
+    };
+    let mut saw_attr = false;
+
+    for attr in &input.attrs {
+        if !attr.path().is_ident("metric") {
+            continue;
+        }
+        saw_attr = true;
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("name") {
+                if args.name.is_some() {
+                    return Err(meta.error("duplicate `name`"));
+                }
+                args.name = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("kind") {
+                let ident: Ident = meta.value()?.parse()?;
+                args.counter = Some(match ident.to_string().as_str() {
+                    "counter" => true,
+                    "histogram" => false,
+                    other => {
+                        return Err(meta.error(format!(
+                            "unknown metric kind `{other}`; a family is counter | histogram (an \
+                             Event with no metric declares metric = none instead)"
+                        )));
+                    }
+                });
+            } else if meta.path.is_ident("component") {
+                args.component = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("describe") {
+                args.describe = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("unit") {
+                args.unit = Some(meta.value()?.parse()?);
+            } else if meta.path.is_ident("metric_name_unchecked") {
+                args.metric_name_unchecked = true;
+            } else if meta.path.is_ident("describe_unchecked") {
+                args.describe_unchecked = true;
+            } else if meta.path.is_ident("metric_name") {
+                return Err(meta.error(
+                    "a metric family declares its exposed name as `name`; `metric_name` is the \
+                     Event-side key",
+                ));
+            } else {
+                return Err(meta.error(
+                    "unknown `metric` key; expected name, kind, component, describe, unit, \
+                     metric_name_unchecked, or describe_unchecked",
+                ));
+            }
+            Ok(())
+        })?;
+    }
+
+    if !saw_attr {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "deriving MetricFamily requires a #[metric(name = ..., kind = ..., component = ...)] \
+             attribute",
+        ));
+    }
+    Ok(args)
+}
+
+fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
+    let struct_ident = &input.ident;
+    if !input.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &input.generics,
+            "MetricFamily structs must be concrete (no generics or lifetimes): the family is one \
+             metric with one label set",
+        ));
+    }
+
+    let args = parse_metric_args(&input)?;
+    let name = args.name.as_ref().ok_or_else(|| {
+        syn::Error::new_spanned(&input.ident, "#[metric(...)] requires name = \"...\"")
+    })?;
+    let component = args.component.as_ref().ok_or_else(|| {
+        syn::Error::new_spanned(&input.ident, "#[metric(...)] requires component = \"...\"")
+    })?;
+    let counter = args.counter.ok_or_else(|| {
+        syn::Error::new_spanned(
+            &input.ident,
+            "#[metric(...)] requires kind = counter or kind = histogram",
+        )
+    })?;
+
+    let unit_value = validate_metric(
+        &MetricDeclaration {
+            metric_name: name,
+            counter,
+            unit: args.unit.as_ref(),
+            describe: args.describe.as_ref(),
+            metric_name_unchecked: args.metric_name_unchecked,
+            describe_unchecked: args.describe_unchecked,
+        },
+        &input.ident,
+    )?;
+
+    let Data::Struct(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            &input.ident,
+            "MetricFamily can only be derived for structs",
+        ));
+    };
+    let fields: Vec<&Field> = match &data.fields {
+        Fields::Named(named) => named.named.iter().collect(),
+        Fields::Unit => Vec::new(),
+        Fields::Unnamed(_) => {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "MetricFamily structs use named fields (or none): every field is a label",
+            ));
+        }
+    };
+
+    // Every field is a label -- that is what a family is -- so the only field
+    // attribute is the narrow `#[label(name = "...")]` metric-key alias.
+    let mut labels: Vec<(&Ident, String)> = Vec::new();
+    let mut labels_fields: Vec<&Field> = Vec::new();
+    for field in fields {
+        let ident = field.ident.as_ref().expect("named field");
+        for attr in &field.attrs {
+            if !attr.path().is_ident("label") && !attr.path().is_ident("doc") {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "a MetricFamily field is a label already; the only field attribute is \
+                     #[label(name = \"...\")] to alias its metric key",
+                ));
+            }
+        }
+        let metric_name = if field.attrs.iter().any(|a| a.path().is_ident("label")) {
+            label_metric_name(field)?
+        } else {
+            validate_metric_label_name(ident.to_string(), ident.span())?
+        };
+        if labels.iter().any(|(_, name)| name == &metric_name) {
+            return Err(syn::Error::new_spanned(
+                field,
+                format!("duplicate metric label name `{metric_name}`"),
+            ));
+        }
+        labels.push((ident, metric_name));
+        labels_fields.push(field);
+    }
+
+    let n_labels = labels.len();
+    let label_idents: Vec<&Ident> = labels.iter().map(|(ident, _)| *ident).collect();
+    let label_names: Vec<&str> = labels.iter().map(|(_, name)| name.as_str()).collect();
+    let describe_value = args
+        .describe
+        .as_ref()
+        .map(LitStr::value)
+        .unwrap_or_default();
+    let metric_const = if counter {
+        quote! { ::carbide_instrument::MetricKind::Counter }
+    } else {
+        quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+    };
+
+    let label_types: Vec<&syn::Type> = labels_fields.iter().map(|field| &field.ty).collect();
+
+    Ok(quote! {
+        // An Event supplies its labels by value, so a family's label types are
+        // Clone. Assert it here, at the family, rather than letting every Event
+        // that uses the family report the same missing bound.
+        const _: () = {
+            fn __assert_label_is_clone<T: ::std::clone::Clone + ::carbide_instrument::LabelValue>() {}
+            fn __assert_family_labels() {
+                #(__assert_label_is_clone::<#label_types>();)*
+            }
+        };
+
+        impl ::carbide_instrument::MetricFamily for #struct_ident {
+            const METRIC_NAME: &'static str = #name;
+            const COMPONENT: &'static str = #component;
+            const DESCRIBE: &'static str = #describe_value;
+            const METRIC: ::carbide_instrument::MetricKind = #metric_const;
+            type Labels = [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels];
 
             fn labels(&self) -> Self::Labels {
                 [
@@ -804,20 +1273,19 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
                 ]
             }
 
-            fn context(&self) -> ::std::vec::Vec<::carbide_instrument::__private::opentelemetry::KeyValue> {
-                ::std::vec![
-                    #(#context_values,)*
-                ]
-            }
-
-            #observation_fn
-            #log_fn
-
-            fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
+            fn __instrument() -> &'static ::carbide_instrument::__private::CachedInstrument {
                 static INSTRUMENT: ::std::sync::OnceLock<
                     ::carbide_instrument::__private::CachedInstrument,
                 > = ::std::sync::OnceLock::new();
-                INSTRUMENT.get_or_init(::carbide_instrument::__private::new_instrument::<Self>)
+                INSTRUMENT.get_or_init(|| {
+                    ::carbide_instrument::__private::new_instrument(
+                        ::std::option::Option::Some(
+                            <Self as ::carbide_instrument::MetricFamily>::METRIC_NAME,
+                        ),
+                        <Self as ::carbide_instrument::MetricFamily>::METRIC,
+                        <Self as ::carbide_instrument::MetricFamily>::DESCRIBE,
+                    )
+                })
             }
         }
     }
@@ -1152,6 +1620,201 @@ mod tests {
                     input: DiagnosticInput {
                         source: r#"#[event(event_name = "demo", component = "demo", message = "demo")] struct Demo { #[observation = "value"] value: f64 }"#,
                         expected: "#[observation] does not accept arguments; use bare #[observation]",
+                    },
+                    expect: None,
+                },
+            ],
+            |DiagnosticInput { source, expected }| {
+                let error = expansion_error(source);
+                (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
+            },
+        );
+    }
+
+    #[test]
+    fn metric_family_diagnostics_are_specific() {
+        fn family_error(source: &str) -> String {
+            let input: DeriveInput = syn::parse_str(source).expect("valid derive input");
+            super::expand_metric_family(input)
+                .expect_err("input should be rejected")
+                .to_string()
+        }
+
+        struct DiagnosticInput {
+            source: &'static str,
+            expected: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "a family declares its exposed name",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(kind = counter, component = "c", describe = "Number of things")] struct F {}"#,
+                        expected: "requires name = \"...\"",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a family declares its instrument kind",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", component = "c", describe = "Number of things")] struct F {}"#,
+                        expected: "requires kind = counter or kind = histogram",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a family owns the component",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", kind = counter, describe = "Number of things")] struct F {}"#,
+                        expected: "requires component = \"...\"",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "the Event-side key name is explained",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(metric_name = "carbide_f_total", kind = counter, component = "c")] struct F {}"#,
+                        expected: "declares its exposed name as `name`",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a family has no metric = none",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", kind = none, component = "c")] struct F {}"#,
+                        expected: "a family is counter | histogram",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "the shared name validation applies to a family",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "f_total", kind = counter, component = "c", describe = "Number of things")] struct F {}"#,
+                        expected: "metric names use the `carbide_` prefix",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "the shared describe rule applies to a family",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Total number of things")] struct F {}"#,
+                        expected: "opens with \"Number of ...\"",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a counter takes no unit, whatever its name",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Number of things", unit = "ms")] struct F {}"#,
+                        expected: "`unit` is only valid for histogram metrics",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a conventionally named histogram declares its unit as the suffix",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_seconds", kind = histogram, component = "c", unit = "s")] struct F {}"#,
+                        expected: "only for metric_name_unchecked histograms",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "every family field is already a label",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Number of things")] struct F { #[context] detail: String }"#,
+                        expected: "a MetricFamily field is a label already",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "family label keys are unique",
+                    input: DiagnosticInput {
+                        source: r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Number of things")] struct F { #[label(name = "stage")] a: Stage, #[label(name = "stage")] b: Stage }"#,
+                        expected: "duplicate metric label name `stage`",
+                    },
+                    expect: None,
+                },
+            ],
+            |DiagnosticInput { source, expected }| {
+                let error = family_error(source);
+                (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
+            },
+        );
+    }
+
+    /// An Event that names a family states only its own side; every
+    /// metric-side key and escape hatch belongs on the family.
+    #[test]
+    fn family_backed_events_reject_the_metric_side_keys() {
+        struct DiagnosticInput {
+            source: &'static str,
+            expected: &'static str,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "restated metric name",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m", metric_name = "carbide_fam_total")] struct E {}"#,
+                        expected: "`metric_name` is declared by the `Fam` metric family",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "restated describe",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m", describe = "Number of things")] struct E {}"#,
+                        expected: "`describe` is declared by the `Fam` metric family",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "restated unit",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m", unit = "ms")] struct E {}"#,
+                        expected: "`unit` is declared by the `Fam` metric family",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "restated component",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m", component = "demo")] struct E {}"#,
+                        expected: "`component` is declared by the `Fam` metric family",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "an inline kind alongside a family",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, metric = counter, log = warn, message = "m")] struct E {}"#,
+                        expected: "`metric` is declared by the `Fam` metric family",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "the name escape hatch belongs on the family",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m", metric_name_unchecked)] struct E {}"#,
+                        expected: "escape hatches belong on the metric family's #[metric(...)]",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "the describe escape hatch belongs on the family",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m", describe_unchecked)] struct E {}"#,
+                        expected: "escape hatches belong on the metric family's #[metric(...)]",
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a label alias belongs on the family's field",
+                    input: DiagnosticInput {
+                        source: r#"#[event(event_name = "e", metric_family = Fam, log = warn, message = "m")] struct E { #[label(name = "phase")] stage: Stage }"#,
+                        expected: "declare the alias on the family's field instead",
                     },
                     expect: None,
                 },

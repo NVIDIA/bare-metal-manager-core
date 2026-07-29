@@ -23,6 +23,7 @@ type Machine struct {
 	MachineCapabilities []MachineCapability     `json:"machineCapabilities"`
 	AdminInterfaces     []MachineAdminInterface `json:"adminInterfaces"`
 	MaintenanceMessage  *string                 `json:"maintenanceMessage"`
+	ScoutVersion        *string                 `json:"scoutVersion"`
 	Labels              map[string]string       `json:"labels"`
 	Status              string                  `json:"status"`
 	Created             time.Time               `json:"created"`
@@ -81,6 +82,9 @@ func machineFromStandard(api standard.Machine) Machine {
 	}
 	if api.MaintenanceMessage.IsSet() {
 		m.MaintenanceMessage = api.MaintenanceMessage.Get()
+	}
+	if api.ScoutVersion.IsSet() {
+		m.ScoutVersion = api.ScoutVersion.Get()
 	}
 	if api.Status != nil {
 		m.Status = string(*api.Status)

@@ -17,7 +17,7 @@ update, preserves unprovided fields).
 \[**--meta-description**\] \[**--label**\] \[**--sku-id**\]
 \[**--rack-id**\] \[**--default_pause_ingestion_and_poweron**\]
 \[**--dpf-enabled**\] \[**--bmc-ip-address**\] \[**--extended**\]
-\[**--bmc-retain-credentials**\] \[**--dpu-mode**\]
+\[**--bmc-retain-credentials**\] \[**--dpu-policy**\]
 \[**--disable-lockdown**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
@@ -120,22 +120,23 @@ factory-default credentials in Vault as-is\
 
 - false
 
-**--dpu-mode** *\<DPU_MODE\>*  
-Per-host DPU operating mode. \`dpu-mode\` (default): DPUs are managed by
-NICo; \`nic-mode\`: DPU hardware present but treated as a plain NIC;
-\`no-dpu\`: no DPU hardware at all. Unset preserves the existing
-per-host value.\
+**--dpu-policy** *\<DPU_POLICY\>*\
+Per-host DPU policy. \`manage\`: inherit the site policy, which defaults
+to managing DPUs; \`nic\`: configure DPU hardware as plain NICs;
+\`ignore\`: do not configure or attach DPU hardware. Unset preserves the
+existing per-host value. The previous \`use-as-nic\` value remains accepted
+as an alias. The legacy \`--dpu-mode\` flag also remains accepted:
+\`dpu-mode\` maps to \`manage\`, \`nic-mode\` to \`nic\`, and \`no-dpu\`
+to \`ignore\`.\
 
 \
 *Possible values:*
 
-- unspecified
+- manage
 
-- dpu-mode
+- nic
 
-- nic-mode
-
-- no-dpu
+- ignore
 
 **--disable-lockdown** *\<DISABLE_LOCKDOWN\>*  
 If true, do not lock down the server as part of lifecycle management
@@ -168,7 +169,7 @@ Print help (see a summary with -h)
 nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --sku-id DGX-H100-640GB
 nico-admin-cli expected-machine patch --id 12345678-1234-5678-90ab-cdef01234567 --sku-id DGX-H100-640GB
 nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mynewpassword
-nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --dpu-mode no-dpu
+nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --dpu-policy ignore
 ```
 
 ---

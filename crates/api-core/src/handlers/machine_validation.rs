@@ -803,6 +803,43 @@ pub(crate) async fn remove_machine_validation_external_config(
     Ok(tonic::Response::new(()))
 }
 
+/// Require a pinned SHA256 digest on container image references.
+///
+/// Tags are mutable and can silently point to different content between
+/// pulls; only a digest guarantees the same image executes each time.
+fn validate_img_name(img_name: &str) -> Result<(), CarbideError> {
+    let (name_part, digest_part) = img_name.split_once('@').ok_or_else(|| {
+        CarbideError::InvalidArgument(
+            "img_name must include a SHA256 digest (e.g. image:tag@sha256:<digest>)".into(),
+        )
+    })?;
+    if name_part.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "img_name image name before '@' must not be empty".into(),
+        ));
+    }
+    if digest_part.contains('@') {
+        return Err(CarbideError::InvalidArgument(
+            "img_name must contain exactly one '@sha256:<digest>' suffix".into(),
+        ));
+    }
+    let hex_str = digest_part.strip_prefix("sha256:").ok_or_else(|| {
+        CarbideError::InvalidArgument(
+            "img_name digest must use the 'sha256:' algorithm prefix".into(),
+        )
+    })?;
+    let decoded = hex::decode(hex_str).map_err(|e| {
+        CarbideError::InvalidArgument(format!("img_name digest is not valid hex: {e}"))
+    })?;
+    if decoded.len() != 32 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "img_name SHA256 digest must decode to 32 bytes, got {}",
+            decoded.len()
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) async fn update_machine_validation_test(
     api: &Api,
     request: tonic::Request<rpc::MachineValidationTestUpdateRequest>,
@@ -815,6 +852,11 @@ pub(crate) async fn update_machine_validation_test(
     }
 
     let req = request.into_inner();
+
+    if let Some(img_name) = req.payload.as_ref().and_then(|p| p.img_name.as_deref()) {
+        validate_img_name(img_name).map_err(Status::from)?;
+    }
+
     let mut txn = api.txn_begin().await?;
 
     // let existing = machine_validation_suites::find(
@@ -857,6 +899,11 @@ pub(crate) async fn add_machine_validation_test(
     }
 
     let req = request.into_inner();
+
+    if let Some(img_name) = req.img_name.as_deref() {
+        validate_img_name(img_name).map_err(Status::from)?;
+    }
+
     let mut txn = api.txn_begin().await?;
 
     let model_req: ModelTestAddRequest = req.into();
@@ -1233,5 +1280,77 @@ mod tests {
             assert_eq!(event.validation_id, validation_id, "{}", case.scenario);
             assert_eq!(event.error, case.expect_error, "{}", case.scenario);
         }
+    }
+}
+
+#[cfg(test)]
+mod img_name_validation_tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::{Case, check_cases};
+
+    use super::validate_img_name;
+
+    // A 64-character hex string encoding 32 bytes — the canonical valid digest.
+    const VALID_HEX: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[test]
+    fn img_name_validation() {
+        check_cases(
+            [
+                Case {
+                    scenario: "tag with digest",
+                    input: format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_HEX}"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "no tag",
+                    input: format!("nvcr.io/foo/bar@sha256:{VALID_HEX}"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "latest tag with digest",
+                    input: format!("nvcr.io/foo/bar:latest@sha256:{VALID_HEX}"),
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "missing digest",
+                    input: "nvcr.io/foo/bar:v1.0".to_string(),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "multiple at-signs",
+                    input: format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_HEX}@extra"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "wrong algorithm prefix",
+                    input: format!("nvcr.io/foo/bar:v1.0@md5:{VALID_HEX}"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "non-hex digest",
+                    input: "nvcr.io/foo/bar:v1.0@sha256:not-hex-at-all-!!!!".to_string(),
+                    expect: Fails,
+                },
+                Case {
+                    // 62 hex chars = 31 bytes, not 32.
+                    scenario: "digest too short",
+                    input: "nvcr.io/foo/bar:v1.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                    expect: Fails,
+                },
+                Case {
+                    // 66 hex chars = 33 bytes, not 32.
+                    scenario: "digest too long",
+                    input: format!("nvcr.io/foo/bar:v1.0@sha256:{VALID_HEX}aa"),
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "empty name before @",
+                    input: format!("@sha256:{VALID_HEX}"),
+                    expect: Fails,
+                },
+            ],
+            |img| validate_img_name(&img).map_err(|_| ()),
+        );
     }
 }

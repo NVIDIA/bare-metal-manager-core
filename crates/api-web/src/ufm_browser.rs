@@ -25,7 +25,7 @@ use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
-use super::Base;
+use super::{Base, filters};
 
 #[derive(Template)]
 #[template(path = "ufm_browser.html")]

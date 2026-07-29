@@ -18,9 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use ::rpc::admin_cli::OutputFormat;
-use ::rpc::site_explorer::{
-    EndpointExplorationReport, ExploredEndpoint, ExploredManagedHost, SiteExplorationReport,
-};
+use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use prettytable::{Cell, Row, Table, format, row};
 
@@ -52,23 +50,6 @@ fn get_endpoints_for_managed_host<'ep>(
             }
         })
         .collect::<HashMap<&str, &ExploredEndpoint>>()
-}
-
-fn last_exploration_error_display(report: &EndpointExplorationReport) -> String {
-    report
-        .last_exploration_error_schema
-        .as_ref()
-        .map(|schema| serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.text.clone()))
-        .or_else(|| report.last_exploration_error.clone())
-        .unwrap_or_default()
-}
-
-fn has_last_exploration_error(report: &EndpointExplorationReport) -> bool {
-    report.last_exploration_error_schema.is_some()
-        || report
-            .last_exploration_error
-            .as_deref()
-            .is_some_and(|error| !error.is_empty())
 }
 
 fn convert_managed_host_to_nice_table(
@@ -365,7 +346,7 @@ fn filter_endpoints(
                     .report
                     .as_ref()
                     .map(|x| {
-                        let has_error = has_last_exploration_error(x);
+                        let has_error = x.has_last_exploration_error();
                         if erroronly {
                             has_error
                         } else if successonly {
@@ -500,7 +481,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
 
     let last_error = report
         .as_ref()
-        .map(last_exploration_error_display)
+        .map(|report| report.last_exploration_error_display())
         .unwrap_or_default();
 
     let error_segmented = last_error
@@ -577,7 +558,7 @@ async fn display_endpoint(
     table.add_row(row!["Preingestion State", endpoint.preingestion_state]);
     let last_error = report
         .as_ref()
-        .map(last_exploration_error_display)
+        .map(|report| report.last_exploration_error_display())
         .unwrap_or_default();
 
     let error_segmented = last_error
@@ -694,10 +675,10 @@ async fn display_endpoint(
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::site_explorer::{EndpointExplorationReport, OperatorErrorSchema};
+    use ::rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint, OperatorErrorSchema};
     use carbide_test_support::{Check, check_values};
 
-    use super::{has_last_exploration_error, last_exploration_error_display};
+    use super::{convert_endpoints_to_nice_table, filter_endpoints};
 
     fn operator_error_schema() -> OperatorErrorSchema {
         OperatorErrorSchema {
@@ -707,51 +688,60 @@ mod tests {
         }
     }
 
-    fn report(
-        schema: Option<OperatorErrorSchema>,
-        legacy: Option<&str>,
-    ) -> EndpointExplorationReport {
-        EndpointExplorationReport {
-            last_exploration_error: legacy.map(str::to_string),
-            last_exploration_error_schema: schema,
+    fn endpoint(address: &str, report: EndpointExplorationReport) -> ExploredEndpoint {
+        ExploredEndpoint {
+            address: address.to_string(),
+            report: Some(report),
             ..Default::default()
         }
     }
 
     #[test]
-    fn last_exploration_error_display_and_presence_are_schema_aware() {
-        let schema_display =
-            serde_json::to_string_pretty(&operator_error_schema()).expect("schema serializes");
+    fn endpoint_error_filter_and_table_rendering_use_structured_errors() {
+        let error = endpoint(
+            "192.0.2.10",
+            EndpointExplorationReport {
+                last_exploration_error_schema: Some(operator_error_schema()),
+                ..Default::default()
+            },
+        );
+        let clear = endpoint("192.0.2.11", EndpointExplorationReport::default());
+        let endpoints = vec![error.clone(), clear];
 
         check_values(
             [
                 Check {
-                    scenario: "schema takes precedence over legacy error",
-                    input: report(Some(operator_error_schema()), Some("legacy error")),
-                    expect: (schema_display.clone(), true),
+                    scenario: "error-only",
+                    input: (true, false),
+                    expect: vec!["192.0.2.10".to_string()],
                 },
                 Check {
-                    scenario: "legacy error remains a fallback",
-                    input: report(None, Some("legacy error")),
-                    expect: ("legacy error".to_string(), true),
+                    scenario: "success-only",
+                    input: (false, true),
+                    expect: vec!["192.0.2.11".to_string()],
                 },
                 Check {
-                    scenario: "schema-only report is an error",
-                    input: report(Some(operator_error_schema()), None),
-                    expect: (schema_display, true),
-                },
-                Check {
-                    scenario: "report without either field has no error",
-                    input: report(None, None),
-                    expect: (String::new(), false),
+                    scenario: "all endpoints",
+                    input: (false, false),
+                    expect: vec!["192.0.2.10".to_string(), "192.0.2.11".to_string()],
                 },
             ],
-            |report| {
-                (
-                    last_exploration_error_display(&report),
-                    has_last_exploration_error(&report),
+            |(error_only, success_only)| {
+                filter_endpoints(
+                    endpoints.clone(),
+                    error_only,
+                    success_only,
+                    Vec::new(),
+                    None,
                 )
+                .into_iter()
+                .map(|endpoint| endpoint.address)
+                .collect::<Vec<_>>()
             },
         );
+
+        let rendered = convert_endpoints_to_nice_table(&[error]).to_string();
+        assert!(rendered.contains("NICO-SITEEXPLORER-122"));
+        assert!(rendered.contains("BMC vendor missing"));
     }
 }

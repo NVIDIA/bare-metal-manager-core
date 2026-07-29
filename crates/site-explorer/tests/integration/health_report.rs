@@ -22,9 +22,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer};
+use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
 use carbide_test_harness::prelude::*;
 use carbide_uuid::machine::MachineId;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -63,15 +63,18 @@ fn test_site_explorer(
 ) -> TestSiteExplorer {
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let api = test_harness.api();
+    let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
+        api.database_connection.clone(),
+        endpoint_explorer.clone(),
+        Arc::new(api.runtime_config.get_firmware_config()),
+    ));
     let site_explorer = SiteExplorer::new(
         api.database_connection.clone(),
         explorer_config,
         test_harness.test_meter.meter(),
-        endpoint_explorer.clone(),
-        Arc::new(api.runtime_config.get_firmware_config()),
+        endpoint_exploration_service,
         api.common_pools().clone(),
         api.work_lock_manager_handle(),
-        carbide_site_explorer::EndpointExplorationLocks::default(),
         api.runtime_config.rack_profiles.clone(),
         None,
         api.credential_manager().clone(),

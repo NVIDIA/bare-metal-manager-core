@@ -28,7 +28,7 @@ use carbide_secrets::test_support::certificates::TestCertificateProvider;
 use carbide_secrets::test_support::credentials::TestCredentialManager;
 use carbide_site_explorer::config::SiteExplorerExploreMode;
 use carbide_site_explorer::test_support::MockEndpointExplorer;
-use carbide_site_explorer::{EndpointExplorationLocks, EndpointExplorer};
+use carbide_site_explorer::{EndpointExplorationService, EndpointExplorer};
 use carbide_utils::test_support::test_meter::TestMeter;
 use db::work_lock_manager::WorkLockManagerHandle;
 use libnmxc::NmxcPool;
@@ -66,7 +66,6 @@ pub struct TestApiBuilder {
     component_manager: Option<Arc<component_manager::component_manager::ComponentManager>>,
     secrets_context: Option<crate::secrets::SecretsContext>,
     endpoint_explorer: Option<MockEndpointExplorer>,
-    endpoint_exploration_locks: EndpointExplorationLocks,
 }
 
 impl TestApiBuilder {
@@ -91,7 +90,6 @@ impl TestApiBuilder {
             component_manager: None,
             secrets_context: None,
             endpoint_explorer: None,
-            endpoint_exploration_locks: EndpointExplorationLocks::default(),
         }
     }
 
@@ -239,6 +237,11 @@ impl TestApiBuilder {
             Some(mock) => Arc::new(mock.with_redfish_backend(real_endpoint_explorer)),
             None => real_endpoint_explorer,
         };
+        let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
+            self.db_pool.clone(),
+            endpoint_explorer.clone(),
+            Arc::new(runtime_config.get_firmware_config()),
+        ));
         let metric_emitter = self.metric_emitter.unwrap_or_else(|| {
             let test_meter = TestMeter::default();
             ApiMetricsEmitter::new(&test_meter.meter())
@@ -274,12 +277,12 @@ impl TestApiBuilder {
             ib_fabric_manager,
             dynamic_settings,
             endpoint_explorer,
+            endpoint_exploration_service,
             dpu_health_log_limiter,
             scout_stream_registry,
             rms_client: self.rms_client,
             nmxc_client_pool,
             work_lock_manager_handle: self.work_lock_manager,
-            endpoint_exploration_locks: self.endpoint_exploration_locks,
             machine_state_handler_enqueuer,
             metric_emitter,
             component_manager: self.component_manager.map(|cm| (*cm).clone()),

@@ -308,6 +308,24 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     //Verify the metadata
     assert_eq!(forge_instance_type.metadata, metadata);
 
+    let mismatch = env
+        .api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: id.to_string(),
+                machine_ids: vec![tmp_machine_id.to_string()],
+            },
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(mismatch.code(), Code::InvalidArgument);
+    assert_eq!(
+        mismatch.message(),
+        format!(
+            "capabilities of machine {tmp_machine_id} do not satisfy the requested InstanceType ({id})"
+        )
+    );
+
     // Now update the instance type again but only if it's still on the first version.
     // This should fail.
     let _ = env

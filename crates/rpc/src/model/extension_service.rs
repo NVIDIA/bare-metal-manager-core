@@ -203,134 +203,120 @@ impl TryFrom<rpc::DpuExtensionServiceObservabilityConfig> for ExtensionServiceOb
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::Outcome::{FailsWith, Yields};
+    use carbide_test_support::scenarios;
+
     use super::*;
     use crate::forge::dpu_extension_service_observability_config::Config;
     use crate::forge::{self as rpc};
 
+    fn observability_config(
+        name: Option<String>,
+        config: Option<Config>,
+    ) -> rpc::DpuExtensionServiceObservabilityConfig {
+        rpc::DpuExtensionServiceObservabilityConfig { name, config }
+    }
+
+    fn logging(path: impl Into<String>) -> Config {
+        Config::Logging(rpc::DpuExtensionServiceObservabilityConfigLogging { path: path.into() })
+    }
+
+    fn prometheus(endpoint: impl Into<String>) -> Config {
+        Config::Prometheus(rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+            endpoint: endpoint.into(),
+            scrape_interval_seconds: 30,
+        })
+    }
+
     #[test]
-    fn test_observability_config_from_rpc() {
-        // Try a bad name
-        ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(1024)),
-                config: Some(Config::Logging(
-                    rpc::DpuExtensionServiceObservabilityConfigLogging {
-                        path: "/dev/null".to_string(),
-                    },
-                )),
-            },
-        )
-        .unwrap_err();
+    fn observability_config_from_rpc() {
+        let max_name = Some("a".repeat(MAX_OBSERVABILITY_CONFIG_NAME));
+        let max_endpoint = format!(
+            "localhost:8080{}",
+            "a".repeat(MAX_OBSERVABILITY_PROPERTY_LEN - "localhost:8080".len()),
+        );
+        let max_path = format!(
+            "/dev/null@home{}",
+            "/".repeat(MAX_OBSERVABILITY_PROPERTY_LEN - "/dev/null@home".len()),
+        );
+        scenarios!(run = |input| {
+            ExtensionServiceObservabilityConfig::try_from(input).map_err(|error| error.to_string())
+        };
+            "invalid config" {
+                observability_config(None, None) => FailsWith(
+                    "argument DpuExtensionServiceObservability.config is missing".to_string(),
+                ),
+            }
 
-        // Try a missing config
-        ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: None,
-            },
-        )
-        .unwrap_err();
+            "invalid name" {
+                observability_config(
+                    Some("a".repeat(MAX_OBSERVABILITY_CONFIG_NAME + 1)),
+                    Some(logging("/dev/null")),
+                ) => FailsWith(
+                    "invalid value length exceeds 64 for DpuExtensionServiceObservability.name"
+                        .to_string(),
+                ),
+            }
 
-        // Try a bad log path size
-        ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: Some(Config::Logging(
-                    rpc::DpuExtensionServiceObservabilityConfigLogging {
-                        path: "/dev/null".repeat(1024),
-                    },
-                )),
-            },
-        )
-        .unwrap_err();
+            "invalid logging path" {
+                observability_config(
+                    max_name.clone(),
+                    Some(logging("a".repeat(MAX_OBSERVABILITY_PROPERTY_LEN + 1))),
+                ) => FailsWith(
+                    "invalid value length exceeds 128 for DpuExtensionServiceObservability.config.path"
+                        .to_string(),
+                ),
+                observability_config(
+                    max_name.clone(),
+                    Some(logging("/dev/null$")),
+                ) => FailsWith(
+                    r"invalid value characters that match the pattern `[^a-zA-Z0-9\-\_\/\.\@]+` are invalid for DpuExtensionServiceObservability.config.path"
+                        .to_string(),
+                ),
+            }
 
-        // Try a bad log path
-        ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: Some(Config::Logging(
-                    rpc::DpuExtensionServiceObservabilityConfigLogging {
-                        path: "/dev/null$$$$$$".repeat(1024),
-                    },
-                )),
-            },
-        )
-        .unwrap_err();
+            "invalid Prometheus endpoint" {
+                observability_config(
+                    max_name.clone(),
+                    Some(prometheus("a".repeat(MAX_OBSERVABILITY_PROPERTY_LEN + 1))),
+                ) => FailsWith(
+                    "invalid value length exceeds 128 for DpuExtensionServiceObservability.config.endpoint"
+                        .to_string(),
+                ),
+                observability_config(
+                    max_name.clone(),
+                    Some(prometheus("localhost/metrics")),
+                ) => FailsWith(
+                    r"invalid value characters that match the pattern `[^a-zA-Z0-9:\-]+` are invalid for DpuExtensionServiceObservability.config.endpoint"
+                        .to_string(),
+                ),
+            }
 
-        // Try a bad endpoint
-        ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: Some(Config::Prometheus(
-                    rpc::DpuExtensionServiceObservabilityConfigPrometheus {
-                        endpoint: "localhost".repeat(1024),
-                        scrape_interval_seconds: 30,
-                    },
-                )),
-            },
-        )
-        .unwrap_err();
-
-        // Try another bad endpoint using bad characters
-        ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: Some(Config::Prometheus(
-                    rpc::DpuExtensionServiceObservabilityConfigPrometheus {
-                        endpoint: "/this/is/not/valid".repeat(1024),
-                        scrape_interval_seconds: 30,
-                    },
-                )),
-            },
-        )
-        .unwrap_err();
-
-        // Try a good prom config
-        assert_eq!(
-            ExtensionServiceObservabilityConfig::try_from(
-                rpc::DpuExtensionServiceObservabilityConfig {
-                    name: Some("a".repeat(10)),
-                    config: Some(Config::Prometheus(
-                        rpc::DpuExtensionServiceObservabilityConfigPrometheus {
-                            endpoint: "localhost:8080".to_string(),
+            "valid config" {
+                observability_config(
+                    max_name.clone(),
+                    Some(prometheus(max_endpoint.clone())),
+                ) => Yields(ExtensionServiceObservabilityConfig {
+                    name: max_name,
+                    config: ExtensionServiceObservabilityConfigType::Prometheus(
+                        ExtensionServiceObservabilityConfigTypePrometheus {
+                            endpoint: max_endpoint,
                             scrape_interval_seconds: 30,
                         },
-                    )),
-                }
-            )
-            .unwrap(),
-            ExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: ExtensionServiceObservabilityConfigType::Prometheus(
-                    ExtensionServiceObservabilityConfigTypePrometheus {
-                        endpoint: "localhost:8080".to_string(),
-                        scrape_interval_seconds: 30
-                    }
-                )
-            }
-        );
-
-        // Try a good logging config
-        assert_eq!(
-            ExtensionServiceObservabilityConfig::try_from(
-                rpc::DpuExtensionServiceObservabilityConfig {
-                    name: Some("a".repeat(10)),
-                    config: Some(Config::Logging(
-                        rpc::DpuExtensionServiceObservabilityConfigLogging {
-                            path: "/dev/null@home".to_string(),
+                    ),
+                }),
+                observability_config(
+                    None,
+                    Some(logging(max_path.clone())),
+                ) => Yields(ExtensionServiceObservabilityConfig {
+                    name: None,
+                    config: ExtensionServiceObservabilityConfigType::Logging(
+                        ExtensionServiceObservabilityConfigTypeLogging {
+                            path: max_path,
                         },
-                    )),
-                }
-            )
-            .unwrap(),
-            ExtensionServiceObservabilityConfig {
-                name: Some("a".repeat(10)),
-                config: ExtensionServiceObservabilityConfigType::Logging(
-                    ExtensionServiceObservabilityConfigTypeLogging {
-                        path: "/dev/null@home".to_string(),
-                    }
-                )
-            }
+                    ),
+                }),
+            },
         );
     }
 }

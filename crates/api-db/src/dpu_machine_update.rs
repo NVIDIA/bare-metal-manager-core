@@ -37,7 +37,6 @@ pub async fn get_fw_updates_running_count(txn: &mut PgConnection) -> Result<i64,
     Ok(count)
 }
 
-#[allow(txn_held_across_await)]
 pub async fn trigger_reprovisioning_for_managed_host(
     txn: &mut PgConnection,
     machine_updates: &[DpuMachineUpdate],
@@ -155,6 +154,8 @@ pub async fn get_updated_machines(
                 return None;
             }
 
+            let dpf_managed = managed_host.host_snapshot.config.dpf.used_for_ingestion;
+
             // We only signal an update as complete once ALL DPUs are done
             // That prevents removing the updating flags from the Host
             // if just one DPU completes the update
@@ -171,6 +172,7 @@ pub async fn get_updated_machines(
                         .and_then(|info| info.dpu_info.as_ref())
                         .map(|dpu_info| dpu_info.firmware_version.clone())
                         .unwrap_or_default(),
+                    dpf_managed,
                 })
                 .collect();
 

@@ -16,7 +16,8 @@
  */
 use std::sync::Arc;
 
-use carbide_rack::rms_node_type::compute_node_type_for_profile;
+use carbide_instrument::emit;
+use carbide_rack::rms_node_type::compute_node_identity_for_profile;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
@@ -49,7 +50,7 @@ use crate::SiteExplorerConfig;
 use crate::errors::{SiteExplorerError, SiteExplorerResult};
 use crate::explored_endpoint_index::ExploredEndpointIndex;
 use crate::managed_host::ManagedHost;
-use crate::metrics::SiteExplorationMetrics;
+use crate::metrics::{SiteExplorationMetrics, SiteExplorerMachineSlotTrayPersistenceFailed};
 
 /// Creates machines from site-explorer managed-host reports.
 pub struct MachineCreator {
@@ -329,7 +330,7 @@ impl MachineCreator {
         self.reconcile_host_admin_addresses(&mut txn, &host_machine_id)
             .await?;
 
-        let rms_node_type = if let (Some(rack_id), Some(_)) =
+        let rms_node_identity = if let (Some(rack_id), Some(_)) =
             (&expected_machine.data.rack_id, &self.rms_client)
         {
             let Some(rack_profile_id) = rack_profile_id.as_ref() else {
@@ -345,7 +346,7 @@ impl MachineCreator {
             };
 
             Some(
-                compute_node_type_for_profile(rack_profile)
+                compute_node_identity_for_profile(rack_profile)
                     .map_err(|error| SiteExplorerError::InvalidArgument(error.to_string()))?,
             )
         } else {
@@ -354,36 +355,37 @@ impl MachineCreator {
 
         txn.commit().await?;
 
-        if let (Some(rack_id), Some(rms_client), Some(node_type)) = (
+        if let (Some(rack_id), Some(rms_client), Some(node_identity)) = (
             &expected_machine.data.rack_id,
             &self.rms_client,
-            rms_node_type,
+            rms_node_identity,
         ) {
-            let request = rms::BatchGetNodeDeviceInfoRequest {
-                nodes: Some(rms::NodeSet {
-                    nodes: vec![rms::NodeInfo {
-                        node_id: host_machine_id.to_string(),
-                        rack_id: rack_id.to_string(),
-                        r#type: Some(node_type as i32),
-                        bmc_endpoint: Some(rms::Endpoint {
-                            interface: Some(rms::NetworkInterface {
-                                ip_address: explored_host.host_bmc_ip.to_string(),
-                                mac_address: expected_machine.bmc_mac_address.to_string(),
-                                host_name: None,
-                            }),
-                            port: 443,
-                            credentials: bmc_credentials.map(|(username, password)| {
-                                rms::Credentials {
-                                    auth: Some(rms::credentials::Auth::UserPass(
-                                        rms::UsernamePassword { username, password },
-                                    )),
-                                }
-                            }),
-                            dangerously_accept_invalid_certs: true,
-                        }),
-                        ..Default::default()
-                    }],
+            let mut node = rms::NodeInfo {
+                node_id: host_machine_id.to_string(),
+                rack_id: rack_id.to_string(),
+                r#type: None,
+                node_descriptor: None,
+                bmc_endpoint: Some(rms::Endpoint {
+                    interface: Some(rms::NetworkInterface {
+                        ip_address: explored_host.host_bmc_ip.to_string(),
+                        mac_address: expected_machine.bmc_mac_address.to_string(),
+                        host_name: None,
+                    }),
+                    port: 443,
+                    credentials: bmc_credentials.map(|(username, password)| rms::Credentials {
+                        auth: Some(rms::credentials::Auth::UserPass(rms::UsernamePassword {
+                            username,
+                            password,
+                        })),
+                    }),
                 }),
+                ..Default::default()
+            };
+
+            node_identity.apply_to_node_info(&mut node);
+
+            let request = rms::BatchGetNodeDeviceInfoRequest {
+                nodes: Some(rms::NodeSet { nodes: vec![node] }),
             };
             let (slot_number, tray_index) =
                 crate::fetch_slot_and_tray(rms_client.as_ref(), request).await;
@@ -396,13 +398,16 @@ impl MachineCreator {
             )
             .await
             {
-                tracing::warn!(
-                    error = %e,
-                    %host_machine_id,
-                    "Failed to update slot_number and tray_index for machine"
-                );
+                emit(SiteExplorerMachineSlotTrayPersistenceFailed::new(
+                    e.to_string(),
+                    host_machine_id.to_string(),
+                ));
+                update_txn
+                    .rollback_or_log("site-explorer slot and tray update after operation failure")
+                    .await;
+            } else {
+                update_txn.commit().await?;
             }
-            update_txn.commit().await?;
         }
 
         Ok(true)
@@ -733,9 +738,10 @@ impl MachineCreator {
     // configures it appropriately, returning the new `Machine`.
     // If the DPU already exists in the machines table, this is a no-op and returns `None`.
     //
-    // The DPU's `network_config` is intentionally NOT written here -- the caller writes it after
-    // `attach_dpu_to_host` has wired the host link in `machine_interfaces`, so that
-    // `try_update_network_config`'s group sync observes both rows as siblings and keeps their
+    // `db::machine::create` can persist pool-backed defaults on the new row.
+    // The full `network_config` reconciliation and version bump wait until
+    // `attach_dpu_to_host` wires the host link in `machine_interfaces`; only
+    // then can `try_update_network_config` observe both siblings and keep their
     // versions equal.
     async fn create_dpu(
         &self,
@@ -968,6 +974,15 @@ impl MachineCreator {
             network_config.loopback_ip = Some(loopback_ip);
         }
 
+        if network_config.loopback_ip_v6.is_none() {
+            network_config.loopback_ip_v6 = db::machine::allocate_loopback_ip_v6(
+                &self.common_pools,
+                txn,
+                &dpu_machine.id.to_string(),
+            )
+            .await?;
+        }
+
         if self.config.allocate_secondary_vtep_ip
             && network_config.secondary_overlay_vtep_ip.is_none()
         {
@@ -980,8 +995,17 @@ impl MachineCreator {
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
         }
 
-        db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
-            .await?;
+        // A stale version must fail the whole transaction so any addresses
+        // allocated above return to their pools.
+        if !db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
+            .await?
+        {
+            return Err(db::DatabaseError::ConcurrentModificationError(
+                "machine",
+                version.to_string(),
+            )
+            .into());
+        }
 
         Ok(())
     }
@@ -1111,9 +1135,13 @@ impl MachineCreator {
     }
 }
 
-/// Host inband MACs used when minting `predicted_machine_interface` rows for zero-DPU hosts.
-/// Prefers Redfish-reported System EthernetInterfaces; falls back to `ExpectedMachine.host_nics`
-/// when the BMC omits them from Redfish.
+/// `host_mac_addresses_for_predicted_machine` finds the Host interfaces used to
+/// mint `predicted_machine_interface` rows for a zero-DPU host.
+///
+/// Redfish-reported System EthernetInterfaces remain authoritative. When the
+/// BMC omits that inventory, only Host-role ExpectedMachine declarations are a
+/// valid fallback; treating DPU OS or DPU BMC declarations as Host interfaces
+/// would attach those endpoints to the wrong machine.
 fn host_mac_addresses_for_predicted_machine(
     report: &EndpointExplorationReport,
     machine_data: Option<&ExpectedMachineData>,
@@ -1123,19 +1151,138 @@ fn host_mac_addresses_for_predicted_machine(
         [_, ..] => from_redfish,
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
-            .map(|data| data.host_nics.as_slice())
+            .map(|data| {
+                data.host_nics
+                    .iter()
+                    .filter(|interface| interface.role.is_host())
+                    .map(|interface| interface.mac_address)
+                    .dedup()
+                    .collect::<Vec<_>>()
+            })
             .none_if_empty()
-            .map(|host_nics| {
+            .inspect(|host_mac_addresses| {
                 tracing::info!(
-                    host_nic_count = host_nics.len(),
+                    host_nic_count = host_mac_addresses.len(),
                     "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
                 );
-                host_nics
-                    .iter()
-                    .map(|nic| nic.mac_address)
-                    .dedup()
-                    .collect()
             })
             .unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceRole};
+    use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface};
+
+    use super::*;
+
+    /// Redfish inventory stays authoritative, and the zero-DPU fallback uses
+    /// only Host declarations from a host ExpectedMachine.
+    #[test]
+    fn host_mac_addresses_for_predicted_machine_cases() {
+        let host_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        let dpu_os_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
+        let dpu_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x03]);
+        let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
+        let interface = |mac_address, role| ExpectedHostNic {
+            mac_address,
+            role,
+            ..Default::default()
+        };
+        let machine_data = |host_nics| ExpectedMachineData {
+            host_nics,
+            ..Default::default()
+        };
+        let all_roles = || {
+            machine_data(vec![
+                interface(host_mac, ExpectedInterfaceRole::Host),
+                interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
+                interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+            ])
+        };
+        let excluded_report = |chassis_id: &str| EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: chassis_id.to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "Redfish EthernetInterfaces are authoritative",
+                    input: (
+                        EndpointExplorationReport {
+                            systems: vec![ComputerSystem {
+                                ethernet_interfaces: vec![EthernetInterface {
+                                    mac_address: Some(redfish_mac),
+                                    ..Default::default()
+                                }],
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        },
+                        Some(all_roles()),
+                    ),
+                    expect: vec![redfish_mac],
+                },
+                Check {
+                    scenario: "Host declarations provide the zero-DPU fallback",
+                    input: (EndpointExplorationReport::default(), Some(all_roles())),
+                    expect: vec![host_mac],
+                },
+                Check {
+                    scenario: "DPU-only declarations do not become Host predictions",
+                    input: (
+                        EndpointExplorationReport::default(),
+                        Some(machine_data(vec![
+                            interface(dpu_os_mac, ExpectedInterfaceRole::DpuOs),
+                            interface(dpu_bmc_mac, ExpectedInterfaceRole::DpuBmc),
+                        ])),
+                    ),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "missing ExpectedMachine data has no fallback",
+                    input: (EndpointExplorationReport::default(), None),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "DPU reports do not use Host declarations",
+                    input: (
+                        EndpointExplorationReport {
+                            systems: vec![ComputerSystem {
+                                id: "Bluefield".to_string(),
+                                ..Default::default()
+                            }],
+                            chassis: vec![Chassis {
+                                id: "Card1".to_string(),
+                                model: Some("BlueField 3 DPU".to_string()),
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        },
+                        Some(all_roles()),
+                    ),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "switch reports do not use Host declarations",
+                    input: (excluded_report("MGX_NVSwitch_0"), Some(all_roles())),
+                    expect: vec![],
+                },
+                Check {
+                    scenario: "power-shelf reports do not use Host declarations",
+                    input: (excluded_report("PowerShelf"), Some(all_roles())),
+                    expect: vec![],
+                },
+            ],
+            |(report, machine_data)| {
+                host_mac_addresses_for_predicted_machine(&report, machine_data.as_ref())
+            },
+        );
     }
 }

@@ -29,7 +29,7 @@ use crate::mac_address_pool::{
 use crate::machine_info::DpuSettings;
 use crate::{
     BmcState, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo,
-    MockPowerState, SetSystemPowerError, SystemPowerControl, machine_router,
+    MachineRouterOptions, MockPowerState, SetSystemPowerError, SystemPowerControl, machine_router,
 };
 
 pub mod axum_http_client;
@@ -97,11 +97,12 @@ pub async fn bmc_for_machine(machine_info: MachineInfo) -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         machine_id.to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
 
-fn host_info(hw_type: HostHardwareType) -> MachineInfo {
+pub(crate) fn host_info(hw_type: HostHardwareType) -> MachineInfo {
     let ndpu = hw_type.fixed_number_of_dpu().unwrap_or(0);
     let mut pool = TEST_MAC_POOL.lock().unwrap();
     let ranges_config = pool.allocate_range_config().unwrap();
@@ -121,6 +122,7 @@ pub async fn wiwynn_gb200_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -131,6 +133,7 @@ pub async fn lenovo_gb300_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -141,6 +144,7 @@ pub async fn dgx_gb300_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -156,6 +160,7 @@ pub async fn nvidia_dgx_vr_host_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -166,6 +171,7 @@ pub async fn supermicro_gb300_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -176,6 +182,7 @@ pub async fn generic_supermicro_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -186,6 +193,7 @@ pub async fn liteon_powershelf_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -196,6 +204,7 @@ pub async fn delta_powershelf_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -213,6 +222,7 @@ pub async fn delta_powershelf_bmc_with_psu_power(states: Vec<bool>) -> TestBmcHa
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -223,6 +233,7 @@ pub async fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -233,6 +244,7 @@ pub async fn dell_poweredge_r750_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -251,6 +263,7 @@ pub async fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBm
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -262,6 +275,7 @@ pub async fn dell_poweredge_r760_bluefield4_bmc(dpu: DpuMachineInfo) -> TestBmcH
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -280,6 +294,7 @@ pub async fn nvidia_dgx_vr_bluefield4_dpu_bmc(settings: DpuSettings) -> TestBmcH
         Arc::new(NoopCallbacks),
         "test-dpu-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -290,6 +305,7 @@ pub async fn hpe_proliant_dl380a_gen11_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -300,6 +316,7 @@ pub async fn generic_ami_bmc() -> TestBmcHandle {
         Arc::new(NoopCallbacks),
         "test-host-id".to_string(),
         false,
+        MachineRouterOptions::default(),
     ))
     .await
 }
@@ -360,6 +377,7 @@ mod test {
                 Arc::new(NoopCallbacks),
                 "test-host-id".to_string(),
                 false,
+                MachineRouterOptions::default(),
             )
             .0,
         );

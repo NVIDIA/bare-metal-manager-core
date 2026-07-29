@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
-use carbide_dpf::types::DpfProxyDetails;
+use carbide_dpf::types::{DpfProxyDetails, DpuDeploymentType};
 use carbide_firmware::FirmwareConfig;
 use carbide_firmware::defaults::{
     BF2_BMC_VERSION, BF2_CEC_VERSION, BF2_NIC_VERSION, BF2_UEFI_VERSION, BF3_BMC_VERSION,
@@ -176,20 +176,11 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub enable_route_servers: bool,
 
-    /// List of IPv4 prefixes (in CIDR notation) that tenant instances are not allowed to talk to.
-    //
-    // TODO(chet): For now, this remains `Vec<Ipv4Network>`, because the dpu-agent consumers
-    // that process deny prefixes are IPv4-only (and I'll do it in another PR):
-    // - `crates/agent/src/acl_rules.rs` parses rules into `Ipv4Network` and generates
-    //   iptables DROP rules via `make_deny_prefix_rules(&[Ipv4Network], ...)`
-    // - nvue templates (in `nvue_startup_fnn.conf` and `nvue_startup_etv.conf`) render these
-    //   prefixes under a "p0000_deny_prefixes_ipv4" ACL policy with `type: ipv4`.
-    //
-    // Updating to support `Vec<IpNetwork>` requires the agent to generate parallel IPv6 deny
-    // rules (I think via ip6tables / `type: ipv6` ACL policy), similar to how NSG rules already
-    // handle the `ipv6: bool` split.
+    /// List of IP prefixes (in CIDR notation) that tenant instances are not allowed to reach.
+    ///
+    /// FNN supports IPv4 and IPv6 prefixes. All non-FNN virtualizers apply only IPv4 prefixes.
     #[serde(default)]
-    pub deny_prefixes: Vec<Ipv4Network>,
+    pub deny_prefixes: Vec<IpNetwork>,
 
     /// List of IP prefixes (in CIDR notation) that are assigned for tenant
     /// use within this site. Supports both IPv4 and IPv6 prefixes.
@@ -945,6 +936,89 @@ pub struct ObservabilityConfig {
     /// `object_id="<machine_id>"`).
     #[serde(default)]
     pub per_object_metrics_for_classifications: Vec<HealthAlertClassification>,
+
+    /// Per-object state progress metrics, served on a dedicated endpoint
+    /// (see `docs/design/per-object-state-metrics.md`).
+    #[serde(default)]
+    pub per_object_state_metrics: PerObjectStateMetricsConfig,
+}
+
+/// Configuration for the per-object state metrics endpoint. Off by default:
+/// the series cost O(fleet) cardinality, so operators opt in and scrape the
+/// dedicated endpoint at their own cadence.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PerObjectStateMetricsConfig {
+    /// Whether the per-object state metrics endpoint is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// The address the dedicated endpoint listens on.
+    #[serde(default = "default_per_object_state_metrics_listen_address")]
+    pub listen_address: SocketAddr,
+    /// Object types to emit state series for; defaults to all. An empty list
+    /// disables emission even when `enabled = true`.
+    #[serde(default = "default_per_object_state_metrics_object_types")]
+    pub object_types: Vec<PerObjectStateMetricObjectType>,
+}
+
+impl Default for PerObjectStateMetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen_address: default_per_object_state_metrics_listen_address(),
+            object_types: default_per_object_state_metrics_object_types(),
+        }
+    }
+}
+
+fn default_per_object_state_metrics_listen_address() -> SocketAddr {
+    SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), 9091)
+}
+
+fn default_per_object_state_metrics_object_types() -> Vec<PerObjectStateMetricObjectType> {
+    PerObjectStateMetricObjectType::ALL.to_vec()
+}
+
+/// Object types that can emit per-object state series. An enum so an
+/// unrecognized token fails config deserialization instead of silently
+/// emitting nothing for the intended type.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PerObjectStateMetricObjectType {
+    Machine,
+    Switch,
+    Rack,
+    PowerShelf,
+    NetworkSegment,
+    VpcPrefix,
+    SpdmAttestation,
+    IbPartition,
+}
+
+impl PerObjectStateMetricObjectType {
+    const ALL: [Self; 8] = [
+        Self::Machine,
+        Self::Switch,
+        Self::Rack,
+        Self::PowerShelf,
+        Self::NetworkSegment,
+        Self::VpcPrefix,
+        Self::SpdmAttestation,
+        Self::IbPartition,
+    ];
+
+    /// The `object_type` label token; must match what the controllers record.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Machine => "machine",
+            Self::Switch => "switch",
+            Self::Rack => "rack",
+            Self::PowerShelf => "power_shelf",
+            Self::NetworkSegment => "network_segment",
+            Self::VpcPrefix => "vpc_prefix",
+            Self::SpdmAttestation => "spdm_attestation",
+            Self::IbPartition => "ib_partition",
+        }
+    }
 }
 
 /// One external tool link rendered in the admin web UI's "Tools"
@@ -1275,8 +1349,9 @@ pub struct DpfConfig {
     pub enabled: bool,
     /// Optional override for the Kubernetes `imagePullSecrets` entry used to pull the
     /// docker images of the mandatory services. When set, it is applied to every
-    /// mandatory service except `dts` and `doca_hbn`. This also overrides if
-    /// docker_image_pull_secret is set in services sections as well.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config. This also overrides any `docker_image_pull_secret`
+    /// set in those per-service sections.
     #[serde(default)]
     pub docker_image_pull_secret: Option<String>,
     /// Selects how the DPF-managed DPU agent obtains the API trust anchor.
@@ -1290,7 +1365,7 @@ pub struct DpfConfig {
     #[serde(default)]
     pub proxy: Option<DpfProxyDetails>,
     /// Per-generation DPUDeployment configurations. BF3 is always present with sensible
-    /// defaults; BF4Generic is opt-in via `[dpf.deployments.bf4_generic]`.
+    /// defaults; BF4 variants are opt-in.
     #[serde(default)]
     pub deployments: DpfDeploymentsConfig,
 }
@@ -1298,46 +1373,52 @@ pub struct DpfConfig {
 impl DpfConfig {
     /// Returns the top-level mandatory services with the optional
     /// [`Self::docker_image_pull_secret`] override applied. The override affects every
-    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
-    /// pull secret.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config.
     pub fn resolved_mandatory_services(&self) -> DpfMandatoryServicesConfig {
         let mut services = (*self.services).clone();
         self.apply_pull_secret_override(&mut services);
         services
     }
 
-    /// Returns the mandatory services for `deployment`: the deployment's own
+    /// Returns the services for `deployment`: the deployment's own
     /// [`DpfDeploymentConfig::services`] override when set, otherwise the top-level
-    /// [`Self::services`]. In both cases the optional [`Self::docker_image_pull_secret`]
-    /// override is applied (see [`Self::resolved_mandatory_services`]).
+    /// [`Self::services`], plus its deployment-specific extra services. The optional
+    /// [`Self::docker_image_pull_secret`] override is applied to the mandatory services
+    /// (see [`Self::resolved_mandatory_services`]).
     pub fn resolved_services_for(
         &self,
         deployment: &DpfDeploymentConfig,
-    ) -> DpfMandatoryServicesConfig {
-        let mut services = deployment
+    ) -> DpfResolvedMandatoryServicesConfig {
+        let mut base = deployment
             .services
             .as_deref()
             .cloned()
             .unwrap_or_else(|| (*self.services).clone());
-        self.apply_pull_secret_override(&mut services);
-        services
+        self.apply_pull_secret_override(&mut base);
+
+        DpfResolvedMandatoryServicesConfig {
+            base,
+            extra: deployment.extra_services.clone(),
+        }
     }
 
     /// Applies the optional [`Self::docker_image_pull_secret`] override to every
-    /// mandatory service except `dts` and `doca_hbn`, which keep their own configured
-    /// pull secret. No-op when the override is unset.
+    /// mandatory service except `dts` and `doca_hbn`, which take a pull secret only
+    /// from their per-service config. No-op when the override is unset.
     fn apply_pull_secret_override(&self, services: &mut DpfMandatoryServicesConfig) {
         if let Some(secret) = &self.docker_image_pull_secret {
+            let secret = Some(secret.clone());
             services.dpu_agent.docker_image_pull_secret = secret.clone();
             services.dhcp_server.docker_image_pull_secret = secret.clone();
             services.fmds.docker_image_pull_secret = secret.clone();
-            services.otel.docker_image_pull_secret = secret.clone();
+            services.otel.docker_image_pull_secret = secret;
         }
     }
 }
 
 fn default_dpf_bfb_url() -> String {
-    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.2-125_26.02_ubuntu-24.04_64k_prod.bfb".to_string()
+    "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.4.1-12_26.04_ubuntu-24.04_64k_prod.bfb".to_string()
 }
 
 fn default_dpf_deployment_name() -> String {
@@ -1386,11 +1467,58 @@ impl Default for DpfMandatoryServicesConfig {
     }
 }
 
-/// Default name for the Kubernetes `imagePullSecrets` entry used by DPF workload charts.
-pub(crate) const DEFAULT_DPF_IMAGE_PULL_SECRET: &str = "dpf-pull-secret";
+/// Deployment-type-specific service that supplements the mandatory base set.
+///
+/// Modelled as an enum (rather than a string key) so the resolver that populates
+/// the extras and the consumer that projects them into service definitions stay in
+/// sync at compile time.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)] // DOCA is part of the service identity, not a redundant prefix.
+pub enum DpfExtraService {
+    /// DOCA Weave DHCP agent service.
+    DocaWeaveDhcpAgent,
+    /// DOCA Weave Flow Controller service.
+    DocaWeaveFlowController,
+    /// DOCA Xplane service.
+    DocaXplane,
+}
 
-fn default_dpf_image_pull_secret() -> String {
-    DEFAULT_DPF_IMAGE_PULL_SECRET.to_string()
+const BF4_ASTRA_EXTRA_SERVICES: &[DpfExtraService] = &[
+    DpfExtraService::DocaWeaveDhcpAgent,
+    DpfExtraService::DocaWeaveFlowController,
+    DpfExtraService::DocaXplane,
+];
+
+fn extra_service_types(deployment_type: DpuDeploymentType) -> &'static [DpfExtraService] {
+    match deployment_type {
+        DpuDeploymentType::Bf3 | DpuDeploymentType::Bf4Generic => &[],
+        DpuDeploymentType::Bf4Astra => BF4_ASTRA_EXTRA_SERVICES,
+    }
+}
+
+impl DpfExtraService {
+    fn default_config(self) -> DpfServiceConfig {
+        match self {
+            Self::DocaWeaveDhcpAgent => {
+                crate::dpf_services::default_doca_weave_dhcp_agent_service()
+            }
+            Self::DocaWeaveFlowController => {
+                crate::dpf_services::default_doca_weave_flow_controller_service()
+            }
+            Self::DocaXplane => crate::dpf_services::default_doca_xplane_service(),
+        }
+    }
+}
+
+/// `DpfResolvedMandatoryServicesConfig` - the compounded list of mandatory services
+/// depending on deployment type.
+pub struct DpfResolvedMandatoryServicesConfig {
+    /// Base mandatory services present for every deployment type.
+    pub base: DpfMandatoryServicesConfig,
+    /// Deployment-type-specific extra services. Keyed by [`DpfExtraService`] in a
+    /// [`BTreeMap`] so iteration order is deterministic.
+    pub extra: BTreeMap<DpfExtraService, DpfServiceConfig>,
 }
 
 /// Configuration for a single Helm-based DPF service.
@@ -1408,9 +1536,11 @@ pub struct DpfServiceConfig {
     pub docker_repo_url: String,
     /// Version of docker image
     pub docker_image_tag: String,
-    /// Secret to use to pull the docker images.
-    #[serde(default = "default_dpf_image_pull_secret")]
-    pub docker_image_pull_secret: String,
+    /// Secret to use to pull the docker images. `None` when the service pulls from
+    /// a public registry (`dts` and `doca_hbn` default to this); when set, an
+    /// `imagePullSecrets` entry is emitted in the service's Helm values.
+    #[serde(default)]
+    pub docker_image_pull_secret: Option<String>,
 }
 
 /// Per-deployment DPF configuration for named entries under `[dpf.deployments]`.
@@ -1418,7 +1548,8 @@ pub struct DpfServiceConfig {
 /// `flavor_name`, `deployment_name`, and `node_label_key` are required when a
 /// `[dpf.deployments.<name>]` block is written; `bfb_url` and `services` are
 /// optional. When `services` is omitted, the deployment inherits the top-level
-/// `[dpf.services]` (see [`DpfConfig::resolved_services_for`]).
+/// `[dpf.services]` (see [`DpfConfig::resolved_services_for`]). Extra services
+/// are configured per deployment in `extra_services`.
 ///
 /// The `Default` impl (BF3 values) is used when the entire
 /// `[dpf.deployments.bf3]` block is absent, via `#[serde(default)]` on the
@@ -1447,7 +1578,12 @@ pub struct DpfDeploymentConfig {
     /// [`DpfConfig::services`]. When absent, the top-level services are inherited.
     #[serde(default)]
     pub services: Option<Box<DpfMandatoryServicesConfig>>,
-    // A new field can be added here similar to mandatory services but specific to deployment.
+
+    /// Deployment-specific Helm services. BF4 Astra receives built-in DOCA Weave
+    /// DHCP agent, Weave flow controller, and DOCA Xplane definitions; configured
+    /// entries replace matching defaults.
+    #[serde(default)]
+    pub extra_services: BTreeMap<DpfExtraService, DpfServiceConfig>,
 }
 
 impl Default for DpfDeploymentConfig {
@@ -1459,6 +1595,7 @@ impl Default for DpfDeploymentConfig {
             deployment_name: default_dpf_deployment_name(),
             node_label_key: default_dpf_node_label_key(),
             services: None,
+            extra_services: BTreeMap::new(),
         }
     }
 }
@@ -1484,7 +1621,7 @@ pub struct DpfBlueFieldSoftwareConfig {
 
 /// Named DPUDeployment configurations under `[dpf.deployments]`.
 /// Each entry creates its own BFB, DPUFlavor, and DPUDeployment CR at startup.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct DpfDeploymentsConfig {
     /// BF3 deployment. Present by default with sensible values; override individual
     /// fields in `[dpf.deployments.bf3]` when the site uses non-default names or BFBs.
@@ -1493,15 +1630,71 @@ pub struct DpfDeploymentsConfig {
     /// BF4 generic deployment (NICo + BF4 via DPF).
     #[serde(default)]
     pub bf4_generic: Option<DpfDeploymentConfig>,
+    /// BF4 astra deployment (NICo + BF4 with Astra via DPF)
+    #[serde(default)]
+    pub bf4_astra: Option<DpfDeploymentConfig>,
+}
+
+#[derive(Deserialize)]
+struct DpfDeploymentsConfigDef {
+    #[serde(default)]
+    bf3: DpfDeploymentConfig,
+    #[serde(default)]
+    bf4_generic: Option<DpfDeploymentConfig>,
+    #[serde(default)]
+    bf4_astra: Option<DpfDeploymentConfig>,
+}
+
+impl<'de> Deserialize<'de> for DpfDeploymentsConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let config = DpfDeploymentsConfigDef::deserialize(deserializer)?;
+        let mut deployments = Self {
+            bf3: config.bf3,
+            bf4_generic: config.bf4_generic,
+            bf4_astra: config.bf4_astra,
+        };
+        deployments.apply_extra_service_defaults();
+        Ok(deployments)
+    }
 }
 
 impl DpfDeploymentsConfig {
+    fn apply_extra_service_defaults(&mut self) {
+        Self::apply_extra_service_defaults_for(&mut self.bf3, DpuDeploymentType::Bf3);
+        if let Some(deployment) = &mut self.bf4_generic {
+            Self::apply_extra_service_defaults_for(deployment, DpuDeploymentType::Bf4Generic);
+        }
+        if let Some(deployment) = &mut self.bf4_astra {
+            Self::apply_extra_service_defaults_for(deployment, DpuDeploymentType::Bf4Astra);
+        }
+    }
+
+    fn apply_extra_service_defaults_for(
+        deployment: &mut DpfDeploymentConfig,
+        deployment_type: DpuDeploymentType,
+    ) {
+        let configured = std::mem::take(&mut deployment.extra_services);
+        deployment.extra_services = extra_service_types(deployment_type)
+            .iter()
+            .copied()
+            .map(|service| (service, service.default_config()))
+            .collect();
+        // A configured entry replaces only that service's built-in definition.
+        deployment.extra_services.extend(configured);
+    }
+
     /// Returns all active deployment configs as `(name, config)` pairs.
     /// Add new deployments here when they are introduced.
     fn all(&self) -> Vec<(&'static str, &DpfDeploymentConfig)> {
         let mut v = vec![("bf3", &self.bf3)];
         if let Some(bf4) = &self.bf4_generic {
             v.push(("bf4_generic", bf4));
+        }
+        if let Some(bf4_astra) = &self.bf4_astra {
+            v.push(("bf4_astra", bf4_astra));
         }
         v
     }
@@ -1571,19 +1764,18 @@ impl DpfDeploymentsConfig {
             );
         }
 
-        // BF4 is BlueFieldSoftware-only. `bfb_url` is BF3-specific; a bf4_generic
-        // deployment must use `bluefield_software`. Reject the BFB-only case here
-        // so it fails at config validation rather than later at SDK startup,
-        // which unconditionally requires `bluefield_software` for bf4_generic.
-        if self
-            .bf4_generic
-            .as_ref()
-            .is_some_and(|cfg| cfg.bfb_url.is_some() && cfg.bluefield_software.is_none())
-        {
-            errors.push(
-                "deployment \"bf4_generic\" must set bluefield_software; BF4 does not support bfb_url"
-                    .to_string(),
-            );
+        // BF4 is BlueFieldSoftware-only. `bfb_url` is BF3-specific; bf4_generic and
+        // bf4_astra deployments must use `bluefield_software`. Reject the BFB-only case
+        // here so it fails at config validation rather than later at SDK startup.
+        for (name, cfg) in [
+            ("bf4_generic", self.bf4_generic.as_ref()),
+            ("bf4_astra", self.bf4_astra.as_ref()),
+        ] {
+            if cfg.is_some_and(|c| c.bfb_url.is_some() && c.bluefield_software.is_none()) {
+                errors.push(format!(
+                    "deployment \"{name}\" must set bluefield_software; BF4 does not support bfb_url"
+                ));
+            }
         }
 
         for (name, cfg) in self.all() {
@@ -2226,6 +2418,22 @@ pub struct PowerShelfStateControllerConfig {
     /// Common state controller configs
     #[serde(default = "StateControllerConfig::default")]
     pub controller: StateControllerConfig,
+
+    /// When `true`, the power shelf Ready handler accepts rack-level
+    /// `power_shelf_reprovisioning_requested` and enters
+    /// `ReProvisioning::WaitingForRackFirmwareUpgrade`.
+    ///
+    /// Defaults to `false` so power shelves stay out of rack firmware wait
+    /// unless explicitly enabled.
+    ///
+    /// Configured in `nico-api-config.toml`:
+    ///
+    /// ```toml
+    /// [power_shelf_state_controller]
+    /// rack_firmware_reprovisioning_enabled = true
+    /// ```
+    #[serde(default)]
+    pub rack_firmware_reprovisioning_enabled: bool,
 }
 
 /// RackStateController related config
@@ -3269,6 +3477,53 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
 
+    #[test]
+    fn deny_prefixes_accept_both_address_families() {
+        let config: CarbideConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                    deny_prefixes = ["192.0.2.0/24", "2001:db8::/32"]
+                    anycast_site_prefixes = ["198.51.100.0/24"]
+                "#,
+            ))
+            .extract()
+            .expect("dual-stack deny prefixes must parse");
+
+        assert_eq!(
+            config.deny_prefixes,
+            vec![
+                "192.0.2.0/24".parse::<IpNetwork>().unwrap(),
+                "2001:db8::/32".parse::<IpNetwork>().unwrap(),
+            ]
+        );
+        assert_eq!(
+            config.anycast_site_prefixes,
+            vec!["198.51.100.0/24".parse::<Ipv4Network>().unwrap()]
+        );
+    }
+
+    #[test]
+    fn anycast_site_prefixes_reject_ipv6() {
+        let result = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    database_url = "postgres://test"
+                    listen = "[::]:1081"
+                    asn = 1
+                    anycast_site_prefixes = ["2001:db8::/32"]
+                "#,
+            ))
+            .extract::<CarbideConfig>();
+
+        assert!(
+            result.is_err(),
+            "IPv6 anycast site prefixes must be rejected"
+        );
+    }
+
     /// Exercises the real `[certificates]` / `[certificates.dedicated_vault]`
     /// TOML contract through Figment (the production config path), rather than
     /// JSON serde. Each case parses a TOML fragment into `CertificatesConfig`
@@ -3427,6 +3682,7 @@ mod tests {
             failure_retry_time: Duration::minutes(90),
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
+            waiting_for_measurements_timeout: Duration::hours(4),
             uefi_boot_wait: Duration::minutes(5),
             max_bios_config_retries: 3,
             polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -3472,6 +3728,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -3494,6 +3751,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(90),
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -3918,6 +4176,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -4131,6 +4390,14 @@ mod tests {
                     HealthAlertClassification::hardware(),
                     HealthAlertClassification::prevent_allocations(),
                 ],
+                per_object_state_metrics: PerObjectStateMetricsConfig {
+                    enabled: true,
+                    listen_address: "127.0.0.1:9191".parse().unwrap(),
+                    object_types: vec![
+                        PerObjectStateMetricObjectType::Machine,
+                        PerObjectStateMetricObjectType::Switch,
+                    ],
+                },
             }
         );
         assert_eq!(
@@ -4150,6 +4417,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(31),
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -4485,6 +4753,14 @@ mod tests {
                     HealthAlertClassification::hardware(),
                     HealthAlertClassification::prevent_allocations(),
                 ],
+                per_object_state_metrics: PerObjectStateMetricsConfig {
+                    enabled: true,
+                    listen_address: "127.0.0.1:9191".parse().unwrap(),
+                    object_types: vec![
+                        PerObjectStateMetricObjectType::Machine,
+                        PerObjectStateMetricObjectType::Switch,
+                    ],
+                },
             }
         );
         assert_eq!(
@@ -4504,6 +4780,7 @@ mod tests {
                 failure_retry_time: Duration::minutes(70),
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
+                waiting_for_measurements_timeout: Duration::hours(4),
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
@@ -4586,6 +4863,10 @@ mod tests {
             jail.set_env("CARBIDE_API_ASN", 777);
             jail.set_env("CARBIDE_API_AUTH", "{permissive_mode=true}");
             jail.set_env(
+                "CARBIDE_API_DSX_EXCHANGE_EVENT_BUS",
+                r#"{enabled=true,mqtt_endpoint="dsx-exchange",mqtt_broker_port=1883,auth={auth_mode="none"},periodic_state_republish={interval="10s"}}"#,
+            );
+            jail.set_env(
                 "CARBIDE_API_TLS",
                 "{identity_pemfile_path=/patched/path/to/cert}",
             );
@@ -4615,6 +4896,15 @@ mod tests {
             );
             assert_eq!(config.tls.as_ref().unwrap().root_cafile_path, "/path/to/ca");
             assert!(config.auth.as_ref().unwrap().permissive_mode);
+            let dsx_exchange = config.dsx_exchange_event_bus.as_ref().unwrap();
+            assert!(dsx_exchange.enabled);
+            assert_eq!(dsx_exchange.mqtt_endpoint, "dsx-exchange");
+            assert_eq!(dsx_exchange.mqtt_broker_port, 1883);
+            assert_eq!(dsx_exchange.auth.auth_mode, MqttAuthMode::None);
+            assert_eq!(
+                dsx_exchange.periodic_state_republish.interval,
+                std::time::Duration::from_secs(10)
+            );
             assert_eq!(
                 config
                     .auth
@@ -5253,6 +5543,114 @@ object_kind = "secret"
     }
 
     #[test]
+    fn dpf_deployment_extra_services_are_configurable() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+[deployments.bf4_astra]
+flavor_name = "astra-flavor"
+deployment_name = "astra-deployment"
+node_label_key = "carbide.nvidia.com/astra"
+
+[deployments.bf4_astra.extra_services.doca_weave_dhcp_agent]
+name = "doca-weave-dhcp-agent"
+helm_repo_url = "https://helm.example.test/doca"
+helm_chart = "doca-weave-dhcp-agent"
+helm_version = "development-version"
+docker_repo_url = "registry.example.test/doca-weave-dhcp-agent"
+docker_image_tag = "development-tag"
+
+[deployments.bf4_astra.extra_services.doca_weave_flow_controller]
+name = "doca-weave-flow-controller"
+helm_repo_url = "https://helm.example.test/doca"
+helm_chart = "doca-weave-flow-controller"
+helm_version = "flow-controller-dev"
+docker_repo_url = "registry.example.test/doca-weave-flow-controller"
+docker_image_tag = "flow-controller-tag"
+"#,
+        )
+        .unwrap();
+
+        let deployment = config.deployments.bf4_astra.as_ref().unwrap();
+        let configured = deployment
+            .extra_services
+            .get(&DpfExtraService::DocaWeaveDhcpAgent)
+            .unwrap();
+        assert_eq!(configured.helm_version, "development-version");
+
+        let resolved = config.resolved_services_for(deployment);
+        assert_eq!(
+            resolved
+                .extra
+                .get(&DpfExtraService::DocaWeaveDhcpAgent)
+                .unwrap()
+                .docker_image_tag,
+            "development-tag"
+        );
+        assert_eq!(
+            resolved
+                .extra
+                .get(&DpfExtraService::DocaWeaveFlowController)
+                .unwrap()
+                .helm_version,
+            "flow-controller-dev"
+        );
+        assert_eq!(
+            resolved
+                .extra
+                .get(&DpfExtraService::DocaXplane)
+                .unwrap()
+                .helm_version,
+            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+        );
+    }
+
+    #[test]
+    fn bf4_astra_extra_services_default_without_toml() {
+        let config = toml::from_str::<DpfConfig>(
+            r#"
+[deployments.bf4_astra]
+flavor_name = "astra-flavor"
+deployment_name = "astra-deployment"
+node_label_key = "carbide.nvidia.com/astra"
+"#,
+        )
+        .unwrap();
+        let deployment = config.deployments.bf4_astra.as_ref().unwrap();
+        let resolved = config.resolved_services_for(deployment);
+
+        let dhcp_agent = resolved
+            .extra
+            .get(&DpfExtraService::DocaWeaveDhcpAgent)
+            .unwrap();
+        assert_eq!(
+            dhcp_agent.name,
+            carbide_dpf::types::DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME
+        );
+        assert_eq!(
+            dhcp_agent.helm_version,
+            crate::dpf_services::DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION
+        );
+        let flow_controller = resolved
+            .extra
+            .get(&DpfExtraService::DocaWeaveFlowController)
+            .unwrap();
+        assert_eq!(
+            flow_controller.name,
+            carbide_dpf::types::DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME
+        );
+        assert_eq!(
+            flow_controller.helm_version,
+            crate::dpf_services::DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION
+        );
+        let xplane = resolved.extra.get(&DpfExtraService::DocaXplane).unwrap();
+        assert_eq!(xplane.name, carbide_dpf::types::DOCA_XPLANE_SERVICE_NAME);
+        assert_eq!(
+            xplane.helm_version,
+            crate::dpf_services::DOCA_XPLANE_SERVICE_HELM_VERSION
+        );
+    }
+
+    #[test]
     fn dpf_dpu_agent_bootstrap_ca_validation_rejects_unsafe_values() {
         struct ValidationInput {
             policy: DpfDpuAgentBootstrapCa,
@@ -5435,48 +5833,40 @@ object_kind = "secret"
         let services = cfg.resolved_mandatory_services();
 
         // Override applies to every mandatory service ...
-        assert_eq!(
-            services.dpu_agent.docker_image_pull_secret,
-            "my-custom-secret"
-        );
-        assert_eq!(
-            services.dhcp_server.docker_image_pull_secret,
-            "my-custom-secret"
-        );
-        assert_eq!(services.fmds.docker_image_pull_secret, "my-custom-secret");
-        assert_eq!(services.otel.docker_image_pull_secret, "my-custom-secret");
+        for secret in [
+            &services.dpu_agent.docker_image_pull_secret,
+            &services.dhcp_server.docker_image_pull_secret,
+            &services.fmds.docker_image_pull_secret,
+            &services.otel.docker_image_pull_secret,
+        ] {
+            assert_eq!(secret.as_deref(), Some("my-custom-secret"));
+        }
 
-        // ... except dts and doca_hbn, which keep the default.
-        assert_eq!(
-            services.dts.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.doca_hbn.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
+        // ... except dts and doca_hbn, which take a pull secret only from their
+        // per-service config (and default to none).
+        assert_eq!(services.dts.docker_image_pull_secret, None);
+        assert_eq!(services.doca_hbn.docker_image_pull_secret, None);
     }
 
     #[test]
-    fn dpf_docker_image_pull_secret_unset_keeps_per_service_secrets() {
-        // No global override -> services keep their own configured secret.
+    fn dpf_docker_image_pull_secret_unset_leaves_all_services_without_a_secret() {
+        // With no top-level override and no per-service value, every mandatory service
+        // defaults to no pull secret (public-registry pulls) and emits no imagePullSecrets.
         let cfg = DpfConfig::default();
         assert!(cfg.docker_image_pull_secret.is_none());
 
         let services = cfg.resolved_mandatory_services();
 
-        assert_eq!(
-            services.dpu_agent.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.dts.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
-        assert_eq!(
-            services.doca_hbn.docker_image_pull_secret,
-            DEFAULT_DPF_IMAGE_PULL_SECRET
-        );
+        for secret in [
+            &services.dpu_agent.docker_image_pull_secret,
+            &services.dhcp_server.docker_image_pull_secret,
+            &services.fmds.docker_image_pull_secret,
+            &services.otel.docker_image_pull_secret,
+            &services.dts.docker_image_pull_secret,
+            &services.doca_hbn.docker_image_pull_secret,
+        ] {
+            assert_eq!(*secret, None);
+        }
     }
 
     // Verifies that a [secrets] config section with KMS, routing, and import settings
@@ -5766,6 +6156,7 @@ object_kind = "secret"
             deployment_name: "bf4-dep".to_string(),
             node_label_key: "carbide.nvidia.com/bf4".to_string(),
             services: None,
+            extra_services: BTreeMap::new(),
         }
     }
 
@@ -5784,6 +6175,7 @@ object_kind = "secret"
                     )]),
                 }),
             )),
+            bf4_astra: None,
         };
         assert!(deployments.validate_provisioning_sources().is_ok());
     }
@@ -5803,6 +6195,7 @@ object_kind = "secret"
                     )]),
                 }),
             )),
+            bf4_astra: None,
         };
         assert!(both.validate_provisioning_sources().is_err());
 
@@ -5810,6 +6203,7 @@ object_kind = "secret"
         let neither = DpfDeploymentsConfig {
             bf3: DpfDeploymentConfig::default(),
             bf4_generic: Some(bf4_config(None, None)),
+            bf4_astra: None,
         };
         assert!(neither.validate_provisioning_sources().is_err());
 
@@ -5823,6 +6217,7 @@ object_kind = "secret"
                     pldm_fw_bundle: BTreeMap::new(),
                 }),
             )),
+            bf4_astra: None,
         };
         assert!(empty_map.validate_provisioning_sources().is_err());
     }
@@ -5834,6 +6229,7 @@ object_kind = "secret"
         let deployments = DpfDeploymentsConfig {
             bf3: bf4_config(None, Some(bf4_with_psids(&["MT_0000000884"]))),
             bf4_generic: None,
+            bf4_astra: None,
         };
         assert!(deployments.validate_provisioning_sources().is_err());
     }
@@ -5850,13 +6246,29 @@ object_kind = "secret"
 
     #[test]
     fn validate_provisioning_sources_rejects_bf4_bfb_url() {
-        // bf4_generic is BlueFieldSoftware-only: bfb_url without bluefield_software
-        // passes the exactly-one check but fails at SDK startup, so reject it here.
-        let deployments = DpfDeploymentsConfig {
-            bf3: DpfDeploymentConfig::default(),
-            bf4_generic: Some(bf4_config(Some("http://example.com/test.bfb"), None)),
-        };
-        assert!(deployments.validate_provisioning_sources().is_err());
+        check_values(
+            [
+                Check {
+                    scenario: "generic BF4 cannot use a BFB",
+                    input: DpfDeploymentsConfig {
+                        bf3: DpfDeploymentConfig::default(),
+                        bf4_generic: Some(bf4_config(Some("http://example.com/test.bfb"), None)),
+                        bf4_astra: None,
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "Astra BF4 cannot use a BFB",
+                    input: DpfDeploymentsConfig {
+                        bf3: DpfDeploymentConfig::default(),
+                        bf4_generic: None,
+                        bf4_astra: Some(bf4_config(Some("http://example.com/test.bfb"), None)),
+                    },
+                    expect: true,
+                },
+            ],
+            |deployments| deployments.validate_provisioning_sources().is_err(),
+        );
     }
 
     #[test]
@@ -5865,6 +6277,7 @@ object_kind = "secret"
         let one = DpfDeploymentsConfig {
             bf3: DpfDeploymentConfig::default(),
             bf4_generic: Some(bf4_config(None, Some(bf4_with_psids(&["MT_0000000884"])))),
+            bf4_astra: None,
         };
         assert!(one.validate_provisioning_sources().is_ok());
 
@@ -5875,6 +6288,7 @@ object_kind = "secret"
                 None,
                 Some(bf4_with_psids(&["MT_0000000884", "MT_0000000992"])),
             )),
+            bf4_astra: None,
         };
         assert!(many.validate_provisioning_sources().is_err());
     }

@@ -569,35 +569,6 @@ async fn test_vpc_peering_network_config_exclusive_etv(
 }
 
 #[crate::sqlx_test]
-async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
-
-    let (_, _, _, _, dpu_machine_id) = create_vpc_peering(
-        &env,
-        VpcVirtualizationType::EthernetVirtualizer,
-        VpcVirtualizationType::EthernetVirtualizer,
-    )
-    .await?;
-
-    let response = env
-        .api
-        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
-            dpu_machine_id: Some(dpu_machine_id),
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(response.tenant_interfaces.len(), 1);
-    assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 1);
-    assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
-
-    Ok(())
-}
-
-#[crate::sqlx_test]
 async fn test_vpc_peering_deletion_upon_vpc_deletion(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -770,6 +741,38 @@ async fn flat_vpc_can_peer_with_etv_under_exclusive_policy(
         .await
         .expect("Flat <-> ETV peering must be allowed under Exclusive policy");
 
+    // The create returning Ok only says the RPC didn't error. Read the peering back --
+    // and from *both* sides, because `find_vpc_peering_ids` filters on a single
+    // `vpc_id` while the row stores an ordered (vpc_id, peer_vpc_id) pair, so whether
+    // the flat side sees its own peering is a separate question.
+    let peerings = get_vpc_peerings(&env, etv_vpc.id.unwrap())
+        .await?
+        .into_inner()
+        .vpc_peerings;
+    assert_eq!(peerings.len(), 1);
+    // The stored row does not preserve the order the peering was created in, so assert
+    // the pair connects the two VPCs without assuming which side landed in `vpc_id`.
+    let pair = (peerings[0].vpc_id, peerings[0].peer_vpc_id);
+    assert!(
+        pair == (etv_vpc.id, flat_vpc.id) || pair == (flat_vpc.id, etv_vpc.id),
+        "peering should connect the two VPCs, got {pair:?}"
+    );
+
+    let from_flat = get_vpc_peerings(&env, flat_vpc.id.unwrap())
+        .await?
+        .into_inner()
+        .vpc_peerings;
+    assert_eq!(
+        from_flat.len(),
+        1,
+        "the flat side should see the peering too"
+    );
+    let pair = (from_flat[0].vpc_id, from_flat[0].peer_vpc_id);
+    assert!(
+        pair == (etv_vpc.id, flat_vpc.id) || pair == (flat_vpc.id, etv_vpc.id),
+        "the reverse lookup should name the same pair, got {pair:?}"
+    );
+
     Ok(())
 }
 
@@ -810,6 +813,38 @@ async fn flat_vpc_can_peer_with_fnn_under_exclusive_policy(
         .await
         .expect("Flat <-> FNN peering must be allowed under Exclusive policy");
 
+    // The create returning Ok only says the RPC didn't error. Read the peering back --
+    // and from *both* sides, because `find_vpc_peering_ids` filters on a single
+    // `vpc_id` while the row stores an ordered (vpc_id, peer_vpc_id) pair, so whether
+    // the flat side sees its own peering is a separate question.
+    let peerings = get_vpc_peerings(&env, fnn_vpc.id.unwrap())
+        .await?
+        .into_inner()
+        .vpc_peerings;
+    assert_eq!(peerings.len(), 1);
+    // The stored row does not preserve the order the peering was created in, so assert
+    // the pair connects the two VPCs without assuming which side landed in `vpc_id`.
+    let pair = (peerings[0].vpc_id, peerings[0].peer_vpc_id);
+    assert!(
+        pair == (fnn_vpc.id, flat_vpc.id) || pair == (flat_vpc.id, fnn_vpc.id),
+        "peering should connect the two VPCs, got {pair:?}"
+    );
+
+    let from_flat = get_vpc_peerings(&env, flat_vpc.id.unwrap())
+        .await?
+        .into_inner()
+        .vpc_peerings;
+    assert_eq!(
+        from_flat.len(),
+        1,
+        "the flat side should see the peering too"
+    );
+    let pair = (from_flat[0].vpc_id, from_flat[0].peer_vpc_id);
+    assert!(
+        pair == (fnn_vpc.id, flat_vpc.id) || pair == (flat_vpc.id, fnn_vpc.id),
+        "the reverse lookup should name the same pair, got {pair:?}"
+    );
+
     Ok(())
 }
 
@@ -841,6 +876,34 @@ async fn flat_vpc_can_peer_with_flat_under_exclusive_policy(
         }))
         .await
         .expect("Flat <-> Flat peering must be allowed under Exclusive policy");
+
+    // The create returning Ok only says the RPC didn't error. Read the peering back --
+    // and from *both* sides, because `find_vpc_peering_ids` filters on a single
+    // `vpc_id` while the row stores an ordered (vpc_id, peer_vpc_id) pair, so whether
+    // the flat side sees its own peering is a separate question.
+    let peerings = get_vpc_peerings(&env, flat_a.id.unwrap())
+        .await?
+        .into_inner()
+        .vpc_peerings;
+    assert_eq!(peerings.len(), 1);
+    // The stored row does not preserve the order the peering was created in, so assert
+    // the pair connects the two VPCs without assuming which side landed in `vpc_id`.
+    let pair = (peerings[0].vpc_id, peerings[0].peer_vpc_id);
+    assert!(
+        pair == (flat_a.id, flat_b.id) || pair == (flat_b.id, flat_a.id),
+        "peering should connect the two VPCs, got {pair:?}"
+    );
+
+    let from_peer = get_vpc_peerings(&env, flat_b.id.unwrap())
+        .await?
+        .into_inner()
+        .vpc_peerings;
+    assert_eq!(from_peer.len(), 1, "the peer side should see it too");
+    let pair = (from_peer[0].vpc_id, from_peer[0].peer_vpc_id);
+    assert!(
+        pair == (flat_a.id, flat_b.id) || pair == (flat_b.id, flat_a.id),
+        "the reverse lookup should name the same pair, got {pair:?}"
+    );
 
     Ok(())
 }

@@ -29,7 +29,6 @@ use ::rpc::forge::ManagedHostNetworkConfigResponse;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{forge as rpc, forge_tls_client};
 use carbide_host_support::agent_config::AgentConfig;
-use carbide_instrument::emit;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_rpc_utils::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use carbide_systemd::systemd;
@@ -57,8 +56,7 @@ use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{
-    NetworkStatusConnectionFailed, NetworkStatusRpcFailed, NetworkStatusSucceeded, create_metrics,
-    get_dpu_agent_meter, get_prometheus_registry,
+    NetworkStatus, OvsRestart, create_metrics, get_dpu_agent_meter, get_prometheus_registry,
 };
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
 use crate::network_monitor::{self, NetworkPingerType};
@@ -558,6 +556,10 @@ impl CurrentNetworkVersion {
         conf.deprecated_deny_prefixes.hash(h);
         conf.dhcp_servers.hash(h);
         conf.internet_l3_vni.hash(h);
+        // `managed_host_config_version` normally follows machine-group updates,
+        // but that relies on the DPU already being attached to its host. Hash
+        // the nested config so a missed fan-out cannot hide a DPU-specific change.
+        conf.managed_host_config.hash(h);
         conf.network_security_policy_overrides.hash(h);
         conf.ntp_servers.hash(h);
         conf.remote_id.hash(h);
@@ -735,10 +737,11 @@ impl MainLoop {
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                tracing::error!(
-                    error = format!("{err:#}"),
-                    "Restarting OVS after admin network change"
-                );
+                OvsRestart::Retrying {
+                    error: format!("{err:#}"),
+                    managed_host_config_version: conf.managed_host_config_version.clone(),
+                }
+                .emit();
                 status_out.network_config_error = Some(err.to_string());
                 self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
                     managed_host_config_version: conf.managed_host_config_version.clone(),
@@ -1440,18 +1443,22 @@ pub async fn record_network_status(
     {
         Ok(client) => client,
         Err(err) => {
-            emit(NetworkStatusConnectionFailed::new(
-                forge_api.to_string(),
-                format!("{err:#}"),
-            ));
+            NetworkStatus::ConnectionFailed {
+                forge_api: forge_api.to_string(),
+                error: format!("{err:#}"),
+            }
+            .emit();
             return;
         }
     };
     let request = tonic::Request::new(status);
     let result = client.record_dpu_network_status(request).await;
     match &result {
-        Ok(_) => emit(NetworkStatusSucceeded::new()),
-        Err(err) => emit(NetworkStatusRpcFailed::new(format!("{err:#}"))),
+        Ok(_) => NetworkStatus::Succeeded.emit(),
+        Err(err) => NetworkStatus::RpcFailed {
+            error: format!("{err:#}"),
+        }
+        .emit(),
     }
 }
 
@@ -1634,6 +1641,42 @@ ATF: v2.2(release):4.9.3-")
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_current_network_version_hashes_nested_managed_host_config() {
+        use carbide_test_support::value_scenarios;
+
+        value_scenarios!(run = |managed_host_config| {
+            let mut conf = Arc::new(ManagedHostNetworkConfigResponse {
+                managed_host_config: Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                }),
+                managed_host_config_version: "managed-v1".to_string(),
+                instance_network_config_version: "instance-v1".to_string(),
+                ..Default::default()
+            });
+            let mut current = CurrentNetworkVersion::default();
+            current.update_from(&conf);
+            Arc::get_mut(&mut conf).unwrap().managed_host_config = managed_host_config;
+            current.matches_versions_from(&conf)
+        };
+            "nested config changes invalidate the cache" {
+                Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.2".to_string(),
+                    loopback_ip_v6: None,
+                    quarantine_state: None,
+                }) => false,
+                Some(rpc::ManagedHostNetworkConfig {
+                    loopback_ip: "10.0.0.1".to_string(),
+                    loopback_ip_v6: Some("2001:db8::1".to_string()),
+                    quarantine_state: None,
+                }) => false,
+                None => false,
+            }
+        );
+    }
 
     #[cfg(target_os = "linux")]
     #[tokio::test]

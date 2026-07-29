@@ -405,6 +405,31 @@ func TestBuildCommands_NoDuplicateFlags(t *testing.T) {
 	visit("nicocli", cmds)
 }
 
+func TestGeneratedCommandInfos_ContainsMachinePowerAliases(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+
+	operations := make(map[string]string)
+	for _, info := range GeneratedCommandInfos(spec) {
+		operations[info.Name] = info.OperationID
+	}
+
+	assert.Equal(t, "machine-power-control-machine", operations["machine power"])
+	assert.Equal(t,
+		"machine-power-control-machine",
+		operations["machine power-control-machine machine-power-control-machine"],
+	)
+
+	for operationID, path := range commandPathAliases {
+		assert.Equalf(t,
+			operationID,
+			operations[strings.Join(path, " ")],
+			"concise command path for %q does not identify the same operation",
+			operationID,
+		)
+	}
+}
+
 // TestBuildActionCommand_ReservedBodyPropertyPrefixed verifies that when a
 // request body schema has a property whose kebab-cased name collides with a
 // reserved CLI-wrapper flag (data, data-file, output, all), the generated
@@ -905,6 +930,27 @@ func TestBuildCommands_CurrentSingletonsAreRunnable(t *testing.T) {
 				"tag %q must expose a `current` command runnable from the CLI", tag)
 		})
 	}
+}
+
+func TestBuildCommands_SiteExplorerActionIsRunnable(t *testing.T) {
+	spec, err := ParseSpec(openapi.Spec)
+	require.NoError(t, err)
+
+	var siteExplorer *cli.Command
+	for _, command := range BuildCommands(spec) {
+		if command.HasName("site-explorer") {
+			siteExplorer = command
+			break
+		}
+	}
+	require.NotNil(t, siteExplorer)
+
+	for _, command := range siteExplorer.Subcommands {
+		if command.HasName("create") {
+			return
+		}
+	}
+	t.Fatal("site-explorer create must be generated from the OpenAPI operation")
 }
 
 // TestBuildCommands_AllocationConstraintIsUpdateOnly is the CLI-side guard for

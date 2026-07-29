@@ -21,6 +21,7 @@ mod acl;
 mod bmc_proxy;
 mod config;
 mod metrics;
+mod net;
 mod setup;
 
 use bmc_proxy::{BmcProxyError, BmcProxyParams};

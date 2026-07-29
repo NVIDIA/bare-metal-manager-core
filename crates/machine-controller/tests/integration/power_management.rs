@@ -15,11 +15,13 @@
  * limitations under the License.
  */
 
+use std::sync::Arc;
+
 use carbide_redfish::libredfish::RedfishClientPool as _;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::fixture_config::FixtureDefault as _;
 use carbide_utils::redfish::BmcAccessInfo;
-use model::machine::ManagedHostState;
+use model::machine::{MachineMaintenanceOperation, ManagedHostState};
 use model::power_manager::PowerState;
 use model::test_support::ManagedHostConfig;
 use rpc::forge::{
@@ -36,16 +38,23 @@ struct TestContext {
 
 impl TestContext {
     async fn init(pool: PgPool) -> Self {
-        let env = Env::builder(pool)
-            .configure_runtime(|config| {
-                let zero = chrono::Duration::zero();
-                config.power_manager_options.enabled = true;
-                config.power_manager_options.next_try_duration_on_success = zero;
-                config.power_manager_options.next_try_duration_on_failure = zero;
-                config.power_manager_options.wait_duration_until_host_reboot = zero;
-            })
+        Self::from_env(power_manager_env_builder(pool).build().await).await
+    }
+
+    /// Like [`init`], but wires a component manager backed by an always-succeeding
+    /// compute-tray backend (plus valid BMC credentials) so maintenance power
+    /// operations can run to completion and return the host to Ready.
+    async fn init_with_success_backend(pool: PgPool) -> Self {
+        let backend = Arc::new(crate::maintenance::ReconciliationComputeTrayManager::new());
+        let env = power_manager_env_builder(pool)
+            .with_component_manager(crate::maintenance::component_manager(backend))
+            .with_credential_manager(crate::maintenance::valid_credential_manager())
             .build()
             .await;
+        Self::from_env(env).await
+    }
+
+    async fn from_env(env: Env) -> Self {
         let domain = env.test_harness.test_domain().await;
         let network_controller = env.test_harness.network_controller();
         let underlay_segment = network_controller.create_underlay_segment(&domain).await;
@@ -61,6 +70,16 @@ impl TestContext {
         mh.advance_state(ManagedHostState::Ready).await;
         Self { env, mh }
     }
+}
+
+fn power_manager_env_builder(pool: PgPool) -> crate::env::EnvBuilder {
+    Env::builder(pool).configure_runtime(|config| {
+        let zero = chrono::Duration::zero();
+        config.power_manager_options.enabled = true;
+        config.power_manager_options.next_try_duration_on_success = zero;
+        config.power_manager_options.next_try_duration_on_failure = zero;
+        config.power_manager_options.wait_duration_until_host_reboot = zero;
+    })
 }
 
 trait TestManagedHostPowerExt {
@@ -267,6 +286,99 @@ async fn desired_off_persists_observed_off_state(
     assert_eq!(power_options[0].last_fetched_power_state, PowerState::Off);
     assert!(power_options[0].last_fetched_updated_at > updated_at_before_poll);
     txn.rollback().await?;
+
+    Ok(())
+}
+
+/// A queued machine-maintenance PowerOff (what the compute-tray state-controller
+/// path posts when `compute_tray_use_state_controller = true`) must still reach
+/// the Maintenance transition when the power manager is enabled and the host's
+/// desired state is Off. Without the maintenance-takes-precedence guard,
+/// `handle_power` returns `continue_state_machine = false` for desired Off and
+/// `maintenance_transition_if_requested` is never reached, leaving the host
+/// parked in Ready with the request unconsumed.
+#[sqlx_test]
+async fn queued_power_off_runs_when_power_manager_gates_desired_off(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let TestContext { mut env, mh } = TestContext::init_with_success_backend(pool).await;
+
+    // Enable maintenance (the health override) so desired = Off is accepted, then
+    // set desired = Off. This is precisely the gating condition for handle_power.
+    env.test_harness
+        .api()
+        .set_maintenance(Request::new(MaintenanceRequest {
+            operation: MaintenanceOperation::Enable as i32,
+            host_id: Some(mh.host.id),
+            reference: Some("testing".to_string()),
+        }))
+        .await?;
+    env.test_harness
+        .api()
+        .update_power_option(Request::new(PowerOptionUpdateRequest {
+            machine_id: Some(mh.host.id),
+            power_state: rpc::forge::PowerState::Off as i32,
+        }))
+        .await?;
+    // Mirror the component manager, which removes the override immediately after
+    // the power-option write: at reconcile time only desired = Off persists, so
+    // the gate is driven purely by the power-manager desired state.
+    env.test_harness
+        .api()
+        .set_maintenance(Request::new(MaintenanceRequest {
+            operation: MaintenanceOperation::Disable as i32,
+            host_id: Some(mh.host.id),
+            reference: Some("testing".to_string()),
+        }))
+        .await?;
+
+    let mut txn = env.test_harness.db_txn().await;
+    let power_options = db::power_options::get_all(&mut txn).await?;
+    assert_eq!(power_options[0].desired_power_state, PowerState::Off);
+    txn.rollback().await?;
+
+    // Queue the PowerOff maintenance request, as the state-controller power path does.
+    let mut txn = env.test_harness.db_txn().await;
+    db::machine::set_machine_maintenance_requested(
+        &mut txn,
+        mh.host.id,
+        "component-manager",
+        MachineMaintenanceOperation::PowerOff,
+    )
+    .await?;
+    txn.commit().await?;
+
+    // First iteration must promote the request to Maintenance rather than parking
+    // in Ready behind the desired-Off power-manager gate.
+    env.run_single_iteration().await;
+
+    let machine = mh.host.machine().await;
+    assert!(
+        matches!(
+            machine.state.value,
+            ManagedHostState::Maintenance {
+                operation: MachineMaintenanceOperation::PowerOff
+            }
+        ),
+        "expected Maintenance(PowerOff) after one iteration, got {:?}",
+        machine.state.value,
+    );
+
+    // Second iteration reconciles the PowerOff against the (succeeding) backend,
+    // clears the request, and returns the host to Ready -- confirming the queued
+    // operation runs to completion, not just that it entered Maintenance.
+    env.run_single_iteration().await;
+
+    let machine = mh.host.machine().await;
+    assert!(
+        matches!(machine.state.value, ManagedHostState::Ready),
+        "expected Ready after the PowerOff completes, got {:?}",
+        machine.state.value,
+    );
+    assert!(
+        machine.machine_maintenance_requested.is_none(),
+        "maintenance request should be cleared once the operation completes",
+    );
 
     Ok(())
 }

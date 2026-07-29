@@ -29,6 +29,7 @@ use crate::controller::periodic_enqueuer::{EnqueuerMetricsEmitter, PeriodicEnque
 use crate::controller::processor::{ProcessorMetricsEmitter, StateProcessor};
 use crate::io::StateControllerIO;
 use crate::metrics::MetricHolder;
+use crate::per_object::PerObjectStateRecorder;
 use crate::state_change_emitter::StateChangeEmitter;
 use crate::state_handler::{NoopStateHandler, StateHandler, StateHandlerContextObjects};
 
@@ -66,6 +67,7 @@ pub struct Builder<IO: StateControllerIO> {
     services: Option<Arc<<IO::ContextObjects as StateHandlerContextObjects>::Services>>,
     state_change_emitter: Arc<StateChangeEmitter<IO::ObjectId, IO::ControllerState>>,
     processor_id: Option<String>,
+    per_object_state_metrics: Option<PerObjectStateRecorder>,
 }
 
 impl<IO: StateControllerIO> Default for Builder<IO> {
@@ -87,6 +89,7 @@ impl<IO: StateControllerIO> Default for Builder<IO> {
             services: None,
             state_change_emitter: Arc::new(StateChangeEmitter::default()),
             processor_id: None,
+            per_object_state_metrics: None,
         }
     }
 }
@@ -179,6 +182,8 @@ impl<IO: StateControllerIO> Builder<IO> {
             .clone()
             .map(|meter| EnqueuerMetricsEmitter::new(&controller_name, &meter));
 
+        let per_object_state_metrics = self.per_object_state_metrics.take();
+
         let enqueuer = PeriodicEnqueuer::<IO> {
             pool: database.clone(),
             work_lock_manager_handle,
@@ -186,6 +191,9 @@ impl<IO: StateControllerIO> Builder<IO> {
             metric_emitter: period_enqueuer_metric_emitter,
             iteration_config: self.iteration_config,
             io: self.io.clone().unwrap_or_default(),
+            per_object_state: per_object_state_metrics.clone(),
+            known_object_ids: Default::default(),
+            pending_clears: Default::default(),
         };
 
         let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
@@ -202,6 +210,7 @@ impl<IO: StateControllerIO> Builder<IO> {
             state_handler: self.state_handler.clone(),
             metric_emitter: processor_metric_emitter,
             metric_holder,
+            per_object_state: per_object_state_metrics,
             state_change_emitter: self.state_change_emitter,
             in_flight: HashSet::new(),
             completed_objects: HashSet::new(),
@@ -287,6 +296,14 @@ impl<IO: StateControllerIO> Builder<IO> {
         >,
     ) -> Self {
         self.state_handler = handler;
+        self
+    }
+
+    /// Enables per-object state progress metrics: every processed object's
+    /// current state, SLA, and manual-intervention status are recorded under
+    /// the recorder's object type.
+    pub fn per_object_state_metrics(mut self, recorder: Option<PerObjectStateRecorder>) -> Self {
+        self.per_object_state_metrics = recorder;
         self
     }
 

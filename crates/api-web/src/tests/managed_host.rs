@@ -337,3 +337,102 @@ async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
     assert!(body_str.contains("bubble warning"));
     assert!(body_str.contains("Assigned/BootingWithDiscoveryImage"));
 }
+
+#[crate::sqlx_test]
+async fn test_managed_host_health_alert_exact_filter(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = TestEnv::new(pool).await;
+    let mh_alerting = env.create_ready_managed_host(1).await.0;
+    let mh_healthy = env.create_ready_managed_host(2).await.0;
+
+    let report = HealthReport {
+        source: "mock-bmc-intrusion".to_string(),
+        triggered_by: None,
+        observed_at: None,
+        successes: vec![],
+        alerts: vec![HealthProbeAlert {
+            id: HealthProbeId::from_str("IntrusionSensorTriggered")?,
+            target: Some("HostBMC".to_string()),
+            in_alert_since: None,
+            message: "Physical Chassis Intrusion Alert".to_string(),
+            tenant_message: None,
+            classifications: vec![
+                HealthAlertClassification::hardware(),
+                HealthAlertClassification::sensor_critical(),
+                HealthAlertClassification::prevent_allocations(),
+            ],
+        }],
+    };
+
+    let mut txn = env.test_harness.db_txn().await;
+    db::machine::insert_health_report(
+        &mut txn,
+        &mh_alerting.host.id,
+        HealthReportApplyMode::Merge,
+        &report,
+        false,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri("/admin/managed-host?health-alerts-filter=IntrusionSensorTriggered")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    // Only the alerting host should show up, not the healthy one.
+    assert!(body_str.contains(&mh_alerting.host.id.to_string()));
+    assert!(!body_str.contains(&mh_healthy.host.id.to_string()));
+
+    // The dynamic dropdown should include this alert ID as the selected option.
+    assert!(
+        body_str.contains(r#"<option value="IntrusionSensorTriggered" selected>"#),
+        "expected the alert ID to appear as a selected dropdown option"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_health_alert_filter_empty_state(pool: sqlx::PgPool) -> eyre::Result<()> {
+    let env = TestEnv::new(pool).await;
+    let _mh = env.create_ready_managed_host(1).await.0;
+
+    let app = make_test_app(&env.test_harness);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri("/admin/managed-host?health-alerts-filter=SomeAlertNoOneHas")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    assert!(body_str.contains("No machines match the selected filters."));
+
+    Ok(())
+}

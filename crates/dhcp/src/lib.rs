@@ -42,7 +42,6 @@ mod kea_logger;
 mod lease_expiration;
 mod machine;
 mod machine_v6;
-mod vendor_class;
 
 // Should be #[cfg(test)] but tests/integration_test.rs also uses it
 mod metrics;

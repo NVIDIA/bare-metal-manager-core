@@ -88,7 +88,7 @@ First fetch the instance and preserve any labels that should remain:
 restish nico-stg get-instance <tenant-org-id> <instance-id>
 ```
 
-Instance label updates replace the full label map. Labels not included in the update request are removed. Labels are limited to 10 key/value pairs, so use the minimum failure labels if the instance is already near that limit.
+Instance label updates replace the full label map. Labels not included in the update request are removed. Labels are limited to 16 key/value pairs, so use the minimum failure labels if the instance is already near that limit.
 
 Example `online-repair-failed-labels.json`:
 

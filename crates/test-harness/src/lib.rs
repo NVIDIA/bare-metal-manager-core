@@ -21,9 +21,9 @@ use std::sync::Arc;
 pub use carbide_api_core::cfg::file::CarbideConfig;
 use carbide_api_core::test_support::rpc::forge::forge_server::Forge;
 pub use carbide_api_core::test_support::{self, Api, rpc};
-use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::SiteExplorerConfig;
 pub use carbide_site_explorer::test_support::{MockEndpointExplorer, TestSiteExplorer};
+use carbide_site_explorer::{EndpointExplorationService, SiteExplorer};
 use carbide_utils::test_support::test_meter::TestMeter;
 use carbide_uuid::machine::MachineId;
 use sqlx::{PgPool, PgTransaction};
@@ -123,15 +123,18 @@ impl TestHarness {
     pub fn test_site_explorer(&self, config: SiteExplorerConfig) -> TestSiteExplorer {
         let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
         let api = self.api();
+        let endpoint_exploration_service = Arc::new(EndpointExplorationService::new(
+            api.database_connection.clone(),
+            endpoint_explorer.clone(),
+            Arc::new(api.runtime_config.get_firmware_config()),
+        ));
         let site_explorer = SiteExplorer::new(
             api.database_connection.clone(),
             config,
             self.test_meter.meter(),
-            endpoint_explorer.clone(),
-            Arc::new(api.runtime_config.get_firmware_config()),
+            endpoint_exploration_service,
             api.common_pools().clone(),
             api.work_lock_manager_handle(),
-            carbide_site_explorer::EndpointExplorationLocks::default(),
             api.runtime_config.rack_profiles.clone(),
             None,
             api.credential_manager().clone(),

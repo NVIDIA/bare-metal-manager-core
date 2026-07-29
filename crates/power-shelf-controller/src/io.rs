@@ -160,9 +160,24 @@ impl StateControllerIO for PowerShelfStateControllerIO {
                 };
                 ("maintenance", op)
             }
+            PowerShelfControllerState::ReProvisioning {
+                reprovisioning_state,
+            } => {
+                let sub = match reprovisioning_state {
+                    model::power_shelf::ReProvisioningState::WaitingForRackFirmwareUpgrade => {
+                        "waiting_for_rack_firmware_upgrade"
+                    }
+                };
+                ("reprovisioning", sub)
+            }
             PowerShelfControllerState::Error { .. } => ("error", ""),
             PowerShelfControllerState::Deleting => ("deleting", ""),
         }
+    }
+
+    fn manual_intervention_reason(state: &Self::ControllerState) -> Option<&'static str> {
+        // The stored cause is free text, so the reason is a fixed token.
+        matches!(state, PowerShelfControllerState::Error { .. }).then_some("error")
     }
 
     fn state_sla(

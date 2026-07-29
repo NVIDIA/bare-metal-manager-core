@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -59,7 +59,7 @@ impl IPMIToolHttpImpl {
     async fn execute_action(
         &self,
         command: IpmiCommand,
-        bmc_ip: IpAddr,
+        bmc_address: SocketAddr,
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         let action = Self::wire_action(command);
@@ -76,12 +76,12 @@ impl IPMIToolHttpImpl {
                 };
                 (
                     format!("{}/ipmi", proxy_url),
-                    Some(format!("host={}", bmc_ip)),
+                    Some(format!("host={}", bmc_address.ip())),
                 )
             }
             None => {
                 // No proxy - send directly to BMC
-                (format!("https://{}/ipmi", bmc_ip), None)
+                (format!("https://{}/ipmi", bmc_address.ip()), None)
             }
         };
 
@@ -153,30 +153,34 @@ impl IPMIToolHttpImpl {
 impl IPMITool for IPMIToolHttpImpl {
     async fn bmc_cold_reset(
         &self,
-        bmc_ip: IpAddr,
+        bmc_address: SocketAddr,
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
-        self.execute_action(IpmiCommand::BmcColdReset, bmc_ip, credential_key)
+        self.execute_action(IpmiCommand::BmcColdReset, bmc_address, credential_key)
             .await
     }
 
     async fn restart(
         &self,
         _machine_id: &MachineId,
-        bmc_ip: IpAddr,
+        bmc_address: SocketAddr,
         legacy_boot: bool,
         credential_key: &CredentialKey,
     ) -> Result<(), eyre::Report> {
         if legacy_boot
             && self
-                .execute_action(IpmiCommand::DpuLegacyPowerReset, bmc_ip, credential_key)
+                .execute_action(
+                    IpmiCommand::DpuLegacyPowerReset,
+                    bmc_address,
+                    credential_key,
+                )
                 .await
                 .is_ok()
         {
             return Ok(());
         }
         // Fall through to chassis_power_reset if legacy_boot fails or is false
-        self.execute_action(IpmiCommand::ChassisPowerReset, bmc_ip, credential_key)
+        self.execute_action(IpmiCommand::ChassisPowerReset, bmc_address, credential_key)
             .await
     }
 }

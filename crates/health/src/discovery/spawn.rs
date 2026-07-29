@@ -696,7 +696,8 @@ mod tests {
     };
     use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{
-        BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole,
+        BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SharedSystemUuid, SwitchData,
+        SwitchEndpointRole,
     };
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
@@ -782,10 +783,13 @@ mod tests {
 
     fn machine_metadata() -> EndpointMetadata {
         EndpointMetadata::Machine(MachineData {
-            machine_id: "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
-                .parse()
-                .expect("valid machine id"),
+            machine_id: Some(
+                "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0"
+                    .parse()
+                    .expect("valid machine id"),
+            ),
             machine_serial: None,
+            system_uuid: SharedSystemUuid::default(),
             slot_number: None,
             tray_index: None,
             nvlink_domain_uuid: None,
@@ -1216,6 +1220,7 @@ mod tests {
                 "failing-switch-host",
             )),
             rack_id: None,
+            labels: Default::default(),
             bmc,
         });
 

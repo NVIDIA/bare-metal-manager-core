@@ -16,12 +16,19 @@
  */
 
 use rpc::forge::ExpectedSwitch;
+use rpc::forge_api_client::expected_switch_update_mask;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn update(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
-    let request: ExpectedSwitch = data.try_into()?;
-    api_client.0.update_expected_switch(request).await?;
+    let patch: ExpectedSwitch = data.try_into()?;
+    let update_mask = expected_switch_update_mask(&patch);
+
+    api_client
+        .0
+        .patch_expected_switch(patch, &update_mask)
+        .await?;
+
     Ok(())
 }
