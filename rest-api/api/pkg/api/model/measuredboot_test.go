@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -138,4 +139,31 @@ func TestMeasuredBootResponsesFromProto(t *testing.T) {
 	require.Len(t, profiles, 2)
 	assert.Equal(t, profile, profiles[0])
 	assert.Nil(t, profiles[1])
+}
+
+func TestMeasuredBootResponsesAlwaysIncludeFields(t *testing.T) {
+	tests := []struct {
+		name     string
+		response any
+		expected string
+	}{
+		{
+			name:     "machine",
+			response: APIMeasuredBootTrustedMachine{},
+			expected: `{"approvalId":"","machineId":"","approvalType":"","pcrRegisters":"","comments":"","created":null}`,
+		},
+		{
+			name:     "profile",
+			response: APIMeasuredBootTrustedProfile{},
+			expected: `{"approvalId":"","profileId":"","approvalType":"","pcrRegisters":"","comments":"","created":null}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.response)
+			require.NoError(t, err)
+			assert.JSONEq(t, tt.expected, string(data))
+		})
+	}
 }

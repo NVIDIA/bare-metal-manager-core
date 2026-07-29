@@ -32,11 +32,11 @@ type MeasuredBootTrustedMachine struct {
 	// Whether the approval is consumed once or persists for future reports.
 	ApprovalType string `json:"approvalType"`
 	// Optional comma-separated PCR register selector.
-	PcrRegisters *string `json:"pcrRegisters,omitempty"`
+	PcrRegisters string `json:"pcrRegisters"`
 	// Optional operator comments about the approval.
-	Comments *string `json:"comments,omitempty"`
-	// Time when the approval was created.
-	Created *time.Time `json:"created,omitempty"`
+	Comments string `json:"comments"`
+	// Time when the approval was created, or null when Core did not return a timestamp.
+	Created NullableTime `json:"created"`
 }
 
 type _MeasuredBootTrustedMachine MeasuredBootTrustedMachine
@@ -45,11 +45,14 @@ type _MeasuredBootTrustedMachine MeasuredBootTrustedMachine
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMeasuredBootTrustedMachine(approvalId string, machineId string, approvalType string) *MeasuredBootTrustedMachine {
+func NewMeasuredBootTrustedMachine(approvalId string, machineId string, approvalType string, pcrRegisters string, comments string, created NullableTime) *MeasuredBootTrustedMachine {
 	this := MeasuredBootTrustedMachine{}
 	this.ApprovalId = approvalId
 	this.MachineId = machineId
 	this.ApprovalType = approvalType
+	this.PcrRegisters = pcrRegisters
+	this.Comments = comments
+	this.Created = created
 	return &this
 }
 
@@ -133,100 +136,78 @@ func (o *MeasuredBootTrustedMachine) SetApprovalType(v string) {
 	o.ApprovalType = v
 }
 
-// GetPcrRegisters returns the PcrRegisters field value if set, zero value otherwise.
+// GetPcrRegisters returns the PcrRegisters field value
 func (o *MeasuredBootTrustedMachine) GetPcrRegisters() string {
-	if o == nil || IsNil(o.PcrRegisters) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.PcrRegisters
+
+	return o.PcrRegisters
 }
 
-// GetPcrRegistersOk returns a tuple with the PcrRegisters field value if set, nil otherwise
+// GetPcrRegistersOk returns a tuple with the PcrRegisters field value
 // and a boolean to check if the value has been set.
 func (o *MeasuredBootTrustedMachine) GetPcrRegistersOk() (*string, bool) {
-	if o == nil || IsNil(o.PcrRegisters) {
+	if o == nil {
 		return nil, false
 	}
-	return o.PcrRegisters, true
+	return &o.PcrRegisters, true
 }
 
-// HasPcrRegisters returns a boolean if a field has been set.
-func (o *MeasuredBootTrustedMachine) HasPcrRegisters() bool {
-	if o != nil && !IsNil(o.PcrRegisters) {
-		return true
-	}
-
-	return false
-}
-
-// SetPcrRegisters gets a reference to the given string and assigns it to the PcrRegisters field.
+// SetPcrRegisters sets field value
 func (o *MeasuredBootTrustedMachine) SetPcrRegisters(v string) {
-	o.PcrRegisters = &v
+	o.PcrRegisters = v
 }
 
-// GetComments returns the Comments field value if set, zero value otherwise.
+// GetComments returns the Comments field value
 func (o *MeasuredBootTrustedMachine) GetComments() string {
-	if o == nil || IsNil(o.Comments) {
+	if o == nil {
 		var ret string
 		return ret
 	}
-	return *o.Comments
+
+	return o.Comments
 }
 
-// GetCommentsOk returns a tuple with the Comments field value if set, nil otherwise
+// GetCommentsOk returns a tuple with the Comments field value
 // and a boolean to check if the value has been set.
 func (o *MeasuredBootTrustedMachine) GetCommentsOk() (*string, bool) {
-	if o == nil || IsNil(o.Comments) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Comments, true
+	return &o.Comments, true
 }
 
-// HasComments returns a boolean if a field has been set.
-func (o *MeasuredBootTrustedMachine) HasComments() bool {
-	if o != nil && !IsNil(o.Comments) {
-		return true
-	}
-
-	return false
-}
-
-// SetComments gets a reference to the given string and assigns it to the Comments field.
+// SetComments sets field value
 func (o *MeasuredBootTrustedMachine) SetComments(v string) {
-	o.Comments = &v
+	o.Comments = v
 }
 
-// GetCreated returns the Created field value if set, zero value otherwise.
+// GetCreated returns the Created field value
+// If the value is explicit nil, the zero value for time.Time will be returned
 func (o *MeasuredBootTrustedMachine) GetCreated() time.Time {
-	if o == nil || IsNil(o.Created) {
+	if o == nil || o.Created.Get() == nil {
 		var ret time.Time
 		return ret
 	}
-	return *o.Created
+
+	return *o.Created.Get()
 }
 
-// GetCreatedOk returns a tuple with the Created field value if set, nil otherwise
+// GetCreatedOk returns a tuple with the Created field value
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *MeasuredBootTrustedMachine) GetCreatedOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.Created) {
+	if o == nil {
 		return nil, false
 	}
-	return o.Created, true
+	return o.Created.Get(), o.Created.IsSet()
 }
 
-// HasCreated returns a boolean if a field has been set.
-func (o *MeasuredBootTrustedMachine) HasCreated() bool {
-	if o != nil && !IsNil(o.Created) {
-		return true
-	}
-
-	return false
-}
-
-// SetCreated gets a reference to the given time.Time and assigns it to the Created field.
+// SetCreated sets field value
 func (o *MeasuredBootTrustedMachine) SetCreated(v time.Time) {
-	o.Created = &v
+	o.Created.Set(&v)
 }
 
 func (o MeasuredBootTrustedMachine) MarshalJSON() ([]byte, error) {
@@ -242,15 +223,9 @@ func (o MeasuredBootTrustedMachine) ToMap() (map[string]interface{}, error) {
 	toSerialize["approvalId"] = o.ApprovalId
 	toSerialize["machineId"] = o.MachineId
 	toSerialize["approvalType"] = o.ApprovalType
-	if !IsNil(o.PcrRegisters) {
-		toSerialize["pcrRegisters"] = o.PcrRegisters
-	}
-	if !IsNil(o.Comments) {
-		toSerialize["comments"] = o.Comments
-	}
-	if !IsNil(o.Created) {
-		toSerialize["created"] = o.Created
-	}
+	toSerialize["pcrRegisters"] = o.PcrRegisters
+	toSerialize["comments"] = o.Comments
+	toSerialize["created"] = o.Created.Get()
 	return toSerialize, nil
 }
 
@@ -262,6 +237,9 @@ func (o *MeasuredBootTrustedMachine) UnmarshalJSON(data []byte) (err error) {
 		"approvalId",
 		"machineId",
 		"approvalType",
+		"pcrRegisters",
+		"comments",
+		"created",
 	}
 
 	allProperties := make(map[string]interface{})

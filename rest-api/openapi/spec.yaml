@@ -14583,6 +14583,9 @@ components:
         - approvalId
         - machineId
         - approvalType
+        - pcrRegisters
+        - comments
+        - created
       properties:
         approvalId:
           type: string
@@ -14604,9 +14607,11 @@ components:
           type: string
           description: Optional operator comments about the approval.
         created:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          description: Time when the approval was created.
+          description: Time when the approval was created, or null when Core did not return a timestamp.
     MeasuredBootTrustedProfileCreateRequest:
       type: object
       title: MeasuredBootTrustedProfileCreateRequest
@@ -14644,6 +14649,9 @@ components:
         - approvalId
         - profileId
         - approvalType
+        - pcrRegisters
+        - comments
+        - created
       properties:
         approvalId:
           type: string
@@ -14666,9 +14674,11 @@ components:
           type: string
           description: Optional operator comments about the approval.
         created:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
-          description: Time when the approval was created.
+          description: Time when the approval was created, or null when Core did not return a timestamp.
     BMCCredentialRequest:
       type: object
       title: BMCCredentialRequest

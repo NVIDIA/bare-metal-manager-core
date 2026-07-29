@@ -66,9 +66,9 @@ type APIMeasuredBootTrustedMachine struct {
 	ApprovalID   string     `json:"approvalId"`
 	MachineID    string     `json:"machineId"`
 	ApprovalType string     `json:"approvalType"`
-	PCRRegisters string     `json:"pcrRegisters,omitempty"`
-	Comments     string     `json:"comments,omitempty"`
-	Created      *time.Time `json:"created,omitempty"`
+	PCRRegisters string     `json:"pcrRegisters"`
+	Comments     string     `json:"comments"`
+	Created      *time.Time `json:"created"`
 }
 
 // APIMeasuredBootTrustedProfile is a profile trust approval.
@@ -76,9 +76,9 @@ type APIMeasuredBootTrustedProfile struct {
 	ApprovalID   string     `json:"approvalId"`
 	ProfileID    string     `json:"profileId"`
 	ApprovalType string     `json:"approvalType"`
-	PCRRegisters string     `json:"pcrRegisters,omitempty"`
-	Comments     string     `json:"comments,omitempty"`
-	Created      *time.Time `json:"created,omitempty"`
+	PCRRegisters string     `json:"pcrRegisters"`
+	Comments     string     `json:"comments"`
+	Created      *time.Time `json:"created"`
 }
 
 // Validate checks a machine trust approval request.
