@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -135,6 +135,9 @@ pub struct NvueOptions {
 
     #[clap(long)]
     pub loopback_ip: IpAddr,
+
+    #[clap(long)]
+    pub loopback_ip_v6: Option<Ipv6Addr>,
 
     #[clap(long)]
     pub asn: u32,

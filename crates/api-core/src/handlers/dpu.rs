@@ -16,7 +16,7 @@
  */
 
 use std::collections::HashMap;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv6Addr};
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
@@ -60,14 +60,20 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 /// Consolidates host-level and DPU-level `ManagedHostNetworkConfig` into
 /// the single proto sent to `carbide-dpu-agent`. The host layer
 /// contributes shared fields (e.g. `use_admin_network`); the DPU layer
-/// contributes per-DPU fields (e.g. `loopback_ip`).
+/// contributes per-DPU fields (e.g. `loopback_ip`). The IPv6 loopback is
+/// present only for FNN so other agents keep their IPv4-only wire contract.
 fn build_consolidated_network_config(
     host_network_config: &model::machine::network::ManagedHostNetworkConfig,
     dpu_loopback_ip: IpAddr,
+    dpu_loopback_ip_v6: Option<Ipv6Addr>,
+    network_virtualization_type: VpcVirtualizationType,
 ) -> rpc::ManagedHostNetworkConfig {
     rpc::ManagedHostNetworkConfig {
         loopback_ip: dpu_loopback_ip.to_string(),
         quarantine_state: host_network_config.quarantine_state.clone().map(Into::into),
+        loopback_ip_v6: dpu_loopback_ip_v6
+            .filter(|_| network_virtualization_type == VpcVirtualizationType::Fnn)
+            .map(|ip| ip.to_string()),
     }
 }
 
@@ -510,6 +516,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
     let network_config = build_consolidated_network_config(
         &snapshot.host_snapshot.network_config.value,
         loopback_ip,
+        dpu_snapshot.loopback_ip_v6(),
+        network_virtualization_type,
     );
 
     let asn = if network_virtualization_type == VpcVirtualizationType::Fnn {
@@ -1557,8 +1565,9 @@ mod deny_prefix_tests {
 
 #[cfg(test)]
 mod consolidated_network_config_tests {
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
+    use carbide_test_support::value_scenarios;
     use model::machine::network::{
         ManagedHostNetworkConfig, ManagedHostQuarantineMode, ManagedHostQuarantineState,
     };
@@ -1574,7 +1583,12 @@ mod consolidated_network_config_tests {
     #[test]
     fn dpu_loopback_ip_carries_through_with_empty_host_layer() {
         let host = ManagedHostNetworkConfig::default();
-        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        let consolidated = build_consolidated_network_config(
+            &host,
+            dpu_ip(),
+            None,
+            VpcVirtualizationType::EthernetVirtualizer,
+        );
         assert_eq!(consolidated.loopback_ip, "10.0.0.1");
         assert!(consolidated.quarantine_state.is_none());
     }
@@ -1590,7 +1604,12 @@ mod consolidated_network_config_tests {
             }),
             ..ManagedHostNetworkConfig::default()
         };
-        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        let consolidated = build_consolidated_network_config(
+            &host,
+            dpu_ip(),
+            None,
+            VpcVirtualizationType::EthernetVirtualizer,
+        );
         assert_eq!(consolidated.loopback_ip, "10.0.0.1");
         let qs = consolidated.quarantine_state.expect("quarantine_state");
         assert_eq!(qs.reason.as_deref(), Some("test"));
@@ -1616,11 +1635,63 @@ mod consolidated_network_config_tests {
             quarantine_state: None,
             use_admin_network_changed: None,
         };
-        let consolidated = build_consolidated_network_config(&host, dpu_ip());
+        let consolidated = build_consolidated_network_config(
+            &host,
+            dpu_ip(),
+            None,
+            VpcVirtualizationType::EthernetVirtualizer,
+        );
         assert_eq!(
             consolidated.loopback_ip, "10.0.0.1",
             "consolidator must use the dpu_loopback_ip arg, not host.loopback_ip"
         );
         assert!(consolidated.quarantine_state.is_none());
+    }
+
+    #[test]
+    fn dpu_ipv6_loopback_carries_through_independently() {
+        let host_ip = Ipv6Addr::new(0x2001, 0xdb8, 0xffff, 0, 0, 0, 0, 1);
+        let first_dpu_ip = Ipv6Addr::new(0x2001, 0xdb8, 0x2390, 0, 0, 0, 0, 1);
+        let second_dpu_ip = Ipv6Addr::new(0x2001, 0xdb8, 0x2390, 0, 0, 0, 0, 2);
+
+        value_scenarios!(
+            run = |(host_loopback_ip_v6, dpu_loopback_ip_v6, virtualization_type)| {
+                let host = ManagedHostNetworkConfig {
+                    loopback_ip_v6: host_loopback_ip_v6,
+                    ..ManagedHostNetworkConfig::default()
+                };
+                build_consolidated_network_config(
+                    &host,
+                    dpu_ip(),
+                    dpu_loopback_ip_v6,
+                    virtualization_type,
+                )
+                .loopback_ip_v6
+            };
+            "FNN uses the requesting DPU's IPv6 loopback" {
+                (None, None, VpcVirtualizationType::Fnn) => None,
+                (Some(host_ip), None, VpcVirtualizationType::Fnn) => None,
+                (None, Some(first_dpu_ip), VpcVirtualizationType::Fnn) => {
+                    Some(first_dpu_ip.to_string())
+                },
+                (Some(host_ip), Some(second_dpu_ip), VpcVirtualizationType::Fnn) => {
+                    Some(second_dpu_ip.to_string())
+                },
+            }
+
+            "non-FNN agents keep the IPv4-only wire contract" {
+                (
+                    None,
+                    Some(first_dpu_ip),
+                    VpcVirtualizationType::EthernetVirtualizer,
+                ) => None,
+                (
+                    None,
+                    Some(first_dpu_ip),
+                    VpcVirtualizationType::EthernetVirtualizerWithNvue,
+                ) => None,
+                (None, Some(first_dpu_ip), VpcVirtualizationType::Flat) => None,
+            }
+        );
     }
 }

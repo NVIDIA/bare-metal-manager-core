@@ -230,6 +230,9 @@ tags:
   - name: Rule
     description: |-
       Operation Rule defines, per Site, how a particular operation (for example `PowerControl` / `power_on` or `FirmwareControl` / `upgrade`) should be executed against a set of components: ordered execution stages, per-component-type concurrency, pre / main / post actions, timeouts, and retry policy. Rules are reusable templates owned by Flow; this tag exposes CRUD (`POST`, `GET`, `PATCH`, `DELETE`) over them.
+  - name: Task Run
+    description: |-
+      A Task Run is a phased, policy-gated execution of one operation (currently firmware) across many Racks. A Task Run narrows a candidate set of Racks with an optional selector, divides the selected Racks into phases, and drives one execution target per Rack; each target in turn drives at most one Task. Safety gates pause the Task Run when failures exceed a threshold, and phase gates hold each phase until an operator advances it. This tag exposes creation, retrieval, target listing, and the pause / resume / advance / cancel lifecycle actions; drill into per-Rack execution detail via the Task tag using each target's `taskId`.
   - name: Network Security Group
     description: |-
       Network Security Group is a security policy that controls the traffic flowing between Instances.
@@ -6686,6 +6689,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Create an Instance for Tenant.
 
@@ -6867,6 +6872,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |
         Batch create multiple Instances for Tenant with NVLink domain-aware machine allocation.
 
@@ -7267,6 +7274,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '429':
+          $ref: '#/components/responses/ResourceExhaustedError'
       description: |-
         Update an Instance by ID
 
@@ -8084,7 +8093,7 @@ paths:
             enum:
               - Image
               - iPXE
-              - Templated iPXE
+              - TemplatedIpxe
           in: query
           name: type
           description: Filter Operating Systems by Type
@@ -11017,6 +11026,478 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rule
+  '/v2/org/{org}/nico/task/run':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Create a Task Run
+      operationId: create-task-run
+      description: |-
+        Create a Task Run: a phased, policy-gated execution of one operation across
+        many Racks. The configuration is validated server-side by Flow; on
+        validation failure no state changes.
+
+        A Task Run executes exactly one operation (currently firmware) over a
+        candidate set of Racks, narrowed by an optional `selector` and divided
+        into phases by an optional `options.phasePolicy`. The response echoes the
+        assigned `id`; the Task Run always starts in the `Pending` state. Poll
+        `GET /task/run/{id}` for progress.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRunRequest'
+      responses:
+        '201':
+          description: Task Run was created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Task Run
+    get:
+      summary: Retrieve all Task Runs
+      operationId: get-all-task-run
+      description: |-
+        List Task Runs on a Site. Filters compose with AND; results are paginated
+        and the `X-Pagination` response header reports the total count over the
+        post-filter set.
+
+        Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Task Runs (Task Runs are site-scoped).
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Running
+              - Paused
+              - Completed
+              - Cancelled
+              - Failed
+              - CompletedWithFailures
+          name: status
+          in: query
+          required: false
+          description: Filter by Task Run status.
+        - schema:
+            type: string
+            enum:
+              - PowerControl
+              - FirmwareControl
+          name: operationType
+          in: query
+          required: false
+          description: Filter by operation type.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskRun'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":2}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    get:
+      summary: Retrieve a Task Run
+      operationId: get-task-run
+      description: |-
+        Get a Task Run by UUID. Set `includeStats=true` for derived per-phase
+        outcome counts (current phase and cumulative run).
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Task Run (Task Runs are site-scoped).
+        - schema:
+            type: boolean
+            default: false
+          name: includeStats
+          in: query
+          required: false
+          description: Include derived per-phase outcome stats on the response.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/target':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    get:
+      summary: Retrieve all Task Run Targets
+      operationId: get-all-task-run-target
+      description: |-
+        List a Task Run's materialized per-Rack execution targets. Each target
+        references the Task the Task Run submitted for that Rack via `taskId`
+        (null until the target is submitted); drill into execution detail via
+        `GET /task/{taskId}`.
+
+        Filters compose with AND. Results are paginated; the `X-Pagination`
+        response header reports the total count over the post-filter set.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site that owns the Task Run.
+        - schema:
+            type: string
+            enum:
+              - Pending
+              - Blocked
+              - Submitted
+              - Completed
+              - Failed
+              - Terminated
+              - Skipped
+              - Claimed
+          name: status
+          in: query
+          required: false
+          description: Filter by target status.
+        - schema:
+            type: string
+            enum:
+              - currentPhase
+              - completedPhases
+              - currentAndCompletedPhases
+            default: currentPhase
+          name: phaseScope
+          in: query
+          required: false
+          description: Restrict targets to the current phase, completed phases, or both.
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageNumber
+          in: query
+          required: false
+          description: Page number of results returned (1-indexed).
+        - schema:
+            type: integer
+            minimum: 1
+          name: pageSize
+          in: query
+          required: false
+          description: Number of results per page.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskRunTarget'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":6}'
+              description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/pause':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Pause a Task Run
+      operationId: pause-task-run
+      description: |-
+        Pause a running Task Run. In-flight target Tasks continue to completion;
+        no new targets are claimed until the Task Run is resumed. Pausing an
+        already-paused Task Run is idempotent.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRunSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The pause request was accepted and the Task Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/resume':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Resume a Task Run
+      operationId: resume-task-run
+      description: |-
+        Resume an operator-paused Task Run. A Task Run paused at a phase gate
+        (rather than by an operator) must be advanced with the advance endpoint
+        instead; resume applies only to operator pauses.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskRunSiteRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The resume request was accepted and the Task Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/advance':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Advance a Task Run to its next phase
+      operationId: advance-task-run
+      description: |-
+        Open the next phase of a Task Run that is paused at a phase gate.
+        Optionally guard the transition with `expectedPhaseIndex`: when set, the
+        phase that would be opened must match, otherwise Flow rejects the advance
+        so a stale client cannot open the wrong phase.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdvanceTaskRunRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The advance request was accepted and the Task Run's last
+            known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
+  '/v2/org/{org}/nico/task/run/{id}/cancel':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: id
+        in: path
+        required: true
+        description: UUID of the Task Run
+    post:
+      summary: Cancel a Task Run
+      operationId: cancel-task-run
+      description: |-
+        Cancel a Task Run. Best-effort cancellation cascades to the current
+        phase's in-flight target Tasks; targets not yet claimed are not started.
+        Cancelling an already-terminal Task Run returns its last known state.
+
+        Task Runs are site-scoped; `siteId` must be the Site that owns the
+        Task Run. Org must have an Infrastructure Provider entity. User must have
+        authorization role with `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelTaskRunRequest'
+      responses:
+        '202':
+          description: |-
+            Accepted. The cancellation request was accepted and the Task Run's
+            last known state is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskRun'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - Task Run
   '/v2/org/{org}/nico/rack/{id}/task':
     parameters:
       - schema:
@@ -16992,7 +17473,7 @@ components:
           enum:
             - iPXE
             - Image
-            - Templated iPXE
+            - TemplatedIpxe
         imageUrl:
           type:
             - string
@@ -18401,7 +18882,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18437,7 +18918,7 @@ components:
           description: 'User-defined key-value labels'
         interfaces:
           type: array
-          description: 'At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed. Only one of the Subnets or VPC Prefixes can be attached over Physical interface. If only one Subnet is specified, then it will be attached over physical interface regardless of the value of isPhysical. In case of VPC Prefix, isPhysical will always be true. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Only one network can be attached over a physical interface. If only one Subnet is specified, it will be attached over a physical interface regardless of `isPhysical`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18550,7 +19031,7 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instances should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
@@ -18587,7 +19068,7 @@ components:
           description: 'Key-value objects to be applied to all instances (shared across all instances)'
         interfaces:
           type: array
-          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Either Subnet or VPC Prefix interfaces allowed, only one of the Subnets or VPC Prefixes can be attached over Physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Interface configuration shared across all instances. At least one interface must be specified unless `autoNetwork` is true. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Each batch member is resolved independently and may use a different prefix. Only one network can be attached over a physical interface. Interface `ipAddress` is not supported for batch instance creation requests. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18763,13 +19244,13 @@ components:
         secondaryVpcIds:
           type: array
           uniqueItems: true
-          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+          description: IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
           items:
             type: string
             format: uuid
         interfaces:
           type: array
-          description: 'Update Interfaces of the Instance. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
+          description: 'Complete updated Interface configuration for the Instance. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.'
           items:
             $ref: '#/components/schemas/InterfaceCreateRequest'
         autoNetwork:
@@ -18840,6 +19321,18 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
+        - id: 4c53d2f4-2a51-4ac5-90c9-87ad215c5091
+          instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
+          vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
+          macAddress: 2F-FC-34-AE-9C-2D
+          ipAddresses:
+            - 200.32.11.196
+          status: Ready
+          created: '2019-08-24T14:15:22Z'
+          updated: '2019-08-24T14:15:22Z'
         - id: 45d89d4f-2dde-4fc5-a20d-9f96faa4e9fa
           instanceId: 371ddf80-a7ff-4ff6-9a37-0557cec8b9be
           vpcPrefixId: d89d8cc6-d66e-4bf2-bf62-40238837cc90
@@ -18868,7 +19361,7 @@ components:
           status: Pending
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
-      description: Associates an Instance with a Subnet
+      description: Associates an Instance with a Subnet or VPC-backed network
       properties:
         id:
           type: string
@@ -18889,11 +19382,20 @@ components:
           type:
             - string
             - 'null'
-          description: 'ID of the associated VPCPrefix'
+          description: ID of the VPC Prefix explicitly selected by the caller
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller selects a prefix
+          format: uuid
+        ipFamilies:
+          type: array
+          description: Address families requested for Controller prefix selection
+          items:
+            $ref: '#/components/schemas/IPFamily'
         isPhysical:
           type: boolean
-          description: 'IsPhysical indicates whether the Subnet is bound on a physical Interface'
+          description: Indicates whether the network is bound on a physical Interface
         device:
           type:
             - string
@@ -18923,12 +19425,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. This is only used with an explicit `vpcPrefixId` and is not valid with `subnetId` or VPC-selected interfaces. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
             - type: 'null'
-          description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
+          description: Inline interface-local routing profile options. Only valid for VPC-backed interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
           description: 'Status of the Interface'
@@ -18952,6 +19454,13 @@ components:
         - Ready
         - Deleting
         - Error
+    IPFamily:
+      title: IPFamily
+      type: string
+      description: Address family requested for a VPC-selected Interface
+      enum:
+        - IPv4
+        - IPv6
     InterfaceInlineRoutingProfile:
       title: InterfaceInlineRoutingProfile
       type: object
@@ -18973,10 +19482,14 @@ components:
         - vpcPrefixId: 000bc42b-f946-472e-83d4-ddf7e365e148
           ipAddress: 10.0.0.11
           isPhysical: true
+        - vpcId: bdd3d1af-b4a8-4675-a59c-56548716ef45
+          ipFamilies:
+            - IPv4
+          isPhysical: true
       description: |-
-        Request data to create an Interface for an Instance by associating it with a Subnet or VPC Prefix.
+        Request data to create an Interface for an Instance by associating it with a Subnet, an explicit VPC Prefix, or a VPC from which the Controller selects a prefix. Exactly one of `subnetId`, `vpcPrefixId`, or `vpcId` must be specified.
 
-        If VPC specified in request has FNN virtualization type, then all interfaces must specify VPC Prefix.
+        If the VPC specified in the request has FNN virtualization type, all interfaces must specify either `vpcPrefixId` or `vpcId`.
 
         If the VPC has Ethernet network virtualization type then all interfaces must specify Subnet.
       properties:
@@ -18988,11 +19501,23 @@ components:
           type: string
           description: 'ID of the VPC Prefix to attach to the Interface'
           format: uuid
+        vpcId:
+          type: string
+          description: ID of the VPC from which the Controller should select a prefix. `ipFamilies` must also be specified, and `ipAddress` cannot be specified.
+          format: uuid
+        ipFamilies:
+          type: array
+          minItems: 1
+          description: Address families requested for Controller prefix selection. Required with `vpcId` and prohibited otherwise. Only `IPv4` is currently accepted.
+          items:
+            type: string
+            enum:
+              - IPv4
         ipAddress:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. It can only be specified with an explicit `vpcPrefixId`. The least-significant host bit must be 1.
         inlineRoutingProfile:
           oneOf:
             - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
@@ -19000,7 +19525,7 @@ components:
           description: Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
         isPhysical:
           type: boolean
-          description: Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
+          description: Specifies whether this network should be attached to the Instance over a physical interface.
         device:
           type: string
           description: Name of the device to use
@@ -19014,6 +19539,29 @@ components:
           description: 'Index of the virtual function to use, must be specified if isPhysical is false'
           minimum: 0
           maximum: 15
+      oneOf:
+        - required:
+            - subnetId
+        - required:
+            - vpcPrefixId
+        - required:
+            - vpcId
+      dependentRequired:
+        vpcId:
+          - ipFamilies
+        ipFamilies:
+          - vpcId
+      dependentSchemas:
+        subnetId:
+          properties:
+            ipAddress:
+              type: 'null'
+            inlineRoutingProfile:
+              type: 'null'
+        vpcId:
+          properties:
+            ipAddress:
+              type: 'null'
     InfiniBandInterface:
       title: InfiniBandInterface
       type: object
@@ -20227,6 +20775,534 @@ components:
           description: New free-form description.
         ruleDefinition:
           $ref: '#/components/schemas/RuleDefinition'
+    TaskRun:
+      title: TaskRun
+      type: object
+      description: |-
+        A Task Run is a phased, policy-gated execution of one operation across
+        many Racks. List responses populate the summary fields; the
+        single-Task-Run `GET` additionally populates `stats` when
+        `includeStats=true`.
+      required:
+        - id
+        - name
+        - operationType
+        - status
+        - statusReason
+        - totalPhases
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the Task Run.
+        name:
+          type: string
+          description: Human-readable name of the Task Run.
+        description:
+          type: string
+          description: Optional free-form description.
+        operationType:
+          type: string
+          enum:
+            - PowerControl
+            - FirmwareControl
+          description: Type of operation this Task Run executes. Currently always `FirmwareControl`.
+        operationCode:
+          type: string
+          description: Operation code within the operation type (e.g. `upgrade`).
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Running
+            - Paused
+            - Completed
+            - Cancelled
+            - Failed
+            - CompletedWithFailures
+          description: Current lifecycle state of the Task Run.
+        statusReason:
+          type: string
+          enum:
+            - Unknown
+            - None
+            - OperatorPaused
+            - PhaseGate
+            - SafetyGate
+            - ConflictRetryTimeout
+          description: |-
+            Why the Task Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`).
+            `None` when there is no qualifying reason.
+        statusMessage:
+          type: string
+          description: Optional human-readable detail for the current status.
+        totalPhases:
+          type: integer
+          description: Total number of phases the selected targets were divided into.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the Task Run was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the Task Run was last updated.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Task Run started execution. Null before it starts.
+        finished:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: Timestamp when the Task Run reached a terminal state. Null while active.
+        stats:
+          allOf:
+            - $ref: '#/components/schemas/TaskRunStats'
+          description: |-
+            Derived per-phase outcome stats. Present only on the single-Task-Run
+            `GET` when `includeStats=true`; omitted otherwise.
+    TaskRunStats:
+      title: TaskRunStats
+      type: object
+      description: Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
+      required:
+        - currentPhase
+        - cumulativePhase
+      properties:
+        currentPhase:
+          $ref: '#/components/schemas/TaskRunPhaseStats'
+        cumulativePhase:
+          $ref: '#/components/schemas/TaskRunPhaseStats'
+    TaskRunPhaseStats:
+      title: TaskRunPhaseStats
+      type: object
+      description: Summarizes target outcomes for one phase scope.
+      required:
+        - phaseIndex
+        - selectedTargets
+        - outcomeCounts
+      properties:
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this scope refers to.
+        selectedTargets:
+          type: integer
+          description: Number of targets selected within the scope.
+        outcomeCounts:
+          $ref: '#/components/schemas/TaskRunOutcomeCounts'
+    TaskRunOutcomeCounts:
+      title: TaskRunOutcomeCounts
+      type: object
+      description: Counts terminal target outcomes within a phase scope.
+      required:
+        - completed
+        - failed
+        - terminated
+        - skipped
+      properties:
+        completed:
+          type: integer
+          description: Targets that completed successfully.
+        failed:
+          type: integer
+          description: Targets that failed.
+        terminated:
+          type: integer
+          description: Targets that were terminated (e.g. by cancellation).
+        skipped:
+          type: integer
+          description: Targets that were skipped.
+    TaskRunTarget:
+      title: TaskRunTarget
+      type: object
+      description: |-
+        One materialized per-Rack execution target of a Task Run. Each target
+        drives at most one Task; `taskId` references it (null until the target is
+        submitted).
+      required:
+        - id
+        - runId
+        - rackId
+        - sequenceIndex
+        - phaseIndex
+        - status
+        - created
+        - updated
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier of the target.
+        runId:
+          type: string
+          format: uuid
+          description: ID of the Task Run that owns this target.
+        rackId:
+          type: string
+          format: uuid
+          description: ID of the Rack this target operates on.
+        sequenceIndex:
+          type: integer
+          description: Position of this target in the Task Run's overall processing order.
+        phaseIndex:
+          type: integer
+          description: Zero-based index of the phase this target belongs to.
+        taskId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            ID of the Task this target submitted. Null until the target is
+            submitted; drill into execution detail via `GET /task/{taskId}`.
+        status:
+          type: string
+          enum:
+            - Unknown
+            - Pending
+            - Blocked
+            - Submitted
+            - Completed
+            - Failed
+            - Terminated
+            - Skipped
+            - Claimed
+          description: Current execution state of the target.
+        message:
+          type: string
+          description: Optional human-readable detail for the current target status.
+        created:
+          type: string
+          format: date-time
+          description: Timestamp when the target was created.
+        updated:
+          type: string
+          format: date-time
+          description: Timestamp when the target was last updated.
+    TaskRunSiteRequest:
+      title: TaskRunSiteRequest
+      type: object
+      description: Shared request body for the pause and resume lifecycle actions.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Task Run (Task Runs are site-scoped).
+    AdvanceTaskRunRequest:
+      title: AdvanceTaskRunRequest
+      type: object
+      description: Request body for advancing a Task Run to its next phase.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Task Run.
+        expectedPhaseIndex:
+          type: integer
+          description: |-
+            Optional guard: when set, the phase that would be opened must match
+            this zero-based index, otherwise the advance is rejected.
+    CancelTaskRunRequest:
+      title: CancelTaskRunRequest
+      type: object
+      description: Request body for cancelling a Task Run.
+      required:
+        - siteId
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site that owns the Task Run.
+        reason:
+          type: string
+          description: Optional free-form reason recorded with the cancellation.
+    CreateTaskRunRequest:
+      title: CreateTaskRunRequest
+      type: object
+      description: |-
+        Request body for creating a Task Run. `operationType` is inferred from the
+        operation and is not accepted here. Flow performs semantic validation
+        (selector ranges, phase math, operation code membership) server-side.
+      required:
+        - siteId
+        - name
+        - options
+        - operation
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site to create the Task Run on.
+        name:
+          type: string
+          description: Human-readable name of the Task Run.
+        description:
+          type: string
+          description: Optional free-form description.
+        selector:
+          allOf:
+            - $ref: '#/components/schemas/TaskRunSelector'
+          description: |-
+            Narrows the candidate Racks. Omit to target the full candidate scope
+            (100%).
+        options:
+          $ref: '#/components/schemas/TaskRunOptions'
+        operation:
+          $ref: '#/components/schemas/TaskRunOperation'
+    TaskRunSelector:
+      title: TaskRunSelector
+      type: object
+      description: Selects a subset of candidate Racks. Percentage is the only supported selector today.
+      properties:
+        percentage:
+          $ref: '#/components/schemas/TaskRunPercentageSelector'
+    TaskRunPercentageSelector:
+      title: TaskRunPercentageSelector
+      type: object
+      description: |-
+        Selects a percentage of the candidate Racks. `seed` is optional; when
+        omitted Flow generates and stores one so the cohort is deterministic and
+        auditable.
+      required:
+        - percent
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Percentage of candidate Racks to select.
+        seed:
+          type: string
+          description: Optional seed for the deterministic selection.
+    TaskRunOptions:
+      title: TaskRunOptions
+      type: object
+      description: Execution policy for the Task Run.
+      required:
+        - maxConcurrentTargets
+      properties:
+        maxConcurrentTargets:
+          type: integer
+          minimum: 1
+          description: |-
+            Caps how many targets may have active child Tasks at once. Must be
+            greater than zero.
+        safetyPolicy:
+          $ref: '#/components/schemas/TaskRunSafetyPolicy'
+        conflictPolicy:
+          $ref: '#/components/schemas/TaskRunConflictPolicy'
+        orderingPolicy:
+          $ref: '#/components/schemas/TaskRunOrderingPolicy'
+        phasePolicy:
+          $ref: '#/components/schemas/TaskRunPhasePolicy'
+    TaskRunSafetyPolicy:
+      title: TaskRunSafetyPolicy
+      type: object
+      description: A set of gates that pause the Task Run when any one of them trips (OR composition).
+      properties:
+        gates:
+          type: array
+          description: Safety gates evaluated after each target outcome.
+          items:
+            $ref: '#/components/schemas/TaskRunSafetyGate'
+    TaskRunSafetyGate:
+      title: TaskRunSafetyGate
+      type: object
+      description: Exactly one of `failureRate` or `failureCount` must be set.
+      properties:
+        failureRate:
+          $ref: '#/components/schemas/TaskRunFailureRateGate'
+        failureCount:
+          $ref: '#/components/schemas/TaskRunFailureCountGate'
+    TaskRunFailureRateGate:
+      title: TaskRunFailureRateGate
+      type: object
+      description: Pauses when the failed/planned ratio reaches `thresholdPercent` for the scope.
+      required:
+        - thresholdPercent
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the ratio is evaluated over the current phase or the cumulative run.
+        thresholdPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Failure-rate percentage at which the gate trips.
+    TaskRunFailureCountGate:
+      title: TaskRunFailureCountGate
+      type: object
+      description: Pauses when the number of failed targets reaches `thresholdCount` for the scope.
+      required:
+        - thresholdCount
+      properties:
+        scope:
+          type: string
+          enum:
+            - currentPhase
+            - cumulativeRun
+          default: currentPhase
+          description: Whether the count is evaluated over the current phase or the cumulative run.
+        thresholdCount:
+          type: integer
+          minimum: 0
+          description: Number of failed targets at which the gate trips.
+    TaskRunConflictPolicy:
+      title: TaskRunConflictPolicy
+      type: object
+      description: Configures how blocked targets are retried. Retry is the only supported strategy today.
+      properties:
+        retry:
+          $ref: '#/components/schemas/TaskRunConflictRetry'
+    TaskRunConflictRetry:
+      title: TaskRunConflictRetry
+      type: object
+      description: |-
+        Retry backoff for blocked targets. Durations are Go duration strings
+        (e.g. `30m`, `10s`); an empty value means "use the operation default".
+      properties:
+        retryTimeout:
+          type: string
+          description: Total time to keep retrying a blocked target before giving up.
+        initialRetryDelay:
+          type: string
+          description: Delay before the first retry.
+        maxRetryDelay:
+          type: string
+          description: Cap on the exponentially growing retry delay.
+    TaskRunOrderingPolicy:
+      title: TaskRunOrderingPolicy
+      type: object
+      description: Controls the order in which targets are processed. Random is the only supported ordering today.
+      properties:
+        random:
+          $ref: '#/components/schemas/TaskRunRandomOrdering'
+    TaskRunRandomOrdering:
+      title: TaskRunRandomOrdering
+      type: object
+      description: Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
+      properties:
+        seed:
+          type: string
+          description: Optional seed for the deterministic random ordering.
+    TaskRunPhasePolicy:
+      title: TaskRunPhasePolicy
+      type: object
+      description: |-
+        Divides the selected targets into phases. Set at most one of `equal`,
+        `percentage`, or `count`; omit the whole policy for a single phase
+        covering all targets.
+      properties:
+        equal:
+          $ref: '#/components/schemas/TaskRunEqualPhases'
+        percentage:
+          $ref: '#/components/schemas/TaskRunPercentagePhases'
+        count:
+          $ref: '#/components/schemas/TaskRunCountPhases'
+        autoAdvance:
+          type: boolean
+          default: false
+          description: |-
+            When true, phases advance automatically as long as safety gates are
+            not tripped. When false (default) each completed phase pauses at a
+            phase gate until advanced explicitly.
+    TaskRunEqualPhases:
+      title: TaskRunEqualPhases
+      type: object
+      description: Splits targets into `phaseCount` roughly equal phases.
+      required:
+        - phaseCount
+      properties:
+        phaseCount:
+          type: integer
+          minimum: 1
+          description: Number of equally sized phases.
+    TaskRunPercentagePhases:
+      title: TaskRunPercentagePhases
+      type: object
+      description: Splits targets by percentage. Values must sum to 100.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase percentages, in phase order; must sum to 100.
+          items:
+            type: integer
+            minimum: 0
+            maximum: 100
+    TaskRunCountPhases:
+      title: TaskRunCountPhases
+      type: object
+      description: Splits targets by explicit counts. A generated final phase covers any remaining targets.
+      required:
+        - phases
+      properties:
+        phases:
+          type: array
+          description: Per-phase target counts, in phase order.
+          items:
+            type: integer
+            minimum: 0
+    TaskRunOperation:
+      title: TaskRunOperation
+      type: object
+      description: The operation the Task Run executes. Firmware is the only supported operation today.
+      required:
+        - firmware
+      properties:
+        firmware:
+          $ref: '#/components/schemas/TaskRunFirmwareOperation'
+        excludeRunIds:
+          type: array
+          description: |-
+            Excludes Racks materialized by prior Task Runs from this Task Run's
+            candidate scope.
+          items:
+            type: string
+            format: uuid
+    TaskRunFirmwareOperation:
+      title: TaskRunFirmwareOperation
+      type: object
+      description: Configures a firmware rollout.
+      required:
+        - version
+      properties:
+        version:
+          type: string
+          description: Target firmware version to roll out.
+        ruleId:
+          type:
+            - string
+            - 'null'
+          format: uuid
+          description: |-
+            Operation Rule to pin for each target's firmware Task. Null to let
+            Flow's default rule resolution pick one.
+        overrideReadinessCheck:
+          type: boolean
+          default: false
+          description: Skip the pre-flight readiness check when true.
+        subTargets:
+          type: array
+          description: Optional subset of firmware sub-targets to update.
+          items:
+            type: string
     TaskReportV1:
       title: TaskReportV1
       type: object
@@ -25760,6 +26836,18 @@ components:
                 message: Error validating request data
                 data:
                   name: A value is required
+    ResourceExhaustedError:
+      description: Error response when the Controller cannot allocate a requested resource because capacity is exhausted
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NICoAPIError'
+          examples:
+            example-1:
+              value:
+                source: nico
+                message: VPC prefix capacity exhausted
+                data: null
     HostFirmwareConfigCoreUnavailable:
       description: Core gRPC API is unavailable, so the host firmware config request cannot be served.
       content:

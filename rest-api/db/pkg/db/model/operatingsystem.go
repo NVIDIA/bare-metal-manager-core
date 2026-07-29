@@ -40,7 +40,7 @@ const (
 	// OperatingSystemTypeIPXE is the raw iPXE script based OperatingSystem type
 	OperatingSystemTypeIPXE = "iPXE"
 	// OperatingSystemTypeTemplatedIPXE is the iPXE template based OperatingSystem type
-	OperatingSystemTypeTemplatedIPXE = "Templated iPXE"
+	OperatingSystemTypeTemplatedIPXE = "TemplatedIpxe"
 	// OperatingSystemTypeImage is the image based OperatingSystem type
 	OperatingSystemTypeImage = "Image"
 

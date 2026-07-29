@@ -1507,7 +1507,7 @@ impl MachineStateHandler {
                                 set_boot_order_info: Some(initial_set_boot_order_info()),
                             },
                         };
-                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, recovered).await
+                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, None, recovered).await
                     }
                     _ => {
                         // Do nothing.
@@ -3430,6 +3430,7 @@ async fn handle_dpu_reprovision_host_boot_config_check(
         state,
         reachability_params,
         dpu_freshness,
+        None,
         ctx,
     )
     .await?
@@ -3478,6 +3479,7 @@ async fn handle_dpu_reprovision_host_boot_config_stage(
         reachability_params,
         redfish_client.as_ref(),
         state,
+        None,
         stage,
     )
     .await?
@@ -3575,6 +3577,24 @@ async fn load_boot_predictions(
     let predictions =
         db::predicted_machine_interface::find_by_machine_id(&mut conn, machine_id).await?;
     Ok(predictions)
+}
+
+/// Resolve one boot-config step from either its explicit target or current
+/// interface state.
+///
+/// An explicit target is complete input, so resolving it does not require
+/// reading mutable prediction rows.
+async fn resolve_boot_interface_for_step(
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    mh_snapshot: &ManagedHostStateSnapshot,
+    explicit_target: Option<&BootInterfaceTarget>,
+) -> Result<BootInterfaceResolution, StateHandlerError> {
+    if let Some(target) = explicit_target {
+        return Ok(BootInterfaceResolution::Ready(target.clone()));
+    }
+
+    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    Ok(resolve_boot_interface(mh_snapshot, &predictions))
 }
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
@@ -3844,6 +3864,38 @@ pub struct DpuMachineStateHandler {
     pub dpf_sdk: Option<Arc<dyn DpfOperations>>,
 }
 
+pub fn is_bf4_dmi_product(product: &str) -> bool {
+    let product = product.to_uppercase();
+    product.contains("B4") || product.contains("BLUEFIELD-4")
+}
+
+/// Whether DPF owns platform configuration for this BF4 DPU.
+///
+/// The persisted ingestion marker prevents an enabled-but-unused DPF
+/// configuration from changing the legacy provisioning path.
+pub fn is_dpf_managed_bf4(
+    state: &ManagedHostStateSnapshot,
+    dpu_snapshot: &Machine,
+) -> Result<bool, StateHandlerError> {
+    if !state.host_snapshot.config.dpf.used_for_ingestion {
+        return Ok(false);
+    }
+
+    let product = dpu_snapshot
+        .status
+        .hardware_info
+        .as_ref()
+        .and_then(|x| x.dmi_data.as_ref())
+        .map(|x| x.product_name.trim())
+        .filter(|x| !x.is_empty())
+        .ok_or_else(|| StateHandlerError::MissingData {
+            object_id: dpu_snapshot.id.to_string(),
+            missing: "product_name in topology",
+        })?;
+
+    Ok(is_bf4_dmi_product(product))
+}
+
 impl DpuMachineStateHandler {
     pub fn new(
         dpu_nic_firmware_initial_update_enabled: bool,
@@ -3859,33 +3911,6 @@ impl DpuMachineStateHandler {
             enable_secure_boot,
             dpf_sdk,
         }
-    }
-
-    /// Whether DPF owns platform configuration for this BF4 DPU.
-    ///
-    /// The persisted ingestion marker prevents an enabled-but-unused DPF
-    /// configuration from changing the legacy provisioning path.
-    fn is_dpf_managed_bf4(
-        &self,
-        state: &ManagedHostStateSnapshot,
-        dpu_snapshot: &Machine,
-    ) -> Result<bool, StateHandlerError> {
-        if !state.host_snapshot.config.dpf.used_for_ingestion {
-            return Ok(false);
-        }
-
-        let product = dpu_snapshot
-            .status
-            .hardware_info
-            .as_ref()
-            .and_then(|x| x.dmi_data.as_ref())
-            .map(|x| x.product_name.to_uppercase())
-            .ok_or_else(|| StateHandlerError::MissingData {
-                object_id: dpu_snapshot.id.to_string(),
-                missing: "product_name in topology",
-            })?;
-
-        Ok(product.contains("B4") || product.contains("BLUEFIELD-4"))
     }
 
     async fn is_secure_boot_disabled(
@@ -4232,7 +4257,7 @@ impl DpuMachineStateHandler {
                     }
                 })?;
 
-                let dpf_managed_bf4 = self.is_dpf_managed_bf4(state, dpu_snapshot)?;
+                let dpf_managed_bf4 = is_dpf_managed_bf4(state, dpu_snapshot)?;
 
                 let dpu_redfish_client = match ctx
                     .services
@@ -4413,7 +4438,7 @@ impl DpuMachineStateHandler {
 
                 // Handle BF4 machines already persisted in this state when the
                 // controller is upgraded: do not issue even one more BIOS query.
-                if self.is_dpf_managed_bf4(state, dpu_snapshot)? {
+                if is_dpf_managed_bf4(state, dpu_snapshot)? {
                     tracing::info!(
                         dpu_machine_id = %dpu_snapshot.id,
                         "Skipping BIOS setup verification for DPF-managed BF4"
@@ -4922,31 +4947,15 @@ enum RequiredBootInterface<W> {
     Wait(W),
 }
 
-/// Resolve the boot NIC for a Redfish boot step, folding the not-ready cases
-/// every caller handles the same way: a zero-DPU host that has not discovered
-/// its boot NIC yet maps to the caller's wait outcome (`wait` wraps the shared
-/// message; `activity` names the blocked step), and a host with no resolvable
-/// interface is a hard error. Keeps the boot-order substates and host boot
-/// repair resolving the boot NIC identically.
+/// Map a boot-interface resolution for Redfish steps that require a target.
+///
+/// A zero-DPU host that has not discovered its boot NIC maps to the caller's
+/// wait outcome (`wait` wraps the shared message and `activity` names the
+/// blocked step). A host that should already have an interface returns an
+/// error.
 fn require_boot_interface<W>(
-    mh_snapshot: &ManagedHostStateSnapshot,
-    predictions: &[PredictedMachineInterface],
-    activity: &str,
-    wait: impl FnOnce(String) -> W,
-) -> Result<RequiredBootInterface<W>, StateHandlerError> {
-    map_boot_interface_resolution(
-        resolve_boot_interface(mh_snapshot, predictions),
-        &mh_snapshot.host_snapshot.id,
-        activity,
-        wait,
-    )
-}
-
-/// The mapping behind [`require_boot_interface`], split out from the snapshot
-/// lookup so it can be unit-tested directly.
-fn map_boot_interface_resolution<W>(
-    resolution: BootInterfaceResolution,
     host_id: &MachineId,
+    resolution: BootInterfaceResolution,
     activity: &str,
     wait: impl FnOnce(String) -> W,
 ) -> Result<RequiredBootInterface<W>, StateHandlerError> {
@@ -4975,9 +4984,9 @@ mod require_boot_interface_tests {
     #[test]
     fn ready_passes_the_target_through() {
         let target = BootInterfaceTarget::MacOnly("20:00:00:00:00:01".parse().unwrap());
-        let resolved = map_boot_interface_resolution::<String>(
-            BootInterfaceResolution::Ready(target.clone()),
+        let resolved = require_boot_interface::<String>(
             &host_id(),
+            BootInterfaceResolution::Ready(target.clone()),
             "setting boot order",
             |msg| msg,
         )
@@ -4992,9 +5001,9 @@ mod require_boot_interface_tests {
     // message with the caller's activity spliced in.
     #[test]
     fn awaiting_nic_maps_to_the_callers_wait_outcome() {
-        let resolved = map_boot_interface_resolution::<String>(
-            BootInterfaceResolution::AwaitingNic,
+        let resolved = require_boot_interface::<String>(
             &host_id(),
+            BootInterfaceResolution::AwaitingNic,
             "setting boot order",
             |msg| msg,
         )
@@ -5014,9 +5023,9 @@ mod require_boot_interface_tests {
     // Missing is a hard error, not a wait.
     #[test]
     fn missing_is_a_hard_error() {
-        let err = map_boot_interface_resolution::<String>(
-            BootInterfaceResolution::Missing,
+        let err = require_boot_interface::<String>(
             &host_id(),
+            BootInterfaceResolution::Missing,
             "setting boot order",
             |msg| msg,
         )
@@ -5393,8 +5402,15 @@ async fn handle_host_init_boot_config_stage(
     redfish_client: &dyn Redfish,
     stage: HostBootConfigStage,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match run_host_boot_config_stage(ctx, reachability_params, redfish_client, mh_snapshot, stage)
-        .await?
+    match run_host_boot_config_stage(
+        ctx,
+        reachability_params,
+        redfish_client,
+        mh_snapshot,
+        None,
+        stage,
+    )
+    .await?
     {
         HostBootConfigOutcome::Continue(stage) => {
             let machine_state = match stage {
@@ -7186,7 +7202,7 @@ impl StateHandler for InstanceStateHandler {
                                     },
                             },
                         };
-                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, recovered).await
+                        handle_bios_setup_failed_recovery(ctx, mh_snapshot, None, recovered).await
                     }
                     _ => {
                         // Only way to proceed for other causes is to
@@ -11003,8 +11019,15 @@ async fn handle_instance_host_boot_config_stage(
     redfish_client: &dyn Redfish,
     stage: HostBootConfigStage,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
-    match run_host_boot_config_stage(ctx, reachability_params, redfish_client, mh_snapshot, stage)
-        .await?
+    match run_host_boot_config_stage(
+        ctx,
+        reachability_params,
+        redfish_client,
+        mh_snapshot,
+        None,
+        stage,
+    )
+    .await?
     {
         HostBootConfigOutcome::Continue(stage) => {
             let platform_config_state = match stage {
@@ -11287,6 +11310,7 @@ async fn handle_instance_host_platform_config(
                 mh_snapshot,
                 reachability_params,
                 HostBootConfigDpuFreshness::CurrentHostState,
+                None,
                 ctx,
             )
             .await?
@@ -11404,9 +11428,11 @@ async fn set_host_boot_order(
     reachability_params: &ReachabilityParams,
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
+    explicit_target: Option<&BootInterfaceTarget>,
     set_boot_order_info: SetBootOrderInfo,
 ) -> Result<SetBootOrderOutcome, StateHandlerError> {
-    let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+    let boot_interface_resolution =
+        resolve_boot_interface_for_step(ctx, mh_snapshot, explicit_target).await?;
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
             // There used to be a `force_dpu_nic_mode`-gated short-circuit
@@ -11427,8 +11453,8 @@ async fn set_host_boot_order(
             // resolves via its predictions; it waits only when neither a real row
             // nor a usable prediction exists.
             let boot_interface = match require_boot_interface(
-                mh_snapshot,
-                &predictions,
+                &mh_snapshot.host_snapshot.id,
+                boot_interface_resolution,
                 "setting boot order",
                 SetBootOrderOutcome::Wait,
             )? {
@@ -11567,8 +11593,8 @@ async fn set_host_boot_order(
             const MAX_HTTP_BOOT_DEVICE_APPLY_RETRIES: u32 = 3;
 
             let boot_interface = match require_boot_interface(
-                mh_snapshot,
-                &predictions,
+                &mh_snapshot.host_snapshot.id,
+                boot_interface_resolution,
                 "verifying the re-asserted HTTP boot device",
                 SetBootOrderOutcome::Wait,
             )? {
@@ -11877,8 +11903,8 @@ async fn set_host_boot_order(
                 .max_bios_config_retries;
 
             let boot_interface = match require_boot_interface(
-                mh_snapshot,
-                &predictions,
+                &mh_snapshot.host_snapshot.id,
+                boot_interface_resolution,
                 "verifying boot order",
                 SetBootOrderOutcome::Wait,
             )? {
@@ -12274,5 +12300,106 @@ mod tests {
             },
             &host_id,
         ));
+    }
+
+    mod is_bf4_dmi_product_tests {
+        use super::*;
+
+        #[test]
+        fn bf4_product_name_is_detected() {
+            assert!(is_bf4_dmi_product("BlueField-4 SmartNIC Main Card"));
+        }
+
+        #[test]
+        fn bf4_detection_is_case_insensitive() {
+            assert!(is_bf4_dmi_product("bluefield-4 smartnic main card"));
+        }
+
+        #[test]
+        fn bf3_product_name_is_not_bf4() {
+            assert!(!is_bf4_dmi_product("BlueField SoC"));
+        }
+
+        #[test]
+        fn empty_product_name_is_not_bf4() {
+            assert!(!is_bf4_dmi_product(""));
+        }
+    }
+
+    mod is_dpf_managed_bf4_tests {
+        use model::hardware_info::{DmiData, HardwareInfo};
+        use model::test_support::machine_snapshot::{dpu_machine, managed_host_state_snapshot};
+
+        use super::*;
+
+        fn dpu_with_product_name(product_name: &str) -> Machine {
+            let mut dpu = dpu_machine(0);
+            dpu.status.hardware_info = Some(HardwareInfo {
+                dmi_data: Some(DmiData {
+                    product_name: product_name.to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+            dpu
+        }
+
+        fn state_with_ingestion(used_for_ingestion: bool) -> ManagedHostStateSnapshot {
+            let mut state = managed_host_state_snapshot();
+            state.host_snapshot.config.dpf.used_for_ingestion = used_for_ingestion;
+            state
+        }
+
+        #[test]
+        fn returns_false_when_dpf_not_used_for_ingestion() {
+            let state = state_with_ingestion(false);
+            let dpu = dpu_with_product_name("BlueField-4 SmartNIC Main Card");
+            assert!(!is_dpf_managed_bf4(&state, &dpu).unwrap());
+        }
+
+        #[test]
+        fn returns_true_for_bf4_product_name() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("BlueField-4 SmartNIC Main Card");
+            assert!(is_dpf_managed_bf4(&state, &dpu).unwrap());
+        }
+
+        #[test]
+        fn returns_false_for_bf3_product_name() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("BlueField-3 Dpu");
+            assert!(!is_dpf_managed_bf4(&state, &dpu).unwrap());
+        }
+
+        #[test]
+        fn errors_when_dmi_data_absent() {
+            let state = state_with_ingestion(true);
+            let mut dpu = dpu_machine(0);
+            dpu.status.hardware_info = Some(HardwareInfo::default());
+            assert!(matches!(
+                is_dpf_managed_bf4(&state, &dpu),
+                Err(StateHandlerError::MissingData { .. })
+            ));
+        }
+
+        #[test]
+        fn errors_when_product_name_empty() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("");
+            assert!(matches!(
+                is_dpf_managed_bf4(&state, &dpu),
+                Err(StateHandlerError::MissingData { .. })
+            ));
+        }
+
+        #[test]
+        fn errors_when_product_name_whitespace_only() {
+            let state = state_with_ingestion(true);
+            let dpu = dpu_with_product_name("   ");
+            assert!(matches!(
+                is_dpf_managed_bf4(&state, &dpu),
+                Err(StateHandlerError::MissingData { .. })
+            ));
+        }
     }
 }

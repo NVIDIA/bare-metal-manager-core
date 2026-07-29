@@ -706,6 +706,20 @@ func assertInterfaceRoutingProfilePrefixes(t *testing.T, actual *corev1.Instance
 	}
 }
 
+// assertInterfaceVpcSelection verifies that an Interface carries the expected
+// Controller-managed VPC selection intent.
+func assertInterfaceVpcSelection(t *testing.T, actual *corev1.InstanceInterfaceConfig, controllerVpcID uuid.UUID) {
+	t.Helper()
+
+	require.NotNil(t, actual)
+	selection, ok := actual.NetworkDetails.(*corev1.InstanceInterfaceConfig_Vpc)
+	require.True(t, ok)
+	require.NotNil(t, selection.Vpc)
+	require.NotNil(t, selection.Vpc.VpcId)
+	assert.Equal(t, controllerVpcID.String(), selection.Vpc.VpcId.Value)
+	assert.Equal(t, corev1.InstanceInterfaceIpFamilyMode_INSTANCE_INTERFACE_IP_FAMILY_MODE_IPV4_ONLY, selection.Vpc.FamilyMode)
+}
+
 func TestBuildInstanceNetworkConfig(t *testing.T) {
 	controllerVpcID := uuid.New()
 	interfaceConfigs := []*corev1.InstanceInterfaceConfig{
@@ -853,6 +867,16 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 
 	alc1 := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, ist1.ID, cdbm.AllocationConstraintTypeReserved, 9, ipu)
 	assert.NotNil(t, alc1)
+
+	// Use dedicated allocation inventory for VPC-selection coverage so the
+	// request cannot consume capacity needed by unrelated table cases.
+	istVpcSelection := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-vpc-selection", st1, cdbm.InstanceStatusReady)
+	assert.NotNil(t, istVpcSelection)
+	alcVpcSelection := testInstanceSiteBuildAllocationContraints(t, dbSession, al1, cdbm.AllocationResourceTypeInstanceType, istVpcSelection.ID, cdbm.AllocationConstraintTypeReserved, 1, ipu)
+	assert.NotNil(t, alcVpcSelection)
+	mcVpcSelection := testInstanceBuildMachine(t, dbSession, ip.ID, st1.ID, cutil.GetPtr(false), nil)
+	assert.NotNil(t, mcVpcSelection)
+	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mcVpcSelection, istVpcSelection))
 
 	// Dedicated instance type for IP-exhaustion fixtures; must not consume ist1 allocation (limit 9).
 	istExhaustFixture := testInstanceBuildInstanceType(t, dbSession, ip, "test-instance-type-exhaust-fixture", st1, cdbm.InstanceStatusReady)
@@ -1248,6 +1272,8 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// FNN VPC
 	vpc9 := testInstanceBuildVPC(t, dbSession, "test-vpc-9", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc9)
+	vpc9Secondary := testInstanceBuildVPC(t, dbSession, "test-vpc-9-secondary", ip, tn1, st1, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	assert.NotNil(t, vpc9Secondary)
 	vpc9Site2 := testInstanceBuildVPC(t, dbSession, "test-vpc-9-site-2", ip, tn1, st2, cutil.GetPtr(uuid.New()), nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc9Site2)
 
@@ -1414,12 +1440,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                    string
-		fields                  fields
-		args                    args
-		expectedSecondaryVpcIDs []string
-		wantErr                 bool
-		verifyChildSpanner      bool
+		name                     string
+		fields                   fields
+		args                     args
+		expectedControllerVpcIDs map[string]uuid.UUID
+		wantErr                  bool
+		verifyChildSpanner       bool
 	}{
 		{
 			name: "test Instance create API endpoint success with subnet interface and ssh key group iPXE script and Labels",
@@ -1671,9 +1697,45 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				reqUser:    tnu1,
 				respCode:   http.StatusCreated,
 			},
-			expectedSecondaryVpcIDs: []string{vpc1.ID.String()},
-			wantErr:                 false,
-			verifyChildSpanner:      true,
+			wantErr:            false,
+			verifyChildSpanner: true,
+		},
+		{
+			name: "test Instance create API endpoint preserves VPC selection intent",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceCreateRequest{
+					Name:              "TestVpcSelectionInstance",
+					TenantID:          tn1.ID.String(),
+					InstanceTypeID:    cutil.GetPtr(istVpcSelection.ID.String()),
+					VpcID:             vpc9.ID.String(),
+					SecondaryVpcIDs:   []string{vpc9Secondary.ID.String()},
+					OperatingSystemID: cutil.GetPtr(os1.ID.String()),
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							VpcID:      cutil.GetPtr(vpc9.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+							IsPhysical: true,
+						},
+						{
+							VpcID:      cutil.GetPtr(vpc9Secondary.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+						},
+					},
+				},
+				reqOrg:   tnOrg,
+				reqUser:  tnu1,
+				respCode: http.StatusCreated,
+			},
+			expectedControllerVpcIDs: map[string]uuid.UUID{
+				vpc9.ID.String():          *vpc9.ControllerVpcID,
+				vpc9Secondary.ID.String(): *vpc9Secondary.ControllerVpcID,
+			},
+			wantErr: false,
 		},
 		{
 			name: "test Instance create API endpoint failed when requested secondary VPCs do not match interface VPCs",
@@ -1864,9 +1926,8 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 
 				respMessage: "",
 			},
-			expectedSecondaryVpcIDs: []string{},
-			wantErr:                 false,
-			verifyChildSpanner:      true,
+			wantErr:            false,
+			verifyChildSpanner: true,
 		},
 		{
 			name: "test Instance create API endpoint success, custom ipxeScript is specified without OS along with phonehome enabled",
@@ -2891,7 +2952,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "test Instance create API endpoint failed when primary physical interface uses a prefix from a secondary VPC without device info",
+			name: "test Instance create API endpoint preserves prefix response for mixed selectors without device info",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -2909,6 +2970,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						{
 							VpcPrefixID: cutil.GetPtr(vpcPrefix3.ID.String()),
 							IsPhysical:  true,
+						},
+						{
+							VpcID:      cutil.GetPtr(vpc9.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
 						},
 					},
 				},
@@ -3792,6 +3857,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						assert.Equal(t, tt.args.reqData.Interfaces[i].VpcPrefixID, rst.Interfaces[i].VpcPrefixID)
 					}
 
+					if tt.args.reqData.Interfaces[i].VpcID != nil {
+						assert.Equal(t, tt.args.reqData.Interfaces[i].VpcID, rst.Interfaces[i].VpcID)
+						assert.Equal(t, tt.args.reqData.Interfaces[i].IPFamilies, rst.Interfaces[i].IPFamilies)
+						assert.Nil(t, rst.Interfaces[i].VpcPrefixID)
+					}
+
 					if tt.args.reqData.Interfaces[i].IPAddress != nil {
 						assert.Equal(t, tt.args.reqData.Interfaces[i].IPAddress, rst.Interfaces[i].RequestedIpAddress)
 					}
@@ -3812,7 +3883,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 					}
 				}
 
-				if hasInlineRoutingProfile {
+				if hasInlineRoutingProfile || len(tt.expectedControllerVpcIDs) > 0 {
 					ifcDAO := cdbm.NewInterfaceDAO(dbSession)
 					dbIfcs, _, ierr := ifcDAO.GetAll(ec.Request().Context(), nil,
 						cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{uuid.MustParse(rst.ID)}},
@@ -3824,6 +3895,13 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 						if tt.args.reqData.Interfaces[i].InlineRoutingProfile != nil {
 							require.NotNil(t, dbIfcs[i].InlineRoutingProfile)
 							assert.Equal(t, tt.args.reqData.Interfaces[i].InlineRoutingProfile.AllowedAnycastPrefixes, dbIfcs[i].InlineRoutingProfile.AllowedAnycastPrefixes)
+						}
+						if tt.args.reqData.Interfaces[i].VpcID != nil {
+							require.NotNil(t, dbIfcs[i].VpcID)
+							assert.Equal(t, *tt.args.reqData.Interfaces[i].VpcID, dbIfcs[i].VpcID.String())
+							require.NotNil(t, dbIfcs[i].VpcIPFamilyMode)
+							assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *dbIfcs[i].VpcIPFamilyMode)
+							assert.Nil(t, dbIfcs[i].VpcPrefixID)
 						}
 					}
 				}
@@ -3856,6 +3934,11 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				for i, reqIfc := range tt.args.reqData.Interfaces {
 					if reqIfc.InlineRoutingProfile != nil {
 						assertInterfaceRoutingProfilePrefixes(t, req.Config.Network.Interfaces[i].RoutingProfile, reqIfc.InlineRoutingProfile.AllowedAnycastPrefixes)
+					}
+					if reqIfc.VpcID != nil {
+						expectedControllerVpcID, ok := tt.expectedControllerVpcIDs[*reqIfc.VpcID]
+						require.True(t, ok)
+						assertInterfaceVpcSelection(t, req.Config.Network.Interfaces[i], expectedControllerVpcID)
 					}
 				}
 			}
@@ -3901,7 +3984,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 				assert.Equal(t, len(rst.Labels), len(tt.args.reqData.Labels))
 			}
 
-			assert.ElementsMatch(t, tt.expectedSecondaryVpcIDs, rst.SecondaryVpcIDs)
+			assert.ElementsMatch(t, tt.args.reqData.SecondaryVpcIDs, rst.SecondaryVpcIDs)
 
 			if tt.args.respUserData != nil {
 				assert.Equal(t, *tt.args.respUserData, *rst.UserData)
@@ -4180,6 +4263,39 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 	vpc4 := testInstanceBuildVPC(t, dbSession, "test-vpc-4", ip, tn1, st1, nil, nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
 	assert.NotNil(t, vpc4)
+
+	controllerVpcSelectionID := uuid.New()
+	vpcSelection := testInstanceBuildVPC(t, dbSession, "test-vpc-selection-update", ip, tn1, st3, &controllerVpcSelectionID, nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	assert.NotNil(t, vpcSelection)
+	controllerVpcSelectionSecondaryID := uuid.New()
+	vpcSelectionSecondary := testInstanceBuildVPC(t, dbSession, "test-vpc-selection-update-secondary", ip, tn1, st3, &controllerVpcSelectionSecondaryID, nil, cutil.GetPtr(cdbm.VpcFNN), nil, cdbm.VpcStatusReady, tnu1)
+	assert.NotNil(t, vpcSelectionSecondary)
+
+	mcVpcSelectionUpdate := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cutil.GetPtr(false), nil)
+	assert.NotNil(t, mcVpcSelectionUpdate)
+	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mcVpcSelectionUpdate, ist4))
+	instVpcSelectionUpdate := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-selection-update", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcSelection.ID, cutil.GetPtr(mcVpcSelectionUpdate.ID), &os2.ID, os2.IpxeScript, cdbm.InstanceStatusReady)
+	assert.NotNil(t, instVpcSelectionUpdate)
+
+	mcVpcSelectionPreserve := testInstanceBuildMachine(t, dbSession, ip.ID, st3.ID, cutil.GetPtr(false), nil)
+	assert.NotNil(t, mcVpcSelectionPreserve)
+	assert.NotNil(t, testInstanceBuildMachineInstanceType(t, dbSession, mcVpcSelectionPreserve, ist4))
+	instVpcSelectionPreserve := testInstanceBuildInstance(t, dbSession, "test-instance-vpc-selection-preserve", tn1.ID, ip.ID, st3.ID, &ist4.ID, vpcSelection.ID, cutil.GetPtr(mcVpcSelectionPreserve.ID), &os2.ID, os2.IpxeScript, cdbm.InstanceStatusReady)
+	assert.NotNil(t, instVpcSelectionPreserve)
+	vpcSelectionIPBlock := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb-vpc-selection-update", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.181.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu1)
+	assert.NotNil(t, vpcSelectionIPBlock)
+	vpcSelectionPrefix := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-selection-update", st3, tn1, vpcSelection.ID, &vpcSelectionIPBlock.ID, cutil.GetPtr("192.181.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
+	assert.NotNil(t, vpcSelectionPrefix)
+	_, selectorErr := cdbm.NewInterfaceDAO(dbSession).Create(context.Background(), nil, cdbm.InterfaceCreateInput{
+		InstanceID:      instVpcSelectionPreserve.ID,
+		VpcID:           &vpcSelection.ID,
+		VpcIPFamilyMode: cutil.GetPtr(cdbm.InterfaceVpcIPFamilyModeIPv4Only),
+		VpcPrefixID:     &vpcSelectionPrefix.ID,
+		IsPhysical:      true,
+		Status:          cdbm.InterfaceStatusReady,
+		CreatedBy:       tnu1.ID,
+	})
+	require.NoError(t, selectorErr)
 
 	// VPC prefix
 	ipb1 := common.TestBuildVpcPrefixIPBlock(t, dbSession, "testipb2", st3, ip, &tn1.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu2)
@@ -4654,7 +4770,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 		fields                      fields
 		args                        args
 		wantErr                     bool
-		expectedSecondaryVpcIDs     []string
+		expectedInterfaceVpcID      *uuid.UUID
+		expectedControllerVpcIDs    map[string]uuid.UUID
+		expectedResolvedVpcPrefixID *uuid.UUID
 		verifySiteControllerRequest bool
 		verifyChildSpanner          bool
 	}{
@@ -5941,6 +6059,67 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "test Instance update API endpoint preserves requested VPC selection intent",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceUpdateRequest{
+					SecondaryVpcIDs: []string{vpcSelectionSecondary.ID.String()},
+					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
+						{
+							VpcID:      cutil.GetPtr(vpcSelection.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+							IsPhysical: true,
+						},
+						{
+							VpcID:      cutil.GetPtr(vpcSelectionSecondary.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
+						},
+					},
+				},
+				reqInstance:        instVpcSelectionUpdate.ID.String(),
+				reqOrg:             tnOrg1,
+				reqUser:            tnu1,
+				respCode:           http.StatusOK,
+				respNoOfInterfaces: cutil.GetPtr(2),
+			},
+			expectedControllerVpcIDs: map[string]uuid.UUID{
+				vpcSelection.ID.String():          controllerVpcSelectionID,
+				vpcSelectionSecondary.ID.String(): controllerVpcSelectionSecondaryID,
+			},
+			wantErr:                     false,
+			verifySiteControllerRequest: true,
+		},
+		{
+			name: "test Instance update API endpoint preserves existing VPC selection during unrelated update",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData: &model.APIInstanceUpdateRequest{
+					Name: cutil.GetPtr("test-instance-vpc-selection-preserved"),
+				},
+				reqInstance: instVpcSelectionPreserve.ID.String(),
+				reqOrg:      tnOrg1,
+				reqUser:     tnu1,
+				respCode:    http.StatusOK,
+			},
+			expectedInterfaceVpcID: &vpcSelection.ID,
+			expectedControllerVpcIDs: map[string]uuid.UUID{
+				vpcSelection.ID.String(): controllerVpcSelectionID,
+			},
+			expectedResolvedVpcPrefixID: &vpcSelectionPrefix.ID,
+			wantErr:                     false,
+			verifySiteControllerRequest: true,
+		},
+		{
 			name: "test Instance update API endpoint failure with interface update when Instance Type doesn't have Network Capabilities with DPU device type",
 			fields: fields{
 				dbSession: dbSession,
@@ -6063,7 +6242,6 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					*instifc2,
 				},
 			},
-			expectedSecondaryVpcIDs:     []string{vpc4Site3Secondary.ID.String()},
 			wantErr:                     false,
 			verifySiteControllerRequest: true,
 			verifyChildSpanner:          true,
@@ -6319,7 +6497,7 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "test Instance update API endpoint failed when primary physical interface uses a prefix from a secondary VPC without device info",
+			name: "test Instance update API endpoint preserves prefix response for mixed selectors without device info",
 			fields: fields{
 				dbSession: dbSession,
 				tc:        tc,
@@ -6333,11 +6511,16 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 					IpxeScript:  os2.IpxeScript,
 					SecondaryVpcIDs: []string{
 						vpc4Site3Secondary.ID.String(),
+						vpcSelection.ID.String(),
 					},
 					Interfaces: []model.APIInterfaceCreateOrUpdateRequest{
 						{
 							VpcPrefixID: cutil.GetPtr(vpcPrefixSite3Secondary.ID.String()),
 							IsPhysical:  true,
+						},
+						{
+							VpcID:      cutil.GetPtr(vpcSelection.ID.String()),
+							IPFamilies: []model.IPFamily{model.IPFamilyIPv4},
 						},
 					},
 				},
@@ -6964,6 +7147,52 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 			reqIns, _ := insDAO.GetByID(ec.Request().Context(), nil, uuid.MustParse(tt.args.reqInstance), nil)
 
+			if len(tt.expectedControllerVpcIDs) > 0 && len(tt.args.reqData.Interfaces) > 0 {
+				require.Len(t, rst.Interfaces, len(tt.args.reqData.Interfaces))
+				persistedIfcs, _, ierr := ifcDAO.GetAll(ec.Request().Context(), nil,
+					cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}},
+					cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
+				require.NoError(t, ierr)
+				require.Len(t, persistedIfcs, len(tt.args.reqData.Interfaces))
+				for i, reqIfc := range tt.args.reqData.Interfaces {
+					require.NotNil(t, reqIfc.VpcID)
+					assert.Equal(t, reqIfc.VpcID, rst.Interfaces[i].VpcID)
+					assert.Equal(t, reqIfc.IPFamilies, rst.Interfaces[i].IPFamilies)
+					assert.Nil(t, rst.Interfaces[i].VpcPrefixID)
+					require.NotNil(t, persistedIfcs[i].VpcID)
+					assert.Equal(t, *reqIfc.VpcID, persistedIfcs[i].VpcID.String())
+					require.NotNil(t, persistedIfcs[i].VpcIPFamilyMode)
+					assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *persistedIfcs[i].VpcIPFamilyMode)
+					assert.Nil(t, persistedIfcs[i].VpcPrefixID)
+				}
+			}
+
+			if tt.expectedInterfaceVpcID != nil {
+				require.NotEmpty(t, rst.Interfaces)
+				responseIfc := rst.Interfaces[0]
+				require.NotNil(t, responseIfc.VpcID)
+				assert.Equal(t, tt.expectedInterfaceVpcID.String(), *responseIfc.VpcID)
+				assert.Equal(t, []model.IPFamily{model.IPFamilyIPv4}, responseIfc.IPFamilies)
+				assert.Nil(t, responseIfc.VpcPrefixID)
+				assert.Nil(t, responseIfc.VpcPrefix)
+
+				persistedIfcs, _, ierr := ifcDAO.GetAll(ec.Request().Context(), nil,
+					cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}},
+					cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
+				require.NoError(t, ierr)
+				require.Len(t, persistedIfcs, 1)
+				require.NotNil(t, persistedIfcs[0].VpcID)
+				assert.Equal(t, *tt.expectedInterfaceVpcID, *persistedIfcs[0].VpcID)
+				require.NotNil(t, persistedIfcs[0].VpcIPFamilyMode)
+				assert.Equal(t, cdbm.InterfaceVpcIPFamilyModeIPv4Only, *persistedIfcs[0].VpcIPFamilyMode)
+				if tt.expectedResolvedVpcPrefixID == nil {
+					assert.Nil(t, persistedIfcs[0].VpcPrefixID)
+				} else {
+					require.NotNil(t, persistedIfcs[0].VpcPrefixID)
+					assert.Equal(t, *tt.expectedResolvedVpcPrefixID, *persistedIfcs[0].VpcPrefixID)
+				}
+			}
+
 			ttsc, _ := tt.fields.scp.GetClientByID(reqIns.SiteID)
 			ttscm := ttsc.(*tmocks.Client)
 
@@ -7019,8 +7248,8 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 				}
 			}
 
-			if tt.expectedSecondaryVpcIDs != nil {
-				assert.ElementsMatch(t, tt.expectedSecondaryVpcIDs, rst.SecondaryVpcIDs)
+			if tt.args.reqData.SecondaryVpcIDs != nil {
+				assert.ElementsMatch(t, tt.args.reqData.SecondaryVpcIDs, rst.SecondaryVpcIDs)
 			}
 
 			if tt.args.expectedNetworkSecurityGroupInherited != nil {
@@ -7134,14 +7363,15 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						}
 					}
 				}
+				require.NotNil(t, siteReq, "expected UpdateInstance workflow request for Instance %s", tt.args.reqInstance)
 				if siteReq != nil {
 					// Verify the number of interfaces in the request as pending status
 					// which is the number of interfaces in the request
 					var reqInsIfcs []cdbm.Interface
 					if tt.args.respNoOfInterfaces != nil {
-						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}, Statuses: []string{cdbm.InterfaceStatusPending}}, cdbp.PageInput{}, nil)
+						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}, Statuses: []string{cdbm.InterfaceStatusPending}}, cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
 					} else {
-						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}}, cdbp.PageInput{}, nil)
+						reqInsIfcs, _, _ = ifcDAO.GetAll(ec.Request().Context(), nil, cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{reqIns.ID}}, cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}}, nil)
 					}
 
 					assert.Equal(t, len(reqInsIfcs), len(siteReq.Config.Network.Interfaces))
@@ -7163,14 +7393,25 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 							assert.Equal(t, siteIfc.NetworkSegmentId.Value, reqInsIfcs[i].SubnetID.String())
 						}
 
-						// VpcPrefix case if we have only NetworkDetails
+						// Prefix-backed cases have NetworkDetails without a segment ID.
 						if siteIfc.NetworkDetails != nil && siteIfc.NetworkSegmentId == nil {
-							ifcNd, ok := siteIfc.NetworkDetails.(*corev1.InstanceInterfaceConfig_VpcPrefixId)
-							assert.True(t, ok)
-							assert.Equal(t, ifcNd.VpcPrefixId.Value, siteIfc.NetworkDetails.(*corev1.InstanceInterfaceConfig_VpcPrefixId).VpcPrefixId.Value)
-
-							//Make sure order is same as the request received
-							assert.Equal(t, ifcNd.VpcPrefixId.Value, reqInsIfcs[i].VpcPrefixID.String())
+							switch networkDetails := siteIfc.NetworkDetails.(type) {
+							case *corev1.InstanceInterfaceConfig_VpcPrefixId:
+								require.NotNil(t, reqInsIfcs[i].VpcPrefixID)
+								assert.Equal(t, networkDetails.VpcPrefixId.Value, reqInsIfcs[i].VpcPrefixID.String())
+							case *corev1.InstanceInterfaceConfig_Vpc:
+								require.NotNil(t, reqInsIfcs[i].VpcID)
+								require.NotNil(t, reqInsIfcs[i].VpcIPFamilyMode)
+								interfaceVpcID := reqInsIfcs[i].VpcID.String()
+								if i < len(tt.args.reqData.Interfaces) && tt.args.reqData.Interfaces[i].VpcID != nil {
+									interfaceVpcID = *tt.args.reqData.Interfaces[i].VpcID
+								}
+								expectedControllerVpcID, ok := tt.expectedControllerVpcIDs[interfaceVpcID]
+								require.True(t, ok)
+								assertInterfaceVpcSelection(t, siteIfc, expectedControllerVpcID)
+							default:
+								assert.Failf(t, "unexpected Interface network details", "%T", networkDetails)
+							}
 						}
 
 						// Check if Device and DeviceInstance are present

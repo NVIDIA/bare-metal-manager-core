@@ -117,6 +117,8 @@ type APIClient struct {
 
 	TaskAPI *TaskAPIService
 
+	TaskRunAPI *TaskRunAPIService
+
 	TenantAPI *TenantAPIService
 
 	TenantAccountAPI *TenantAccountAPIService
@@ -185,6 +187,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.SiteExplorerAPI = (*SiteExplorerAPIService)(&c.common)
 	c.SubnetAPI = (*SubnetAPIService)(&c.common)
 	c.TaskAPI = (*TaskAPIService)(&c.common)
+	c.TaskRunAPI = (*TaskRunAPIService)(&c.common)
 	c.TenantAPI = (*TenantAPIService)(&c.common)
 	c.TenantAccountAPI = (*TenantAccountAPIService)(&c.common)
 	c.TenantIdentityAPI = (*TenantIdentityAPIService)(&c.common)
@@ -562,15 +565,6 @@ func (c *APIClient) decode(v interface{}, b []byte, contentType string) (err err
 	}
 	if s, ok := v.(*string); ok {
 		*s = string(b)
-		return nil
-	}
-	if r, ok := v.(*io.Reader); ok {
-		*r = bytes.NewReader(b)
-		return nil
-	}
-	// Must stay before the JSON branch: json.Unmarshal would base64-decode into *[]byte.
-	if p, ok := v.(*[]byte); ok {
-		*p = b
 		return nil
 	}
 	if f, ok := v.(*os.File); ok {

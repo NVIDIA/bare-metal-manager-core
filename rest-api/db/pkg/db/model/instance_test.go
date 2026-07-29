@@ -1012,6 +1012,7 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 	tenant2 := testInstanceBuildTenant(t, dbSession, "testTenant2")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	vpc2 := testInstanceBuildVpc(t, dbSession, ip, site2, tenant2, "testVpc2")
+	vpcSelection := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpcSelection")
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	allocation2 := testInstanceBuildAllocation(t, dbSession, ip, tenant2, site2, "testAllocation2")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
@@ -1180,6 +1181,15 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 		CreatedBy:   user.ID,
 	})
 	assert.NoError(t, err)
+	_, err = ifcd.Create(ctx, nil, InterfaceCreateInput{
+		InstanceID:      instanceGroup1[1].ID,
+		VpcID:           &vpcSelection.ID,
+		VpcIPFamilyMode: cutil.GetPtr(InterfaceVpcIPFamilyModeIPv4Only),
+		Status:          InterfaceStatusPending,
+		IsPhysical:      true,
+		CreatedBy:       user.ID,
+	})
+	assert.NoError(t, err)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -1334,6 +1344,14 @@ func TestInstanceSQLDAO_GetAll(t *testing.T) {
 				Limit: cutil.GetPtr(totalCount),
 			},
 			expectedCount: totalCount/2 + 1,
+			expectedError: false,
+		},
+		{
+			desc: "VPC filter includes an unresolved directly selected secondary VPC",
+			filter: InstanceFilterInput{
+				VpcIDs: []uuid.UUID{vpcSelection.ID},
+			},
+			expectedCount: 1,
 			expectedError: false,
 		},
 		{
@@ -1895,6 +1913,7 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 	tenant2 := testInstanceBuildTenant(t, dbSession, "testTenant2")
 	vpc := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
 	vpc2 := testInstanceBuildVpc(t, dbSession, ip, site2, tenant2, "testVpc2")
+	vpcSelection := testInstanceBuildVpc(t, dbSession, ip, site, tenant, "testVpcSelection")
 	allocation := testInstanceBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	allocation2 := testInstanceBuildAllocation(t, dbSession, ip, tenant2, site2, "testAllocation2")
 	instanceType := testInstanceBuildInstanceType(t, dbSession, ip, "testInstanceType")
@@ -2056,6 +2075,15 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 		CreatedBy:   user.ID,
 	})
 	assert.NoError(t, err)
+	_, err = ifcd.Create(ctx, nil, InterfaceCreateInput{
+		InstanceID:      instanceGroup1[1].ID,
+		VpcID:           &vpcSelection.ID,
+		VpcIPFamilyMode: cutil.GetPtr(InterfaceVpcIPFamilyModeIPv4Only),
+		Status:          InterfaceStatusPending,
+		IsPhysical:      true,
+		CreatedBy:       user.ID,
+	})
+	assert.NoError(t, err)
 
 	// OTEL Spanner configuration
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
@@ -2160,6 +2188,14 @@ func TestInstanceSQLDAO_GetCount(t *testing.T) {
 				VpcIDs: []uuid.UUID{vpc2.ID},
 			},
 			expectedCount: totalCount/2 + 1,
+			expectedError: false,
+		},
+		{
+			desc: "VPC filter count includes an unresolved directly selected secondary VPC",
+			filter: InstanceFilterInput{
+				VpcIDs: []uuid.UUID{vpcSelection.ID},
+			},
+			expectedCount: 1,
 			expectedError: false,
 		},
 		{
