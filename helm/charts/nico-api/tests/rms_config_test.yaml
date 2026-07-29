@@ -4,7 +4,7 @@ templates:
 release:
   namespace: nico-system
 tests:
-  - it: renders rack profiles by default without rms or component_manager
+  - it: renders rack profiles, component_manager, and rms by default
     documentIndex: 0
     asserts:
       - matchRegex:
@@ -13,6 +13,38 @@ tests:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[rack_profiles\.NVL72_GB300\]'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^\[component_manager\]$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^compute_tray_backend = "rms"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^compute_tray_use_state_controller = true$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^\[rms\]$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^api_url = "https://rms-api-server\.rack-manager\.svc\.cluster\.local:8801"$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^enforce_tls = true$'
+      # No cert paths by default: nv-rms-client auto-discovers the SPIFFE
+      # mount (/var/run/secrets/spiffe.io) when they are unset.
+      - notMatchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: 'root_ca_path|client_cert|client_key'
+
+  - it: omits both sections when both switches are disabled
+    documentIndex: 0
+    set:
+      componentManager:
+        enabled: false
+      rms:
+        enabled: false
+    asserts:
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[rms\]'
@@ -25,6 +57,8 @@ tests:
     set:
       componentManager:
         enabled: true
+      rms:
+        enabled: false
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
@@ -32,9 +66,6 @@ tests:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '(?m)^compute_tray_backend = "rms"$'
-      - matchRegex:
-          path: data["nico-api-config.toml"]
-          pattern: '(?m)^compute_tray_use_state_controller = true$'
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[rms\]'
@@ -50,6 +81,8 @@ tests:
         computeTrayUseStateController: false
         nvSwitchUseStateController: false
         powerShelfUseStateController: false
+      rms:
+        enabled: false
     asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
@@ -73,6 +106,8 @@ tests:
   - it: renders rms alone when only rms is enabled
     documentIndex: 0
     set:
+      componentManager:
+        enabled: false
       rms:
         enabled: true
     asserts:
@@ -82,32 +117,9 @@ tests:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '(?m)^api_url = "https://rms-api-server\.rack-manager\.svc\.cluster\.local:8801"$'
-      - matchRegex:
-          path: data["nico-api-config.toml"]
-          pattern: '(?m)^enforce_tls = true$'
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: '\[component_manager\]'
-      # No cert paths by default: nv-rms-client auto-discovers the SPIFFE
-      # mount (/var/run/secrets/spiffe.io) when they are unset.
-      - notMatchRegex:
-          path: data["nico-api-config.toml"]
-          pattern: 'root_ca_path|client_cert|client_key'
-
-  - it: renders both sections when both switches are enabled
-    documentIndex: 0
-    set:
-      componentManager:
-        enabled: true
-      rms:
-        enabled: true
-    asserts:
-      - matchRegex:
-          path: data["nico-api-config.toml"]
-          pattern: '(?m)^\[component_manager\]$'
-      - matchRegex:
-          path: data["nico-api-config.toml"]
-          pattern: '(?m)^\[rms\]$'
 
   - it: renders explicit mTLS material overrides when set
     documentIndex: 0
@@ -130,8 +142,6 @@ tests:
 
   - it: keeps the rms section out of the site-config ConfigMap
     set:
-      rms:
-        enabled: true
       siteConfig:
         enabled: true
         nicoApiSiteConfig: |
