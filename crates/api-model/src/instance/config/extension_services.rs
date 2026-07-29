@@ -78,6 +78,21 @@ impl InstanceExtensionServicesConfig {
         current_active != new_services
     }
 
+    /// Returns whether `new_config` introduces an active service or service version that is not
+    /// already active in the current config.
+    pub fn has_new_active_services(&self, new_config: &Self) -> bool {
+        let current_active: HashSet<_> = self
+            .active_services()
+            .iter()
+            .map(|s| (s.service_id, s.version.to_string()))
+            .collect();
+
+        new_config
+            .active_services()
+            .iter()
+            .any(|s| !current_active.contains(&(s.service_id, s.version.to_string())))
+    }
+
     /// Calculates the new actual extension services config based on the current config and the new config.
     /// For any current active service that is not in the new config, it will be marked as deleted.
     /// For any new service that is not in the current config, it will be added to the new config.
@@ -201,5 +216,47 @@ mod tests {
         assert_eq!(cleaned.service_configs[0].service_id, sid);
         assert_eq!(cleaned.service_configs[0].version, second_version);
         assert!(cleaned.service_configs[0].removed.is_none());
+    }
+
+    #[test]
+    fn extension_service_detects_only_new_active_services() {
+        let existing_id =
+            ExtensionServiceId::from_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let new_id = ExtensionServiceId::from_str("00000000-0000-0000-0000-000000000002").unwrap();
+        let initial_version = ConfigVersion::initial();
+        let current = InstanceExtensionServicesConfig {
+            service_configs: vec![InstanceExtensionServiceConfig {
+                service_id: existing_id,
+                version: initial_version,
+                removed: None,
+            }],
+        };
+
+        let detached = InstanceExtensionServicesConfig::default();
+        assert!(!current.has_new_active_services(&detached));
+
+        let unchanged = current.clone();
+        assert!(!current.has_new_active_services(&unchanged));
+
+        let added = InstanceExtensionServicesConfig {
+            service_configs: vec![
+                unchanged.service_configs[0].clone(),
+                InstanceExtensionServiceConfig {
+                    service_id: new_id,
+                    version: initial_version,
+                    removed: None,
+                },
+            ],
+        };
+        assert!(current.has_new_active_services(&added));
+
+        let upgraded = InstanceExtensionServicesConfig {
+            service_configs: vec![InstanceExtensionServiceConfig {
+                service_id: existing_id,
+                version: initial_version.increment(),
+                removed: None,
+            }],
+        };
+        assert!(current.has_new_active_services(&upgraded));
     }
 }
