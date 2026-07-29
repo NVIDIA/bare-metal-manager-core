@@ -281,15 +281,24 @@ enum BmcSessionLockoutBreakerTransition {
     Cleared,
 }
 
+/// The one metric the Events below record.
+#[derive(carbide_instrument::MetricFamily)]
+#[metric(
+    name = "carbide_bmc_session_lockout_breaker_transitions_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of BMC session lockout-avoidance breaker transitions."
+)]
+struct BmcSessionLockoutBreakerTransitions {
+    transition: BmcSessionLockoutBreakerTransition,
+}
+
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "bmc_session_lockout_breaker_tripped",
-    metric_name = "carbide_bmc_session_lockout_breaker_transitions_total",
-    component = "nico-api",
+    metric_family = BmcSessionLockoutBreakerTransitions,
     log = warn,
-    metric = counter,
-    message = "BmcSessionManager: lockout-avoidance breaker tripped",
-    describe = "Number of BMC session lockout-avoidance breaker transitions."
+    message = "BmcSessionManager: lockout-avoidance breaker tripped"
 )]
 struct BmcSessionLockoutBreakerTripped {
     #[label]
@@ -324,12 +333,9 @@ impl BmcSessionLockoutBreakerTripped {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "bmc_session_lockout_breaker_cleared",
-    metric_name = "carbide_bmc_session_lockout_breaker_transitions_total",
-    component = "nico-api",
+    metric_family = BmcSessionLockoutBreakerTransitions,
     log = info,
-    metric = counter,
-    message = "BmcSessionManager: lockout-avoidance breaker cleared",
-    describe = "Number of BMC session lockout-avoidance breaker transitions."
+    message = "BmcSessionManager: lockout-avoidance breaker cleared"
 )]
 struct BmcSessionLockoutBreakerCleared {
     #[label]

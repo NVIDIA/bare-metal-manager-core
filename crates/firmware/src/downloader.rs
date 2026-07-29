@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, emit};
+use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, MetricFamily, emit};
 use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;
 use reqwest_middleware::ClientWithMiddleware as Client;
@@ -37,19 +37,27 @@ pub(crate) enum ArtifactUnavailableReason {
     StaleCacheRemovalFailed,
 }
 
-// Both failures increment the same counter, but their existing log fields
-// differ. Separate Event types keep each record intact instead of adding empty
-// context. Their descriptions must stay identical so OpenTelemetry treats them
-// as one instrument.
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_firmware_artifact_unavailable_total",
+    kind = counter,
+    component = "carbide-firmware",
+    describe = "Number of firmware artifacts unavailable before download, by reason."
+)]
+pub(crate) struct FirmwareArtifactUnavailable {
+    reason: ArtifactUnavailableReason,
+}
+
+// Both failures record the same counter, but their existing log fields differ.
+// Separate Event types keep each record intact instead of adding empty context;
+// the family above holds the one description they share.
 #[derive(Event)]
 #[event(
     event_name = "firmware_artifact_missing_url",
-    metric_name = "carbide_firmware_artifact_unavailable_total",
-    component = "carbide-firmware",
+    metric_family = FirmwareArtifactUnavailable,
     log = error,
-    metric = counter,
-    message = "Firmware artifact is missing and has no URL",
-    describe = "Number of firmware artifacts unavailable before download, by reason."
+    message = "Firmware artifact is missing and has no URL"
 )]
 pub(crate) struct FirmwareArtifactMissingUrl {
     #[label]
@@ -61,12 +69,9 @@ pub(crate) struct FirmwareArtifactMissingUrl {
 #[derive(Event)]
 #[event(
     event_name = "firmware_stale_cached_artifact_removal_failed",
-    metric_name = "carbide_firmware_artifact_unavailable_total",
-    component = "carbide-firmware",
+    metric_family = FirmwareArtifactUnavailable,
     log = error,
-    metric = counter,
-    message = "Failed to remove stale cached firmware artifact",
-    describe = "Number of firmware artifacts unavailable before download, by reason."
+    message = "Failed to remove stale cached firmware artifact"
 )]
 pub(crate) struct FirmwareStaleCachedArtifactRemovalFailed {
     #[label]

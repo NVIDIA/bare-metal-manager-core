@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use ::rpc::forge::MachineIdentityResponse;
 use base64::Engine;
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use carbide_utils::none_if_empty::NoneIfEmpty;
 use serde::Deserialize;
 use tonic::Status;
@@ -43,16 +43,25 @@ enum TokenExchangeFailureStage {
     ResponseJson,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_machine_identity_token_exchange_failures_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of machine identity token exchange failures, by failure stage"
+)]
+struct MachineIdentityTokenExchangeFailures {
+    failure_stage: TokenExchangeFailureStage,
+}
+
 /// The HTTP request did not reach a token-exchange response.
 #[derive(Event)]
 #[event(
     event_name = "machine_identity_token_exchange_request_failed",
-    metric_name = "carbide_machine_identity_token_exchange_failures_total",
-    component = "nico-api",
+    metric_family = MachineIdentityTokenExchangeFailures,
     log = error,
-    metric = counter,
-    message = "token exchange HTTP request failed",
-    describe = "Number of machine identity token exchange failures, by failure stage"
+    message = "token exchange HTTP request failed"
 )]
 struct TokenExchangeRequestFailed {
     #[label]
@@ -67,12 +76,9 @@ struct TokenExchangeRequestFailed {
 #[derive(Event)]
 #[event(
     event_name = "machine_identity_token_exchange_response_read_failed",
-    metric_name = "carbide_machine_identity_token_exchange_failures_total",
-    component = "nico-api",
+    metric_family = MachineIdentityTokenExchangeFailures,
     log = error,
-    metric = counter,
-    message = "token exchange response body read failed",
-    describe = "Number of machine identity token exchange failures, by failure stage"
+    message = "token exchange response body read failed"
 )]
 struct TokenExchangeResponseReadFailed {
     #[label]
@@ -89,12 +95,9 @@ struct TokenExchangeResponseReadFailed {
 #[derive(Event)]
 #[event(
     event_name = "machine_identity_token_exchange_endpoint_rejected",
-    metric_name = "carbide_machine_identity_token_exchange_failures_total",
-    component = "nico-api",
+    metric_family = MachineIdentityTokenExchangeFailures,
     log = warn,
-    metric = counter,
-    message = "token exchange endpoint returned error",
-    describe = "Number of machine identity token exchange failures, by failure stage"
+    message = "token exchange endpoint returned error"
 )]
 struct TokenExchangeEndpointRejected {
     #[label]
@@ -113,12 +116,9 @@ struct TokenExchangeEndpointRejected {
 #[derive(Event)]
 #[event(
     event_name = "machine_identity_token_exchange_response_invalid",
-    metric_name = "carbide_machine_identity_token_exchange_failures_total",
-    component = "nico-api",
+    metric_family = MachineIdentityTokenExchangeFailures,
     log = warn,
-    metric = counter,
-    message = "token exchange JSON parse failed",
-    describe = "Number of machine identity token exchange failures, by failure stage"
+    message = "token exchange JSON parse failed"
 )]
 struct TokenExchangeResponseInvalid {
     #[label]

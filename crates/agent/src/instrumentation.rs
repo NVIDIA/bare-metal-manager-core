@@ -27,7 +27,7 @@ use tower::ServiceBuilder;
 use tracing::Span;
 
 pub mod config;
-use carbide_instrument::Outcome;
+use carbide_instrument::{MetricFamily, Outcome};
 use carbide_uuid::machine::MachineId;
 pub use config::{get_dpu_agent_meter, get_prometheus_registry};
 
@@ -61,15 +61,25 @@ pub(crate) enum OvsRestart {
     },
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dpu_agent_service_restart_attempts_total",
+    kind = counter,
+    component = "forge-dpu-agent",
+    describe = "Number of DPU-agent service restart attempts, by service and result."
+)]
+struct DpuAgentServiceRestartAttempts {
+    service: RestartedService,
+    result: ServiceRestartResult,
+}
+
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_lldpd_restart_succeeded",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentServiceRestartAttempts,
     log = info,
-    metric = counter,
-    message = "Restarted lldpd service",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
+    message = "Restarted lldpd service"
 )]
 struct LldpdRestartSucceeded {
     #[label]
@@ -83,12 +93,9 @@ struct LldpdRestartSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_lldpd_restart_retrying",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentServiceRestartAttempts,
     log = warn,
-    metric = counter,
-    message = "Couldn't restart lldpd service, retrying",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
+    message = "Couldn't restart lldpd service, retrying"
 )]
 struct LldpdRestartRetrying {
     #[label]
@@ -104,12 +111,9 @@ struct LldpdRestartRetrying {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_lldpd_restart_failed",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentServiceRestartAttempts,
     log = error,
-    metric = counter,
-    message = "Couldn't restart lldpd service",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
+    message = "Couldn't restart lldpd service"
 )]
 struct LldpdRestartFailed {
     #[label]
@@ -125,12 +129,9 @@ struct LldpdRestartFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_ovs_restart_succeeded",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentServiceRestartAttempts,
     log = info,
-    metric = counter,
-    message = "Successfully restarted ovs-vswitchd.service",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
+    message = "Successfully restarted ovs-vswitchd.service"
 )]
 struct OvsRestartSucceeded {
     #[label]
@@ -142,12 +143,9 @@ struct OvsRestartSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_ovs_restart_retrying",
-    metric_name = "carbide_dpu_agent_service_restart_attempts_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentServiceRestartAttempts,
     log = error,
-    metric = counter,
-    message = "Restarting OVS after admin network change",
-    describe = "Number of DPU-agent service restart attempts, by service and result."
+    message = "Restarting OVS after admin network change"
 )]
 struct OvsRestartRetrying {
     #[label]
@@ -259,18 +257,28 @@ pub(crate) enum NetworkStatus {
     RpcFailed { error: String },
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dpu_agent_report_total",
+    kind = counter,
+    component = "forge-dpu-agent",
+    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+)]
+struct DpuAgentReport {
+    report_loop: ReportLoop,
+    outcome: Outcome,
+}
+
 /// `InventoryReportSucceeded` records the inventory loop's successful
 /// completion and owns its DEBUG diagnostic. The other successful loops are
 /// metric-only.
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_inventory_report_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = debug,
-    metric = counter,
-    message = "Successfully updated machine inventory",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Successfully updated machine inventory"
 )]
 struct InventoryReportSucceeded {
     #[label]
@@ -285,11 +293,8 @@ struct InventoryReportSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_inventory_report_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct InventoryReportFailed {
     #[label]
@@ -301,11 +306,8 @@ struct InventoryReportFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_config_fetch_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct ConfigFetchSucceeded {
     #[label]
@@ -317,12 +319,9 @@ struct ConfigFetchSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_config_fetch_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "Failed to fetch the latest configuration. Will retry",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Failed to fetch the latest configuration. Will retry"
 )]
 struct ConfigFetchFailed {
     #[label]
@@ -338,12 +337,9 @@ struct ConfigFetchFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_config_not_found",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = warn,
-    metric = counter,
-    message = "DPU not found",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "DPU not found"
 )]
 struct ConfigNotFound {
     #[label]
@@ -357,11 +353,8 @@ struct ConfigNotFound {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_fmds_push_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct FmdsPushSucceeded {
     #[label]
@@ -373,12 +366,9 @@ struct FmdsPushSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_fmds_push_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "Failed to send config update to external FMDS",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Failed to send config update to external FMDS"
 )]
 struct FmdsPushFailed {
     #[label]
@@ -394,11 +384,8 @@ struct FmdsPushFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_network_status_succeeded",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
-    log = off,
-    metric = counter,
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    metric_family = DpuAgentReport,
+    log = off
 )]
 struct NetworkStatusSucceeded {
     #[label]
@@ -410,12 +397,9 @@ struct NetworkStatusSucceeded {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_network_status_connection_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "record_network_status: Could not connect to Forge API server. Will retry.",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "record_network_status: Could not connect to Forge API server. Will retry."
 )]
 struct NetworkStatusConnectionFailed {
     #[label]
@@ -431,12 +415,9 @@ struct NetworkStatusConnectionFailed {
 #[derive(carbide_instrument::Event)]
 #[event(
     event_name = "dpu_agent_network_status_rpc_failed",
-    metric_name = "carbide_dpu_agent_report_total",
-    component = "forge-dpu-agent",
+    metric_family = DpuAgentReport,
     log = error,
-    metric = counter,
-    message = "Error while executing the record_network_status gRPC call",
-    describe = "Number of DPU-agent report-loop iterations, by loop and outcome"
+    message = "Error while executing the record_network_status gRPC call"
 )]
 struct NetworkStatusRpcFailed {
     #[label]

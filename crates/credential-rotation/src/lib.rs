@@ -81,7 +81,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
@@ -108,15 +108,24 @@ enum BmcCredentialRotationResult {
     Quarantined,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_bmc_credential_rotation_results_total",
+    kind = counter,
+    component = "credential-rotation",
+    describe = "Number of persisted BMC credential rotation results, by result"
+)]
+struct BmcCredentialRotationResults {
+    result: BmcCredentialRotationResult,
+}
+
 #[derive(Event)]
 #[event(
     event_name = "bmc_credential_rotation_converged",
-    metric_name = "carbide_bmc_credential_rotation_results_total",
-    component = "credential-rotation",
+    metric_family = BmcCredentialRotationResults,
     log = info,
-    metric = counter,
-    message = "BMC credential rotated and converged",
-    describe = "Number of persisted BMC credential rotation results, by result"
+    message = "BMC credential rotated and converged"
 )]
 struct BmcCredentialRotationConverged {
     #[label]
@@ -140,12 +149,9 @@ impl BmcCredentialRotationConverged {
 #[derive(Event)]
 #[event(
     event_name = "bmc_credential_rotation_recovered",
-    metric_name = "carbide_bmc_credential_rotation_results_total",
-    component = "credential-rotation",
+    metric_family = BmcCredentialRotationResults,
     log = warn,
-    metric = counter,
-    message = "BMC already at rotate-to credential; recovered from an interrupted prior rotation",
-    describe = "Number of persisted BMC credential rotation results, by result"
+    message = "BMC already at rotate-to credential; recovered from an interrupted prior rotation"
 )]
 struct BmcCredentialRotationRecovered {
     #[label]
@@ -172,12 +178,9 @@ impl BmcCredentialRotationRecovered {
 #[derive(Event)]
 #[event(
     event_name = "bmc_credential_rotation_quarantined",
-    metric_name = "carbide_bmc_credential_rotation_results_total",
-    component = "credential-rotation",
+    metric_family = BmcCredentialRotationResults,
     log = warn,
-    metric = counter,
-    message = "BMC credential rotation attempt failed; quarantining",
-    describe = "Number of persisted BMC credential rotation results, by result"
+    message = "BMC credential rotation attempt failed; quarantining"
 )]
 struct BmcCredentialRotationQuarantined {
     #[label]
