@@ -109,11 +109,58 @@ test_selection_mode = "EnableAll"
 [oem_manager_profiles.Dell.PowerEdge_R760.powerefficiency]
 "ServerPwr.1.PSRapidOn" = "Disabled"
 
+# Keyed by the rack_profile_id of an expected rack. Each count is the minimum
+# number of devices required to exit Created (present) and Discovering (ready).
+# Sites with a different OEM than the vendors below override the matching
+# rack_capabilities.<role>.vendor (or define their own profile) in site-config.
+[rack_profiles.NVL72]
+product_family = "gb200"
+rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72.rack_capabilities.compute]
+vendor = "NVIDIA"
+count = 18
+
+[rack_profiles.NVL72.rack_capabilities.switch]
+vendor = "NVIDIA"
+count = 9
+
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
+vendor = "LiteOn"
+count = 8
+
+[rack_profiles.NVL72_GB300]
+product_family = "gb300"
+rack_hardware_topology = "gb300_nvl72r1_c2g4_topology"
+
+[rack_profiles.NVL72_GB300.rack_capabilities.compute]
+vendor = "Lenovo"
+count = 18
+
+[rack_profiles.NVL72_GB300.rack_capabilities.switch]
+vendor = "NVIDIA"
+count = 9
+
+[rack_profiles.NVL72_GB300.rack_capabilities.power_shelf]
+vendor = "LiteOn"
+count = 6
+
 [observability.per_object_state_metrics]
 enabled = {{ .Values.service.perObjectStateMetrics.enabled }}
 listen_address = "[::]:{{ .Values.service.perObjectStateMetrics.port }}"
 object_types = {{ default list .Values.service.perObjectStateMetrics.objectTypes | toJson }}
 {{- if .Values.rms.enabled }}
+
+# Defining this section is what enables the component manager. Rendered only
+# when rms.enabled is set — presence cannot be undone via site-config merge.
+[component_manager]
+compute_tray_backend = "rms"
+nv_switch_backend = "rms"
+power_shelf_backend = "rms"
+
+nv_switch_use_state_controller = true
+power_shelf_use_state_controller = true
+compute_tray_use_state_controller = true
 
 # RMS (Rack Management Service) connectivity, used by the component manager
 # and rack controller for rack-level firmware upgrades and power sequencing.

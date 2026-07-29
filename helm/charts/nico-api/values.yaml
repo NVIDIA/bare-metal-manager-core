@@ -180,11 +180,13 @@ dsxExchangeEventBusConfig: ""
 ## RMS deploys as its own Helm chart (rack-manager); Core only needs the
 ## connection details to use it for rack-level firmware upgrades, power
 ## sequencing, and rms-backed component-manager operations. When disabled,
-## no [rms] section is rendered and RMS-backed operations are unavailable.
+## neither [rms] nor [component_manager] is rendered (presence of the latter
+## is what enables the component manager, and site-config cannot un-define
+## it). Standard NVL72 / NVL72_GB300 rack_profiles always ship in the global
+## config so sites only override OEM-specific vendors when needed.
 ##
-## Note the component-manager backend fields DEFAULT to "rms" in the binary,
-## so a site that enables this and has rack profiles configured starts using
-## RMS for those roles without further component_manager config.
+## Enabling this renders [component_manager] with rms backends + state
+## controllers, and [rms] with the connection settings below.
 rms:
   ## Off by default until RMS ships in the standard install path. Enabling
   ## this WITHOUT RMS deployed is safe: the client is constructed lazily and
