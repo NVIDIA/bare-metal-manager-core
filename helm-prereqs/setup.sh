@@ -208,9 +208,13 @@ NICO_DPF_NICO_NGC_API_KEY="${NICO_DPF_NICO_NGC_API_KEY:-${NICO_DPF_NGC_API_KEY}}
 # to the chart version (NICO_DPF_VERSION) but can differ for a self-built image.
 NICO_DPF_IMAGE_REPO="${NICO_DPF_IMAGE_REPO:-nvcr.io/nvidia/doca/dpf-system}"
 NICO_DPF_IMAGE_TAG="${NICO_DPF_IMAGE_TAG:-${NICO_DPF_VERSION}}"
-# Site-wide BMC root password. DPF SDK init hard-requires it, and it can only be
-# set through a running carbide-api (with DPF off). setup.sh deploys Core with
-# DPF disabled, sets this via nico-admin-cli, then enables DPF and restarts.
+# Site-wide BMC root password. Optional: when provided, setup.sh calls
+# nico-admin-cli (phase 6b) to store the credential via the API so DPU
+# provisioning starts immediately. When omitted, carbide-api starts cleanly
+# without it (fixed in #4167 — the DPF SDK init is now best-effort when a
+# 60 s refresh interval is configured) and the operator must set the credential
+# manually via `nico-admin-cli credential add-bmc --kind=site-wide-root`
+# before DPU provisioning will work.
 NICO_DPF_BMC_ROOT_PASSWORD="${NICO_DPF_BMC_ROOT_PASSWORD:-}"
 # Optional chart-version overrides for NICo-owned DPF services. Useful when
 # testing a dev/PR image whose baked-in version was never published to the
@@ -828,11 +832,13 @@ if "${INSTALL_DPF}"; then
         sleep 10
     done
 
-    # 5b.8 [dpf] is NOT enabled in the Core config here. carbide-api's DPF SDK
-    #      init hard-requires the site-wide BMC root password, which can only be
-    #      set through a running carbide-api. So the enablement is deferred:
-    #      phase 6 deploys Core with DPF OFF, sets the BMC root password via
-    #      nico-admin-cli, then enables [dpf] and restarts carbide-api.
+    # 5b.8 [dpf] is NOT enabled in the Core config here. The two-phase approach
+    #      (Core DPF-off first, then DPF-on after phase 6b) lets setup.sh call
+    #      nico-admin-cli to set the BMC root credential while carbide-api is
+    #      already up. carbide-api can start with DPF enabled even when the
+    #      credential is absent (#4167), but setting it before enabling DPF
+    #      ensures DPU provisioning begins immediately without waiting for the
+    #      first 60 s refresh tick.
     echo "DPF stack installed (carbide-api DPF enablement happens after Core in phase 6)"
 else
     echo "Skipping DPF (--skip-dpf / NICO_SKIP_DPF=true). DPUs, if any, use the deprecated iPXE path."
@@ -1007,10 +1013,13 @@ else
     _CORE_VALUES_ARG="${CORE_VALUES:-helm-prereqs/values/nico-core.yaml}"
 
     if "${INSTALL_DPF}"; then
-        # Two-phase DPF enablement. carbide-api's DPF SDK init hard-requires the
-        # site-wide BMC root password, which can only be set through a running
-        # carbide-api — so Core is deployed with DPF OFF first, then re-deployed
-        # with DPF ON after the password is set (phase 6b below). Build both.
+        # Two-phase DPF enablement: Core is deployed with DPF OFF first so that
+        # carbide-api is running when setup.sh tries to set the site-wide BMC
+        # root credential via nico-admin-cli (phase 6b). If the credential is
+        # not provided here the password step is skipped and DPF-on is still
+        # deployed — carbide-api tolerates a missing credential at startup
+        # (#4167) and writes the K8s Secret on the next refresh tick once the
+        # operator sets the credential manually. Build both value files.
         _DPF_ON_VALUES="$(mktemp -t nico-core-dpf-on.XXXXXX)"
         _DPF_OFF_VALUES="$(mktemp -t nico-core-dpf-off.XXXXXX)"
         if [[ -n "${CORE_VALUES}" ]]; then
@@ -1185,19 +1194,29 @@ else
         #     carbide-api so it initializes the DPF SDK.
         # -------------------------------------------------------------------
         if "${INSTALL_DPF}" && "${_dpf_already_on:-false}"; then
-            # Skip the destructive DPF-off down-cycle, but still (re-)apply the
-            # site-wide BMC root credential so a rerun with a rotated/corrected
-            # NICO_DPF_BMC_ROOT_PASSWORD is reconciled — preflight requires it, so
-            # it must not be silently ignored on an already-enabled site.
+            # Skip the destructive DPF-off down-cycle. If a BMC root password
+            # was supplied (e.g. a rotation), reconcile it via nico-admin-cli;
+            # otherwise carbide-api's 60 s refresh task will pick it up from
+            # Vault automatically — no action needed here.
             _SETUP_PHASE="[6b] DPF already enabled — refreshing BMC-root credential"
             echo "=== [6b] DPF already enabled — refreshing BMC-root credential ==="
             kubectl rollout status deployment/nico-api -n nico-system --timeout=300s
-            _dpf_set_bmc_root
+            if [[ -n "${NICO_DPF_BMC_ROOT_PASSWORD}" ]]; then
+                _dpf_set_bmc_root
+            else
+                echo "NICO_DPF_BMC_ROOT_PASSWORD not set — skipping BMC-root reconcile (carbide-api refresh task handles rotation automatically)."
+            fi
         elif "${INSTALL_DPF}"; then
             _SETUP_PHASE="[6b] DPF enablement"
             echo "=== [6b] Enabling DPF in carbide-api ==="
             kubectl rollout status deployment/nico-api -n nico-system --timeout=300s
-            _dpf_set_bmc_root
+            if [[ -n "${NICO_DPF_BMC_ROOT_PASSWORD}" ]]; then
+                _dpf_set_bmc_root
+            else
+                echo "NICO_DPF_BMC_ROOT_PASSWORD not set — skipping BMC-root credential setup."
+                echo "Set the site-wide BMC root via: nico-admin-cli credential add-bmc --kind=site-wide-root --password='<password>'"
+                echo "carbide-api will pick it up within 60 s of it being set."
+            fi
             echo "Upgrading NICo Core to enable [dpf]..."
             (cd "${SCRIPT_DIR}/.." && helm upgrade --install nico ./helm \
                 --namespace nico-system -f "${_DPF_ON_VALUES}" \

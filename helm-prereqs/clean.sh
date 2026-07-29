@@ -96,7 +96,13 @@ if kubectl get namespace dpf-operator-system &>/dev/null; then
         --all -n dpf-operator-system --timeout=120s 2>/dev/null || true
     kubectl delete dpuserviceinterfaces,dpuservicetemplates,dpuserviceconfigurations,dpuservicenads \
         --all -n dpf-operator-system --timeout=120s 2>/dev/null || true
-    kubectl delete dpus,dpudevices,dpunodes,dpunodemaintenances \
+    # NOTE: if DPUs are mid-provisioning (OSInstall / ConfigureFirmware state)
+    # this deletion will interrupt them and may leave them in an inconsistent
+    # state. Confirm no active provisioning before running clean.sh on a live
+    # site. `dpu` and `dpunodemaintenances` are omitted here: they carry owner
+    # references to DpuNode and are garbage-collected automatically when
+    # DpuNode is deleted.
+    kubectl delete dpudevices,dpunodes \
         --all -n dpf-operator-system --timeout=180s 2>/dev/null || true
     kubectl delete bfbs,bluefieldsoftwares,dpuflavors \
         --all -n dpf-operator-system --timeout=120s 2>/dev/null || true
