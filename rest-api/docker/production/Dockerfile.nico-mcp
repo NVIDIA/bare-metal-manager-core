@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.26.5 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS builder
 
 # Docker automatically provides these args during multi-platform builds
 ARG TARGETOS=linux
@@ -43,7 +43,7 @@ RUN go build \
         ./cmd/nico-mcp
 
 # Final stage
-FROM nvcr.io/nvidia/distroless/go:v4.0.8 AS final
+FROM nvcr.io/nvidia/distroless/go:v4.0.8@sha256:938bd28ce4ddb800118a951774203e7563c2067a72b20ae6b85d2c7da165a178 AS final
 
 WORKDIR /app
 
