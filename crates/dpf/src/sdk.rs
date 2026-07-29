@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -48,8 +49,10 @@ use crate::crds::dpuserviceconfigurations_generated::{
     DpuServiceConfigurationServiceConfigurationConfigPortsPortsProtocol,
     DpuServiceConfigurationServiceConfigurationConfigPortsServiceType,
     DpuServiceConfigurationServiceConfigurationHelmChart,
-    DpuServiceConfigurationServiceConfigurationServiceDaemonSet, DpuServiceConfigurationSpec,
-    DpuServiceConfigurationUpgradePolicy,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSet,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate,
+    DpuServiceConfigurationSpec, DpuServiceConfigurationUpgradePolicy,
 };
 use crate::crds::dpuserviceinterfaces_generated::{
     DPUServiceInterface, DpuServiceInterfaceSpec, DpuServiceInterfaceTemplate,
@@ -609,7 +612,12 @@ pub fn build_service_configuration(
             annotations: Some(annos.clone()),
             labels: None,
             resources: None,
-            update_strategy: None,
+            update_strategy: Some(
+                DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy {
+                    rolling_update: Some(DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate{ max_surge: None, max_unavailable: Some(IntOrString::String("100%".to_string())) }),
+                    r#type: Some("RollingUpdate".into()),
+                },
+            ),
         }
     });
 
