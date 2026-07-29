@@ -164,7 +164,18 @@ pub async fn create(txn: &mut PgConnection, sku: &Sku) -> Result<(), DatabaseErr
         .bind(&sku.device_type)
         .fetch_one(inner_txn.as_pgconn())
         .await
-        .map_err(|e| DatabaseError::new("create sku", e))?;
+        .map_err(|e| {
+            if e.as_database_error()
+                .is_some_and(|e| e.is_unique_violation())
+            {
+                DatabaseError::AlreadyFoundError {
+                    kind: "SKU",
+                    id: sku.id.clone(),
+                }
+            } else {
+                DatabaseError::new("create sku", e)
+            }
+        })?;
 
     inner_txn.commit().await?;
 
