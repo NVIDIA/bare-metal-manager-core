@@ -3140,4 +3140,19 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 	got, gerr = TenantHasTargetedInstanceCreation(ctx, nil, dbSession, enabledTenant, &TenantPrivilegeScope{InfrastructureProviderID: &ip2.ID})
 	assert.Nil(t, gerr)
 	assert.False(t, got)
+
+	t.Run("TenantSite without a Site relation returns an error", func(t *testing.T) {
+		deletedSite := testCommonBuildSite(t, dbSession, effIP, "Deleted Site", effUser)
+		cdbm.TestBuildTenantSite(t, dbSession, tenant, deletedSite, &cdbm.TenantSiteConfig{
+			TargetedInstanceCreation: cutil.GetPtr(true),
+		}, effUser)
+
+		siteDAO := cdbm.NewSiteDAO(dbSession)
+		derr := siteDAO.Delete(ctx, nil, deletedSite.ID)
+		assert.Nil(t, derr)
+
+		got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &TenantPrivilegeScope{SiteID: &deletedSite.ID})
+		assert.False(t, got)
+		assert.EqualError(t, gerr, "site not found for TenantSite, unable to evaluate targeted instance creation capability")
+	})
 }

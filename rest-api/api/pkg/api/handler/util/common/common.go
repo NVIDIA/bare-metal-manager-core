@@ -1578,11 +1578,13 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 				return false, err
 			}
 		} else {
-			// This will ensure TenantAccount is ready for the Site.
-			siteOverride = ts.Config.TargetedInstanceCreation
 			if ts.Site != nil {
 				providerID = &ts.Site.InfrastructureProviderID
+			} else {
+				return false, errors.New("site not found for TenantSite, unable to evaluate targeted instance creation capability")
 			}
+			// This will ensure TenantAccount is ready for the Site.
+			siteOverride = ts.Config.TargetedInstanceCreation
 		}
 	}
 

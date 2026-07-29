@@ -50,14 +50,13 @@ type APITenant struct {
 	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
-// NewAPITenant accepts a DB layer Tenant object and tenant-wide capability flags
-// resolved from TenantAccount.config, then returns an API layer object.
-func NewAPITenant(dbtn *cdbm.Tenant, targetedInstanceCreation bool) *APITenant {
+// NewAPITenant accepts a DB layer Tenant object and returns an API layer object.
+func NewAPITenant(dbtn *cdbm.Tenant) *APITenant {
 	atn := APITenant{
 		ID:             dbtn.ID.String(),
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(targetedInstanceCreation),
+		Capabilities:   nil,
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
 	}
@@ -69,15 +68,9 @@ func NewAPITenant(dbtn *cdbm.Tenant, targetedInstanceCreation bool) *APITenant {
 	return &atn
 }
 
-// APITenantCapabilities holds the model of tenant capabilities
+// APITenantCapabilities holds the model of tenant capabilities.
 type APITenantCapabilities struct {
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
-}
-
-func tenantToAPITenantCapabilities(targetedInstanceCreation bool) *APITenantCapabilities {
-	return &APITenantCapabilities{
-		TargetedInstanceCreation: targetedInstanceCreation,
-	}
 }
 
 // APITenantSummary is the data structure to capture API representation of a Tenant Summary
@@ -88,17 +81,22 @@ type APITenantSummary struct {
 	OrgDisplayName *string `json:"orgDisplayName"`
 	// Capabilities hold the capabilities, currently for use as tenant-level feature flagging
 	Capabilities *APITenantCapabilities `json:"capabilities"`
+	// Deprecations is the list of deprecations for the Tenant
+	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
 // NewAPITenantSummary accepts a DB layer APITenantSummary object returns an API layer object
 func NewAPITenantSummary(dbtn *cdbm.Tenant) *APITenantSummary {
-	atn := APITenantSummary{
+	atns := APITenantSummary{
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(false),
 	}
 
-	return &atn
+	for _, deprecation := range tenantCapabilityDeprecations {
+		atns.Deprecations = append(atns.Deprecations, NewAPIDeprecation(deprecation))
+	}
+
+	return &atns
 }
 
 // APITenantStats is the data structure to capture API representation of a Tenant Stats

@@ -15,8 +15,7 @@ import (
 
 func TestNewAPITenant(t *testing.T) {
 	type args struct {
-		dbtn                     *cdbm.Tenant
-		targetedInstanceCreation bool
+		dbtn *cdbm.Tenant
 	}
 
 	dbtn := &cdbm.Tenant{
@@ -31,7 +30,6 @@ func TestNewAPITenant(t *testing.T) {
 		ID:             dbtn.ID.String(),
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   tenantToAPITenantCapabilities(true),
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
 	}
@@ -47,15 +45,14 @@ func TestNewAPITenant(t *testing.T) {
 		{
 			name: "test initializing API model for Tenant",
 			args: args{
-				dbtn:                     dbtn,
-				targetedInstanceCreation: true,
+				dbtn: dbtn,
 			},
 			want: &tnAPITenant,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, NewAPITenant(tt.args.dbtn, tt.args.targetedInstanceCreation))
+			assert.Equal(t, tt.want, NewAPITenant(tt.args.dbtn))
 		})
 	}
 }
@@ -72,6 +69,14 @@ func TestNewAPITenantSummary(t *testing.T) {
 	type args struct {
 		dbtn *cdbm.Tenant
 	}
+	tnAPITenantSummary := APITenantSummary{
+		Org:            dbtn.Org,
+		OrgDisplayName: dbtn.OrgDisplayName,
+	}
+	for _, deprecation := range tenantCapabilityDeprecations {
+		tnAPITenantSummary.Deprecations = append(tnAPITenantSummary.Deprecations, NewAPIDeprecation(deprecation))
+	}
+
 	tests := []struct {
 		name string
 		args args
@@ -82,11 +87,7 @@ func TestNewAPITenantSummary(t *testing.T) {
 			args: args{
 				dbtn: dbtn,
 			},
-			want: &APITenantSummary{
-				Org:            dbtn.Org,
-				OrgDisplayName: dbtn.OrgDisplayName,
-				Capabilities:   tenantToAPITenantCapabilities(false),
-			},
+			want: &tnAPITenantSummary,
 		},
 	}
 	for _, tt := range tests {

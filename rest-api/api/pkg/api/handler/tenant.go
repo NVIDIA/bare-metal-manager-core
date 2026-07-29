@@ -206,14 +206,7 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 		return common.HandleTxError(c, logger, err, "Failed to retrieve current Tenant, DB transaction error")
 	}
 
-	// Create response. Tenant-wide capability is the coarse view: privileged if
-	// TargetedInstanceCreation is effective on any Site for this Tenant.
-	privilegedSiteIDs, err := common.GetPrivilegedAccessSiteIDsForTenant(ctx, nil, gcth.dbSession, tn)
-	if err != nil {
-		logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
-	}
-	apiInstance := model.NewAPITenant(tn, len(privilegedSiteIDs) > 0)
+	apiInstance := model.NewAPITenant(tn)
 
 	logger.Info().Msg("finishing API handler")
 
