@@ -887,6 +887,10 @@ pub async fn discover_dhcp(
         return Ok(Response::new(record));
     }
 
+    // Admission permit BEFORE the transaction: the allocation path below
+    // serializes on exclusive segment advisory locks, and at fleet-DHCP scale
+    // unbounded waiters pin every pool connection (see #4297's wedge).
+    let _admin_admission = db::machine_interface::admin_lock_admission().await;
     let mut txn = api.txn_begin().await?;
 
     let record = db::dhcp_record::find_by_mac_address(
