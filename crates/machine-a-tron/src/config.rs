@@ -438,7 +438,9 @@ impl Default for DhcpType {
 pub struct PersistedDevice {
     pub mat_id: Uuid,
     pub machine_config_section: String,
-    pub hw_type: Option<HardwareType>,
+    /// Modern machine-a-tron versions always persist this field. Keeping it mandatory prevents
+    /// an incomplete snapshot from silently restoring a device as the default hardware type.
+    pub hw_type: HardwareType,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
@@ -466,7 +468,9 @@ impl PersistedDevice {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
-    pub hw_type: Option<HardwareType>,
+    /// Modern machine-a-tron versions always persist this field. Keeping it mandatory prevents
+    /// an incomplete snapshot from silently restoring a DPU as the default hardware type.
+    pub hw_type: HardwareType,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -491,7 +495,7 @@ impl PersistedDpuMachine {
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
         Self {
-            hw_type: value.hw_type.unwrap_or_default(),
+            hw_type: value.hw_type,
             bmc_mac_address: value.bmc_mac_address,
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,

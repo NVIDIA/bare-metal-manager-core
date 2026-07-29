@@ -75,7 +75,7 @@ impl DpuMachine {
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
 
         let dpu_info = DpuMachineInfo {
-            hw_type: persisted_dpu_machine.hw_type.unwrap_or_default(),
+            hw_type: persisted_dpu_machine.hw_type,
             bmc_mac_address: persisted_dpu_machine.bmc_mac_address,
             host_mac_address: persisted_dpu_machine.host_mac_address,
             oob_mac_address: persisted_dpu_machine.oob_mac_address,
@@ -503,7 +503,7 @@ impl DpuMachineHandle {
     pub fn persisted(&self) -> PersistedDpuMachine {
         PersistedDpuMachine {
             mat_id: self.0.mat_id,
-            hw_type: Some(self.0.dpu_info.hw_type),
+            hw_type: self.0.dpu_info.hw_type,
             bmc_mac_address: self.0.dpu_info.bmc_mac_address,
             host_mac_address: self.0.dpu_info.host_mac_address,
             oob_mac_address: self.0.dpu_info.oob_mac_address,

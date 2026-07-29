@@ -95,7 +95,7 @@ impl HostMachine {
             })
             .collect::<Vec<_>>();
         let host_info = HostMachineInfo {
-            hw_type: persisted_device.hw_type.unwrap_or_default(),
+            hw_type: persisted_device.hw_type,
             bmc_mac_address: persisted_device.bmc_mac_address,
             serial: persisted_device.serial.clone(),
             dpus: persisted_device
@@ -232,7 +232,7 @@ impl HostMachine {
     }
 
     #[instrument(skip_all, fields(mat_host_id = %self.mat_id))]
-    pub fn start(mut self, paused: bool) -> DeviceHandle {
+    pub(crate) fn start(mut self, paused: bool) -> MachineHandle {
         self.paused = paused;
         let (message_tx, mut message_rx) = mpsc::unbounded_channel();
         let live_state = self.live_state.clone();
@@ -260,7 +260,7 @@ impl HostMachine {
             })
             .unwrap();
 
-        DeviceHandle(Arc::new(HostMachineActor {
+        MachineHandle(Arc::new(HostMachineActor {
             message_tx,
             live_state,
             mat_id,
@@ -544,9 +544,9 @@ struct HostMachineActor {
 }
 
 #[derive(Debug, Clone)]
-pub struct DeviceHandle(Arc<HostMachineActor>);
+pub(crate) struct MachineHandle(Arc<HostMachineActor>);
 
-impl DeviceHandle {
+impl MachineHandle {
     #[cfg(test)]
     pub(crate) fn for_control_test(
         dpus: Vec<DpuMachineHandle>,
@@ -685,7 +685,7 @@ impl DeviceHandle {
     pub fn persisted(&self) -> PersistedDevice {
         let live_state = self.0.live_state.read().unwrap();
         PersistedDevice {
-            hw_type: Some(self.0.host_info.hw_type),
+            hw_type: self.0.host_info.hw_type,
             mat_id: self.0.mat_id,
             machine_config_section: self.0.machine_config_section.clone(),
             bmc_mac_address: self.0.host_info.bmc_mac_address,

@@ -37,6 +37,17 @@ impl From<HardwareType> for DeviceKind {
     }
 }
 
+impl std::fmt::Display for DeviceKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Machine => f.write_str("machine"),
+            Self::Dpu => f.write_str("DPU"),
+            Self::Switch => f.write_str("switch"),
+            Self::PowerShelf => f.write_str("power shelf"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceStatusConfig {
     pub redfish_reachable_port: u16,

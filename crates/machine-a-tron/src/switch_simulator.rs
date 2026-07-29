@@ -1,0 +1,563 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+use std::borrow::Cow;
+use std::collections::VecDeque;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant};
+
+use bmc_mock::injection::InjectionStore;
+use bmc_mock::ipmi_sim::IpmiEndpoint;
+use bmc_mock::mac_address_pool::{MacAddressPool, PoolConfig as MacAddressPoolConfig};
+use bmc_mock::{
+    BmcCommand, Callbacks, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState,
+    POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
+};
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use uuid::Uuid;
+
+use crate::actor::{Actor, ActorCallbacks, ActorMailbox, ActorResult, AlarmId};
+use crate::bmc_mock_wrapper::{BmcMockWrapper, BmcMockWrapperHandle};
+use crate::config::{self, MachineATronContext, MachineConfig, PersistedDevice};
+use crate::dhcp_wrapper::{DhcpRequestInfo, DhcpRequester, DhcpResponseInfo, vendor_class};
+use crate::machine_state_machine::{MachineStateError, OsImage};
+use crate::saturating_add_duration_to_instant;
+use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
+use crate::switch_fsm::{Action, Event, SwitchFsm, Timer};
+use crate::tui::UiUpdate;
+
+#[derive(Debug)]
+struct SwitchLiveState {
+    power_state: MockPowerState,
+    bmc_ip: Option<Ipv4Addr>,
+    ipmi_endpoint: Option<IpmiEndpoint>,
+    ssh_host_key: Option<String>,
+    state: &'static str,
+}
+
+impl SwitchLiveState {
+    fn new(fsm: &SwitchFsm) -> Self {
+        Self {
+            power_state: fsm.power_state(),
+            bmc_ip: None,
+            ipmi_endpoint: None,
+            ssh_host_key: None,
+            state: fsm.state_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SwitchCallbacks {
+    state: Arc<RwLock<SwitchLiveState>>,
+    mailbox: ActorMailbox<SwitchMessage>,
+}
+
+impl Callbacks for SwitchCallbacks {
+    fn get_power_state(&self) -> MockPowerState {
+        self.state.read().unwrap().power_state
+    }
+
+    fn send_power_command(
+        &self,
+        reset_type: SystemPowerControl,
+    ) -> Result<(), SetSystemPowerError> {
+        self.mailbox
+            .send(SwitchMessage::Bmc(BmcCommand::SetSystemPower {
+                request: reset_type,
+                reply: None,
+            }))
+            .map_err(|error| SetSystemPowerError::CommandSendError(error.to_string()))
+    }
+
+    fn state_refresh_indication(&self) {
+        let _ = self
+            .mailbox
+            .send(SwitchMessage::Bmc(BmcCommand::StateRefreshIndication));
+    }
+}
+
+#[derive(Debug)]
+struct SwitchHostname;
+
+impl HostnameQuerying for SwitchHostname {
+    fn get_hostname(&'_ self) -> Cow<'_, str> {
+        Cow::Borrowed("localhost")
+    }
+}
+
+pub(crate) struct SwitchActor {
+    mat_id: Uuid,
+    machine_config_section: String,
+    host_info: HostMachineInfo,
+    app_context: Arc<MachineATronContext>,
+    config: Arc<MachineConfig>,
+    live_state: Arc<RwLock<SwitchLiveState>>,
+    bmc_injection: Arc<InjectionStore>,
+    _bmc_mock: Option<Arc<BmcMockWrapperHandle>>,
+    bmc_dhcp_info: Option<DhcpResponseInfo>,
+    fsm: SwitchFsm,
+    actions: VecDeque<Action>,
+    run_alarm: Option<AlarmId>,
+    power_cycle_alarm: Option<AlarmId>,
+}
+
+impl SwitchActor {
+    pub(crate) fn new(
+        app_context: Arc<MachineATronContext>,
+        machine_config_section: String,
+        config: Arc<MachineConfig>,
+        mac_pool: &mut MacAddressPool,
+        hw_mac_addr_pool: MacAddressPoolConfig,
+    ) -> Self {
+        let (fsm, actions) = SwitchFsm::init(false);
+        Self {
+            mat_id: Uuid::new_v4(),
+            machine_config_section,
+            host_info: HostMachineInfo::new(config.hw_type, Vec::new(), mac_pool, hw_mac_addr_pool),
+            app_context,
+            config,
+            live_state: Arc::new(RwLock::new(SwitchLiveState::new(&fsm))),
+            bmc_injection: Arc::new(InjectionStore::new()),
+            _bmc_mock: None,
+            bmc_dhcp_info: None,
+            fsm,
+            actions: actions.into_iter().collect(),
+            run_alarm: None,
+            power_cycle_alarm: None,
+        }
+    }
+
+    pub(crate) fn from_persisted(
+        persisted: PersistedDevice,
+        machine_config_section: String,
+        app_context: Arc<MachineATronContext>,
+        config: Arc<MachineConfig>,
+        hw_mac_addr_pool: MacAddressPoolConfig,
+    ) -> Self {
+        let host_info = HostMachineInfo {
+            hw_type: persisted.hw_type,
+            bmc_mac_address: persisted.bmc_mac_address,
+            serial: persisted.serial.clone(),
+            dpus: Vec::new(),
+            non_dpu_mac_address: persisted.non_dpu_mac_address,
+            nvos_mac_addresses: persisted.nvos_mac_addresses.clone(),
+            switch_serial_number: persisted.switch_serial_number.clone(),
+            hw_mac_addr_pool,
+            delta_psu_power: None,
+        };
+        let (fsm, actions) = SwitchFsm::init(true);
+        Self {
+            mat_id: persisted.mat_id,
+            machine_config_section,
+            host_info,
+            app_context,
+            config,
+            live_state: Arc::new(RwLock::new(SwitchLiveState::new(&fsm))),
+            bmc_injection: Arc::new(InjectionStore::new()),
+            _bmc_mock: None,
+            bmc_dhcp_info: None,
+            fsm,
+            actions: actions.into_iter().collect(),
+            run_alarm: None,
+            power_cycle_alarm: None,
+        }
+    }
+
+    pub(crate) fn start(mut self, paused: bool) -> SwitchHandle {
+        self.fsm_event(if paused { Event::Pause } else { Event::Resume });
+        let mat_id = self.mat_id;
+        let live_state = self.live_state.clone();
+        let host_info = self.host_info.clone();
+        let machine_config_section = self.machine_config_section.clone();
+        let bmc_injection = self.bmc_injection.clone();
+        let (actor, mailbox) = Actor::new(self, SwitchMessage::Run);
+
+        let join_handle = tokio::task::Builder::new()
+            .name(&format!("Switch {mat_id}"))
+            .spawn(actor.run())
+            .unwrap();
+
+        SwitchHandle(Arc::new(SwitchActorHandle {
+            mailbox,
+            join_handle: Mutex::new(Some(join_handle)),
+            mat_id,
+            live_state,
+            host_info,
+            machine_config_section,
+            bmc_injection,
+        }))
+    }
+
+    async fn process_state(&mut self, mailbox: &ActorMailbox<SwitchMessage>) -> ActorResult {
+        if self.fsm.is_paused() {
+            if let Some(alarm_id) = self.run_alarm.take() {
+                mailbox.cancel(alarm_id);
+            }
+            return ActorResult::Noop;
+        }
+
+        let sleep_duration = if let Some(duration) = self.process_actions(mailbox).await {
+            duration
+        } else {
+            self.config.run_interval_idle
+        };
+        self.schedule_run(mailbox, sleep_duration);
+        ActorResult::Noop
+    }
+
+    async fn process_actions(&mut self, mailbox: &ActorMailbox<SwitchMessage>) -> Option<Duration> {
+        while let Some(action) = self.actions.front().copied() {
+            self.update_live_state();
+            match action {
+                Action::Dhcp => match self.bmc_dhcp_discovery().await {
+                    Ok(dhcp_info) => {
+                        self.bmc_dhcp_info = Some(dhcp_info);
+                        self.actions.pop_front();
+                        self.fsm_event(Event::DhcpComplete);
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            device_id = %self.mat_id,
+                            error = %error,
+                            "Switch BMC DHCP failed",
+                        );
+                        return Some(self.config.run_interval_working);
+                    }
+                },
+                Action::SetupBmc => match self.setup_bmc(mailbox).await {
+                    Ok(()) => {
+                        self.actions.pop_front();
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            device_id = %self.mat_id,
+                            error = %error,
+                            "Switch BMC startup failed",
+                        );
+                        return Some(self.config.run_interval_working);
+                    }
+                },
+                Action::SetTimer(Timer::PowerCycle) => {
+                    self.power_cycle_alarm = Some(
+                        mailbox
+                            .replace_alarm(
+                                self.power_cycle_alarm.take(),
+                                Instant::now() + POWER_CYCLE_DELAY,
+                                SwitchMessage::PowerCycleExpired,
+                            )
+                            .expect("running actor mailbox must be open"),
+                    );
+                    self.actions.pop_front();
+                }
+                Action::CancelTimer(Timer::PowerCycle) => {
+                    if let Some(alarm_id) = self.power_cycle_alarm.take() {
+                        mailbox.cancel(alarm_id);
+                    }
+                    self.actions.pop_front();
+                }
+            }
+        }
+        self.update_live_state();
+        None
+    }
+
+    fn schedule_run(&mut self, mailbox: &ActorMailbox<SwitchMessage>, duration: Duration) {
+        self.run_alarm = Some(
+            mailbox
+                .replace_alarm(
+                    self.run_alarm.take(),
+                    saturating_add_duration_to_instant(Instant::now(), duration),
+                    SwitchMessage::Run,
+                )
+                .expect("running actor mailbox must be open"),
+        );
+    }
+
+    async fn bmc_dhcp_discovery(&self) -> crate::dhcp_wrapper::DhcpRelayResult<DhcpResponseInfo> {
+        let machine_info = MachineInfo::Host(self.host_info.clone());
+        self.app_context
+            .dhcp_client
+            .request_ip(DhcpRequestInfo {
+                mac_address: self.host_info.bmc_mac_address,
+                relay_address: self.config.oob_dhcp_relay_address,
+                vendor_class: vendor_class(&machine_info, DhcpRequester::Bmc),
+            })
+            .await
+    }
+
+    async fn setup_bmc(
+        &mut self,
+        mailbox: &ActorMailbox<SwitchMessage>,
+    ) -> Result<(), MachineStateError> {
+        let dhcp_info = self
+            .bmc_dhcp_info
+            .as_ref()
+            .ok_or(MachineStateError::NoBmcDhcpInfo)?;
+        let machine_info = MachineInfo::Host(self.host_info.clone());
+        let mut bmc_mock = BmcMockWrapper::new(
+            &machine_info,
+            self.app_context.clone(),
+            Arc::new(SwitchCallbacks {
+                state: self.live_state.clone(),
+                mailbox: mailbox.clone(),
+            }),
+            Arc::new(SwitchHostname),
+            self.mat_id,
+            self.bmc_injection.clone(),
+        );
+        if let Some(password) = self.app_context.app_config.host_bmc_password.as_deref() {
+            bmc_mock
+                .state()
+                .account_service_state
+                .change_factory_default_password(password);
+        }
+
+        let bmc_handle = match &self.app_context.bmc_registration_mode {
+            crate::BmcRegistrationMode::None(port) => {
+                let handle = Arc::new(
+                    bmc_mock
+                        .start(
+                            SocketAddr::new(IpAddr::V4(dhcp_info.ip_address), *port),
+                            true,
+                        )
+                        .await?,
+                );
+                self.live_state.write().unwrap().ssh_host_key = handle
+                    .ssh_handle
+                    .as_ref()
+                    .map(|handle| handle.host_pubkey.clone());
+                Some(handle)
+            }
+            crate::BmcRegistrationMode::BackingInstance(registry) => {
+                registry
+                    .write()
+                    .await
+                    .insert(dhcp_info.ip_address.to_string(), bmc_mock.router().clone());
+                bmc_mock
+                    .start_ipmi_only(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
+                    .await?
+                    .map(Arc::new)
+            }
+        };
+
+        {
+            let mut state = self.live_state.write().unwrap();
+            state.bmc_ip = Some(dhcp_info.ip_address);
+            state.ipmi_endpoint = bmc_handle
+                .as_ref()
+                .and_then(|handle| handle.ipmi_endpoint());
+        }
+        self._bmc_mock = bmc_handle;
+        Ok(())
+    }
+
+    fn set_system_power(&mut self, request: SystemPowerControl) -> SetSystemPowerResult {
+        use SystemPowerControl::*;
+
+        match request {
+            On | ForceOn => self.fsm_event(Event::PowerOn),
+            GracefulShutdown | ForceOff => self.fsm_event(Event::PowerOff),
+            GracefulRestart | ForceRestart | PowerCycle => self.fsm_event(Event::PowerCycle),
+            PushPowerButton | Nmi | Suspend | Pause | Resume => {
+                return Err(SetSystemPowerError::BadRequest(format!(
+                    "Machine-a-tron mock: unsupported power request {request:?}"
+                )));
+            }
+        }
+        self.update_live_state();
+        Ok(())
+    }
+
+    fn fsm_event(&mut self, event: Event) {
+        let previous_state = self.fsm;
+        let (next_state, actions) = self.fsm.event(event);
+        tracing::info!(
+            ?previous_state,
+            ?event,
+            ?next_state,
+            ?actions,
+            "Switch FSM step",
+        );
+        self.actions.extend(actions);
+        self.fsm = next_state;
+    }
+
+    fn update_live_state(&self) {
+        let mut state = self.live_state.write().unwrap();
+        state.power_state = self.fsm.power_state();
+        state.state = self.fsm.state_string();
+    }
+}
+
+#[derive(Debug)]
+enum SwitchMessage {
+    Run,
+    PowerCycleExpired,
+    SetPaused(bool),
+    Bmc(BmcCommand),
+    Stop,
+}
+
+impl ActorCallbacks<SwitchMessage> for SwitchActor {
+    async fn message(
+        &mut self,
+        mailbox: &ActorMailbox<SwitchMessage>,
+        message: SwitchMessage,
+    ) -> ActorResult {
+        match message {
+            SwitchMessage::Run => self.run_alarm = None,
+            SwitchMessage::PowerCycleExpired => {
+                self.power_cycle_alarm = None;
+                self.fsm_event(Event::TimerAlert(Timer::PowerCycle));
+            }
+            SwitchMessage::Stop => return ActorResult::Stop,
+            SwitchMessage::SetPaused(paused) => {
+                self.fsm_event(if paused { Event::Pause } else { Event::Resume })
+            }
+            SwitchMessage::Bmc(BmcCommand::SetSystemPower { request, reply }) => {
+                let result = self.set_system_power(request);
+                if let Some(reply) = reply {
+                    let _ = reply.send(result);
+                }
+            }
+            SwitchMessage::Bmc(BmcCommand::StateRefreshIndication) => {
+                self.update_live_state();
+            }
+        }
+        SwitchActor::process_state(self, mailbox).await
+    }
+}
+
+#[derive(Debug)]
+struct SwitchActorHandle {
+    mailbox: ActorMailbox<SwitchMessage>,
+    join_handle: Mutex<Option<JoinHandle<()>>>,
+    mat_id: Uuid,
+    live_state: Arc<RwLock<SwitchLiveState>>,
+    host_info: HostMachineInfo,
+    machine_config_section: String,
+    bmc_injection: Arc<InjectionStore>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SwitchHandle(Arc<SwitchActorHandle>);
+
+impl SwitchHandle {
+    pub(crate) fn mat_id(&self) -> Uuid {
+        self.0.mat_id
+    }
+
+    pub(crate) fn attach_to_tui(
+        &self,
+        _tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
+    ) -> eyre::Result<()> {
+        Ok(())
+    }
+
+    pub(crate) fn pause(&self) -> eyre::Result<()> {
+        self.0.mailbox.send(SwitchMessage::SetPaused(true))?;
+        Ok(())
+    }
+
+    pub(crate) fn resume(&self) -> eyre::Result<()> {
+        self.0.mailbox.send(SwitchMessage::SetPaused(false))?;
+        Ok(())
+    }
+
+    pub(crate) fn host_info(&self) -> &HostMachineInfo {
+        &self.0.host_info
+    }
+
+    pub(crate) fn machine_config_section(&self) -> &str {
+        &self.0.machine_config_section
+    }
+
+    pub(crate) fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
+        let state = self.0.live_state.read().unwrap();
+        DeviceStatus {
+            mat_id: self.0.mat_id.to_string(),
+            device_kind: DeviceKind::Switch,
+            device_id: self.0.mat_id.to_string(),
+            machine_id: None,
+            hardware_type: Some(self.0.host_info.hw_type),
+            mat_state: Some(state.state.to_string()),
+            api_state: "Unknown".to_string(),
+            power_state: state.power_state.to_string(),
+            machine_ip: None,
+            bmc: BmcStatus {
+                ip: state.bmc_ip.map(|ip| ip.to_string()),
+                redfish: EndpointStatus::redfish(config),
+                ipmi: state.ipmi_endpoint.map(Into::into),
+            },
+            dpus: Vec::new(),
+        }
+    }
+
+    pub(crate) fn persisted(&self) -> PersistedDevice {
+        PersistedDevice {
+            hw_type: self.0.host_info.hw_type,
+            mat_id: self.0.mat_id,
+            machine_config_section: self.0.machine_config_section.clone(),
+            bmc_mac_address: self.0.host_info.bmc_mac_address,
+            serial: self.0.host_info.serial.clone(),
+            dpus: Vec::new(),
+            non_dpu_mac_address: self.0.host_info.non_dpu_mac_address,
+            nvos_mac_addresses: self.0.host_info.nvos_mac_addresses.clone(),
+            switch_serial_number: self.0.host_info.switch_serial_number.clone(),
+            observed_machine_id: None,
+            installed_os: OsImage::None,
+            tpm_ek_certificate: None,
+            hw_mac_addr_pool: Some(config::MacAddressPoolConfig {
+                base: self.0.host_info.hw_mac_addr_pool.base(),
+                host_bits: self.0.host_info.hw_mac_addr_pool.host_bits(),
+            }),
+        }
+    }
+
+    pub(crate) fn bmc_injection_store(&self) -> Arc<InjectionStore> {
+        self.0.bmc_injection.clone()
+    }
+
+    pub(crate) fn abort(&self) {
+        if let Some(join_handle) = self.0.join_handle.lock().unwrap().take() {
+            join_handle.abort();
+        }
+    }
+
+    pub(crate) async fn abort_and_wait(&self) -> eyre::Result<()> {
+        let _ = self.0.mailbox.send(SwitchMessage::Stop);
+        let join_handle = self.0.join_handle.lock().unwrap().take();
+        if let Some(join_handle) = join_handle {
+            match join_handle.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn bmc_ssh_host_pubkey(&self) -> Option<String> {
+        self.0.live_state.read().unwrap().ssh_host_key.clone()
+    }
+
+    pub(crate) fn bmc_ip(&self) -> Option<Ipv4Addr> {
+        self.0.live_state.read().unwrap().bmc_ip
+    }
+}

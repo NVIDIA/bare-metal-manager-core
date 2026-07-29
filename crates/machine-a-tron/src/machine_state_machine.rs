@@ -24,9 +24,8 @@ use std::time::Duration;
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HardwareType, HostnameQuerying, MachineInfo,
-    MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
-    SystemPowerControl,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HostnameQuerying, MachineInfo, MockPowerState,
+    POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
@@ -1085,7 +1084,6 @@ impl MachineStateMachine {
         );
 
         let pw_override = match &self.machine_info {
-            MachineInfo::Host(host) if host.hw_type == HardwareType::LiteOnPowerShelf => None,
             MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
             MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
         };
@@ -1138,11 +1136,7 @@ impl MachineStateMachine {
     fn is_bmc_only(info: &MachineInfo, config: &MachineConfig) -> bool {
         match info {
             MachineInfo::Dpu(_) => config.dpus_in_nic_mode,
-            MachineInfo::Host(host) => matches!(
-                host.hw_type,
-                bmc_mock::HardwareType::LiteOnPowerShelf
-                    | bmc_mock::HardwareType::NvidiaSwitchNd5200Ld
-            ),
+            MachineInfo::Host(_) => false,
         }
     }
 }
