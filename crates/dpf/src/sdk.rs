@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -50,8 +51,10 @@ use crate::crds::dpuserviceconfigurations_generated::{
     DpuServiceConfigurationServiceConfigurationConfigPortsPortsProtocol,
     DpuServiceConfigurationServiceConfigurationConfigPortsServiceType,
     DpuServiceConfigurationServiceConfigurationHelmChart,
-    DpuServiceConfigurationServiceConfigurationServiceDaemonSet, DpuServiceConfigurationSpec,
-    DpuServiceConfigurationUpgradePolicy,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSet,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate,
+    DpuServiceConfigurationSpec, DpuServiceConfigurationUpgradePolicy,
 };
 use crate::crds::dpuserviceinterfaces_generated::{
     DPUServiceInterface, DpuServiceInterfaceSpec, DpuServiceInterfaceTemplate,
@@ -737,28 +740,24 @@ pub fn build_service_configuration(
         })
     });
 
-    let service_daemon_set = svc.service_daemon_set_annotations.as_ref().map(|annos| {
-        DpuServiceConfigurationServiceConfigurationServiceDaemonSet {
-            annotations: Some(annos.clone()),
-            labels: None,
-            resources: None,
-            update_strategy: None,
-        }
-    });
-
-    let service_configuration = if config_ports_crd.is_some()
-        || helm_chart_config.is_some()
-        || service_daemon_set.is_some()
-    {
-        Some(DpuServiceConfigurationServiceConfiguration {
-            config_ports: config_ports_crd,
-            deploy_in_cluster: None,
-            helm_chart: helm_chart_config,
-            service_daemon_set,
-        })
-    } else {
-        None
+    let service_daemon_set = DpuServiceConfigurationServiceConfigurationServiceDaemonSet {
+        annotations: svc.service_daemon_set_annotations.clone(),
+        labels: None,
+        resources: None,
+        update_strategy: Some(
+            DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy {
+                rolling_update: Some(DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate{ max_surge: None, max_unavailable: Some(IntOrString::String("100%".to_string())) }),
+                r#type: Some("RollingUpdate".into()),
+            },
+        ),
     };
+
+    let service_configuration = Some(DpuServiceConfigurationServiceConfiguration {
+        config_ports: config_ports_crd,
+        deploy_in_cluster: None,
+        helm_chart: helm_chart_config,
+        service_daemon_set: Some(service_daemon_set),
+    });
 
     DPUServiceConfiguration {
         metadata: ObjectMeta {
