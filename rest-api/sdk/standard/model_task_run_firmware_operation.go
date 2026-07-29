@@ -19,11 +19,11 @@ import (
 	"fmt"
 )
 
-// checks if the RunFirmwareOperation type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunFirmwareOperation{}
+// checks if the TaskRunFirmwareOperation type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunFirmwareOperation{}
 
-// RunFirmwareOperation Configures a firmware rollout.
-type RunFirmwareOperation struct {
+// TaskRunFirmwareOperation Configures a firmware rollout.
+type TaskRunFirmwareOperation struct {
 	// Target firmware version to roll out.
 	Version string `json:"version"`
 	// Operation Rule to pin for each target's firmware Task. Null to let Flow's default rule resolution pick one.
@@ -34,32 +34,32 @@ type RunFirmwareOperation struct {
 	SubTargets []string `json:"subTargets,omitempty"`
 }
 
-type _RunFirmwareOperation RunFirmwareOperation
+type _TaskRunFirmwareOperation TaskRunFirmwareOperation
 
-// NewRunFirmwareOperation instantiates a new RunFirmwareOperation object
+// NewTaskRunFirmwareOperation instantiates a new TaskRunFirmwareOperation object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunFirmwareOperation(version string) *RunFirmwareOperation {
-	this := RunFirmwareOperation{}
+func NewTaskRunFirmwareOperation(version string) *TaskRunFirmwareOperation {
+	this := TaskRunFirmwareOperation{}
 	this.Version = version
 	var overrideReadinessCheck bool = false
 	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
-// NewRunFirmwareOperationWithDefaults instantiates a new RunFirmwareOperation object
+// NewTaskRunFirmwareOperationWithDefaults instantiates a new TaskRunFirmwareOperation object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunFirmwareOperationWithDefaults() *RunFirmwareOperation {
-	this := RunFirmwareOperation{}
+func NewTaskRunFirmwareOperationWithDefaults() *TaskRunFirmwareOperation {
+	this := TaskRunFirmwareOperation{}
 	var overrideReadinessCheck bool = false
 	this.OverrideReadinessCheck = &overrideReadinessCheck
 	return &this
 }
 
 // GetVersion returns the Version field value
-func (o *RunFirmwareOperation) GetVersion() string {
+func (o *TaskRunFirmwareOperation) GetVersion() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -70,7 +70,7 @@ func (o *RunFirmwareOperation) GetVersion() string {
 
 // GetVersionOk returns a tuple with the Version field value
 // and a boolean to check if the value has been set.
-func (o *RunFirmwareOperation) GetVersionOk() (*string, bool) {
+func (o *TaskRunFirmwareOperation) GetVersionOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -78,12 +78,12 @@ func (o *RunFirmwareOperation) GetVersionOk() (*string, bool) {
 }
 
 // SetVersion sets field value
-func (o *RunFirmwareOperation) SetVersion(v string) {
+func (o *TaskRunFirmwareOperation) SetVersion(v string) {
 	o.Version = v
 }
 
 // GetRuleId returns the RuleId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *RunFirmwareOperation) GetRuleId() string {
+func (o *TaskRunFirmwareOperation) GetRuleId() string {
 	if o == nil || IsNil(o.RuleId.Get()) {
 		var ret string
 		return ret
@@ -94,7 +94,7 @@ func (o *RunFirmwareOperation) GetRuleId() string {
 // GetRuleIdOk returns a tuple with the RuleId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *RunFirmwareOperation) GetRuleIdOk() (*string, bool) {
+func (o *TaskRunFirmwareOperation) GetRuleIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -102,7 +102,7 @@ func (o *RunFirmwareOperation) GetRuleIdOk() (*string, bool) {
 }
 
 // HasRuleId returns a boolean if a field has been set.
-func (o *RunFirmwareOperation) HasRuleId() bool {
+func (o *TaskRunFirmwareOperation) HasRuleId() bool {
 	if o != nil && o.RuleId.IsSet() {
 		return true
 	}
@@ -111,22 +111,22 @@ func (o *RunFirmwareOperation) HasRuleId() bool {
 }
 
 // SetRuleId gets a reference to the given NullableString and assigns it to the RuleId field.
-func (o *RunFirmwareOperation) SetRuleId(v string) {
+func (o *TaskRunFirmwareOperation) SetRuleId(v string) {
 	o.RuleId.Set(&v)
 }
 
 // SetRuleIdNil sets the value for RuleId to be an explicit nil
-func (o *RunFirmwareOperation) SetRuleIdNil() {
+func (o *TaskRunFirmwareOperation) SetRuleIdNil() {
 	o.RuleId.Set(nil)
 }
 
 // UnsetRuleId ensures that no value is present for RuleId, not even an explicit nil
-func (o *RunFirmwareOperation) UnsetRuleId() {
+func (o *TaskRunFirmwareOperation) UnsetRuleId() {
 	o.RuleId.Unset()
 }
 
 // GetOverrideReadinessCheck returns the OverrideReadinessCheck field value if set, zero value otherwise.
-func (o *RunFirmwareOperation) GetOverrideReadinessCheck() bool {
+func (o *TaskRunFirmwareOperation) GetOverrideReadinessCheck() bool {
 	if o == nil || IsNil(o.OverrideReadinessCheck) {
 		var ret bool
 		return ret
@@ -136,7 +136,7 @@ func (o *RunFirmwareOperation) GetOverrideReadinessCheck() bool {
 
 // GetOverrideReadinessCheckOk returns a tuple with the OverrideReadinessCheck field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunFirmwareOperation) GetOverrideReadinessCheckOk() (*bool, bool) {
+func (o *TaskRunFirmwareOperation) GetOverrideReadinessCheckOk() (*bool, bool) {
 	if o == nil || IsNil(o.OverrideReadinessCheck) {
 		return nil, false
 	}
@@ -144,7 +144,7 @@ func (o *RunFirmwareOperation) GetOverrideReadinessCheckOk() (*bool, bool) {
 }
 
 // HasOverrideReadinessCheck returns a boolean if a field has been set.
-func (o *RunFirmwareOperation) HasOverrideReadinessCheck() bool {
+func (o *TaskRunFirmwareOperation) HasOverrideReadinessCheck() bool {
 	if o != nil && !IsNil(o.OverrideReadinessCheck) {
 		return true
 	}
@@ -153,12 +153,12 @@ func (o *RunFirmwareOperation) HasOverrideReadinessCheck() bool {
 }
 
 // SetOverrideReadinessCheck gets a reference to the given bool and assigns it to the OverrideReadinessCheck field.
-func (o *RunFirmwareOperation) SetOverrideReadinessCheck(v bool) {
+func (o *TaskRunFirmwareOperation) SetOverrideReadinessCheck(v bool) {
 	o.OverrideReadinessCheck = &v
 }
 
 // GetSubTargets returns the SubTargets field value if set, zero value otherwise.
-func (o *RunFirmwareOperation) GetSubTargets() []string {
+func (o *TaskRunFirmwareOperation) GetSubTargets() []string {
 	if o == nil || IsNil(o.SubTargets) {
 		var ret []string
 		return ret
@@ -168,7 +168,7 @@ func (o *RunFirmwareOperation) GetSubTargets() []string {
 
 // GetSubTargetsOk returns a tuple with the SubTargets field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunFirmwareOperation) GetSubTargetsOk() ([]string, bool) {
+func (o *TaskRunFirmwareOperation) GetSubTargetsOk() ([]string, bool) {
 	if o == nil || IsNil(o.SubTargets) {
 		return nil, false
 	}
@@ -176,7 +176,7 @@ func (o *RunFirmwareOperation) GetSubTargetsOk() ([]string, bool) {
 }
 
 // HasSubTargets returns a boolean if a field has been set.
-func (o *RunFirmwareOperation) HasSubTargets() bool {
+func (o *TaskRunFirmwareOperation) HasSubTargets() bool {
 	if o != nil && !IsNil(o.SubTargets) {
 		return true
 	}
@@ -185,11 +185,11 @@ func (o *RunFirmwareOperation) HasSubTargets() bool {
 }
 
 // SetSubTargets gets a reference to the given []string and assigns it to the SubTargets field.
-func (o *RunFirmwareOperation) SetSubTargets(v []string) {
+func (o *TaskRunFirmwareOperation) SetSubTargets(v []string) {
 	o.SubTargets = v
 }
 
-func (o RunFirmwareOperation) MarshalJSON() ([]byte, error) {
+func (o TaskRunFirmwareOperation) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -197,7 +197,7 @@ func (o RunFirmwareOperation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunFirmwareOperation) ToMap() (map[string]interface{}, error) {
+func (o TaskRunFirmwareOperation) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["version"] = o.Version
 	if o.RuleId.IsSet() {
@@ -212,7 +212,7 @@ func (o RunFirmwareOperation) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunFirmwareOperation) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunFirmwareOperation) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -234,53 +234,53 @@ func (o *RunFirmwareOperation) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunFirmwareOperation := _RunFirmwareOperation{}
+	varTaskRunFirmwareOperation := _TaskRunFirmwareOperation{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunFirmwareOperation)
+	err = decoder.Decode(&varTaskRunFirmwareOperation)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunFirmwareOperation(varRunFirmwareOperation)
+	*o = TaskRunFirmwareOperation(varTaskRunFirmwareOperation)
 
 	return err
 }
 
-type NullableRunFirmwareOperation struct {
-	value *RunFirmwareOperation
+type NullableTaskRunFirmwareOperation struct {
+	value *TaskRunFirmwareOperation
 	isSet bool
 }
 
-func (v NullableRunFirmwareOperation) Get() *RunFirmwareOperation {
+func (v NullableTaskRunFirmwareOperation) Get() *TaskRunFirmwareOperation {
 	return v.value
 }
 
-func (v *NullableRunFirmwareOperation) Set(val *RunFirmwareOperation) {
+func (v *NullableTaskRunFirmwareOperation) Set(val *TaskRunFirmwareOperation) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunFirmwareOperation) IsSet() bool {
+func (v NullableTaskRunFirmwareOperation) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunFirmwareOperation) Unset() {
+func (v *NullableTaskRunFirmwareOperation) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunFirmwareOperation(val *RunFirmwareOperation) *NullableRunFirmwareOperation {
-	return &NullableRunFirmwareOperation{value: val, isSet: true}
+func NewNullableTaskRunFirmwareOperation(val *TaskRunFirmwareOperation) *NullableTaskRunFirmwareOperation {
+	return &NullableTaskRunFirmwareOperation{value: val, isSet: true}
 }
 
-func (v NullableRunFirmwareOperation) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunFirmwareOperation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunFirmwareOperation) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunFirmwareOperation) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

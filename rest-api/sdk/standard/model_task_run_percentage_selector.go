@@ -19,39 +19,39 @@ import (
 	"fmt"
 )
 
-// checks if the RunPercentageSelector type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunPercentageSelector{}
+// checks if the TaskRunPercentageSelector type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunPercentageSelector{}
 
-// RunPercentageSelector Selects a percentage of the candidate Racks. `seed` is optional; when omitted Flow generates and stores one so the cohort is deterministic and auditable.
-type RunPercentageSelector struct {
+// TaskRunPercentageSelector Selects a percentage of the candidate Racks. `seed` is optional; when omitted Flow generates and stores one so the cohort is deterministic and auditable.
+type TaskRunPercentageSelector struct {
 	// Percentage of candidate Racks to select.
 	Percent int32 `json:"percent"`
 	// Optional seed for the deterministic selection.
 	Seed *string `json:"seed,omitempty"`
 }
 
-type _RunPercentageSelector RunPercentageSelector
+type _TaskRunPercentageSelector TaskRunPercentageSelector
 
-// NewRunPercentageSelector instantiates a new RunPercentageSelector object
+// NewTaskRunPercentageSelector instantiates a new TaskRunPercentageSelector object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunPercentageSelector(percent int32) *RunPercentageSelector {
-	this := RunPercentageSelector{}
+func NewTaskRunPercentageSelector(percent int32) *TaskRunPercentageSelector {
+	this := TaskRunPercentageSelector{}
 	this.Percent = percent
 	return &this
 }
 
-// NewRunPercentageSelectorWithDefaults instantiates a new RunPercentageSelector object
+// NewTaskRunPercentageSelectorWithDefaults instantiates a new TaskRunPercentageSelector object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunPercentageSelectorWithDefaults() *RunPercentageSelector {
-	this := RunPercentageSelector{}
+func NewTaskRunPercentageSelectorWithDefaults() *TaskRunPercentageSelector {
+	this := TaskRunPercentageSelector{}
 	return &this
 }
 
 // GetPercent returns the Percent field value
-func (o *RunPercentageSelector) GetPercent() int32 {
+func (o *TaskRunPercentageSelector) GetPercent() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -62,7 +62,7 @@ func (o *RunPercentageSelector) GetPercent() int32 {
 
 // GetPercentOk returns a tuple with the Percent field value
 // and a boolean to check if the value has been set.
-func (o *RunPercentageSelector) GetPercentOk() (*int32, bool) {
+func (o *TaskRunPercentageSelector) GetPercentOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -70,12 +70,12 @@ func (o *RunPercentageSelector) GetPercentOk() (*int32, bool) {
 }
 
 // SetPercent sets field value
-func (o *RunPercentageSelector) SetPercent(v int32) {
+func (o *TaskRunPercentageSelector) SetPercent(v int32) {
 	o.Percent = v
 }
 
 // GetSeed returns the Seed field value if set, zero value otherwise.
-func (o *RunPercentageSelector) GetSeed() string {
+func (o *TaskRunPercentageSelector) GetSeed() string {
 	if o == nil || IsNil(o.Seed) {
 		var ret string
 		return ret
@@ -85,7 +85,7 @@ func (o *RunPercentageSelector) GetSeed() string {
 
 // GetSeedOk returns a tuple with the Seed field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunPercentageSelector) GetSeedOk() (*string, bool) {
+func (o *TaskRunPercentageSelector) GetSeedOk() (*string, bool) {
 	if o == nil || IsNil(o.Seed) {
 		return nil, false
 	}
@@ -93,7 +93,7 @@ func (o *RunPercentageSelector) GetSeedOk() (*string, bool) {
 }
 
 // HasSeed returns a boolean if a field has been set.
-func (o *RunPercentageSelector) HasSeed() bool {
+func (o *TaskRunPercentageSelector) HasSeed() bool {
 	if o != nil && !IsNil(o.Seed) {
 		return true
 	}
@@ -102,11 +102,11 @@ func (o *RunPercentageSelector) HasSeed() bool {
 }
 
 // SetSeed gets a reference to the given string and assigns it to the Seed field.
-func (o *RunPercentageSelector) SetSeed(v string) {
+func (o *TaskRunPercentageSelector) SetSeed(v string) {
 	o.Seed = &v
 }
 
-func (o RunPercentageSelector) MarshalJSON() ([]byte, error) {
+func (o TaskRunPercentageSelector) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -114,7 +114,7 @@ func (o RunPercentageSelector) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunPercentageSelector) ToMap() (map[string]interface{}, error) {
+func (o TaskRunPercentageSelector) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["percent"] = o.Percent
 	if !IsNil(o.Seed) {
@@ -123,7 +123,7 @@ func (o RunPercentageSelector) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunPercentageSelector) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunPercentageSelector) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -145,53 +145,53 @@ func (o *RunPercentageSelector) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunPercentageSelector := _RunPercentageSelector{}
+	varTaskRunPercentageSelector := _TaskRunPercentageSelector{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunPercentageSelector)
+	err = decoder.Decode(&varTaskRunPercentageSelector)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunPercentageSelector(varRunPercentageSelector)
+	*o = TaskRunPercentageSelector(varTaskRunPercentageSelector)
 
 	return err
 }
 
-type NullableRunPercentageSelector struct {
-	value *RunPercentageSelector
+type NullableTaskRunPercentageSelector struct {
+	value *TaskRunPercentageSelector
 	isSet bool
 }
 
-func (v NullableRunPercentageSelector) Get() *RunPercentageSelector {
+func (v NullableTaskRunPercentageSelector) Get() *TaskRunPercentageSelector {
 	return v.value
 }
 
-func (v *NullableRunPercentageSelector) Set(val *RunPercentageSelector) {
+func (v *NullableTaskRunPercentageSelector) Set(val *TaskRunPercentageSelector) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunPercentageSelector) IsSet() bool {
+func (v NullableTaskRunPercentageSelector) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunPercentageSelector) Unset() {
+func (v *NullableTaskRunPercentageSelector) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunPercentageSelector(val *RunPercentageSelector) *NullableRunPercentageSelector {
-	return &NullableRunPercentageSelector{value: val, isSet: true}
+func NewNullableTaskRunPercentageSelector(val *TaskRunPercentageSelector) *NullableTaskRunPercentageSelector {
+	return &NullableTaskRunPercentageSelector{value: val, isSet: true}
 }
 
-func (v NullableRunPercentageSelector) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunPercentageSelector) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunPercentageSelector) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunPercentageSelector) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

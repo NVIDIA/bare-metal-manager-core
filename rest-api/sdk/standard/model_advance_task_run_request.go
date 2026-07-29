@@ -19,39 +19,39 @@ import (
 	"fmt"
 )
 
-// checks if the AdvanceRunRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &AdvanceRunRequest{}
+// checks if the AdvanceTaskRunRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &AdvanceTaskRunRequest{}
 
-// AdvanceRunRequest Request body for advancing a Run to its next phase.
-type AdvanceRunRequest struct {
-	// ID of the Site that owns the Run.
+// AdvanceTaskRunRequest Request body for advancing a Task Run to its next phase.
+type AdvanceTaskRunRequest struct {
+	// ID of the Site that owns the Task Run.
 	SiteId string `json:"siteId"`
 	// Optional guard: when set, the phase that would be opened must match this zero-based index, otherwise the advance is rejected.
 	ExpectedPhaseIndex *int32 `json:"expectedPhaseIndex,omitempty"`
 }
 
-type _AdvanceRunRequest AdvanceRunRequest
+type _AdvanceTaskRunRequest AdvanceTaskRunRequest
 
-// NewAdvanceRunRequest instantiates a new AdvanceRunRequest object
+// NewAdvanceTaskRunRequest instantiates a new AdvanceTaskRunRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewAdvanceRunRequest(siteId string) *AdvanceRunRequest {
-	this := AdvanceRunRequest{}
+func NewAdvanceTaskRunRequest(siteId string) *AdvanceTaskRunRequest {
+	this := AdvanceTaskRunRequest{}
 	this.SiteId = siteId
 	return &this
 }
 
-// NewAdvanceRunRequestWithDefaults instantiates a new AdvanceRunRequest object
+// NewAdvanceTaskRunRequestWithDefaults instantiates a new AdvanceTaskRunRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewAdvanceRunRequestWithDefaults() *AdvanceRunRequest {
-	this := AdvanceRunRequest{}
+func NewAdvanceTaskRunRequestWithDefaults() *AdvanceTaskRunRequest {
+	this := AdvanceTaskRunRequest{}
 	return &this
 }
 
 // GetSiteId returns the SiteId field value
-func (o *AdvanceRunRequest) GetSiteId() string {
+func (o *AdvanceTaskRunRequest) GetSiteId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -62,7 +62,7 @@ func (o *AdvanceRunRequest) GetSiteId() string {
 
 // GetSiteIdOk returns a tuple with the SiteId field value
 // and a boolean to check if the value has been set.
-func (o *AdvanceRunRequest) GetSiteIdOk() (*string, bool) {
+func (o *AdvanceTaskRunRequest) GetSiteIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -70,12 +70,12 @@ func (o *AdvanceRunRequest) GetSiteIdOk() (*string, bool) {
 }
 
 // SetSiteId sets field value
-func (o *AdvanceRunRequest) SetSiteId(v string) {
+func (o *AdvanceTaskRunRequest) SetSiteId(v string) {
 	o.SiteId = v
 }
 
 // GetExpectedPhaseIndex returns the ExpectedPhaseIndex field value if set, zero value otherwise.
-func (o *AdvanceRunRequest) GetExpectedPhaseIndex() int32 {
+func (o *AdvanceTaskRunRequest) GetExpectedPhaseIndex() int32 {
 	if o == nil || IsNil(o.ExpectedPhaseIndex) {
 		var ret int32
 		return ret
@@ -85,7 +85,7 @@ func (o *AdvanceRunRequest) GetExpectedPhaseIndex() int32 {
 
 // GetExpectedPhaseIndexOk returns a tuple with the ExpectedPhaseIndex field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *AdvanceRunRequest) GetExpectedPhaseIndexOk() (*int32, bool) {
+func (o *AdvanceTaskRunRequest) GetExpectedPhaseIndexOk() (*int32, bool) {
 	if o == nil || IsNil(o.ExpectedPhaseIndex) {
 		return nil, false
 	}
@@ -93,7 +93,7 @@ func (o *AdvanceRunRequest) GetExpectedPhaseIndexOk() (*int32, bool) {
 }
 
 // HasExpectedPhaseIndex returns a boolean if a field has been set.
-func (o *AdvanceRunRequest) HasExpectedPhaseIndex() bool {
+func (o *AdvanceTaskRunRequest) HasExpectedPhaseIndex() bool {
 	if o != nil && !IsNil(o.ExpectedPhaseIndex) {
 		return true
 	}
@@ -102,11 +102,11 @@ func (o *AdvanceRunRequest) HasExpectedPhaseIndex() bool {
 }
 
 // SetExpectedPhaseIndex gets a reference to the given int32 and assigns it to the ExpectedPhaseIndex field.
-func (o *AdvanceRunRequest) SetExpectedPhaseIndex(v int32) {
+func (o *AdvanceTaskRunRequest) SetExpectedPhaseIndex(v int32) {
 	o.ExpectedPhaseIndex = &v
 }
 
-func (o AdvanceRunRequest) MarshalJSON() ([]byte, error) {
+func (o AdvanceTaskRunRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -114,7 +114,7 @@ func (o AdvanceRunRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o AdvanceRunRequest) ToMap() (map[string]interface{}, error) {
+func (o AdvanceTaskRunRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["siteId"] = o.SiteId
 	if !IsNil(o.ExpectedPhaseIndex) {
@@ -123,7 +123,7 @@ func (o AdvanceRunRequest) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *AdvanceRunRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *AdvanceTaskRunRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -145,53 +145,53 @@ func (o *AdvanceRunRequest) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varAdvanceRunRequest := _AdvanceRunRequest{}
+	varAdvanceTaskRunRequest := _AdvanceTaskRunRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varAdvanceRunRequest)
+	err = decoder.Decode(&varAdvanceTaskRunRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = AdvanceRunRequest(varAdvanceRunRequest)
+	*o = AdvanceTaskRunRequest(varAdvanceTaskRunRequest)
 
 	return err
 }
 
-type NullableAdvanceRunRequest struct {
-	value *AdvanceRunRequest
+type NullableAdvanceTaskRunRequest struct {
+	value *AdvanceTaskRunRequest
 	isSet bool
 }
 
-func (v NullableAdvanceRunRequest) Get() *AdvanceRunRequest {
+func (v NullableAdvanceTaskRunRequest) Get() *AdvanceTaskRunRequest {
 	return v.value
 }
 
-func (v *NullableAdvanceRunRequest) Set(val *AdvanceRunRequest) {
+func (v *NullableAdvanceTaskRunRequest) Set(val *AdvanceTaskRunRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableAdvanceRunRequest) IsSet() bool {
+func (v NullableAdvanceTaskRunRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableAdvanceRunRequest) Unset() {
+func (v *NullableAdvanceTaskRunRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableAdvanceRunRequest(val *AdvanceRunRequest) *NullableAdvanceRunRequest {
-	return &NullableAdvanceRunRequest{value: val, isSet: true}
+func NewNullableAdvanceTaskRunRequest(val *AdvanceTaskRunRequest) *NullableAdvanceTaskRunRequest {
+	return &NullableAdvanceTaskRunRequest{value: val, isSet: true}
 }
 
-func (v NullableAdvanceRunRequest) MarshalJSON() ([]byte, error) {
+func (v NullableAdvanceTaskRunRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableAdvanceRunRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableAdvanceTaskRunRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

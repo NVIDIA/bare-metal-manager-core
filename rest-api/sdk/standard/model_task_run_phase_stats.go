@@ -19,42 +19,42 @@ import (
 	"fmt"
 )
 
-// checks if the RunPhaseStats type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunPhaseStats{}
+// checks if the TaskRunPhaseStats type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunPhaseStats{}
 
-// RunPhaseStats Summarizes target outcomes for one phase scope.
-type RunPhaseStats struct {
+// TaskRunPhaseStats Summarizes target outcomes for one phase scope.
+type TaskRunPhaseStats struct {
 	// Zero-based index of the phase this scope refers to.
 	PhaseIndex int32 `json:"phaseIndex"`
 	// Number of targets selected within the scope.
-	SelectedTargets int32            `json:"selectedTargets"`
-	OutcomeCounts   RunOutcomeCounts `json:"outcomeCounts"`
+	SelectedTargets int32                `json:"selectedTargets"`
+	OutcomeCounts   TaskRunOutcomeCounts `json:"outcomeCounts"`
 }
 
-type _RunPhaseStats RunPhaseStats
+type _TaskRunPhaseStats TaskRunPhaseStats
 
-// NewRunPhaseStats instantiates a new RunPhaseStats object
+// NewTaskRunPhaseStats instantiates a new TaskRunPhaseStats object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunPhaseStats(phaseIndex int32, selectedTargets int32, outcomeCounts RunOutcomeCounts) *RunPhaseStats {
-	this := RunPhaseStats{}
+func NewTaskRunPhaseStats(phaseIndex int32, selectedTargets int32, outcomeCounts TaskRunOutcomeCounts) *TaskRunPhaseStats {
+	this := TaskRunPhaseStats{}
 	this.PhaseIndex = phaseIndex
 	this.SelectedTargets = selectedTargets
 	this.OutcomeCounts = outcomeCounts
 	return &this
 }
 
-// NewRunPhaseStatsWithDefaults instantiates a new RunPhaseStats object
+// NewTaskRunPhaseStatsWithDefaults instantiates a new TaskRunPhaseStats object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunPhaseStatsWithDefaults() *RunPhaseStats {
-	this := RunPhaseStats{}
+func NewTaskRunPhaseStatsWithDefaults() *TaskRunPhaseStats {
+	this := TaskRunPhaseStats{}
 	return &this
 }
 
 // GetPhaseIndex returns the PhaseIndex field value
-func (o *RunPhaseStats) GetPhaseIndex() int32 {
+func (o *TaskRunPhaseStats) GetPhaseIndex() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -65,7 +65,7 @@ func (o *RunPhaseStats) GetPhaseIndex() int32 {
 
 // GetPhaseIndexOk returns a tuple with the PhaseIndex field value
 // and a boolean to check if the value has been set.
-func (o *RunPhaseStats) GetPhaseIndexOk() (*int32, bool) {
+func (o *TaskRunPhaseStats) GetPhaseIndexOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -73,12 +73,12 @@ func (o *RunPhaseStats) GetPhaseIndexOk() (*int32, bool) {
 }
 
 // SetPhaseIndex sets field value
-func (o *RunPhaseStats) SetPhaseIndex(v int32) {
+func (o *TaskRunPhaseStats) SetPhaseIndex(v int32) {
 	o.PhaseIndex = v
 }
 
 // GetSelectedTargets returns the SelectedTargets field value
-func (o *RunPhaseStats) GetSelectedTargets() int32 {
+func (o *TaskRunPhaseStats) GetSelectedTargets() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -89,7 +89,7 @@ func (o *RunPhaseStats) GetSelectedTargets() int32 {
 
 // GetSelectedTargetsOk returns a tuple with the SelectedTargets field value
 // and a boolean to check if the value has been set.
-func (o *RunPhaseStats) GetSelectedTargetsOk() (*int32, bool) {
+func (o *TaskRunPhaseStats) GetSelectedTargetsOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -97,14 +97,14 @@ func (o *RunPhaseStats) GetSelectedTargetsOk() (*int32, bool) {
 }
 
 // SetSelectedTargets sets field value
-func (o *RunPhaseStats) SetSelectedTargets(v int32) {
+func (o *TaskRunPhaseStats) SetSelectedTargets(v int32) {
 	o.SelectedTargets = v
 }
 
 // GetOutcomeCounts returns the OutcomeCounts field value
-func (o *RunPhaseStats) GetOutcomeCounts() RunOutcomeCounts {
+func (o *TaskRunPhaseStats) GetOutcomeCounts() TaskRunOutcomeCounts {
 	if o == nil {
-		var ret RunOutcomeCounts
+		var ret TaskRunOutcomeCounts
 		return ret
 	}
 
@@ -113,7 +113,7 @@ func (o *RunPhaseStats) GetOutcomeCounts() RunOutcomeCounts {
 
 // GetOutcomeCountsOk returns a tuple with the OutcomeCounts field value
 // and a boolean to check if the value has been set.
-func (o *RunPhaseStats) GetOutcomeCountsOk() (*RunOutcomeCounts, bool) {
+func (o *TaskRunPhaseStats) GetOutcomeCountsOk() (*TaskRunOutcomeCounts, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -121,11 +121,11 @@ func (o *RunPhaseStats) GetOutcomeCountsOk() (*RunOutcomeCounts, bool) {
 }
 
 // SetOutcomeCounts sets field value
-func (o *RunPhaseStats) SetOutcomeCounts(v RunOutcomeCounts) {
+func (o *TaskRunPhaseStats) SetOutcomeCounts(v TaskRunOutcomeCounts) {
 	o.OutcomeCounts = v
 }
 
-func (o RunPhaseStats) MarshalJSON() ([]byte, error) {
+func (o TaskRunPhaseStats) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -133,7 +133,7 @@ func (o RunPhaseStats) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunPhaseStats) ToMap() (map[string]interface{}, error) {
+func (o TaskRunPhaseStats) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["phaseIndex"] = o.PhaseIndex
 	toSerialize["selectedTargets"] = o.SelectedTargets
@@ -141,7 +141,7 @@ func (o RunPhaseStats) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunPhaseStats) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunPhaseStats) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -165,53 +165,53 @@ func (o *RunPhaseStats) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunPhaseStats := _RunPhaseStats{}
+	varTaskRunPhaseStats := _TaskRunPhaseStats{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunPhaseStats)
+	err = decoder.Decode(&varTaskRunPhaseStats)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunPhaseStats(varRunPhaseStats)
+	*o = TaskRunPhaseStats(varTaskRunPhaseStats)
 
 	return err
 }
 
-type NullableRunPhaseStats struct {
-	value *RunPhaseStats
+type NullableTaskRunPhaseStats struct {
+	value *TaskRunPhaseStats
 	isSet bool
 }
 
-func (v NullableRunPhaseStats) Get() *RunPhaseStats {
+func (v NullableTaskRunPhaseStats) Get() *TaskRunPhaseStats {
 	return v.value
 }
 
-func (v *NullableRunPhaseStats) Set(val *RunPhaseStats) {
+func (v *NullableTaskRunPhaseStats) Set(val *TaskRunPhaseStats) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunPhaseStats) IsSet() bool {
+func (v NullableTaskRunPhaseStats) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunPhaseStats) Unset() {
+func (v *NullableTaskRunPhaseStats) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunPhaseStats(val *RunPhaseStats) *NullableRunPhaseStats {
-	return &NullableRunPhaseStats{value: val, isSet: true}
+func NewNullableTaskRunPhaseStats(val *TaskRunPhaseStats) *NullableTaskRunPhaseStats {
+	return &NullableTaskRunPhaseStats{value: val, isSet: true}
 }
 
-func (v NullableRunPhaseStats) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunPhaseStats) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunPhaseStats) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunPhaseStats) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

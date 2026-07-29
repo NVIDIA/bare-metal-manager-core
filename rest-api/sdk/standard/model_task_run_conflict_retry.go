@@ -17,11 +17,11 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunConflictRetry type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunConflictRetry{}
+// checks if the TaskRunConflictRetry type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunConflictRetry{}
 
-// RunConflictRetry Retry backoff for blocked targets. Durations are Go duration strings (e.g. `30m`, `10s`); an empty value means \"use the operation default\".
-type RunConflictRetry struct {
+// TaskRunConflictRetry Retry backoff for blocked targets. Durations are Go duration strings (e.g. `30m`, `10s`); an empty value means \"use the operation default\".
+type TaskRunConflictRetry struct {
 	// Total time to keep retrying a blocked target before giving up.
 	RetryTimeout *string `json:"retryTimeout,omitempty"`
 	// Delay before the first retry.
@@ -30,25 +30,25 @@ type RunConflictRetry struct {
 	MaxRetryDelay *string `json:"maxRetryDelay,omitempty"`
 }
 
-// NewRunConflictRetry instantiates a new RunConflictRetry object
+// NewTaskRunConflictRetry instantiates a new TaskRunConflictRetry object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunConflictRetry() *RunConflictRetry {
-	this := RunConflictRetry{}
+func NewTaskRunConflictRetry() *TaskRunConflictRetry {
+	this := TaskRunConflictRetry{}
 	return &this
 }
 
-// NewRunConflictRetryWithDefaults instantiates a new RunConflictRetry object
+// NewTaskRunConflictRetryWithDefaults instantiates a new TaskRunConflictRetry object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunConflictRetryWithDefaults() *RunConflictRetry {
-	this := RunConflictRetry{}
+func NewTaskRunConflictRetryWithDefaults() *TaskRunConflictRetry {
+	this := TaskRunConflictRetry{}
 	return &this
 }
 
 // GetRetryTimeout returns the RetryTimeout field value if set, zero value otherwise.
-func (o *RunConflictRetry) GetRetryTimeout() string {
+func (o *TaskRunConflictRetry) GetRetryTimeout() string {
 	if o == nil || IsNil(o.RetryTimeout) {
 		var ret string
 		return ret
@@ -58,7 +58,7 @@ func (o *RunConflictRetry) GetRetryTimeout() string {
 
 // GetRetryTimeoutOk returns a tuple with the RetryTimeout field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunConflictRetry) GetRetryTimeoutOk() (*string, bool) {
+func (o *TaskRunConflictRetry) GetRetryTimeoutOk() (*string, bool) {
 	if o == nil || IsNil(o.RetryTimeout) {
 		return nil, false
 	}
@@ -66,7 +66,7 @@ func (o *RunConflictRetry) GetRetryTimeoutOk() (*string, bool) {
 }
 
 // HasRetryTimeout returns a boolean if a field has been set.
-func (o *RunConflictRetry) HasRetryTimeout() bool {
+func (o *TaskRunConflictRetry) HasRetryTimeout() bool {
 	if o != nil && !IsNil(o.RetryTimeout) {
 		return true
 	}
@@ -75,12 +75,12 @@ func (o *RunConflictRetry) HasRetryTimeout() bool {
 }
 
 // SetRetryTimeout gets a reference to the given string and assigns it to the RetryTimeout field.
-func (o *RunConflictRetry) SetRetryTimeout(v string) {
+func (o *TaskRunConflictRetry) SetRetryTimeout(v string) {
 	o.RetryTimeout = &v
 }
 
 // GetInitialRetryDelay returns the InitialRetryDelay field value if set, zero value otherwise.
-func (o *RunConflictRetry) GetInitialRetryDelay() string {
+func (o *TaskRunConflictRetry) GetInitialRetryDelay() string {
 	if o == nil || IsNil(o.InitialRetryDelay) {
 		var ret string
 		return ret
@@ -90,7 +90,7 @@ func (o *RunConflictRetry) GetInitialRetryDelay() string {
 
 // GetInitialRetryDelayOk returns a tuple with the InitialRetryDelay field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunConflictRetry) GetInitialRetryDelayOk() (*string, bool) {
+func (o *TaskRunConflictRetry) GetInitialRetryDelayOk() (*string, bool) {
 	if o == nil || IsNil(o.InitialRetryDelay) {
 		return nil, false
 	}
@@ -98,7 +98,7 @@ func (o *RunConflictRetry) GetInitialRetryDelayOk() (*string, bool) {
 }
 
 // HasInitialRetryDelay returns a boolean if a field has been set.
-func (o *RunConflictRetry) HasInitialRetryDelay() bool {
+func (o *TaskRunConflictRetry) HasInitialRetryDelay() bool {
 	if o != nil && !IsNil(o.InitialRetryDelay) {
 		return true
 	}
@@ -107,12 +107,12 @@ func (o *RunConflictRetry) HasInitialRetryDelay() bool {
 }
 
 // SetInitialRetryDelay gets a reference to the given string and assigns it to the InitialRetryDelay field.
-func (o *RunConflictRetry) SetInitialRetryDelay(v string) {
+func (o *TaskRunConflictRetry) SetInitialRetryDelay(v string) {
 	o.InitialRetryDelay = &v
 }
 
 // GetMaxRetryDelay returns the MaxRetryDelay field value if set, zero value otherwise.
-func (o *RunConflictRetry) GetMaxRetryDelay() string {
+func (o *TaskRunConflictRetry) GetMaxRetryDelay() string {
 	if o == nil || IsNil(o.MaxRetryDelay) {
 		var ret string
 		return ret
@@ -122,7 +122,7 @@ func (o *RunConflictRetry) GetMaxRetryDelay() string {
 
 // GetMaxRetryDelayOk returns a tuple with the MaxRetryDelay field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunConflictRetry) GetMaxRetryDelayOk() (*string, bool) {
+func (o *TaskRunConflictRetry) GetMaxRetryDelayOk() (*string, bool) {
 	if o == nil || IsNil(o.MaxRetryDelay) {
 		return nil, false
 	}
@@ -130,7 +130,7 @@ func (o *RunConflictRetry) GetMaxRetryDelayOk() (*string, bool) {
 }
 
 // HasMaxRetryDelay returns a boolean if a field has been set.
-func (o *RunConflictRetry) HasMaxRetryDelay() bool {
+func (o *TaskRunConflictRetry) HasMaxRetryDelay() bool {
 	if o != nil && !IsNil(o.MaxRetryDelay) {
 		return true
 	}
@@ -139,11 +139,11 @@ func (o *RunConflictRetry) HasMaxRetryDelay() bool {
 }
 
 // SetMaxRetryDelay gets a reference to the given string and assigns it to the MaxRetryDelay field.
-func (o *RunConflictRetry) SetMaxRetryDelay(v string) {
+func (o *TaskRunConflictRetry) SetMaxRetryDelay(v string) {
 	o.MaxRetryDelay = &v
 }
 
-func (o RunConflictRetry) MarshalJSON() ([]byte, error) {
+func (o TaskRunConflictRetry) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -151,7 +151,7 @@ func (o RunConflictRetry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunConflictRetry) ToMap() (map[string]interface{}, error) {
+func (o TaskRunConflictRetry) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.RetryTimeout) {
 		toSerialize["retryTimeout"] = o.RetryTimeout
@@ -165,38 +165,38 @@ func (o RunConflictRetry) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunConflictRetry struct {
-	value *RunConflictRetry
+type NullableTaskRunConflictRetry struct {
+	value *TaskRunConflictRetry
 	isSet bool
 }
 
-func (v NullableRunConflictRetry) Get() *RunConflictRetry {
+func (v NullableTaskRunConflictRetry) Get() *TaskRunConflictRetry {
 	return v.value
 }
 
-func (v *NullableRunConflictRetry) Set(val *RunConflictRetry) {
+func (v *NullableTaskRunConflictRetry) Set(val *TaskRunConflictRetry) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunConflictRetry) IsSet() bool {
+func (v NullableTaskRunConflictRetry) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunConflictRetry) Unset() {
+func (v *NullableTaskRunConflictRetry) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunConflictRetry(val *RunConflictRetry) *NullableRunConflictRetry {
-	return &NullableRunConflictRetry{value: val, isSet: true}
+func NewNullableTaskRunConflictRetry(val *TaskRunConflictRetry) *NullableTaskRunConflictRetry {
+	return &NullableTaskRunConflictRetry{value: val, isSet: true}
 }
 
-func (v NullableRunConflictRetry) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunConflictRetry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunConflictRetry) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunConflictRetry) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

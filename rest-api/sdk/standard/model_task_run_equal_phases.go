@@ -19,60 +19,60 @@ import (
 	"fmt"
 )
 
-// checks if the RunCountPhases type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunCountPhases{}
+// checks if the TaskRunEqualPhases type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunEqualPhases{}
 
-// RunCountPhases Splits targets by explicit counts. A generated final phase covers any remaining targets.
-type RunCountPhases struct {
-	// Per-phase target counts, in phase order.
-	Phases []int32 `json:"phases"`
+// TaskRunEqualPhases Splits targets into `phaseCount` roughly equal phases.
+type TaskRunEqualPhases struct {
+	// Number of equally sized phases.
+	PhaseCount int32 `json:"phaseCount"`
 }
 
-type _RunCountPhases RunCountPhases
+type _TaskRunEqualPhases TaskRunEqualPhases
 
-// NewRunCountPhases instantiates a new RunCountPhases object
+// NewTaskRunEqualPhases instantiates a new TaskRunEqualPhases object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunCountPhases(phases []int32) *RunCountPhases {
-	this := RunCountPhases{}
-	this.Phases = phases
+func NewTaskRunEqualPhases(phaseCount int32) *TaskRunEqualPhases {
+	this := TaskRunEqualPhases{}
+	this.PhaseCount = phaseCount
 	return &this
 }
 
-// NewRunCountPhasesWithDefaults instantiates a new RunCountPhases object
+// NewTaskRunEqualPhasesWithDefaults instantiates a new TaskRunEqualPhases object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunCountPhasesWithDefaults() *RunCountPhases {
-	this := RunCountPhases{}
+func NewTaskRunEqualPhasesWithDefaults() *TaskRunEqualPhases {
+	this := TaskRunEqualPhases{}
 	return &this
 }
 
-// GetPhases returns the Phases field value
-func (o *RunCountPhases) GetPhases() []int32 {
+// GetPhaseCount returns the PhaseCount field value
+func (o *TaskRunEqualPhases) GetPhaseCount() int32 {
 	if o == nil {
-		var ret []int32
+		var ret int32
 		return ret
 	}
 
-	return o.Phases
+	return o.PhaseCount
 }
 
-// GetPhasesOk returns a tuple with the Phases field value
+// GetPhaseCountOk returns a tuple with the PhaseCount field value
 // and a boolean to check if the value has been set.
-func (o *RunCountPhases) GetPhasesOk() ([]int32, bool) {
+func (o *TaskRunEqualPhases) GetPhaseCountOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.Phases, true
+	return &o.PhaseCount, true
 }
 
-// SetPhases sets field value
-func (o *RunCountPhases) SetPhases(v []int32) {
-	o.Phases = v
+// SetPhaseCount sets field value
+func (o *TaskRunEqualPhases) SetPhaseCount(v int32) {
+	o.PhaseCount = v
 }
 
-func (o RunCountPhases) MarshalJSON() ([]byte, error) {
+func (o TaskRunEqualPhases) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -80,18 +80,18 @@ func (o RunCountPhases) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunCountPhases) ToMap() (map[string]interface{}, error) {
+func (o TaskRunEqualPhases) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["phases"] = o.Phases
+	toSerialize["phaseCount"] = o.PhaseCount
 	return toSerialize, nil
 }
 
-func (o *RunCountPhases) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunEqualPhases) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"phases",
+		"phaseCount",
 	}
 
 	allProperties := make(map[string]interface{})
@@ -108,53 +108,53 @@ func (o *RunCountPhases) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunCountPhases := _RunCountPhases{}
+	varTaskRunEqualPhases := _TaskRunEqualPhases{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunCountPhases)
+	err = decoder.Decode(&varTaskRunEqualPhases)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunCountPhases(varRunCountPhases)
+	*o = TaskRunEqualPhases(varTaskRunEqualPhases)
 
 	return err
 }
 
-type NullableRunCountPhases struct {
-	value *RunCountPhases
+type NullableTaskRunEqualPhases struct {
+	value *TaskRunEqualPhases
 	isSet bool
 }
 
-func (v NullableRunCountPhases) Get() *RunCountPhases {
+func (v NullableTaskRunEqualPhases) Get() *TaskRunEqualPhases {
 	return v.value
 }
 
-func (v *NullableRunCountPhases) Set(val *RunCountPhases) {
+func (v *NullableTaskRunEqualPhases) Set(val *TaskRunEqualPhases) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunCountPhases) IsSet() bool {
+func (v NullableTaskRunEqualPhases) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunCountPhases) Unset() {
+func (v *NullableTaskRunEqualPhases) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunCountPhases(val *RunCountPhases) *NullableRunCountPhases {
-	return &NullableRunCountPhases{value: val, isSet: true}
+func NewNullableTaskRunEqualPhases(val *TaskRunEqualPhases) *NullableTaskRunEqualPhases {
+	return &NullableTaskRunEqualPhases{value: val, isSet: true}
 }
 
-func (v NullableRunCountPhases) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunEqualPhases) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunCountPhases) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunEqualPhases) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

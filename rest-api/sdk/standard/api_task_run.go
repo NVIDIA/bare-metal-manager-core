@@ -22,45 +22,45 @@ import (
 	"strings"
 )
 
-// RunAPIService RunAPI service
-type RunAPIService service
+// TaskRunAPIService TaskRunAPI service
+type TaskRunAPIService service
 
-type ApiAdvanceRunRequest struct {
-	ctx               context.Context
-	ApiService        *RunAPIService
-	org               string
-	id                string
-	advanceRunRequest *AdvanceRunRequest
+type ApiAdvanceTaskRunRequest struct {
+	ctx                   context.Context
+	ApiService            *TaskRunAPIService
+	org                   string
+	id                    string
+	advanceTaskRunRequest *AdvanceTaskRunRequest
 }
 
-func (r ApiAdvanceRunRequest) AdvanceRunRequest(advanceRunRequest AdvanceRunRequest) ApiAdvanceRunRequest {
-	r.advanceRunRequest = &advanceRunRequest
+func (r ApiAdvanceTaskRunRequest) AdvanceTaskRunRequest(advanceTaskRunRequest AdvanceTaskRunRequest) ApiAdvanceTaskRunRequest {
+	r.advanceTaskRunRequest = &advanceTaskRunRequest
 	return r
 }
 
-func (r ApiAdvanceRunRequest) Execute() (*Run, *http.Response, error) {
-	return r.ApiService.AdvanceRunExecute(r)
+func (r ApiAdvanceTaskRunRequest) Execute() (*TaskRun, *http.Response, error) {
+	return r.ApiService.AdvanceTaskRunExecute(r)
 }
 
 /*
-AdvanceRun Advance a Run to its next phase
+AdvanceTaskRun Advance a Task Run to its next phase
 
-Open the next phase of a Run that is paused at a phase gate.
+Open the next phase of a Task Run that is paused at a phase gate.
 Optionally guard the transition with `expectedPhaseIndex`: when set, the
 phase that would be opened must match, otherwise Flow rejects the advance
 so a stale client cannot open the wrong phase.
 
-Runs are site-scoped; `siteId` must be the Site that owns the
-Run. Org must have an Infrastructure Provider entity. User must have
+Task Runs are site-scoped; `siteId` must be the Site that owns the
+Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param id UUID of the Run
-	@return ApiAdvanceRunRequest
+	@param id UUID of the Task Run
+	@return ApiAdvanceTaskRunRequest
 */
-func (a *RunAPIService) AdvanceRun(ctx context.Context, org string, id string) ApiAdvanceRunRequest {
-	return ApiAdvanceRunRequest{
+func (a *TaskRunAPIService) AdvanceTaskRun(ctx context.Context, org string, id string) ApiAdvanceTaskRunRequest {
+	return ApiAdvanceTaskRunRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -70,16 +70,16 @@ func (a *RunAPIService) AdvanceRun(ctx context.Context, org string, id string) A
 
 // Execute executes the request
 //
-//	@return Run
-func (a *RunAPIService) AdvanceRunExecute(r ApiAdvanceRunRequest) (*Run, *http.Response, error) {
+//	@return TaskRun
+func (a *TaskRunAPIService) AdvanceTaskRunExecute(r ApiAdvanceTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Run
+		localVarReturnValue *TaskRun
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.AdvanceRun")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.AdvanceTaskRun")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -91,8 +91,8 @@ func (a *RunAPIService) AdvanceRunExecute(r ApiAdvanceRunRequest) (*Run, *http.R
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.advanceRunRequest == nil {
-		return localVarReturnValue, nil, reportError("advanceRunRequest is required and must be specified")
+	if r.advanceTaskRunRequest == nil {
+		return localVarReturnValue, nil, reportError("advanceTaskRunRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -113,7 +113,7 @@ func (a *RunAPIService) AdvanceRunExecute(r ApiAdvanceRunRequest) (*Run, *http.R
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.advanceRunRequest
+	localVarPostBody = r.advanceTaskRunRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -183,41 +183,41 @@ func (a *RunAPIService) AdvanceRunExecute(r ApiAdvanceRunRequest) (*Run, *http.R
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiCancelRunRequest struct {
-	ctx              context.Context
-	ApiService       *RunAPIService
-	org              string
-	id               string
-	cancelRunRequest *CancelRunRequest
+type ApiCancelTaskRunRequest struct {
+	ctx                  context.Context
+	ApiService           *TaskRunAPIService
+	org                  string
+	id                   string
+	cancelTaskRunRequest *CancelTaskRunRequest
 }
 
-func (r ApiCancelRunRequest) CancelRunRequest(cancelRunRequest CancelRunRequest) ApiCancelRunRequest {
-	r.cancelRunRequest = &cancelRunRequest
+func (r ApiCancelTaskRunRequest) CancelTaskRunRequest(cancelTaskRunRequest CancelTaskRunRequest) ApiCancelTaskRunRequest {
+	r.cancelTaskRunRequest = &cancelTaskRunRequest
 	return r
 }
 
-func (r ApiCancelRunRequest) Execute() (*Run, *http.Response, error) {
-	return r.ApiService.CancelRunExecute(r)
+func (r ApiCancelTaskRunRequest) Execute() (*TaskRun, *http.Response, error) {
+	return r.ApiService.CancelTaskRunExecute(r)
 }
 
 /*
-CancelRun Cancel a Run
+CancelTaskRun Cancel a Task Run
 
-Cancel a Run. Best-effort cancellation cascades to the current
+Cancel a Task Run. Best-effort cancellation cascades to the current
 phase's in-flight target Tasks; targets not yet claimed are not started.
-Cancelling an already-terminal Run returns its last known state.
+Cancelling an already-terminal Task Run returns its last known state.
 
-Runs are site-scoped; `siteId` must be the Site that owns the
-Run. Org must have an Infrastructure Provider entity. User must have
+Task Runs are site-scoped; `siteId` must be the Site that owns the
+Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param id UUID of the Run
-	@return ApiCancelRunRequest
+	@param id UUID of the Task Run
+	@return ApiCancelTaskRunRequest
 */
-func (a *RunAPIService) CancelRun(ctx context.Context, org string, id string) ApiCancelRunRequest {
-	return ApiCancelRunRequest{
+func (a *TaskRunAPIService) CancelTaskRun(ctx context.Context, org string, id string) ApiCancelTaskRunRequest {
+	return ApiCancelTaskRunRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -227,16 +227,16 @@ func (a *RunAPIService) CancelRun(ctx context.Context, org string, id string) Ap
 
 // Execute executes the request
 //
-//	@return Run
-func (a *RunAPIService) CancelRunExecute(r ApiCancelRunRequest) (*Run, *http.Response, error) {
+//	@return TaskRun
+func (a *TaskRunAPIService) CancelTaskRunExecute(r ApiCancelTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Run
+		localVarReturnValue *TaskRun
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.CancelRun")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.CancelTaskRun")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -248,8 +248,8 @@ func (a *RunAPIService) CancelRunExecute(r ApiCancelRunRequest) (*Run, *http.Res
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.cancelRunRequest == nil {
-		return localVarReturnValue, nil, reportError("cancelRunRequest is required and must be specified")
+	if r.cancelTaskRunRequest == nil {
+		return localVarReturnValue, nil, reportError("cancelTaskRunRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -270,7 +270,7 @@ func (a *RunAPIService) CancelRunExecute(r ApiCancelRunRequest) (*Run, *http.Res
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.cancelRunRequest
+	localVarPostBody = r.cancelTaskRunRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -340,33 +340,33 @@ func (a *RunAPIService) CancelRunExecute(r ApiCancelRunRequest) (*Run, *http.Res
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiCreateRunRequest struct {
-	ctx              context.Context
-	ApiService       *RunAPIService
-	org              string
-	createRunRequest *CreateRunRequest
+type ApiCreateTaskRunRequest struct {
+	ctx                  context.Context
+	ApiService           *TaskRunAPIService
+	org                  string
+	createTaskRunRequest *CreateTaskRunRequest
 }
 
-func (r ApiCreateRunRequest) CreateRunRequest(createRunRequest CreateRunRequest) ApiCreateRunRequest {
-	r.createRunRequest = &createRunRequest
+func (r ApiCreateTaskRunRequest) CreateTaskRunRequest(createTaskRunRequest CreateTaskRunRequest) ApiCreateTaskRunRequest {
+	r.createTaskRunRequest = &createTaskRunRequest
 	return r
 }
 
-func (r ApiCreateRunRequest) Execute() (*Run, *http.Response, error) {
-	return r.ApiService.CreateRunExecute(r)
+func (r ApiCreateTaskRunRequest) Execute() (*TaskRun, *http.Response, error) {
+	return r.ApiService.CreateTaskRunExecute(r)
 }
 
 /*
-CreateRun Create a Run
+CreateTaskRun Create a Task Run
 
-Create a Run: a phased, policy-gated execution of one operation across
+Create a Task Run: a phased, policy-gated execution of one operation across
 many Racks. The configuration is validated server-side by Flow; on
 validation failure no state changes.
 
-A Run executes exactly one operation (currently firmware) over a
+A Task Run executes exactly one operation (currently firmware) over a
 candidate set of Racks, narrowed by an optional `selector` and divided
 into phases by an optional `options.phasePolicy`. The response echoes the
-assigned `id`; the Run always starts in the `Pending` state. Poll
+assigned `id`; the Task Run always starts in the `Pending` state. Poll
 `GET /task/run/{id}` for progress.
 
 Org must have an Infrastructure Provider entity. User must have
@@ -374,10 +374,10 @@ authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiCreateRunRequest
+	@return ApiCreateTaskRunRequest
 */
-func (a *RunAPIService) CreateRun(ctx context.Context, org string) ApiCreateRunRequest {
-	return ApiCreateRunRequest{
+func (a *TaskRunAPIService) CreateTaskRun(ctx context.Context, org string) ApiCreateTaskRunRequest {
+	return ApiCreateTaskRunRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -386,16 +386,16 @@ func (a *RunAPIService) CreateRun(ctx context.Context, org string) ApiCreateRunR
 
 // Execute executes the request
 //
-//	@return Run
-func (a *RunAPIService) CreateRunExecute(r ApiCreateRunRequest) (*Run, *http.Response, error) {
+//	@return TaskRun
+func (a *TaskRunAPIService) CreateTaskRunExecute(r ApiCreateTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Run
+		localVarReturnValue *TaskRun
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.CreateRun")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.CreateTaskRun")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -406,8 +406,8 @@ func (a *RunAPIService) CreateRunExecute(r ApiCreateRunRequest) (*Run, *http.Res
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.createRunRequest == nil {
-		return localVarReturnValue, nil, reportError("createRunRequest is required and must be specified")
+	if r.createTaskRunRequest == nil {
+		return localVarReturnValue, nil, reportError("createTaskRunRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -428,7 +428,7 @@ func (a *RunAPIService) CreateRunExecute(r ApiCreateRunRequest) (*Run, *http.Res
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.createRunRequest
+	localVarPostBody = r.createTaskRunRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -487,74 +487,91 @@ func (a *RunAPIService) CreateRunExecute(r ApiCreateRunRequest) (*Run, *http.Res
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiGetRunRequest struct {
-	ctx          context.Context
-	ApiService   *RunAPIService
-	siteId       *string
-	org          string
-	id           string
-	includeStats *bool
+type ApiGetAllTaskRunRequest struct {
+	ctx           context.Context
+	ApiService    *TaskRunAPIService
+	siteId        *string
+	org           string
+	status        *string
+	operationType *string
+	pageNumber    *int32
+	pageSize      *int32
 }
 
-// ID of the Site that owns the Run (Runs are site-scoped).
-func (r ApiGetRunRequest) SiteId(siteId string) ApiGetRunRequest {
+// ID of the Site that owns the Task Runs (Task Runs are site-scoped).
+func (r ApiGetAllTaskRunRequest) SiteId(siteId string) ApiGetAllTaskRunRequest {
 	r.siteId = &siteId
 	return r
 }
 
-// Include derived per-phase outcome stats on the response.
-func (r ApiGetRunRequest) IncludeStats(includeStats bool) ApiGetRunRequest {
-	r.includeStats = &includeStats
+// Filter by Task Run status.
+func (r ApiGetAllTaskRunRequest) Status(status string) ApiGetAllTaskRunRequest {
+	r.status = &status
 	return r
 }
 
-func (r ApiGetRunRequest) Execute() (*Run, *http.Response, error) {
-	return r.ApiService.GetRunExecute(r)
+// Filter by operation type.
+func (r ApiGetAllTaskRunRequest) OperationType(operationType string) ApiGetAllTaskRunRequest {
+	r.operationType = &operationType
+	return r
+}
+
+// Page number of results returned (1-indexed).
+func (r ApiGetAllTaskRunRequest) PageNumber(pageNumber int32) ApiGetAllTaskRunRequest {
+	r.pageNumber = &pageNumber
+	return r
+}
+
+// Number of results per page.
+func (r ApiGetAllTaskRunRequest) PageSize(pageSize int32) ApiGetAllTaskRunRequest {
+	r.pageSize = &pageSize
+	return r
+}
+
+func (r ApiGetAllTaskRunRequest) Execute() ([]TaskRun, *http.Response, error) {
+	return r.ApiService.GetAllTaskRunExecute(r)
 }
 
 /*
-GetRun Retrieve a Run
+GetAllTaskRun Retrieve all Task Runs
 
-Get a Run by UUID. Set `includeStats=true` for derived per-phase
-outcome counts (current phase and cumulative run).
+List Task Runs on a Site. Filters compose with AND; results are paginated
+and the `X-Pagination` response header reports the total count over the
+post-filter set.
 
-Runs are site-scoped; `siteId` must be the Site that owns the
-Run. Org must have an Infrastructure Provider entity. User must have
+Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param id UUID of the Run
-	@return ApiGetRunRequest
+	@return ApiGetAllTaskRunRequest
 */
-func (a *RunAPIService) GetRun(ctx context.Context, org string, id string) ApiGetRunRequest {
-	return ApiGetRunRequest{
+func (a *TaskRunAPIService) GetAllTaskRun(ctx context.Context, org string) ApiGetAllTaskRunRequest {
+	return ApiGetAllTaskRunRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
-		id:         id,
 	}
 }
 
 // Execute executes the request
 //
-//	@return Run
-func (a *RunAPIService) GetRunExecute(r ApiGetRunRequest) (*Run, *http.Response, error) {
+//	@return []TaskRun
+func (a *TaskRunAPIService) GetAllTaskRunExecute(r ApiGetAllTaskRunRequest) ([]TaskRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Run
+		localVarReturnValue []TaskRun
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.GetRun")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.GetAllTaskRun")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -564,12 +581,17 @@ func (a *RunAPIService) GetRunExecute(r ApiGetRunRequest) (*Run, *http.Response,
 	}
 
 	parameterAddToHeaderOrQuery(localVarQueryParams, "siteId", r.siteId, "form", "")
-	if r.includeStats != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "includeStats", r.includeStats, "form", "")
-	} else {
-		var defaultValue bool = false
-		parameterAddToHeaderOrQuery(localVarQueryParams, "includeStats", defaultValue, "form", "")
-		r.includeStats = &defaultValue
+	if r.status != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "status", r.status, "form", "")
+	}
+	if r.operationType != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "operationType", r.operationType, "form", "")
+	}
+	if r.pageNumber != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "pageNumber", r.pageNumber, "form", "")
+	}
+	if r.pageSize != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "pageSize", r.pageSize, "form", "")
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
@@ -630,17 +652,6 @@ func (a *RunAPIService) GetRunExecute(r ApiGetRunRequest) (*Run, *http.Response,
 			}
 			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
 			newErr.model = v
-			return localVarReturnValue, localVarHTTPResponse, newErr
-		}
-		if localVarHTTPResponse.StatusCode == 404 {
-			var v NICoAPIError
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
 		}
 		return localVarReturnValue, localVarHTTPResponse, newErr
 	}
@@ -657,9 +668,9 @@ func (a *RunAPIService) GetRunExecute(r ApiGetRunRequest) (*Run, *http.Response,
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiListRunTargetsRequest struct {
+type ApiGetAllTaskRunTargetRequest struct {
 	ctx        context.Context
-	ApiService *RunAPIService
+	ApiService *TaskRunAPIService
 	siteId     *string
 	org        string
 	id         string
@@ -669,62 +680,62 @@ type ApiListRunTargetsRequest struct {
 	pageSize   *int32
 }
 
-// ID of the Site that owns the Run.
-func (r ApiListRunTargetsRequest) SiteId(siteId string) ApiListRunTargetsRequest {
+// ID of the Site that owns the Task Run.
+func (r ApiGetAllTaskRunTargetRequest) SiteId(siteId string) ApiGetAllTaskRunTargetRequest {
 	r.siteId = &siteId
 	return r
 }
 
 // Filter by target status.
-func (r ApiListRunTargetsRequest) Status(status string) ApiListRunTargetsRequest {
+func (r ApiGetAllTaskRunTargetRequest) Status(status string) ApiGetAllTaskRunTargetRequest {
 	r.status = &status
 	return r
 }
 
 // Restrict targets to the current phase, completed phases, or both.
-func (r ApiListRunTargetsRequest) PhaseScope(phaseScope string) ApiListRunTargetsRequest {
+func (r ApiGetAllTaskRunTargetRequest) PhaseScope(phaseScope string) ApiGetAllTaskRunTargetRequest {
 	r.phaseScope = &phaseScope
 	return r
 }
 
 // Page number of results returned (1-indexed).
-func (r ApiListRunTargetsRequest) PageNumber(pageNumber int32) ApiListRunTargetsRequest {
+func (r ApiGetAllTaskRunTargetRequest) PageNumber(pageNumber int32) ApiGetAllTaskRunTargetRequest {
 	r.pageNumber = &pageNumber
 	return r
 }
 
 // Number of results per page.
-func (r ApiListRunTargetsRequest) PageSize(pageSize int32) ApiListRunTargetsRequest {
+func (r ApiGetAllTaskRunTargetRequest) PageSize(pageSize int32) ApiGetAllTaskRunTargetRequest {
 	r.pageSize = &pageSize
 	return r
 }
 
-func (r ApiListRunTargetsRequest) Execute() ([]RunTarget, *http.Response, error) {
-	return r.ApiService.ListRunTargetsExecute(r)
+func (r ApiGetAllTaskRunTargetRequest) Execute() ([]TaskRunTarget, *http.Response, error) {
+	return r.ApiService.GetAllTaskRunTargetExecute(r)
 }
 
 /*
-ListRunTargets List Run targets
+GetAllTaskRunTarget Retrieve all Task Run Targets
 
-List a Run's materialized per-Rack execution targets. Each target
-references the Task the Run submitted for that Rack via `taskId`
+List a Task Run's materialized per-Rack execution targets. Each target
+references the Task the Task Run submitted for that Rack via `taskId`
 (null until the target is submitted); drill into execution detail via
 `GET /task/{taskId}`.
 
 Filters compose with AND. Results are paginated; the `X-Pagination`
 response header reports the total count over the post-filter set.
 
-Runs are site-scoped; `siteId` must be the Site that owns the
-Run. Org must have an Infrastructure Provider entity. User must have
+Task Runs are site-scoped; `siteId` must be the Site that owns the
+Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param id UUID of the Run
-	@return ApiListRunTargetsRequest
+	@param id UUID of the Task Run
+	@return ApiGetAllTaskRunTargetRequest
 */
-func (a *RunAPIService) ListRunTargets(ctx context.Context, org string, id string) ApiListRunTargetsRequest {
-	return ApiListRunTargetsRequest{
+func (a *TaskRunAPIService) GetAllTaskRunTarget(ctx context.Context, org string, id string) ApiGetAllTaskRunTargetRequest {
+	return ApiGetAllTaskRunTargetRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -734,16 +745,16 @@ func (a *RunAPIService) ListRunTargets(ctx context.Context, org string, id strin
 
 // Execute executes the request
 //
-//	@return []RunTarget
-func (a *RunAPIService) ListRunTargetsExecute(r ApiListRunTargetsRequest) ([]RunTarget, *http.Response, error) {
+//	@return []TaskRunTarget
+func (a *TaskRunAPIService) GetAllTaskRunTargetExecute(r ApiGetAllTaskRunTargetRequest) ([]TaskRunTarget, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []RunTarget
+		localVarReturnValue []TaskRunTarget
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.ListRunTargets")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.GetAllTaskRunTarget")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -862,91 +873,74 @@ func (a *RunAPIService) ListRunTargetsExecute(r ApiListRunTargetsRequest) ([]Run
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiListRunsRequest struct {
-	ctx           context.Context
-	ApiService    *RunAPIService
-	siteId        *string
-	org           string
-	status        *string
-	operationType *string
-	pageNumber    *int32
-	pageSize      *int32
+type ApiGetTaskRunRequest struct {
+	ctx          context.Context
+	ApiService   *TaskRunAPIService
+	siteId       *string
+	org          string
+	id           string
+	includeStats *bool
 }
 
-// ID of the Site that owns the Runs (Runs are site-scoped).
-func (r ApiListRunsRequest) SiteId(siteId string) ApiListRunsRequest {
+// ID of the Site that owns the Task Run (Task Runs are site-scoped).
+func (r ApiGetTaskRunRequest) SiteId(siteId string) ApiGetTaskRunRequest {
 	r.siteId = &siteId
 	return r
 }
 
-// Filter by Run status.
-func (r ApiListRunsRequest) Status(status string) ApiListRunsRequest {
-	r.status = &status
+// Include derived per-phase outcome stats on the response.
+func (r ApiGetTaskRunRequest) IncludeStats(includeStats bool) ApiGetTaskRunRequest {
+	r.includeStats = &includeStats
 	return r
 }
 
-// Filter by operation type.
-func (r ApiListRunsRequest) OperationType(operationType string) ApiListRunsRequest {
-	r.operationType = &operationType
-	return r
-}
-
-// Page number of results returned (1-indexed).
-func (r ApiListRunsRequest) PageNumber(pageNumber int32) ApiListRunsRequest {
-	r.pageNumber = &pageNumber
-	return r
-}
-
-// Number of results per page.
-func (r ApiListRunsRequest) PageSize(pageSize int32) ApiListRunsRequest {
-	r.pageSize = &pageSize
-	return r
-}
-
-func (r ApiListRunsRequest) Execute() ([]Run, *http.Response, error) {
-	return r.ApiService.ListRunsExecute(r)
+func (r ApiGetTaskRunRequest) Execute() (*TaskRun, *http.Response, error) {
+	return r.ApiService.GetTaskRunExecute(r)
 }
 
 /*
-ListRuns List Runs
+GetTaskRun Retrieve a Task Run
 
-List Runs on a Site. Filters compose with AND; results are paginated
-and the `X-Pagination` response header reports the total count over the
-post-filter set.
+Get a Task Run by UUID. Set `includeStats=true` for derived per-phase
+outcome counts (current phase and cumulative run).
 
-Org must have an Infrastructure Provider entity. User must have
+Task Runs are site-scoped; `siteId` must be the Site that owns the
+Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiListRunsRequest
+	@param id UUID of the Task Run
+	@return ApiGetTaskRunRequest
 */
-func (a *RunAPIService) ListRuns(ctx context.Context, org string) ApiListRunsRequest {
-	return ApiListRunsRequest{
+func (a *TaskRunAPIService) GetTaskRun(ctx context.Context, org string, id string) ApiGetTaskRunRequest {
+	return ApiGetTaskRunRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
+		id:         id,
 	}
 }
 
 // Execute executes the request
 //
-//	@return []Run
-func (a *RunAPIService) ListRunsExecute(r ApiListRunsRequest) ([]Run, *http.Response, error) {
+//	@return TaskRun
+func (a *TaskRunAPIService) GetTaskRunExecute(r ApiGetTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []Run
+		localVarReturnValue *TaskRun
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.ListRuns")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.GetTaskRun")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
@@ -956,17 +950,12 @@ func (a *RunAPIService) ListRunsExecute(r ApiListRunsRequest) ([]Run, *http.Resp
 	}
 
 	parameterAddToHeaderOrQuery(localVarQueryParams, "siteId", r.siteId, "form", "")
-	if r.status != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "status", r.status, "form", "")
-	}
-	if r.operationType != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "operationType", r.operationType, "form", "")
-	}
-	if r.pageNumber != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "pageNumber", r.pageNumber, "form", "")
-	}
-	if r.pageSize != nil {
-		parameterAddToHeaderOrQuery(localVarQueryParams, "pageSize", r.pageSize, "form", "")
+	if r.includeStats != nil {
+		parameterAddToHeaderOrQuery(localVarQueryParams, "includeStats", r.includeStats, "form", "")
+	} else {
+		var defaultValue bool = false
+		parameterAddToHeaderOrQuery(localVarQueryParams, "includeStats", defaultValue, "form", "")
+		r.includeStats = &defaultValue
 	}
 	// to determine the Content-Type header
 	localVarHTTPContentTypes := []string{}
@@ -985,152 +974,6 @@ func (a *RunAPIService) ListRunsExecute(r ApiListRunsRequest) ([]Run, *http.Resp
 	if localVarHTTPHeaderAccept != "" {
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
-	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
-	if err != nil {
-		return localVarReturnValue, nil, err
-	}
-
-	localVarHTTPResponse, err := a.client.callAPI(req)
-	if err != nil || localVarHTTPResponse == nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
-	localVarHTTPResponse.Body.Close()
-	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
-	if err != nil {
-		return localVarReturnValue, localVarHTTPResponse, err
-	}
-
-	if localVarHTTPResponse.StatusCode >= 300 {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: localVarHTTPResponse.Status,
-		}
-		if localVarHTTPResponse.StatusCode == 400 {
-			var v NICoAPIError
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
-			return localVarReturnValue, localVarHTTPResponse, newErr
-		}
-		if localVarHTTPResponse.StatusCode == 403 {
-			var v NICoAPIError
-			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-			if err != nil {
-				newErr.error = err.Error()
-				return localVarReturnValue, localVarHTTPResponse, newErr
-			}
-			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
-			newErr.model = v
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
-	if err != nil {
-		newErr := &GenericOpenAPIError{
-			body:  localVarBody,
-			error: err.Error(),
-		}
-		return localVarReturnValue, localVarHTTPResponse, newErr
-	}
-
-	return localVarReturnValue, localVarHTTPResponse, nil
-}
-
-type ApiPauseRunRequest struct {
-	ctx            context.Context
-	ApiService     *RunAPIService
-	org            string
-	id             string
-	runSiteRequest *RunSiteRequest
-}
-
-func (r ApiPauseRunRequest) RunSiteRequest(runSiteRequest RunSiteRequest) ApiPauseRunRequest {
-	r.runSiteRequest = &runSiteRequest
-	return r
-}
-
-func (r ApiPauseRunRequest) Execute() (*Run, *http.Response, error) {
-	return r.ApiService.PauseRunExecute(r)
-}
-
-/*
-PauseRun Pause a Run
-
-Pause a running Run. In-flight target Tasks continue to completion;
-no new targets are claimed until the Run is resumed. Pausing an
-already-paused Run is idempotent.
-
-Runs are site-scoped; `siteId` must be the Site that owns the
-Run. Org must have an Infrastructure Provider entity. User must have
-authorization role with `PROVIDER_ADMIN` suffix.
-
-	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
-	@param org Name of the Org
-	@param id UUID of the Run
-	@return ApiPauseRunRequest
-*/
-func (a *RunAPIService) PauseRun(ctx context.Context, org string, id string) ApiPauseRunRequest {
-	return ApiPauseRunRequest{
-		ApiService: a,
-		ctx:        ctx,
-		org:        org,
-		id:         id,
-	}
-}
-
-// Execute executes the request
-//
-//	@return Run
-func (a *RunAPIService) PauseRunExecute(r ApiPauseRunRequest) (*Run, *http.Response, error) {
-	var (
-		localVarHTTPMethod  = http.MethodPost
-		localVarPostBody    interface{}
-		formFiles           []formFile
-		localVarReturnValue *Run
-	)
-
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.PauseRun")
-	if err != nil {
-		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
-	}
-
-	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/pause"
-	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
-	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
-
-	localVarHeaderParams := make(map[string]string)
-	localVarQueryParams := url.Values{}
-	localVarFormParams := url.Values{}
-	if r.runSiteRequest == nil {
-		return localVarReturnValue, nil, reportError("runSiteRequest is required and must be specified")
-	}
-
-	// to determine the Content-Type header
-	localVarHTTPContentTypes := []string{"application/json"}
-
-	// set Content-Type header
-	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
-	if localVarHTTPContentType != "" {
-		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
-	}
-
-	// to determine the Accept header
-	localVarHTTPHeaderAccepts := []string{"application/json"}
-
-	// set Accept header
-	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
-	if localVarHTTPHeaderAccept != "" {
-		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
-	}
-	// body params
-	localVarPostBody = r.runSiteRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -1200,41 +1043,41 @@ func (a *RunAPIService) PauseRunExecute(r ApiPauseRunRequest) (*Run, *http.Respo
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiResumeRunRequest struct {
-	ctx            context.Context
-	ApiService     *RunAPIService
-	org            string
-	id             string
-	runSiteRequest *RunSiteRequest
+type ApiPauseTaskRunRequest struct {
+	ctx                context.Context
+	ApiService         *TaskRunAPIService
+	org                string
+	id                 string
+	taskRunSiteRequest *TaskRunSiteRequest
 }
 
-func (r ApiResumeRunRequest) RunSiteRequest(runSiteRequest RunSiteRequest) ApiResumeRunRequest {
-	r.runSiteRequest = &runSiteRequest
+func (r ApiPauseTaskRunRequest) TaskRunSiteRequest(taskRunSiteRequest TaskRunSiteRequest) ApiPauseTaskRunRequest {
+	r.taskRunSiteRequest = &taskRunSiteRequest
 	return r
 }
 
-func (r ApiResumeRunRequest) Execute() (*Run, *http.Response, error) {
-	return r.ApiService.ResumeRunExecute(r)
+func (r ApiPauseTaskRunRequest) Execute() (*TaskRun, *http.Response, error) {
+	return r.ApiService.PauseTaskRunExecute(r)
 }
 
 /*
-ResumeRun Resume a Run
+PauseTaskRun Pause a Task Run
 
-Resume an operator-paused Run. A Run paused at a phase gate
-(rather than by an operator) must be advanced with the advance endpoint
-instead; resume applies only to operator pauses.
+Pause a running Task Run. In-flight target Tasks continue to completion;
+no new targets are claimed until the Task Run is resumed. Pausing an
+already-paused Task Run is idempotent.
 
-Runs are site-scoped; `siteId` must be the Site that owns the
-Run. Org must have an Infrastructure Provider entity. User must have
+Task Runs are site-scoped; `siteId` must be the Site that owns the
+Task Run. Org must have an Infrastructure Provider entity. User must have
 authorization role with `PROVIDER_ADMIN` suffix.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@param id UUID of the Run
-	@return ApiResumeRunRequest
+	@param id UUID of the Task Run
+	@return ApiPauseTaskRunRequest
 */
-func (a *RunAPIService) ResumeRun(ctx context.Context, org string, id string) ApiResumeRunRequest {
-	return ApiResumeRunRequest{
+func (a *TaskRunAPIService) PauseTaskRun(ctx context.Context, org string, id string) ApiPauseTaskRunRequest {
+	return ApiPauseTaskRunRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -1244,29 +1087,29 @@ func (a *RunAPIService) ResumeRun(ctx context.Context, org string, id string) Ap
 
 // Execute executes the request
 //
-//	@return Run
-func (a *RunAPIService) ResumeRunExecute(r ApiResumeRunRequest) (*Run, *http.Response, error) {
+//	@return TaskRun
+func (a *TaskRunAPIService) PauseTaskRunExecute(r ApiPauseTaskRunRequest) (*TaskRun, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *Run
+		localVarReturnValue *TaskRun
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "RunAPIService.ResumeRun")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.PauseTaskRun")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
 
-	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/resume"
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/pause"
 	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
 	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
 
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.runSiteRequest == nil {
-		return localVarReturnValue, nil, reportError("runSiteRequest is required and must be specified")
+	if r.taskRunSiteRequest == nil {
+		return localVarReturnValue, nil, reportError("taskRunSiteRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -1287,7 +1130,164 @@ func (a *RunAPIService) ResumeRunExecute(r ApiResumeRunRequest) (*Run, *http.Res
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.runSiteRequest
+	localVarPostBody = r.taskRunSiteRequest
+	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
+	if err != nil {
+		return localVarReturnValue, nil, err
+	}
+
+	localVarHTTPResponse, err := a.client.callAPI(req)
+	if err != nil || localVarHTTPResponse == nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	localVarBody, err := io.ReadAll(localVarHTTPResponse.Body)
+	localVarHTTPResponse.Body.Close()
+	localVarHTTPResponse.Body = io.NopCloser(bytes.NewBuffer(localVarBody))
+	if err != nil {
+		return localVarReturnValue, localVarHTTPResponse, err
+	}
+
+	if localVarHTTPResponse.StatusCode >= 300 {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: localVarHTTPResponse.Status,
+		}
+		if localVarHTTPResponse.StatusCode == 400 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 403 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+			return localVarReturnValue, localVarHTTPResponse, newErr
+		}
+		if localVarHTTPResponse.StatusCode == 404 {
+			var v NICoAPIError
+			err = a.client.decode(&v, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+			if err != nil {
+				newErr.error = err.Error()
+				return localVarReturnValue, localVarHTTPResponse, newErr
+			}
+			newErr.error = formatErrorMessage(localVarHTTPResponse.Status, &v)
+			newErr.model = v
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	err = a.client.decode(&localVarReturnValue, localVarBody, localVarHTTPResponse.Header.Get("Content-Type"))
+	if err != nil {
+		newErr := &GenericOpenAPIError{
+			body:  localVarBody,
+			error: err.Error(),
+		}
+		return localVarReturnValue, localVarHTTPResponse, newErr
+	}
+
+	return localVarReturnValue, localVarHTTPResponse, nil
+}
+
+type ApiResumeTaskRunRequest struct {
+	ctx                context.Context
+	ApiService         *TaskRunAPIService
+	org                string
+	id                 string
+	taskRunSiteRequest *TaskRunSiteRequest
+}
+
+func (r ApiResumeTaskRunRequest) TaskRunSiteRequest(taskRunSiteRequest TaskRunSiteRequest) ApiResumeTaskRunRequest {
+	r.taskRunSiteRequest = &taskRunSiteRequest
+	return r
+}
+
+func (r ApiResumeTaskRunRequest) Execute() (*TaskRun, *http.Response, error) {
+	return r.ApiService.ResumeTaskRunExecute(r)
+}
+
+/*
+ResumeTaskRun Resume a Task Run
+
+Resume an operator-paused Task Run. A Task Run paused at a phase gate
+(rather than by an operator) must be advanced with the advance endpoint
+instead; resume applies only to operator pauses.
+
+Task Runs are site-scoped; `siteId` must be the Site that owns the
+Task Run. Org must have an Infrastructure Provider entity. User must have
+authorization role with `PROVIDER_ADMIN` suffix.
+
+	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
+	@param org Name of the Org
+	@param id UUID of the Task Run
+	@return ApiResumeTaskRunRequest
+*/
+func (a *TaskRunAPIService) ResumeTaskRun(ctx context.Context, org string, id string) ApiResumeTaskRunRequest {
+	return ApiResumeTaskRunRequest{
+		ApiService: a,
+		ctx:        ctx,
+		org:        org,
+		id:         id,
+	}
+}
+
+// Execute executes the request
+//
+//	@return TaskRun
+func (a *TaskRunAPIService) ResumeTaskRunExecute(r ApiResumeTaskRunRequest) (*TaskRun, *http.Response, error) {
+	var (
+		localVarHTTPMethod  = http.MethodPost
+		localVarPostBody    interface{}
+		formFiles           []formFile
+		localVarReturnValue *TaskRun
+	)
+
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "TaskRunAPIService.ResumeTaskRun")
+	if err != nil {
+		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
+	}
+
+	localVarPath := localBasePath + "/v2/org/{org}/nico/task/run/{id}/resume"
+	localVarPath = strings.Replace(localVarPath, "{"+"org"+"}", url.PathEscape(parameterValueToString(r.org, "org")), -1)
+	localVarPath = strings.Replace(localVarPath, "{"+"id"+"}", url.PathEscape(parameterValueToString(r.id, "id")), -1)
+
+	localVarHeaderParams := make(map[string]string)
+	localVarQueryParams := url.Values{}
+	localVarFormParams := url.Values{}
+	if r.taskRunSiteRequest == nil {
+		return localVarReturnValue, nil, reportError("taskRunSiteRequest is required and must be specified")
+	}
+
+	// to determine the Content-Type header
+	localVarHTTPContentTypes := []string{"application/json"}
+
+	// set Content-Type header
+	localVarHTTPContentType := selectHeaderContentType(localVarHTTPContentTypes)
+	if localVarHTTPContentType != "" {
+		localVarHeaderParams["Content-Type"] = localVarHTTPContentType
+	}
+
+	// to determine the Accept header
+	localVarHTTPHeaderAccepts := []string{"application/json"}
+
+	// set Accept header
+	localVarHTTPHeaderAccept := selectHeaderAccept(localVarHTTPHeaderAccepts)
+	if localVarHTTPHeaderAccept != "" {
+		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
+	}
+	// body params
+	localVarPostBody = r.taskRunSiteRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err

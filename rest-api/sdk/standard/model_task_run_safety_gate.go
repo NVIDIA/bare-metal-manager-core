@@ -17,36 +17,36 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunSafetyGate type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunSafetyGate{}
+// checks if the TaskRunSafetyGate type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunSafetyGate{}
 
-// RunSafetyGate Exactly one of `failureRate` or `failureCount` must be set.
-type RunSafetyGate struct {
-	FailureRate  *RunFailureRateGate  `json:"failureRate,omitempty"`
-	FailureCount *RunFailureCountGate `json:"failureCount,omitempty"`
+// TaskRunSafetyGate Exactly one of `failureRate` or `failureCount` must be set.
+type TaskRunSafetyGate struct {
+	FailureRate  *TaskRunFailureRateGate  `json:"failureRate,omitempty"`
+	FailureCount *TaskRunFailureCountGate `json:"failureCount,omitempty"`
 }
 
-// NewRunSafetyGate instantiates a new RunSafetyGate object
+// NewTaskRunSafetyGate instantiates a new TaskRunSafetyGate object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunSafetyGate() *RunSafetyGate {
-	this := RunSafetyGate{}
+func NewTaskRunSafetyGate() *TaskRunSafetyGate {
+	this := TaskRunSafetyGate{}
 	return &this
 }
 
-// NewRunSafetyGateWithDefaults instantiates a new RunSafetyGate object
+// NewTaskRunSafetyGateWithDefaults instantiates a new TaskRunSafetyGate object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunSafetyGateWithDefaults() *RunSafetyGate {
-	this := RunSafetyGate{}
+func NewTaskRunSafetyGateWithDefaults() *TaskRunSafetyGate {
+	this := TaskRunSafetyGate{}
 	return &this
 }
 
 // GetFailureRate returns the FailureRate field value if set, zero value otherwise.
-func (o *RunSafetyGate) GetFailureRate() RunFailureRateGate {
+func (o *TaskRunSafetyGate) GetFailureRate() TaskRunFailureRateGate {
 	if o == nil || IsNil(o.FailureRate) {
-		var ret RunFailureRateGate
+		var ret TaskRunFailureRateGate
 		return ret
 	}
 	return *o.FailureRate
@@ -54,7 +54,7 @@ func (o *RunSafetyGate) GetFailureRate() RunFailureRateGate {
 
 // GetFailureRateOk returns a tuple with the FailureRate field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunSafetyGate) GetFailureRateOk() (*RunFailureRateGate, bool) {
+func (o *TaskRunSafetyGate) GetFailureRateOk() (*TaskRunFailureRateGate, bool) {
 	if o == nil || IsNil(o.FailureRate) {
 		return nil, false
 	}
@@ -62,7 +62,7 @@ func (o *RunSafetyGate) GetFailureRateOk() (*RunFailureRateGate, bool) {
 }
 
 // HasFailureRate returns a boolean if a field has been set.
-func (o *RunSafetyGate) HasFailureRate() bool {
+func (o *TaskRunSafetyGate) HasFailureRate() bool {
 	if o != nil && !IsNil(o.FailureRate) {
 		return true
 	}
@@ -70,15 +70,15 @@ func (o *RunSafetyGate) HasFailureRate() bool {
 	return false
 }
 
-// SetFailureRate gets a reference to the given RunFailureRateGate and assigns it to the FailureRate field.
-func (o *RunSafetyGate) SetFailureRate(v RunFailureRateGate) {
+// SetFailureRate gets a reference to the given TaskRunFailureRateGate and assigns it to the FailureRate field.
+func (o *TaskRunSafetyGate) SetFailureRate(v TaskRunFailureRateGate) {
 	o.FailureRate = &v
 }
 
 // GetFailureCount returns the FailureCount field value if set, zero value otherwise.
-func (o *RunSafetyGate) GetFailureCount() RunFailureCountGate {
+func (o *TaskRunSafetyGate) GetFailureCount() TaskRunFailureCountGate {
 	if o == nil || IsNil(o.FailureCount) {
-		var ret RunFailureCountGate
+		var ret TaskRunFailureCountGate
 		return ret
 	}
 	return *o.FailureCount
@@ -86,7 +86,7 @@ func (o *RunSafetyGate) GetFailureCount() RunFailureCountGate {
 
 // GetFailureCountOk returns a tuple with the FailureCount field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunSafetyGate) GetFailureCountOk() (*RunFailureCountGate, bool) {
+func (o *TaskRunSafetyGate) GetFailureCountOk() (*TaskRunFailureCountGate, bool) {
 	if o == nil || IsNil(o.FailureCount) {
 		return nil, false
 	}
@@ -94,7 +94,7 @@ func (o *RunSafetyGate) GetFailureCountOk() (*RunFailureCountGate, bool) {
 }
 
 // HasFailureCount returns a boolean if a field has been set.
-func (o *RunSafetyGate) HasFailureCount() bool {
+func (o *TaskRunSafetyGate) HasFailureCount() bool {
 	if o != nil && !IsNil(o.FailureCount) {
 		return true
 	}
@@ -102,12 +102,12 @@ func (o *RunSafetyGate) HasFailureCount() bool {
 	return false
 }
 
-// SetFailureCount gets a reference to the given RunFailureCountGate and assigns it to the FailureCount field.
-func (o *RunSafetyGate) SetFailureCount(v RunFailureCountGate) {
+// SetFailureCount gets a reference to the given TaskRunFailureCountGate and assigns it to the FailureCount field.
+func (o *TaskRunSafetyGate) SetFailureCount(v TaskRunFailureCountGate) {
 	o.FailureCount = &v
 }
 
-func (o RunSafetyGate) MarshalJSON() ([]byte, error) {
+func (o TaskRunSafetyGate) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -115,7 +115,7 @@ func (o RunSafetyGate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunSafetyGate) ToMap() (map[string]interface{}, error) {
+func (o TaskRunSafetyGate) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.FailureRate) {
 		toSerialize["failureRate"] = o.FailureRate
@@ -126,38 +126,38 @@ func (o RunSafetyGate) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunSafetyGate struct {
-	value *RunSafetyGate
+type NullableTaskRunSafetyGate struct {
+	value *TaskRunSafetyGate
 	isSet bool
 }
 
-func (v NullableRunSafetyGate) Get() *RunSafetyGate {
+func (v NullableTaskRunSafetyGate) Get() *TaskRunSafetyGate {
 	return v.value
 }
 
-func (v *NullableRunSafetyGate) Set(val *RunSafetyGate) {
+func (v *NullableTaskRunSafetyGate) Set(val *TaskRunSafetyGate) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunSafetyGate) IsSet() bool {
+func (v NullableTaskRunSafetyGate) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunSafetyGate) Unset() {
+func (v *NullableTaskRunSafetyGate) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunSafetyGate(val *RunSafetyGate) *NullableRunSafetyGate {
-	return &NullableRunSafetyGate{value: val, isSet: true}
+func NewNullableTaskRunSafetyGate(val *TaskRunSafetyGate) *NullableTaskRunSafetyGate {
+	return &NullableTaskRunSafetyGate{value: val, isSet: true}
 }
 
-func (v NullableRunSafetyGate) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunSafetyGate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunSafetyGate) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunSafetyGate) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

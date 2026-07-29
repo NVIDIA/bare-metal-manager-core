@@ -19,60 +19,60 @@ import (
 	"fmt"
 )
 
-// checks if the RunPercentagePhases type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunPercentagePhases{}
+// checks if the TaskRunSiteRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunSiteRequest{}
 
-// RunPercentagePhases Splits targets by percentage. Values must sum to 100.
-type RunPercentagePhases struct {
-	// Per-phase percentages, in phase order; must sum to 100.
-	Phases []int32 `json:"phases"`
+// TaskRunSiteRequest Shared request body for the pause and resume lifecycle actions.
+type TaskRunSiteRequest struct {
+	// ID of the Site that owns the Task Run (Task Runs are site-scoped).
+	SiteId string `json:"siteId"`
 }
 
-type _RunPercentagePhases RunPercentagePhases
+type _TaskRunSiteRequest TaskRunSiteRequest
 
-// NewRunPercentagePhases instantiates a new RunPercentagePhases object
+// NewTaskRunSiteRequest instantiates a new TaskRunSiteRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunPercentagePhases(phases []int32) *RunPercentagePhases {
-	this := RunPercentagePhases{}
-	this.Phases = phases
+func NewTaskRunSiteRequest(siteId string) *TaskRunSiteRequest {
+	this := TaskRunSiteRequest{}
+	this.SiteId = siteId
 	return &this
 }
 
-// NewRunPercentagePhasesWithDefaults instantiates a new RunPercentagePhases object
+// NewTaskRunSiteRequestWithDefaults instantiates a new TaskRunSiteRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunPercentagePhasesWithDefaults() *RunPercentagePhases {
-	this := RunPercentagePhases{}
+func NewTaskRunSiteRequestWithDefaults() *TaskRunSiteRequest {
+	this := TaskRunSiteRequest{}
 	return &this
 }
 
-// GetPhases returns the Phases field value
-func (o *RunPercentagePhases) GetPhases() []int32 {
+// GetSiteId returns the SiteId field value
+func (o *TaskRunSiteRequest) GetSiteId() string {
 	if o == nil {
-		var ret []int32
+		var ret string
 		return ret
 	}
 
-	return o.Phases
+	return o.SiteId
 }
 
-// GetPhasesOk returns a tuple with the Phases field value
+// GetSiteIdOk returns a tuple with the SiteId field value
 // and a boolean to check if the value has been set.
-func (o *RunPercentagePhases) GetPhasesOk() ([]int32, bool) {
+func (o *TaskRunSiteRequest) GetSiteIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return o.Phases, true
+	return &o.SiteId, true
 }
 
-// SetPhases sets field value
-func (o *RunPercentagePhases) SetPhases(v []int32) {
-	o.Phases = v
+// SetSiteId sets field value
+func (o *TaskRunSiteRequest) SetSiteId(v string) {
+	o.SiteId = v
 }
 
-func (o RunPercentagePhases) MarshalJSON() ([]byte, error) {
+func (o TaskRunSiteRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -80,18 +80,18 @@ func (o RunPercentagePhases) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunPercentagePhases) ToMap() (map[string]interface{}, error) {
+func (o TaskRunSiteRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["phases"] = o.Phases
+	toSerialize["siteId"] = o.SiteId
 	return toSerialize, nil
 }
 
-func (o *RunPercentagePhases) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunSiteRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"phases",
+		"siteId",
 	}
 
 	allProperties := make(map[string]interface{})
@@ -108,53 +108,53 @@ func (o *RunPercentagePhases) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunPercentagePhases := _RunPercentagePhases{}
+	varTaskRunSiteRequest := _TaskRunSiteRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunPercentagePhases)
+	err = decoder.Decode(&varTaskRunSiteRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunPercentagePhases(varRunPercentagePhases)
+	*o = TaskRunSiteRequest(varTaskRunSiteRequest)
 
 	return err
 }
 
-type NullableRunPercentagePhases struct {
-	value *RunPercentagePhases
+type NullableTaskRunSiteRequest struct {
+	value *TaskRunSiteRequest
 	isSet bool
 }
 
-func (v NullableRunPercentagePhases) Get() *RunPercentagePhases {
+func (v NullableTaskRunSiteRequest) Get() *TaskRunSiteRequest {
 	return v.value
 }
 
-func (v *NullableRunPercentagePhases) Set(val *RunPercentagePhases) {
+func (v *NullableTaskRunSiteRequest) Set(val *TaskRunSiteRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunPercentagePhases) IsSet() bool {
+func (v NullableTaskRunSiteRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunPercentagePhases) Unset() {
+func (v *NullableTaskRunSiteRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunPercentagePhases(val *RunPercentagePhases) *NullableRunPercentagePhases {
-	return &NullableRunPercentagePhases{value: val, isSet: true}
+func NewNullableTaskRunSiteRequest(val *TaskRunSiteRequest) *NullableTaskRunSiteRequest {
+	return &NullableTaskRunSiteRequest{value: val, isSet: true}
 }
 
-func (v NullableRunPercentagePhases) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunSiteRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunPercentagePhases) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunSiteRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

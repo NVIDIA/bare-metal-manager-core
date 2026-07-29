@@ -17,35 +17,35 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunSelector type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunSelector{}
+// checks if the TaskRunSelector type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunSelector{}
 
-// RunSelector Selects a subset of candidate Racks. Percentage is the only supported selector today.
-type RunSelector struct {
-	Percentage *RunPercentageSelector `json:"percentage,omitempty"`
+// TaskRunSelector Selects a subset of candidate Racks. Percentage is the only supported selector today.
+type TaskRunSelector struct {
+	Percentage *TaskRunPercentageSelector `json:"percentage,omitempty"`
 }
 
-// NewRunSelector instantiates a new RunSelector object
+// NewTaskRunSelector instantiates a new TaskRunSelector object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunSelector() *RunSelector {
-	this := RunSelector{}
+func NewTaskRunSelector() *TaskRunSelector {
+	this := TaskRunSelector{}
 	return &this
 }
 
-// NewRunSelectorWithDefaults instantiates a new RunSelector object
+// NewTaskRunSelectorWithDefaults instantiates a new TaskRunSelector object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunSelectorWithDefaults() *RunSelector {
-	this := RunSelector{}
+func NewTaskRunSelectorWithDefaults() *TaskRunSelector {
+	this := TaskRunSelector{}
 	return &this
 }
 
 // GetPercentage returns the Percentage field value if set, zero value otherwise.
-func (o *RunSelector) GetPercentage() RunPercentageSelector {
+func (o *TaskRunSelector) GetPercentage() TaskRunPercentageSelector {
 	if o == nil || IsNil(o.Percentage) {
-		var ret RunPercentageSelector
+		var ret TaskRunPercentageSelector
 		return ret
 	}
 	return *o.Percentage
@@ -53,7 +53,7 @@ func (o *RunSelector) GetPercentage() RunPercentageSelector {
 
 // GetPercentageOk returns a tuple with the Percentage field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunSelector) GetPercentageOk() (*RunPercentageSelector, bool) {
+func (o *TaskRunSelector) GetPercentageOk() (*TaskRunPercentageSelector, bool) {
 	if o == nil || IsNil(o.Percentage) {
 		return nil, false
 	}
@@ -61,7 +61,7 @@ func (o *RunSelector) GetPercentageOk() (*RunPercentageSelector, bool) {
 }
 
 // HasPercentage returns a boolean if a field has been set.
-func (o *RunSelector) HasPercentage() bool {
+func (o *TaskRunSelector) HasPercentage() bool {
 	if o != nil && !IsNil(o.Percentage) {
 		return true
 	}
@@ -69,12 +69,12 @@ func (o *RunSelector) HasPercentage() bool {
 	return false
 }
 
-// SetPercentage gets a reference to the given RunPercentageSelector and assigns it to the Percentage field.
-func (o *RunSelector) SetPercentage(v RunPercentageSelector) {
+// SetPercentage gets a reference to the given TaskRunPercentageSelector and assigns it to the Percentage field.
+func (o *TaskRunSelector) SetPercentage(v TaskRunPercentageSelector) {
 	o.Percentage = &v
 }
 
-func (o RunSelector) MarshalJSON() ([]byte, error) {
+func (o TaskRunSelector) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -82,7 +82,7 @@ func (o RunSelector) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunSelector) ToMap() (map[string]interface{}, error) {
+func (o TaskRunSelector) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Percentage) {
 		toSerialize["percentage"] = o.Percentage
@@ -90,38 +90,38 @@ func (o RunSelector) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunSelector struct {
-	value *RunSelector
+type NullableTaskRunSelector struct {
+	value *TaskRunSelector
 	isSet bool
 }
 
-func (v NullableRunSelector) Get() *RunSelector {
+func (v NullableTaskRunSelector) Get() *TaskRunSelector {
 	return v.value
 }
 
-func (v *NullableRunSelector) Set(val *RunSelector) {
+func (v *NullableTaskRunSelector) Set(val *TaskRunSelector) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunSelector) IsSet() bool {
+func (v NullableTaskRunSelector) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunSelector) Unset() {
+func (v *NullableTaskRunSelector) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunSelector(val *RunSelector) *NullableRunSelector {
-	return &NullableRunSelector{value: val, isSet: true}
+func NewNullableTaskRunSelector(val *TaskRunSelector) *NullableTaskRunSelector {
+	return &NullableTaskRunSelector{value: val, isSet: true}
 }
 
-func (v NullableRunSelector) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunSelector) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunSelector) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunSelector) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

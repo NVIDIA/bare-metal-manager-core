@@ -101,8 +101,6 @@ type APIClient struct {
 
 	RuleAPI *RuleAPIService
 
-	RunAPI *RunAPIService
-
 	SKUAPI *SKUAPIService
 
 	SSHKeyAPI *SSHKeyAPIService
@@ -118,6 +116,8 @@ type APIClient struct {
 	SubnetAPI *SubnetAPIService
 
 	TaskAPI *TaskAPIService
+
+	TaskRunAPI *TaskRunAPIService
 
 	TenantAPI *TenantAPIService
 
@@ -179,7 +179,6 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.OperatingSystemAPI = (*OperatingSystemAPIService)(&c.common)
 	c.RackAPI = (*RackAPIService)(&c.common)
 	c.RuleAPI = (*RuleAPIService)(&c.common)
-	c.RunAPI = (*RunAPIService)(&c.common)
 	c.SKUAPI = (*SKUAPIService)(&c.common)
 	c.SSHKeyAPI = (*SSHKeyAPIService)(&c.common)
 	c.SSHKeyGroupAPI = (*SSHKeyGroupAPIService)(&c.common)
@@ -188,6 +187,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.SiteExplorerAPI = (*SiteExplorerAPIService)(&c.common)
 	c.SubnetAPI = (*SubnetAPIService)(&c.common)
 	c.TaskAPI = (*TaskAPIService)(&c.common)
+	c.TaskRunAPI = (*TaskRunAPIService)(&c.common)
 	c.TenantAPI = (*TenantAPIService)(&c.common)
 	c.TenantAccountAPI = (*TenantAccountAPIService)(&c.common)
 	c.TenantIdentityAPI = (*TenantIdentityAPIService)(&c.common)

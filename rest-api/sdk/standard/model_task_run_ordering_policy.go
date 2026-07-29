@@ -17,35 +17,35 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunOrderingPolicy type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunOrderingPolicy{}
+// checks if the TaskRunOrderingPolicy type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunOrderingPolicy{}
 
-// RunOrderingPolicy Controls the order in which targets are processed. Random is the only supported ordering today.
-type RunOrderingPolicy struct {
-	Random *RunRandomOrdering `json:"random,omitempty"`
+// TaskRunOrderingPolicy Controls the order in which targets are processed. Random is the only supported ordering today.
+type TaskRunOrderingPolicy struct {
+	Random *TaskRunRandomOrdering `json:"random,omitempty"`
 }
 
-// NewRunOrderingPolicy instantiates a new RunOrderingPolicy object
+// NewTaskRunOrderingPolicy instantiates a new TaskRunOrderingPolicy object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunOrderingPolicy() *RunOrderingPolicy {
-	this := RunOrderingPolicy{}
+func NewTaskRunOrderingPolicy() *TaskRunOrderingPolicy {
+	this := TaskRunOrderingPolicy{}
 	return &this
 }
 
-// NewRunOrderingPolicyWithDefaults instantiates a new RunOrderingPolicy object
+// NewTaskRunOrderingPolicyWithDefaults instantiates a new TaskRunOrderingPolicy object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunOrderingPolicyWithDefaults() *RunOrderingPolicy {
-	this := RunOrderingPolicy{}
+func NewTaskRunOrderingPolicyWithDefaults() *TaskRunOrderingPolicy {
+	this := TaskRunOrderingPolicy{}
 	return &this
 }
 
 // GetRandom returns the Random field value if set, zero value otherwise.
-func (o *RunOrderingPolicy) GetRandom() RunRandomOrdering {
+func (o *TaskRunOrderingPolicy) GetRandom() TaskRunRandomOrdering {
 	if o == nil || IsNil(o.Random) {
-		var ret RunRandomOrdering
+		var ret TaskRunRandomOrdering
 		return ret
 	}
 	return *o.Random
@@ -53,7 +53,7 @@ func (o *RunOrderingPolicy) GetRandom() RunRandomOrdering {
 
 // GetRandomOk returns a tuple with the Random field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunOrderingPolicy) GetRandomOk() (*RunRandomOrdering, bool) {
+func (o *TaskRunOrderingPolicy) GetRandomOk() (*TaskRunRandomOrdering, bool) {
 	if o == nil || IsNil(o.Random) {
 		return nil, false
 	}
@@ -61,7 +61,7 @@ func (o *RunOrderingPolicy) GetRandomOk() (*RunRandomOrdering, bool) {
 }
 
 // HasRandom returns a boolean if a field has been set.
-func (o *RunOrderingPolicy) HasRandom() bool {
+func (o *TaskRunOrderingPolicy) HasRandom() bool {
 	if o != nil && !IsNil(o.Random) {
 		return true
 	}
@@ -69,12 +69,12 @@ func (o *RunOrderingPolicy) HasRandom() bool {
 	return false
 }
 
-// SetRandom gets a reference to the given RunRandomOrdering and assigns it to the Random field.
-func (o *RunOrderingPolicy) SetRandom(v RunRandomOrdering) {
+// SetRandom gets a reference to the given TaskRunRandomOrdering and assigns it to the Random field.
+func (o *TaskRunOrderingPolicy) SetRandom(v TaskRunRandomOrdering) {
 	o.Random = &v
 }
 
-func (o RunOrderingPolicy) MarshalJSON() ([]byte, error) {
+func (o TaskRunOrderingPolicy) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -82,7 +82,7 @@ func (o RunOrderingPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunOrderingPolicy) ToMap() (map[string]interface{}, error) {
+func (o TaskRunOrderingPolicy) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Random) {
 		toSerialize["random"] = o.Random
@@ -90,38 +90,38 @@ func (o RunOrderingPolicy) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunOrderingPolicy struct {
-	value *RunOrderingPolicy
+type NullableTaskRunOrderingPolicy struct {
+	value *TaskRunOrderingPolicy
 	isSet bool
 }
 
-func (v NullableRunOrderingPolicy) Get() *RunOrderingPolicy {
+func (v NullableTaskRunOrderingPolicy) Get() *TaskRunOrderingPolicy {
 	return v.value
 }
 
-func (v *NullableRunOrderingPolicy) Set(val *RunOrderingPolicy) {
+func (v *NullableTaskRunOrderingPolicy) Set(val *TaskRunOrderingPolicy) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunOrderingPolicy) IsSet() bool {
+func (v NullableTaskRunOrderingPolicy) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunOrderingPolicy) Unset() {
+func (v *NullableTaskRunOrderingPolicy) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunOrderingPolicy(val *RunOrderingPolicy) *NullableRunOrderingPolicy {
-	return &NullableRunOrderingPolicy{value: val, isSet: true}
+func NewNullableTaskRunOrderingPolicy(val *TaskRunOrderingPolicy) *NullableTaskRunOrderingPolicy {
+	return &NullableTaskRunOrderingPolicy{value: val, isSet: true}
 }
 
-func (v NullableRunOrderingPolicy) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunOrderingPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunOrderingPolicy) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunOrderingPolicy) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

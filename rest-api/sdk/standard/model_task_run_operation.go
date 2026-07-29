@@ -19,40 +19,40 @@ import (
 	"fmt"
 )
 
-// checks if the RunOperation type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunOperation{}
+// checks if the TaskRunOperation type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunOperation{}
 
-// RunOperation The operation the Run executes. Firmware is the only supported operation today.
-type RunOperation struct {
-	Firmware RunFirmwareOperation `json:"firmware"`
-	// Excludes Racks materialized by prior Runs from this Run's candidate scope.
+// TaskRunOperation The operation the Task Run executes. Firmware is the only supported operation today.
+type TaskRunOperation struct {
+	Firmware TaskRunFirmwareOperation `json:"firmware"`
+	// Excludes Racks materialized by prior Task Runs from this Task Run's candidate scope.
 	ExcludeRunIds []string `json:"excludeRunIds,omitempty"`
 }
 
-type _RunOperation RunOperation
+type _TaskRunOperation TaskRunOperation
 
-// NewRunOperation instantiates a new RunOperation object
+// NewTaskRunOperation instantiates a new TaskRunOperation object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunOperation(firmware RunFirmwareOperation) *RunOperation {
-	this := RunOperation{}
+func NewTaskRunOperation(firmware TaskRunFirmwareOperation) *TaskRunOperation {
+	this := TaskRunOperation{}
 	this.Firmware = firmware
 	return &this
 }
 
-// NewRunOperationWithDefaults instantiates a new RunOperation object
+// NewTaskRunOperationWithDefaults instantiates a new TaskRunOperation object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunOperationWithDefaults() *RunOperation {
-	this := RunOperation{}
+func NewTaskRunOperationWithDefaults() *TaskRunOperation {
+	this := TaskRunOperation{}
 	return &this
 }
 
 // GetFirmware returns the Firmware field value
-func (o *RunOperation) GetFirmware() RunFirmwareOperation {
+func (o *TaskRunOperation) GetFirmware() TaskRunFirmwareOperation {
 	if o == nil {
-		var ret RunFirmwareOperation
+		var ret TaskRunFirmwareOperation
 		return ret
 	}
 
@@ -61,7 +61,7 @@ func (o *RunOperation) GetFirmware() RunFirmwareOperation {
 
 // GetFirmwareOk returns a tuple with the Firmware field value
 // and a boolean to check if the value has been set.
-func (o *RunOperation) GetFirmwareOk() (*RunFirmwareOperation, bool) {
+func (o *TaskRunOperation) GetFirmwareOk() (*TaskRunFirmwareOperation, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -69,12 +69,12 @@ func (o *RunOperation) GetFirmwareOk() (*RunFirmwareOperation, bool) {
 }
 
 // SetFirmware sets field value
-func (o *RunOperation) SetFirmware(v RunFirmwareOperation) {
+func (o *TaskRunOperation) SetFirmware(v TaskRunFirmwareOperation) {
 	o.Firmware = v
 }
 
 // GetExcludeRunIds returns the ExcludeRunIds field value if set, zero value otherwise.
-func (o *RunOperation) GetExcludeRunIds() []string {
+func (o *TaskRunOperation) GetExcludeRunIds() []string {
 	if o == nil || IsNil(o.ExcludeRunIds) {
 		var ret []string
 		return ret
@@ -84,7 +84,7 @@ func (o *RunOperation) GetExcludeRunIds() []string {
 
 // GetExcludeRunIdsOk returns a tuple with the ExcludeRunIds field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunOperation) GetExcludeRunIdsOk() ([]string, bool) {
+func (o *TaskRunOperation) GetExcludeRunIdsOk() ([]string, bool) {
 	if o == nil || IsNil(o.ExcludeRunIds) {
 		return nil, false
 	}
@@ -92,7 +92,7 @@ func (o *RunOperation) GetExcludeRunIdsOk() ([]string, bool) {
 }
 
 // HasExcludeRunIds returns a boolean if a field has been set.
-func (o *RunOperation) HasExcludeRunIds() bool {
+func (o *TaskRunOperation) HasExcludeRunIds() bool {
 	if o != nil && !IsNil(o.ExcludeRunIds) {
 		return true
 	}
@@ -101,11 +101,11 @@ func (o *RunOperation) HasExcludeRunIds() bool {
 }
 
 // SetExcludeRunIds gets a reference to the given []string and assigns it to the ExcludeRunIds field.
-func (o *RunOperation) SetExcludeRunIds(v []string) {
+func (o *TaskRunOperation) SetExcludeRunIds(v []string) {
 	o.ExcludeRunIds = v
 }
 
-func (o RunOperation) MarshalJSON() ([]byte, error) {
+func (o TaskRunOperation) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -113,7 +113,7 @@ func (o RunOperation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunOperation) ToMap() (map[string]interface{}, error) {
+func (o TaskRunOperation) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["firmware"] = o.Firmware
 	if !IsNil(o.ExcludeRunIds) {
@@ -122,7 +122,7 @@ func (o RunOperation) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunOperation) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunOperation) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -144,53 +144,53 @@ func (o *RunOperation) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunOperation := _RunOperation{}
+	varTaskRunOperation := _TaskRunOperation{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunOperation)
+	err = decoder.Decode(&varTaskRunOperation)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunOperation(varRunOperation)
+	*o = TaskRunOperation(varTaskRunOperation)
 
 	return err
 }
 
-type NullableRunOperation struct {
-	value *RunOperation
+type NullableTaskRunOperation struct {
+	value *TaskRunOperation
 	isSet bool
 }
 
-func (v NullableRunOperation) Get() *RunOperation {
+func (v NullableTaskRunOperation) Get() *TaskRunOperation {
 	return v.value
 }
 
-func (v *NullableRunOperation) Set(val *RunOperation) {
+func (v *NullableTaskRunOperation) Set(val *TaskRunOperation) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunOperation) IsSet() bool {
+func (v NullableTaskRunOperation) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunOperation) Unset() {
+func (v *NullableTaskRunOperation) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunOperation(val *RunOperation) *NullableRunOperation {
-	return &NullableRunOperation{value: val, isSet: true}
+func NewNullableTaskRunOperation(val *TaskRunOperation) *NullableTaskRunOperation {
+	return &NullableTaskRunOperation{value: val, isSet: true}
 }
 
-func (v NullableRunOperation) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunOperation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunOperation) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunOperation) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

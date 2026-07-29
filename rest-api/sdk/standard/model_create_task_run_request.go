@@ -19,31 +19,31 @@ import (
 	"fmt"
 )
 
-// checks if the CreateRunRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &CreateRunRequest{}
+// checks if the CreateTaskRunRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &CreateTaskRunRequest{}
 
-// CreateRunRequest Request body for creating a Run. `operationType` is inferred from the operation and is not accepted here. Flow performs semantic validation (selector ranges, phase math, operation code membership) server-side.
-type CreateRunRequest struct {
-	// ID of the Site to create the Run on.
+// CreateTaskRunRequest Request body for creating a Task Run. `operationType` is inferred from the operation and is not accepted here. Flow performs semantic validation (selector ranges, phase math, operation code membership) server-side.
+type CreateTaskRunRequest struct {
+	// ID of the Site to create the Task Run on.
 	SiteId string `json:"siteId"`
-	// Human-readable name of the Run.
+	// Human-readable name of the Task Run.
 	Name string `json:"name"`
 	// Optional free-form description.
 	Description *string `json:"description,omitempty"`
 	// Narrows the candidate Racks. Omit to target the full candidate scope (100%).
-	Selector  *RunSelector `json:"selector,omitempty"`
-	Options   RunOptions   `json:"options"`
-	Operation RunOperation `json:"operation"`
+	Selector  *TaskRunSelector `json:"selector,omitempty"`
+	Options   TaskRunOptions   `json:"options"`
+	Operation TaskRunOperation `json:"operation"`
 }
 
-type _CreateRunRequest CreateRunRequest
+type _CreateTaskRunRequest CreateTaskRunRequest
 
-// NewCreateRunRequest instantiates a new CreateRunRequest object
+// NewCreateTaskRunRequest instantiates a new CreateTaskRunRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCreateRunRequest(siteId string, name string, options RunOptions, operation RunOperation) *CreateRunRequest {
-	this := CreateRunRequest{}
+func NewCreateTaskRunRequest(siteId string, name string, options TaskRunOptions, operation TaskRunOperation) *CreateTaskRunRequest {
+	this := CreateTaskRunRequest{}
 	this.SiteId = siteId
 	this.Name = name
 	this.Options = options
@@ -51,16 +51,16 @@ func NewCreateRunRequest(siteId string, name string, options RunOptions, operati
 	return &this
 }
 
-// NewCreateRunRequestWithDefaults instantiates a new CreateRunRequest object
+// NewCreateTaskRunRequestWithDefaults instantiates a new CreateTaskRunRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewCreateRunRequestWithDefaults() *CreateRunRequest {
-	this := CreateRunRequest{}
+func NewCreateTaskRunRequestWithDefaults() *CreateTaskRunRequest {
+	this := CreateTaskRunRequest{}
 	return &this
 }
 
 // GetSiteId returns the SiteId field value
-func (o *CreateRunRequest) GetSiteId() string {
+func (o *CreateTaskRunRequest) GetSiteId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -71,7 +71,7 @@ func (o *CreateRunRequest) GetSiteId() string {
 
 // GetSiteIdOk returns a tuple with the SiteId field value
 // and a boolean to check if the value has been set.
-func (o *CreateRunRequest) GetSiteIdOk() (*string, bool) {
+func (o *CreateTaskRunRequest) GetSiteIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -79,12 +79,12 @@ func (o *CreateRunRequest) GetSiteIdOk() (*string, bool) {
 }
 
 // SetSiteId sets field value
-func (o *CreateRunRequest) SetSiteId(v string) {
+func (o *CreateTaskRunRequest) SetSiteId(v string) {
 	o.SiteId = v
 }
 
 // GetName returns the Name field value
-func (o *CreateRunRequest) GetName() string {
+func (o *CreateTaskRunRequest) GetName() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -95,7 +95,7 @@ func (o *CreateRunRequest) GetName() string {
 
 // GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
-func (o *CreateRunRequest) GetNameOk() (*string, bool) {
+func (o *CreateTaskRunRequest) GetNameOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -103,12 +103,12 @@ func (o *CreateRunRequest) GetNameOk() (*string, bool) {
 }
 
 // SetName sets field value
-func (o *CreateRunRequest) SetName(v string) {
+func (o *CreateTaskRunRequest) SetName(v string) {
 	o.Name = v
 }
 
 // GetDescription returns the Description field value if set, zero value otherwise.
-func (o *CreateRunRequest) GetDescription() string {
+func (o *CreateTaskRunRequest) GetDescription() string {
 	if o == nil || IsNil(o.Description) {
 		var ret string
 		return ret
@@ -118,7 +118,7 @@ func (o *CreateRunRequest) GetDescription() string {
 
 // GetDescriptionOk returns a tuple with the Description field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateRunRequest) GetDescriptionOk() (*string, bool) {
+func (o *CreateTaskRunRequest) GetDescriptionOk() (*string, bool) {
 	if o == nil || IsNil(o.Description) {
 		return nil, false
 	}
@@ -126,7 +126,7 @@ func (o *CreateRunRequest) GetDescriptionOk() (*string, bool) {
 }
 
 // HasDescription returns a boolean if a field has been set.
-func (o *CreateRunRequest) HasDescription() bool {
+func (o *CreateTaskRunRequest) HasDescription() bool {
 	if o != nil && !IsNil(o.Description) {
 		return true
 	}
@@ -135,14 +135,14 @@ func (o *CreateRunRequest) HasDescription() bool {
 }
 
 // SetDescription gets a reference to the given string and assigns it to the Description field.
-func (o *CreateRunRequest) SetDescription(v string) {
+func (o *CreateTaskRunRequest) SetDescription(v string) {
 	o.Description = &v
 }
 
 // GetSelector returns the Selector field value if set, zero value otherwise.
-func (o *CreateRunRequest) GetSelector() RunSelector {
+func (o *CreateTaskRunRequest) GetSelector() TaskRunSelector {
 	if o == nil || IsNil(o.Selector) {
-		var ret RunSelector
+		var ret TaskRunSelector
 		return ret
 	}
 	return *o.Selector
@@ -150,7 +150,7 @@ func (o *CreateRunRequest) GetSelector() RunSelector {
 
 // GetSelectorOk returns a tuple with the Selector field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CreateRunRequest) GetSelectorOk() (*RunSelector, bool) {
+func (o *CreateTaskRunRequest) GetSelectorOk() (*TaskRunSelector, bool) {
 	if o == nil || IsNil(o.Selector) {
 		return nil, false
 	}
@@ -158,7 +158,7 @@ func (o *CreateRunRequest) GetSelectorOk() (*RunSelector, bool) {
 }
 
 // HasSelector returns a boolean if a field has been set.
-func (o *CreateRunRequest) HasSelector() bool {
+func (o *CreateTaskRunRequest) HasSelector() bool {
 	if o != nil && !IsNil(o.Selector) {
 		return true
 	}
@@ -166,15 +166,15 @@ func (o *CreateRunRequest) HasSelector() bool {
 	return false
 }
 
-// SetSelector gets a reference to the given RunSelector and assigns it to the Selector field.
-func (o *CreateRunRequest) SetSelector(v RunSelector) {
+// SetSelector gets a reference to the given TaskRunSelector and assigns it to the Selector field.
+func (o *CreateTaskRunRequest) SetSelector(v TaskRunSelector) {
 	o.Selector = &v
 }
 
 // GetOptions returns the Options field value
-func (o *CreateRunRequest) GetOptions() RunOptions {
+func (o *CreateTaskRunRequest) GetOptions() TaskRunOptions {
 	if o == nil {
-		var ret RunOptions
+		var ret TaskRunOptions
 		return ret
 	}
 
@@ -183,7 +183,7 @@ func (o *CreateRunRequest) GetOptions() RunOptions {
 
 // GetOptionsOk returns a tuple with the Options field value
 // and a boolean to check if the value has been set.
-func (o *CreateRunRequest) GetOptionsOk() (*RunOptions, bool) {
+func (o *CreateTaskRunRequest) GetOptionsOk() (*TaskRunOptions, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -191,14 +191,14 @@ func (o *CreateRunRequest) GetOptionsOk() (*RunOptions, bool) {
 }
 
 // SetOptions sets field value
-func (o *CreateRunRequest) SetOptions(v RunOptions) {
+func (o *CreateTaskRunRequest) SetOptions(v TaskRunOptions) {
 	o.Options = v
 }
 
 // GetOperation returns the Operation field value
-func (o *CreateRunRequest) GetOperation() RunOperation {
+func (o *CreateTaskRunRequest) GetOperation() TaskRunOperation {
 	if o == nil {
-		var ret RunOperation
+		var ret TaskRunOperation
 		return ret
 	}
 
@@ -207,7 +207,7 @@ func (o *CreateRunRequest) GetOperation() RunOperation {
 
 // GetOperationOk returns a tuple with the Operation field value
 // and a boolean to check if the value has been set.
-func (o *CreateRunRequest) GetOperationOk() (*RunOperation, bool) {
+func (o *CreateTaskRunRequest) GetOperationOk() (*TaskRunOperation, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -215,11 +215,11 @@ func (o *CreateRunRequest) GetOperationOk() (*RunOperation, bool) {
 }
 
 // SetOperation sets field value
-func (o *CreateRunRequest) SetOperation(v RunOperation) {
+func (o *CreateTaskRunRequest) SetOperation(v TaskRunOperation) {
 	o.Operation = v
 }
 
-func (o CreateRunRequest) MarshalJSON() ([]byte, error) {
+func (o CreateTaskRunRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -227,7 +227,7 @@ func (o CreateRunRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o CreateRunRequest) ToMap() (map[string]interface{}, error) {
+func (o CreateTaskRunRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["siteId"] = o.SiteId
 	toSerialize["name"] = o.Name
@@ -242,7 +242,7 @@ func (o CreateRunRequest) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *CreateRunRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *CreateTaskRunRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -267,53 +267,53 @@ func (o *CreateRunRequest) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varCreateRunRequest := _CreateRunRequest{}
+	varCreateTaskRunRequest := _CreateTaskRunRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varCreateRunRequest)
+	err = decoder.Decode(&varCreateTaskRunRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = CreateRunRequest(varCreateRunRequest)
+	*o = CreateTaskRunRequest(varCreateTaskRunRequest)
 
 	return err
 }
 
-type NullableCreateRunRequest struct {
-	value *CreateRunRequest
+type NullableCreateTaskRunRequest struct {
+	value *CreateTaskRunRequest
 	isSet bool
 }
 
-func (v NullableCreateRunRequest) Get() *CreateRunRequest {
+func (v NullableCreateTaskRunRequest) Get() *CreateTaskRunRequest {
 	return v.value
 }
 
-func (v *NullableCreateRunRequest) Set(val *CreateRunRequest) {
+func (v *NullableCreateTaskRunRequest) Set(val *CreateTaskRunRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableCreateRunRequest) IsSet() bool {
+func (v NullableCreateTaskRunRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableCreateRunRequest) Unset() {
+func (v *NullableCreateTaskRunRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableCreateRunRequest(val *CreateRunRequest) *NullableCreateRunRequest {
-	return &NullableCreateRunRequest{value: val, isSet: true}
+func NewNullableCreateTaskRunRequest(val *CreateTaskRunRequest) *NullableCreateTaskRunRequest {
+	return &NullableCreateTaskRunRequest{value: val, isSet: true}
 }
 
-func (v NullableCreateRunRequest) MarshalJSON() ([]byte, error) {
+func (v NullableCreateTaskRunRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableCreateRunRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableCreateTaskRunRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

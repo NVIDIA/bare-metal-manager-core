@@ -19,60 +19,60 @@ import (
 	"fmt"
 )
 
-// checks if the RunSiteRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunSiteRequest{}
+// checks if the TaskRunCountPhases type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunCountPhases{}
 
-// RunSiteRequest Shared request body for the pause and resume lifecycle actions.
-type RunSiteRequest struct {
-	// ID of the Site that owns the Run (Runs are site-scoped).
-	SiteId string `json:"siteId"`
+// TaskRunCountPhases Splits targets by explicit counts. A generated final phase covers any remaining targets.
+type TaskRunCountPhases struct {
+	// Per-phase target counts, in phase order.
+	Phases []int32 `json:"phases"`
 }
 
-type _RunSiteRequest RunSiteRequest
+type _TaskRunCountPhases TaskRunCountPhases
 
-// NewRunSiteRequest instantiates a new RunSiteRequest object
+// NewTaskRunCountPhases instantiates a new TaskRunCountPhases object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunSiteRequest(siteId string) *RunSiteRequest {
-	this := RunSiteRequest{}
-	this.SiteId = siteId
+func NewTaskRunCountPhases(phases []int32) *TaskRunCountPhases {
+	this := TaskRunCountPhases{}
+	this.Phases = phases
 	return &this
 }
 
-// NewRunSiteRequestWithDefaults instantiates a new RunSiteRequest object
+// NewTaskRunCountPhasesWithDefaults instantiates a new TaskRunCountPhases object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunSiteRequestWithDefaults() *RunSiteRequest {
-	this := RunSiteRequest{}
+func NewTaskRunCountPhasesWithDefaults() *TaskRunCountPhases {
+	this := TaskRunCountPhases{}
 	return &this
 }
 
-// GetSiteId returns the SiteId field value
-func (o *RunSiteRequest) GetSiteId() string {
+// GetPhases returns the Phases field value
+func (o *TaskRunCountPhases) GetPhases() []int32 {
 	if o == nil {
-		var ret string
+		var ret []int32
 		return ret
 	}
 
-	return o.SiteId
+	return o.Phases
 }
 
-// GetSiteIdOk returns a tuple with the SiteId field value
+// GetPhasesOk returns a tuple with the Phases field value
 // and a boolean to check if the value has been set.
-func (o *RunSiteRequest) GetSiteIdOk() (*string, bool) {
+func (o *TaskRunCountPhases) GetPhasesOk() ([]int32, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.SiteId, true
+	return o.Phases, true
 }
 
-// SetSiteId sets field value
-func (o *RunSiteRequest) SetSiteId(v string) {
-	o.SiteId = v
+// SetPhases sets field value
+func (o *TaskRunCountPhases) SetPhases(v []int32) {
+	o.Phases = v
 }
 
-func (o RunSiteRequest) MarshalJSON() ([]byte, error) {
+func (o TaskRunCountPhases) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -80,18 +80,18 @@ func (o RunSiteRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunSiteRequest) ToMap() (map[string]interface{}, error) {
+func (o TaskRunCountPhases) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
-	toSerialize["siteId"] = o.SiteId
+	toSerialize["phases"] = o.Phases
 	return toSerialize, nil
 }
 
-func (o *RunSiteRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunCountPhases) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
-		"siteId",
+		"phases",
 	}
 
 	allProperties := make(map[string]interface{})
@@ -108,53 +108,53 @@ func (o *RunSiteRequest) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunSiteRequest := _RunSiteRequest{}
+	varTaskRunCountPhases := _TaskRunCountPhases{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunSiteRequest)
+	err = decoder.Decode(&varTaskRunCountPhases)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunSiteRequest(varRunSiteRequest)
+	*o = TaskRunCountPhases(varTaskRunCountPhases)
 
 	return err
 }
 
-type NullableRunSiteRequest struct {
-	value *RunSiteRequest
+type NullableTaskRunCountPhases struct {
+	value *TaskRunCountPhases
 	isSet bool
 }
 
-func (v NullableRunSiteRequest) Get() *RunSiteRequest {
+func (v NullableTaskRunCountPhases) Get() *TaskRunCountPhases {
 	return v.value
 }
 
-func (v *NullableRunSiteRequest) Set(val *RunSiteRequest) {
+func (v *NullableTaskRunCountPhases) Set(val *TaskRunCountPhases) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunSiteRequest) IsSet() bool {
+func (v NullableTaskRunCountPhases) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunSiteRequest) Unset() {
+func (v *NullableTaskRunCountPhases) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunSiteRequest(val *RunSiteRequest) *NullableRunSiteRequest {
-	return &NullableRunSiteRequest{value: val, isSet: true}
+func NewNullableTaskRunCountPhases(val *TaskRunCountPhases) *NullableTaskRunCountPhases {
+	return &NullableTaskRunCountPhases{value: val, isSet: true}
 }
 
-func (v NullableRunSiteRequest) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunCountPhases) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunSiteRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunCountPhases) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

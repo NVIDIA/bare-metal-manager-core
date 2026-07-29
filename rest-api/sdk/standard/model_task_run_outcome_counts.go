@@ -19,11 +19,11 @@ import (
 	"fmt"
 )
 
-// checks if the RunOutcomeCounts type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunOutcomeCounts{}
+// checks if the TaskRunOutcomeCounts type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunOutcomeCounts{}
 
-// RunOutcomeCounts Counts terminal target outcomes within a phase scope.
-type RunOutcomeCounts struct {
+// TaskRunOutcomeCounts Counts terminal target outcomes within a phase scope.
+type TaskRunOutcomeCounts struct {
 	// Targets that completed successfully.
 	Completed int32 `json:"completed"`
 	// Targets that failed.
@@ -34,14 +34,14 @@ type RunOutcomeCounts struct {
 	Skipped int32 `json:"skipped"`
 }
 
-type _RunOutcomeCounts RunOutcomeCounts
+type _TaskRunOutcomeCounts TaskRunOutcomeCounts
 
-// NewRunOutcomeCounts instantiates a new RunOutcomeCounts object
+// NewTaskRunOutcomeCounts instantiates a new TaskRunOutcomeCounts object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunOutcomeCounts(completed int32, failed int32, terminated int32, skipped int32) *RunOutcomeCounts {
-	this := RunOutcomeCounts{}
+func NewTaskRunOutcomeCounts(completed int32, failed int32, terminated int32, skipped int32) *TaskRunOutcomeCounts {
+	this := TaskRunOutcomeCounts{}
 	this.Completed = completed
 	this.Failed = failed
 	this.Terminated = terminated
@@ -49,16 +49,16 @@ func NewRunOutcomeCounts(completed int32, failed int32, terminated int32, skippe
 	return &this
 }
 
-// NewRunOutcomeCountsWithDefaults instantiates a new RunOutcomeCounts object
+// NewTaskRunOutcomeCountsWithDefaults instantiates a new TaskRunOutcomeCounts object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunOutcomeCountsWithDefaults() *RunOutcomeCounts {
-	this := RunOutcomeCounts{}
+func NewTaskRunOutcomeCountsWithDefaults() *TaskRunOutcomeCounts {
+	this := TaskRunOutcomeCounts{}
 	return &this
 }
 
 // GetCompleted returns the Completed field value
-func (o *RunOutcomeCounts) GetCompleted() int32 {
+func (o *TaskRunOutcomeCounts) GetCompleted() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -69,7 +69,7 @@ func (o *RunOutcomeCounts) GetCompleted() int32 {
 
 // GetCompletedOk returns a tuple with the Completed field value
 // and a boolean to check if the value has been set.
-func (o *RunOutcomeCounts) GetCompletedOk() (*int32, bool) {
+func (o *TaskRunOutcomeCounts) GetCompletedOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -77,12 +77,12 @@ func (o *RunOutcomeCounts) GetCompletedOk() (*int32, bool) {
 }
 
 // SetCompleted sets field value
-func (o *RunOutcomeCounts) SetCompleted(v int32) {
+func (o *TaskRunOutcomeCounts) SetCompleted(v int32) {
 	o.Completed = v
 }
 
 // GetFailed returns the Failed field value
-func (o *RunOutcomeCounts) GetFailed() int32 {
+func (o *TaskRunOutcomeCounts) GetFailed() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -93,7 +93,7 @@ func (o *RunOutcomeCounts) GetFailed() int32 {
 
 // GetFailedOk returns a tuple with the Failed field value
 // and a boolean to check if the value has been set.
-func (o *RunOutcomeCounts) GetFailedOk() (*int32, bool) {
+func (o *TaskRunOutcomeCounts) GetFailedOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -101,12 +101,12 @@ func (o *RunOutcomeCounts) GetFailedOk() (*int32, bool) {
 }
 
 // SetFailed sets field value
-func (o *RunOutcomeCounts) SetFailed(v int32) {
+func (o *TaskRunOutcomeCounts) SetFailed(v int32) {
 	o.Failed = v
 }
 
 // GetTerminated returns the Terminated field value
-func (o *RunOutcomeCounts) GetTerminated() int32 {
+func (o *TaskRunOutcomeCounts) GetTerminated() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -117,7 +117,7 @@ func (o *RunOutcomeCounts) GetTerminated() int32 {
 
 // GetTerminatedOk returns a tuple with the Terminated field value
 // and a boolean to check if the value has been set.
-func (o *RunOutcomeCounts) GetTerminatedOk() (*int32, bool) {
+func (o *TaskRunOutcomeCounts) GetTerminatedOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -125,12 +125,12 @@ func (o *RunOutcomeCounts) GetTerminatedOk() (*int32, bool) {
 }
 
 // SetTerminated sets field value
-func (o *RunOutcomeCounts) SetTerminated(v int32) {
+func (o *TaskRunOutcomeCounts) SetTerminated(v int32) {
 	o.Terminated = v
 }
 
 // GetSkipped returns the Skipped field value
-func (o *RunOutcomeCounts) GetSkipped() int32 {
+func (o *TaskRunOutcomeCounts) GetSkipped() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -141,7 +141,7 @@ func (o *RunOutcomeCounts) GetSkipped() int32 {
 
 // GetSkippedOk returns a tuple with the Skipped field value
 // and a boolean to check if the value has been set.
-func (o *RunOutcomeCounts) GetSkippedOk() (*int32, bool) {
+func (o *TaskRunOutcomeCounts) GetSkippedOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -149,11 +149,11 @@ func (o *RunOutcomeCounts) GetSkippedOk() (*int32, bool) {
 }
 
 // SetSkipped sets field value
-func (o *RunOutcomeCounts) SetSkipped(v int32) {
+func (o *TaskRunOutcomeCounts) SetSkipped(v int32) {
 	o.Skipped = v
 }
 
-func (o RunOutcomeCounts) MarshalJSON() ([]byte, error) {
+func (o TaskRunOutcomeCounts) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -161,7 +161,7 @@ func (o RunOutcomeCounts) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunOutcomeCounts) ToMap() (map[string]interface{}, error) {
+func (o TaskRunOutcomeCounts) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["completed"] = o.Completed
 	toSerialize["failed"] = o.Failed
@@ -170,7 +170,7 @@ func (o RunOutcomeCounts) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunOutcomeCounts) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunOutcomeCounts) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -195,53 +195,53 @@ func (o *RunOutcomeCounts) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunOutcomeCounts := _RunOutcomeCounts{}
+	varTaskRunOutcomeCounts := _TaskRunOutcomeCounts{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunOutcomeCounts)
+	err = decoder.Decode(&varTaskRunOutcomeCounts)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunOutcomeCounts(varRunOutcomeCounts)
+	*o = TaskRunOutcomeCounts(varTaskRunOutcomeCounts)
 
 	return err
 }
 
-type NullableRunOutcomeCounts struct {
-	value *RunOutcomeCounts
+type NullableTaskRunOutcomeCounts struct {
+	value *TaskRunOutcomeCounts
 	isSet bool
 }
 
-func (v NullableRunOutcomeCounts) Get() *RunOutcomeCounts {
+func (v NullableTaskRunOutcomeCounts) Get() *TaskRunOutcomeCounts {
 	return v.value
 }
 
-func (v *NullableRunOutcomeCounts) Set(val *RunOutcomeCounts) {
+func (v *NullableTaskRunOutcomeCounts) Set(val *TaskRunOutcomeCounts) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunOutcomeCounts) IsSet() bool {
+func (v NullableTaskRunOutcomeCounts) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunOutcomeCounts) Unset() {
+func (v *NullableTaskRunOutcomeCounts) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunOutcomeCounts(val *RunOutcomeCounts) *NullableRunOutcomeCounts {
-	return &NullableRunOutcomeCounts{value: val, isSet: true}
+func NewNullableTaskRunOutcomeCounts(val *TaskRunOutcomeCounts) *NullableTaskRunOutcomeCounts {
+	return &NullableTaskRunOutcomeCounts{value: val, isSet: true}
 }
 
-func (v NullableRunOutcomeCounts) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunOutcomeCounts) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunOutcomeCounts) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunOutcomeCounts) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

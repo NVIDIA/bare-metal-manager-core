@@ -20,49 +20,49 @@ import (
 	"time"
 )
 
-// checks if the Run type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &Run{}
+// checks if the TaskRun type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRun{}
 
-// Run A Run is Flow's operation run: a phased, policy-gated execution of one operation across many Racks. List responses populate the summary fields; the single-Run `GET` additionally populates `stats` when `includeStats=true`.
-type Run struct {
-	// Unique identifier of the Run.
+// TaskRun A Task Run is a phased, policy-gated execution of one operation across many Racks. List responses populate the summary fields; the single-Task-Run `GET` additionally populates `stats` when `includeStats=true`.
+type TaskRun struct {
+	// Unique identifier of the Task Run.
 	Id string `json:"id"`
-	// Human-readable name of the Run.
+	// Human-readable name of the Task Run.
 	Name string `json:"name"`
 	// Optional free-form description.
 	Description *string `json:"description,omitempty"`
-	// Type of operation this Run executes. Currently always `FirmwareControl`.
+	// Type of operation this Task Run executes. Currently always `FirmwareControl`.
 	OperationType string `json:"operationType"`
 	// Operation code within the operation type (e.g. `upgrade`).
 	OperationCode *string `json:"operationCode,omitempty"`
-	// Current lifecycle state of the Run.
+	// Current lifecycle state of the Task Run.
 	Status string `json:"status"`
-	// Why the Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`). `None` when there is no qualifying reason.
+	// Why the Task Run is paused or terminal (e.g. `PhaseGate`, `SafetyGate`). `None` when there is no qualifying reason.
 	StatusReason string `json:"statusReason"`
 	// Optional human-readable detail for the current status.
 	StatusMessage *string `json:"statusMessage,omitempty"`
 	// Total number of phases the selected targets were divided into.
 	TotalPhases int32 `json:"totalPhases"`
-	// Timestamp when the Run was created.
+	// Timestamp when the Task Run was created.
 	Created time.Time `json:"created"`
-	// Timestamp when the Run was last updated.
+	// Timestamp when the Task Run was last updated.
 	Updated time.Time `json:"updated"`
-	// Timestamp when the Run started execution. Null before it starts.
+	// Timestamp when the Task Run started execution. Null before it starts.
 	Started NullableTime `json:"started,omitempty"`
-	// Timestamp when the Run reached a terminal state. Null while active.
+	// Timestamp when the Task Run reached a terminal state. Null while active.
 	Finished NullableTime `json:"finished,omitempty"`
-	// Derived per-phase outcome stats. Present only on the single-Run `GET` when `includeStats=true`; omitted otherwise.
-	Stats *RunStats `json:"stats,omitempty"`
+	// Derived per-phase outcome stats. Present only on the single-Task-Run `GET` when `includeStats=true`; omitted otherwise.
+	Stats *TaskRunStats `json:"stats,omitempty"`
 }
 
-type _Run Run
+type _TaskRun TaskRun
 
-// NewRun instantiates a new Run object
+// NewTaskRun instantiates a new TaskRun object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRun(id string, name string, operationType string, status string, statusReason string, totalPhases int32, created time.Time, updated time.Time) *Run {
-	this := Run{}
+func NewTaskRun(id string, name string, operationType string, status string, statusReason string, totalPhases int32, created time.Time, updated time.Time) *TaskRun {
+	this := TaskRun{}
 	this.Id = id
 	this.Name = name
 	this.OperationType = operationType
@@ -74,16 +74,16 @@ func NewRun(id string, name string, operationType string, status string, statusR
 	return &this
 }
 
-// NewRunWithDefaults instantiates a new Run object
+// NewTaskRunWithDefaults instantiates a new TaskRun object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunWithDefaults() *Run {
-	this := Run{}
+func NewTaskRunWithDefaults() *TaskRun {
+	this := TaskRun{}
 	return &this
 }
 
 // GetId returns the Id field value
-func (o *Run) GetId() string {
+func (o *TaskRun) GetId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -94,7 +94,7 @@ func (o *Run) GetId() string {
 
 // GetIdOk returns a tuple with the Id field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetIdOk() (*string, bool) {
+func (o *TaskRun) GetIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -102,12 +102,12 @@ func (o *Run) GetIdOk() (*string, bool) {
 }
 
 // SetId sets field value
-func (o *Run) SetId(v string) {
+func (o *TaskRun) SetId(v string) {
 	o.Id = v
 }
 
 // GetName returns the Name field value
-func (o *Run) GetName() string {
+func (o *TaskRun) GetName() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -118,7 +118,7 @@ func (o *Run) GetName() string {
 
 // GetNameOk returns a tuple with the Name field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetNameOk() (*string, bool) {
+func (o *TaskRun) GetNameOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -126,12 +126,12 @@ func (o *Run) GetNameOk() (*string, bool) {
 }
 
 // SetName sets field value
-func (o *Run) SetName(v string) {
+func (o *TaskRun) SetName(v string) {
 	o.Name = v
 }
 
 // GetDescription returns the Description field value if set, zero value otherwise.
-func (o *Run) GetDescription() string {
+func (o *TaskRun) GetDescription() string {
 	if o == nil || IsNil(o.Description) {
 		var ret string
 		return ret
@@ -141,7 +141,7 @@ func (o *Run) GetDescription() string {
 
 // GetDescriptionOk returns a tuple with the Description field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Run) GetDescriptionOk() (*string, bool) {
+func (o *TaskRun) GetDescriptionOk() (*string, bool) {
 	if o == nil || IsNil(o.Description) {
 		return nil, false
 	}
@@ -149,7 +149,7 @@ func (o *Run) GetDescriptionOk() (*string, bool) {
 }
 
 // HasDescription returns a boolean if a field has been set.
-func (o *Run) HasDescription() bool {
+func (o *TaskRun) HasDescription() bool {
 	if o != nil && !IsNil(o.Description) {
 		return true
 	}
@@ -158,12 +158,12 @@ func (o *Run) HasDescription() bool {
 }
 
 // SetDescription gets a reference to the given string and assigns it to the Description field.
-func (o *Run) SetDescription(v string) {
+func (o *TaskRun) SetDescription(v string) {
 	o.Description = &v
 }
 
 // GetOperationType returns the OperationType field value
-func (o *Run) GetOperationType() string {
+func (o *TaskRun) GetOperationType() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -174,7 +174,7 @@ func (o *Run) GetOperationType() string {
 
 // GetOperationTypeOk returns a tuple with the OperationType field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetOperationTypeOk() (*string, bool) {
+func (o *TaskRun) GetOperationTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -182,12 +182,12 @@ func (o *Run) GetOperationTypeOk() (*string, bool) {
 }
 
 // SetOperationType sets field value
-func (o *Run) SetOperationType(v string) {
+func (o *TaskRun) SetOperationType(v string) {
 	o.OperationType = v
 }
 
 // GetOperationCode returns the OperationCode field value if set, zero value otherwise.
-func (o *Run) GetOperationCode() string {
+func (o *TaskRun) GetOperationCode() string {
 	if o == nil || IsNil(o.OperationCode) {
 		var ret string
 		return ret
@@ -197,7 +197,7 @@ func (o *Run) GetOperationCode() string {
 
 // GetOperationCodeOk returns a tuple with the OperationCode field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Run) GetOperationCodeOk() (*string, bool) {
+func (o *TaskRun) GetOperationCodeOk() (*string, bool) {
 	if o == nil || IsNil(o.OperationCode) {
 		return nil, false
 	}
@@ -205,7 +205,7 @@ func (o *Run) GetOperationCodeOk() (*string, bool) {
 }
 
 // HasOperationCode returns a boolean if a field has been set.
-func (o *Run) HasOperationCode() bool {
+func (o *TaskRun) HasOperationCode() bool {
 	if o != nil && !IsNil(o.OperationCode) {
 		return true
 	}
@@ -214,12 +214,12 @@ func (o *Run) HasOperationCode() bool {
 }
 
 // SetOperationCode gets a reference to the given string and assigns it to the OperationCode field.
-func (o *Run) SetOperationCode(v string) {
+func (o *TaskRun) SetOperationCode(v string) {
 	o.OperationCode = &v
 }
 
 // GetStatus returns the Status field value
-func (o *Run) GetStatus() string {
+func (o *TaskRun) GetStatus() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -230,7 +230,7 @@ func (o *Run) GetStatus() string {
 
 // GetStatusOk returns a tuple with the Status field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetStatusOk() (*string, bool) {
+func (o *TaskRun) GetStatusOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -238,12 +238,12 @@ func (o *Run) GetStatusOk() (*string, bool) {
 }
 
 // SetStatus sets field value
-func (o *Run) SetStatus(v string) {
+func (o *TaskRun) SetStatus(v string) {
 	o.Status = v
 }
 
 // GetStatusReason returns the StatusReason field value
-func (o *Run) GetStatusReason() string {
+func (o *TaskRun) GetStatusReason() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -254,7 +254,7 @@ func (o *Run) GetStatusReason() string {
 
 // GetStatusReasonOk returns a tuple with the StatusReason field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetStatusReasonOk() (*string, bool) {
+func (o *TaskRun) GetStatusReasonOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -262,12 +262,12 @@ func (o *Run) GetStatusReasonOk() (*string, bool) {
 }
 
 // SetStatusReason sets field value
-func (o *Run) SetStatusReason(v string) {
+func (o *TaskRun) SetStatusReason(v string) {
 	o.StatusReason = v
 }
 
 // GetStatusMessage returns the StatusMessage field value if set, zero value otherwise.
-func (o *Run) GetStatusMessage() string {
+func (o *TaskRun) GetStatusMessage() string {
 	if o == nil || IsNil(o.StatusMessage) {
 		var ret string
 		return ret
@@ -277,7 +277,7 @@ func (o *Run) GetStatusMessage() string {
 
 // GetStatusMessageOk returns a tuple with the StatusMessage field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Run) GetStatusMessageOk() (*string, bool) {
+func (o *TaskRun) GetStatusMessageOk() (*string, bool) {
 	if o == nil || IsNil(o.StatusMessage) {
 		return nil, false
 	}
@@ -285,7 +285,7 @@ func (o *Run) GetStatusMessageOk() (*string, bool) {
 }
 
 // HasStatusMessage returns a boolean if a field has been set.
-func (o *Run) HasStatusMessage() bool {
+func (o *TaskRun) HasStatusMessage() bool {
 	if o != nil && !IsNil(o.StatusMessage) {
 		return true
 	}
@@ -294,12 +294,12 @@ func (o *Run) HasStatusMessage() bool {
 }
 
 // SetStatusMessage gets a reference to the given string and assigns it to the StatusMessage field.
-func (o *Run) SetStatusMessage(v string) {
+func (o *TaskRun) SetStatusMessage(v string) {
 	o.StatusMessage = &v
 }
 
 // GetTotalPhases returns the TotalPhases field value
-func (o *Run) GetTotalPhases() int32 {
+func (o *TaskRun) GetTotalPhases() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -310,7 +310,7 @@ func (o *Run) GetTotalPhases() int32 {
 
 // GetTotalPhasesOk returns a tuple with the TotalPhases field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetTotalPhasesOk() (*int32, bool) {
+func (o *TaskRun) GetTotalPhasesOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -318,12 +318,12 @@ func (o *Run) GetTotalPhasesOk() (*int32, bool) {
 }
 
 // SetTotalPhases sets field value
-func (o *Run) SetTotalPhases(v int32) {
+func (o *TaskRun) SetTotalPhases(v int32) {
 	o.TotalPhases = v
 }
 
 // GetCreated returns the Created field value
-func (o *Run) GetCreated() time.Time {
+func (o *TaskRun) GetCreated() time.Time {
 	if o == nil {
 		var ret time.Time
 		return ret
@@ -334,7 +334,7 @@ func (o *Run) GetCreated() time.Time {
 
 // GetCreatedOk returns a tuple with the Created field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetCreatedOk() (*time.Time, bool) {
+func (o *TaskRun) GetCreatedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -342,12 +342,12 @@ func (o *Run) GetCreatedOk() (*time.Time, bool) {
 }
 
 // SetCreated sets field value
-func (o *Run) SetCreated(v time.Time) {
+func (o *TaskRun) SetCreated(v time.Time) {
 	o.Created = v
 }
 
 // GetUpdated returns the Updated field value
-func (o *Run) GetUpdated() time.Time {
+func (o *TaskRun) GetUpdated() time.Time {
 	if o == nil {
 		var ret time.Time
 		return ret
@@ -358,7 +358,7 @@ func (o *Run) GetUpdated() time.Time {
 
 // GetUpdatedOk returns a tuple with the Updated field value
 // and a boolean to check if the value has been set.
-func (o *Run) GetUpdatedOk() (*time.Time, bool) {
+func (o *TaskRun) GetUpdatedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -366,12 +366,12 @@ func (o *Run) GetUpdatedOk() (*time.Time, bool) {
 }
 
 // SetUpdated sets field value
-func (o *Run) SetUpdated(v time.Time) {
+func (o *TaskRun) SetUpdated(v time.Time) {
 	o.Updated = v
 }
 
 // GetStarted returns the Started field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *Run) GetStarted() time.Time {
+func (o *TaskRun) GetStarted() time.Time {
 	if o == nil || IsNil(o.Started.Get()) {
 		var ret time.Time
 		return ret
@@ -382,7 +382,7 @@ func (o *Run) GetStarted() time.Time {
 // GetStartedOk returns a tuple with the Started field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *Run) GetStartedOk() (*time.Time, bool) {
+func (o *TaskRun) GetStartedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -390,7 +390,7 @@ func (o *Run) GetStartedOk() (*time.Time, bool) {
 }
 
 // HasStarted returns a boolean if a field has been set.
-func (o *Run) HasStarted() bool {
+func (o *TaskRun) HasStarted() bool {
 	if o != nil && o.Started.IsSet() {
 		return true
 	}
@@ -399,22 +399,22 @@ func (o *Run) HasStarted() bool {
 }
 
 // SetStarted gets a reference to the given NullableTime and assigns it to the Started field.
-func (o *Run) SetStarted(v time.Time) {
+func (o *TaskRun) SetStarted(v time.Time) {
 	o.Started.Set(&v)
 }
 
 // SetStartedNil sets the value for Started to be an explicit nil
-func (o *Run) SetStartedNil() {
+func (o *TaskRun) SetStartedNil() {
 	o.Started.Set(nil)
 }
 
 // UnsetStarted ensures that no value is present for Started, not even an explicit nil
-func (o *Run) UnsetStarted() {
+func (o *TaskRun) UnsetStarted() {
 	o.Started.Unset()
 }
 
 // GetFinished returns the Finished field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *Run) GetFinished() time.Time {
+func (o *TaskRun) GetFinished() time.Time {
 	if o == nil || IsNil(o.Finished.Get()) {
 		var ret time.Time
 		return ret
@@ -425,7 +425,7 @@ func (o *Run) GetFinished() time.Time {
 // GetFinishedOk returns a tuple with the Finished field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *Run) GetFinishedOk() (*time.Time, bool) {
+func (o *TaskRun) GetFinishedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -433,7 +433,7 @@ func (o *Run) GetFinishedOk() (*time.Time, bool) {
 }
 
 // HasFinished returns a boolean if a field has been set.
-func (o *Run) HasFinished() bool {
+func (o *TaskRun) HasFinished() bool {
 	if o != nil && o.Finished.IsSet() {
 		return true
 	}
@@ -442,24 +442,24 @@ func (o *Run) HasFinished() bool {
 }
 
 // SetFinished gets a reference to the given NullableTime and assigns it to the Finished field.
-func (o *Run) SetFinished(v time.Time) {
+func (o *TaskRun) SetFinished(v time.Time) {
 	o.Finished.Set(&v)
 }
 
 // SetFinishedNil sets the value for Finished to be an explicit nil
-func (o *Run) SetFinishedNil() {
+func (o *TaskRun) SetFinishedNil() {
 	o.Finished.Set(nil)
 }
 
 // UnsetFinished ensures that no value is present for Finished, not even an explicit nil
-func (o *Run) UnsetFinished() {
+func (o *TaskRun) UnsetFinished() {
 	o.Finished.Unset()
 }
 
 // GetStats returns the Stats field value if set, zero value otherwise.
-func (o *Run) GetStats() RunStats {
+func (o *TaskRun) GetStats() TaskRunStats {
 	if o == nil || IsNil(o.Stats) {
-		var ret RunStats
+		var ret TaskRunStats
 		return ret
 	}
 	return *o.Stats
@@ -467,7 +467,7 @@ func (o *Run) GetStats() RunStats {
 
 // GetStatsOk returns a tuple with the Stats field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *Run) GetStatsOk() (*RunStats, bool) {
+func (o *TaskRun) GetStatsOk() (*TaskRunStats, bool) {
 	if o == nil || IsNil(o.Stats) {
 		return nil, false
 	}
@@ -475,7 +475,7 @@ func (o *Run) GetStatsOk() (*RunStats, bool) {
 }
 
 // HasStats returns a boolean if a field has been set.
-func (o *Run) HasStats() bool {
+func (o *TaskRun) HasStats() bool {
 	if o != nil && !IsNil(o.Stats) {
 		return true
 	}
@@ -483,12 +483,12 @@ func (o *Run) HasStats() bool {
 	return false
 }
 
-// SetStats gets a reference to the given RunStats and assigns it to the Stats field.
-func (o *Run) SetStats(v RunStats) {
+// SetStats gets a reference to the given TaskRunStats and assigns it to the Stats field.
+func (o *TaskRun) SetStats(v TaskRunStats) {
 	o.Stats = &v
 }
 
-func (o Run) MarshalJSON() ([]byte, error) {
+func (o TaskRun) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -496,7 +496,7 @@ func (o Run) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o Run) ToMap() (map[string]interface{}, error) {
+func (o TaskRun) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
 	toSerialize["name"] = o.Name
@@ -527,7 +527,7 @@ func (o Run) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *Run) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRun) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -556,53 +556,53 @@ func (o *Run) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRun := _Run{}
+	varTaskRun := _TaskRun{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRun)
+	err = decoder.Decode(&varTaskRun)
 
 	if err != nil {
 		return err
 	}
 
-	*o = Run(varRun)
+	*o = TaskRun(varTaskRun)
 
 	return err
 }
 
-type NullableRun struct {
-	value *Run
+type NullableTaskRun struct {
+	value *TaskRun
 	isSet bool
 }
 
-func (v NullableRun) Get() *Run {
+func (v NullableTaskRun) Get() *TaskRun {
 	return v.value
 }
 
-func (v *NullableRun) Set(val *Run) {
+func (v *NullableTaskRun) Set(val *TaskRun) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRun) IsSet() bool {
+func (v NullableTaskRun) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRun) Unset() {
+func (v *NullableTaskRun) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRun(val *Run) *NullableRun {
-	return &NullableRun{value: val, isSet: true}
+func NewNullableTaskRun(val *TaskRun) *NullableTaskRun {
+	return &NullableTaskRun{value: val, isSet: true}
 }
 
-func (v NullableRun) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRun) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRun) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRun) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

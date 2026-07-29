@@ -19,41 +19,41 @@ import (
 	"fmt"
 )
 
-// checks if the RunOptions type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunOptions{}
+// checks if the TaskRunOptions type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunOptions{}
 
-// RunOptions Execution policy for the Run.
-type RunOptions struct {
+// TaskRunOptions Execution policy for the Task Run.
+type TaskRunOptions struct {
 	// Caps how many targets may have active child Tasks at once. Must be greater than zero.
-	MaxConcurrentTargets int32              `json:"maxConcurrentTargets"`
-	SafetyPolicy         *RunSafetyPolicy   `json:"safetyPolicy,omitempty"`
-	ConflictPolicy       *RunConflictPolicy `json:"conflictPolicy,omitempty"`
-	OrderingPolicy       *RunOrderingPolicy `json:"orderingPolicy,omitempty"`
-	PhasePolicy          *RunPhasePolicy    `json:"phasePolicy,omitempty"`
+	MaxConcurrentTargets int32                  `json:"maxConcurrentTargets"`
+	SafetyPolicy         *TaskRunSafetyPolicy   `json:"safetyPolicy,omitempty"`
+	ConflictPolicy       *TaskRunConflictPolicy `json:"conflictPolicy,omitempty"`
+	OrderingPolicy       *TaskRunOrderingPolicy `json:"orderingPolicy,omitempty"`
+	PhasePolicy          *TaskRunPhasePolicy    `json:"phasePolicy,omitempty"`
 }
 
-type _RunOptions RunOptions
+type _TaskRunOptions TaskRunOptions
 
-// NewRunOptions instantiates a new RunOptions object
+// NewTaskRunOptions instantiates a new TaskRunOptions object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunOptions(maxConcurrentTargets int32) *RunOptions {
-	this := RunOptions{}
+func NewTaskRunOptions(maxConcurrentTargets int32) *TaskRunOptions {
+	this := TaskRunOptions{}
 	this.MaxConcurrentTargets = maxConcurrentTargets
 	return &this
 }
 
-// NewRunOptionsWithDefaults instantiates a new RunOptions object
+// NewTaskRunOptionsWithDefaults instantiates a new TaskRunOptions object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunOptionsWithDefaults() *RunOptions {
-	this := RunOptions{}
+func NewTaskRunOptionsWithDefaults() *TaskRunOptions {
+	this := TaskRunOptions{}
 	return &this
 }
 
 // GetMaxConcurrentTargets returns the MaxConcurrentTargets field value
-func (o *RunOptions) GetMaxConcurrentTargets() int32 {
+func (o *TaskRunOptions) GetMaxConcurrentTargets() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -64,7 +64,7 @@ func (o *RunOptions) GetMaxConcurrentTargets() int32 {
 
 // GetMaxConcurrentTargetsOk returns a tuple with the MaxConcurrentTargets field value
 // and a boolean to check if the value has been set.
-func (o *RunOptions) GetMaxConcurrentTargetsOk() (*int32, bool) {
+func (o *TaskRunOptions) GetMaxConcurrentTargetsOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -72,14 +72,14 @@ func (o *RunOptions) GetMaxConcurrentTargetsOk() (*int32, bool) {
 }
 
 // SetMaxConcurrentTargets sets field value
-func (o *RunOptions) SetMaxConcurrentTargets(v int32) {
+func (o *TaskRunOptions) SetMaxConcurrentTargets(v int32) {
 	o.MaxConcurrentTargets = v
 }
 
 // GetSafetyPolicy returns the SafetyPolicy field value if set, zero value otherwise.
-func (o *RunOptions) GetSafetyPolicy() RunSafetyPolicy {
+func (o *TaskRunOptions) GetSafetyPolicy() TaskRunSafetyPolicy {
 	if o == nil || IsNil(o.SafetyPolicy) {
-		var ret RunSafetyPolicy
+		var ret TaskRunSafetyPolicy
 		return ret
 	}
 	return *o.SafetyPolicy
@@ -87,7 +87,7 @@ func (o *RunOptions) GetSafetyPolicy() RunSafetyPolicy {
 
 // GetSafetyPolicyOk returns a tuple with the SafetyPolicy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunOptions) GetSafetyPolicyOk() (*RunSafetyPolicy, bool) {
+func (o *TaskRunOptions) GetSafetyPolicyOk() (*TaskRunSafetyPolicy, bool) {
 	if o == nil || IsNil(o.SafetyPolicy) {
 		return nil, false
 	}
@@ -95,7 +95,7 @@ func (o *RunOptions) GetSafetyPolicyOk() (*RunSafetyPolicy, bool) {
 }
 
 // HasSafetyPolicy returns a boolean if a field has been set.
-func (o *RunOptions) HasSafetyPolicy() bool {
+func (o *TaskRunOptions) HasSafetyPolicy() bool {
 	if o != nil && !IsNil(o.SafetyPolicy) {
 		return true
 	}
@@ -103,15 +103,15 @@ func (o *RunOptions) HasSafetyPolicy() bool {
 	return false
 }
 
-// SetSafetyPolicy gets a reference to the given RunSafetyPolicy and assigns it to the SafetyPolicy field.
-func (o *RunOptions) SetSafetyPolicy(v RunSafetyPolicy) {
+// SetSafetyPolicy gets a reference to the given TaskRunSafetyPolicy and assigns it to the SafetyPolicy field.
+func (o *TaskRunOptions) SetSafetyPolicy(v TaskRunSafetyPolicy) {
 	o.SafetyPolicy = &v
 }
 
 // GetConflictPolicy returns the ConflictPolicy field value if set, zero value otherwise.
-func (o *RunOptions) GetConflictPolicy() RunConflictPolicy {
+func (o *TaskRunOptions) GetConflictPolicy() TaskRunConflictPolicy {
 	if o == nil || IsNil(o.ConflictPolicy) {
-		var ret RunConflictPolicy
+		var ret TaskRunConflictPolicy
 		return ret
 	}
 	return *o.ConflictPolicy
@@ -119,7 +119,7 @@ func (o *RunOptions) GetConflictPolicy() RunConflictPolicy {
 
 // GetConflictPolicyOk returns a tuple with the ConflictPolicy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunOptions) GetConflictPolicyOk() (*RunConflictPolicy, bool) {
+func (o *TaskRunOptions) GetConflictPolicyOk() (*TaskRunConflictPolicy, bool) {
 	if o == nil || IsNil(o.ConflictPolicy) {
 		return nil, false
 	}
@@ -127,7 +127,7 @@ func (o *RunOptions) GetConflictPolicyOk() (*RunConflictPolicy, bool) {
 }
 
 // HasConflictPolicy returns a boolean if a field has been set.
-func (o *RunOptions) HasConflictPolicy() bool {
+func (o *TaskRunOptions) HasConflictPolicy() bool {
 	if o != nil && !IsNil(o.ConflictPolicy) {
 		return true
 	}
@@ -135,15 +135,15 @@ func (o *RunOptions) HasConflictPolicy() bool {
 	return false
 }
 
-// SetConflictPolicy gets a reference to the given RunConflictPolicy and assigns it to the ConflictPolicy field.
-func (o *RunOptions) SetConflictPolicy(v RunConflictPolicy) {
+// SetConflictPolicy gets a reference to the given TaskRunConflictPolicy and assigns it to the ConflictPolicy field.
+func (o *TaskRunOptions) SetConflictPolicy(v TaskRunConflictPolicy) {
 	o.ConflictPolicy = &v
 }
 
 // GetOrderingPolicy returns the OrderingPolicy field value if set, zero value otherwise.
-func (o *RunOptions) GetOrderingPolicy() RunOrderingPolicy {
+func (o *TaskRunOptions) GetOrderingPolicy() TaskRunOrderingPolicy {
 	if o == nil || IsNil(o.OrderingPolicy) {
-		var ret RunOrderingPolicy
+		var ret TaskRunOrderingPolicy
 		return ret
 	}
 	return *o.OrderingPolicy
@@ -151,7 +151,7 @@ func (o *RunOptions) GetOrderingPolicy() RunOrderingPolicy {
 
 // GetOrderingPolicyOk returns a tuple with the OrderingPolicy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunOptions) GetOrderingPolicyOk() (*RunOrderingPolicy, bool) {
+func (o *TaskRunOptions) GetOrderingPolicyOk() (*TaskRunOrderingPolicy, bool) {
 	if o == nil || IsNil(o.OrderingPolicy) {
 		return nil, false
 	}
@@ -159,7 +159,7 @@ func (o *RunOptions) GetOrderingPolicyOk() (*RunOrderingPolicy, bool) {
 }
 
 // HasOrderingPolicy returns a boolean if a field has been set.
-func (o *RunOptions) HasOrderingPolicy() bool {
+func (o *TaskRunOptions) HasOrderingPolicy() bool {
 	if o != nil && !IsNil(o.OrderingPolicy) {
 		return true
 	}
@@ -167,15 +167,15 @@ func (o *RunOptions) HasOrderingPolicy() bool {
 	return false
 }
 
-// SetOrderingPolicy gets a reference to the given RunOrderingPolicy and assigns it to the OrderingPolicy field.
-func (o *RunOptions) SetOrderingPolicy(v RunOrderingPolicy) {
+// SetOrderingPolicy gets a reference to the given TaskRunOrderingPolicy and assigns it to the OrderingPolicy field.
+func (o *TaskRunOptions) SetOrderingPolicy(v TaskRunOrderingPolicy) {
 	o.OrderingPolicy = &v
 }
 
 // GetPhasePolicy returns the PhasePolicy field value if set, zero value otherwise.
-func (o *RunOptions) GetPhasePolicy() RunPhasePolicy {
+func (o *TaskRunOptions) GetPhasePolicy() TaskRunPhasePolicy {
 	if o == nil || IsNil(o.PhasePolicy) {
-		var ret RunPhasePolicy
+		var ret TaskRunPhasePolicy
 		return ret
 	}
 	return *o.PhasePolicy
@@ -183,7 +183,7 @@ func (o *RunOptions) GetPhasePolicy() RunPhasePolicy {
 
 // GetPhasePolicyOk returns a tuple with the PhasePolicy field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunOptions) GetPhasePolicyOk() (*RunPhasePolicy, bool) {
+func (o *TaskRunOptions) GetPhasePolicyOk() (*TaskRunPhasePolicy, bool) {
 	if o == nil || IsNil(o.PhasePolicy) {
 		return nil, false
 	}
@@ -191,7 +191,7 @@ func (o *RunOptions) GetPhasePolicyOk() (*RunPhasePolicy, bool) {
 }
 
 // HasPhasePolicy returns a boolean if a field has been set.
-func (o *RunOptions) HasPhasePolicy() bool {
+func (o *TaskRunOptions) HasPhasePolicy() bool {
 	if o != nil && !IsNil(o.PhasePolicy) {
 		return true
 	}
@@ -199,12 +199,12 @@ func (o *RunOptions) HasPhasePolicy() bool {
 	return false
 }
 
-// SetPhasePolicy gets a reference to the given RunPhasePolicy and assigns it to the PhasePolicy field.
-func (o *RunOptions) SetPhasePolicy(v RunPhasePolicy) {
+// SetPhasePolicy gets a reference to the given TaskRunPhasePolicy and assigns it to the PhasePolicy field.
+func (o *TaskRunOptions) SetPhasePolicy(v TaskRunPhasePolicy) {
 	o.PhasePolicy = &v
 }
 
-func (o RunOptions) MarshalJSON() ([]byte, error) {
+func (o TaskRunOptions) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -212,7 +212,7 @@ func (o RunOptions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunOptions) ToMap() (map[string]interface{}, error) {
+func (o TaskRunOptions) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["maxConcurrentTargets"] = o.MaxConcurrentTargets
 	if !IsNil(o.SafetyPolicy) {
@@ -230,7 +230,7 @@ func (o RunOptions) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunOptions) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunOptions) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -252,53 +252,53 @@ func (o *RunOptions) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunOptions := _RunOptions{}
+	varTaskRunOptions := _TaskRunOptions{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunOptions)
+	err = decoder.Decode(&varTaskRunOptions)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunOptions(varRunOptions)
+	*o = TaskRunOptions(varTaskRunOptions)
 
 	return err
 }
 
-type NullableRunOptions struct {
-	value *RunOptions
+type NullableTaskRunOptions struct {
+	value *TaskRunOptions
 	isSet bool
 }
 
-func (v NullableRunOptions) Get() *RunOptions {
+func (v NullableTaskRunOptions) Get() *TaskRunOptions {
 	return v.value
 }
 
-func (v *NullableRunOptions) Set(val *RunOptions) {
+func (v *NullableTaskRunOptions) Set(val *TaskRunOptions) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunOptions) IsSet() bool {
+func (v NullableTaskRunOptions) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunOptions) Unset() {
+func (v *NullableTaskRunOptions) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunOptions(val *RunOptions) *NullableRunOptions {
-	return &NullableRunOptions{value: val, isSet: true}
+func NewNullableTaskRunOptions(val *TaskRunOptions) *NullableTaskRunOptions {
+	return &NullableTaskRunOptions{value: val, isSet: true}
 }
 
-func (v NullableRunOptions) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunOptions) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunOptions) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunOptions) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

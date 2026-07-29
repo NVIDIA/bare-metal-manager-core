@@ -17,43 +17,43 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunPhasePolicy type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunPhasePolicy{}
+// checks if the TaskRunPhasePolicy type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunPhasePolicy{}
 
-// RunPhasePolicy Divides the selected targets into phases. Set at most one of `equal`, `percentage`, or `count`; omit the whole policy for a single phase covering all targets.
-type RunPhasePolicy struct {
-	Equal      *RunEqualPhases      `json:"equal,omitempty"`
-	Percentage *RunPercentagePhases `json:"percentage,omitempty"`
-	Count      *RunCountPhases      `json:"count,omitempty"`
+// TaskRunPhasePolicy Divides the selected targets into phases. Set at most one of `equal`, `percentage`, or `count`; omit the whole policy for a single phase covering all targets.
+type TaskRunPhasePolicy struct {
+	Equal      *TaskRunEqualPhases      `json:"equal,omitempty"`
+	Percentage *TaskRunPercentagePhases `json:"percentage,omitempty"`
+	Count      *TaskRunCountPhases      `json:"count,omitempty"`
 	// When true, phases advance automatically as long as safety gates are not tripped. When false (default) each completed phase pauses at a phase gate until advanced explicitly.
 	AutoAdvance *bool `json:"autoAdvance,omitempty"`
 }
 
-// NewRunPhasePolicy instantiates a new RunPhasePolicy object
+// NewTaskRunPhasePolicy instantiates a new TaskRunPhasePolicy object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunPhasePolicy() *RunPhasePolicy {
-	this := RunPhasePolicy{}
+func NewTaskRunPhasePolicy() *TaskRunPhasePolicy {
+	this := TaskRunPhasePolicy{}
 	var autoAdvance bool = false
 	this.AutoAdvance = &autoAdvance
 	return &this
 }
 
-// NewRunPhasePolicyWithDefaults instantiates a new RunPhasePolicy object
+// NewTaskRunPhasePolicyWithDefaults instantiates a new TaskRunPhasePolicy object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunPhasePolicyWithDefaults() *RunPhasePolicy {
-	this := RunPhasePolicy{}
+func NewTaskRunPhasePolicyWithDefaults() *TaskRunPhasePolicy {
+	this := TaskRunPhasePolicy{}
 	var autoAdvance bool = false
 	this.AutoAdvance = &autoAdvance
 	return &this
 }
 
 // GetEqual returns the Equal field value if set, zero value otherwise.
-func (o *RunPhasePolicy) GetEqual() RunEqualPhases {
+func (o *TaskRunPhasePolicy) GetEqual() TaskRunEqualPhases {
 	if o == nil || IsNil(o.Equal) {
-		var ret RunEqualPhases
+		var ret TaskRunEqualPhases
 		return ret
 	}
 	return *o.Equal
@@ -61,7 +61,7 @@ func (o *RunPhasePolicy) GetEqual() RunEqualPhases {
 
 // GetEqualOk returns a tuple with the Equal field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunPhasePolicy) GetEqualOk() (*RunEqualPhases, bool) {
+func (o *TaskRunPhasePolicy) GetEqualOk() (*TaskRunEqualPhases, bool) {
 	if o == nil || IsNil(o.Equal) {
 		return nil, false
 	}
@@ -69,7 +69,7 @@ func (o *RunPhasePolicy) GetEqualOk() (*RunEqualPhases, bool) {
 }
 
 // HasEqual returns a boolean if a field has been set.
-func (o *RunPhasePolicy) HasEqual() bool {
+func (o *TaskRunPhasePolicy) HasEqual() bool {
 	if o != nil && !IsNil(o.Equal) {
 		return true
 	}
@@ -77,15 +77,15 @@ func (o *RunPhasePolicy) HasEqual() bool {
 	return false
 }
 
-// SetEqual gets a reference to the given RunEqualPhases and assigns it to the Equal field.
-func (o *RunPhasePolicy) SetEqual(v RunEqualPhases) {
+// SetEqual gets a reference to the given TaskRunEqualPhases and assigns it to the Equal field.
+func (o *TaskRunPhasePolicy) SetEqual(v TaskRunEqualPhases) {
 	o.Equal = &v
 }
 
 // GetPercentage returns the Percentage field value if set, zero value otherwise.
-func (o *RunPhasePolicy) GetPercentage() RunPercentagePhases {
+func (o *TaskRunPhasePolicy) GetPercentage() TaskRunPercentagePhases {
 	if o == nil || IsNil(o.Percentage) {
-		var ret RunPercentagePhases
+		var ret TaskRunPercentagePhases
 		return ret
 	}
 	return *o.Percentage
@@ -93,7 +93,7 @@ func (o *RunPhasePolicy) GetPercentage() RunPercentagePhases {
 
 // GetPercentageOk returns a tuple with the Percentage field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunPhasePolicy) GetPercentageOk() (*RunPercentagePhases, bool) {
+func (o *TaskRunPhasePolicy) GetPercentageOk() (*TaskRunPercentagePhases, bool) {
 	if o == nil || IsNil(o.Percentage) {
 		return nil, false
 	}
@@ -101,7 +101,7 @@ func (o *RunPhasePolicy) GetPercentageOk() (*RunPercentagePhases, bool) {
 }
 
 // HasPercentage returns a boolean if a field has been set.
-func (o *RunPhasePolicy) HasPercentage() bool {
+func (o *TaskRunPhasePolicy) HasPercentage() bool {
 	if o != nil && !IsNil(o.Percentage) {
 		return true
 	}
@@ -109,15 +109,15 @@ func (o *RunPhasePolicy) HasPercentage() bool {
 	return false
 }
 
-// SetPercentage gets a reference to the given RunPercentagePhases and assigns it to the Percentage field.
-func (o *RunPhasePolicy) SetPercentage(v RunPercentagePhases) {
+// SetPercentage gets a reference to the given TaskRunPercentagePhases and assigns it to the Percentage field.
+func (o *TaskRunPhasePolicy) SetPercentage(v TaskRunPercentagePhases) {
 	o.Percentage = &v
 }
 
 // GetCount returns the Count field value if set, zero value otherwise.
-func (o *RunPhasePolicy) GetCount() RunCountPhases {
+func (o *TaskRunPhasePolicy) GetCount() TaskRunCountPhases {
 	if o == nil || IsNil(o.Count) {
-		var ret RunCountPhases
+		var ret TaskRunCountPhases
 		return ret
 	}
 	return *o.Count
@@ -125,7 +125,7 @@ func (o *RunPhasePolicy) GetCount() RunCountPhases {
 
 // GetCountOk returns a tuple with the Count field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunPhasePolicy) GetCountOk() (*RunCountPhases, bool) {
+func (o *TaskRunPhasePolicy) GetCountOk() (*TaskRunCountPhases, bool) {
 	if o == nil || IsNil(o.Count) {
 		return nil, false
 	}
@@ -133,7 +133,7 @@ func (o *RunPhasePolicy) GetCountOk() (*RunCountPhases, bool) {
 }
 
 // HasCount returns a boolean if a field has been set.
-func (o *RunPhasePolicy) HasCount() bool {
+func (o *TaskRunPhasePolicy) HasCount() bool {
 	if o != nil && !IsNil(o.Count) {
 		return true
 	}
@@ -141,13 +141,13 @@ func (o *RunPhasePolicy) HasCount() bool {
 	return false
 }
 
-// SetCount gets a reference to the given RunCountPhases and assigns it to the Count field.
-func (o *RunPhasePolicy) SetCount(v RunCountPhases) {
+// SetCount gets a reference to the given TaskRunCountPhases and assigns it to the Count field.
+func (o *TaskRunPhasePolicy) SetCount(v TaskRunCountPhases) {
 	o.Count = &v
 }
 
 // GetAutoAdvance returns the AutoAdvance field value if set, zero value otherwise.
-func (o *RunPhasePolicy) GetAutoAdvance() bool {
+func (o *TaskRunPhasePolicy) GetAutoAdvance() bool {
 	if o == nil || IsNil(o.AutoAdvance) {
 		var ret bool
 		return ret
@@ -157,7 +157,7 @@ func (o *RunPhasePolicy) GetAutoAdvance() bool {
 
 // GetAutoAdvanceOk returns a tuple with the AutoAdvance field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunPhasePolicy) GetAutoAdvanceOk() (*bool, bool) {
+func (o *TaskRunPhasePolicy) GetAutoAdvanceOk() (*bool, bool) {
 	if o == nil || IsNil(o.AutoAdvance) {
 		return nil, false
 	}
@@ -165,7 +165,7 @@ func (o *RunPhasePolicy) GetAutoAdvanceOk() (*bool, bool) {
 }
 
 // HasAutoAdvance returns a boolean if a field has been set.
-func (o *RunPhasePolicy) HasAutoAdvance() bool {
+func (o *TaskRunPhasePolicy) HasAutoAdvance() bool {
 	if o != nil && !IsNil(o.AutoAdvance) {
 		return true
 	}
@@ -174,11 +174,11 @@ func (o *RunPhasePolicy) HasAutoAdvance() bool {
 }
 
 // SetAutoAdvance gets a reference to the given bool and assigns it to the AutoAdvance field.
-func (o *RunPhasePolicy) SetAutoAdvance(v bool) {
+func (o *TaskRunPhasePolicy) SetAutoAdvance(v bool) {
 	o.AutoAdvance = &v
 }
 
-func (o RunPhasePolicy) MarshalJSON() ([]byte, error) {
+func (o TaskRunPhasePolicy) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -186,7 +186,7 @@ func (o RunPhasePolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunPhasePolicy) ToMap() (map[string]interface{}, error) {
+func (o TaskRunPhasePolicy) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Equal) {
 		toSerialize["equal"] = o.Equal
@@ -203,38 +203,38 @@ func (o RunPhasePolicy) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunPhasePolicy struct {
-	value *RunPhasePolicy
+type NullableTaskRunPhasePolicy struct {
+	value *TaskRunPhasePolicy
 	isSet bool
 }
 
-func (v NullableRunPhasePolicy) Get() *RunPhasePolicy {
+func (v NullableTaskRunPhasePolicy) Get() *TaskRunPhasePolicy {
 	return v.value
 }
 
-func (v *NullableRunPhasePolicy) Set(val *RunPhasePolicy) {
+func (v *NullableTaskRunPhasePolicy) Set(val *TaskRunPhasePolicy) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunPhasePolicy) IsSet() bool {
+func (v NullableTaskRunPhasePolicy) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunPhasePolicy) Unset() {
+func (v *NullableTaskRunPhasePolicy) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunPhasePolicy(val *RunPhasePolicy) *NullableRunPhasePolicy {
-	return &NullableRunPhasePolicy{value: val, isSet: true}
+func NewNullableTaskRunPhasePolicy(val *TaskRunPhasePolicy) *NullableTaskRunPhasePolicy {
+	return &NullableTaskRunPhasePolicy{value: val, isSet: true}
 }
 
-func (v NullableRunPhasePolicy) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunPhasePolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunPhasePolicy) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunPhasePolicy) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

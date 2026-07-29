@@ -19,39 +19,39 @@ import (
 	"fmt"
 )
 
-// checks if the CancelRunRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &CancelRunRequest{}
+// checks if the CancelTaskRunRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &CancelTaskRunRequest{}
 
-// CancelRunRequest Request body for cancelling a Run.
-type CancelRunRequest struct {
-	// ID of the Site that owns the Run.
+// CancelTaskRunRequest Request body for cancelling a Task Run.
+type CancelTaskRunRequest struct {
+	// ID of the Site that owns the Task Run.
 	SiteId string `json:"siteId"`
 	// Optional free-form reason recorded with the cancellation.
 	Reason *string `json:"reason,omitempty"`
 }
 
-type _CancelRunRequest CancelRunRequest
+type _CancelTaskRunRequest CancelTaskRunRequest
 
-// NewCancelRunRequest instantiates a new CancelRunRequest object
+// NewCancelTaskRunRequest instantiates a new CancelTaskRunRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewCancelRunRequest(siteId string) *CancelRunRequest {
-	this := CancelRunRequest{}
+func NewCancelTaskRunRequest(siteId string) *CancelTaskRunRequest {
+	this := CancelTaskRunRequest{}
 	this.SiteId = siteId
 	return &this
 }
 
-// NewCancelRunRequestWithDefaults instantiates a new CancelRunRequest object
+// NewCancelTaskRunRequestWithDefaults instantiates a new CancelTaskRunRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewCancelRunRequestWithDefaults() *CancelRunRequest {
-	this := CancelRunRequest{}
+func NewCancelTaskRunRequestWithDefaults() *CancelTaskRunRequest {
+	this := CancelTaskRunRequest{}
 	return &this
 }
 
 // GetSiteId returns the SiteId field value
-func (o *CancelRunRequest) GetSiteId() string {
+func (o *CancelTaskRunRequest) GetSiteId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -62,7 +62,7 @@ func (o *CancelRunRequest) GetSiteId() string {
 
 // GetSiteIdOk returns a tuple with the SiteId field value
 // and a boolean to check if the value has been set.
-func (o *CancelRunRequest) GetSiteIdOk() (*string, bool) {
+func (o *CancelTaskRunRequest) GetSiteIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -70,12 +70,12 @@ func (o *CancelRunRequest) GetSiteIdOk() (*string, bool) {
 }
 
 // SetSiteId sets field value
-func (o *CancelRunRequest) SetSiteId(v string) {
+func (o *CancelTaskRunRequest) SetSiteId(v string) {
 	o.SiteId = v
 }
 
 // GetReason returns the Reason field value if set, zero value otherwise.
-func (o *CancelRunRequest) GetReason() string {
+func (o *CancelTaskRunRequest) GetReason() string {
 	if o == nil || IsNil(o.Reason) {
 		var ret string
 		return ret
@@ -85,7 +85,7 @@ func (o *CancelRunRequest) GetReason() string {
 
 // GetReasonOk returns a tuple with the Reason field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CancelRunRequest) GetReasonOk() (*string, bool) {
+func (o *CancelTaskRunRequest) GetReasonOk() (*string, bool) {
 	if o == nil || IsNil(o.Reason) {
 		return nil, false
 	}
@@ -93,7 +93,7 @@ func (o *CancelRunRequest) GetReasonOk() (*string, bool) {
 }
 
 // HasReason returns a boolean if a field has been set.
-func (o *CancelRunRequest) HasReason() bool {
+func (o *CancelTaskRunRequest) HasReason() bool {
 	if o != nil && !IsNil(o.Reason) {
 		return true
 	}
@@ -102,11 +102,11 @@ func (o *CancelRunRequest) HasReason() bool {
 }
 
 // SetReason gets a reference to the given string and assigns it to the Reason field.
-func (o *CancelRunRequest) SetReason(v string) {
+func (o *CancelTaskRunRequest) SetReason(v string) {
 	o.Reason = &v
 }
 
-func (o CancelRunRequest) MarshalJSON() ([]byte, error) {
+func (o CancelTaskRunRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -114,7 +114,7 @@ func (o CancelRunRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o CancelRunRequest) ToMap() (map[string]interface{}, error) {
+func (o CancelTaskRunRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["siteId"] = o.SiteId
 	if !IsNil(o.Reason) {
@@ -123,7 +123,7 @@ func (o CancelRunRequest) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *CancelRunRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *CancelTaskRunRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -145,53 +145,53 @@ func (o *CancelRunRequest) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varCancelRunRequest := _CancelRunRequest{}
+	varCancelTaskRunRequest := _CancelTaskRunRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varCancelRunRequest)
+	err = decoder.Decode(&varCancelTaskRunRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = CancelRunRequest(varCancelRunRequest)
+	*o = CancelTaskRunRequest(varCancelTaskRunRequest)
 
 	return err
 }
 
-type NullableCancelRunRequest struct {
-	value *CancelRunRequest
+type NullableCancelTaskRunRequest struct {
+	value *CancelTaskRunRequest
 	isSet bool
 }
 
-func (v NullableCancelRunRequest) Get() *CancelRunRequest {
+func (v NullableCancelTaskRunRequest) Get() *CancelTaskRunRequest {
 	return v.value
 }
 
-func (v *NullableCancelRunRequest) Set(val *CancelRunRequest) {
+func (v *NullableCancelTaskRunRequest) Set(val *CancelTaskRunRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableCancelRunRequest) IsSet() bool {
+func (v NullableCancelTaskRunRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableCancelRunRequest) Unset() {
+func (v *NullableCancelTaskRunRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableCancelRunRequest(val *CancelRunRequest) *NullableCancelRunRequest {
-	return &NullableCancelRunRequest{value: val, isSet: true}
+func NewNullableCancelTaskRunRequest(val *CancelTaskRunRequest) *NullableCancelTaskRunRequest {
+	return &NullableCancelTaskRunRequest{value: val, isSet: true}
 }
 
-func (v NullableCancelRunRequest) MarshalJSON() ([]byte, error) {
+func (v NullableCancelTaskRunRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableCancelRunRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableCancelTaskRunRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

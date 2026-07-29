@@ -19,40 +19,40 @@ import (
 	"fmt"
 )
 
-// checks if the RunStats type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunStats{}
+// checks if the TaskRunStats type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunStats{}
 
-// RunStats Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
-type RunStats struct {
-	CurrentPhase    RunPhaseStats `json:"currentPhase"`
-	CumulativePhase RunPhaseStats `json:"cumulativePhase"`
+// TaskRunStats Summarizes target outcomes for the active phase and cumulatively across all phases processed so far.
+type TaskRunStats struct {
+	CurrentPhase    TaskRunPhaseStats `json:"currentPhase"`
+	CumulativePhase TaskRunPhaseStats `json:"cumulativePhase"`
 }
 
-type _RunStats RunStats
+type _TaskRunStats TaskRunStats
 
-// NewRunStats instantiates a new RunStats object
+// NewTaskRunStats instantiates a new TaskRunStats object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunStats(currentPhase RunPhaseStats, cumulativePhase RunPhaseStats) *RunStats {
-	this := RunStats{}
+func NewTaskRunStats(currentPhase TaskRunPhaseStats, cumulativePhase TaskRunPhaseStats) *TaskRunStats {
+	this := TaskRunStats{}
 	this.CurrentPhase = currentPhase
 	this.CumulativePhase = cumulativePhase
 	return &this
 }
 
-// NewRunStatsWithDefaults instantiates a new RunStats object
+// NewTaskRunStatsWithDefaults instantiates a new TaskRunStats object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunStatsWithDefaults() *RunStats {
-	this := RunStats{}
+func NewTaskRunStatsWithDefaults() *TaskRunStats {
+	this := TaskRunStats{}
 	return &this
 }
 
 // GetCurrentPhase returns the CurrentPhase field value
-func (o *RunStats) GetCurrentPhase() RunPhaseStats {
+func (o *TaskRunStats) GetCurrentPhase() TaskRunPhaseStats {
 	if o == nil {
-		var ret RunPhaseStats
+		var ret TaskRunPhaseStats
 		return ret
 	}
 
@@ -61,7 +61,7 @@ func (o *RunStats) GetCurrentPhase() RunPhaseStats {
 
 // GetCurrentPhaseOk returns a tuple with the CurrentPhase field value
 // and a boolean to check if the value has been set.
-func (o *RunStats) GetCurrentPhaseOk() (*RunPhaseStats, bool) {
+func (o *TaskRunStats) GetCurrentPhaseOk() (*TaskRunPhaseStats, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -69,14 +69,14 @@ func (o *RunStats) GetCurrentPhaseOk() (*RunPhaseStats, bool) {
 }
 
 // SetCurrentPhase sets field value
-func (o *RunStats) SetCurrentPhase(v RunPhaseStats) {
+func (o *TaskRunStats) SetCurrentPhase(v TaskRunPhaseStats) {
 	o.CurrentPhase = v
 }
 
 // GetCumulativePhase returns the CumulativePhase field value
-func (o *RunStats) GetCumulativePhase() RunPhaseStats {
+func (o *TaskRunStats) GetCumulativePhase() TaskRunPhaseStats {
 	if o == nil {
-		var ret RunPhaseStats
+		var ret TaskRunPhaseStats
 		return ret
 	}
 
@@ -85,7 +85,7 @@ func (o *RunStats) GetCumulativePhase() RunPhaseStats {
 
 // GetCumulativePhaseOk returns a tuple with the CumulativePhase field value
 // and a boolean to check if the value has been set.
-func (o *RunStats) GetCumulativePhaseOk() (*RunPhaseStats, bool) {
+func (o *TaskRunStats) GetCumulativePhaseOk() (*TaskRunPhaseStats, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -93,11 +93,11 @@ func (o *RunStats) GetCumulativePhaseOk() (*RunPhaseStats, bool) {
 }
 
 // SetCumulativePhase sets field value
-func (o *RunStats) SetCumulativePhase(v RunPhaseStats) {
+func (o *TaskRunStats) SetCumulativePhase(v TaskRunPhaseStats) {
 	o.CumulativePhase = v
 }
 
-func (o RunStats) MarshalJSON() ([]byte, error) {
+func (o TaskRunStats) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -105,14 +105,14 @@ func (o RunStats) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunStats) ToMap() (map[string]interface{}, error) {
+func (o TaskRunStats) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["currentPhase"] = o.CurrentPhase
 	toSerialize["cumulativePhase"] = o.CumulativePhase
 	return toSerialize, nil
 }
 
-func (o *RunStats) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunStats) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -135,53 +135,53 @@ func (o *RunStats) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunStats := _RunStats{}
+	varTaskRunStats := _TaskRunStats{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunStats)
+	err = decoder.Decode(&varTaskRunStats)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunStats(varRunStats)
+	*o = TaskRunStats(varTaskRunStats)
 
 	return err
 }
 
-type NullableRunStats struct {
-	value *RunStats
+type NullableTaskRunStats struct {
+	value *TaskRunStats
 	isSet bool
 }
 
-func (v NullableRunStats) Get() *RunStats {
+func (v NullableTaskRunStats) Get() *TaskRunStats {
 	return v.value
 }
 
-func (v *NullableRunStats) Set(val *RunStats) {
+func (v *NullableTaskRunStats) Set(val *TaskRunStats) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunStats) IsSet() bool {
+func (v NullableTaskRunStats) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunStats) Unset() {
+func (v *NullableTaskRunStats) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunStats(val *RunStats) *NullableRunStats {
-	return &NullableRunStats{value: val, isSet: true}
+func NewNullableTaskRunStats(val *TaskRunStats) *NullableTaskRunStats {
+	return &NullableTaskRunStats{value: val, isSet: true}
 }
 
-func (v NullableRunStats) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunStats) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunStats) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunStats) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

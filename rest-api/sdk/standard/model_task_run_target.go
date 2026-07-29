@@ -20,18 +20,18 @@ import (
 	"time"
 )
 
-// checks if the RunTarget type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunTarget{}
+// checks if the TaskRunTarget type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunTarget{}
 
-// RunTarget One materialized per-Rack execution target of a Run. Each target drives at most one Task; `taskId` references it (null until the target is submitted).
-type RunTarget struct {
+// TaskRunTarget One materialized per-Rack execution target of a Task Run. Each target drives at most one Task; `taskId` references it (null until the target is submitted).
+type TaskRunTarget struct {
 	// Unique identifier of the target.
 	Id string `json:"id"`
-	// ID of the Run that owns this target.
+	// ID of the Task Run that owns this target.
 	RunId string `json:"runId"`
 	// ID of the Rack this target operates on.
 	RackId string `json:"rackId"`
-	// Position of this target in the Run's overall processing order.
+	// Position of this target in the Task Run's overall processing order.
 	SequenceIndex int32 `json:"sequenceIndex"`
 	// Zero-based index of the phase this target belongs to.
 	PhaseIndex int32 `json:"phaseIndex"`
@@ -47,14 +47,14 @@ type RunTarget struct {
 	Updated time.Time `json:"updated"`
 }
 
-type _RunTarget RunTarget
+type _TaskRunTarget TaskRunTarget
 
-// NewRunTarget instantiates a new RunTarget object
+// NewTaskRunTarget instantiates a new TaskRunTarget object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunTarget(id string, runId string, rackId string, sequenceIndex int32, phaseIndex int32, status string, created time.Time, updated time.Time) *RunTarget {
-	this := RunTarget{}
+func NewTaskRunTarget(id string, runId string, rackId string, sequenceIndex int32, phaseIndex int32, status string, created time.Time, updated time.Time) *TaskRunTarget {
+	this := TaskRunTarget{}
 	this.Id = id
 	this.RunId = runId
 	this.RackId = rackId
@@ -66,16 +66,16 @@ func NewRunTarget(id string, runId string, rackId string, sequenceIndex int32, p
 	return &this
 }
 
-// NewRunTargetWithDefaults instantiates a new RunTarget object
+// NewTaskRunTargetWithDefaults instantiates a new TaskRunTarget object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunTargetWithDefaults() *RunTarget {
-	this := RunTarget{}
+func NewTaskRunTargetWithDefaults() *TaskRunTarget {
+	this := TaskRunTarget{}
 	return &this
 }
 
 // GetId returns the Id field value
-func (o *RunTarget) GetId() string {
+func (o *TaskRunTarget) GetId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -86,7 +86,7 @@ func (o *RunTarget) GetId() string {
 
 // GetIdOk returns a tuple with the Id field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetIdOk() (*string, bool) {
+func (o *TaskRunTarget) GetIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -94,12 +94,12 @@ func (o *RunTarget) GetIdOk() (*string, bool) {
 }
 
 // SetId sets field value
-func (o *RunTarget) SetId(v string) {
+func (o *TaskRunTarget) SetId(v string) {
 	o.Id = v
 }
 
 // GetRunId returns the RunId field value
-func (o *RunTarget) GetRunId() string {
+func (o *TaskRunTarget) GetRunId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -110,7 +110,7 @@ func (o *RunTarget) GetRunId() string {
 
 // GetRunIdOk returns a tuple with the RunId field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetRunIdOk() (*string, bool) {
+func (o *TaskRunTarget) GetRunIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -118,12 +118,12 @@ func (o *RunTarget) GetRunIdOk() (*string, bool) {
 }
 
 // SetRunId sets field value
-func (o *RunTarget) SetRunId(v string) {
+func (o *TaskRunTarget) SetRunId(v string) {
 	o.RunId = v
 }
 
 // GetRackId returns the RackId field value
-func (o *RunTarget) GetRackId() string {
+func (o *TaskRunTarget) GetRackId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -134,7 +134,7 @@ func (o *RunTarget) GetRackId() string {
 
 // GetRackIdOk returns a tuple with the RackId field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetRackIdOk() (*string, bool) {
+func (o *TaskRunTarget) GetRackIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -142,12 +142,12 @@ func (o *RunTarget) GetRackIdOk() (*string, bool) {
 }
 
 // SetRackId sets field value
-func (o *RunTarget) SetRackId(v string) {
+func (o *TaskRunTarget) SetRackId(v string) {
 	o.RackId = v
 }
 
 // GetSequenceIndex returns the SequenceIndex field value
-func (o *RunTarget) GetSequenceIndex() int32 {
+func (o *TaskRunTarget) GetSequenceIndex() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -158,7 +158,7 @@ func (o *RunTarget) GetSequenceIndex() int32 {
 
 // GetSequenceIndexOk returns a tuple with the SequenceIndex field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetSequenceIndexOk() (*int32, bool) {
+func (o *TaskRunTarget) GetSequenceIndexOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -166,12 +166,12 @@ func (o *RunTarget) GetSequenceIndexOk() (*int32, bool) {
 }
 
 // SetSequenceIndex sets field value
-func (o *RunTarget) SetSequenceIndex(v int32) {
+func (o *TaskRunTarget) SetSequenceIndex(v int32) {
 	o.SequenceIndex = v
 }
 
 // GetPhaseIndex returns the PhaseIndex field value
-func (o *RunTarget) GetPhaseIndex() int32 {
+func (o *TaskRunTarget) GetPhaseIndex() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -182,7 +182,7 @@ func (o *RunTarget) GetPhaseIndex() int32 {
 
 // GetPhaseIndexOk returns a tuple with the PhaseIndex field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetPhaseIndexOk() (*int32, bool) {
+func (o *TaskRunTarget) GetPhaseIndexOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -190,12 +190,12 @@ func (o *RunTarget) GetPhaseIndexOk() (*int32, bool) {
 }
 
 // SetPhaseIndex sets field value
-func (o *RunTarget) SetPhaseIndex(v int32) {
+func (o *TaskRunTarget) SetPhaseIndex(v int32) {
 	o.PhaseIndex = v
 }
 
 // GetTaskId returns the TaskId field value if set, zero value otherwise (both if not set or set to explicit null).
-func (o *RunTarget) GetTaskId() string {
+func (o *TaskRunTarget) GetTaskId() string {
 	if o == nil || IsNil(o.TaskId.Get()) {
 		var ret string
 		return ret
@@ -206,7 +206,7 @@ func (o *RunTarget) GetTaskId() string {
 // GetTaskIdOk returns a tuple with the TaskId field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
-func (o *RunTarget) GetTaskIdOk() (*string, bool) {
+func (o *TaskRunTarget) GetTaskIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -214,7 +214,7 @@ func (o *RunTarget) GetTaskIdOk() (*string, bool) {
 }
 
 // HasTaskId returns a boolean if a field has been set.
-func (o *RunTarget) HasTaskId() bool {
+func (o *TaskRunTarget) HasTaskId() bool {
 	if o != nil && o.TaskId.IsSet() {
 		return true
 	}
@@ -223,22 +223,22 @@ func (o *RunTarget) HasTaskId() bool {
 }
 
 // SetTaskId gets a reference to the given NullableString and assigns it to the TaskId field.
-func (o *RunTarget) SetTaskId(v string) {
+func (o *TaskRunTarget) SetTaskId(v string) {
 	o.TaskId.Set(&v)
 }
 
 // SetTaskIdNil sets the value for TaskId to be an explicit nil
-func (o *RunTarget) SetTaskIdNil() {
+func (o *TaskRunTarget) SetTaskIdNil() {
 	o.TaskId.Set(nil)
 }
 
 // UnsetTaskId ensures that no value is present for TaskId, not even an explicit nil
-func (o *RunTarget) UnsetTaskId() {
+func (o *TaskRunTarget) UnsetTaskId() {
 	o.TaskId.Unset()
 }
 
 // GetStatus returns the Status field value
-func (o *RunTarget) GetStatus() string {
+func (o *TaskRunTarget) GetStatus() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -249,7 +249,7 @@ func (o *RunTarget) GetStatus() string {
 
 // GetStatusOk returns a tuple with the Status field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetStatusOk() (*string, bool) {
+func (o *TaskRunTarget) GetStatusOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -257,12 +257,12 @@ func (o *RunTarget) GetStatusOk() (*string, bool) {
 }
 
 // SetStatus sets field value
-func (o *RunTarget) SetStatus(v string) {
+func (o *TaskRunTarget) SetStatus(v string) {
 	o.Status = v
 }
 
 // GetMessage returns the Message field value if set, zero value otherwise.
-func (o *RunTarget) GetMessage() string {
+func (o *TaskRunTarget) GetMessage() string {
 	if o == nil || IsNil(o.Message) {
 		var ret string
 		return ret
@@ -272,7 +272,7 @@ func (o *RunTarget) GetMessage() string {
 
 // GetMessageOk returns a tuple with the Message field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetMessageOk() (*string, bool) {
+func (o *TaskRunTarget) GetMessageOk() (*string, bool) {
 	if o == nil || IsNil(o.Message) {
 		return nil, false
 	}
@@ -280,7 +280,7 @@ func (o *RunTarget) GetMessageOk() (*string, bool) {
 }
 
 // HasMessage returns a boolean if a field has been set.
-func (o *RunTarget) HasMessage() bool {
+func (o *TaskRunTarget) HasMessage() bool {
 	if o != nil && !IsNil(o.Message) {
 		return true
 	}
@@ -289,12 +289,12 @@ func (o *RunTarget) HasMessage() bool {
 }
 
 // SetMessage gets a reference to the given string and assigns it to the Message field.
-func (o *RunTarget) SetMessage(v string) {
+func (o *TaskRunTarget) SetMessage(v string) {
 	o.Message = &v
 }
 
 // GetCreated returns the Created field value
-func (o *RunTarget) GetCreated() time.Time {
+func (o *TaskRunTarget) GetCreated() time.Time {
 	if o == nil {
 		var ret time.Time
 		return ret
@@ -305,7 +305,7 @@ func (o *RunTarget) GetCreated() time.Time {
 
 // GetCreatedOk returns a tuple with the Created field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetCreatedOk() (*time.Time, bool) {
+func (o *TaskRunTarget) GetCreatedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -313,12 +313,12 @@ func (o *RunTarget) GetCreatedOk() (*time.Time, bool) {
 }
 
 // SetCreated sets field value
-func (o *RunTarget) SetCreated(v time.Time) {
+func (o *TaskRunTarget) SetCreated(v time.Time) {
 	o.Created = v
 }
 
 // GetUpdated returns the Updated field value
-func (o *RunTarget) GetUpdated() time.Time {
+func (o *TaskRunTarget) GetUpdated() time.Time {
 	if o == nil {
 		var ret time.Time
 		return ret
@@ -329,7 +329,7 @@ func (o *RunTarget) GetUpdated() time.Time {
 
 // GetUpdatedOk returns a tuple with the Updated field value
 // and a boolean to check if the value has been set.
-func (o *RunTarget) GetUpdatedOk() (*time.Time, bool) {
+func (o *TaskRunTarget) GetUpdatedOk() (*time.Time, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -337,11 +337,11 @@ func (o *RunTarget) GetUpdatedOk() (*time.Time, bool) {
 }
 
 // SetUpdated sets field value
-func (o *RunTarget) SetUpdated(v time.Time) {
+func (o *TaskRunTarget) SetUpdated(v time.Time) {
 	o.Updated = v
 }
 
-func (o RunTarget) MarshalJSON() ([]byte, error) {
+func (o TaskRunTarget) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -349,7 +349,7 @@ func (o RunTarget) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunTarget) ToMap() (map[string]interface{}, error) {
+func (o TaskRunTarget) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["id"] = o.Id
 	toSerialize["runId"] = o.RunId
@@ -368,7 +368,7 @@ func (o RunTarget) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunTarget) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunTarget) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -397,53 +397,53 @@ func (o *RunTarget) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunTarget := _RunTarget{}
+	varTaskRunTarget := _TaskRunTarget{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunTarget)
+	err = decoder.Decode(&varTaskRunTarget)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunTarget(varRunTarget)
+	*o = TaskRunTarget(varTaskRunTarget)
 
 	return err
 }
 
-type NullableRunTarget struct {
-	value *RunTarget
+type NullableTaskRunTarget struct {
+	value *TaskRunTarget
 	isSet bool
 }
 
-func (v NullableRunTarget) Get() *RunTarget {
+func (v NullableTaskRunTarget) Get() *TaskRunTarget {
 	return v.value
 }
 
-func (v *NullableRunTarget) Set(val *RunTarget) {
+func (v *NullableTaskRunTarget) Set(val *TaskRunTarget) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunTarget) IsSet() bool {
+func (v NullableTaskRunTarget) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunTarget) Unset() {
+func (v *NullableTaskRunTarget) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunTarget(val *RunTarget) *NullableRunTarget {
-	return &NullableRunTarget{value: val, isSet: true}
+func NewNullableTaskRunTarget(val *TaskRunTarget) *NullableTaskRunTarget {
+	return &NullableTaskRunTarget{value: val, isSet: true}
 }
 
-func (v NullableRunTarget) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunTarget) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunTarget) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunTarget) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

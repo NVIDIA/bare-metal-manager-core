@@ -17,34 +17,34 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunRandomOrdering type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunRandomOrdering{}
+// checks if the TaskRunRandomOrdering type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunRandomOrdering{}
 
-// RunRandomOrdering Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
-type RunRandomOrdering struct {
+// TaskRunRandomOrdering Orders targets randomly. `seed` is optional; Flow generates and stores one when omitted.
+type TaskRunRandomOrdering struct {
 	// Optional seed for the deterministic random ordering.
 	Seed *string `json:"seed,omitempty"`
 }
 
-// NewRunRandomOrdering instantiates a new RunRandomOrdering object
+// NewTaskRunRandomOrdering instantiates a new TaskRunRandomOrdering object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunRandomOrdering() *RunRandomOrdering {
-	this := RunRandomOrdering{}
+func NewTaskRunRandomOrdering() *TaskRunRandomOrdering {
+	this := TaskRunRandomOrdering{}
 	return &this
 }
 
-// NewRunRandomOrderingWithDefaults instantiates a new RunRandomOrdering object
+// NewTaskRunRandomOrderingWithDefaults instantiates a new TaskRunRandomOrdering object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunRandomOrderingWithDefaults() *RunRandomOrdering {
-	this := RunRandomOrdering{}
+func NewTaskRunRandomOrderingWithDefaults() *TaskRunRandomOrdering {
+	this := TaskRunRandomOrdering{}
 	return &this
 }
 
 // GetSeed returns the Seed field value if set, zero value otherwise.
-func (o *RunRandomOrdering) GetSeed() string {
+func (o *TaskRunRandomOrdering) GetSeed() string {
 	if o == nil || IsNil(o.Seed) {
 		var ret string
 		return ret
@@ -54,7 +54,7 @@ func (o *RunRandomOrdering) GetSeed() string {
 
 // GetSeedOk returns a tuple with the Seed field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunRandomOrdering) GetSeedOk() (*string, bool) {
+func (o *TaskRunRandomOrdering) GetSeedOk() (*string, bool) {
 	if o == nil || IsNil(o.Seed) {
 		return nil, false
 	}
@@ -62,7 +62,7 @@ func (o *RunRandomOrdering) GetSeedOk() (*string, bool) {
 }
 
 // HasSeed returns a boolean if a field has been set.
-func (o *RunRandomOrdering) HasSeed() bool {
+func (o *TaskRunRandomOrdering) HasSeed() bool {
 	if o != nil && !IsNil(o.Seed) {
 		return true
 	}
@@ -71,11 +71,11 @@ func (o *RunRandomOrdering) HasSeed() bool {
 }
 
 // SetSeed gets a reference to the given string and assigns it to the Seed field.
-func (o *RunRandomOrdering) SetSeed(v string) {
+func (o *TaskRunRandomOrdering) SetSeed(v string) {
 	o.Seed = &v
 }
 
-func (o RunRandomOrdering) MarshalJSON() ([]byte, error) {
+func (o TaskRunRandomOrdering) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -83,7 +83,7 @@ func (o RunRandomOrdering) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunRandomOrdering) ToMap() (map[string]interface{}, error) {
+func (o TaskRunRandomOrdering) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Seed) {
 		toSerialize["seed"] = o.Seed
@@ -91,38 +91,38 @@ func (o RunRandomOrdering) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunRandomOrdering struct {
-	value *RunRandomOrdering
+type NullableTaskRunRandomOrdering struct {
+	value *TaskRunRandomOrdering
 	isSet bool
 }
 
-func (v NullableRunRandomOrdering) Get() *RunRandomOrdering {
+func (v NullableTaskRunRandomOrdering) Get() *TaskRunRandomOrdering {
 	return v.value
 }
 
-func (v *NullableRunRandomOrdering) Set(val *RunRandomOrdering) {
+func (v *NullableTaskRunRandomOrdering) Set(val *TaskRunRandomOrdering) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunRandomOrdering) IsSet() bool {
+func (v NullableTaskRunRandomOrdering) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunRandomOrdering) Unset() {
+func (v *NullableTaskRunRandomOrdering) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunRandomOrdering(val *RunRandomOrdering) *NullableRunRandomOrdering {
-	return &NullableRunRandomOrdering{value: val, isSet: true}
+func NewNullableTaskRunRandomOrdering(val *TaskRunRandomOrdering) *NullableTaskRunRandomOrdering {
+	return &NullableTaskRunRandomOrdering{value: val, isSet: true}
 }
 
-func (v NullableRunRandomOrdering) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunRandomOrdering) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunRandomOrdering) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunRandomOrdering) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

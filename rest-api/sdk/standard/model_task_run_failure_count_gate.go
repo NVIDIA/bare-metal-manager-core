@@ -19,43 +19,43 @@ import (
 	"fmt"
 )
 
-// checks if the RunFailureCountGate type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunFailureCountGate{}
+// checks if the TaskRunFailureCountGate type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunFailureCountGate{}
 
-// RunFailureCountGate Pauses when the number of failed targets reaches `thresholdCount` for the scope.
-type RunFailureCountGate struct {
+// TaskRunFailureCountGate Pauses when the number of failed targets reaches `thresholdCount` for the scope.
+type TaskRunFailureCountGate struct {
 	// Whether the count is evaluated over the current phase or the cumulative run.
 	Scope *string `json:"scope,omitempty"`
 	// Number of failed targets at which the gate trips.
 	ThresholdCount int32 `json:"thresholdCount"`
 }
 
-type _RunFailureCountGate RunFailureCountGate
+type _TaskRunFailureCountGate TaskRunFailureCountGate
 
-// NewRunFailureCountGate instantiates a new RunFailureCountGate object
+// NewTaskRunFailureCountGate instantiates a new TaskRunFailureCountGate object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunFailureCountGate(thresholdCount int32) *RunFailureCountGate {
-	this := RunFailureCountGate{}
+func NewTaskRunFailureCountGate(thresholdCount int32) *TaskRunFailureCountGate {
+	this := TaskRunFailureCountGate{}
 	var scope string = "currentPhase"
 	this.Scope = &scope
 	this.ThresholdCount = thresholdCount
 	return &this
 }
 
-// NewRunFailureCountGateWithDefaults instantiates a new RunFailureCountGate object
+// NewTaskRunFailureCountGateWithDefaults instantiates a new TaskRunFailureCountGate object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunFailureCountGateWithDefaults() *RunFailureCountGate {
-	this := RunFailureCountGate{}
+func NewTaskRunFailureCountGateWithDefaults() *TaskRunFailureCountGate {
+	this := TaskRunFailureCountGate{}
 	var scope string = "currentPhase"
 	this.Scope = &scope
 	return &this
 }
 
 // GetScope returns the Scope field value if set, zero value otherwise.
-func (o *RunFailureCountGate) GetScope() string {
+func (o *TaskRunFailureCountGate) GetScope() string {
 	if o == nil || IsNil(o.Scope) {
 		var ret string
 		return ret
@@ -65,7 +65,7 @@ func (o *RunFailureCountGate) GetScope() string {
 
 // GetScopeOk returns a tuple with the Scope field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunFailureCountGate) GetScopeOk() (*string, bool) {
+func (o *TaskRunFailureCountGate) GetScopeOk() (*string, bool) {
 	if o == nil || IsNil(o.Scope) {
 		return nil, false
 	}
@@ -73,7 +73,7 @@ func (o *RunFailureCountGate) GetScopeOk() (*string, bool) {
 }
 
 // HasScope returns a boolean if a field has been set.
-func (o *RunFailureCountGate) HasScope() bool {
+func (o *TaskRunFailureCountGate) HasScope() bool {
 	if o != nil && !IsNil(o.Scope) {
 		return true
 	}
@@ -82,12 +82,12 @@ func (o *RunFailureCountGate) HasScope() bool {
 }
 
 // SetScope gets a reference to the given string and assigns it to the Scope field.
-func (o *RunFailureCountGate) SetScope(v string) {
+func (o *TaskRunFailureCountGate) SetScope(v string) {
 	o.Scope = &v
 }
 
 // GetThresholdCount returns the ThresholdCount field value
-func (o *RunFailureCountGate) GetThresholdCount() int32 {
+func (o *TaskRunFailureCountGate) GetThresholdCount() int32 {
 	if o == nil {
 		var ret int32
 		return ret
@@ -98,7 +98,7 @@ func (o *RunFailureCountGate) GetThresholdCount() int32 {
 
 // GetThresholdCountOk returns a tuple with the ThresholdCount field value
 // and a boolean to check if the value has been set.
-func (o *RunFailureCountGate) GetThresholdCountOk() (*int32, bool) {
+func (o *TaskRunFailureCountGate) GetThresholdCountOk() (*int32, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -106,11 +106,11 @@ func (o *RunFailureCountGate) GetThresholdCountOk() (*int32, bool) {
 }
 
 // SetThresholdCount sets field value
-func (o *RunFailureCountGate) SetThresholdCount(v int32) {
+func (o *TaskRunFailureCountGate) SetThresholdCount(v int32) {
 	o.ThresholdCount = v
 }
 
-func (o RunFailureCountGate) MarshalJSON() ([]byte, error) {
+func (o TaskRunFailureCountGate) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -118,7 +118,7 @@ func (o RunFailureCountGate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunFailureCountGate) ToMap() (map[string]interface{}, error) {
+func (o TaskRunFailureCountGate) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Scope) {
 		toSerialize["scope"] = o.Scope
@@ -127,7 +127,7 @@ func (o RunFailureCountGate) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *RunFailureCountGate) UnmarshalJSON(data []byte) (err error) {
+func (o *TaskRunFailureCountGate) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -149,53 +149,53 @@ func (o *RunFailureCountGate) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varRunFailureCountGate := _RunFailureCountGate{}
+	varTaskRunFailureCountGate := _TaskRunFailureCountGate{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varRunFailureCountGate)
+	err = decoder.Decode(&varTaskRunFailureCountGate)
 
 	if err != nil {
 		return err
 	}
 
-	*o = RunFailureCountGate(varRunFailureCountGate)
+	*o = TaskRunFailureCountGate(varTaskRunFailureCountGate)
 
 	return err
 }
 
-type NullableRunFailureCountGate struct {
-	value *RunFailureCountGate
+type NullableTaskRunFailureCountGate struct {
+	value *TaskRunFailureCountGate
 	isSet bool
 }
 
-func (v NullableRunFailureCountGate) Get() *RunFailureCountGate {
+func (v NullableTaskRunFailureCountGate) Get() *TaskRunFailureCountGate {
 	return v.value
 }
 
-func (v *NullableRunFailureCountGate) Set(val *RunFailureCountGate) {
+func (v *NullableTaskRunFailureCountGate) Set(val *TaskRunFailureCountGate) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunFailureCountGate) IsSet() bool {
+func (v NullableTaskRunFailureCountGate) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunFailureCountGate) Unset() {
+func (v *NullableTaskRunFailureCountGate) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunFailureCountGate(val *RunFailureCountGate) *NullableRunFailureCountGate {
-	return &NullableRunFailureCountGate{value: val, isSet: true}
+func NewNullableTaskRunFailureCountGate(val *TaskRunFailureCountGate) *NullableTaskRunFailureCountGate {
+	return &NullableTaskRunFailureCountGate{value: val, isSet: true}
 }
 
-func (v NullableRunFailureCountGate) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunFailureCountGate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunFailureCountGate) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunFailureCountGate) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

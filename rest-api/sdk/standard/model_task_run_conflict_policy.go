@@ -17,35 +17,35 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunConflictPolicy type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunConflictPolicy{}
+// checks if the TaskRunConflictPolicy type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunConflictPolicy{}
 
-// RunConflictPolicy Configures how blocked targets are retried. Retry is the only supported strategy today.
-type RunConflictPolicy struct {
-	Retry *RunConflictRetry `json:"retry,omitempty"`
+// TaskRunConflictPolicy Configures how blocked targets are retried. Retry is the only supported strategy today.
+type TaskRunConflictPolicy struct {
+	Retry *TaskRunConflictRetry `json:"retry,omitempty"`
 }
 
-// NewRunConflictPolicy instantiates a new RunConflictPolicy object
+// NewTaskRunConflictPolicy instantiates a new TaskRunConflictPolicy object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunConflictPolicy() *RunConflictPolicy {
-	this := RunConflictPolicy{}
+func NewTaskRunConflictPolicy() *TaskRunConflictPolicy {
+	this := TaskRunConflictPolicy{}
 	return &this
 }
 
-// NewRunConflictPolicyWithDefaults instantiates a new RunConflictPolicy object
+// NewTaskRunConflictPolicyWithDefaults instantiates a new TaskRunConflictPolicy object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunConflictPolicyWithDefaults() *RunConflictPolicy {
-	this := RunConflictPolicy{}
+func NewTaskRunConflictPolicyWithDefaults() *TaskRunConflictPolicy {
+	this := TaskRunConflictPolicy{}
 	return &this
 }
 
 // GetRetry returns the Retry field value if set, zero value otherwise.
-func (o *RunConflictPolicy) GetRetry() RunConflictRetry {
+func (o *TaskRunConflictPolicy) GetRetry() TaskRunConflictRetry {
 	if o == nil || IsNil(o.Retry) {
-		var ret RunConflictRetry
+		var ret TaskRunConflictRetry
 		return ret
 	}
 	return *o.Retry
@@ -53,7 +53,7 @@ func (o *RunConflictPolicy) GetRetry() RunConflictRetry {
 
 // GetRetryOk returns a tuple with the Retry field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunConflictPolicy) GetRetryOk() (*RunConflictRetry, bool) {
+func (o *TaskRunConflictPolicy) GetRetryOk() (*TaskRunConflictRetry, bool) {
 	if o == nil || IsNil(o.Retry) {
 		return nil, false
 	}
@@ -61,7 +61,7 @@ func (o *RunConflictPolicy) GetRetryOk() (*RunConflictRetry, bool) {
 }
 
 // HasRetry returns a boolean if a field has been set.
-func (o *RunConflictPolicy) HasRetry() bool {
+func (o *TaskRunConflictPolicy) HasRetry() bool {
 	if o != nil && !IsNil(o.Retry) {
 		return true
 	}
@@ -69,12 +69,12 @@ func (o *RunConflictPolicy) HasRetry() bool {
 	return false
 }
 
-// SetRetry gets a reference to the given RunConflictRetry and assigns it to the Retry field.
-func (o *RunConflictPolicy) SetRetry(v RunConflictRetry) {
+// SetRetry gets a reference to the given TaskRunConflictRetry and assigns it to the Retry field.
+func (o *TaskRunConflictPolicy) SetRetry(v TaskRunConflictRetry) {
 	o.Retry = &v
 }
 
-func (o RunConflictPolicy) MarshalJSON() ([]byte, error) {
+func (o TaskRunConflictPolicy) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -82,7 +82,7 @@ func (o RunConflictPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunConflictPolicy) ToMap() (map[string]interface{}, error) {
+func (o TaskRunConflictPolicy) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Retry) {
 		toSerialize["retry"] = o.Retry
@@ -90,38 +90,38 @@ func (o RunConflictPolicy) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunConflictPolicy struct {
-	value *RunConflictPolicy
+type NullableTaskRunConflictPolicy struct {
+	value *TaskRunConflictPolicy
 	isSet bool
 }
 
-func (v NullableRunConflictPolicy) Get() *RunConflictPolicy {
+func (v NullableTaskRunConflictPolicy) Get() *TaskRunConflictPolicy {
 	return v.value
 }
 
-func (v *NullableRunConflictPolicy) Set(val *RunConflictPolicy) {
+func (v *NullableTaskRunConflictPolicy) Set(val *TaskRunConflictPolicy) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunConflictPolicy) IsSet() bool {
+func (v NullableTaskRunConflictPolicy) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunConflictPolicy) Unset() {
+func (v *NullableTaskRunConflictPolicy) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunConflictPolicy(val *RunConflictPolicy) *NullableRunConflictPolicy {
-	return &NullableRunConflictPolicy{value: val, isSet: true}
+func NewNullableTaskRunConflictPolicy(val *TaskRunConflictPolicy) *NullableTaskRunConflictPolicy {
+	return &NullableTaskRunConflictPolicy{value: val, isSet: true}
 }
 
-func (v NullableRunConflictPolicy) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunConflictPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunConflictPolicy) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunConflictPolicy) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

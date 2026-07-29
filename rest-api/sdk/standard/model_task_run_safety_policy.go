@@ -17,36 +17,36 @@ import (
 	"encoding/json"
 )
 
-// checks if the RunSafetyPolicy type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &RunSafetyPolicy{}
+// checks if the TaskRunSafetyPolicy type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &TaskRunSafetyPolicy{}
 
-// RunSafetyPolicy A set of gates that pause the Run when any one of them trips (OR composition).
-type RunSafetyPolicy struct {
+// TaskRunSafetyPolicy A set of gates that pause the Task Run when any one of them trips (OR composition).
+type TaskRunSafetyPolicy struct {
 	// Safety gates evaluated after each target outcome.
-	Gates []RunSafetyGate `json:"gates,omitempty"`
+	Gates []TaskRunSafetyGate `json:"gates,omitempty"`
 }
 
-// NewRunSafetyPolicy instantiates a new RunSafetyPolicy object
+// NewTaskRunSafetyPolicy instantiates a new TaskRunSafetyPolicy object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewRunSafetyPolicy() *RunSafetyPolicy {
-	this := RunSafetyPolicy{}
+func NewTaskRunSafetyPolicy() *TaskRunSafetyPolicy {
+	this := TaskRunSafetyPolicy{}
 	return &this
 }
 
-// NewRunSafetyPolicyWithDefaults instantiates a new RunSafetyPolicy object
+// NewTaskRunSafetyPolicyWithDefaults instantiates a new TaskRunSafetyPolicy object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewRunSafetyPolicyWithDefaults() *RunSafetyPolicy {
-	this := RunSafetyPolicy{}
+func NewTaskRunSafetyPolicyWithDefaults() *TaskRunSafetyPolicy {
+	this := TaskRunSafetyPolicy{}
 	return &this
 }
 
 // GetGates returns the Gates field value if set, zero value otherwise.
-func (o *RunSafetyPolicy) GetGates() []RunSafetyGate {
+func (o *TaskRunSafetyPolicy) GetGates() []TaskRunSafetyGate {
 	if o == nil || IsNil(o.Gates) {
-		var ret []RunSafetyGate
+		var ret []TaskRunSafetyGate
 		return ret
 	}
 	return o.Gates
@@ -54,7 +54,7 @@ func (o *RunSafetyPolicy) GetGates() []RunSafetyGate {
 
 // GetGatesOk returns a tuple with the Gates field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *RunSafetyPolicy) GetGatesOk() ([]RunSafetyGate, bool) {
+func (o *TaskRunSafetyPolicy) GetGatesOk() ([]TaskRunSafetyGate, bool) {
 	if o == nil || IsNil(o.Gates) {
 		return nil, false
 	}
@@ -62,7 +62,7 @@ func (o *RunSafetyPolicy) GetGatesOk() ([]RunSafetyGate, bool) {
 }
 
 // HasGates returns a boolean if a field has been set.
-func (o *RunSafetyPolicy) HasGates() bool {
+func (o *TaskRunSafetyPolicy) HasGates() bool {
 	if o != nil && !IsNil(o.Gates) {
 		return true
 	}
@@ -70,12 +70,12 @@ func (o *RunSafetyPolicy) HasGates() bool {
 	return false
 }
 
-// SetGates gets a reference to the given []RunSafetyGate and assigns it to the Gates field.
-func (o *RunSafetyPolicy) SetGates(v []RunSafetyGate) {
+// SetGates gets a reference to the given []TaskRunSafetyGate and assigns it to the Gates field.
+func (o *TaskRunSafetyPolicy) SetGates(v []TaskRunSafetyGate) {
 	o.Gates = v
 }
 
-func (o RunSafetyPolicy) MarshalJSON() ([]byte, error) {
+func (o TaskRunSafetyPolicy) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -83,7 +83,7 @@ func (o RunSafetyPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o RunSafetyPolicy) ToMap() (map[string]interface{}, error) {
+func (o TaskRunSafetyPolicy) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	if !IsNil(o.Gates) {
 		toSerialize["gates"] = o.Gates
@@ -91,38 +91,38 @@ func (o RunSafetyPolicy) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-type NullableRunSafetyPolicy struct {
-	value *RunSafetyPolicy
+type NullableTaskRunSafetyPolicy struct {
+	value *TaskRunSafetyPolicy
 	isSet bool
 }
 
-func (v NullableRunSafetyPolicy) Get() *RunSafetyPolicy {
+func (v NullableTaskRunSafetyPolicy) Get() *TaskRunSafetyPolicy {
 	return v.value
 }
 
-func (v *NullableRunSafetyPolicy) Set(val *RunSafetyPolicy) {
+func (v *NullableTaskRunSafetyPolicy) Set(val *TaskRunSafetyPolicy) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableRunSafetyPolicy) IsSet() bool {
+func (v NullableTaskRunSafetyPolicy) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableRunSafetyPolicy) Unset() {
+func (v *NullableTaskRunSafetyPolicy) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableRunSafetyPolicy(val *RunSafetyPolicy) *NullableRunSafetyPolicy {
-	return &NullableRunSafetyPolicy{value: val, isSet: true}
+func NewNullableTaskRunSafetyPolicy(val *TaskRunSafetyPolicy) *NullableTaskRunSafetyPolicy {
+	return &NullableTaskRunSafetyPolicy{value: val, isSet: true}
 }
 
-func (v NullableRunSafetyPolicy) MarshalJSON() ([]byte, error) {
+func (v NullableTaskRunSafetyPolicy) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableRunSafetyPolicy) UnmarshalJSON(src []byte) error {
+func (v *NullableTaskRunSafetyPolicy) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }
