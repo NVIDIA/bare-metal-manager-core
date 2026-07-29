@@ -529,6 +529,7 @@ jobs:
           RUNTIME_REF_AARCH64: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_ref }}
           VERSION: ${{ steps.version.outputs.version }}
           SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+          HELM_VERSION: ${{ steps.version.outputs.helm_version }}
           BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
           RUNTIME_VERSION: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
           BUILD_VERSION_AARCH64: ${{ steps.base-container-gate.outputs.build_container_aarch64_version }}
@@ -543,7 +544,8 @@ jobs:
             --arg SHORT_SHA "$SHORT_SHA" \
             --arg BUILD "$BUILD_REF" \
             --arg RUNTIME "$RUNTIME_REF" \
-            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
+            --arg HELM_VERSION "$HELM_VERSION" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME, CARBIDE_BUILD_HELM_VERSION: $HELM_VERSION}')
 
           echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
 
@@ -554,7 +556,8 @@ jobs:
             --arg SHORT_SHA "$SHORT_SHA" \
             --arg BUILD "$BUILD_REF_AARCH64" \
             --arg RUNTIME "$RUNTIME_REF_AARCH64" \
-            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_AARCH64: $BUILD, CONTAINER_RUNTIME_AARCH64: $RUNTIME}')
+            --arg HELM_VERSION "$HELM_VERSION" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_AARCH64: $BUILD, CONTAINER_RUNTIME_AARCH64: $RUNTIME, CARBIDE_BUILD_HELM_VERSION: $HELM_VERSION}')
 
           echo "build_args_aarch64=${BUILD_ARGS_AARCH64}" >> "$GITHUB_OUTPUT"
 

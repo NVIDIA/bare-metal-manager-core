@@ -21,7 +21,7 @@ import (
 // checks if the Interface type satisfies the MappedNullable interface at compile time
 var _ MappedNullable = &Interface{}
 
-// Interface Associates an Instance with a Subnet
+// Interface Associates an Instance with a Subnet or VPC-backed network
 type Interface struct {
 	// Unique UUID v4 identifier for the Interface
 	Id *string `json:"id,omitempty"`
@@ -29,9 +29,13 @@ type Interface struct {
 	InstanceId *string `json:"instanceId,omitempty"`
 	// ID of the associated Subnet
 	SubnetId NullableString `json:"subnetId,omitempty"`
-	// ID of the associated VPCPrefix
+	// ID of the VPC Prefix explicitly selected by the caller
 	VpcPrefixId NullableString `json:"vpcPrefixId,omitempty"`
-	// IsPhysical indicates whether the Subnet is bound on a physical Interface
+	// ID of the VPC from which the Controller selects a prefix
+	VpcId *string `json:"vpcId,omitempty"`
+	// Address families requested for Controller prefix selection
+	IpFamilies []IPFamily `json:"ipFamilies,omitempty"`
+	// Indicates whether the network is bound on a physical Interface
 	IsPhysical *bool `json:"isPhysical,omitempty"`
 	// Name of the device to use
 	Device NullableString `json:"device,omitempty"`
@@ -43,9 +47,9 @@ type Interface struct {
 	MacAddress NullableString `json:"macAddress,omitempty"`
 	// A list of IPv4 or IPv6 addresses
 	IpAddresses []string `json:"ipAddresses,omitempty"`
-	// Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+	// Explicitly requested IP address for the interface. This is only used with an explicit `vpcPrefixId` and is not valid with `subnetId` or VPC-selected interfaces. The least-significant host bit must be 1.
 	RequestedIpAddress NullableString `json:"requestedIpAddress,omitempty"`
-	// Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
+	// Inline interface-local routing profile options. Only valid for VPC-backed interfaces.
 	InlineRoutingProfile NullableInterfaceInlineRoutingProfile `json:"inlineRoutingProfile,omitempty"`
 	// Status of the Interface
 	Status *InterfaceStatus `json:"status,omitempty"`
@@ -220,6 +224,70 @@ func (o *Interface) SetVpcPrefixIdNil() {
 // UnsetVpcPrefixId ensures that no value is present for VpcPrefixId, not even an explicit nil
 func (o *Interface) UnsetVpcPrefixId() {
 	o.VpcPrefixId.Unset()
+}
+
+// GetVpcId returns the VpcId field value if set, zero value otherwise.
+func (o *Interface) GetVpcId() string {
+	if o == nil || IsNil(o.VpcId) {
+		var ret string
+		return ret
+	}
+	return *o.VpcId
+}
+
+// GetVpcIdOk returns a tuple with the VpcId field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Interface) GetVpcIdOk() (*string, bool) {
+	if o == nil || IsNil(o.VpcId) {
+		return nil, false
+	}
+	return o.VpcId, true
+}
+
+// HasVpcId returns a boolean if a field has been set.
+func (o *Interface) HasVpcId() bool {
+	if o != nil && !IsNil(o.VpcId) {
+		return true
+	}
+
+	return false
+}
+
+// SetVpcId gets a reference to the given string and assigns it to the VpcId field.
+func (o *Interface) SetVpcId(v string) {
+	o.VpcId = &v
+}
+
+// GetIpFamilies returns the IpFamilies field value if set, zero value otherwise.
+func (o *Interface) GetIpFamilies() []IPFamily {
+	if o == nil || IsNil(o.IpFamilies) {
+		var ret []IPFamily
+		return ret
+	}
+	return o.IpFamilies
+}
+
+// GetIpFamiliesOk returns a tuple with the IpFamilies field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *Interface) GetIpFamiliesOk() ([]IPFamily, bool) {
+	if o == nil || IsNil(o.IpFamilies) {
+		return nil, false
+	}
+	return o.IpFamilies, true
+}
+
+// HasIpFamilies returns a boolean if a field has been set.
+func (o *Interface) HasIpFamilies() bool {
+	if o != nil && !IsNil(o.IpFamilies) {
+		return true
+	}
+
+	return false
+}
+
+// SetIpFamilies gets a reference to the given []IPFamily and assigns it to the IpFamilies field.
+func (o *Interface) SetIpFamilies(v []IPFamily) {
+	o.IpFamilies = v
 }
 
 // GetIsPhysical returns the IsPhysical field value if set, zero value otherwise.
@@ -661,6 +729,12 @@ func (o Interface) ToMap() (map[string]interface{}, error) {
 	}
 	if o.VpcPrefixId.IsSet() {
 		toSerialize["vpcPrefixId"] = o.VpcPrefixId.Get()
+	}
+	if !IsNil(o.VpcId) {
+		toSerialize["vpcId"] = o.VpcId
+	}
+	if !IsNil(o.IpFamilies) {
+		toSerialize["ipFamilies"] = o.IpFamilies
 	}
 	if !IsNil(o.IsPhysical) {
 		toSerialize["isPhysical"] = o.IsPhysical

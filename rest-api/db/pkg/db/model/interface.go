@@ -42,6 +42,18 @@ const (
 	InterfaceOrderByDefault = InterfaceOrderByCreated
 )
 
+// InterfaceVpcIPFamilyMode is the requested IP family mode for Core-managed VPC prefix selection.
+type InterfaceVpcIPFamilyMode string
+
+const (
+	// InterfaceVpcIPFamilyModeIPv4Only requests an IPv4 VPC prefix.
+	InterfaceVpcIPFamilyModeIPv4Only InterfaceVpcIPFamilyMode = "IPv4Only"
+	// InterfaceVpcIPFamilyModeIPv6Only requests an IPv6 VPC prefix.
+	InterfaceVpcIPFamilyModeIPv6Only InterfaceVpcIPFamilyMode = "IPv6Only"
+	// InterfaceVpcIPFamilyModeDualStack requests both IPv4 and IPv6 VPC prefixes.
+	InterfaceVpcIPFamilyModeDualStack InterfaceVpcIPFamilyMode = "DualStack"
+)
+
 var (
 	// InterfaceOrderByFields is a list of valid order by fields for the Interface model
 	InterfaceOrderByFields = []string{"status", "created", "updated"}
@@ -88,7 +100,7 @@ func (irp *InterfaceInlineRoutingProfile) FromProto(proto *corev1.InstanceInterf
 	}
 }
 
-// Interface table maintains association between an instance and a subnet
+// Interface table maintains an Instance network association and its resolved state.
 type Interface struct {
 	bun.BaseModel `bun:"table:interface,alias:ifc"`
 
@@ -97,6 +109,9 @@ type Interface struct {
 	Instance             *Instance                      `bun:"rel:belongs-to,join:instance_id=id"`
 	SubnetID             *uuid.UUID                     `bun:"subnet_id,type:uuid"`
 	Subnet               *Subnet                        `bun:"rel:belongs-to,join:subnet_id=id"`
+	VpcID                *uuid.UUID                     `bun:"vpc_id,type:uuid"`
+	Vpc                  *Vpc                           `bun:"rel:belongs-to,join:vpc_id=id"`
+	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode      `bun:"vpc_ip_family_mode"`
 	VpcPrefixID          *uuid.UUID                     `bun:"vpc_prefix_id,type:uuid"`
 	VpcPrefix            *VpcPrefix                     `bun:"rel:belongs-to,join:vpc_prefix_id=id"`
 	MachineInterfaceID   *uuid.UUID                     `bun:"machine_interface_id,type:uuid"`
@@ -120,6 +135,8 @@ type Interface struct {
 type InterfaceCreateInput struct {
 	InstanceID           uuid.UUID
 	SubnetID             *uuid.UUID
+	VpcID                *uuid.UUID
+	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode
 	VpcPrefixID          *uuid.UUID
 	IsPhysical           bool
 	Device               *string
@@ -136,6 +153,8 @@ type InterfaceUpdateInput struct {
 	InterfaceID          uuid.UUID
 	InstanceID           *uuid.UUID
 	SubnetID             *uuid.UUID
+	VpcID                *uuid.UUID
+	VpcIPFamilyMode      *InterfaceVpcIPFamilyMode
 	VpcPrefixID          *uuid.UUID
 	Device               *string
 	DeviceInstance       *int
@@ -162,6 +181,7 @@ type InterfaceFilterInput struct {
 // InterfaceClearInput input parameters for Clear method
 type InterfaceClearInput struct {
 	InterfaceID          uuid.UUID
+	VpcPrefixID          bool
 	RequestedIpAddress   bool
 	InlineRoutingProfile bool
 }
@@ -186,6 +206,7 @@ var _ bun.BeforeCreateTableHook = (*Interface)(nil)
 func (it *Interface) BeforeCreateTable(ctx context.Context, query *bun.CreateTableQuery) error {
 	query.ForeignKey(`("instance_id") REFERENCES "instance" ("id")`).
 		ForeignKey(`("subnet_id") REFERENCES "subnet" ("id")`).
+		ForeignKey(`("vpc_id") REFERENCES "vpc" ("id")`).
 		ForeignKey(`("machine_interface_id") REFERENCES "machine_interface" ("id")`)
 	return nil
 }
@@ -411,6 +432,22 @@ func (ifcd InterfaceSQLDAO) Update(ctx context.Context, tx *db.Tx, input Interfa
 			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "subnet_id", input.SubnetID.String())
 		}
 	}
+	if input.VpcID != nil {
+		is.VpcID = input.VpcID
+		updatedFields = append(updatedFields, "vpc_id")
+
+		if interfaceDAOSpan != nil {
+			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "vpc_id", input.VpcID.String())
+		}
+	}
+	if input.VpcIPFamilyMode != nil {
+		is.VpcIPFamilyMode = input.VpcIPFamilyMode
+		updatedFields = append(updatedFields, "vpc_ip_family_mode")
+
+		if interfaceDAOSpan != nil {
+			ifcd.tracerSpan.SetAttribute(interfaceDAOSpan, "vpc_ip_family_mode", string(*input.VpcIPFamilyMode))
+		}
+	}
 	if input.VpcPrefixID != nil {
 		is.VpcPrefixID = input.VpcPrefixID
 		updatedFields = append(updatedFields, "vpc_prefix_id")
@@ -582,6 +619,8 @@ func (ifcd InterfaceSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx, input
 			ID:                   uuid.New(),
 			InstanceID:           input.InstanceID,
 			SubnetID:             input.SubnetID,
+			VpcID:                input.VpcID,
+			VpcIPFamilyMode:      input.VpcIPFamilyMode,
 			VpcPrefixID:          input.VpcPrefixID,
 			Device:               input.Device,
 			DeviceInstance:       input.DeviceInstance,
@@ -650,6 +689,10 @@ func (ifcd InterfaceSQLDAO) Clear(ctx context.Context, tx *db.Tx, input Interfac
 
 	updatedFields := []string{}
 
+	if input.VpcPrefixID {
+		i.VpcPrefixID = nil
+		updatedFields = append(updatedFields, "vpc_prefix_id")
+	}
 	if input.RequestedIpAddress {
 		i.RequestedIpAddress = nil
 		updatedFields = append(updatedFields, "requested_ip_address")

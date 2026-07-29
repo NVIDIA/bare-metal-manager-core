@@ -117,23 +117,26 @@ func ValidateMultiEthernetDeviceInterfaces(itNetworkCaps []cdbm.MachineCapabilit
 // ValidateInterfaces validates the Interfaces for the Instance
 func ValidateInterfaces(ifcs *[]APIInterfaceCreateOrUpdateRequest) error {
 	// Validate Interfaces
-	vpcPrefixInterfaceCount := 0
+	vpcInterfaceCount := 0
 	subnetInterfaceCount := 0
+	hasVpcSelection := false
 
 	multiEthernetInterfaceCount := 0
 	singleEthernetInterfaceCount := 0
 
 	physicalInterfaceCount := 0
 
-	for _, ifcr := range *ifcs {
+	for index := range *ifcs {
+		ifcr := &(*ifcs)[index]
 		err := ifcr.Validate()
 
 		if err != nil {
 			return err
 		}
 
-		if ifcr.VpcPrefixID != nil {
-			vpcPrefixInterfaceCount++
+		if ifcr.VpcPrefixID != nil || ifcr.VpcID != nil {
+			vpcInterfaceCount++
+			hasVpcSelection = hasVpcSelection || ifcr.VpcID != nil
 		} else {
 			subnetInterfaceCount++
 		}
@@ -149,7 +152,12 @@ func ValidateInterfaces(ifcs *[]APIInterfaceCreateOrUpdateRequest) error {
 		}
 	}
 
-	if vpcPrefixInterfaceCount > 0 && subnetInterfaceCount > 0 {
+	if vpcInterfaceCount > 0 && subnetInterfaceCount > 0 {
+		if hasVpcSelection {
+			return validation.Errors{
+				validationCommonErrorField: errors.New("either all interfaces must be VPC based or all of them must be Subnet based"),
+			}
+		}
 		return validation.Errors{
 			validationCommonErrorField: errors.New("either all interfaces must be VPC Prefix based or all of them must be Subnet based"),
 		}
@@ -412,7 +420,7 @@ type APIInstanceCreateRequest struct {
 	VpcID string `json:"vpcId"`
 	// SecondaryVpcIDs lists additional VPC UUIDs for prefix-backed, non-primary
 	// network interfaces on the Instance. Validate() rejects this field unless
-	// every entry in Interfaces uses vpcPrefixId, and the create handler then
+	// every entry in Interfaces uses vpcPrefixId or vpcId, and the create handler then
 	// verifies that the supplied UUIDs exactly match the VPCs resolved from those
 	// prefix-backed interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
@@ -472,7 +480,7 @@ type APIBatchInstanceCreateRequest struct {
 	VpcID string `json:"vpcId"`
 	// SecondaryVpcIDs lists additional VPC UUIDs for prefix-backed, non-primary
 	// network interfaces on each Instance in the batch. Validate() rejects this
-	// field unless every entry in Interfaces uses vpcPrefixId, and batch create
+	// field unless every entry in Interfaces uses vpcPrefixId or vpcId, and batch create
 	// processing expects these UUIDs to align with the VPCs implied by those
 	// prefix-backed interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
@@ -554,9 +562,9 @@ func (icr APIInstanceCreateRequest) Validate() error {
 			}
 		}
 		for _, iface := range icr.Interfaces {
-			if iface.VpcPrefixID == nil {
+			if iface.VpcPrefixID == nil && iface.VpcID == nil {
 				return validation.Errors{
-					"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `vpcPrefixId` is specified within `interfaces`"),
+					"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `vpcPrefixId` or `vpcId` is specified within `interfaces`"),
 				}
 			}
 		}
@@ -911,9 +919,9 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 			}
 		}
 		for _, iface := range bicr.Interfaces {
-			if iface.VpcPrefixID == nil {
+			if iface.VpcPrefixID == nil && iface.VpcID == nil {
 				return validation.Errors{
-					"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `vpcPrefixId` is specified within `interfaces`"),
+					"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `vpcPrefixId` or `vpcId` is specified within `interfaces`"),
 				}
 			}
 		}
@@ -1191,7 +1199,7 @@ type APIInstanceUpdateRequest struct {
 	// SecondaryVpcIDs lists additional VPC IDs for prefix-backed, non-primary
 	// network interfaces on the Instance. This field will be rejected unless
 	// Interfaces is provided and non-empty and every entry in Interfaces uses
-	// vpcPrefixId. The update handler then verifies that the supplied UUIDs
+	// vpcPrefixId or vpcId. The update handler then verifies that the supplied UUIDs
 	// exactly match the VPCs resolved from those prefix-backed interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
 	// Interfaces is the list of Interfaces to update for the Instance.
@@ -1550,9 +1558,9 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 		}
 
 		for _, iface := range iur.Interfaces {
-			if iface.VpcPrefixID == nil {
+			if iface.VpcPrefixID == nil && iface.VpcID == nil {
 				return validation.Errors{
-					"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `vpcPrefixId` is specified within `interfaces`"),
+					"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `vpcPrefixId` or `vpcId` is specified within `interfaces`"),
 				}
 			}
 		}
@@ -1768,7 +1776,7 @@ type APIInstance struct {
 	Vpc *APIVpcSummary `json:"vpc,omitempty"`
 	// SecondaryVpcIDs lists non-primary VPC UUIDs derived from prefix-backed
 	// interfaces attached to the Instance. These values are populated from
-	// interface relations rather than stored directly on the Instance record.
+	// interface intent or relations rather than stored directly on the Instance record.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
 	// MachineID is the ID of the Machine
 	MachineID *string `json:"machineId"`
@@ -1858,8 +1866,8 @@ func InstanceListQueryParamDeprecations() []APIDeprecation {
 }
 
 // NewAPIInstance accepts a DB layer Instance object returns an API layer object.
-// SecondaryVpcIDs are derived from interface relations, so callers must preload
-// Interface.VpcPrefix on prefix-backed interfaces when they want those IDs populated.
+// SecondaryVpcIDs are derived from Interface.VpcID or the explicit prefix relation, so
+// callers must preload Interface.VpcPrefix when explicit-prefix IDs should be populated.
 func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Interface, dbibis []cdbm.InfiniBandInterface, dbdesds []cdbm.DpuExtensionServiceDeployment, dbnvlis []cdbm.NVLinkInterface, dbskgs []cdbm.SSHKeyGroup, dbsds []cdbm.StatusDetail) *APIInstance {
 	var instanceTypeID *string
 	if dbinst.InstanceTypeID != nil {
@@ -1949,7 +1957,9 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 	for _, dbis := range dbiss {
 		curis := dbis
 		apiInstance.Interfaces = append(apiInstance.Interfaces, *NewAPIInterface(&curis))
-		if dbis.VpcPrefix != nil && dbis.VpcPrefix.VpcID != dbinst.VpcID {
+		if dbis.VpcID != nil && *dbis.VpcID != dbinst.VpcID {
+			secondaryVpcIDs.Add(dbis.VpcID.String())
+		} else if dbis.VpcID == nil && dbis.VpcPrefix != nil && dbis.VpcPrefix.VpcID != dbinst.VpcID {
 			secondaryVpcIDs.Add(dbis.VpcPrefix.VpcID.String())
 		}
 	}
