@@ -20,11 +20,11 @@ import (
 	"time"
 )
 
-// checks if the MeasurementTrustedMachine type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &MeasurementTrustedMachine{}
+// checks if the MeasuredBootTrustedMachine type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &MeasuredBootTrustedMachine{}
 
-// MeasurementTrustedMachine A measured-boot trusted Machine approval.
-type MeasurementTrustedMachine struct {
+// MeasuredBootTrustedMachine A measured-boot trusted Machine approval.
+type MeasuredBootTrustedMachine struct {
 	// Unique approval ID.
 	ApprovalId string `json:"approvalId"`
 	// Machine UUID, or `*` when the approval applies to all Machines.
@@ -39,30 +39,30 @@ type MeasurementTrustedMachine struct {
 	Created *time.Time `json:"created,omitempty"`
 }
 
-type _MeasurementTrustedMachine MeasurementTrustedMachine
+type _MeasuredBootTrustedMachine MeasuredBootTrustedMachine
 
-// NewMeasurementTrustedMachine instantiates a new MeasurementTrustedMachine object
+// NewMeasuredBootTrustedMachine instantiates a new MeasuredBootTrustedMachine object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMeasurementTrustedMachine(approvalId string, machineId string, approvalType string) *MeasurementTrustedMachine {
-	this := MeasurementTrustedMachine{}
+func NewMeasuredBootTrustedMachine(approvalId string, machineId string, approvalType string) *MeasuredBootTrustedMachine {
+	this := MeasuredBootTrustedMachine{}
 	this.ApprovalId = approvalId
 	this.MachineId = machineId
 	this.ApprovalType = approvalType
 	return &this
 }
 
-// NewMeasurementTrustedMachineWithDefaults instantiates a new MeasurementTrustedMachine object
+// NewMeasuredBootTrustedMachineWithDefaults instantiates a new MeasuredBootTrustedMachine object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewMeasurementTrustedMachineWithDefaults() *MeasurementTrustedMachine {
-	this := MeasurementTrustedMachine{}
+func NewMeasuredBootTrustedMachineWithDefaults() *MeasuredBootTrustedMachine {
+	this := MeasuredBootTrustedMachine{}
 	return &this
 }
 
 // GetApprovalId returns the ApprovalId field value
-func (o *MeasurementTrustedMachine) GetApprovalId() string {
+func (o *MeasuredBootTrustedMachine) GetApprovalId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -73,7 +73,7 @@ func (o *MeasurementTrustedMachine) GetApprovalId() string {
 
 // GetApprovalIdOk returns a tuple with the ApprovalId field value
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachine) GetApprovalIdOk() (*string, bool) {
+func (o *MeasuredBootTrustedMachine) GetApprovalIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -81,12 +81,12 @@ func (o *MeasurementTrustedMachine) GetApprovalIdOk() (*string, bool) {
 }
 
 // SetApprovalId sets field value
-func (o *MeasurementTrustedMachine) SetApprovalId(v string) {
+func (o *MeasuredBootTrustedMachine) SetApprovalId(v string) {
 	o.ApprovalId = v
 }
 
 // GetMachineId returns the MachineId field value
-func (o *MeasurementTrustedMachine) GetMachineId() string {
+func (o *MeasuredBootTrustedMachine) GetMachineId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -97,7 +97,7 @@ func (o *MeasurementTrustedMachine) GetMachineId() string {
 
 // GetMachineIdOk returns a tuple with the MachineId field value
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachine) GetMachineIdOk() (*string, bool) {
+func (o *MeasuredBootTrustedMachine) GetMachineIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -105,12 +105,12 @@ func (o *MeasurementTrustedMachine) GetMachineIdOk() (*string, bool) {
 }
 
 // SetMachineId sets field value
-func (o *MeasurementTrustedMachine) SetMachineId(v string) {
+func (o *MeasuredBootTrustedMachine) SetMachineId(v string) {
 	o.MachineId = v
 }
 
 // GetApprovalType returns the ApprovalType field value
-func (o *MeasurementTrustedMachine) GetApprovalType() string {
+func (o *MeasuredBootTrustedMachine) GetApprovalType() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -121,7 +121,7 @@ func (o *MeasurementTrustedMachine) GetApprovalType() string {
 
 // GetApprovalTypeOk returns a tuple with the ApprovalType field value
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachine) GetApprovalTypeOk() (*string, bool) {
+func (o *MeasuredBootTrustedMachine) GetApprovalTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -129,12 +129,12 @@ func (o *MeasurementTrustedMachine) GetApprovalTypeOk() (*string, bool) {
 }
 
 // SetApprovalType sets field value
-func (o *MeasurementTrustedMachine) SetApprovalType(v string) {
+func (o *MeasuredBootTrustedMachine) SetApprovalType(v string) {
 	o.ApprovalType = v
 }
 
 // GetPcrRegisters returns the PcrRegisters field value if set, zero value otherwise.
-func (o *MeasurementTrustedMachine) GetPcrRegisters() string {
+func (o *MeasuredBootTrustedMachine) GetPcrRegisters() string {
 	if o == nil || IsNil(o.PcrRegisters) {
 		var ret string
 		return ret
@@ -144,7 +144,7 @@ func (o *MeasurementTrustedMachine) GetPcrRegisters() string {
 
 // GetPcrRegistersOk returns a tuple with the PcrRegisters field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachine) GetPcrRegistersOk() (*string, bool) {
+func (o *MeasuredBootTrustedMachine) GetPcrRegistersOk() (*string, bool) {
 	if o == nil || IsNil(o.PcrRegisters) {
 		return nil, false
 	}
@@ -152,7 +152,7 @@ func (o *MeasurementTrustedMachine) GetPcrRegistersOk() (*string, bool) {
 }
 
 // HasPcrRegisters returns a boolean if a field has been set.
-func (o *MeasurementTrustedMachine) HasPcrRegisters() bool {
+func (o *MeasuredBootTrustedMachine) HasPcrRegisters() bool {
 	if o != nil && !IsNil(o.PcrRegisters) {
 		return true
 	}
@@ -161,12 +161,12 @@ func (o *MeasurementTrustedMachine) HasPcrRegisters() bool {
 }
 
 // SetPcrRegisters gets a reference to the given string and assigns it to the PcrRegisters field.
-func (o *MeasurementTrustedMachine) SetPcrRegisters(v string) {
+func (o *MeasuredBootTrustedMachine) SetPcrRegisters(v string) {
 	o.PcrRegisters = &v
 }
 
 // GetComments returns the Comments field value if set, zero value otherwise.
-func (o *MeasurementTrustedMachine) GetComments() string {
+func (o *MeasuredBootTrustedMachine) GetComments() string {
 	if o == nil || IsNil(o.Comments) {
 		var ret string
 		return ret
@@ -176,7 +176,7 @@ func (o *MeasurementTrustedMachine) GetComments() string {
 
 // GetCommentsOk returns a tuple with the Comments field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachine) GetCommentsOk() (*string, bool) {
+func (o *MeasuredBootTrustedMachine) GetCommentsOk() (*string, bool) {
 	if o == nil || IsNil(o.Comments) {
 		return nil, false
 	}
@@ -184,7 +184,7 @@ func (o *MeasurementTrustedMachine) GetCommentsOk() (*string, bool) {
 }
 
 // HasComments returns a boolean if a field has been set.
-func (o *MeasurementTrustedMachine) HasComments() bool {
+func (o *MeasuredBootTrustedMachine) HasComments() bool {
 	if o != nil && !IsNil(o.Comments) {
 		return true
 	}
@@ -193,12 +193,12 @@ func (o *MeasurementTrustedMachine) HasComments() bool {
 }
 
 // SetComments gets a reference to the given string and assigns it to the Comments field.
-func (o *MeasurementTrustedMachine) SetComments(v string) {
+func (o *MeasuredBootTrustedMachine) SetComments(v string) {
 	o.Comments = &v
 }
 
 // GetCreated returns the Created field value if set, zero value otherwise.
-func (o *MeasurementTrustedMachine) GetCreated() time.Time {
+func (o *MeasuredBootTrustedMachine) GetCreated() time.Time {
 	if o == nil || IsNil(o.Created) {
 		var ret time.Time
 		return ret
@@ -208,7 +208,7 @@ func (o *MeasurementTrustedMachine) GetCreated() time.Time {
 
 // GetCreatedOk returns a tuple with the Created field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachine) GetCreatedOk() (*time.Time, bool) {
+func (o *MeasuredBootTrustedMachine) GetCreatedOk() (*time.Time, bool) {
 	if o == nil || IsNil(o.Created) {
 		return nil, false
 	}
@@ -216,7 +216,7 @@ func (o *MeasurementTrustedMachine) GetCreatedOk() (*time.Time, bool) {
 }
 
 // HasCreated returns a boolean if a field has been set.
-func (o *MeasurementTrustedMachine) HasCreated() bool {
+func (o *MeasuredBootTrustedMachine) HasCreated() bool {
 	if o != nil && !IsNil(o.Created) {
 		return true
 	}
@@ -225,11 +225,11 @@ func (o *MeasurementTrustedMachine) HasCreated() bool {
 }
 
 // SetCreated gets a reference to the given time.Time and assigns it to the Created field.
-func (o *MeasurementTrustedMachine) SetCreated(v time.Time) {
+func (o *MeasuredBootTrustedMachine) SetCreated(v time.Time) {
 	o.Created = &v
 }
 
-func (o MeasurementTrustedMachine) MarshalJSON() ([]byte, error) {
+func (o MeasuredBootTrustedMachine) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -237,7 +237,7 @@ func (o MeasurementTrustedMachine) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o MeasurementTrustedMachine) ToMap() (map[string]interface{}, error) {
+func (o MeasuredBootTrustedMachine) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["approvalId"] = o.ApprovalId
 	toSerialize["machineId"] = o.MachineId
@@ -254,7 +254,7 @@ func (o MeasurementTrustedMachine) ToMap() (map[string]interface{}, error) {
 	return toSerialize, nil
 }
 
-func (o *MeasurementTrustedMachine) UnmarshalJSON(data []byte) (err error) {
+func (o *MeasuredBootTrustedMachine) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
@@ -278,53 +278,53 @@ func (o *MeasurementTrustedMachine) UnmarshalJSON(data []byte) (err error) {
 		}
 	}
 
-	varMeasurementTrustedMachine := _MeasurementTrustedMachine{}
+	varMeasuredBootTrustedMachine := _MeasuredBootTrustedMachine{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varMeasurementTrustedMachine)
+	err = decoder.Decode(&varMeasuredBootTrustedMachine)
 
 	if err != nil {
 		return err
 	}
 
-	*o = MeasurementTrustedMachine(varMeasurementTrustedMachine)
+	*o = MeasuredBootTrustedMachine(varMeasuredBootTrustedMachine)
 
 	return err
 }
 
-type NullableMeasurementTrustedMachine struct {
-	value *MeasurementTrustedMachine
+type NullableMeasuredBootTrustedMachine struct {
+	value *MeasuredBootTrustedMachine
 	isSet bool
 }
 
-func (v NullableMeasurementTrustedMachine) Get() *MeasurementTrustedMachine {
+func (v NullableMeasuredBootTrustedMachine) Get() *MeasuredBootTrustedMachine {
 	return v.value
 }
 
-func (v *NullableMeasurementTrustedMachine) Set(val *MeasurementTrustedMachine) {
+func (v *NullableMeasuredBootTrustedMachine) Set(val *MeasuredBootTrustedMachine) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableMeasurementTrustedMachine) IsSet() bool {
+func (v NullableMeasuredBootTrustedMachine) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableMeasurementTrustedMachine) Unset() {
+func (v *NullableMeasuredBootTrustedMachine) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableMeasurementTrustedMachine(val *MeasurementTrustedMachine) *NullableMeasurementTrustedMachine {
-	return &NullableMeasurementTrustedMachine{value: val, isSet: true}
+func NewNullableMeasuredBootTrustedMachine(val *MeasuredBootTrustedMachine) *NullableMeasuredBootTrustedMachine {
+	return &NullableMeasuredBootTrustedMachine{value: val, isSet: true}
 }
 
-func (v NullableMeasurementTrustedMachine) MarshalJSON() ([]byte, error) {
+func (v NullableMeasuredBootTrustedMachine) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableMeasurementTrustedMachine) UnmarshalJSON(src []byte) error {
+func (v *NullableMeasuredBootTrustedMachine) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

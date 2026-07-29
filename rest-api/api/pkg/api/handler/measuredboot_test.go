@@ -30,19 +30,19 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-func TestCreateMeasurementTrustedMachineHandler(t *testing.T) {
+func TestCreateMeasuredBootTrustedMachineHandler(t *testing.T) {
 	record := &corev1.MeasurementApprovedMachineRecordPb{
 		ApprovalId:   &corev1.MeasurementApprovedMachineId{Value: "00000000-0000-0000-0000-000000000010"},
 		MachineId:    "*",
 		ApprovalType: corev1.MeasurementApprovedTypePb_Persist,
 	}
-	fixture := newMeasurementTrustHandlerFixture(t, &corev1.AddMeasurementTrustedMachineResponse{ApprovalRecord: record}, nil)
-	handler := NewCreateMeasurementTrustedMachineHandler(fixture.dbSession, fixture.scp)
+	fixture := newMeasuredBootHandlerFixture(t, &corev1.AddMeasurementTrustedMachineResponse{ApprovalRecord: record}, nil)
+	handler := NewCreateMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
 
-	rec := fixture.request(t, handler.Handle, http.MethodPost, "/", "", model.APIMeasurementTrustedMachineCreateRequest{
+	rec := fixture.request(t, handler.Handle, http.MethodPost, "/", "", model.APIMeasuredBootTrustedMachineCreateRequest{
 		SiteID:       fixture.siteID,
 		MachineID:    "*",
-		ApprovalType: model.MeasurementTrustApprovalTypePersist,
+		ApprovalType: model.MeasuredBootApprovalTypePersist,
 	})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, corev1.Forge_AddMeasurementTrustedMachine_FullMethodName, fixture.proxiedReq.FullMethod)
@@ -52,38 +52,38 @@ func TestCreateMeasurementTrustedMachineHandler(t *testing.T) {
 	assert.Equal(t, "*", coreReq.GetMachineId())
 	assert.Equal(t, corev1.MeasurementApprovedTypePb_Persist, coreReq.GetApprovalType())
 
-	var resp model.APIMeasurementTrustedMachine
+	var resp model.APIMeasuredBootTrustedMachine
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, record.GetApprovalId().GetValue(), resp.ApprovalID)
 }
 
-func TestListMeasurementTrustedMachinesHandler(t *testing.T) {
+func TestGetAllMeasuredBootTrustedMachineHandler(t *testing.T) {
 	record := &corev1.MeasurementApprovedMachineRecordPb{
 		ApprovalId: &corev1.MeasurementApprovedMachineId{Value: "00000000-0000-0000-0000-000000000010"},
 		MachineId:  "00000000-0000-0000-0000-000000000011",
 	}
-	fixture := newMeasurementTrustHandlerFixture(t, &corev1.ListMeasurementTrustedMachinesResponse{ApprovalRecords: []*corev1.MeasurementApprovedMachineRecordPb{record}}, nil)
-	handler := NewListMeasurementTrustedMachinesHandler(fixture.dbSession, fixture.scp)
+	fixture := newMeasuredBootHandlerFixture(t, &corev1.ListMeasurementTrustedMachinesResponse{ApprovalRecords: []*corev1.MeasurementApprovedMachineRecordPb{record}}, nil)
+	handler := NewGetAllMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
 
 	rec := fixture.request(t, handler.Handle, http.MethodGet, "/?siteId="+fixture.siteID, "", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, corev1.Forge_ListMeasurementTrustedMachines_FullMethodName, fixture.proxiedReq.FullMethod)
 
-	var resp []*model.APIMeasurementTrustedMachine
+	var resp []*model.APIMeasuredBootTrustedMachine
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Len(t, resp, 1)
 	assert.Equal(t, record.GetMachineId(), resp[0].MachineID)
 }
 
-func TestDeleteMeasurementTrustedMachineHandler(t *testing.T) {
+func TestDeleteMeasuredBootTrustedMachineHandler(t *testing.T) {
 	record := &corev1.MeasurementApprovedMachineRecordPb{
 		ApprovalId: &corev1.MeasurementApprovedMachineId{Value: "00000000-0000-0000-0000-000000000010"},
 		MachineId:  "00000000-0000-0000-0000-000000000011",
 	}
-	fixture := newMeasurementTrustHandlerFixture(t, &corev1.RemoveMeasurementTrustedMachineResponse{ApprovalRecord: record}, nil)
-	handler := NewDeleteMeasurementTrustedMachineHandler(fixture.dbSession, fixture.scp)
+	fixture := newMeasuredBootHandlerFixture(t, &corev1.RemoveMeasurementTrustedMachineResponse{ApprovalRecord: record}, nil)
+	handler := NewDeleteMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
 
-	target := "/?siteId=" + fixture.siteID + "&selector=" + model.MeasurementTrustedMachineSelectorMachineID
+	target := "/?siteId=" + fixture.siteID + "&selector=" + model.MeasuredBootTrustedMachineSelectorMachineID
 	rec := fixture.request(t, handler.Handle, http.MethodDelete, target, record.GetMachineId(), nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, corev1.Forge_RemoveMeasurementTrustedMachine_FullMethodName, fixture.proxiedReq.FullMethod)
@@ -93,82 +93,129 @@ func TestDeleteMeasurementTrustedMachineHandler(t *testing.T) {
 	assert.Equal(t, record.GetMachineId(), coreReq.GetMachineId())
 }
 
-func TestCreateMeasurementTrustedProfileHandler(t *testing.T) {
+func TestCreateMeasuredBootTrustedProfileHandler(t *testing.T) {
 	record := &corev1.MeasurementApprovedProfileRecordPb{
 		ApprovalId: &corev1.MeasurementApprovedProfileId{Value: "00000000-0000-0000-0000-000000000010"},
 		ProfileId:  &corev1.MeasurementSystemProfileId{Value: "00000000-0000-0000-0000-000000000012"},
 	}
-	fixture := newMeasurementTrustHandlerFixture(t, &corev1.AddMeasurementTrustedProfileResponse{ApprovalRecord: record}, nil)
-	handler := NewCreateMeasurementTrustedProfileHandler(fixture.dbSession, fixture.scp)
+	fixture := newMeasuredBootHandlerFixture(t, &corev1.AddMeasurementTrustedProfileResponse{ApprovalRecord: record}, nil)
+	handler := NewCreateMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
 
-	rec := fixture.request(t, handler.Handle, http.MethodPost, "/", "", model.APIMeasurementTrustedProfileCreateRequest{
+	rec := fixture.request(t, handler.Handle, http.MethodPost, "/", "", model.APIMeasuredBootTrustedProfileCreateRequest{
 		SiteID:       fixture.siteID,
 		ProfileID:    record.GetProfileId().GetValue(),
-		ApprovalType: model.MeasurementTrustApprovalTypeOneshot,
+		ApprovalType: model.MeasuredBootApprovalTypeOneshot,
 	})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	assert.Equal(t, corev1.Forge_AddMeasurementTrustedProfile_FullMethodName, fixture.proxiedReq.FullMethod)
 }
 
-func TestListMeasurementTrustedProfilesHandler(t *testing.T) {
+func TestGetAllMeasuredBootTrustedProfileHandler(t *testing.T) {
 	record := &corev1.MeasurementApprovedProfileRecordPb{
 		ApprovalId: &corev1.MeasurementApprovedProfileId{Value: "00000000-0000-0000-0000-000000000010"},
 		ProfileId:  &corev1.MeasurementSystemProfileId{Value: "00000000-0000-0000-0000-000000000012"},
 	}
-	fixture := newMeasurementTrustHandlerFixture(t, &corev1.ListMeasurementTrustedProfilesResponse{ApprovalRecords: []*corev1.MeasurementApprovedProfileRecordPb{record}}, nil)
-	handler := NewListMeasurementTrustedProfilesHandler(fixture.dbSession, fixture.scp)
+	fixture := newMeasuredBootHandlerFixture(t, &corev1.ListMeasurementTrustedProfilesResponse{ApprovalRecords: []*corev1.MeasurementApprovedProfileRecordPb{record}}, nil)
+	handler := NewGetAllMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
 
 	rec := fixture.request(t, handler.Handle, http.MethodGet, "/?siteId="+fixture.siteID, "", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, corev1.Forge_ListMeasurementTrustedProfiles_FullMethodName, fixture.proxiedReq.FullMethod)
 }
 
-func TestDeleteMeasurementTrustedProfileHandler(t *testing.T) {
+func TestDeleteMeasuredBootTrustedProfileHandler(t *testing.T) {
 	record := &corev1.MeasurementApprovedProfileRecordPb{
 		ApprovalId: &corev1.MeasurementApprovedProfileId{Value: "00000000-0000-0000-0000-000000000010"},
 		ProfileId:  &corev1.MeasurementSystemProfileId{Value: "00000000-0000-0000-0000-000000000012"},
 	}
-	fixture := newMeasurementTrustHandlerFixture(t, &corev1.RemoveMeasurementTrustedProfileResponse{ApprovalRecord: record}, nil)
-	handler := NewDeleteMeasurementTrustedProfileHandler(fixture.dbSession, fixture.scp)
+	fixture := newMeasuredBootHandlerFixture(t, &corev1.RemoveMeasurementTrustedProfileResponse{ApprovalRecord: record}, nil)
+	handler := NewDeleteMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
 
-	target := "/?siteId=" + fixture.siteID + "&selector=" + model.MeasurementTrustedProfileSelectorApprovalID
+	target := "/?siteId=" + fixture.siteID + "&selector=" + model.MeasuredBootTrustedProfileSelectorApprovalID
 	rec := fixture.request(t, handler.Handle, http.MethodDelete, target, record.GetApprovalId().GetValue(), nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, corev1.Forge_RemoveMeasurementTrustedProfile_FullMethodName, fixture.proxiedReq.FullMethod)
 }
 
-func TestMeasurementTrustHandlersRejectInvalidInput(t *testing.T) {
-	fixture := newMeasurementTrustHandlerFixture(t, nil, nil)
-	createHandler := NewCreateMeasurementTrustedMachineHandler(fixture.dbSession, fixture.scp)
-	deleteHandler := NewDeleteMeasurementTrustedProfileHandler(fixture.dbSession, fixture.scp)
+func TestMeasuredBootHandlersRejectInvalidInput(t *testing.T) {
+	fixture := newMeasuredBootHandlerFixture(t, nil, nil)
+	createMachineHandler := NewCreateMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
+	createProfileHandler := NewCreateMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
+	deleteHandler := NewDeleteMeasuredBootTrustedProfileHandler(fixture.dbSession, fixture.scp)
 
-	rec := fixture.request(t, createHandler.Handle, http.MethodPost, "/", "", model.APIMeasurementTrustedMachineCreateRequest{
-		SiteID:       fixture.siteID,
-		MachineID:    "invalid",
-		ApprovalType: model.MeasurementTrustApprovalTypeOneshot,
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	tests := []struct {
+		name    string
+		handler func(echo.Context) error
+		body    any
+		message string
+	}{
+		{
+			name:    "malformed machine request",
+			handler: createMachineHandler.Handle,
+			body:    "invalid",
+			message: "Failed to parse request data, potentially invalid structure",
+		},
+		{
+			name:    "malformed profile request",
+			handler: createProfileHandler.Handle,
+			body:    "invalid",
+			message: "Failed to parse request data, potentially invalid structure",
+		},
+		{
+			name:    "invalid machine request",
+			handler: createMachineHandler.Handle,
+			body: model.APIMeasuredBootTrustedMachineCreateRequest{
+				SiteID:       fixture.siteID,
+				MachineID:    "invalid",
+				ApprovalType: model.MeasuredBootApprovalTypeOneshot,
+			},
+			message: "Error validating Measured Boot Trusted Machine creation request data",
+		},
+		{
+			name:    "invalid profile request",
+			handler: createProfileHandler.Handle,
+			body: model.APIMeasuredBootTrustedProfileCreateRequest{
+				SiteID:       fixture.siteID,
+				ProfileID:    "invalid",
+				ApprovalType: model.MeasuredBootApprovalTypeOneshot,
+			},
+			message: "Error validating Measured Boot Trusted Profile creation request data",
+		},
+	}
 
-	rec = fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector=invalid", "invalid", nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := fixture.request(t, tt.handler, http.MethodPost, "/", "", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var apiErr struct {
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiErr))
+			assert.Equal(t, tt.message, apiErr.Message)
+		})
+	}
+
+	rec := fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector=invalid", "invalid", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestMeasurementTrustHandlerRequiresProviderAdmin(t *testing.T) {
-	fixture := newMeasurementTrustHandlerFixture(t, nil, []string{authz.TenantAdminRole})
-	listHandler := NewListMeasurementTrustedMachinesHandler(fixture.dbSession, fixture.scp)
+func TestMeasuredBootHandlerRequiresProviderAdmin(t *testing.T) {
+	fixture := newMeasuredBootHandlerFixture(t, nil, []string{authz.TenantAdminRole})
+	listHandler := NewGetAllMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
 
 	rec := fixture.request(t, listHandler.Handle, http.MethodGet, "/?siteId="+fixture.siteID, "", nil)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 
-	deleteHandler := NewDeleteMeasurementTrustedMachineHandler(fixture.dbSession, fixture.scp)
+	deleteHandler := NewDeleteMeasuredBootTrustedMachineHandler(fixture.dbSession, fixture.scp)
 	rec = fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector=invalid", "invalid", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
-	rec = fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector="+model.MeasurementTrustedMachineSelectorMachineID, "00000000-0000-0000-0000-000000000011", nil)
+	rec = fixture.request(t, deleteHandler.Handle, http.MethodDelete, "/?siteId="+fixture.siteID+"&selector="+model.MeasuredBootTrustedMachineSelectorMachineID, "00000000-0000-0000-0000-000000000011", nil)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
 
-type measurementTrustHandlerFixture struct {
+type measuredBootHandlerFixture struct {
 	dbSession  *cdb.Session
 	scp        *sc.ClientPool
 	org        string
@@ -177,7 +224,7 @@ type measurementTrustHandlerFixture struct {
 	proxiedReq *coreproxy.Request
 }
 
-func newMeasurementTrustHandlerFixture(t *testing.T, response proto.Message, roles []string) measurementTrustHandlerFixture {
+func newMeasuredBootHandlerFixture(t *testing.T, response proto.Message, roles []string) measuredBootHandlerFixture {
 	t.Helper()
 
 	dbSession := common.TestInitDB(t)
@@ -215,12 +262,12 @@ func newMeasurementTrustHandlerFixture(t *testing.T, response proto.Message, rol
 	scp := sc.NewClientPool(nil)
 	scp.IDClientMap[site.ID.String()] = tsc
 
-	return measurementTrustHandlerFixture{
+	return measuredBootHandlerFixture{
 		dbSession: dbSession, scp: scp, org: org, siteID: site.ID.String(), user: user, proxiedReq: proxiedReq,
 	}
 }
 
-func (f measurementTrustHandlerFixture) request(t *testing.T, handler func(echo.Context) error, method, target, id string, body any) *httptest.ResponseRecorder {
+func (f measuredBootHandlerFixture) request(t *testing.T, handler func(echo.Context) error, method, target, id string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var requestBody string

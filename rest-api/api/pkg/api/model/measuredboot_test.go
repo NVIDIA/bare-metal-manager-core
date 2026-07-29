@@ -14,11 +14,11 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-func TestMeasurementTrustedMachineCreateRequest(t *testing.T) {
-	req := APIMeasurementTrustedMachineCreateRequest{
+func TestMeasuredBootTrustedMachineCreateRequest(t *testing.T) {
+	req := APIMeasuredBootTrustedMachineCreateRequest{
 		SiteID:       "00000000-0000-0000-0000-000000000001",
 		MachineID:    "*",
-		ApprovalType: MeasurementTrustApprovalTypePersist,
+		ApprovalType: MeasuredBootApprovalTypePersist,
 		PCRRegisters: "0,3,5,6",
 		Comments:     "trusted fleet",
 	}
@@ -31,20 +31,20 @@ func TestMeasurementTrustedMachineCreateRequest(t *testing.T) {
 	assert.Equal(t, "trusted fleet", protoReq.GetComments())
 }
 
-func TestMeasurementTrustedMachineCreateRequestRejectsInvalidMachine(t *testing.T) {
-	req := APIMeasurementTrustedMachineCreateRequest{
+func TestMeasuredBootTrustedMachineCreateRequestRejectsInvalidMachine(t *testing.T) {
+	req := APIMeasuredBootTrustedMachineCreateRequest{
 		SiteID:       "00000000-0000-0000-0000-000000000001",
 		MachineID:    "not-a-machine-id",
-		ApprovalType: MeasurementTrustApprovalTypeOneshot,
+		ApprovalType: MeasuredBootApprovalTypeOneshot,
 	}
 	assert.ErrorContains(t, req.Validate(), "machineId")
 }
 
-func TestMeasurementTrustedProfileCreateRequest(t *testing.T) {
-	req := APIMeasurementTrustedProfileCreateRequest{
+func TestMeasuredBootTrustedProfileCreateRequest(t *testing.T) {
+	req := APIMeasuredBootTrustedProfileCreateRequest{
 		SiteID:       "00000000-0000-0000-0000-000000000001",
 		ProfileID:    "00000000-0000-0000-0000-000000000002",
-		ApprovalType: MeasurementTrustApprovalTypeOneshot,
+		ApprovalType: MeasuredBootApprovalTypeOneshot,
 	}
 	require.NoError(t, req.Validate())
 
@@ -55,8 +55,8 @@ func TestMeasurementTrustedProfileCreateRequest(t *testing.T) {
 	assert.Nil(t, protoReq.Comments)
 }
 
-func TestMeasurementTrustCreateRequestRejectsInvalidApprovalType(t *testing.T) {
-	req := APIMeasurementTrustedMachineCreateRequest{
+func TestMeasuredBootCreateRequestRejectsInvalidApprovalType(t *testing.T) {
+	req := APIMeasuredBootTrustedMachineCreateRequest{
 		SiteID:       "00000000-0000-0000-0000-000000000001",
 		MachineID:    "00000000-0000-0000-0000-000000000002",
 		ApprovalType: "Forever",
@@ -64,44 +64,44 @@ func TestMeasurementTrustCreateRequestRejectsInvalidApprovalType(t *testing.T) {
 	assert.ErrorContains(t, req.Validate(), "approvalType")
 }
 
-func TestMeasurementTrustDeleteRequestSelectors(t *testing.T) {
+func TestMeasuredBootDeleteRequestSelectors(t *testing.T) {
 	id := "00000000-0000-0000-0000-000000000001"
 
-	machineRequest := APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorApprovalID, ID: id}
+	machineRequest := APIMeasuredBootTrustedMachineDeleteRequest{Selector: MeasuredBootTrustedMachineSelectorApprovalID, ID: id}
 	require.NoError(t, machineRequest.Validate())
 	machineByApproval := machineRequest.ToProto()
 	assert.Equal(t, id, machineByApproval.GetApprovalId().GetValue())
 
-	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorMachineID, ID: id}
+	machineRequest = APIMeasuredBootTrustedMachineDeleteRequest{Selector: MeasuredBootTrustedMachineSelectorMachineID, ID: id}
 	require.NoError(t, machineRequest.Validate())
 	machineByMachine := machineRequest.ToProto()
 	assert.Equal(t, id, machineByMachine.GetMachineId())
 
-	profileRequest := APIMeasurementTrustedProfileDeleteRequest{Selector: MeasurementTrustedProfileSelectorApprovalID, ID: id}
+	profileRequest := APIMeasuredBootTrustedProfileDeleteRequest{Selector: MeasuredBootTrustedProfileSelectorApprovalID, ID: id}
 	require.NoError(t, profileRequest.Validate())
 	profileByApproval := profileRequest.ToProto()
 	assert.Equal(t, id, profileByApproval.GetApprovalId().GetValue())
 
-	profileRequest = APIMeasurementTrustedProfileDeleteRequest{Selector: MeasurementTrustedProfileSelectorProfileID, ID: id}
+	profileRequest = APIMeasuredBootTrustedProfileDeleteRequest{Selector: MeasuredBootTrustedProfileSelectorProfileID, ID: id}
 	require.NoError(t, profileRequest.Validate())
 	profileByProfile := profileRequest.ToProto()
 	assert.Equal(t, id, profileByProfile.GetProfileId().GetValue())
 
-	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorMachineID, ID: "*"}
+	machineRequest = APIMeasuredBootTrustedMachineDeleteRequest{Selector: MeasuredBootTrustedMachineSelectorMachineID, ID: "*"}
 	require.NoError(t, machineRequest.Validate())
 	assert.Equal(t, "*", machineRequest.ToProto().GetMachineId())
 
-	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: MeasurementTrustedMachineSelectorApprovalID, ID: "*"}
+	machineRequest = APIMeasuredBootTrustedMachineDeleteRequest{Selector: MeasuredBootTrustedMachineSelectorApprovalID, ID: "*"}
 	assert.Error(t, machineRequest.Validate())
 
-	profileRequest = APIMeasurementTrustedProfileDeleteRequest{Selector: MeasurementTrustedProfileSelectorProfileID, ID: "*"}
+	profileRequest = APIMeasuredBootTrustedProfileDeleteRequest{Selector: MeasuredBootTrustedProfileSelectorProfileID, ID: "*"}
 	assert.Error(t, profileRequest.Validate())
 
-	machineRequest = APIMeasurementTrustedMachineDeleteRequest{Selector: "invalid", ID: id}
+	machineRequest = APIMeasuredBootTrustedMachineDeleteRequest{Selector: "invalid", ID: id}
 	assert.ErrorContains(t, machineRequest.Validate(), "invalid selector")
 }
 
-func TestMeasurementTrustResponsesFromProto(t *testing.T) {
+func TestMeasuredBootResponsesFromProto(t *testing.T) {
 	created := time.Date(2026, 7, 13, 20, 0, 0, 0, time.UTC)
 	machineRecord := &corev1.MeasurementApprovedMachineRecordPb{
 		ApprovalId:   &corev1.MeasurementApprovedMachineId{Value: "00000000-0000-0000-0000-000000000001"},
@@ -111,9 +111,9 @@ func TestMeasurementTrustResponsesFromProto(t *testing.T) {
 		Comments:     "trusted machine",
 		Ts:           timestamppb.New(created),
 	}
-	machine := NewAPIMeasurementTrustedMachine(machineRecord)
+	machine := NewAPIMeasuredBootTrustedMachine(machineRecord)
 	require.NotNil(t, machine)
-	assert.Equal(t, MeasurementTrustApprovalTypePersist, machine.ApprovalType)
+	assert.Equal(t, MeasuredBootApprovalTypePersist, machine.ApprovalType)
 	assert.Equal(t, created, *machine.Created)
 
 	profileRecord := &corev1.MeasurementApprovedProfileRecordPb{
@@ -122,18 +122,18 @@ func TestMeasurementTrustResponsesFromProto(t *testing.T) {
 		ApprovalType: corev1.MeasurementApprovedTypePb_Oneshot,
 		Ts:           timestamppb.New(created),
 	}
-	profile := NewAPIMeasurementTrustedProfile(profileRecord)
+	profile := NewAPIMeasuredBootTrustedProfile(profileRecord)
 	require.NotNil(t, profile)
-	assert.Equal(t, MeasurementTrustApprovalTypeOneshot, profile.ApprovalType)
+	assert.Equal(t, MeasuredBootApprovalTypeOneshot, profile.ApprovalType)
 	assert.Equal(t, created, *profile.Created)
 
-	var machines APIMeasurementTrustedMachines
+	var machines APIMeasuredBootTrustedMachines
 	machines.FromProto([]*corev1.MeasurementApprovedMachineRecordPb{machineRecord, nil})
 	require.Len(t, machines, 2)
 	assert.Equal(t, machine, machines[0])
 	assert.Nil(t, machines[1])
 
-	var profiles APIMeasurementTrustedProfiles
+	var profiles APIMeasuredBootTrustedProfiles
 	profiles.FromProto([]*corev1.MeasurementApprovedProfileRecordPb{profileRecord, nil})
 	require.Len(t, profiles, 2)
 	assert.Equal(t, profile, profiles[0])

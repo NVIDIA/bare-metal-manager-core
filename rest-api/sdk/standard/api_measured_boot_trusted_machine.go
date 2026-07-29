@@ -25,24 +25,24 @@ import (
 // MeasuredBootTrustedMachineAPIService MeasuredBootTrustedMachineAPI service
 type MeasuredBootTrustedMachineAPIService service
 
-type ApiCreateMeasurementTrustedMachineRequest struct {
-	ctx                                    context.Context
-	ApiService                             *MeasuredBootTrustedMachineAPIService
-	org                                    string
-	measurementTrustedMachineCreateRequest *MeasurementTrustedMachineCreateRequest
+type ApiCreateMeasuredBootTrustedMachineRequest struct {
+	ctx                                     context.Context
+	ApiService                              *MeasuredBootTrustedMachineAPIService
+	org                                     string
+	measuredBootTrustedMachineCreateRequest *MeasuredBootTrustedMachineCreateRequest
 }
 
-func (r ApiCreateMeasurementTrustedMachineRequest) MeasurementTrustedMachineCreateRequest(measurementTrustedMachineCreateRequest MeasurementTrustedMachineCreateRequest) ApiCreateMeasurementTrustedMachineRequest {
-	r.measurementTrustedMachineCreateRequest = &measurementTrustedMachineCreateRequest
+func (r ApiCreateMeasuredBootTrustedMachineRequest) MeasuredBootTrustedMachineCreateRequest(measuredBootTrustedMachineCreateRequest MeasuredBootTrustedMachineCreateRequest) ApiCreateMeasuredBootTrustedMachineRequest {
+	r.measuredBootTrustedMachineCreateRequest = &measuredBootTrustedMachineCreateRequest
 	return r
 }
 
-func (r ApiCreateMeasurementTrustedMachineRequest) Execute() (*MeasurementTrustedMachine, *http.Response, error) {
-	return r.ApiService.CreateMeasurementTrustedMachineExecute(r)
+func (r ApiCreateMeasuredBootTrustedMachineRequest) Execute() (*MeasuredBootTrustedMachine, *http.Response, error) {
+	return r.ApiService.CreateMeasuredBootTrustedMachineExecute(r)
 }
 
 /*
-CreateMeasurementTrustedMachine Create Measured Boot Trusted Machine Approval
+CreateMeasuredBootTrustedMachine Create Measured Boot Trusted Machine Approval
 
 Approve a Machine, or all Machines using `*`, for automatic promotion of its next measured-boot report.
 
@@ -50,10 +50,10 @@ Org must have an Infrastructure Provider entity that owns the Site. User must ha
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiCreateMeasurementTrustedMachineRequest
+	@return ApiCreateMeasuredBootTrustedMachineRequest
 */
-func (a *MeasuredBootTrustedMachineAPIService) CreateMeasurementTrustedMachine(ctx context.Context, org string) ApiCreateMeasurementTrustedMachineRequest {
-	return ApiCreateMeasurementTrustedMachineRequest{
+func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachine(ctx context.Context, org string) ApiCreateMeasuredBootTrustedMachineRequest {
+	return ApiCreateMeasuredBootTrustedMachineRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -62,16 +62,16 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasurementTrustedMachine(c
 
 // Execute executes the request
 //
-//	@return MeasurementTrustedMachine
-func (a *MeasuredBootTrustedMachineAPIService) CreateMeasurementTrustedMachineExecute(r ApiCreateMeasurementTrustedMachineRequest) (*MeasurementTrustedMachine, *http.Response, error) {
+//	@return MeasuredBootTrustedMachine
+func (a *MeasuredBootTrustedMachineAPIService) CreateMeasuredBootTrustedMachineExecute(r ApiCreateMeasuredBootTrustedMachineRequest) (*MeasuredBootTrustedMachine, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *MeasurementTrustedMachine
+		localVarReturnValue *MeasuredBootTrustedMachine
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.CreateMeasurementTrustedMachine")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.CreateMeasuredBootTrustedMachine")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -82,8 +82,8 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasurementTrustedMachineEx
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.measurementTrustedMachineCreateRequest == nil {
-		return localVarReturnValue, nil, reportError("measurementTrustedMachineCreateRequest is required and must be specified")
+	if r.measuredBootTrustedMachineCreateRequest == nil {
+		return localVarReturnValue, nil, reportError("measuredBootTrustedMachineCreateRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -104,7 +104,7 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasurementTrustedMachineEx
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.measurementTrustedMachineCreateRequest
+	localVarPostBody = r.measuredBootTrustedMachineCreateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -185,7 +185,7 @@ func (a *MeasuredBootTrustedMachineAPIService) CreateMeasurementTrustedMachineEx
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiDeleteMeasurementTrustedMachineRequest struct {
+type ApiDeleteMeasuredBootTrustedMachineRequest struct {
 	ctx        context.Context
 	ApiService *MeasuredBootTrustedMachineAPIService
 	siteId     *string
@@ -195,23 +195,23 @@ type ApiDeleteMeasurementTrustedMachineRequest struct {
 }
 
 // ID of the Site
-func (r ApiDeleteMeasurementTrustedMachineRequest) SiteId(siteId string) ApiDeleteMeasurementTrustedMachineRequest {
+func (r ApiDeleteMeasuredBootTrustedMachineRequest) SiteId(siteId string) ApiDeleteMeasuredBootTrustedMachineRequest {
 	r.siteId = &siteId
 	return r
 }
 
 // Whether id identifies the approval or the Machine
-func (r ApiDeleteMeasurementTrustedMachineRequest) Selector(selector string) ApiDeleteMeasurementTrustedMachineRequest {
+func (r ApiDeleteMeasuredBootTrustedMachineRequest) Selector(selector string) ApiDeleteMeasuredBootTrustedMachineRequest {
 	r.selector = &selector
 	return r
 }
 
-func (r ApiDeleteMeasurementTrustedMachineRequest) Execute() (*MeasurementTrustedMachine, *http.Response, error) {
-	return r.ApiService.DeleteMeasurementTrustedMachineExecute(r)
+func (r ApiDeleteMeasuredBootTrustedMachineRequest) Execute() (*MeasuredBootTrustedMachine, *http.Response, error) {
+	return r.ApiService.DeleteMeasuredBootTrustedMachineExecute(r)
 }
 
 /*
-DeleteMeasurementTrustedMachine Delete Measured Boot Trusted Machine Approval
+DeleteMeasuredBootTrustedMachine Delete Measured Boot Trusted Machine Approval
 
 Delete a measured-boot trusted Machine approval by approval ID or Machine ID.
 
@@ -220,10 +220,10 @@ Org must have an Infrastructure Provider entity that owns the Site. User must ha
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
 	@param id Approval ID or Machine ID, as selected by the selector query parameter
-	@return ApiDeleteMeasurementTrustedMachineRequest
+	@return ApiDeleteMeasuredBootTrustedMachineRequest
 */
-func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasurementTrustedMachine(ctx context.Context, org string, id string) ApiDeleteMeasurementTrustedMachineRequest {
-	return ApiDeleteMeasurementTrustedMachineRequest{
+func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachine(ctx context.Context, org string, id string) ApiDeleteMeasuredBootTrustedMachineRequest {
+	return ApiDeleteMeasuredBootTrustedMachineRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -233,16 +233,16 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasurementTrustedMachine(c
 
 // Execute executes the request
 //
-//	@return MeasurementTrustedMachine
-func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasurementTrustedMachineExecute(r ApiDeleteMeasurementTrustedMachineRequest) (*MeasurementTrustedMachine, *http.Response, error) {
+//	@return MeasuredBootTrustedMachine
+func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasuredBootTrustedMachineExecute(r ApiDeleteMeasuredBootTrustedMachineRequest) (*MeasuredBootTrustedMachine, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *MeasurementTrustedMachine
+		localVarReturnValue *MeasuredBootTrustedMachine
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.DeleteMeasurementTrustedMachine")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.DeleteMeasuredBootTrustedMachine")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -360,7 +360,7 @@ func (a *MeasuredBootTrustedMachineAPIService) DeleteMeasurementTrustedMachineEx
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiGetAllMeasurementTrustedMachineRequest struct {
+type ApiGetAllMeasuredBootTrustedMachineRequest struct {
 	ctx        context.Context
 	ApiService *MeasuredBootTrustedMachineAPIService
 	siteId     *string
@@ -368,17 +368,17 @@ type ApiGetAllMeasurementTrustedMachineRequest struct {
 }
 
 // ID of the Site
-func (r ApiGetAllMeasurementTrustedMachineRequest) SiteId(siteId string) ApiGetAllMeasurementTrustedMachineRequest {
+func (r ApiGetAllMeasuredBootTrustedMachineRequest) SiteId(siteId string) ApiGetAllMeasuredBootTrustedMachineRequest {
 	r.siteId = &siteId
 	return r
 }
 
-func (r ApiGetAllMeasurementTrustedMachineRequest) Execute() ([]MeasurementTrustedMachine, *http.Response, error) {
-	return r.ApiService.GetAllMeasurementTrustedMachineExecute(r)
+func (r ApiGetAllMeasuredBootTrustedMachineRequest) Execute() ([]MeasuredBootTrustedMachine, *http.Response, error) {
+	return r.ApiService.GetAllMeasuredBootTrustedMachineExecute(r)
 }
 
 /*
-GetAllMeasurementTrustedMachine Retrieve All Measured Boot Trusted Machine Approvals
+GetAllMeasuredBootTrustedMachine Retrieve All Measured Boot Trusted Machine Approvals
 
 Retrieve all measured-boot trusted Machine approvals for a Site.
 
@@ -386,10 +386,10 @@ Org must have an Infrastructure Provider entity that owns the Site. User must ha
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiGetAllMeasurementTrustedMachineRequest
+	@return ApiGetAllMeasuredBootTrustedMachineRequest
 */
-func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasurementTrustedMachine(ctx context.Context, org string) ApiGetAllMeasurementTrustedMachineRequest {
-	return ApiGetAllMeasurementTrustedMachineRequest{
+func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachine(ctx context.Context, org string) ApiGetAllMeasuredBootTrustedMachineRequest {
+	return ApiGetAllMeasuredBootTrustedMachineRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -398,16 +398,16 @@ func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasurementTrustedMachine(c
 
 // Execute executes the request
 //
-//	@return []MeasurementTrustedMachine
-func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasurementTrustedMachineExecute(r ApiGetAllMeasurementTrustedMachineRequest) ([]MeasurementTrustedMachine, *http.Response, error) {
+//	@return []MeasuredBootTrustedMachine
+func (a *MeasuredBootTrustedMachineAPIService) GetAllMeasuredBootTrustedMachineExecute(r ApiGetAllMeasuredBootTrustedMachineRequest) ([]MeasuredBootTrustedMachine, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []MeasurementTrustedMachine
+		localVarReturnValue []MeasuredBootTrustedMachine
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.GetAllMeasurementTrustedMachine")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedMachineAPIService.GetAllMeasuredBootTrustedMachine")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}

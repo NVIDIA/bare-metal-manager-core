@@ -13,26 +13,26 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-// Measurement trust approval types exposed by the REST API.
+// Measured Boot trust approval types exposed by the REST API.
 const (
-	MeasurementTrustApprovalTypeOneshot = "Oneshot"
-	MeasurementTrustApprovalTypePersist = "Persist"
+	MeasuredBootApprovalTypeOneshot = "Oneshot"
+	MeasuredBootApprovalTypePersist = "Persist"
 )
 
 // Selectors supported when deleting a machine trust approval.
 const (
-	MeasurementTrustedMachineSelectorApprovalID = "ApprovalId"
-	MeasurementTrustedMachineSelectorMachineID  = "MachineId"
+	MeasuredBootTrustedMachineSelectorApprovalID = "ApprovalId"
+	MeasuredBootTrustedMachineSelectorMachineID  = "MachineId"
 )
 
 // Selectors supported when deleting a profile trust approval.
 const (
-	MeasurementTrustedProfileSelectorApprovalID = "ApprovalId"
-	MeasurementTrustedProfileSelectorProfileID  = "ProfileId"
+	MeasuredBootTrustedProfileSelectorApprovalID = "ApprovalId"
+	MeasuredBootTrustedProfileSelectorProfileID  = "ProfileId"
 )
 
-// APIMeasurementTrustedMachineCreateRequest creates a machine trust approval.
-type APIMeasurementTrustedMachineCreateRequest struct {
+// APIMeasuredBootTrustedMachineCreateRequest creates a machine trust approval.
+type APIMeasuredBootTrustedMachineCreateRequest struct {
 	SiteID       string `json:"siteId"`
 	MachineID    string `json:"machineId"`
 	ApprovalType string `json:"approvalType"`
@@ -40,8 +40,8 @@ type APIMeasurementTrustedMachineCreateRequest struct {
 	Comments     string `json:"comments,omitempty"`
 }
 
-// APIMeasurementTrustedProfileCreateRequest creates a profile trust approval.
-type APIMeasurementTrustedProfileCreateRequest struct {
+// APIMeasuredBootTrustedProfileCreateRequest creates a profile trust approval.
+type APIMeasuredBootTrustedProfileCreateRequest struct {
 	SiteID       string `json:"siteId"`
 	ProfileID    string `json:"profileId"`
 	ApprovalType string `json:"approvalType"`
@@ -49,20 +49,20 @@ type APIMeasurementTrustedProfileCreateRequest struct {
 	Comments     string `json:"comments,omitempty"`
 }
 
-// APIMeasurementTrustedMachineDeleteRequest deletes a machine trust approval.
-type APIMeasurementTrustedMachineDeleteRequest struct {
+// APIMeasuredBootTrustedMachineDeleteRequest deletes a machine trust approval.
+type APIMeasuredBootTrustedMachineDeleteRequest struct {
 	Selector string `json:"-"`
 	ID       string `json:"-"`
 }
 
-// APIMeasurementTrustedProfileDeleteRequest deletes a profile trust approval.
-type APIMeasurementTrustedProfileDeleteRequest struct {
+// APIMeasuredBootTrustedProfileDeleteRequest deletes a profile trust approval.
+type APIMeasuredBootTrustedProfileDeleteRequest struct {
 	Selector string `json:"-"`
 	ID       string `json:"-"`
 }
 
-// APIMeasurementTrustedMachine is a machine trust approval.
-type APIMeasurementTrustedMachine struct {
+// APIMeasuredBootTrustedMachine is a machine trust approval.
+type APIMeasuredBootTrustedMachine struct {
 	ApprovalID   string     `json:"approvalId"`
 	MachineID    string     `json:"machineId"`
 	ApprovalType string     `json:"approvalType"`
@@ -71,8 +71,8 @@ type APIMeasurementTrustedMachine struct {
 	Created      *time.Time `json:"created,omitempty"`
 }
 
-// APIMeasurementTrustedProfile is a profile trust approval.
-type APIMeasurementTrustedProfile struct {
+// APIMeasuredBootTrustedProfile is a profile trust approval.
+type APIMeasuredBootTrustedProfile struct {
 	ApprovalID   string     `json:"approvalId"`
 	ProfileID    string     `json:"profileId"`
 	ApprovalType string     `json:"approvalType"`
@@ -82,7 +82,7 @@ type APIMeasurementTrustedProfile struct {
 }
 
 // Validate checks a machine trust approval request.
-func (r *APIMeasurementTrustedMachineCreateRequest) Validate() error {
+func (r *APIMeasuredBootTrustedMachineCreateRequest) Validate() error {
 	if err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error(validationErrorValueRequired), validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&r.MachineID, validation.Required.Error(validationErrorValueRequired)),
@@ -95,11 +95,11 @@ func (r *APIMeasurementTrustedMachineCreateRequest) Validate() error {
 			return fmt.Errorf("machineId: %w", err)
 		}
 	}
-	return validateMeasurementTrustApprovalType(r.ApprovalType)
+	return validateMeasuredBootApprovalType(r.ApprovalType)
 }
 
 // Validate checks a profile trust approval request.
-func (r *APIMeasurementTrustedProfileCreateRequest) Validate() error {
+func (r *APIMeasuredBootTrustedProfileCreateRequest) Validate() error {
 	if err := validation.ValidateStruct(r,
 		validation.Field(&r.SiteID, validation.Required.Error(validationErrorValueRequired), validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&r.ProfileID, validation.Required.Error(validationErrorValueRequired), validationis.UUID.Error(validationErrorInvalidUUID)),
@@ -107,22 +107,22 @@ func (r *APIMeasurementTrustedProfileCreateRequest) Validate() error {
 	); err != nil {
 		return err
 	}
-	return validateMeasurementTrustApprovalType(r.ApprovalType)
+	return validateMeasuredBootApprovalType(r.ApprovalType)
 }
 
 // Validate checks a machine trust approval deletion request.
-func (r *APIMeasurementTrustedMachineDeleteRequest) Validate() error {
+func (r *APIMeasuredBootTrustedMachineDeleteRequest) Validate() error {
 	if err := validation.ValidateStruct(r,
 		validation.Field(&r.Selector,
 			validation.Required.Error(validationErrorValueRequired),
-			validation.In(MeasurementTrustedMachineSelectorApprovalID, MeasurementTrustedMachineSelectorMachineID).
-				Error(fmt.Sprintf("invalid selector %q (expected %q or %q)", r.Selector, MeasurementTrustedMachineSelectorApprovalID, MeasurementTrustedMachineSelectorMachineID)),
+			validation.In(MeasuredBootTrustedMachineSelectorApprovalID, MeasuredBootTrustedMachineSelectorMachineID).
+				Error(fmt.Sprintf("invalid selector %q (expected %q or %q)", r.Selector, MeasuredBootTrustedMachineSelectorApprovalID, MeasuredBootTrustedMachineSelectorMachineID)),
 		),
 		validation.Field(&r.ID, validation.Required.Error(validationErrorValueRequired)),
 	); err != nil {
 		return err
 	}
-	if r.Selector == MeasurementTrustedMachineSelectorApprovalID || r.ID != "*" {
+	if r.Selector == MeasuredBootTrustedMachineSelectorApprovalID || r.ID != "*" {
 		if err := validation.Validate(r.ID, validationis.UUID.Error(validationErrorInvalidUUID)); err != nil {
 			return fmt.Errorf("id: %w", err)
 		}
@@ -131,12 +131,12 @@ func (r *APIMeasurementTrustedMachineDeleteRequest) Validate() error {
 }
 
 // Validate checks a profile trust approval deletion request.
-func (r *APIMeasurementTrustedProfileDeleteRequest) Validate() error {
+func (r *APIMeasuredBootTrustedProfileDeleteRequest) Validate() error {
 	return validation.ValidateStruct(r,
 		validation.Field(&r.Selector,
 			validation.Required.Error(validationErrorValueRequired),
-			validation.In(MeasurementTrustedProfileSelectorApprovalID, MeasurementTrustedProfileSelectorProfileID).
-				Error(fmt.Sprintf("invalid selector %q (expected %q or %q)", r.Selector, MeasurementTrustedProfileSelectorApprovalID, MeasurementTrustedProfileSelectorProfileID)),
+			validation.In(MeasuredBootTrustedProfileSelectorApprovalID, MeasuredBootTrustedProfileSelectorProfileID).
+				Error(fmt.Sprintf("invalid selector %q (expected %q or %q)", r.Selector, MeasuredBootTrustedProfileSelectorApprovalID, MeasuredBootTrustedProfileSelectorProfileID)),
 		),
 		validation.Field(&r.ID,
 			validation.Required.Error(validationErrorValueRequired),
@@ -146,20 +146,20 @@ func (r *APIMeasurementTrustedProfileDeleteRequest) Validate() error {
 }
 
 // ToProto converts a validated machine trust approval request to its Core message.
-func (r *APIMeasurementTrustedMachineCreateRequest) ToProto() *corev1.AddMeasurementTrustedMachineRequest {
+func (r *APIMeasuredBootTrustedMachineCreateRequest) ToProto() *corev1.AddMeasurementTrustedMachineRequest {
 	return &corev1.AddMeasurementTrustedMachineRequest{
 		MachineId:    r.MachineID,
-		ApprovalType: measurementTrustApprovalTypeToProto(r.ApprovalType),
+		ApprovalType: measuredBootApprovalTypeToProto(r.ApprovalType),
 		PcrRegisters: r.PCRRegisters,
 		Comments:     r.Comments,
 	}
 }
 
 // ToProto converts a validated profile trust approval request to its Core message.
-func (r *APIMeasurementTrustedProfileCreateRequest) ToProto() *corev1.AddMeasurementTrustedProfileRequest {
+func (r *APIMeasuredBootTrustedProfileCreateRequest) ToProto() *corev1.AddMeasurementTrustedProfileRequest {
 	req := &corev1.AddMeasurementTrustedProfileRequest{
 		ProfileId:    &corev1.MeasurementSystemProfileId{Value: r.ProfileID},
-		ApprovalType: measurementTrustApprovalTypeToProto(r.ApprovalType),
+		ApprovalType: measuredBootApprovalTypeToProto(r.ApprovalType),
 	}
 	if r.PCRRegisters != "" {
 		req.PcrRegisters = &r.PCRRegisters
@@ -171,8 +171,8 @@ func (r *APIMeasurementTrustedProfileCreateRequest) ToProto() *corev1.AddMeasure
 }
 
 // ToProto converts a validated machine trust approval deletion request to its Core message.
-func (r *APIMeasurementTrustedMachineDeleteRequest) ToProto() *corev1.RemoveMeasurementTrustedMachineRequest {
-	if r.Selector == MeasurementTrustedMachineSelectorApprovalID {
+func (r *APIMeasuredBootTrustedMachineDeleteRequest) ToProto() *corev1.RemoveMeasurementTrustedMachineRequest {
+	if r.Selector == MeasuredBootTrustedMachineSelectorApprovalID {
 		return &corev1.RemoveMeasurementTrustedMachineRequest{
 			Selector: &corev1.RemoveMeasurementTrustedMachineRequest_ApprovalId{
 				ApprovalId: &corev1.MeasurementApprovedMachineId{Value: r.ID},
@@ -185,8 +185,8 @@ func (r *APIMeasurementTrustedMachineDeleteRequest) ToProto() *corev1.RemoveMeas
 }
 
 // ToProto converts a validated profile trust approval deletion request to its Core message.
-func (r *APIMeasurementTrustedProfileDeleteRequest) ToProto() *corev1.RemoveMeasurementTrustedProfileRequest {
-	if r.Selector == MeasurementTrustedProfileSelectorApprovalID {
+func (r *APIMeasuredBootTrustedProfileDeleteRequest) ToProto() *corev1.RemoveMeasurementTrustedProfileRequest {
+	if r.Selector == MeasuredBootTrustedProfileSelectorApprovalID {
 		return &corev1.RemoveMeasurementTrustedProfileRequest{
 			Selector: &corev1.RemoveMeasurementTrustedProfileRequest_ApprovalId{
 				ApprovalId: &corev1.MeasurementApprovedProfileId{Value: r.ID},
@@ -200,25 +200,25 @@ func (r *APIMeasurementTrustedProfileDeleteRequest) ToProto() *corev1.RemoveMeas
 	}
 }
 
-// NewAPIMeasurementTrustedMachine creates an API model from a Core machine trust record.
-func NewAPIMeasurementTrustedMachine(record *corev1.MeasurementApprovedMachineRecordPb) *APIMeasurementTrustedMachine {
+// NewAPIMeasuredBootTrustedMachine creates an API model from a Core machine trust record.
+func NewAPIMeasuredBootTrustedMachine(record *corev1.MeasurementApprovedMachineRecordPb) *APIMeasuredBootTrustedMachine {
 	if record == nil {
 		return nil
 	}
-	resp := &APIMeasurementTrustedMachine{}
+	resp := &APIMeasuredBootTrustedMachine{}
 	resp.FromProto(record)
 	return resp
 }
 
 // FromProto converts one Core machine trust record.
-func (r *APIMeasurementTrustedMachine) FromProto(record *corev1.MeasurementApprovedMachineRecordPb) {
+func (r *APIMeasuredBootTrustedMachine) FromProto(record *corev1.MeasurementApprovedMachineRecordPb) {
 	if record == nil {
 		return
 	}
-	*r = APIMeasurementTrustedMachine{
+	*r = APIMeasuredBootTrustedMachine{
 		ApprovalID:   record.GetApprovalId().GetValue(),
 		MachineID:    record.GetMachineId(),
-		ApprovalType: measurementTrustApprovalTypeFromProto(record.GetApprovalType()),
+		ApprovalType: measuredBootApprovalTypeFromProto(record.GetApprovalType()),
 		PCRRegisters: record.GetPcrRegisters(),
 		Comments:     record.GetComments(),
 	}
@@ -228,25 +228,25 @@ func (r *APIMeasurementTrustedMachine) FromProto(record *corev1.MeasurementAppro
 	}
 }
 
-// NewAPIMeasurementTrustedProfile creates an API model from a Core profile trust record.
-func NewAPIMeasurementTrustedProfile(record *corev1.MeasurementApprovedProfileRecordPb) *APIMeasurementTrustedProfile {
+// NewAPIMeasuredBootTrustedProfile creates an API model from a Core profile trust record.
+func NewAPIMeasuredBootTrustedProfile(record *corev1.MeasurementApprovedProfileRecordPb) *APIMeasuredBootTrustedProfile {
 	if record == nil {
 		return nil
 	}
-	resp := &APIMeasurementTrustedProfile{}
+	resp := &APIMeasuredBootTrustedProfile{}
 	resp.FromProto(record)
 	return resp
 }
 
 // FromProto converts one Core profile trust record.
-func (r *APIMeasurementTrustedProfile) FromProto(record *corev1.MeasurementApprovedProfileRecordPb) {
+func (r *APIMeasuredBootTrustedProfile) FromProto(record *corev1.MeasurementApprovedProfileRecordPb) {
 	if record == nil {
 		return
 	}
-	*r = APIMeasurementTrustedProfile{
+	*r = APIMeasuredBootTrustedProfile{
 		ApprovalID:   record.GetApprovalId().GetValue(),
 		ProfileID:    record.GetProfileId().GetValue(),
-		ApprovalType: measurementTrustApprovalTypeFromProto(record.GetApprovalType()),
+		ApprovalType: measuredBootApprovalTypeFromProto(record.GetApprovalType()),
 		PCRRegisters: record.GetPcrRegisters(),
 		Comments:     record.GetComments(),
 	}
@@ -256,49 +256,49 @@ func (r *APIMeasurementTrustedProfile) FromProto(record *corev1.MeasurementAppro
 	}
 }
 
-// APIMeasurementTrustedMachines is a list of machine trust approvals.
-type APIMeasurementTrustedMachines []*APIMeasurementTrustedMachine
+// APIMeasuredBootTrustedMachines is a list of machine trust approvals.
+type APIMeasuredBootTrustedMachines []*APIMeasuredBootTrustedMachine
 
 // FromProto converts Core machine trust records.
-func (r *APIMeasurementTrustedMachines) FromProto(records []*corev1.MeasurementApprovedMachineRecordPb) {
-	result := make(APIMeasurementTrustedMachines, 0, len(records))
+func (r *APIMeasuredBootTrustedMachines) FromProto(records []*corev1.MeasurementApprovedMachineRecordPb) {
+	result := make(APIMeasuredBootTrustedMachines, 0, len(records))
 	for _, record := range records {
-		result = append(result, NewAPIMeasurementTrustedMachine(record))
+		result = append(result, NewAPIMeasuredBootTrustedMachine(record))
 	}
 	*r = result
 }
 
-// APIMeasurementTrustedProfiles is a list of profile trust approvals.
-type APIMeasurementTrustedProfiles []*APIMeasurementTrustedProfile
+// APIMeasuredBootTrustedProfiles is a list of profile trust approvals.
+type APIMeasuredBootTrustedProfiles []*APIMeasuredBootTrustedProfile
 
 // FromProto converts Core profile trust records.
-func (r *APIMeasurementTrustedProfiles) FromProto(records []*corev1.MeasurementApprovedProfileRecordPb) {
-	result := make(APIMeasurementTrustedProfiles, 0, len(records))
+func (r *APIMeasuredBootTrustedProfiles) FromProto(records []*corev1.MeasurementApprovedProfileRecordPb) {
+	result := make(APIMeasuredBootTrustedProfiles, 0, len(records))
 	for _, record := range records {
-		result = append(result, NewAPIMeasurementTrustedProfile(record))
+		result = append(result, NewAPIMeasuredBootTrustedProfile(record))
 	}
 	*r = result
 }
 
-func validateMeasurementTrustApprovalType(approvalType string) error {
+func validateMeasuredBootApprovalType(approvalType string) error {
 	switch approvalType {
-	case MeasurementTrustApprovalTypeOneshot, MeasurementTrustApprovalTypePersist:
+	case MeasuredBootApprovalTypeOneshot, MeasuredBootApprovalTypePersist:
 		return nil
 	default:
-		return fmt.Errorf("invalid approvalType %q (expected %q or %q)", approvalType, MeasurementTrustApprovalTypeOneshot, MeasurementTrustApprovalTypePersist)
+		return fmt.Errorf("invalid approvalType %q (expected %q or %q)", approvalType, MeasuredBootApprovalTypeOneshot, MeasuredBootApprovalTypePersist)
 	}
 }
 
-func measurementTrustApprovalTypeToProto(approvalType string) corev1.MeasurementApprovedTypePb {
-	if approvalType == MeasurementTrustApprovalTypePersist {
+func measuredBootApprovalTypeToProto(approvalType string) corev1.MeasurementApprovedTypePb {
+	if approvalType == MeasuredBootApprovalTypePersist {
 		return corev1.MeasurementApprovedTypePb_Persist
 	}
 	return corev1.MeasurementApprovedTypePb_Oneshot
 }
 
-func measurementTrustApprovalTypeFromProto(approvalType corev1.MeasurementApprovedTypePb) string {
+func measuredBootApprovalTypeFromProto(approvalType corev1.MeasurementApprovedTypePb) string {
 	if approvalType == corev1.MeasurementApprovedTypePb_Persist {
-		return MeasurementTrustApprovalTypePersist
+		return MeasuredBootApprovalTypePersist
 	}
-	return MeasurementTrustApprovalTypeOneshot
+	return MeasuredBootApprovalTypeOneshot
 }

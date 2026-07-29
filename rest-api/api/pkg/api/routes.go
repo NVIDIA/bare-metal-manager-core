@@ -55,32 +55,32 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		{
 			Path:    apiPathPrefix + "/measured-boot/trusted-machine",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewCreateMeasurementTrustedMachineHandler(dbSession, scp),
+			Handler: apiHandler.NewCreateMeasuredBootTrustedMachineHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/measured-boot/trusted-machine",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewListMeasurementTrustedMachinesHandler(dbSession, scp),
+			Handler: apiHandler.NewGetAllMeasuredBootTrustedMachineHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/measured-boot/trusted-machine/:id",
 			Method:  http.MethodDelete,
-			Handler: apiHandler.NewDeleteMeasurementTrustedMachineHandler(dbSession, scp),
+			Handler: apiHandler.NewDeleteMeasuredBootTrustedMachineHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/measured-boot/trusted-profile",
 			Method:  http.MethodPost,
-			Handler: apiHandler.NewCreateMeasurementTrustedProfileHandler(dbSession, scp),
+			Handler: apiHandler.NewCreateMeasuredBootTrustedProfileHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/measured-boot/trusted-profile",
 			Method:  http.MethodGet,
-			Handler: apiHandler.NewListMeasurementTrustedProfilesHandler(dbSession, scp),
+			Handler: apiHandler.NewGetAllMeasuredBootTrustedProfileHandler(dbSession, scp),
 		},
 		{
 			Path:    apiPathPrefix + "/measured-boot/trusted-profile/:id",
 			Method:  http.MethodDelete,
-			Handler: apiHandler.NewDeleteMeasurementTrustedProfileHandler(dbSession, scp),
+			Handler: apiHandler.NewDeleteMeasuredBootTrustedProfileHandler(dbSession, scp),
 		},
 		// User endpoint
 		{

@@ -1273,7 +1273,7 @@ paths:
       summary: Create Measured Boot Trusted Machine Approval
       tags:
         - Measured Boot Trusted Machine
-      operationId: create-measurement-trusted-machine
+      operationId: create-measured-boot-trusted-machine
       description: |-
         Approve a Machine, or all Machines using `*`, for automatic promotion of its next measured-boot report.
 
@@ -1283,14 +1283,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MeasurementTrustedMachineCreateRequest'
+              $ref: '#/components/schemas/MeasuredBootTrustedMachineCreateRequest'
       responses:
         '201':
           description: Measured Boot trusted Machine approval was created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MeasurementTrustedMachine'
+                $ref: '#/components/schemas/MeasuredBootTrustedMachine'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -1303,7 +1303,7 @@ paths:
       summary: Retrieve All Measured Boot Trusted Machine Approvals
       tags:
         - Measured Boot Trusted Machine
-      operationId: get-all-measurement-trusted-machine
+      operationId: get-all-measured-boot-trusted-machine
       description: |-
         Retrieve all measured-boot trusted Machine approvals for a Site.
 
@@ -1324,7 +1324,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/MeasurementTrustedMachine'
+                  $ref: '#/components/schemas/MeasuredBootTrustedMachine'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -1351,7 +1351,7 @@ paths:
       summary: Delete Measured Boot Trusted Machine Approval
       tags:
         - Measured Boot Trusted Machine
-      operationId: delete-measurement-trusted-machine
+      operationId: delete-measured-boot-trusted-machine
       description: |-
         Delete a measured-boot trusted Machine approval by approval ID or Machine ID.
 
@@ -1379,7 +1379,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MeasurementTrustedMachine'
+                $ref: '#/components/schemas/MeasuredBootTrustedMachine'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -1400,7 +1400,7 @@ paths:
       summary: Create Measured Boot Trusted Profile Approval
       tags:
         - Measured Boot Trusted Profile
-      operationId: create-measurement-trusted-profile
+      operationId: create-measured-boot-trusted-profile
       description: |-
         Approve a measured-boot system profile for automatic promotion of reports from matching Machines.
 
@@ -1410,14 +1410,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MeasurementTrustedProfileCreateRequest'
+              $ref: '#/components/schemas/MeasuredBootTrustedProfileCreateRequest'
       responses:
         '201':
           description: Measured Boot trusted Profile approval was created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MeasurementTrustedProfile'
+                $ref: '#/components/schemas/MeasuredBootTrustedProfile'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -1430,7 +1430,7 @@ paths:
       summary: Retrieve All Measured Boot Trusted Profile Approvals
       tags:
         - Measured Boot Trusted Profile
-      operationId: get-all-measurement-trusted-profile
+      operationId: get-all-measured-boot-trusted-profile
       description: |-
         Retrieve all measured-boot trusted Profile approvals for a Site.
 
@@ -1451,7 +1451,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/MeasurementTrustedProfile'
+                  $ref: '#/components/schemas/MeasuredBootTrustedProfile'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -1479,7 +1479,7 @@ paths:
       summary: Delete Measured Boot Trusted Profile Approval
       tags:
         - Measured Boot Trusted Profile
-      operationId: delete-measurement-trusted-profile
+      operationId: delete-measured-boot-trusted-profile
       description: |-
         Delete a measured-boot trusted Profile approval by approval ID or Profile ID.
 
@@ -1507,7 +1507,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MeasurementTrustedProfile'
+                $ref: '#/components/schemas/MeasuredBootTrustedProfile'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -13971,9 +13971,9 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
 components:
   schemas:
-    MeasurementTrustedMachineCreateRequest:
+    MeasuredBootTrustedMachineCreateRequest:
       type: object
-      title: MeasurementTrustedMachineCreateRequest
+      title: MeasuredBootTrustedMachineCreateRequest
       description: Request to approve a Machine for automatic promotion of measured-boot reports.
       required:
         - siteId
@@ -13999,9 +13999,9 @@ components:
         comments:
           type: string
           description: Optional operator comments about the approval.
-    MeasurementTrustedMachine:
+    MeasuredBootTrustedMachine:
       type: object
-      title: MeasurementTrustedMachine
+      title: MeasuredBootTrustedMachine
       description: A measured-boot trusted Machine approval.
       required:
         - approvalId
@@ -14031,9 +14031,9 @@ components:
           type: string
           format: date-time
           description: Time when the approval was created.
-    MeasurementTrustedProfileCreateRequest:
+    MeasuredBootTrustedProfileCreateRequest:
       type: object
-      title: MeasurementTrustedProfileCreateRequest
+      title: MeasuredBootTrustedProfileCreateRequest
       description: Request to approve a system profile for automatic promotion of measured-boot reports.
       required:
         - siteId
@@ -14060,9 +14060,9 @@ components:
         comments:
           type: string
           description: Optional operator comments about the approval.
-    MeasurementTrustedProfile:
+    MeasuredBootTrustedProfile:
       type: object
-      title: MeasurementTrustedProfile
+      title: MeasuredBootTrustedProfile
       description: A measured-boot trusted system profile approval.
       required:
         - approvalId

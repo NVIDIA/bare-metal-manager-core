@@ -119,13 +119,13 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodPost, siteExplorerActionPath)
 			uefiCredentialPath := "/org/:orgName/" + cfg.GetAPIName() + "/credential/uefi"
 			assertRouteExists(t, got, http.MethodPost, uefiCredentialPath)
-			measurementTrustPath := "/org/:orgName/" + cfg.GetAPIName() + "/measured-boot"
-			assertRouteExists(t, got, http.MethodPost, measurementTrustPath+"/trusted-machine")
-			assertRouteExists(t, got, http.MethodGet, measurementTrustPath+"/trusted-machine")
-			assertRouteExists(t, got, http.MethodDelete, measurementTrustPath+"/trusted-machine/:id")
-			assertRouteExists(t, got, http.MethodPost, measurementTrustPath+"/trusted-profile")
-			assertRouteExists(t, got, http.MethodGet, measurementTrustPath+"/trusted-profile")
-			assertRouteExists(t, got, http.MethodDelete, measurementTrustPath+"/trusted-profile/:id")
+			measuredBootPath := "/org/:orgName/" + cfg.GetAPIName() + "/measured-boot"
+			assertRouteExists(t, got, http.MethodPost, measuredBootPath+"/trusted-machine")
+			assertRouteExists(t, got, http.MethodGet, measuredBootPath+"/trusted-machine")
+			assertRouteExists(t, got, http.MethodDelete, measuredBootPath+"/trusted-machine/:id")
+			assertRouteExists(t, got, http.MethodPost, measuredBootPath+"/trusted-profile")
+			assertRouteExists(t, got, http.MethodGet, measuredBootPath+"/trusted-profile")
+			assertRouteExists(t, got, http.MethodDelete, measuredBootPath+"/trusted-profile/:id")
 
 			machineAdminPath := "/org/:orgName/" + cfg.GetAPIName() + "/machine/:id"
 			assertRouteExists(t, got, http.MethodPatch, machineAdminPath+"/bmc/reset")

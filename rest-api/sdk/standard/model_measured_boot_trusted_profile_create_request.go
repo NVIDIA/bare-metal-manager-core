@@ -19,15 +19,15 @@ import (
 	"fmt"
 )
 
-// checks if the MeasurementTrustedMachineCreateRequest type satisfies the MappedNullable interface at compile time
-var _ MappedNullable = &MeasurementTrustedMachineCreateRequest{}
+// checks if the MeasuredBootTrustedProfileCreateRequest type satisfies the MappedNullable interface at compile time
+var _ MappedNullable = &MeasuredBootTrustedProfileCreateRequest{}
 
-// MeasurementTrustedMachineCreateRequest Request to approve a Machine for automatic promotion of measured-boot reports.
-type MeasurementTrustedMachineCreateRequest struct {
+// MeasuredBootTrustedProfileCreateRequest Request to approve a system profile for automatic promotion of measured-boot reports.
+type MeasuredBootTrustedProfileCreateRequest struct {
 	// ID of the Site where the approval applies.
 	SiteId string `json:"siteId"`
-	// Machine UUID, or `*` to approve all Machines at the Site.
-	MachineId string `json:"machineId"`
+	// ID of the measured-boot system profile.
+	ProfileId string `json:"profileId"`
 	// Whether the approval is consumed once or persists for future reports.
 	ApprovalType string `json:"approvalType"`
 	// Optional comma-separated PCR register selector. All registers are used when omitted.
@@ -36,30 +36,30 @@ type MeasurementTrustedMachineCreateRequest struct {
 	Comments *string `json:"comments,omitempty"`
 }
 
-type _MeasurementTrustedMachineCreateRequest MeasurementTrustedMachineCreateRequest
+type _MeasuredBootTrustedProfileCreateRequest MeasuredBootTrustedProfileCreateRequest
 
-// NewMeasurementTrustedMachineCreateRequest instantiates a new MeasurementTrustedMachineCreateRequest object
+// NewMeasuredBootTrustedProfileCreateRequest instantiates a new MeasuredBootTrustedProfileCreateRequest object
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewMeasurementTrustedMachineCreateRequest(siteId string, machineId string, approvalType string) *MeasurementTrustedMachineCreateRequest {
-	this := MeasurementTrustedMachineCreateRequest{}
+func NewMeasuredBootTrustedProfileCreateRequest(siteId string, profileId string, approvalType string) *MeasuredBootTrustedProfileCreateRequest {
+	this := MeasuredBootTrustedProfileCreateRequest{}
 	this.SiteId = siteId
-	this.MachineId = machineId
+	this.ProfileId = profileId
 	this.ApprovalType = approvalType
 	return &this
 }
 
-// NewMeasurementTrustedMachineCreateRequestWithDefaults instantiates a new MeasurementTrustedMachineCreateRequest object
+// NewMeasuredBootTrustedProfileCreateRequestWithDefaults instantiates a new MeasuredBootTrustedProfileCreateRequest object
 // This constructor will only assign default values to properties that have it defined,
 // but it doesn't guarantee that properties required by API are set
-func NewMeasurementTrustedMachineCreateRequestWithDefaults() *MeasurementTrustedMachineCreateRequest {
-	this := MeasurementTrustedMachineCreateRequest{}
+func NewMeasuredBootTrustedProfileCreateRequestWithDefaults() *MeasuredBootTrustedProfileCreateRequest {
+	this := MeasuredBootTrustedProfileCreateRequest{}
 	return &this
 }
 
 // GetSiteId returns the SiteId field value
-func (o *MeasurementTrustedMachineCreateRequest) GetSiteId() string {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetSiteId() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -70,7 +70,7 @@ func (o *MeasurementTrustedMachineCreateRequest) GetSiteId() string {
 
 // GetSiteIdOk returns a tuple with the SiteId field value
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachineCreateRequest) GetSiteIdOk() (*string, bool) {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetSiteIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -78,36 +78,36 @@ func (o *MeasurementTrustedMachineCreateRequest) GetSiteIdOk() (*string, bool) {
 }
 
 // SetSiteId sets field value
-func (o *MeasurementTrustedMachineCreateRequest) SetSiteId(v string) {
+func (o *MeasuredBootTrustedProfileCreateRequest) SetSiteId(v string) {
 	o.SiteId = v
 }
 
-// GetMachineId returns the MachineId field value
-func (o *MeasurementTrustedMachineCreateRequest) GetMachineId() string {
+// GetProfileId returns the ProfileId field value
+func (o *MeasuredBootTrustedProfileCreateRequest) GetProfileId() string {
 	if o == nil {
 		var ret string
 		return ret
 	}
 
-	return o.MachineId
+	return o.ProfileId
 }
 
-// GetMachineIdOk returns a tuple with the MachineId field value
+// GetProfileIdOk returns a tuple with the ProfileId field value
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachineCreateRequest) GetMachineIdOk() (*string, bool) {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetProfileIdOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
-	return &o.MachineId, true
+	return &o.ProfileId, true
 }
 
-// SetMachineId sets field value
-func (o *MeasurementTrustedMachineCreateRequest) SetMachineId(v string) {
-	o.MachineId = v
+// SetProfileId sets field value
+func (o *MeasuredBootTrustedProfileCreateRequest) SetProfileId(v string) {
+	o.ProfileId = v
 }
 
 // GetApprovalType returns the ApprovalType field value
-func (o *MeasurementTrustedMachineCreateRequest) GetApprovalType() string {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetApprovalType() string {
 	if o == nil {
 		var ret string
 		return ret
@@ -118,7 +118,7 @@ func (o *MeasurementTrustedMachineCreateRequest) GetApprovalType() string {
 
 // GetApprovalTypeOk returns a tuple with the ApprovalType field value
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachineCreateRequest) GetApprovalTypeOk() (*string, bool) {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetApprovalTypeOk() (*string, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -126,12 +126,12 @@ func (o *MeasurementTrustedMachineCreateRequest) GetApprovalTypeOk() (*string, b
 }
 
 // SetApprovalType sets field value
-func (o *MeasurementTrustedMachineCreateRequest) SetApprovalType(v string) {
+func (o *MeasuredBootTrustedProfileCreateRequest) SetApprovalType(v string) {
 	o.ApprovalType = v
 }
 
 // GetPcrRegisters returns the PcrRegisters field value if set, zero value otherwise.
-func (o *MeasurementTrustedMachineCreateRequest) GetPcrRegisters() string {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetPcrRegisters() string {
 	if o == nil || IsNil(o.PcrRegisters) {
 		var ret string
 		return ret
@@ -141,7 +141,7 @@ func (o *MeasurementTrustedMachineCreateRequest) GetPcrRegisters() string {
 
 // GetPcrRegistersOk returns a tuple with the PcrRegisters field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachineCreateRequest) GetPcrRegistersOk() (*string, bool) {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetPcrRegistersOk() (*string, bool) {
 	if o == nil || IsNil(o.PcrRegisters) {
 		return nil, false
 	}
@@ -149,7 +149,7 @@ func (o *MeasurementTrustedMachineCreateRequest) GetPcrRegistersOk() (*string, b
 }
 
 // HasPcrRegisters returns a boolean if a field has been set.
-func (o *MeasurementTrustedMachineCreateRequest) HasPcrRegisters() bool {
+func (o *MeasuredBootTrustedProfileCreateRequest) HasPcrRegisters() bool {
 	if o != nil && !IsNil(o.PcrRegisters) {
 		return true
 	}
@@ -158,12 +158,12 @@ func (o *MeasurementTrustedMachineCreateRequest) HasPcrRegisters() bool {
 }
 
 // SetPcrRegisters gets a reference to the given string and assigns it to the PcrRegisters field.
-func (o *MeasurementTrustedMachineCreateRequest) SetPcrRegisters(v string) {
+func (o *MeasuredBootTrustedProfileCreateRequest) SetPcrRegisters(v string) {
 	o.PcrRegisters = &v
 }
 
 // GetComments returns the Comments field value if set, zero value otherwise.
-func (o *MeasurementTrustedMachineCreateRequest) GetComments() string {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetComments() string {
 	if o == nil || IsNil(o.Comments) {
 		var ret string
 		return ret
@@ -173,7 +173,7 @@ func (o *MeasurementTrustedMachineCreateRequest) GetComments() string {
 
 // GetCommentsOk returns a tuple with the Comments field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *MeasurementTrustedMachineCreateRequest) GetCommentsOk() (*string, bool) {
+func (o *MeasuredBootTrustedProfileCreateRequest) GetCommentsOk() (*string, bool) {
 	if o == nil || IsNil(o.Comments) {
 		return nil, false
 	}
@@ -181,7 +181,7 @@ func (o *MeasurementTrustedMachineCreateRequest) GetCommentsOk() (*string, bool)
 }
 
 // HasComments returns a boolean if a field has been set.
-func (o *MeasurementTrustedMachineCreateRequest) HasComments() bool {
+func (o *MeasuredBootTrustedProfileCreateRequest) HasComments() bool {
 	if o != nil && !IsNil(o.Comments) {
 		return true
 	}
@@ -190,11 +190,11 @@ func (o *MeasurementTrustedMachineCreateRequest) HasComments() bool {
 }
 
 // SetComments gets a reference to the given string and assigns it to the Comments field.
-func (o *MeasurementTrustedMachineCreateRequest) SetComments(v string) {
+func (o *MeasuredBootTrustedProfileCreateRequest) SetComments(v string) {
 	o.Comments = &v
 }
 
-func (o MeasurementTrustedMachineCreateRequest) MarshalJSON() ([]byte, error) {
+func (o MeasuredBootTrustedProfileCreateRequest) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
 		return []byte{}, err
@@ -202,10 +202,10 @@ func (o MeasurementTrustedMachineCreateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(toSerialize)
 }
 
-func (o MeasurementTrustedMachineCreateRequest) ToMap() (map[string]interface{}, error) {
+func (o MeasuredBootTrustedProfileCreateRequest) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["siteId"] = o.SiteId
-	toSerialize["machineId"] = o.MachineId
+	toSerialize["profileId"] = o.ProfileId
 	toSerialize["approvalType"] = o.ApprovalType
 	if !IsNil(o.PcrRegisters) {
 		toSerialize["pcrRegisters"] = o.PcrRegisters
@@ -216,13 +216,13 @@ func (o MeasurementTrustedMachineCreateRequest) ToMap() (map[string]interface{},
 	return toSerialize, nil
 }
 
-func (o *MeasurementTrustedMachineCreateRequest) UnmarshalJSON(data []byte) (err error) {
+func (o *MeasuredBootTrustedProfileCreateRequest) UnmarshalJSON(data []byte) (err error) {
 	// This validates that all required properties are included in the JSON object
 	// by unmarshalling the object into a generic map with string keys and checking
 	// that every required field exists as a key in the generic map.
 	requiredProperties := []string{
 		"siteId",
-		"machineId",
+		"profileId",
 		"approvalType",
 	}
 
@@ -240,53 +240,53 @@ func (o *MeasurementTrustedMachineCreateRequest) UnmarshalJSON(data []byte) (err
 		}
 	}
 
-	varMeasurementTrustedMachineCreateRequest := _MeasurementTrustedMachineCreateRequest{}
+	varMeasuredBootTrustedProfileCreateRequest := _MeasuredBootTrustedProfileCreateRequest{}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&varMeasurementTrustedMachineCreateRequest)
+	err = decoder.Decode(&varMeasuredBootTrustedProfileCreateRequest)
 
 	if err != nil {
 		return err
 	}
 
-	*o = MeasurementTrustedMachineCreateRequest(varMeasurementTrustedMachineCreateRequest)
+	*o = MeasuredBootTrustedProfileCreateRequest(varMeasuredBootTrustedProfileCreateRequest)
 
 	return err
 }
 
-type NullableMeasurementTrustedMachineCreateRequest struct {
-	value *MeasurementTrustedMachineCreateRequest
+type NullableMeasuredBootTrustedProfileCreateRequest struct {
+	value *MeasuredBootTrustedProfileCreateRequest
 	isSet bool
 }
 
-func (v NullableMeasurementTrustedMachineCreateRequest) Get() *MeasurementTrustedMachineCreateRequest {
+func (v NullableMeasuredBootTrustedProfileCreateRequest) Get() *MeasuredBootTrustedProfileCreateRequest {
 	return v.value
 }
 
-func (v *NullableMeasurementTrustedMachineCreateRequest) Set(val *MeasurementTrustedMachineCreateRequest) {
+func (v *NullableMeasuredBootTrustedProfileCreateRequest) Set(val *MeasuredBootTrustedProfileCreateRequest) {
 	v.value = val
 	v.isSet = true
 }
 
-func (v NullableMeasurementTrustedMachineCreateRequest) IsSet() bool {
+func (v NullableMeasuredBootTrustedProfileCreateRequest) IsSet() bool {
 	return v.isSet
 }
 
-func (v *NullableMeasurementTrustedMachineCreateRequest) Unset() {
+func (v *NullableMeasuredBootTrustedProfileCreateRequest) Unset() {
 	v.value = nil
 	v.isSet = false
 }
 
-func NewNullableMeasurementTrustedMachineCreateRequest(val *MeasurementTrustedMachineCreateRequest) *NullableMeasurementTrustedMachineCreateRequest {
-	return &NullableMeasurementTrustedMachineCreateRequest{value: val, isSet: true}
+func NewNullableMeasuredBootTrustedProfileCreateRequest(val *MeasuredBootTrustedProfileCreateRequest) *NullableMeasuredBootTrustedProfileCreateRequest {
+	return &NullableMeasuredBootTrustedProfileCreateRequest{value: val, isSet: true}
 }
 
-func (v NullableMeasurementTrustedMachineCreateRequest) MarshalJSON() ([]byte, error) {
+func (v NullableMeasuredBootTrustedProfileCreateRequest) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v.value)
 }
 
-func (v *NullableMeasurementTrustedMachineCreateRequest) UnmarshalJSON(src []byte) error {
+func (v *NullableMeasuredBootTrustedProfileCreateRequest) UnmarshalJSON(src []byte) error {
 	v.isSet = true
 	return json.Unmarshal(src, &v.value)
 }

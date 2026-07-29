@@ -25,24 +25,24 @@ import (
 // MeasuredBootTrustedProfileAPIService MeasuredBootTrustedProfileAPI service
 type MeasuredBootTrustedProfileAPIService service
 
-type ApiCreateMeasurementTrustedProfileRequest struct {
-	ctx                                    context.Context
-	ApiService                             *MeasuredBootTrustedProfileAPIService
-	org                                    string
-	measurementTrustedProfileCreateRequest *MeasurementTrustedProfileCreateRequest
+type ApiCreateMeasuredBootTrustedProfileRequest struct {
+	ctx                                     context.Context
+	ApiService                              *MeasuredBootTrustedProfileAPIService
+	org                                     string
+	measuredBootTrustedProfileCreateRequest *MeasuredBootTrustedProfileCreateRequest
 }
 
-func (r ApiCreateMeasurementTrustedProfileRequest) MeasurementTrustedProfileCreateRequest(measurementTrustedProfileCreateRequest MeasurementTrustedProfileCreateRequest) ApiCreateMeasurementTrustedProfileRequest {
-	r.measurementTrustedProfileCreateRequest = &measurementTrustedProfileCreateRequest
+func (r ApiCreateMeasuredBootTrustedProfileRequest) MeasuredBootTrustedProfileCreateRequest(measuredBootTrustedProfileCreateRequest MeasuredBootTrustedProfileCreateRequest) ApiCreateMeasuredBootTrustedProfileRequest {
+	r.measuredBootTrustedProfileCreateRequest = &measuredBootTrustedProfileCreateRequest
 	return r
 }
 
-func (r ApiCreateMeasurementTrustedProfileRequest) Execute() (*MeasurementTrustedProfile, *http.Response, error) {
-	return r.ApiService.CreateMeasurementTrustedProfileExecute(r)
+func (r ApiCreateMeasuredBootTrustedProfileRequest) Execute() (*MeasuredBootTrustedProfile, *http.Response, error) {
+	return r.ApiService.CreateMeasuredBootTrustedProfileExecute(r)
 }
 
 /*
-CreateMeasurementTrustedProfile Create Measured Boot Trusted Profile Approval
+CreateMeasuredBootTrustedProfile Create Measured Boot Trusted Profile Approval
 
 Approve a measured-boot system profile for automatic promotion of reports from matching Machines.
 
@@ -50,10 +50,10 @@ Org must have an Infrastructure Provider entity that owns the Site. User must ha
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiCreateMeasurementTrustedProfileRequest
+	@return ApiCreateMeasuredBootTrustedProfileRequest
 */
-func (a *MeasuredBootTrustedProfileAPIService) CreateMeasurementTrustedProfile(ctx context.Context, org string) ApiCreateMeasurementTrustedProfileRequest {
-	return ApiCreateMeasurementTrustedProfileRequest{
+func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfile(ctx context.Context, org string) ApiCreateMeasuredBootTrustedProfileRequest {
+	return ApiCreateMeasuredBootTrustedProfileRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -62,16 +62,16 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasurementTrustedProfile(c
 
 // Execute executes the request
 //
-//	@return MeasurementTrustedProfile
-func (a *MeasuredBootTrustedProfileAPIService) CreateMeasurementTrustedProfileExecute(r ApiCreateMeasurementTrustedProfileRequest) (*MeasurementTrustedProfile, *http.Response, error) {
+//	@return MeasuredBootTrustedProfile
+func (a *MeasuredBootTrustedProfileAPIService) CreateMeasuredBootTrustedProfileExecute(r ApiCreateMeasuredBootTrustedProfileRequest) (*MeasuredBootTrustedProfile, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *MeasurementTrustedProfile
+		localVarReturnValue *MeasuredBootTrustedProfile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.CreateMeasurementTrustedProfile")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.CreateMeasuredBootTrustedProfile")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -82,8 +82,8 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasurementTrustedProfileEx
 	localVarHeaderParams := make(map[string]string)
 	localVarQueryParams := url.Values{}
 	localVarFormParams := url.Values{}
-	if r.measurementTrustedProfileCreateRequest == nil {
-		return localVarReturnValue, nil, reportError("measurementTrustedProfileCreateRequest is required and must be specified")
+	if r.measuredBootTrustedProfileCreateRequest == nil {
+		return localVarReturnValue, nil, reportError("measuredBootTrustedProfileCreateRequest is required and must be specified")
 	}
 
 	// to determine the Content-Type header
@@ -104,7 +104,7 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasurementTrustedProfileEx
 		localVarHeaderParams["Accept"] = localVarHTTPHeaderAccept
 	}
 	// body params
-	localVarPostBody = r.measurementTrustedProfileCreateRequest
+	localVarPostBody = r.measuredBootTrustedProfileCreateRequest
 	req, err := a.client.prepareRequest(r.ctx, localVarPath, localVarHTTPMethod, localVarPostBody, localVarHeaderParams, localVarQueryParams, localVarFormParams, formFiles)
 	if err != nil {
 		return localVarReturnValue, nil, err
@@ -185,7 +185,7 @@ func (a *MeasuredBootTrustedProfileAPIService) CreateMeasurementTrustedProfileEx
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiDeleteMeasurementTrustedProfileRequest struct {
+type ApiDeleteMeasuredBootTrustedProfileRequest struct {
 	ctx        context.Context
 	ApiService *MeasuredBootTrustedProfileAPIService
 	siteId     *string
@@ -195,23 +195,23 @@ type ApiDeleteMeasurementTrustedProfileRequest struct {
 }
 
 // ID of the Site
-func (r ApiDeleteMeasurementTrustedProfileRequest) SiteId(siteId string) ApiDeleteMeasurementTrustedProfileRequest {
+func (r ApiDeleteMeasuredBootTrustedProfileRequest) SiteId(siteId string) ApiDeleteMeasuredBootTrustedProfileRequest {
 	r.siteId = &siteId
 	return r
 }
 
 // Whether id identifies the approval or the system profile
-func (r ApiDeleteMeasurementTrustedProfileRequest) Selector(selector string) ApiDeleteMeasurementTrustedProfileRequest {
+func (r ApiDeleteMeasuredBootTrustedProfileRequest) Selector(selector string) ApiDeleteMeasuredBootTrustedProfileRequest {
 	r.selector = &selector
 	return r
 }
 
-func (r ApiDeleteMeasurementTrustedProfileRequest) Execute() (*MeasurementTrustedProfile, *http.Response, error) {
-	return r.ApiService.DeleteMeasurementTrustedProfileExecute(r)
+func (r ApiDeleteMeasuredBootTrustedProfileRequest) Execute() (*MeasuredBootTrustedProfile, *http.Response, error) {
+	return r.ApiService.DeleteMeasuredBootTrustedProfileExecute(r)
 }
 
 /*
-DeleteMeasurementTrustedProfile Delete Measured Boot Trusted Profile Approval
+DeleteMeasuredBootTrustedProfile Delete Measured Boot Trusted Profile Approval
 
 Delete a measured-boot trusted Profile approval by approval ID or Profile ID.
 
@@ -220,10 +220,10 @@ Org must have an Infrastructure Provider entity that owns the Site. User must ha
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
 	@param id Approval ID or Profile ID, as selected by the selector query parameter
-	@return ApiDeleteMeasurementTrustedProfileRequest
+	@return ApiDeleteMeasuredBootTrustedProfileRequest
 */
-func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasurementTrustedProfile(ctx context.Context, org string, id string) ApiDeleteMeasurementTrustedProfileRequest {
-	return ApiDeleteMeasurementTrustedProfileRequest{
+func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfile(ctx context.Context, org string, id string) ApiDeleteMeasuredBootTrustedProfileRequest {
+	return ApiDeleteMeasuredBootTrustedProfileRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -233,16 +233,16 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasurementTrustedProfile(c
 
 // Execute executes the request
 //
-//	@return MeasurementTrustedProfile
-func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasurementTrustedProfileExecute(r ApiDeleteMeasurementTrustedProfileRequest) (*MeasurementTrustedProfile, *http.Response, error) {
+//	@return MeasuredBootTrustedProfile
+func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasuredBootTrustedProfileExecute(r ApiDeleteMeasuredBootTrustedProfileRequest) (*MeasuredBootTrustedProfile, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodDelete
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *MeasurementTrustedProfile
+		localVarReturnValue *MeasuredBootTrustedProfile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.DeleteMeasurementTrustedProfile")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.DeleteMeasuredBootTrustedProfile")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
@@ -360,7 +360,7 @@ func (a *MeasuredBootTrustedProfileAPIService) DeleteMeasurementTrustedProfileEx
 	return localVarReturnValue, localVarHTTPResponse, nil
 }
 
-type ApiGetAllMeasurementTrustedProfileRequest struct {
+type ApiGetAllMeasuredBootTrustedProfileRequest struct {
 	ctx        context.Context
 	ApiService *MeasuredBootTrustedProfileAPIService
 	siteId     *string
@@ -368,17 +368,17 @@ type ApiGetAllMeasurementTrustedProfileRequest struct {
 }
 
 // ID of the Site
-func (r ApiGetAllMeasurementTrustedProfileRequest) SiteId(siteId string) ApiGetAllMeasurementTrustedProfileRequest {
+func (r ApiGetAllMeasuredBootTrustedProfileRequest) SiteId(siteId string) ApiGetAllMeasuredBootTrustedProfileRequest {
 	r.siteId = &siteId
 	return r
 }
 
-func (r ApiGetAllMeasurementTrustedProfileRequest) Execute() ([]MeasurementTrustedProfile, *http.Response, error) {
-	return r.ApiService.GetAllMeasurementTrustedProfileExecute(r)
+func (r ApiGetAllMeasuredBootTrustedProfileRequest) Execute() ([]MeasuredBootTrustedProfile, *http.Response, error) {
+	return r.ApiService.GetAllMeasuredBootTrustedProfileExecute(r)
 }
 
 /*
-GetAllMeasurementTrustedProfile Retrieve All Measured Boot Trusted Profile Approvals
+GetAllMeasuredBootTrustedProfile Retrieve All Measured Boot Trusted Profile Approvals
 
 Retrieve all measured-boot trusted Profile approvals for a Site.
 
@@ -386,10 +386,10 @@ Org must have an Infrastructure Provider entity that owns the Site. User must ha
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org
-	@return ApiGetAllMeasurementTrustedProfileRequest
+	@return ApiGetAllMeasuredBootTrustedProfileRequest
 */
-func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasurementTrustedProfile(ctx context.Context, org string) ApiGetAllMeasurementTrustedProfileRequest {
-	return ApiGetAllMeasurementTrustedProfileRequest{
+func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfile(ctx context.Context, org string) ApiGetAllMeasuredBootTrustedProfileRequest {
+	return ApiGetAllMeasuredBootTrustedProfileRequest{
 		ApiService: a,
 		ctx:        ctx,
 		org:        org,
@@ -398,16 +398,16 @@ func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasurementTrustedProfile(c
 
 // Execute executes the request
 //
-//	@return []MeasurementTrustedProfile
-func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasurementTrustedProfileExecute(r ApiGetAllMeasurementTrustedProfileRequest) ([]MeasurementTrustedProfile, *http.Response, error) {
+//	@return []MeasuredBootTrustedProfile
+func (a *MeasuredBootTrustedProfileAPIService) GetAllMeasuredBootTrustedProfileExecute(r ApiGetAllMeasuredBootTrustedProfileRequest) ([]MeasuredBootTrustedProfile, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodGet
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue []MeasurementTrustedProfile
+		localVarReturnValue []MeasuredBootTrustedProfile
 	)
 
-	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.GetAllMeasurementTrustedProfile")
+	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "MeasuredBootTrustedProfileAPIService.GetAllMeasuredBootTrustedProfile")
 	if err != nil {
 		return localVarReturnValue, nil, &GenericOpenAPIError{error: err.Error()}
 	}
