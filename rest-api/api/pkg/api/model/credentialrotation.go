@@ -130,8 +130,8 @@ type APICredentialRotationResult struct {
 	CredentialType CredentialRotationType `json:"credentialType"`
 	// TargetVersion is the newly published site-wide version devices converge to.
 	TargetVersion uint32 `json:"targetVersion"`
-	// StartedAt is when the rotation was staged.
-	StartedAt *time.Time `json:"startedAt,omitempty"`
+	// Started is when the rotation was staged.
+	Started *time.Time `json:"started"`
 }
 
 // FromProto populates the result from a forge.Forge RotateCredentialResult.
@@ -143,7 +143,7 @@ func (r *APICredentialRotationResult) FromProto(p *corev1.RotateCredentialResult
 	r.TargetVersion = p.GetTargetVersion()
 	if ts := p.GetStartedAt(); ts != nil {
 		v := ts.AsTime().UTC()
-		r.StartedAt = &v
+		r.Started = &v
 	}
 }
 
@@ -160,9 +160,9 @@ type APICredentialRotationStatus struct {
 	// Quarantined is the number of devices currently in a rotation backoff window.
 	Quarantined uint64 `json:"quarantined"`
 	// QuarantinedDeviceMacs lists the MACs of the quarantined devices.
-	QuarantinedDeviceMacs []string `json:"quarantinedDeviceMacs,omitempty"`
-	// StartedAt is when the current target version was staged.
-	StartedAt *time.Time `json:"startedAt,omitempty"`
+	QuarantinedDeviceMacs []string `json:"quarantinedDeviceMacs"`
+	// Started is when the current target version was staged.
+	Started *time.Time `json:"started"`
 	// Complete is true only when every device in the queried set has reached the
 	// target with none pending and none quarantined.
 	Complete bool `json:"complete"`
@@ -175,24 +175,24 @@ type APICredentialRotationStatus struct {
 type APIDeviceCredentialRotationStatus struct {
 	// DeviceMac is the device this status describes.
 	DeviceMac string `json:"deviceMac"`
-	// CurrentVersion is the credential version live on the hardware. Omitted when
+	// CurrentVersion is the credential version live on the hardware. Null when
 	// not yet established, which counts as pending.
-	CurrentVersion *uint32 `json:"currentVersion,omitempty"`
+	CurrentVersion *uint32 `json:"currentVersion"`
 	// RotatingToVersion is set while a rotation is mid-flight on this device.
-	RotatingToVersion *uint32 `json:"rotatingToVersion,omitempty"`
+	RotatingToVersion *uint32 `json:"rotatingToVersion"`
 	// Converged is true once CurrentVersion reaches the site-wide target.
 	Converged bool `json:"converged"`
 	// Quarantined is true while the device is in a rotation backoff window.
 	Quarantined bool `json:"quarantined"`
 	// QuarantinedUntil is when the current backoff window expires; set only while
 	// quarantined.
-	QuarantinedUntil *time.Time `json:"quarantinedUntil,omitempty"`
+	QuarantinedUntil *time.Time `json:"quarantinedUntil"`
 	// RotateAttempts is the number of rotation attempts recorded for this device.
 	RotateAttempts uint32 `json:"rotateAttempts"`
-	// LastAttemptAt is when the last rotation attempt ran; omitted if none.
-	LastAttemptAt *time.Time `json:"lastAttemptAt,omitempty"`
+	// LastAttempted is when the last rotation attempt ran; null if none.
+	LastAttempted *time.Time `json:"lastAttempted"`
 	// LastError is a redacted last-error string for observability; never a secret.
-	LastError *string `json:"lastError,omitempty"`
+	LastError *string `json:"lastError"`
 }
 
 // FromProto populates the status from a forge.Forge
@@ -208,7 +208,7 @@ func (s *APICredentialRotationStatus) FromProto(p *corev1.CredentialRotationStat
 	s.QuarantinedDeviceMacs = p.GetQuarantinedDeviceMacs()
 	if ts := p.GetStartedAt(); ts != nil {
 		v := ts.AsTime().UTC()
-		s.StartedAt = &v
+		s.Started = &v
 	}
 	s.Complete = p.GetComplete()
 	if d := p.GetDevice(); d != nil {
@@ -242,7 +242,7 @@ func (d *APIDeviceCredentialRotationStatus) FromProto(p *corev1.DeviceCredential
 	d.RotateAttempts = p.GetRotateAttempts()
 	if ts := p.GetLastAttemptAt(); ts != nil {
 		v := ts.AsTime().UTC()
-		d.LastAttemptAt = &v
+		d.LastAttempted = &v
 	}
 	if p.LastError != nil {
 		v := p.GetLastError()

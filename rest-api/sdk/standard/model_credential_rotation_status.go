@@ -36,7 +36,7 @@ type CredentialRotationStatus struct {
 	// MAC addresses of the quarantined devices.
 	QuarantinedDeviceMacs []string `json:"quarantinedDeviceMacs,omitempty"`
 	// When the current target version was staged.
-	StartedAt *time.Time `json:"startedAt,omitempty"`
+	Started NullableTime `json:"started,omitempty"`
 	// True only when every device in the queried set has reached the target with none pending and none quarantined.
 	Complete bool                            `json:"complete"`
 	Device   *DeviceCredentialRotationStatus `json:"device,omitempty"`
@@ -162,9 +162,9 @@ func (o *CredentialRotationStatus) SetQuarantined(v int64) {
 	o.Quarantined = v
 }
 
-// GetQuarantinedDeviceMacs returns the QuarantinedDeviceMacs field value if set, zero value otherwise.
+// GetQuarantinedDeviceMacs returns the QuarantinedDeviceMacs field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *CredentialRotationStatus) GetQuarantinedDeviceMacs() []string {
-	if o == nil || IsNil(o.QuarantinedDeviceMacs) {
+	if o == nil {
 		var ret []string
 		return ret
 	}
@@ -173,6 +173,7 @@ func (o *CredentialRotationStatus) GetQuarantinedDeviceMacs() []string {
 
 // GetQuarantinedDeviceMacsOk returns a tuple with the QuarantinedDeviceMacs field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *CredentialRotationStatus) GetQuarantinedDeviceMacsOk() ([]string, bool) {
 	if o == nil || IsNil(o.QuarantinedDeviceMacs) {
 		return nil, false
@@ -194,36 +195,47 @@ func (o *CredentialRotationStatus) SetQuarantinedDeviceMacs(v []string) {
 	o.QuarantinedDeviceMacs = v
 }
 
-// GetStartedAt returns the StartedAt field value if set, zero value otherwise.
-func (o *CredentialRotationStatus) GetStartedAt() time.Time {
-	if o == nil || IsNil(o.StartedAt) {
+// GetStarted returns the Started field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *CredentialRotationStatus) GetStarted() time.Time {
+	if o == nil || IsNil(o.Started.Get()) {
 		var ret time.Time
 		return ret
 	}
-	return *o.StartedAt
+	return *o.Started.Get()
 }
 
-// GetStartedAtOk returns a tuple with the StartedAt field value if set, nil otherwise
+// GetStartedOk returns a tuple with the Started field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationStatus) GetStartedAtOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.StartedAt) {
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *CredentialRotationStatus) GetStartedOk() (*time.Time, bool) {
+	if o == nil {
 		return nil, false
 	}
-	return o.StartedAt, true
+	return o.Started.Get(), o.Started.IsSet()
 }
 
-// HasStartedAt returns a boolean if a field has been set.
-func (o *CredentialRotationStatus) HasStartedAt() bool {
-	if o != nil && !IsNil(o.StartedAt) {
+// HasStarted returns a boolean if a field has been set.
+func (o *CredentialRotationStatus) HasStarted() bool {
+	if o != nil && o.Started.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetStartedAt gets a reference to the given time.Time and assigns it to the StartedAt field.
-func (o *CredentialRotationStatus) SetStartedAt(v time.Time) {
-	o.StartedAt = &v
+// SetStarted gets a reference to the given NullableTime and assigns it to the Started field.
+func (o *CredentialRotationStatus) SetStarted(v time.Time) {
+	o.Started.Set(&v)
+}
+
+// SetStartedNil sets the value for Started to be an explicit nil
+func (o *CredentialRotationStatus) SetStartedNil() {
+	o.Started.Set(nil)
+}
+
+// UnsetStarted ensures that no value is present for Started, not even an explicit nil
+func (o *CredentialRotationStatus) UnsetStarted() {
+	o.Started.Unset()
 }
 
 // GetComplete returns the Complete field value
@@ -296,11 +308,11 @@ func (o CredentialRotationStatus) ToMap() (map[string]interface{}, error) {
 	toSerialize["converged"] = o.Converged
 	toSerialize["pending"] = o.Pending
 	toSerialize["quarantined"] = o.Quarantined
-	if !IsNil(o.QuarantinedDeviceMacs) {
+	if o.QuarantinedDeviceMacs != nil {
 		toSerialize["quarantinedDeviceMacs"] = o.QuarantinedDeviceMacs
 	}
-	if !IsNil(o.StartedAt) {
-		toSerialize["startedAt"] = o.StartedAt
+	if o.Started.IsSet() {
+		toSerialize["started"] = o.Started.Get()
 	}
 	toSerialize["complete"] = o.Complete
 	if !IsNil(o.Device) {

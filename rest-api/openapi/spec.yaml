@@ -14429,8 +14429,10 @@ components:
           type: integer
           format: int64
           description: Newly published site-wide target version that devices converge to.
-        startedAt:
-          type: string
+        started:
+          type:
+            - string
+            - 'null'
           format: date-time
           description: When the rotation was staged.
     CredentialRotationStatus:
@@ -14461,12 +14463,16 @@ components:
           format: int64
           description: Number of devices currently in a rotation backoff window.
         quarantinedDeviceMacs:
-          type: array
+          type:
+            - array
+            - 'null'
           items:
             type: string
           description: MAC addresses of the quarantined devices.
-        startedAt:
-          type: string
+        started:
+          type:
+            - string
+            - 'null'
           format: date-time
           description: When the current target version was staged.
         complete:
@@ -14488,11 +14494,15 @@ components:
           type: string
           description: The device this status describes.
         currentVersion:
-          type: integer
+          type:
+            - integer
+            - 'null'
           format: int64
-          description: Credential version live on the hardware. Omitted when not yet established.
+          description: Credential version live on the hardware. Null when not yet established.
         rotatingToVersion:
-          type: integer
+          type:
+            - integer
+            - 'null'
           format: int64
           description: Set while a rotation is mid-flight on this device.
         converged:
@@ -14502,19 +14512,25 @@ components:
           type: boolean
           description: True while the device is in a rotation backoff window.
         quarantinedUntil:
-          type: string
+          type:
+            - string
+            - 'null'
           format: date-time
           description: When the current backoff window expires; set only while quarantined.
         rotateAttempts:
           type: integer
           format: int64
           description: Number of rotation attempts recorded for this device.
-        lastAttemptAt:
-          type: string
+        lastAttempted:
+          type:
+            - string
+            - 'null'
           format: date-time
-          description: When the last rotation attempt ran; omitted if none.
+          description: When the last rotation attempt ran; null if none.
         lastError:
-          type: string
+          type:
+            - string
+            - 'null'
           description: Redacted last-error string for observability; never a secret.
     SiteExplorerEndpointActionRequest:
       type: object

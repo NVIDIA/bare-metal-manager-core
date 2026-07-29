@@ -27,22 +27,22 @@ var _ MappedNullable = &DeviceCredentialRotationStatus{}
 type DeviceCredentialRotationStatus struct {
 	// The device this status describes.
 	DeviceMac string `json:"deviceMac"`
-	// Credential version live on the hardware. Omitted when not yet established.
-	CurrentVersion *int64 `json:"currentVersion,omitempty"`
+	// Credential version live on the hardware. Null when not yet established.
+	CurrentVersion NullableInt64 `json:"currentVersion,omitempty"`
 	// Set while a rotation is mid-flight on this device.
-	RotatingToVersion *int64 `json:"rotatingToVersion,omitempty"`
+	RotatingToVersion NullableInt64 `json:"rotatingToVersion,omitempty"`
 	// True once the current version reaches the site-wide target.
 	Converged bool `json:"converged"`
 	// True while the device is in a rotation backoff window.
 	Quarantined bool `json:"quarantined"`
 	// When the current backoff window expires; set only while quarantined.
-	QuarantinedUntil *time.Time `json:"quarantinedUntil,omitempty"`
+	QuarantinedUntil NullableTime `json:"quarantinedUntil,omitempty"`
 	// Number of rotation attempts recorded for this device.
 	RotateAttempts int64 `json:"rotateAttempts"`
-	// When the last rotation attempt ran; omitted if none.
-	LastAttemptAt *time.Time `json:"lastAttemptAt,omitempty"`
+	// When the last rotation attempt ran; null if none.
+	LastAttempted NullableTime `json:"lastAttempted,omitempty"`
 	// Redacted last-error string for observability; never a secret.
-	LastError *string `json:"lastError,omitempty"`
+	LastError NullableString `json:"lastError,omitempty"`
 }
 
 type _DeviceCredentialRotationStatus DeviceCredentialRotationStatus
@@ -92,68 +92,90 @@ func (o *DeviceCredentialRotationStatus) SetDeviceMac(v string) {
 	o.DeviceMac = v
 }
 
-// GetCurrentVersion returns the CurrentVersion field value if set, zero value otherwise.
+// GetCurrentVersion returns the CurrentVersion field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *DeviceCredentialRotationStatus) GetCurrentVersion() int64 {
-	if o == nil || IsNil(o.CurrentVersion) {
+	if o == nil || IsNil(o.CurrentVersion.Get()) {
 		var ret int64
 		return ret
 	}
-	return *o.CurrentVersion
+	return *o.CurrentVersion.Get()
 }
 
 // GetCurrentVersionOk returns a tuple with the CurrentVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *DeviceCredentialRotationStatus) GetCurrentVersionOk() (*int64, bool) {
-	if o == nil || IsNil(o.CurrentVersion) {
+	if o == nil {
 		return nil, false
 	}
-	return o.CurrentVersion, true
+	return o.CurrentVersion.Get(), o.CurrentVersion.IsSet()
 }
 
 // HasCurrentVersion returns a boolean if a field has been set.
 func (o *DeviceCredentialRotationStatus) HasCurrentVersion() bool {
-	if o != nil && !IsNil(o.CurrentVersion) {
+	if o != nil && o.CurrentVersion.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetCurrentVersion gets a reference to the given int64 and assigns it to the CurrentVersion field.
+// SetCurrentVersion gets a reference to the given NullableInt64 and assigns it to the CurrentVersion field.
 func (o *DeviceCredentialRotationStatus) SetCurrentVersion(v int64) {
-	o.CurrentVersion = &v
+	o.CurrentVersion.Set(&v)
 }
 
-// GetRotatingToVersion returns the RotatingToVersion field value if set, zero value otherwise.
+// SetCurrentVersionNil sets the value for CurrentVersion to be an explicit nil
+func (o *DeviceCredentialRotationStatus) SetCurrentVersionNil() {
+	o.CurrentVersion.Set(nil)
+}
+
+// UnsetCurrentVersion ensures that no value is present for CurrentVersion, not even an explicit nil
+func (o *DeviceCredentialRotationStatus) UnsetCurrentVersion() {
+	o.CurrentVersion.Unset()
+}
+
+// GetRotatingToVersion returns the RotatingToVersion field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *DeviceCredentialRotationStatus) GetRotatingToVersion() int64 {
-	if o == nil || IsNil(o.RotatingToVersion) {
+	if o == nil || IsNil(o.RotatingToVersion.Get()) {
 		var ret int64
 		return ret
 	}
-	return *o.RotatingToVersion
+	return *o.RotatingToVersion.Get()
 }
 
 // GetRotatingToVersionOk returns a tuple with the RotatingToVersion field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *DeviceCredentialRotationStatus) GetRotatingToVersionOk() (*int64, bool) {
-	if o == nil || IsNil(o.RotatingToVersion) {
+	if o == nil {
 		return nil, false
 	}
-	return o.RotatingToVersion, true
+	return o.RotatingToVersion.Get(), o.RotatingToVersion.IsSet()
 }
 
 // HasRotatingToVersion returns a boolean if a field has been set.
 func (o *DeviceCredentialRotationStatus) HasRotatingToVersion() bool {
-	if o != nil && !IsNil(o.RotatingToVersion) {
+	if o != nil && o.RotatingToVersion.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetRotatingToVersion gets a reference to the given int64 and assigns it to the RotatingToVersion field.
+// SetRotatingToVersion gets a reference to the given NullableInt64 and assigns it to the RotatingToVersion field.
 func (o *DeviceCredentialRotationStatus) SetRotatingToVersion(v int64) {
-	o.RotatingToVersion = &v
+	o.RotatingToVersion.Set(&v)
+}
+
+// SetRotatingToVersionNil sets the value for RotatingToVersion to be an explicit nil
+func (o *DeviceCredentialRotationStatus) SetRotatingToVersionNil() {
+	o.RotatingToVersion.Set(nil)
+}
+
+// UnsetRotatingToVersion ensures that no value is present for RotatingToVersion, not even an explicit nil
+func (o *DeviceCredentialRotationStatus) UnsetRotatingToVersion() {
+	o.RotatingToVersion.Unset()
 }
 
 // GetConverged returns the Converged field value
@@ -204,36 +226,47 @@ func (o *DeviceCredentialRotationStatus) SetQuarantined(v bool) {
 	o.Quarantined = v
 }
 
-// GetQuarantinedUntil returns the QuarantinedUntil field value if set, zero value otherwise.
+// GetQuarantinedUntil returns the QuarantinedUntil field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *DeviceCredentialRotationStatus) GetQuarantinedUntil() time.Time {
-	if o == nil || IsNil(o.QuarantinedUntil) {
+	if o == nil || IsNil(o.QuarantinedUntil.Get()) {
 		var ret time.Time
 		return ret
 	}
-	return *o.QuarantinedUntil
+	return *o.QuarantinedUntil.Get()
 }
 
 // GetQuarantinedUntilOk returns a tuple with the QuarantinedUntil field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *DeviceCredentialRotationStatus) GetQuarantinedUntilOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.QuarantinedUntil) {
+	if o == nil {
 		return nil, false
 	}
-	return o.QuarantinedUntil, true
+	return o.QuarantinedUntil.Get(), o.QuarantinedUntil.IsSet()
 }
 
 // HasQuarantinedUntil returns a boolean if a field has been set.
 func (o *DeviceCredentialRotationStatus) HasQuarantinedUntil() bool {
-	if o != nil && !IsNil(o.QuarantinedUntil) {
+	if o != nil && o.QuarantinedUntil.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetQuarantinedUntil gets a reference to the given time.Time and assigns it to the QuarantinedUntil field.
+// SetQuarantinedUntil gets a reference to the given NullableTime and assigns it to the QuarantinedUntil field.
 func (o *DeviceCredentialRotationStatus) SetQuarantinedUntil(v time.Time) {
-	o.QuarantinedUntil = &v
+	o.QuarantinedUntil.Set(&v)
+}
+
+// SetQuarantinedUntilNil sets the value for QuarantinedUntil to be an explicit nil
+func (o *DeviceCredentialRotationStatus) SetQuarantinedUntilNil() {
+	o.QuarantinedUntil.Set(nil)
+}
+
+// UnsetQuarantinedUntil ensures that no value is present for QuarantinedUntil, not even an explicit nil
+func (o *DeviceCredentialRotationStatus) UnsetQuarantinedUntil() {
+	o.QuarantinedUntil.Unset()
 }
 
 // GetRotateAttempts returns the RotateAttempts field value
@@ -260,68 +293,90 @@ func (o *DeviceCredentialRotationStatus) SetRotateAttempts(v int64) {
 	o.RotateAttempts = v
 }
 
-// GetLastAttemptAt returns the LastAttemptAt field value if set, zero value otherwise.
-func (o *DeviceCredentialRotationStatus) GetLastAttemptAt() time.Time {
-	if o == nil || IsNil(o.LastAttemptAt) {
+// GetLastAttempted returns the LastAttempted field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *DeviceCredentialRotationStatus) GetLastAttempted() time.Time {
+	if o == nil || IsNil(o.LastAttempted.Get()) {
 		var ret time.Time
 		return ret
 	}
-	return *o.LastAttemptAt
+	return *o.LastAttempted.Get()
 }
 
-// GetLastAttemptAtOk returns a tuple with the LastAttemptAt field value if set, nil otherwise
+// GetLastAttemptedOk returns a tuple with the LastAttempted field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *DeviceCredentialRotationStatus) GetLastAttemptAtOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.LastAttemptAt) {
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *DeviceCredentialRotationStatus) GetLastAttemptedOk() (*time.Time, bool) {
+	if o == nil {
 		return nil, false
 	}
-	return o.LastAttemptAt, true
+	return o.LastAttempted.Get(), o.LastAttempted.IsSet()
 }
 
-// HasLastAttemptAt returns a boolean if a field has been set.
-func (o *DeviceCredentialRotationStatus) HasLastAttemptAt() bool {
-	if o != nil && !IsNil(o.LastAttemptAt) {
+// HasLastAttempted returns a boolean if a field has been set.
+func (o *DeviceCredentialRotationStatus) HasLastAttempted() bool {
+	if o != nil && o.LastAttempted.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetLastAttemptAt gets a reference to the given time.Time and assigns it to the LastAttemptAt field.
-func (o *DeviceCredentialRotationStatus) SetLastAttemptAt(v time.Time) {
-	o.LastAttemptAt = &v
+// SetLastAttempted gets a reference to the given NullableTime and assigns it to the LastAttempted field.
+func (o *DeviceCredentialRotationStatus) SetLastAttempted(v time.Time) {
+	o.LastAttempted.Set(&v)
 }
 
-// GetLastError returns the LastError field value if set, zero value otherwise.
+// SetLastAttemptedNil sets the value for LastAttempted to be an explicit nil
+func (o *DeviceCredentialRotationStatus) SetLastAttemptedNil() {
+	o.LastAttempted.Set(nil)
+}
+
+// UnsetLastAttempted ensures that no value is present for LastAttempted, not even an explicit nil
+func (o *DeviceCredentialRotationStatus) UnsetLastAttempted() {
+	o.LastAttempted.Unset()
+}
+
+// GetLastError returns the LastError field value if set, zero value otherwise (both if not set or set to explicit null).
 func (o *DeviceCredentialRotationStatus) GetLastError() string {
-	if o == nil || IsNil(o.LastError) {
+	if o == nil || IsNil(o.LastError.Get()) {
 		var ret string
 		return ret
 	}
-	return *o.LastError
+	return *o.LastError.Get()
 }
 
 // GetLastErrorOk returns a tuple with the LastError field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
 func (o *DeviceCredentialRotationStatus) GetLastErrorOk() (*string, bool) {
-	if o == nil || IsNil(o.LastError) {
+	if o == nil {
 		return nil, false
 	}
-	return o.LastError, true
+	return o.LastError.Get(), o.LastError.IsSet()
 }
 
 // HasLastError returns a boolean if a field has been set.
 func (o *DeviceCredentialRotationStatus) HasLastError() bool {
-	if o != nil && !IsNil(o.LastError) {
+	if o != nil && o.LastError.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetLastError gets a reference to the given string and assigns it to the LastError field.
+// SetLastError gets a reference to the given NullableString and assigns it to the LastError field.
 func (o *DeviceCredentialRotationStatus) SetLastError(v string) {
-	o.LastError = &v
+	o.LastError.Set(&v)
+}
+
+// SetLastErrorNil sets the value for LastError to be an explicit nil
+func (o *DeviceCredentialRotationStatus) SetLastErrorNil() {
+	o.LastError.Set(nil)
+}
+
+// UnsetLastError ensures that no value is present for LastError, not even an explicit nil
+func (o *DeviceCredentialRotationStatus) UnsetLastError() {
+	o.LastError.Unset()
 }
 
 func (o DeviceCredentialRotationStatus) MarshalJSON() ([]byte, error) {
@@ -335,23 +390,23 @@ func (o DeviceCredentialRotationStatus) MarshalJSON() ([]byte, error) {
 func (o DeviceCredentialRotationStatus) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["deviceMac"] = o.DeviceMac
-	if !IsNil(o.CurrentVersion) {
-		toSerialize["currentVersion"] = o.CurrentVersion
+	if o.CurrentVersion.IsSet() {
+		toSerialize["currentVersion"] = o.CurrentVersion.Get()
 	}
-	if !IsNil(o.RotatingToVersion) {
-		toSerialize["rotatingToVersion"] = o.RotatingToVersion
+	if o.RotatingToVersion.IsSet() {
+		toSerialize["rotatingToVersion"] = o.RotatingToVersion.Get()
 	}
 	toSerialize["converged"] = o.Converged
 	toSerialize["quarantined"] = o.Quarantined
-	if !IsNil(o.QuarantinedUntil) {
-		toSerialize["quarantinedUntil"] = o.QuarantinedUntil
+	if o.QuarantinedUntil.IsSet() {
+		toSerialize["quarantinedUntil"] = o.QuarantinedUntil.Get()
 	}
 	toSerialize["rotateAttempts"] = o.RotateAttempts
-	if !IsNil(o.LastAttemptAt) {
-		toSerialize["lastAttemptAt"] = o.LastAttemptAt
+	if o.LastAttempted.IsSet() {
+		toSerialize["lastAttempted"] = o.LastAttempted.Get()
 	}
-	if !IsNil(o.LastError) {
-		toSerialize["lastError"] = o.LastError
+	if o.LastError.IsSet() {
+		toSerialize["lastError"] = o.LastError.Get()
 	}
 	return toSerialize, nil
 }

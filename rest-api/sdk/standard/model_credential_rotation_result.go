@@ -30,7 +30,7 @@ type CredentialRotationResult struct {
 	// Newly published site-wide target version that devices converge to.
 	TargetVersion int64 `json:"targetVersion"`
 	// When the rotation was staged.
-	StartedAt *time.Time `json:"startedAt,omitempty"`
+	Started NullableTime `json:"started,omitempty"`
 }
 
 type _CredentialRotationResult CredentialRotationResult
@@ -102,36 +102,47 @@ func (o *CredentialRotationResult) SetTargetVersion(v int64) {
 	o.TargetVersion = v
 }
 
-// GetStartedAt returns the StartedAt field value if set, zero value otherwise.
-func (o *CredentialRotationResult) GetStartedAt() time.Time {
-	if o == nil || IsNil(o.StartedAt) {
+// GetStarted returns the Started field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *CredentialRotationResult) GetStarted() time.Time {
+	if o == nil || IsNil(o.Started.Get()) {
 		var ret time.Time
 		return ret
 	}
-	return *o.StartedAt
+	return *o.Started.Get()
 }
 
-// GetStartedAtOk returns a tuple with the StartedAt field value if set, nil otherwise
+// GetStartedOk returns a tuple with the Started field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *CredentialRotationResult) GetStartedAtOk() (*time.Time, bool) {
-	if o == nil || IsNil(o.StartedAt) {
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *CredentialRotationResult) GetStartedOk() (*time.Time, bool) {
+	if o == nil {
 		return nil, false
 	}
-	return o.StartedAt, true
+	return o.Started.Get(), o.Started.IsSet()
 }
 
-// HasStartedAt returns a boolean if a field has been set.
-func (o *CredentialRotationResult) HasStartedAt() bool {
-	if o != nil && !IsNil(o.StartedAt) {
+// HasStarted returns a boolean if a field has been set.
+func (o *CredentialRotationResult) HasStarted() bool {
+	if o != nil && o.Started.IsSet() {
 		return true
 	}
 
 	return false
 }
 
-// SetStartedAt gets a reference to the given time.Time and assigns it to the StartedAt field.
-func (o *CredentialRotationResult) SetStartedAt(v time.Time) {
-	o.StartedAt = &v
+// SetStarted gets a reference to the given NullableTime and assigns it to the Started field.
+func (o *CredentialRotationResult) SetStarted(v time.Time) {
+	o.Started.Set(&v)
+}
+
+// SetStartedNil sets the value for Started to be an explicit nil
+func (o *CredentialRotationResult) SetStartedNil() {
+	o.Started.Set(nil)
+}
+
+// UnsetStarted ensures that no value is present for Started, not even an explicit nil
+func (o *CredentialRotationResult) UnsetStarted() {
+	o.Started.Unset()
 }
 
 func (o CredentialRotationResult) MarshalJSON() ([]byte, error) {
@@ -146,8 +157,8 @@ func (o CredentialRotationResult) ToMap() (map[string]interface{}, error) {
 	toSerialize := map[string]interface{}{}
 	toSerialize["credentialType"] = o.CredentialType
 	toSerialize["targetVersion"] = o.TargetVersion
-	if !IsNil(o.StartedAt) {
-		toSerialize["startedAt"] = o.StartedAt
+	if o.Started.IsSet() {
+		toSerialize["started"] = o.Started.Get()
 	}
 	return toSerialize, nil
 }

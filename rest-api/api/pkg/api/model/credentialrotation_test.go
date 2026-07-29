@@ -123,8 +123,8 @@ func TestAPICredentialRotationResultFromProto(t *testing.T) {
 	})
 	assert.Equal(t, CredentialRotationTypeBMC, result.CredentialType)
 	assert.Equal(t, uint32(7), result.TargetVersion)
-	require.NotNil(t, result.StartedAt)
-	assert.WithinDuration(t, started, *result.StartedAt, time.Second)
+	require.NotNil(t, result.Started)
+	assert.WithinDuration(t, started, *result.Started, time.Second)
 
 	// A response body must never surface a password field.
 	body, err := json.Marshal(result)
@@ -161,7 +161,7 @@ func TestAPICredentialRotationStatusFromProto(t *testing.T) {
 	assert.Equal(t, uint64(2), status.Pending)
 	assert.Equal(t, uint64(1), status.Quarantined)
 	assert.Equal(t, []string{"aa:bb:cc:dd:ee:ff"}, status.QuarantinedDeviceMacs)
-	require.NotNil(t, status.StartedAt)
+	require.NotNil(t, status.Started)
 	assert.False(t, status.Complete)
 
 	require.NotNil(t, status.Device)
@@ -172,7 +172,7 @@ func TestAPICredentialRotationStatusFromProto(t *testing.T) {
 	assert.True(t, status.Device.Quarantined)
 	require.NotNil(t, status.Device.QuarantinedUntil)
 	assert.Equal(t, uint32(4), status.Device.RotateAttempts)
-	require.NotNil(t, status.Device.LastAttemptAt)
+	require.NotNil(t, status.Device.LastAttempted)
 	require.NotNil(t, status.Device.LastError)
 	assert.Equal(t, "redacted login failure", *status.Device.LastError)
 }
@@ -187,5 +187,5 @@ func TestAPICredentialRotationStatusFromProtoSiteWide(t *testing.T) {
 	})
 	assert.True(t, status.Complete)
 	assert.Nil(t, status.Device)
-	assert.Nil(t, status.StartedAt)
+	assert.Nil(t, status.Started)
 }
