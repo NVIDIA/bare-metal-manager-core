@@ -84,7 +84,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "More than 10 network segments stuck above SLA"
+            summary: "At least 10 network segments stuck above SLA"
 
         - alert: NicoNetworkSegmentsStuckWarning
           expr: |
@@ -102,7 +102,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "More than 10 IB partitions stuck above SLA"
+            summary: "At least 10 IB partitions stuck above SLA"
 
         - alert: NicoIBPartitionsStuckWarning
           expr: |

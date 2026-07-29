@@ -34,7 +34,7 @@ the `# TYPE` metadata to determine the actual metric type.
 
 NICo metrics fall into several categories, each answering different operational questions.
 
-### 2.1 State lifecycle: "Are machines progressing normally?"
+### State lifecycle: "Are machines progressing normally?"
 
 The state controller is the heart of NICo's lifecycle management. It tracks machines,
 network segments, IB partitions and other objects through their lifecycle states. For
@@ -51,7 +51,7 @@ Related metrics include `carbide_<object>_per_state` (current count per state),
 `carbide_<object>_state_time_in_state_seconds` (histogram of time spent) and
 `carbide_<object>_state_handler_errors_total` (processing failures).
 
-### 2.2 Capacity: "How much headroom do we have?"
+### Capacity: "How much headroom do we have?"
 
 Capacity metrics answer whether you can accept new workloads. The machine controller
 exposes `carbide_hosts_usable_count` and `carbide_gpus_usable_count` showing hosts and
@@ -62,7 +62,7 @@ For multi-tenant deployments, `carbide_resource_pool_*` metrics break down capac
 resource pool. Watch for pools approaching zero availability before tenants start seeing
 allocation failures.
 
-### 2.3 Health: "What's broken right now?"
+### Health: "What's broken right now?"
 
 Health metrics reveal infrastructure problems. The machine controller exposes
 `carbide_hosts_health_status_count` and `carbide_dpus_healthy_count` / `carbide_dpus_up_count`
@@ -77,21 +77,21 @@ DPU health is tracked separately with `carbide_dpus_*` metrics showing total, on
 healthy counts. A gap between online and healthy indicates DPUs that are reachable but
 failing health checks.
 
-### 2.4 Discovery: "Is site explorer finding everything?"
+### Discovery: "Is site explorer finding everything?"
 
 Site explorer continuously discovers infrastructure. The `carbide_site_explorer_*` metrics
 show discovery status, result counts and any mismatches between expected and actual
 inventory. Rising error counts or stale discovery timestamps indicate connectivity issues
 with BMCs or switches.
 
-### 2.5 Firmware management
+### Firmware management
 
 Firmware update metrics track the upgrade queue and active operations.
 `carbide_firmware_queue_length` shows pending updates while
 `carbide_firmware_active_updates` shows concurrent operations. The pre-ingestion manager
 metrics (`carbide_preingestion_*`) track firmware image preparation.
 
-### 2.6 API performance
+### API performance
 
 The nico-api exposes detailed request metrics. `carbide_api_grpc_server_duration_milliseconds`
 is a histogram of request latency by method. Watch p95 and p99 for SLO monitoring.
@@ -102,25 +102,27 @@ utilization. Low idle connections or high wait times indicate database contentio
 Vault metrics (`carbide_api_vault_requests_*`) track secret management operations. Failures
 here cascade to certificate issuance and machine provisioning.
 
-### 2.7 Hardware health service
+### Hardware health service
 
 The nico-hardware-health component has two separate endpoints. The `/metrics` endpoint
 exposes service-level metrics (probe success rates, scrape latency). The `/telemetry`
 endpoint exposes raw sensor readings (temperatures, power, fan speeds) collected via
 Redfish from BMCs.
 
+<Tip>
 The telemetry endpoint is high-cardinality due to per-sensor labels. Enable it only when
 your metrics backend can handle the volume and you need sensor-level visibility.
+</Tip>
 
-### 2.8 Network services
+### Network services
 
 Supporting services expose their own metrics. nico-dhcp tracks lease operations and
 request handling. nico-dns exposes query rates and resolution latency.
 
-### 2.9 Console services
+### Console services
 
 nico-ssh-console-rs exposes `carbide_ssh_console_*` metrics for BMC connection counts,
-session durations and error rates. Useful for debugging console access issues.
+session durations and error rates. This is useful for debugging console access issues.
 
 ## 3. Collection architecture
 
@@ -140,7 +142,7 @@ flowchart LR
     D -->|OTLP/HTTP| E
 ```
 
-### 3.1 ServiceMonitor configuration
+### ServiceMonitor configuration
 
 NICo Helm charts include ServiceMonitor resources for Prometheus Operator environments.
 This requires Prometheus Operator CRDs to be installed in the cluster. Enable ServiceMonitors
@@ -162,15 +164,17 @@ telemetryServiceMonitor:
   enabled: false       # /telemetry endpoint (high cardinality)
 ```
 
-### 3.2 OTel Collector configuration
+### OTel Collector configuration
 
 Configure the prometheus receiver for Kubernetes service discovery. This example scrapes
 only the `/metrics` endpoint. For nico-hardware-health `/telemetry` (high-cardinality
 sensor data), add a separate scrape job targeting the `telemetry` port name.
 
-> **Note:** If running as a DaemonSet, each replica will independently discover and scrape
-> all targets, duplicating samples. For DaemonSet deployments implement target
-> allocation/sharding via the [Target Allocator](https://opentelemetry.io/docs/kubernetes/operator/target-allocator/).
+<Note>
+If running as a DaemonSet, each replica will independently discover and scrape
+all targets, duplicating samples. For DaemonSet deployments, implement target
+allocation/sharding via the [Target Allocator](https://opentelemetry.io/docs/kubernetes/operator/target-allocator/).
+</Note>
 
 ```yaml
 receivers:
@@ -214,9 +218,9 @@ NICo ships three Grafana dashboards in the Helm chart at `helm/observability/das
 Import these JSON files into your Grafana instance or enable the Helm chart's dashboard
 provisioning.
 
-### 4.1 Site overview (`nico-overview.json`)
+### Site overview dashboard
 
-The main operational dashboard showing fleet status at a glance:
+The site overview (`nico-overview.json`) is the main operational dashboard showing fleet status at a glance:
 
 **Service and site health** - API status indicator (READY/DOWN), running version with Git SHA,
 unhealthy host count, DPU online and healthy counts. These stat panels give immediate
@@ -235,10 +239,11 @@ machines in transitional states that may need attention.
 which health check is failing and what impact it has (PreventAllocations,
 PreventHostStateChanges, etc.).
 
-### 4.2 Object lifecycle (`nico-lifecycle.json`)
+### Object lifecycle dashboard
 
-Deep dive into state machine behavior for any object type (machines, network segments,
-IB partitions). Uses a `$object_type` variable to switch between types.
+The object lifecycle board (`nico-lifecycle.json`) provides a deep dive
+into state machine behavior for any object type (machines, network segments,
+IB partitions). Uses an `$object_type` variable to switch between types.
 
 **Current state** - Object count, objects above SLA, current handling errors. The "above SLA"
 panel is key - any non-zero value indicates stuck objects.
@@ -258,9 +263,10 @@ state before transition p95. Shows whether the system is keeping up with demand.
 **Controller work rate** - Iteration rate and latency for the state controller loop. High
 latency here suggests database or processing bottlenecks.
 
-### 4.3 API performance (`nico-api-performance.json`)
+### API performance dashboard
 
-Control plane health and performance metrics:
+The API performance dashboard (`nico-api-performance.json`) tracks
+control plane health and performance metrics:
 
 **Request summary** - API status, request rate, p95 latency, gRPC error rate. Top-level
 indicators for SLO monitoring.
@@ -274,7 +280,7 @@ contention is a common cause of API slowdowns.
 **Vault and transport** - Vault request rates, token refresh timing, TLS connection counts.
 Catches secret management issues before they cause auth failures.
 
-### 4.4 Deploying dashboards
+### Deploying dashboards
 
 **Option A: Helm provisioning (recommended)**
 
@@ -304,7 +310,7 @@ The prefix defaults to `carbide_` (NICo's current emission prefix). If your site
 
 ## 5. Troubleshooting
 
-### 5.1 Missing metrics
+### Missing metrics
 
 If a component's metrics aren't appearing in your backend, first verify the endpoint works:
 
@@ -323,7 +329,7 @@ kubectl logs -n monitoring -l app.kubernetes.io/name=opentelemetry-collector | g
 Common causes: ServiceMonitor labels don't match, scrape config namespace wrong, network
 policy blocking scrape, exporter authentication failure.
 
-### 5.2 High cardinality
+### High cardinality
 
 If your metrics backend is growing rapidly or queries are slow, you may have high-cardinality
 metrics. Hardware telemetry (`/telemetry` endpoint) is the most common culprit due to
@@ -335,7 +341,7 @@ Solutions:
 - Add recording rules to aggregate before storage
 - Filter high-cardinality labels in the collector
 
-### 5.3 Stale metrics
+### Stale metrics
 
 If metrics show old values, check that the scrape target is healthy and the endpoint isn't
 hanging. Use `kubectl describe servicemonitor` to verify scrape configuration. If endpoints

@@ -4,7 +4,7 @@ This document defines critical metrics for alerting, recommended thresholds and 
 alert rules for monitoring NICo deployments. For metrics exposure and collection
 details, see [metrics.md](metrics.md).
 
-## NOTE: Alert rule format
+## Alert rule format
 
 NICo alerts use the Prometheus-compatible alerting rule format.
 The same rule body (groups, alert names, `expr`, `for`, `labels`, `annotations`) works
@@ -15,7 +15,7 @@ with both backends:
 
 All expressions, thresholds and annotations in this document are backend-neutral.
 
-## NOTE: Threshold ownership
+## Threshold ownership
 
 NICo is not the source of truth for hardware alert thresholds.
 The Baseboard Management Controller (BMC) on each server defines raw
@@ -34,7 +34,7 @@ makes an individual host "unhealthy" at the sensor level.
 
 The following thresholds are validated in production NICo deployments:
 
-### 1.1 Host health
+### Host health
 
 Alert when more than 10% of hosts are unhealthy, excluding hosts with `SuppressExternalAlerting`
 classification. Only applies to sites with more than 40 machines.
@@ -43,7 +43,7 @@ classification. Only applies to sites with more than 40 machines.
 |--------|-----------|----------|
 | Hosts unhealthy | > 10% (excluding suppressed) | 5m |
 
-### 1.2 IP capacity
+### IP capacity
 
 Use percentage-based thresholds for IP availability, not absolute counts.
 
@@ -51,21 +51,21 @@ Use percentage-based thresholds for IP availability, not absolute counts.
 |--------|-----------|----------|
 | Available IPs | < 15% for a given IP type | 60m |
 
-### 1.3 Machines stuck above SLA
+### Machines stuck above SLA
 
 | Severity | Threshold | Duration |
 |----------|-----------|----------|
 | Warning | < 10% stuck in assigned state | 30m |
 | Critical | >= 10% stuck in assigned state | 30m |
 
-### 1.4 Network segments / IB partitions stuck above SLA
+### Network segments / IB partitions stuck above SLA
 
 | Severity | Threshold | Duration |
 |----------|-----------|----------|
 | Warning |  < 10 stuck | 60m |
 | Critical | >= 10 stuck | 60m |
 
-### 1.5 State-handler latency
+### State-handler latency
 
 Alert when average iteration latency exceeds the threshold.
 
@@ -75,18 +75,18 @@ Alert when average iteration latency exceeds the threshold.
 
 Applies to machine, network-segment and IB-partition state handlers.
 
-### 1.6 API availability
+### API availability
 
 | Alert | Expression | Duration |
 |-------|------------|----------|
 | NicoAPIDown | `max(carbide_api_ready) == 0 or absent(carbide_api_ready)` | 15m |
 | NicoAPIFluctuating | `changes(carbide_api_ready[15m]) > 5` | 15m |
 
-### 1.7 DPU metrics
+### DPU metrics
 
-| Alert | Condition | Duration | Severity |
-|-------|-----------|----------|----------|
-| DPU metrics missing | Scrape target down or absent | 10m | warning |
+| Alert | Condition | Duration |
+|-------|-----------|----------|
+| DPU metrics missing | Scrape target down or absent | 10m |
 
 ## 2. SLO targets
 
