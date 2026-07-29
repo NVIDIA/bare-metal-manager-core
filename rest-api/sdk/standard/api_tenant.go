@@ -40,7 +40,7 @@ GetCurrentTenant Retrieve Tenant for current Org
 
 Retrieve Tenant entity for current Org.
 
-`capabilities.targetedInstanceCreation` is a read-only aggregate: it is `true` when any Ready Tenant Account for this Tenant has TargetedInstanceCreation enabled in its configuration. Configure the capability via PATCH `/tenant/account/{accountId}` using `siteCapabilities`.
+`capabilities.targetedInstanceCreation` is a deprecated read-only aggregate: it is `true` when all Ready Tenant Account for this Tenant has TargetedInstanceCreation enabled in its configuration to preserve backwards compatibility. Configure the capability per Provider/per Site via PATCH `/tenant/account/{accountId}` using `siteCapabilities`. Disallowing at Provider or Site level would result in no value returned here.
 
 User must have authorization role with `TENANT_ADMIN` suffix.
 

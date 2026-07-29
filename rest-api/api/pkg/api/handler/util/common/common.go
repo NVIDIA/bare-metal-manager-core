@@ -57,6 +57,7 @@ const (
 	// to machine status.
 	MachineHealthStatusHealthy   = "healthy"
 	MachineHealthStatusUnhealthy = "unhealthy"
+	TargetedInstanceCreationKey  = "targetedInstanceCreation"
 )
 
 var (
@@ -1536,6 +1537,50 @@ type TenantPrivilegeScope struct {
 	SiteID                   *uuid.UUID
 }
 
+// TenantHasLegacyTargetedInstanceCreation reports whether the deprecated
+// Tenant.capabilities.targetedInstanceCreation compatibility field may be
+// returned as true. It requires at least one Ready TenantAccount, every Ready
+// TenantAccount default to be enabled, and no explicit TenantSite override to
+// disable the capability.
+//
+// This coarse aggregate is for response compatibility only. Authorization must
+// use TenantHasTargetedInstanceCreation with an explicit Provider or Site scope.
+func TenantHasLegacyTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant) (bool, error) {
+	if tenant == nil {
+		return false, nil
+	}
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		Statuses:  []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		return false, err
+	}
+	if len(tas) == 0 {
+		return false, nil
+	}
+
+	for _, ta := range tas {
+		if !ta.Config.TargetedInstanceCreation {
+			return false, nil
+		}
+	}
+
+	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+	disabledSites, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		ConfigKey: cutil.GetPtr(TargetedInstanceCreationKey),
+		ConfigVal: cutil.GetPtr("false"),
+	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+	if err != nil {
+		return false, err
+	}
+
+	return len(disabledSites) == 0, nil
+}
+
 // TenantHasTargetedInstanceCreation reports whether the Tenant has the
 // TargetedInstanceCreation capability enabled within the given scope. It is
 // nil-safe so callers don't have to repeat the tenant nil check, and it
@@ -1581,7 +1626,7 @@ func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSessio
 			if ts.Site != nil {
 				providerID = &ts.Site.InfrastructureProviderID
 			} else {
-				return false, errors.New("site not found for TenantSite, unable to evaluate targeted instance creation capability")
+				return false, errors.New("failed to retrieve related Site for Tenant/Site association, DB error")
 			}
 			// This will ensure TenantAccount is ready for the Site.
 			siteOverride = ts.Config.TargetedInstanceCreation

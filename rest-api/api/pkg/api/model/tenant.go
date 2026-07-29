@@ -18,8 +18,8 @@ var (
 	ErrMsgTenantUpdateEndpointDeprecated = "PATCH '/org/:orgName/nico/tenant/current' endpoint has been deprecated"
 
 	// Time when Tenant.capabilities.targetedInstanceCreation will be removed. The
-	// field is still returned in responses, so the deprecation notice is retained
-	// with a future TakeActionBy deadline rather than being dropped.
+	// capabilities object remains in responses for compatibility, so the
+	// deprecation notice retains a future TakeActionBy deadline.
 	tenantTargetedInstanceCreationDeprecationTime, _ = time.Parse(time.RFC1123, "Wed, 30 Sep 2026 00:00:00 UTC")
 
 	tenantCapabilityDeprecations = []DeprecatedEntity{
@@ -44,19 +44,20 @@ type APITenant struct {
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
 	Updated time.Time `json:"updated"`
-	// Capabilities describes tenant-level feature flags
+	// Capabilities is the deprecated tenant-wide compatibility object
 	Capabilities *APITenantCapabilities `json:"capabilities"`
 	// Deprecations is the list of deprecations for the Tenant
 	Deprecations []APIDeprecation `json:"deprecations"`
 }
 
-// NewAPITenant accepts a DB layer Tenant object and returns an API layer object.
-func NewAPITenant(dbtn *cdbm.Tenant) *APITenant {
+// NewAPITenant accepts a DB layer Tenant object and the deprecated tenant-wide
+// TargetedInstanceCreation compatibility value, then returns an API layer object.
+func NewAPITenant(dbtn *cdbm.Tenant, targetedInstanceCreation bool) *APITenant {
 	atn := APITenant{
 		ID:             dbtn.ID.String(),
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
-		Capabilities:   nil,
+		Capabilities:   tenantToAPITenantCapabilities(targetedInstanceCreation),
 		Created:        dbtn.Created,
 		Updated:        dbtn.Updated,
 	}
@@ -70,7 +71,16 @@ func NewAPITenant(dbtn *cdbm.Tenant) *APITenant {
 
 // APITenantCapabilities holds the model of tenant capabilities.
 type APITenantCapabilities struct {
-	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
+	// TargetedInstanceCreation is present only when the compatibility aggregate is enabled
+	TargetedInstanceCreation *bool `json:"targetedInstanceCreation,omitempty"`
+}
+
+func tenantToAPITenantCapabilities(targetedInstanceCreation bool) *APITenantCapabilities {
+	capabilities := &APITenantCapabilities{}
+	if targetedInstanceCreation {
+		capabilities.TargetedInstanceCreation = cutil.GetPtr(true)
+	}
+	return capabilities
 }
 
 // APITenantSummary is the data structure to capture API representation of a Tenant Summary
@@ -79,7 +89,7 @@ type APITenantSummary struct {
 	Org string `json:"org"`
 	// OrgDisplayName contains the display name of the org the Tenant belongs to
 	OrgDisplayName *string `json:"orgDisplayName"`
-	// Capabilities hold the capabilities, currently for use as tenant-level feature flagging
+	// Capabilities is retained as an empty compatibility object in summaries
 	Capabilities *APITenantCapabilities `json:"capabilities"`
 	// Deprecations is the list of deprecations for the Tenant
 	Deprecations []APIDeprecation `json:"deprecations"`
@@ -90,6 +100,7 @@ func NewAPITenantSummary(dbtn *cdbm.Tenant) *APITenantSummary {
 	atns := APITenantSummary{
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
+		Capabilities:   tenantToAPITenantCapabilities(false),
 	}
 
 	for _, deprecation := range tenantCapabilityDeprecations {

@@ -781,7 +781,7 @@ func TestTenantAccountHandler_UpdateSiteCapabilities(t *testing.T) {
 	}
 	_, response := sendUpdate(siteOverrideCaps)
 	assert.Equal(t, []model.APITenantAccountSiteCapability{
-		{TargetedInstanceCreation: true},
+		{SiteIDs: []string{}, TargetedInstanceCreation: true},
 		{
 			SiteIDs:                  []string{site.ID.String()},
 			TargetedInstanceCreation: false,
@@ -806,7 +806,7 @@ func TestTenantAccountHandler_UpdateSiteCapabilities(t *testing.T) {
 	}
 	_, response = sendUpdate(accountOnlyCaps)
 	assert.Equal(t, []model.APITenantAccountSiteCapability{
-		{TargetedInstanceCreation: false},
+		{SiteIDs: []string{}, TargetedInstanceCreation: false},
 	}, response.SiteCapabilities)
 
 	updatedTenantAccount, err = tenantAccountDAO.GetByID(ctx, nil, tenantAccount.ID, nil)

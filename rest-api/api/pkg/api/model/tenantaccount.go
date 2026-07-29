@@ -100,7 +100,7 @@ func (taur APITenantAccountUpdateRequest) HasSiteCapabilities() bool {
 // APITenantAccountSiteCapability describes the TargetedInstanceCreation capability for
 // either the TenantAccount or an explicit site list. Used in responses.
 type APITenantAccountSiteCapability struct {
-	SiteIDs                  []string `json:"siteIds,omitempty"`
+	SiteIDs                  []string `json:"siteIds"`
 	TargetedInstanceCreation bool     `json:"targetedInstanceCreation"`
 }
 
@@ -108,7 +108,7 @@ type APITenantAccountSiteCapability struct {
 // capability updates. targetedInstanceCreation must be present on every entry so an
 // omitted field cannot silently bind as false.
 type APITenantAccountSiteCapabilityUpdate struct {
-	SiteIDs                  []string `json:"siteIds,omitempty"`
+	SiteIDs                  []string `json:"siteIds"`
 	TargetedInstanceCreation *bool    `json:"targetedInstanceCreation"`
 }
 
@@ -268,6 +268,7 @@ func NewAPITenantAccount(dbta *cdbm.TenantAccount, dbsds []cdbm.StatusDetail, al
 	accountDefault := dbta.Config.TargetedInstanceCreation
 	caps := []APITenantAccountSiteCapability{
 		{
+			SiteIDs:                  []string{},
 			TargetedInstanceCreation: accountDefault,
 		},
 	}

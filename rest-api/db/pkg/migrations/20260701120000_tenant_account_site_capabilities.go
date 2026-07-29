@@ -84,13 +84,6 @@ func init() {
 			handleError(tx, err)
 		}
 
-		// Intentionally NOT dropping tenant.config here. During a rolling
-		// deployment the migration lands before all API pods are updated, and
-		// previous-release pods still SELECT tenant.config. Dropping it now
-		// would break those in-flight pods. The column is left in place
-		// (Tenant.Config is scanonly/deprecated) and a later release removes it
-		// once no supported API version reads it.
-
 		terr = tx.Commit()
 		if terr != nil {
 			handlePanic(terr, "failed to commit transaction")

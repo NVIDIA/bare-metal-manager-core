@@ -877,8 +877,8 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	err := dbSession.DB.ResetModel(context.Background(), (*model.Tenant)(nil))
 	assert.Nil(t, err)
 
-	// The tenant.config column has been removed from the current Tenant model,
-	// so recreate it here to exercise this historical migration in isolation.
+	// Tenant.Config is scan-only, so ResetModel does not create its column.
+	// Recreate the historical schema before exercising the migration.
 	_, err = dbSession.DB.Exec("ALTER TABLE tenant ADD COLUMN config jsonb")
 	assert.NoError(t, err)
 

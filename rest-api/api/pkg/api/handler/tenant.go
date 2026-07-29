@@ -206,7 +206,13 @@ func (gcth GetCurrentTenantHandler) Handle(c echo.Context) error {
 		return common.HandleTxError(c, logger, err, "Failed to retrieve current Tenant, DB transaction error")
 	}
 
-	apiInstance := model.NewAPITenant(tn)
+	targetedInstanceCreation, err := common.TenantHasLegacyTargetedInstanceCreation(ctx, nil, gcth.dbSession, tn)
+	if err != nil {
+		logger.Error().Err(err).Msg("error resolving deprecated TargetedInstanceCreation Tenant capability")
+		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
+	}
+
+	apiInstance := model.NewAPITenant(tn, targetedInstanceCreation)
 
 	logger.Info().Msg("finishing API handler")
 

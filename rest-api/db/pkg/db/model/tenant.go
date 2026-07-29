@@ -52,14 +52,9 @@ type TenantUpdateInput struct {
 	OrgDisplayName *string
 }
 
-// TenantConfig captures legacy per-Tenant capability flags.
-//
-// Deprecated: Tenant capabilities now live on TenantAccount.config
-// (provider-scoped) and TenantSite.config (per-site overrides). This type and
-// the Tenant.Config column it maps are retained only so that, during a rolling
-// deployment, API pods still running the previous release can keep reading the
-// column after the capability migration has run. Do not add new readers or
-// writers; remove once no supported release reads tenant.config.
+// TenantConfig captures Tenant-wide configuration. TargetedInstanceCreation
+// authorization no longer reads this configuration; it uses the
+// provider-scoped TenantAccount.config and per-site TenantSite.config values.
 type TenantConfig struct {
 	EnableSSHAccess          bool `json:"enableSshAccess"`
 	TargetedInstanceCreation bool `json:"targetedInstanceCreation"`
@@ -74,9 +69,9 @@ type Tenant struct {
 	DisplayName    *string   `bun:"display_name"`
 	Org            string    `bun:"org,notnull"`
 	OrgDisplayName *string   `bun:"org_display_name"`
-	// Deprecated: superseded by TenantAccount.config and TenantSite.config.
-	// Kept as scanonly so new code never writes it (the DB DEFAULT applies on
-	// insert) while the column survives for older API pods mid-deployment.
+	// TargetedInstanceCreation within Config is superseded by
+	// TenantAccount.config and TenantSite.config. Config remains available for
+	// other Tenant-wide preferences.
 	Config    *TenantConfig `bun:"config,type:jsonb,scanonly"`
 	Created   time.Time     `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated   time.Time     `bun:"updated,nullzero,notnull,default:current_timestamp"`

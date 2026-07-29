@@ -3153,6 +3153,85 @@ func TestTenantHasTargetedInstanceCreation(t *testing.T) {
 
 		got, gerr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &TenantPrivilegeScope{SiteID: &deletedSite.ID})
 		assert.False(t, got)
-		assert.EqualError(t, gerr, "site not found for TenantSite, unable to evaluate targeted instance creation capability")
+		assert.EqualError(t, gerr, "failed to retrieve related Site for Tenant/Site association, DB error")
 	})
+}
+
+func TestTenantHasLegacyTargetedInstanceCreation(t *testing.T) {
+	ctx := context.Background()
+	dbSession := testCommonInitDB(t)
+	defer dbSession.Close()
+
+	testCommonSetupSchema(t, dbSession)
+
+	org := "test-legacy-capability-org"
+	user := testCommonBuildUser(t, dbSession, uuid.NewString(), []string{org}, []string{authz.ProviderAdminRole})
+	ip := testCommonBuildInfrastructureProvider(t, dbSession, "Legacy Provider", org, user)
+	ip2 := testCommonBuildInfrastructureProvider(t, dbSession, "Legacy Provider 2", org+"-2", user)
+	site := testCommonBuildSite(t, dbSession, ip, "Legacy Site", user)
+
+	tenantDAO := cdbm.NewTenantDAO(dbSession)
+	accountDAO := cdbm.NewTenantAccountDAO(dbSession)
+
+	buildTenant := func(name string) *cdbm.Tenant {
+		t.Helper()
+		tenant, err := tenantDAO.Create(ctx, nil, cdbm.TenantCreateInput{
+			Name:      name,
+			Org:       org + "-" + name,
+			CreatedBy: user.ID,
+		})
+		require.NoError(t, err)
+		return tenant
+	}
+	buildAccount := func(tenant *cdbm.Tenant, provider *cdbm.InfrastructureProvider, status string, enabled bool) {
+		t.Helper()
+		_, err := accountDAO.Create(ctx, nil, cdbm.TenantAccountCreateInput{
+			AccountNumber:             uuid.NewString(),
+			TenantID:                  &tenant.ID,
+			TenantOrg:                 tenant.Org,
+			InfrastructureProviderID:  provider.ID,
+			InfrastructureProviderOrg: provider.Org,
+			Status:                    status,
+			Config:                    &cdbm.TenantAccountConfig{TargetedInstanceCreation: enabled},
+			CreatedBy:                 user.ID,
+		})
+		require.NoError(t, err)
+	}
+
+	allEnabledTenant := buildTenant("all-enabled")
+	buildAccount(allEnabledTenant, ip, cdbm.TenantAccountStatusReady, true)
+	buildAccount(allEnabledTenant, ip2, cdbm.TenantAccountStatusReady, true)
+
+	accountDisabledTenant := buildTenant("account-disabled")
+	buildAccount(accountDisabledTenant, ip, cdbm.TenantAccountStatusReady, true)
+	buildAccount(accountDisabledTenant, ip2, cdbm.TenantAccountStatusReady, false)
+
+	siteDisabledTenant := buildTenant("site-disabled")
+	buildAccount(siteDisabledTenant, ip, cdbm.TenantAccountStatusReady, true)
+	cdbm.TestBuildTenantSite(t, dbSession, siteDisabledTenant, site, &cdbm.TenantSiteConfig{
+		TargetedInstanceCreation: cutil.GetPtr(false),
+	}, user)
+
+	pendingTenant := buildTenant("pending-only")
+	buildAccount(pendingTenant, ip, cdbm.TenantAccountStatusPending, true)
+
+	tests := []struct {
+		name     string
+		tenant   *cdbm.Tenant
+		expected bool
+	}{
+		{name: "nil Tenant", tenant: nil, expected: false},
+		{name: "all Ready TenantAccounts enabled", tenant: allEnabledTenant, expected: true},
+		{name: "one Ready TenantAccount disabled", tenant: accountDisabledTenant, expected: false},
+		{name: "TenantSite explicitly disabled", tenant: siteDisabledTenant, expected: false},
+		{name: "no Ready TenantAccount", tenant: pendingTenant, expected: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := TenantHasLegacyTargetedInstanceCreation(ctx, nil, dbSession, tc.tenant)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
 }

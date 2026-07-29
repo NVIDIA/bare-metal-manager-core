@@ -4,6 +4,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -11,13 +12,10 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAPITenant(t *testing.T) {
-	type args struct {
-		dbtn *cdbm.Tenant
-	}
-
 	dbtn := &cdbm.Tenant{
 		ID:             uuid.New(),
 		Org:            "test-org",
@@ -26,33 +24,45 @@ func TestNewAPITenant(t *testing.T) {
 		Updated:        time.Now(),
 	}
 
-	tnAPITenant := APITenant{
-		ID:             dbtn.ID.String(),
-		Org:            dbtn.Org,
-		OrgDisplayName: dbtn.OrgDisplayName,
-		Created:        dbtn.Created,
-		Updated:        dbtn.Updated,
-	}
+	deprecations := []APIDeprecation{}
 	for _, deprecation := range tenantCapabilityDeprecations {
-		tnAPITenant.Deprecations = append(tnAPITenant.Deprecations, NewAPIDeprecation(deprecation))
+		deprecations = append(deprecations, NewAPIDeprecation(deprecation))
 	}
 
 	tests := []struct {
-		name string
-		args args
-		want *APITenant
+		name                     string
+		targetedInstanceCreation bool
+		expectedCapabilitiesJSON string
 	}{
 		{
-			name: "test initializing API model for Tenant",
-			args: args{
-				dbtn: dbtn,
-			},
-			want: &tnAPITenant,
+			name:                     "includes enabled compatibility capability",
+			targetedInstanceCreation: true,
+			expectedCapabilitiesJSON: `{"targetedInstanceCreation":true}`,
+		},
+		{
+			name:                     "omits disabled compatibility capability",
+			targetedInstanceCreation: false,
+			expectedCapabilitiesJSON: `{}`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, NewAPITenant(tt.args.dbtn))
+			got := NewAPITenant(dbtn, tt.targetedInstanceCreation)
+			assert.Equal(t, &APITenant{
+				ID:             dbtn.ID.String(),
+				Org:            dbtn.Org,
+				OrgDisplayName: dbtn.OrgDisplayName,
+				Capabilities:   tenantToAPITenantCapabilities(tt.targetedInstanceCreation),
+				Deprecations:   deprecations,
+				Created:        dbtn.Created,
+				Updated:        dbtn.Updated,
+			}, got)
+
+			body, err := json.Marshal(got)
+			require.NoError(t, err)
+			var response map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(body, &response))
+			assert.JSONEq(t, tt.expectedCapabilitiesJSON, string(response["capabilities"]))
 		})
 	}
 }
@@ -72,6 +82,7 @@ func TestNewAPITenantSummary(t *testing.T) {
 	tnAPITenantSummary := APITenantSummary{
 		Org:            dbtn.Org,
 		OrgDisplayName: dbtn.OrgDisplayName,
+		Capabilities:   tenantToAPITenantCapabilities(false),
 	}
 	for _, deprecation := range tenantCapabilityDeprecations {
 		tnAPITenantSummary.Deprecations = append(tnAPITenantSummary.Deprecations, NewAPIDeprecation(deprecation))
@@ -92,7 +103,14 @@ func TestNewAPITenantSummary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, NewAPITenantSummary(tt.args.dbtn))
+			got := NewAPITenantSummary(tt.args.dbtn)
+			assert.Equal(t, tt.want, got)
+
+			body, err := json.Marshal(got)
+			require.NoError(t, err)
+			var response map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(body, &response))
+			assert.JSONEq(t, `{}`, string(response["capabilities"]))
 		})
 	}
 }

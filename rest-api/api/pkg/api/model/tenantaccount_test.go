@@ -419,6 +419,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				Updated:                   dbObj.Updated,
 				SiteCapabilities: []APITenantAccountSiteCapability{
 					{
+						SiteIDs:                  []string{},
 						TargetedInstanceCreation: false,
 					},
 				},
@@ -442,6 +443,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				Updated:                   dbObj2.Updated,
 				SiteCapabilities: []APITenantAccountSiteCapability{
 					{
+						SiteIDs:                  []string{},
 						TargetedInstanceCreation: false,
 					},
 				},
@@ -468,6 +470,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				Updated:                    dbObj.Updated,
 				SiteCapabilities: []APITenantAccountSiteCapability{
 					{
+						SiteIDs:                  []string{},
 						TargetedInstanceCreation: false,
 					},
 				},
@@ -492,6 +495,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				Updated:                   dbObjWithSiteCapabilities.Updated,
 				SiteCapabilities: []APITenantAccountSiteCapability{
 					{
+						SiteIDs:                  []string{},
 						TargetedInstanceCreation: false,
 					},
 					{
@@ -520,6 +524,7 @@ func TestAPITenantAccountNew(t *testing.T) {
 				Updated:                   dbObjWithDisabledOverrides.Updated,
 				SiteCapabilities: []APITenantAccountSiteCapability{
 					{
+						SiteIDs:                  []string{},
 						TargetedInstanceCreation: true,
 					},
 					{
