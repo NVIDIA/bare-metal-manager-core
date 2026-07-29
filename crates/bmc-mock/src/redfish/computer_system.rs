@@ -64,6 +64,7 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
     const ETH_ID: &str = "{eth_id}";
     const BOOT_OPTION_ID: &str = "{boot_option_id}";
     const LOG_SERVICE_ID: &str = "{log_service_id}";
+    const LOG_ENTRY_ID: &str = "{log_entry_id}";
     const PROCESSOR_ID: &str = "{processor_id}";
     let bios = redfish::bios::resource(SYSTEM_ID);
     r.route(&collection().odata_id, get(get_system_collection))
@@ -108,6 +109,14 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         .route(
             &redfish::log_service::system_entries_collection(SYSTEM_ID, LOG_SERVICE_ID).odata_id,
             get(get_log_service_entries),
+        )
+        .route(
+            &format!(
+                "{}/{}",
+                redfish::log_service::system_entries_collection(SYSTEM_ID, LOG_SERVICE_ID).odata_id,
+                LOG_ENTRY_ID
+            ),
+            get(get_log_service_entry),
         )
         .route(
             &redfish::storage::system_collection(SYSTEM_ID).odata_id,
@@ -811,6 +820,29 @@ async fn get_log_service_entries(
                 .patch(json!({"Description": "Log services collection"})) // Required by libredfish
                 .into_ok_response()
         })
+        .unwrap_or_else(http::not_found)
+}
+
+async fn get_log_service_entry(
+    State(state): State<BmcState>,
+    Path((system_id, log_service_id, entry_id)): Path<(String, String, String)>,
+) -> Response {
+    state
+        .system_state
+        .find(&system_id)
+        .and_then(|system_state| system_state.config.log_services.as_ref())
+        .and_then(|log_services| log_services.find(&log_service_id))
+        .and_then(|log_service| {
+            let collection =
+                redfish::log_service::system_entries_collection(&system_id, &log_service_id);
+            log_service.entries(&collection).into_iter().find(|entry| {
+                entry
+                    .get("Id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| id == entry_id)
+            })
+        })
+        .map(|entry| entry.into_ok_response())
         .unwrap_or_else(http::not_found)
 }
 

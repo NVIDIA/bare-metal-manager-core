@@ -74,6 +74,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"sku":                       5,
 		"task":                      2,
 		"rule":                      5,
+		"run":                       8,
 		"rack":                      13,
 		"tray":                      9,
 		"stats":                     4,
@@ -142,6 +143,16 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodGet, skuPath+"/:id")
 			assertRouteExists(t, got, http.MethodPatch, skuPath+"/:id")
 			assertRouteExists(t, got, http.MethodDelete, skuPath+"/:id")
+			runPath := "/org/:orgName/" + cfg.GetAPIName() + "/task/run"
+
+			assertRouteExists(t, got, http.MethodPost, runPath)
+			assertRouteExists(t, got, http.MethodGet, runPath)
+			assertRouteExists(t, got, http.MethodGet, runPath+"/:id")
+			assertRouteExists(t, got, http.MethodGet, runPath+"/:id/target")
+			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/pause")
+			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/resume")
+			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/advance")
+			assertRouteExists(t, got, http.MethodPost, runPath+"/:id/cancel")
 		})
 	}
 }

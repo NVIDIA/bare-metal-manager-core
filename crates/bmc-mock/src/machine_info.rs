@@ -175,6 +175,7 @@ impl DpuMachineInfo {
         };
         hw::bluefield4::Bluefield4 {
             host_mac_address: self.host_mac_address,
+            oob_mac_address: self.oob_mac_address,
             bmc_mac_address: self.bmc_mac_address,
             product_serial_number: Cow::Borrowed(&self.serial),
             mode,
@@ -214,7 +215,7 @@ impl DpuMachineInfo {
     pub fn bmc_product(&self) -> Option<&'static str> {
         match self.dpu_type() {
             DpuType::Bluefield3 => Some("BlueField-3 DPU"),
-            DpuType::Bluefield4 => Some(self.bluefield4().model()),
+            DpuType::Bluefield4 => Some("BlueField-4"),
         }
     }
 

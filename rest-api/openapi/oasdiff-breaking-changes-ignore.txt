@@ -11,4 +11,16 @@ PATCH /v2/org/{org}/nico/machine/{machineId} the `health/alerts/items/inAlertSin
 GET /v2/org/{org}/nico/machine/{machineId}/dpu the `items/health/alerts/items/inAlertSince` response's property type/format changed from `string, null`/`` to `string, null`/`date-time` for status `200`
 PATCH /v2/org/{org}/nico/machine/{machineId}/dpu-reprovision api path removed without deprecation
 POST /v2/org/{org}/nico/machine/{machineId}/bmc-reset api path removed without deprecation
+API POST /v2/org/{org}/nico/instance the `interfaces/items/` request property dependentRequired was added: when `ipFamilies` is present, `vpcId` are required
+API POST /v2/org/{org}/nico/instance the `interfaces/items/` request property dependentRequired was added: when `vpcId` is present, `ipFamilies` are required
+API POST /v2/org/{org}/nico/instance added the dependent schema `subnetId` to the `interfaces/items/` request property
+API POST /v2/org/{org}/nico/instance added the dependent schema `vpcId` to the `interfaces/items/` request property
+API POST /v2/org/{org}/nico/instance/batch the `interfaces/items/` request property dependentRequired was added: when `ipFamilies` is present, `vpcId` are required
+API POST /v2/org/{org}/nico/instance/batch the `interfaces/items/` request property dependentRequired was added: when `vpcId` is present, `ipFamilies` are required
+API POST /v2/org/{org}/nico/instance/batch added the dependent schema `subnetId` to the `interfaces/items/` request property
+API POST /v2/org/{org}/nico/instance/batch added the dependent schema `vpcId` to the `interfaces/items/` request property
+API PATCH /v2/org/{org}/nico/instance/{instanceId} the `interfaces/items/` request property dependentRequired was added: when `ipFamilies` is present, `vpcId` are required
+API PATCH /v2/org/{org}/nico/instance/{instanceId} the `interfaces/items/` request property dependentRequired was added: when `vpcId` is present, `ipFamilies` are required
+API PATCH /v2/org/{org}/nico/instance/{instanceId} added the dependent schema `subnetId` to the `interfaces/items/` request property
+API PATCH /v2/org/{org}/nico/instance/{instanceId} added the dependent schema `vpcId` to the `interfaces/items/` request property
 GET /v2/org/{org}/nico/operating-system removed the enum value `Templated iPXE` from the `query` request parameter `type`

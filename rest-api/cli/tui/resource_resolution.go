@@ -49,6 +49,8 @@ func CanonicalGeneratedResourceType(commandName, parameter string) string {
 		return "nvlink-logical-partition"
 	case "component":
 		return "tray-component"
+	case "run":
+		return "task-run"
 	case "vpc1", "vpc2", "secondary-vpc":
 		return "vpc"
 	default:
@@ -78,7 +80,7 @@ func GeneratedPathResourceDescriptor(commandName, parameter string) GeneratedRes
 		descriptor.ParentParameter = "instanceTypeId"
 	}
 
-	if descriptor.ResourceType == "rule" {
+	if descriptor.ResourceType == "rule" || descriptor.ResourceType == "task-run" {
 		descriptor.ScopeParameter = "siteId"
 	}
 	if descriptor.ResourceType == "task" {
@@ -196,6 +198,16 @@ func (s *Session) GeneratedResourceItems(
 			return nil, true, fmt.Errorf("siteId must be resolved before operation rules")
 		}
 		items, err := s.fetchRulesForSite(ctx, siteID)
+		return items, true, err
+	case "task-run":
+		siteID := strings.TrimSpace(resolvedValues[descriptor.ScopeParameter])
+		if siteID == "" {
+			siteID = strings.TrimSpace(s.Scope.SiteID)
+		}
+		if siteID == "" {
+			return nil, true, fmt.Errorf("siteId must be resolved before task runs")
+		}
+		items, err := s.fetchRunsForSite(ctx, siteID)
 		return items, true, err
 	default:
 		if s.Resolver == nil || !s.Resolver.HasFetcher(descriptor.ResourceType) {

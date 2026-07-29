@@ -1391,7 +1391,6 @@ mod tests {
         event_name: String,
         operation: Option<String>,
         failure_stage: Option<String>,
-        failure_kind: Option<String>,
         device_id: Option<String>,
         registry_name: Option<String>,
     }
@@ -1419,6 +1418,9 @@ mod tests {
                 Self::MissingProfileCompare | Self::MissingProfileSync => "validate",
                 _ => "lookup",
             };
+            // `failure_kind` is derived by `ScoutMlxFailures` from
+            // `failure_stage`, so it is a metric label without being a log
+            // field -- these labels are what the counter is asserted against.
             let failure_kind = match self {
                 Self::MissingProfileCompare | Self::MissingProfileSync => "invalid_request",
                 _ => "not_found",
@@ -1572,7 +1574,6 @@ mod tests {
                             event_name: "scout_mlx_registry_lookup_failed".to_string(),
                             operation: Some("registry_show".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: None,
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1592,7 +1593,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_query".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1612,7 +1612,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_compare".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1632,7 +1631,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_set".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1652,7 +1650,6 @@ mod tests {
                             event_name: "scout_mlx_config_registry_lookup_failed".to_string(),
                             operation: Some("config_sync".to_string()),
                             failure_stage: Some("lookup".to_string()),
-                            failure_kind: Some("not_found".to_string()),
                             device_id: Some(DEVICE_ID.to_string()),
                             registry_name: Some(REGISTRY.to_string()),
                         }],
@@ -1677,7 +1674,6 @@ mod tests {
                             event_name: event_name.to_string(),
                             operation: log.field("operation").map(str::to_string),
                             failure_stage: log.field("failure_stage").map(str::to_string),
-                            failure_kind: log.field("failure_kind").map(str::to_string),
                             device_id: log.field("device_id").map(str::to_string),
                             registry_name: log.field("registry_name").map(str::to_string),
                         })

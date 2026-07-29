@@ -29,11 +29,11 @@ use carbide_dpf::{
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
 use model::machine::{Machine, ManagedHostStateSnapshot};
-use model::site_explorer::{is_bf3_dpu_part_number, is_bf4_dpu_part_number};
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
 use tokio::task::JoinSet;
 
+use crate::handler::is_bf4_dmi_product;
 use crate::io::MachineStateControllerIO;
 
 /// Label key used by [`CarbideDPFLabeler`] to stamp the carbide `MachineId` of
@@ -546,30 +546,34 @@ impl DpfOperations for DpfSdkOps {
     }
 
     fn deployment_type_for_dpu(&self, dpu: &Machine) -> Result<DpuDeploymentType, DpfError> {
-        let part_number = dpu
+        let product_name = dpu
             .status
             .hardware_info
             .as_ref()
-            .and_then(|hw| hw.dpu_info.as_ref())
-            .map(|d| d.part_number.as_str())
-            .unwrap_or_default();
+            .and_then(|hw| hw.dmi_data.as_ref())
+            .map(|d| d.product_name.trim())
+            .filter(|s| !s.is_empty());
 
-        if part_number.is_empty() {
+        let Some(product_name) = product_name else {
             return Err(DpfError::InvalidState(format!(
-                "cannot determine DPU deployment type for machine {}: part number is absent",
+                "cannot determine DPU deployment type for machine {}: product name is absent",
                 dpu.id,
             )));
-        }
-        if is_bf3_dpu_part_number(part_number) {
-            Ok(DpuDeploymentType::Bf3)
-        } else if is_bf4_dpu_part_number(part_number) {
-            Ok(DpuDeploymentType::Bf4Generic)
+        };
+
+        // Only a BF3 or BF4 DPU can reach here.
+        let deployment_type = if is_bf4_dmi_product(product_name) {
+            DpuDeploymentType::Bf4Generic
         } else {
-            Err(DpfError::InvalidState(format!(
-                "cannot determine DPU deployment type for machine {}: unrecognized part number {part_number:?}",
-                dpu.id,
-            )))
-        }
+            DpuDeploymentType::Bf3
+        };
+
+        tracing::info!(
+            "selected deployment type {deployment_type:?} for {product_name}, machine_id: {}",
+            dpu.id
+        );
+
+        Ok(deployment_type)
     }
 
     async fn verify_node_labels(

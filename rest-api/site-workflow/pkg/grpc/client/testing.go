@@ -2003,6 +2003,41 @@ func (mfgsc *MockFlowGrpcServiceClient) ListRackRuleAssociations(ctx context.Con
 	return out, nil
 }
 
+/* Operation Run mock methods */
+func (mfgsc *MockFlowGrpcServiceClient) CreateOperationRun(ctx context.Context, in *flowv1.CreateOperationRunRequest, opts ...grpc.CallOption) (*flowv1.CreateOperationRunResponse, error) {
+	return &flowv1.CreateOperationRunResponse{Id: &flowv1.UUID{Id: uuid.NewString()}}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) GetOperationRun(ctx context.Context, in *flowv1.GetOperationRunRequest, opts ...grpc.CallOption) (*flowv1.GetOperationRunResponse, error) {
+	return &flowv1.GetOperationRunResponse{
+		OperationRun: &flowv1.OperationRun{Summary: &flowv1.OperationRunSummary{Id: in.GetId()}},
+	}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) ListOperationRuns(ctx context.Context, in *flowv1.ListOperationRunsRequest, opts ...grpc.CallOption) (*flowv1.ListOperationRunsResponse, error) {
+	return &flowv1.ListOperationRunsResponse{OperationRuns: []*flowv1.OperationRunSummary{}, Total: 0}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) ListOperationRunTargets(ctx context.Context, in *flowv1.ListOperationRunTargetsRequest, opts ...grpc.CallOption) (*flowv1.ListOperationRunTargetsResponse, error) {
+	return &flowv1.ListOperationRunTargetsResponse{Targets: []*flowv1.OperationRunTarget{}, Total: 0}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) PauseOperationRun(ctx context.Context, in *flowv1.PauseOperationRunRequest, opts ...grpc.CallOption) (*flowv1.OperationRun, error) {
+	return &flowv1.OperationRun{Summary: &flowv1.OperationRunSummary{Id: in.GetId()}}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) ResumeOperationRun(ctx context.Context, in *flowv1.ResumeOperationRunRequest, opts ...grpc.CallOption) (*flowv1.OperationRun, error) {
+	return &flowv1.OperationRun{Summary: &flowv1.OperationRunSummary{Id: in.GetId()}}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) AdvanceOperationRunPhase(ctx context.Context, in *flowv1.AdvanceOperationRunPhaseRequest, opts ...grpc.CallOption) (*flowv1.OperationRun, error) {
+	return &flowv1.OperationRun{Summary: &flowv1.OperationRunSummary{Id: in.GetId()}}, nil
+}
+
+func (mfgsc *MockFlowGrpcServiceClient) CancelOperationRun(ctx context.Context, in *flowv1.CancelOperationRunRequest, opts ...grpc.CallOption) (*flowv1.OperationRun, error) {
+	return &flowv1.OperationRun{Summary: &flowv1.OperationRunSummary{Id: in.GetId()}}, nil
+}
+
 // NewMockFlowClient creates a new mock FlowClient that can be used with FlowAtomicClient.SwapClient
 func NewMockFlowGrpcClient() *FlowGrpcClient {
 	return &FlowGrpcClient{

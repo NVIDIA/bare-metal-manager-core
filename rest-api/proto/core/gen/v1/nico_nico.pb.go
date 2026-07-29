@@ -26046,8 +26046,10 @@ type ManagedHostNetworkConfig struct {
 	// DPU loopback IP
 	LoopbackIp      string                      `protobuf:"bytes,1,opt,name=loopback_ip,json=loopbackIp,proto3" json:"loopback_ip,omitempty"`
 	QuarantineState *ManagedHostQuarantineState `protobuf:"bytes,2,opt,name=quarantine_state,json=quarantineState,proto3,oneof" json:"quarantine_state,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// DPU IPv6 loopback IP; unset for non-FNN agents or when the `lo-ip-v6` pool is not configured.
+	LoopbackIpV6  *string `protobuf:"bytes,3,opt,name=loopback_ip_v6,json=loopbackIpV6,proto3,oneof" json:"loopback_ip_v6,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ManagedHostNetworkConfig) Reset() {
@@ -26092,6 +26094,13 @@ func (x *ManagedHostNetworkConfig) GetQuarantineState() *ManagedHostQuarantineSt
 		return x.QuarantineState
 	}
 	return nil
+}
+
+func (x *ManagedHostNetworkConfig) GetLoopbackIpV6() string {
+	if x != nil && x.LoopbackIpV6 != nil {
+		return *x.LoopbackIpV6
+	}
+	return ""
 }
 
 type FlatInterfaceConfig struct {
@@ -64121,12 +64130,14 @@ const file_nico_nico_proto_rawDesc = "" +
 	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdR\tmachineId\"\xa2\x01\n" +
 	"'ClearManagedHostQuarantineStateResponse\x12\\\n" +
 	"\x16prior_quarantine_state\x18\x01 \x01(\v2!.forge.ManagedHostQuarantineStateH\x00R\x14priorQuarantineState\x88\x01\x01B\x19\n" +
-	"\x17_prior_quarantine_state\"\xa3\x01\n" +
+	"\x17_prior_quarantine_state\"\xe1\x01\n" +
 	"\x18ManagedHostNetworkConfig\x12\x1f\n" +
 	"\vloopback_ip\x18\x01 \x01(\tR\n" +
 	"loopbackIp\x12Q\n" +
-	"\x10quarantine_state\x18\x02 \x01(\v2!.forge.ManagedHostQuarantineStateH\x00R\x0fquarantineState\x88\x01\x01B\x13\n" +
-	"\x11_quarantine_state\"\xf1\t\n" +
+	"\x10quarantine_state\x18\x02 \x01(\v2!.forge.ManagedHostQuarantineStateH\x00R\x0fquarantineState\x88\x01\x01\x12)\n" +
+	"\x0eloopback_ip_v6\x18\x03 \x01(\tH\x01R\floopbackIpV6\x88\x01\x01B\x13\n" +
+	"\x11_quarantine_stateB\x11\n" +
+	"\x0f_loopback_ip_v6\"\xf1\t\n" +
 	"\x13FlatInterfaceConfig\x12A\n" +
 	"\rfunction_type\x18\x01 \x01(\x0e2\x1c.forge.InterfaceFunctionTypeR\ffunctionType\x12\x17\n" +
 	"\avlan_id\x18\x02 \x01(\rR\x06vlanId\x12\x10\n" +
