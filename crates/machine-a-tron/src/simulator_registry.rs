@@ -68,7 +68,7 @@ impl SimulatorRegistry {
             .map(|index| &self.inner.devices[*index])
     }
 
-    pub fn machine_handles(&self) -> Vec<DeviceHandle> {
+    pub fn provisionable_handles(&self) -> Vec<DeviceHandle> {
         self.inner
             .devices
             .iter()

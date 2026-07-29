@@ -27,7 +27,7 @@ use tower::Service;
 
 use crate::device_simulator::SimulatorLifecycle;
 use crate::simulator_registry::SimulatorRegistry;
-use crate::status::{MachineStatusConfig, MachinesStatusResponse};
+use crate::status::{DeviceStatusConfig, DevicesStatusResponse};
 
 pub fn append(router: Router, control_state: ControlState) -> Router {
     Router::new()
@@ -51,20 +51,20 @@ pub fn append(router: Router, control_state: ControlState) -> Router {
 #[derive(Clone)]
 pub struct ControlState {
     simulators: SimulatorRegistry,
-    status_config: MachineStatusConfig,
+    status_config: DeviceStatusConfig,
 }
 
 impl ControlState {
-    pub fn new(simulators: SimulatorRegistry, status_config: MachineStatusConfig) -> Self {
+    pub fn new(simulators: SimulatorRegistry, status_config: DeviceStatusConfig) -> Self {
         Self {
             simulators,
             status_config,
         }
     }
 
-    fn machines_status(&self) -> MachinesStatusResponse {
-        MachinesStatusResponse {
-            machines: self
+    fn devices_status(&self) -> DevicesStatusResponse {
+        DevicesStatusResponse {
+            devices: self
                 .simulators
                 .devices()
                 .iter()
@@ -84,8 +84,8 @@ struct ControlRouter {
     control_state: ControlState,
 }
 
-async fn get_machines_status(State(state): State<ControlRouter>) -> Json<MachinesStatusResponse> {
-    Json(state.control_state.machines_status())
+async fn get_machines_status(State(state): State<ControlRouter>) -> Json<DevicesStatusResponse> {
+    Json(state.control_state.devices_status())
 }
 
 async fn get_machines_ui() -> Html<&'static str> {
@@ -175,12 +175,12 @@ mod tests {
     use crate::dpu_machine::DpuMachineHandle;
     use crate::host_machine::DeviceHandle;
     use crate::simulator_registry::SimulatorRegistry;
-    use crate::status::MachineStatusConfig;
+    use crate::status::DeviceStatusConfig;
 
     fn control_state(handles: Vec<DeviceHandle>) -> ControlState {
         ControlState::new(
             SimulatorRegistry::try_from_handles(handles).unwrap(),
-            MachineStatusConfig::new(1266),
+            DeviceStatusConfig::new(1266),
         )
     }
 

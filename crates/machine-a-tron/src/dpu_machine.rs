@@ -36,7 +36,7 @@ use crate::config::{MachineATronContext, PersistedDpuMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
-use crate::status::{BmcStatus, DeviceKind, EndpointStatus, MachineStatus, MachineStatusConfig};
+use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::tui::HostDetails;
 use crate::{MachineConfig, saturating_add_duration_to_instant};
 
@@ -458,9 +458,9 @@ impl DpuMachineHandle {
         }
     }
 
-    pub fn status(&self, config: &MachineStatusConfig) -> MachineStatus {
+    pub fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let live_state = self.0.live_state.read().unwrap();
-        MachineStatus {
+        DeviceStatus {
             mat_id: self.0.mat_id.to_string(),
             device_kind: DeviceKind::Dpu,
             device_id: live_state

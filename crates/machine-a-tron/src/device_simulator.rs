@@ -20,10 +20,10 @@ use bmc_mock::injection::InjectionStore;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::PersistedHostMachine;
+use crate::PersistedDevice;
 use crate::api_client::ApiClient;
 use crate::host_machine::DeviceHandle;
-use crate::status::{DeviceKind, MachineStatus, MachineStatusConfig};
+use crate::status::{DeviceKind, DeviceStatus, DeviceStatusConfig};
 use crate::tui::UiUpdate;
 
 /// The common lifecycle exposed by every simulated physical device.
@@ -47,16 +47,16 @@ pub trait SimulatorLifecycle {
         self.handle().abort();
     }
 
-    fn persisted(&self) -> PersistedHostMachine {
+    fn persisted(&self) -> PersistedDevice {
         self.handle().persisted()
     }
 
-    fn status(&self, config: &MachineStatusConfig) -> MachineStatus {
+    fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let status = self.handle().status(config);
         if self.kind() == DeviceKind::Machine {
             status
         } else {
-            MachineStatus {
+            DeviceStatus {
                 device_kind: self.kind(),
                 device_id: self.mat_id().to_string(),
                 machine_id: None,

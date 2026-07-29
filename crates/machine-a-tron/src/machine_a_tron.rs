@@ -25,7 +25,7 @@ use rpc::forge::{ExpectedHostNic, NetworkSegmentType, VpcVirtualizationType};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::PersistedHostMachine;
+use crate::PersistedDevice;
 use crate::config::MachineATronContext;
 use crate::device_simulator::{DeviceSimulator, SimulatorLifecycle};
 use crate::host_machine::{DeviceHandle, HostMachine};
@@ -95,10 +95,10 @@ impl MachineATron {
             }
         }
 
-        let mut persisted_machines = self
+        let mut persisted_devices = self
             .app_context
             .app_config
-            .read_persisted_machines()
+            .read_persisted_devices()
             .inspect_err(|e| {
                 tracing::info!(error=?e, "could not read persisted machines, may be the first run")
             })
@@ -110,8 +110,8 @@ impl MachineATron {
         let machines = {
             let mut mac_address_pool = self.app_context.mac_address_pool.lock().unwrap();
 
-            if let Some(persisted_machines) = persisted_machines.as_ref() {
-                for persisted in persisted_machines.values().flatten() {
+            if let Some(persisted_devices) = persisted_devices.as_ref() {
+                for persisted in persisted_devices.values().flatten() {
                     let hw_mac_address_ranges = persisted
                         .hw_mac_addr_pool
                         .as_ref()
@@ -135,7 +135,7 @@ impl MachineATron {
                 .machines
                 .iter()
                 .flat_map(|(config_name, config)| {
-                    if let Some(persisted_machines) = persisted_machines
+                    if let Some(persisted_devices) = persisted_devices
                         .as_mut()
                         .and_then(|m| m.remove(config_name.as_str()))
                     {
@@ -143,7 +143,7 @@ impl MachineATron {
                             config_name = %config_name,
                             "Recovering persisted machines",
                         );
-                        persisted_machines
+                        persisted_devices
                             .into_iter()
                             .map(|persisted| -> eyre::Result<DeviceHandle> {
                                 let hw_mac_address_ranges = persisted
@@ -291,7 +291,7 @@ impl MachineATron {
         tui_event_tx: Option<mpsc::Sender<UiUpdate>>,
         mut app_rx: mpsc::Receiver<AppEvent>,
     ) -> eyre::Result<()> {
-        let machine_handles = simulators.machine_handles();
+        let provisionable_handles = simulators.provisionable_handles();
         let mut vpc_handles: Vec<Vpc> = Vec::new();
         let mut subnet_handles: Vec<Subnet> = Vec::new();
         // Represents the mat_id of machines which are Assigned to a forge Instance
@@ -362,7 +362,7 @@ impl MachineATron {
                 AppEvent::Quit => {
                     tracing::info!("quit");
                     let cleanup_on_quit = self.app_context.app_config.cleanup_on_quit;
-                    let persisted_machines =
+                    let persisted_devices =
                         try_join_all(simulators.devices().iter().cloned().map(|simulator| {
                             let api_client = self.app_context.api_client();
                             let persisted = simulator.persisted();
@@ -371,7 +371,7 @@ impl MachineATron {
                                 if cleanup_on_quit {
                                     simulator.delete_from_api(api_client).await?;
                                 }
-                                Ok::<PersistedHostMachine, eyre::Report>(persisted)
+                                Ok::<PersistedDevice, eyre::Report>(persisted)
                             }
                         }))
                         .await?;
@@ -379,7 +379,7 @@ impl MachineATron {
                     // Persist the current state of the machines before quitting
                     self.app_context
                         .app_config
-                        .write_persisted_machines(&persisted_machines)?;
+                        .write_persisted_devices(&persisted_devices)?;
 
                     break;
                 }
@@ -388,7 +388,7 @@ impl MachineATron {
                     tracing::info!("Allocating an instance.");
 
                     let Some(free_machine) =
-                        get_next_free_machine(&machine_handles, &assigned_mat_ids).await
+                        get_next_free_machine(&provisionable_handles, &assigned_mat_ids).await
                     else {
                         tracing::error!("No available machines.");
                         continue;

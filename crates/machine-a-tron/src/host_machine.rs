@@ -34,12 +34,12 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::api_client::ApiClient;
-use crate::config::{self, MachineATronContext, MachineConfig, PersistedHostMachine};
+use crate::config::{self, MachineATronContext, MachineConfig, PersistedDevice};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay};
 use crate::dpu_machine::{DpuMachine, DpuMachineHandle};
 use crate::machine_state_machine::{LiveState, MachineStateMachine, PersistedMachine};
 use crate::saturating_add_duration_to_instant;
-use crate::status::{BmcStatus, DeviceKind, EndpointStatus, MachineStatus, MachineStatusConfig};
+use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::tui::{HostDetails, UiUpdate};
 
 pub struct HostMachine {
@@ -64,26 +64,26 @@ pub struct HostMachine {
 
 impl HostMachine {
     pub fn from_persisted(
-        persisted_host_machine: PersistedHostMachine,
+        persisted_device: PersistedDevice,
         machine_config_section: String,
         app_context: Arc<MachineATronContext>,
         config: Arc<MachineConfig>,
         hw_mac_addr_pool: MacAddressPoolConfig,
     ) -> Self {
-        let mat_id = persisted_host_machine.mat_id;
+        let mat_id = persisted_device.mat_id;
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
         let (dpu_dhcp_tx, dpu_dhcp_rx) =
             mpsc::unbounded_channel::<oneshot::Sender<DhcpRelayResult<DhcpResponseInfo>>>();
         let mut dpu_dhcp_rx = Some(dpu_dhcp_rx);
         let dpus_in_nic_mode = config.dpus_in_nic_mode;
 
-        let dpu_machines = persisted_host_machine
+        let dpu_machines = persisted_device
             .dpus
             .iter()
             .map(|dpu| {
                 DpuMachine::from_persisted(
                     dpu.clone(),
-                    persisted_host_machine.mat_id,
+                    persisted_device.mat_id,
                     app_context.clone(),
                     config.clone(),
                     if dpus_in_nic_mode {
@@ -95,18 +95,18 @@ impl HostMachine {
             })
             .collect::<Vec<_>>();
         let host_info = HostMachineInfo {
-            hw_type: persisted_host_machine.hw_type.unwrap_or_default(),
-            bmc_mac_address: persisted_host_machine.bmc_mac_address,
-            serial: persisted_host_machine.serial.clone(),
-            dpus: persisted_host_machine
+            hw_type: persisted_device.hw_type.unwrap_or_default(),
+            bmc_mac_address: persisted_device.bmc_mac_address,
+            serial: persisted_device.serial.clone(),
+            dpus: persisted_device
                 .dpus
                 .iter()
                 .cloned()
                 .map(Into::into)
                 .collect(),
-            non_dpu_mac_address: persisted_host_machine.non_dpu_mac_address,
-            nvos_mac_addresses: persisted_host_machine.nvos_mac_addresses.clone(),
-            switch_serial_number: persisted_host_machine.switch_serial_number.clone(),
+            non_dpu_mac_address: persisted_device.non_dpu_mac_address,
+            nvos_mac_addresses: persisted_device.nvos_mac_addresses.clone(),
+            switch_serial_number: persisted_device.switch_serial_number.clone(),
             hw_mac_addr_pool,
             delta_psu_power: None,
         };
@@ -116,7 +116,7 @@ impl HostMachine {
             .collect::<Vec<_>>();
 
         let state_machine = MachineStateMachine::from_persisted(
-            PersistedMachine::Host(persisted_host_machine),
+            PersistedMachine::Host(persisted_device),
             MachineInfo::Host(host_info.clone()),
             config,
             app_context.clone(),
@@ -652,9 +652,9 @@ impl DeviceHandle {
         &self.0.machine_config_section
     }
 
-    pub fn status(&self, config: &MachineStatusConfig) -> MachineStatus {
+    pub fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let live_state = self.0.live_state.read().unwrap();
-        MachineStatus {
+        DeviceStatus {
             mat_id: self.0.mat_id.to_string(),
             device_kind: DeviceKind::Machine,
             device_id: live_state
@@ -680,9 +680,9 @@ impl DeviceHandle {
         }
     }
 
-    pub fn persisted(&self) -> PersistedHostMachine {
+    pub fn persisted(&self) -> PersistedDevice {
         let live_state = self.0.live_state.read().unwrap();
-        PersistedHostMachine {
+        PersistedDevice {
             hw_type: Some(self.0.host_info.hw_type),
             mat_id: self.0.mat_id,
             machine_config_section: self.0.machine_config_section.clone(),

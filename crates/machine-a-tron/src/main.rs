@@ -33,10 +33,10 @@ use forge_tls::client_config::{
 };
 use mac_address::MacAddress;
 use machine_a_tron::{
-    AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, DhcpClient, MachineATron,
-    MachineATronArgs, MachineATronConfig, MachineATronContext, MachineStatusConfig,
-    MockSshServerHandle, PromptBehavior, SimulatorLifecycle, Tui, TuiHostLogs, api_throttler,
-    append_control_routes, spawn_mock_ssh_server,
+    AppEvent, BmcMockRegistry, BmcRegistrationMode, ControlState, DeviceStatusConfig, DhcpClient,
+    MachineATron, MachineATronArgs, MachineATronConfig, MachineATronContext, MockSshServerHandle,
+    PromptBehavior, SimulatorLifecycle, Tui, TuiHostLogs, api_throttler, append_control_routes,
+    spawn_mock_ssh_server,
 };
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use rpc::protos::forge_api_client::ForgeApiClient;
@@ -205,7 +205,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let simulators = mat.make_devices(true).await?;
 
     // Persist them once in case of unclean shutdown
-    app_context.app_config.write_persisted_machines(
+    app_context.app_config.write_persisted_devices(
         simulators
             .devices()
             .iter()
@@ -218,7 +218,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // combined-BMC mode it shares the combined BMC listener. In per-IP mode it listens on the
     // loopback address at the same port, independently of the per-machine BMC listeners.
     let control_state =
-        ControlState::new(simulators.clone(), MachineStatusConfig::new(bmc_mock_port));
+        ControlState::new(simulators.clone(), DeviceStatusConfig::new(bmc_mock_port));
     let certs_dir = app_context
         .bmc_mock_certs_dir
         .as_ref()

@@ -1561,7 +1561,7 @@ where
         mac_address_pool: None,
     };
 
-    let (machine_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
+    let (provisionable_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
@@ -1571,7 +1571,7 @@ where
     .await
     .unwrap();
 
-    let results = join_all(machine_handles.into_iter().map(run_assertions)).await;
+    let results = join_all(provisionable_handles.into_iter().map(run_assertions)).await;
     let result_count = results.len();
     let assertion_result: eyre::Result<()> = results.into_iter().try_collect();
     let shutdown_result = mat_handle.shutdown().await;

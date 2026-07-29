@@ -43,7 +43,7 @@ use std::time::{Duration, Instant};
 pub use bmc_mock_wrapper::BmcMockRegistry;
 pub use config::{
     DhcpType, MachineATronArgs, MachineATronConfig, MachineATronContext, MachineConfig,
-    PersistedDpuMachine, PersistedHostMachine, RackConfig,
+    PersistedDevice, PersistedDpuMachine, RackConfig,
 };
 pub use control_router::{ControlState, append as append_control_routes};
 pub use device_simulator::{
@@ -59,7 +59,7 @@ pub use mock_ssh_server::{
     spawn as spawn_mock_ssh_server,
 };
 pub use simulator_registry::SimulatorRegistry;
-pub use status::{DeviceKind, MachineStatus, MachineStatusConfig, MachinesStatusResponse};
+pub use status::{DeviceKind, DeviceStatus, DeviceStatusConfig, DevicesStatusResponse};
 pub use tui::{Tui, UiUpdate};
 pub use tui_host_logs::TuiHostLogs;
 

@@ -40,12 +40,12 @@ impl From<HostHardwareType> for DeviceKind {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MachineStatusConfig {
+pub struct DeviceStatusConfig {
     pub redfish_reachable_port: u16,
     pub redfish_listen_port: u16,
 }
 
-impl MachineStatusConfig {
+impl DeviceStatusConfig {
     pub fn new(redfish_listen_port: u16) -> Self {
         Self {
             redfish_reachable_port: 443,
@@ -55,12 +55,13 @@ impl MachineStatusConfig {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct MachinesStatusResponse {
-    pub machines: Vec<MachineStatus>,
+pub struct DevicesStatusResponse {
+    #[serde(rename = "machines")]
+    pub devices: Vec<DeviceStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct MachineStatus {
+pub struct DeviceStatus {
     pub mat_id: String,
     pub device_kind: DeviceKind,
     pub device_id: String,
@@ -75,7 +76,7 @@ pub struct MachineStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_ip: Option<String>,
     pub bmc: BmcStatus,
-    pub dpus: Vec<MachineStatus>,
+    pub dpus: Vec<DeviceStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,7 +95,7 @@ pub struct EndpointStatus {
 }
 
 impl EndpointStatus {
-    pub fn redfish(config: &MachineStatusConfig) -> Self {
+    pub fn redfish(config: &DeviceStatusConfig) -> Self {
         Self {
             reachable_port: config.redfish_reachable_port,
             listen_port: config.redfish_listen_port,

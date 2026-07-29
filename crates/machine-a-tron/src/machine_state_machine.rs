@@ -49,7 +49,7 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDpuMachine, PersistedHostMachine};
+use crate::{PersistedDevice, PersistedDpuMachine};
 
 pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 
@@ -224,7 +224,7 @@ pub enum BmcRegistrationMode {
 }
 
 pub enum PersistedMachine {
-    Host(PersistedHostMachine),
+    Host(PersistedDevice),
     Dpu(PersistedDpuMachine),
 }
 

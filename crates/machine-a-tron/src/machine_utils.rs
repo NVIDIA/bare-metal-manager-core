@@ -136,10 +136,10 @@ pub async fn send_pxe_boot_request(
 }
 
 pub async fn get_next_free_machine(
-    machine_handles: &Vec<DeviceHandle>,
+    provisionable_handles: &Vec<DeviceHandle>,
     assigned_mat_ids: &HashSet<Uuid>,
 ) -> Option<DeviceHandle> {
-    for machine in machine_handles {
+    for machine in provisionable_handles {
         if assigned_mat_ids.contains(&machine.mat_id()) {
             continue;
         }

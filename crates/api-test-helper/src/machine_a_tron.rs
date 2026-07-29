@@ -101,7 +101,7 @@ pub async fn run_local(
 
     let mat = MachineATron::new(app_context.clone());
     let simulators = mat.make_devices(false).await?;
-    let machine_handles = simulators.machine_handles();
+    let provisionable_handles = simulators.provisionable_handles();
 
     let (stop_tx, stop_rx) = oneshot::channel();
     let device_simulators = simulators.devices().to_vec();
@@ -125,7 +125,7 @@ pub async fn run_local(
     });
 
     Ok((
-        machine_handles,
+        provisionable_handles,
         MachineATronHandle {
             _stop_tx: stop_tx,
             _join_handle: join_handle,
