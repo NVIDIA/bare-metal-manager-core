@@ -142,6 +142,13 @@ make generate-sdk
 make publish-openapi
 ```
 
+`generate-sdk` uses a pinned openapi-generator, downloaded to `.tools/` and
+checksum-verified on first use, because the generated SDK is byte-for-byte
+dependent on the generator version. Do not install the generator separately to
+bypass the pin. Raising `OPENAPI_GENERATOR_VERSION` belongs in its own change
+alongside the regenerated `sdk/standard/`, since a new generator rewrites files
+no spec edit touched.
+
 ### Protobuf Code Generation
 
 ```bash
