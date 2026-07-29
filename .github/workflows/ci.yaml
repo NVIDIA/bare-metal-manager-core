@@ -1412,7 +1412,6 @@ jobs:
 
       - name: Build pull request merge result
         run: |
-          set -euo pipefail
           git fetch --no-tags origin main:refs/remotes/origin/main
           git merge --no-commit --no-ff origin/main
 
