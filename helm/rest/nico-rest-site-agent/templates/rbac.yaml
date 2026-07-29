@@ -26,7 +26,7 @@ rules:
     resources: ["secrets"]
     resourceNames:
       - "bootstrap-info"
-      - {{ .Values.envConfig.TEMPORAL_CERT | quote }}
+      - {{ .Values.secrets.temporalClientCerts | quote }}
     verbs: ["get", "update"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

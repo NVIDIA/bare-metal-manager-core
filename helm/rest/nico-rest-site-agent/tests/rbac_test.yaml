@@ -4,10 +4,12 @@
 suite: Site Agent runtime RBAC least privilege
 templates:
   - rbac.yaml
+  - temporal-certs-secret.yaml
 release:
   namespace: nico-rest
 tests:
   - it: grants only get and update access to runtime-mutated Secrets
+    template: rbac.yaml
     documentIndex: 1
     asserts:
       - isKind:
@@ -26,10 +28,13 @@ tests:
                 - get
                 - update
 
-  - it: follows the configured Temporal Secret name
+  - it: follows the configured Temporal Secret name instead of a generic environment value
+    template: rbac.yaml
     set:
+      secrets:
+        temporalClientCerts: custom-temporal-client-certs
       envConfig:
-        TEMPORAL_CERT: custom-temporal-client-certs
+        TEMPORAL_CERT: unrelated-secret
     documentIndex: 1
     asserts:
       - equal:
@@ -38,7 +43,20 @@ tests:
             - bootstrap-info
             - custom-temporal-client-certs
 
+  - it: renders the configured Temporal Secret name
+    template: temporal-certs-secret.yaml
+    set:
+      secrets:
+        temporalClientCerts: custom-temporal-client-certs
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: custom-temporal-client-certs
+
   - it: omits all runtime RBAC resources when RBAC creation is disabled
+    template: rbac.yaml
     set:
       rbac:
         create: false
