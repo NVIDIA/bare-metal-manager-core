@@ -58,13 +58,14 @@ jobs:
 
       - name: Save PR metadata
         env:
+          BASE_REF: ${{ github.base_ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           mkdir -p preview-metadata
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "${{ github.event.pull_request.number }}" > preview-metadata/pr_number
             echo "${{ github.head_ref }}" > preview-metadata/head_ref
-            git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- '*.md' '*.mdx' > preview-metadata/changed_md_files 2>/dev/null || true
+            git diff --name-only "origin/${BASE_REF}...HEAD" -- '*.md' '*.mdx' > preview-metadata/changed_md_files 2>/dev/null || true
           else
             # copy-pr-bot push to pull-request/<n> (no pull_request payload on push)
             branch="${GITHUB_REF_NAME}"
