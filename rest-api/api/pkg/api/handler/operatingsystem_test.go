@@ -2591,23 +2591,23 @@ func TestOperatingSystemHandler_GetAll_Visibility(t *testing.T) {
 	provOSB := buildProviderOS(t, ctx, osDAO, provOrg, ip.ID, "prov-os-b", provUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provOSB.ID, siteB.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, provUser)
 
-	// Shared org that owns both an infrastructure provider and a tenant. The
-	// user is only a tenant admin; provider-owned entries become visible only
-	// when associated with a site the tenant can access.
-	sharedOrg := "vis-shared-org"
-	tnUser := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{sharedOrg}, []string{authz.TenantAdminRole})
-	ip2 := testMachineBuildInfrastructureProvider(t, dbSession, sharedOrg, "vis-ip-2")
+	// The tenant can see provider-owned entries from a different org only when
+	// they are associated with a Site the tenant can access.
+	tenantOrg := "vis-tenant-org"
+	servingProviderOrg := "vis-serving-provider-org"
+	tnUser := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tenantOrg}, []string{authz.TenantAdminRole})
+	ip2 := testMachineBuildInfrastructureProvider(t, dbSession, servingProviderOrg, "vis-ip-2")
 	siteC := testMachineBuildSite(t, dbSession, ip2, "vis-site-c", cdbm.SiteStatusRegistered)
 	siteD := testMachineBuildSite(t, dbSession, ip2, "vis-site-d", cdbm.SiteStatusRegistered)
-	tn := testMachineBuildTenant(t, dbSession, sharedOrg, "vis-tenant")
-	tsC := testBuildTenantSiteAssociation(t, dbSession, sharedOrg, tn.ID, siteC.ID, tnUser.ID)
+	tn := testMachineBuildTenant(t, dbSession, tenantOrg, "vis-tenant")
+	tsC := testBuildTenantSiteAssociation(t, dbSession, tenantOrg, tn.ID, siteC.ID, tnUser.ID)
 	assert.NotNil(t, tsC)
 
-	buildTenantOS(t, ctx, osDAO, sharedOrg, tn.ID, "tenant-os-1", tnUser.ID)
-	buildTenantOS(t, ctx, osDAO, sharedOrg, tn.ID, "tenant-os-2", tnUser.ID)
-	provC := buildProviderOS(t, ctx, osDAO, sharedOrg, ip2.ID, "prov-os-c", tnUser.ID)
+	buildTenantOS(t, ctx, osDAO, tenantOrg, tn.ID, "tenant-os-1", tnUser.ID)
+	buildTenantOS(t, ctx, osDAO, tenantOrg, tn.ID, "tenant-os-2", tnUser.ID)
+	provC := buildProviderOS(t, ctx, osDAO, servingProviderOrg, ip2.ID, "prov-os-c", tnUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provC.ID, siteC.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, tnUser)
-	provD := buildProviderOS(t, ctx, osDAO, sharedOrg, ip2.ID, "prov-os-d", tnUser.ID)
+	provD := buildProviderOS(t, ctx, osDAO, servingProviderOrg, ip2.ID, "prov-os-d", tnUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provD.ID, siteD.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, tnUser)
 
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -2626,7 +2626,7 @@ func TestOperatingSystemHandler_GetAll_Visibility(t *testing.T) {
 		},
 		{
 			name:          "tenant admin sees own OSes plus provider OSes at accessible sites",
-			reqOrgName:    sharedOrg,
+			reqOrgName:    tenantOrg,
 			user:          tnUser,
 			expectedNames: []string{"tenant-os-1", "tenant-os-2", "prov-os-c"},
 		},
@@ -2682,19 +2682,20 @@ func TestOperatingSystemHandler_GetByID_Visibility(t *testing.T) {
 	provOSA := buildProviderOS(t, ctx, osDAO, provOrg, ip.ID, "prov-os-a", provUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provOSA.ID, siteA.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, provUser)
 
-	sharedOrg := "vis-shared-org"
-	tnUser := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{sharedOrg}, []string{authz.TenantAdminRole})
-	sharedProvUser := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{sharedOrg}, []string{authz.ProviderAdminRole})
-	ip2 := testMachineBuildInfrastructureProvider(t, dbSession, sharedOrg, "vis-ip-2")
+	tenantOrg := "vis-tenant-org"
+	servingProviderOrg := "vis-serving-provider-org"
+	tnUser := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tenantOrg}, []string{authz.TenantAdminRole})
+	servingProviderUser := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{servingProviderOrg}, []string{authz.ProviderAdminRole})
+	ip2 := testMachineBuildInfrastructureProvider(t, dbSession, servingProviderOrg, "vis-ip-2")
 	siteC := testMachineBuildSite(t, dbSession, ip2, "vis-site-c", cdbm.SiteStatusRegistered)
 	siteD := testMachineBuildSite(t, dbSession, ip2, "vis-site-d", cdbm.SiteStatusRegistered)
-	tn := testMachineBuildTenant(t, dbSession, sharedOrg, "vis-tenant")
-	testBuildTenantSiteAssociation(t, dbSession, sharedOrg, tn.ID, siteC.ID, tnUser.ID)
+	tn := testMachineBuildTenant(t, dbSession, tenantOrg, "vis-tenant")
+	testBuildTenantSiteAssociation(t, dbSession, tenantOrg, tn.ID, siteC.ID, tnUser.ID)
 
-	tnOS := buildTenantOS(t, ctx, osDAO, sharedOrg, tn.ID, "tenant-os-1", tnUser.ID)
-	provC := buildProviderOS(t, ctx, osDAO, sharedOrg, ip2.ID, "prov-os-c", tnUser.ID)
+	tnOS := buildTenantOS(t, ctx, osDAO, tenantOrg, tn.ID, "tenant-os-1", tnUser.ID)
+	provC := buildProviderOS(t, ctx, osDAO, servingProviderOrg, ip2.ID, "prov-os-c", tnUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provC.ID, siteC.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, tnUser)
-	provD := buildProviderOS(t, ctx, osDAO, sharedOrg, ip2.ID, "prov-os-d", tnUser.ID)
+	provD := buildProviderOS(t, ctx, osDAO, servingProviderOrg, ip2.ID, "prov-os-d", tnUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provD.ID, siteD.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, tnUser)
 
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -2715,29 +2716,29 @@ func TestOperatingSystemHandler_GetByID_Visibility(t *testing.T) {
 		},
 		{
 			name:           "tenant admin can read provider OS at accessible site",
-			reqOrgName:     sharedOrg,
+			reqOrgName:     tenantOrg,
 			user:           tnUser,
 			os:             provC,
 			expectedStatus: http.StatusOK,
 		},
 		{
 			name:           "tenant admin cannot read provider OS at inaccessible site",
-			reqOrgName:     sharedOrg,
+			reqOrgName:     tenantOrg,
 			user:           tnUser,
 			os:             provD,
 			expectedStatus: http.StatusForbidden,
 		},
 		{
 			name:           "tenant admin can read own OS",
-			reqOrgName:     sharedOrg,
+			reqOrgName:     tenantOrg,
 			user:           tnUser,
 			os:             tnOS,
 			expectedStatus: http.StatusOK,
 		},
 		{
 			name:           "provider admin cannot read tenant-owned OS",
-			reqOrgName:     sharedOrg,
-			user:           sharedProvUser,
+			reqOrgName:     servingProviderOrg,
+			user:           servingProviderUser,
 			os:             tnOS,
 			expectedStatus: http.StatusForbidden,
 		},

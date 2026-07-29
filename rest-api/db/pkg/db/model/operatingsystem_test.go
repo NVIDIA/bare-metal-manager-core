@@ -2149,6 +2149,8 @@ func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
 	user := testOperatingSystemBuildUser(t, dbSession, "testUser")
 	siteX := TestBuildSite(t, dbSession, ip, "siteX", user)
 	siteY := TestBuildSite(t, dbSession, ip, "siteY", user)
+	otherIP := testOperatingSystemBuildInfrastructureProvider(t, dbSession, "otherIP")
+	siteZ := TestBuildSite(t, dbSession, otherIP, "siteZ", user)
 
 	ossd := NewOperatingSystemDAO(dbSession)
 	ossaDAO := NewOperatingSystemSiteAssociationDAO(dbSession)
@@ -2195,6 +2197,8 @@ func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
 	provAtY := buildOS("prov-at-y", &ip.ID, nil)
 	associate(provAtY.ID, siteY.ID)
 	buildOS("prov-no-site", &ip.ID, nil)
+	provAtZ := buildOS("other-prov-at-z", &otherIP.ID, nil)
+	associate(provAtZ.ID, siteZ.ID)
 
 	// Tenant-owned OSes.
 	buildOS("tenant-1", nil, &tenant.ID)
@@ -2225,28 +2229,24 @@ func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
 		},
 		{
 			desc:          "tenant-admin view surfaces provider OS at accessible site",
-			providerID:    &ip.ID,
 			tenantIDs:     []uuid.UUID{tenant.ID},
 			visibleSites:  &[]uuid.UUID{siteX.ID},
 			expectedNames: []string{"prov-at-x", "tenant-1", "tenant-2"},
 		},
 		{
-			desc:          "tenant-admin view surfaces provider OSes across multiple accessible sites",
-			providerID:    &ip.ID,
+			desc:          "tenant-admin view surfaces OSes from all providers at accessible sites",
 			tenantIDs:     []uuid.UUID{tenant.ID},
-			visibleSites:  &[]uuid.UUID{siteX.ID, siteY.ID},
-			expectedNames: []string{"prov-at-x", "prov-at-y", "tenant-1", "tenant-2"},
+			visibleSites:  &[]uuid.UUID{siteX.ID, siteY.ID, siteZ.ID},
+			expectedNames: []string{"prov-at-x", "prov-at-y", "other-prov-at-z", "tenant-1", "tenant-2"},
 		},
 		{
 			desc:          "tenant-admin view with empty accessible sites hides provider OSes",
-			providerID:    &ip.ID,
 			tenantIDs:     []uuid.UUID{tenant.ID},
 			visibleSites:  &[]uuid.UUID{},
 			expectedNames: []string{"tenant-1", "tenant-2"},
 		},
 		{
 			desc:          "tenant-admin view excludes provider OS not associated with accessible site",
-			providerID:    &ip.ID,
 			tenantIDs:     []uuid.UUID{tenant.ID},
 			visibleSites:  &[]uuid.UUID{siteY.ID},
 			expectedNames: []string{"prov-at-y", "tenant-1", "tenant-2"},

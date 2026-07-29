@@ -34,7 +34,7 @@ type OperatingSystemCreateRequest struct {
 	// Deprecated: Tenant is now inferred from org membership.
 	// Deprecated
 	TenantId NullableString `json:"tenantId,omitempty"`
-	// Target Sites for the Operating System. For image-based OS specify exactly one Site (more than one is not supported). For Templated iPXE OS at least one Site is required and the list is fixed at creation: it cannot be changed on update. Not applicable to raw iPXE OS.
+	// Target Site for the Operating System. For image-based and Templated iPXE Operating Systems exactly one Site is required, even though this field is an array. The list is fixed at creation and cannot be changed on update. Not applicable to raw iPXE OS.
 	SiteIds []string `json:"siteIds,omitempty"`
 	// Deprecated: raw iPXE Operating Systems are superseded by Templated iPXE (ipxeTemplateId). iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified.
 	// Deprecated

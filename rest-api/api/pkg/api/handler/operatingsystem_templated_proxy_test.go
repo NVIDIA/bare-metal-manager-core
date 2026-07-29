@@ -50,6 +50,8 @@ type templatedProxyFixture struct {
 	tnOrg string
 	ipu   *cdbm.User
 	tnu   *cdbm.User
+	ip    *cdbm.InfrastructureProvider
+	tn    *cdbm.Tenant
 	site  *cdbm.Site
 	tmpl  *cdbm.IpxeTemplate
 }
@@ -105,6 +107,8 @@ func buildTemplatedProxyFixture(t *testing.T) *templatedProxyFixture {
 		tnOrg:     tnOrg,
 		ipu:       ipu,
 		tnu:       tnu,
+		ip:        ip,
+		tn:        tenant,
 		site:      site,
 		tmpl:      tmpl,
 	}
@@ -374,6 +378,55 @@ func TestOperatingSystemHandler_TemplatedIPXE_ProviderCreateOmitsTenantOrganizat
 	require.NotNil(t, persisted.InfrastructureProviderID)
 	assert.Equal(t, f.site.InfrastructureProviderID, *persisted.InfrastructureProviderID)
 	assert.Nil(t, persisted.TenantID)
+}
+
+func TestOperatingSystemHandler_TemplatedIPXE_UpdateRejectsMultipleSites(t *testing.T) {
+	f := buildTemplatedProxyFixture(t)
+
+	secondSite := testMachineBuildSite(t, f.dbSession, f.ip, "tmpl-proxy-second-site", cdbm.SiteStatusRegistered)
+	testBuildTenantSiteAssociation(t, f.dbSession, f.tnOrg, f.tn.ID, secondSite.ID, f.tnu.ID)
+	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(f.dbSession)
+	_, err := itsaDAO.Create(f.ctx, nil, cdbm.IpxeTemplateSiteAssociationCreateInput{
+		IpxeTemplateID: f.tmpl.ID,
+		SiteID:         secondSite.ID,
+	})
+	require.NoError(t, err)
+
+	originalDescription := "multi-site templated OS"
+	osDAO := cdbm.NewOperatingSystemDAO(f.dbSession)
+	os, err := osDAO.Create(f.ctx, nil, cdbm.OperatingSystemCreateInput{
+		Name:           "tmpl-proxy-multi-site-os",
+		Description:    &originalDescription,
+		Org:            f.tnOrg,
+		TenantID:       &f.tn.ID,
+		OsType:         cdbm.OperatingSystemTypeTemplatedIPXE,
+		IpxeTemplateId: cutil.GetPtr(f.tmpl.ID.String()),
+		Status:         cdbm.OperatingSystemStatusReady,
+		CreatedBy:      f.tnu.ID,
+	})
+	require.NoError(t, err)
+	common.TestBuildOperatingSystemSiteAssociation(t, f.dbSession, os.ID, f.site.ID, cutil.GetPtr("site-1"), cdbm.OperatingSystemSiteAssociationStatusSynced, f.tnu)
+	common.TestBuildOperatingSystemSiteAssociation(t, f.dbSession, os.ID, secondSite.ID, cutil.GetPtr("site-2"), cdbm.OperatingSystemSiteAssociationStatusSynced, f.tnu)
+
+	updateReq := model.APIOperatingSystemUpdateRequest{
+		Description: cutil.GetPtr("must not be persisted"),
+	}
+	body, err := json.Marshal(updateReq)
+	require.NoError(t, err)
+	ec, rec := f.newEchoContext(
+		http.MethodPatch,
+		string(body),
+		map[string]string{"orgName": f.tnOrg, "id": os.ID.String()},
+	)
+
+	h := UpdateOperatingSystemHandler{dbSession: f.dbSession, tc: f.tc, scp: f.scp, cfg: f.cfg}
+	require.NoError(t, h.Handle(ec))
+	require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+
+	persisted, err := osDAO.GetByID(f.ctx, nil, os.ID, nil)
+	require.NoError(t, err)
+	require.NotNil(t, persisted.Description)
+	assert.Equal(t, originalDescription, *persisted.Description)
 }
 
 func TestOperatingSystemHandler_TemplatedIPXE_ProxyCreateExecuteError(t *testing.T) {

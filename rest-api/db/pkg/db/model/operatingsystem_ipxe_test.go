@@ -6,12 +6,77 @@ package model
 import (
 	"context"
 	"testing"
+	"time"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOperatingSystem_ToProtoFromProto(t *testing.T) {
+	id := uuid.New()
+	tenantID := uuid.New()
+	created := time.Date(2026, time.July, 29, 12, 0, 0, 0, time.UTC)
+	updated := created.Add(time.Minute)
+	templateID := uuid.NewString()
+	authToken := "secret"
+	os := &OperatingSystem{
+		ID:               id,
+		Name:             "templated-os",
+		Description:      cutil.GetPtr("description"),
+		Org:              "tenant-org",
+		TenantID:         &tenantID,
+		Type:             OperatingSystemTypeTemplatedIPXE,
+		Status:           OperatingSystemStatusReady,
+		IsActive:         true,
+		AllowOverride:    true,
+		PhoneHomeEnabled: true,
+		UserData:         cutil.GetPtr("user-data"),
+		Created:          created,
+		Updated:          updated,
+		IpxeTemplateId:   &templateID,
+		IpxeTemplateParameters: []OperatingSystemIpxeParameter{
+			{Name: "version", Value: "24.04"},
+		},
+		IpxeTemplateArtifacts: []OperatingSystemIpxeArtifact{
+			{
+				Name:          "kernel",
+				URL:           "https://example.test/kernel",
+				AuthToken:     &authToken,
+				CacheStrategy: OperatingSystemIpxeArtifactCacheStrategyCacheAsNeeded,
+			},
+		},
+		IpxeTemplateDefinitionHash: cutil.GetPtr("definition-hash"),
+	}
+
+	protoOS := os.ToProto()
+	require.NotNil(t, protoOS)
+	assert.Equal(t, id.String(), protoOS.GetId().GetValue())
+	assert.Equal(t, "tenant-org", protoOS.GetTenantOrganizationId())
+	assert.Equal(t, corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE, protoOS.Type)
+	assert.Equal(t, corev1.TenantState_READY, protoOS.Status)
+	assert.Equal(t, templateID, protoOS.GetIpxeTemplateId().GetValue())
+	require.Len(t, protoOS.IpxeTemplateParameters, 1)
+	require.Len(t, protoOS.IpxeTemplateArtifacts, 1)
+
+	roundTripped := &OperatingSystem{TenantID: &tenantID}
+	roundTripped.FromProto(protoOS)
+	assert.Equal(t, id, roundTripped.ID)
+	assert.Equal(t, os.Name, roundTripped.Name)
+	assert.Equal(t, os.Description, roundTripped.Description)
+	assert.Equal(t, os.Org, roundTripped.Org)
+	assert.Equal(t, os.TenantID, roundTripped.TenantID, "REST ownership context should remain untouched")
+	assert.Equal(t, os.Type, roundTripped.Type)
+	assert.Equal(t, os.Status, roundTripped.Status)
+	assert.Equal(t, os.Created, roundTripped.Created)
+	assert.Equal(t, os.Updated, roundTripped.Updated)
+	assert.Equal(t, os.IpxeTemplateId, roundTripped.IpxeTemplateId)
+	assert.Equal(t, os.IpxeTemplateParameters, roundTripped.IpxeTemplateParameters)
+	assert.Equal(t, os.IpxeTemplateArtifacts, roundTripped.IpxeTemplateArtifacts)
+	assert.Equal(t, os.IpxeTemplateDefinitionHash, roundTripped.IpxeTemplateDefinitionHash)
+}
 
 // TestOperatingSystemSQLDAO_TemplatedIPXERoundTrip exercises the iPXE template definition
 // columns added for the Templated iPXE OS variant: create, read-back of the JSONB
