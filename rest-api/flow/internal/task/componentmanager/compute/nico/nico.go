@@ -22,11 +22,11 @@
 // Component Manager equivalents in Core; they continue to call the
 // existing machine-level RPCs that the legacy path used.
 //
-// During the migration the embedded service config keeps compute pointed
-// at compute/nicolegacy by default. Operators flip the
-// COMPONENT_MANAGER_COMPUTE environment variable to "nico" once the
-// matching Core configuration (compute_tray_use_state_controller / SoT
-// firmware objects) is in place.
+// The embedded service config selects this implementation by default.
+// Operators can still opt back into compute/nicolegacy via
+// COMPONENT_MANAGER_COMPUTE=nicolegacy. Core must be configured with
+// compute_tray_use_state_controller=true (and SoT firmware objects) for
+// this path to work.
 package nico
 
 import (
