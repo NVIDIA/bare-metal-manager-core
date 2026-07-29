@@ -175,18 +175,30 @@ env:
 dsxExchangeEventBusConfig: ""
 
 ## =============================================================================
+## Component manager
+## =============================================================================
+## Renders the [component_manager] section into the global application config.
+## Presence of that section is what enables the component manager; site-config
+## can override fields but cannot remove the section once rendered — hence the
+## Helm gate (default off). Independent of rms.enabled below.
+##
+## The chart defaults use rms backends + state controllers (recommended path).
+## Enabling this with rms backends requires rms.enabled=true (or an equivalent
+## [rms] block in site-config); otherwise Core leaves the component manager
+## uninitialized and logs a build error.
+componentManager:
+  enabled: false
+
+## =============================================================================
 ## RMS (Rack Management Service) connectivity
 ## =============================================================================
 ## RMS deploys as its own Helm chart (rack-manager); Core only needs the
-## connection details to use it for rack-level firmware upgrades, power
-## sequencing, and rms-backed component-manager operations. When disabled,
-## neither [rms] nor [component_manager] is rendered (presence of the latter
-## is what enables the component manager, and site-config cannot un-define
-## it). Standard NVL72 / NVL72_GB300 rack_profiles always ship in the global
-## config so sites only override OEM-specific vendors when needed.
+## connection details for rack-level firmware upgrades, power sequencing, and
+## rms-backed component-manager operations. When disabled, no [rms] section is
+## rendered. Independent of componentManager.enabled.
 ##
-## Enabling this renders [component_manager] with rms backends + state
-## controllers, and [rms] with the connection settings below.
+## Qualified NVL72 / NVL72_GB300 rack_profiles always ship in the global toml;
+## override OEM vendors (or add test profiles) via site-config merge.
 rms:
   ## Off by default until RMS ships in the standard install path. Enabling
   ## this WITHOUT RMS deployed is safe: the client is constructed lazily and

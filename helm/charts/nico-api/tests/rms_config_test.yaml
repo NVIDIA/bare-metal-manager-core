@@ -20,10 +20,10 @@ tests:
           path: data["nico-api-config.toml"]
           pattern: '\[component_manager\]'
 
-  - it: renders component_manager and rms together when enabled
+  - it: renders component_manager alone when only componentManager is enabled
     documentIndex: 0
     set:
-      rms:
+      componentManager:
         enabled: true
     asserts:
       - matchRegex:
@@ -32,6 +32,16 @@ tests:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '(?m)^compute_tray_backend = "rms"$'
+      - notMatchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '\[rms\]'
+
+  - it: renders rms alone when only rms is enabled
+    documentIndex: 0
+    set:
+      rms:
+        enabled: true
+    asserts:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '(?m)^\[rms\]$'
@@ -41,11 +51,29 @@ tests:
       - matchRegex:
           path: data["nico-api-config.toml"]
           pattern: '(?m)^enforce_tls = true$'
+      - notMatchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '\[component_manager\]'
       # No cert paths by default: nv-rms-client auto-discovers the SPIFFE
       # mount (/var/run/secrets/spiffe.io) when they are unset.
       - notMatchRegex:
           path: data["nico-api-config.toml"]
           pattern: 'root_ca_path|client_cert|client_key'
+
+  - it: renders both sections when both switches are enabled
+    documentIndex: 0
+    set:
+      componentManager:
+        enabled: true
+      rms:
+        enabled: true
+    asserts:
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^\[component_manager\]$'
+      - matchRegex:
+          path: data["nico-api-config.toml"]
+          pattern: '(?m)^\[rms\]$'
 
   - it: renders explicit mTLS material overrides when set
     documentIndex: 0
