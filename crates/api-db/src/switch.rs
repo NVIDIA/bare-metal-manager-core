@@ -125,6 +125,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         deleted: None,
         bmc_mac_address: new_switch.bmc_mac_address,
         bmc_info: None,
+        bmc_credential_rotation_requested: false,
         controller_state: Versioned {
             value: state,
             version: controller_state_version,
@@ -586,6 +587,77 @@ pub async fn find_bmc_ips_by_switch_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("switch::find_bmc_ips_by_switch_ids", err))
+}
+
+/// Resolve the switch that owns a BMC MAC, for the operator force-converge
+/// escape hatch (the switch analogue of
+/// [`crate::machine_topology::find_machine_id_by_bmc_mac`]). A switch records
+/// its BMC MAC directly on its row and a MAC uniquely names one BMC device, so
+/// this is an exact lookup. Returns `None` when no live switch carries that MAC
+/// (e.g. it belongs to a machine or power-shelf BMC, or to no known device).
+pub async fn find_switch_id_by_bmc_mac(
+    txn: &mut PgConnection,
+    mac_address: MacAddress,
+) -> DatabaseResult<Option<SwitchId>> {
+    let query = r#"
+        SELECT id
+        FROM switches
+        WHERE bmc_mac_address = $1::macaddr
+            AND deleted IS NULL
+    "#;
+    sqlx::query_scalar(query)
+        .bind(mac_address)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("switch::find_switch_id_by_bmc_mac", e))
+}
+
+/// Record an operator force-converge request against a switch's BMC (REQ-2). The
+/// switch state controller consumes it on its next sweep. Mirrors
+/// [`crate::machine::set_bmc_credential_rotation_requested`].
+pub async fn set_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE switches SET bmc_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_scalar::<_, SwitchId>(query)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown switch; surface a clean
+            // not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "switch",
+                id: switch_id.to_string(),
+            },
+            e => DatabaseError::new("switch::set_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+/// Clear a switch's force-converge request (REQ-2), committed with the return to
+/// `Ready` once a forced tick settles. Mirrors
+/// [`crate::machine::clear_bmc_credential_rotation_requested`].
+pub async fn clear_bmc_credential_rotation_requested(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE switches SET bmc_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_scalar::<_, SwitchId>(query)
+        .bind(switch_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "switch",
+                id: switch_id.to_string(),
+            },
+            e => DatabaseError::new("switch::clear_bmc_credential_rotation_requested", e),
+        })?;
+    Ok(())
 }
 
 /// Full endpoint info for a switch: BMC MAC/IP and optionally NVOS MAC/IP.
@@ -1126,6 +1198,70 @@ mod tests {
         assert_eq!(rack_endpoints[0].nvos_ip, expected_nvos_ip);
         txn.rollback().await?;
 
+        Ok(())
+    }
+
+    /// The force-converge escape hatch (REQ-2): a switch's BMC MAC resolves back
+    /// to its id, the boolean flag round-trips through the load path, and both
+    /// mutating DAOs surface a clean not-found for an unknown switch.
+    #[crate::sqlx_test]
+    async fn test_force_bmc_rotation_flag_and_mac_resolution(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let switch = create_seeded_discovered(txn.as_mut(), 7, "Switch7").await?;
+        txn.commit().await?;
+        let bmc_mac = switch.bmc_mac_address.expect("seeded switch has a BMC MAC");
+
+        let mut txn = pool.begin().await?;
+
+        // The switch's own BMC MAC resolves to its id; an unrelated MAC does not.
+        assert_eq!(
+            find_switch_id_by_bmc_mac(txn.as_mut(), bmc_mac).await?,
+            Some(switch.id)
+        );
+        let unrelated_mac: MacAddress = "02:00:00:00:ff:ff".parse()?;
+        assert_eq!(
+            find_switch_id_by_bmc_mac(txn.as_mut(), unrelated_mac).await?,
+            None
+        );
+
+        // The flag defaults false, set flips it, and clear resets it -- observed
+        // through the standard load path (`s.*` surfaces the column).
+        let is_requested = |switch: Option<Switch>| {
+            switch
+                .expect("switch exists")
+                .bmc_credential_rotation_requested
+        };
+        assert!(
+            !is_requested(find_by_id(txn.as_mut(), &switch.id).await?),
+            "flag defaults to false"
+        );
+        set_bmc_credential_rotation_requested(txn.as_mut(), switch.id).await?;
+        assert!(
+            is_requested(find_by_id(txn.as_mut(), &switch.id).await?),
+            "set records the request"
+        );
+        clear_bmc_credential_rotation_requested(txn.as_mut(), switch.id).await?;
+        assert!(
+            !is_requested(find_by_id(txn.as_mut(), &switch.id).await?),
+            "clear resets the request"
+        );
+
+        // An unknown switch id yields NotFound (via `RETURNING id`), not a
+        // generic wrapped error.
+        let ghost =
+            SwitchId::from_str("sw100nsner0op5osl6n85t7772j010jmhafm934n7oej4mlome3okrn9b60")?;
+        assert!(matches!(
+            set_bmc_credential_rotation_requested(txn.as_mut(), ghost).await,
+            Err(DatabaseError::NotFoundError { kind: "switch", .. })
+        ));
+        assert!(matches!(
+            clear_bmc_credential_rotation_requested(txn.as_mut(), ghost).await,
+            Err(DatabaseError::NotFoundError { kind: "switch", .. })
+        ));
+
+        txn.rollback().await?;
         Ok(())
     }
 }

@@ -5897,13 +5897,16 @@ message BmcCredentialRotationRequest {
     Clear = 2;
   }
   Mode mode = 1;
-  // Address the target BMC by the owning machine's id, by its BMC MAC, or by
-  // both. A machine (host or DPU) has exactly one BMC, so either identifier
-  // alone uniquely names the device; if both are supplied they must agree.
-  // At least one of machine_id / bmc_mac must be set (enforced server-side).
+  // Address the target BMC by the owning machine's id, by the owning switch's
+  // id, or by its BMC MAC. A machine (host or DPU) and a switch each have
+  // exactly one BMC, so any single identifier uniquely names the device; a MAC
+  // is resolved server-side to whichever machine or switch owns it. If more
+  // than one identifier is supplied they must agree. At least one of
+  // machine_id / switch_id / bmc_mac must be set (enforced server-side).
   optional common.MachineId machine_id = 2;
   // MAC of the BMC to target.
   optional string bmc_mac = 3;
+  optional common.SwitchId switch_id = 4;
 }
 
 message HostReprovisioningListRequest {
