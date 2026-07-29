@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+suite: Site Agent runtime RBAC least privilege
+templates:
+  - rbac.yaml
+release:
+  namespace: nico-rest
+tests:
+  - it: grants only get and update access to runtime-mutated Secrets
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: rules
+          value:
+            - apiGroups:
+                - ""
+              resources:
+                - secrets
+              resourceNames:
+                - bootstrap-info
+                - temporal-client-site-agent-certs
+              verbs:
+                - get
+                - update
+
+  - it: follows the configured Temporal Secret name
+    set:
+      envConfig:
+        TEMPORAL_CERT: custom-temporal-client-certs
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: rules[0].resourceNames
+          value:
+            - bootstrap-info
+            - custom-temporal-client-certs
+
+  - it: omits all runtime RBAC resources when RBAC creation is disabled
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0
