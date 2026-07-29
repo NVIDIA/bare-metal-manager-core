@@ -124,6 +124,9 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Credential Rotation
+    description: |-
+      Credential Rotation endpoints stage a site-wide credential rotation and report per-Site or per-device convergence
   - name: Site Explorer
     description: |-
       Site Explorer discovers BMC endpoints on a Site and tracks their exploration state.
@@ -1256,6 +1259,98 @@ paths:
       description: |-
         Create a site-default host or DPU UEFI credential. The request fails
         if the selected site-default credential already exists.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/credential/rotation':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Rotate Credential
+      tags:
+        - Credential Rotation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialRotationRequest'
+      responses:
+        '200':
+          description: Credential rotation was staged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialRotationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      operationId: rotate-credential
+      description: |-
+        Stage a site-wide credential rotation: publish a new rotate-to secret
+        and bump the site-wide target version. Devices converge to the new
+        version asynchronously; poll the status endpoint to observe
+        convergence. Equivalent to `nico-admin-cli credential rotate`.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+    get:
+      summary: Get Credential Rotation Status
+      tags:
+        - Credential Rotation
+      parameters:
+        - schema:
+            type: string
+            format: uuid
+          name: siteId
+          in: query
+          required: true
+          description: ID of the Site to query.
+        - schema:
+            type: string
+            enum:
+              - BMC
+              - HostUEFI
+              - DPUUEFI
+              - NVOS
+              - LockdownIKM
+          name: credentialType
+          in: query
+          required: true
+          description: Credential family to report.
+        - schema:
+            type: string
+          name: deviceMac
+          in: query
+          required: false
+          description: Report only this device's convergence, matched by MAC.
+      responses:
+        '200':
+          description: Credential rotation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialRotationStatus'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          description: No rotation record exists for the requested device
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NICoAPIError'
+      operationId: get-credential-rotation-status
+      description: |-
+        Report convergence of an in-flight or completed site-wide credential
+        rotation. When `deviceMac` is set, the counts describe just that device
+        and a per-device detail block is returned. Equivalent to
+        `nico-admin-cli credential rotation-status`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/site-explorer/endpoint/action':
@@ -14368,6 +14463,158 @@ components:
           enum:
             - Host
             - DPU
+    CredentialRotationRequest:
+      type: object
+      title: CredentialRotationRequest
+      description: Request to stage a site-wide credential rotation.
+      required:
+        - siteId
+        - credentialType
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose credential family is rotated.
+        credentialType:
+          type: string
+          description: Credential family to rotate.
+          enum:
+            - BMC
+            - HostUEFI
+            - DPUUEFI
+            - NVOS
+            - LockdownIKM
+        password:
+          type: string
+          minLength: 1
+          description: Explicit rotate-to password. When omitted, a strong password is auto-generated. Never returned.
+        reason:
+          type: string
+          description: Free-form operator note recorded with the rotation. Must not contain secrets.
+    CredentialRotationResult:
+      type: object
+      title: CredentialRotationResult
+      description: Result returned when a credential rotation is staged. The password is never returned.
+      required:
+        - credentialType
+        - targetVersion
+      properties:
+        credentialType:
+          type: string
+          description: Credential family that was rotated.
+          enum:
+            - BMC
+            - HostUEFI
+            - DPUUEFI
+            - NVOS
+            - LockdownIKM
+        targetVersion:
+          type: integer
+          format: int64
+          description: Newly published site-wide target version that devices converge to.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the rotation was staged.
+    CredentialRotationStatus:
+      type: object
+      title: CredentialRotationStatus
+      description: Convergence status of an in-flight or completed site-wide credential rotation.
+      required:
+        - targetVersion
+        - converged
+        - pending
+        - quarantined
+        - complete
+      properties:
+        targetVersion:
+          type: integer
+          format: int64
+          description: Current site-wide target version for this family.
+        converged:
+          type: integer
+          format: int64
+          description: Number of devices at or beyond the target version.
+        pending:
+          type: integer
+          format: int64
+          description: Number of devices not yet converged and eligible to rotate.
+        quarantined:
+          type: integer
+          format: int64
+          description: Number of devices currently in a rotation backoff window.
+        quarantinedDeviceMacs:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+          description: MAC addresses of the quarantined devices.
+        started:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the current target version was staged.
+        complete:
+          type: boolean
+          description: True only when every device in the queried set has reached the target with none pending and none quarantined.
+        device:
+          $ref: '#/components/schemas/DeviceCredentialRotationStatus'
+    DeviceCredentialRotationStatus:
+      type: object
+      title: DeviceCredentialRotationStatus
+      description: Per-device convergence detail, returned only for a MAC-targeted status query.
+      required:
+        - deviceMac
+        - converged
+        - quarantined
+        - rotateAttempts
+      properties:
+        deviceMac:
+          type: string
+          description: The device this status describes.
+        currentVersion:
+          type:
+            - integer
+            - 'null'
+          format: int64
+          description: Credential version live on the hardware. Null when not yet established.
+        rotatingToVersion:
+          type:
+            - integer
+            - 'null'
+          format: int64
+          description: Set while a rotation is mid-flight on this device.
+        converged:
+          type: boolean
+          description: True once the current version reaches the site-wide target.
+        quarantined:
+          type: boolean
+          description: True while the device is in a rotation backoff window.
+        quarantinedUntil:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the current backoff window expires; set only while quarantined.
+        rotateAttempts:
+          type: integer
+          format: int64
+          description: Number of rotation attempts recorded for this device.
+        lastAttempted:
+          type:
+            - string
+            - 'null'
+          format: date-time
+          description: When the last rotation attempt ran; null if none.
+        lastError:
+          type:
+            - string
+            - 'null'
+          description: Redacted last-error string for observability; never a secret.
     SiteExplorerEndpointActionRequest:
       type: object
       title: SiteExplorerEndpointActionRequest

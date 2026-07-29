@@ -23,7 +23,7 @@ use std::time::{self, Duration};
 
 use ::carbide_utils::HostPortPair;
 use ::machine_a_tron::{
-    BmcMockRegistry, DhcpType, HostMachineHandle, MachineATronConfig, MachineConfig, RackConfig,
+    BmcMockRegistry, DeviceHandle, DhcpType, MachineATronConfig, MachineConfig, RackConfig,
 };
 use api_test_helper::utils::TestApiServerArgs;
 use api_test_helper::{
@@ -31,7 +31,7 @@ use api_test_helper::{
     vpc_prefix,
 };
 use bmc_mock::test_support::TEST_MAC_POOL;
-use bmc_mock::{HostHardwareType, ListenerOrAddress};
+use bmc_mock::{HardwareType, ListenerOrAddress};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use eyre::ContextCompat;
 use futures::FutureExt;
@@ -143,7 +143,7 @@ async fn test_integration() -> eyre::Result<()> {
     // Run several tests in parallel.
     let all_tests = join_all([
         test_machine_a_tron_multidpu(
-            HostHardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -152,7 +152,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_multidpu(
-            HostHardwareType::NvidiaDgxH100,
+            HardwareType::NvidiaDgxH100,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -161,7 +161,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_multidpu(
-            HostHardwareType::WiwynnGB200Nvl,
+            HardwareType::WiwynnGB200Nvl,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -170,7 +170,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_multidpu(
-            HostHardwareType::LenovoGB300Nvl,
+            HardwareType::LenovoGB300Nvl,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -179,7 +179,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_multidpu(
-            HostHardwareType::NvidiaDgxGb300,
+            HardwareType::NvidiaDgxGb300,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -188,7 +188,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_multidpu(
-            HostHardwareType::SupermicroGb300Nvl,
+            HardwareType::SupermicroGb300Nvl,
             &test_env,
             &bmc_address_registry,
             &managed_segment_id,
@@ -197,22 +197,14 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_zerodpu(
-            HostHardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             &flat_vpc,
         )
         .boxed(),
         test_machine_a_tron_nic_mode(
-            HostHardwareType::DellPowerEdgeR750,
-            &test_env,
-            &bmc_address_registry,
-            &flat_vpc,
-            &host_inband_segment_id,
-        )
-        .boxed(),
-        test_machine_a_tron_nic_mode(
-            HostHardwareType::HpeProliantDl380aGen11,
+            HardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             &flat_vpc,
@@ -220,7 +212,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_nic_mode(
-            HostHardwareType::WiwynnGB200Nvl,
+            HardwareType::HpeProliantDl380aGen11,
             &test_env,
             &bmc_address_registry,
             &flat_vpc,
@@ -228,7 +220,15 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_nic_mode(
-            HostHardwareType::SupermicroGb300Nvl,
+            HardwareType::WiwynnGB200Nvl,
+            &test_env,
+            &bmc_address_registry,
+            &flat_vpc,
+            &host_inband_segment_id,
+        )
+        .boxed(),
+        test_machine_a_tron_nic_mode(
+            HardwareType::SupermicroGb300Nvl,
             &test_env,
             &bmc_address_registry,
             &flat_vpc,
@@ -241,7 +241,7 @@ async fn test_integration() -> eyre::Result<()> {
         // the host-facing DPU MAC is re-created on the Admin segment before the NIC-mode
         // transition completes.
         test_machine_a_tron_dual_stack(
-            HostHardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             tenant_org_id,
@@ -252,7 +252,7 @@ async fn test_integration() -> eyre::Result<()> {
         )
         .boxed(),
         test_machine_a_tron_dual_stack_l2(
-            HostHardwareType::DellPowerEdgeR750,
+            HardwareType::DellPowerEdgeR750,
             &test_env,
             &bmc_address_registry,
             &dual_stack_l2_segment_id,
@@ -520,7 +520,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
     assert_eq!(0i64, get_dns_record_count(&db_pool).await);
 
     run_machine_a_tron_test(
-        HostHardwareType::DellPowerEdgeR750,
+        HardwareType::DellPowerEdgeR750,
         1,
         1,
         false,
@@ -661,7 +661,7 @@ async fn test_metrics_integration() -> eyre::Result<()> {
 }
 
 async fn test_machine_a_tron_multidpu(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     segment_id: &str,
@@ -764,7 +764,7 @@ async fn test_machine_a_tron_rack(
 ) -> eyre::Result<()> {
     let rack_id = RackId::new("machine-a-tron-nvl72");
     run_machine_a_tron_test(
-        HostHardwareType::WiwynnGB200Nvl,
+        HardwareType::WiwynnGB200Nvl,
         18,
         2,
         false,
@@ -817,7 +817,7 @@ async fn test_machine_a_tron_rack(
 }
 
 async fn test_machine_a_tron_zerodpu(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     flat_vpc_id: &str,
@@ -879,7 +879,7 @@ async fn test_machine_a_tron_zerodpu(
 }
 
 async fn test_machine_a_tron_nic_mode(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     flat_vpc_id: &str,
@@ -1061,7 +1061,7 @@ async fn assert_auto_instance_network(
 /// managed DPU -- then drives the re-ingested NIC-mode host all the way to Ready.
 #[expect(dead_code, reason = "temporarily disabled due to a CI race")]
 async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     admin_dhcp_relay_address: Ipv4Addr,
@@ -1288,7 +1288,7 @@ async fn test_machine_a_tron_dpu_to_nic_mode_reregistration(
 }
 
 async fn test_machine_a_tron_dual_stack(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     tenant_organization_id: &str,
@@ -1404,7 +1404,7 @@ async fn test_machine_a_tron_dual_stack(
 /// The segment is pre-created with both IPv4 and IPv6 prefixes, and the
 /// handler allocates SVI IPs for both. Instances get one IP per prefix.
 async fn test_machine_a_tron_dual_stack_l2(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     test_env: &IntegrationTestEnvironment,
     bmc_mock_registry: &BmcMockRegistry,
     dual_stack_segment_id: &str,
@@ -1474,7 +1474,7 @@ async fn test_machine_a_tron_dual_stack_l2(
 
 #[allow(clippy::too_many_arguments)]
 async fn run_machine_a_tron_test<F, O>(
-    hw_type: HostHardwareType,
+    hw_type: HardwareType,
     host_count: u32,
     dpu_per_host_count: u32,
     dpus_in_nic_mode: bool,
@@ -1485,7 +1485,7 @@ async fn run_machine_a_tron_test<F, O>(
     run_assertions: F,
 ) -> eyre::Result<()>
 where
-    F: Fn(HostMachineHandle) -> O,
+    F: Fn(DeviceHandle) -> O,
     O: Future<Output = eyre::Result<()>>,
 {
     let api_addr = test_env
@@ -1561,7 +1561,7 @@ where
         mac_address_pool: None,
     };
 
-    let (machine_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
+    let (provisionable_handles, mat_handle) = api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,
@@ -1571,7 +1571,7 @@ where
     .await
     .unwrap();
 
-    let results = join_all(machine_handles.into_iter().map(run_assertions)).await;
+    let results = join_all(provisionable_handles.into_iter().map(run_assertions)).await;
     let result_count = results.len();
     let assertion_result: eyre::Result<()> = results.into_iter().try_collect();
     let shutdown_result = mat_handle.shutdown().await;

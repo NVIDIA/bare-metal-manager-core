@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use bmc_explorer::nv_generate_exploration_report;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, test_support};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType, MachineInfo, test_support};
 use mac_address::MacAddress;
 use model::site_explorer::EndpointType;
 use tokio::test;
@@ -25,7 +25,7 @@ use crate::common;
 #[test]
 async fn explore_bluefield4_and_generate_machine_id_from_system_serial() {
     let h = test_support::dell_poweredge_r760_bluefield4_bmc(DpuMachineInfo {
-        hw_type: HostHardwareType::DellPowerEdgeR760Bf4,
+        hw_type: HardwareType::DellPowerEdgeR760Bf4,
         bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x01]),
         host_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x02]),
         oob_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x04, 0x03]),
@@ -97,7 +97,7 @@ async fn explore_bluefield4_and_generate_machine_id_from_system_serial() {
 async fn explore_b4240v_and_generate_machine_id() {
     let host_mac_address = MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x14, 0x02]);
     let h = test_support::bmc_for_machine(MachineInfo::Dpu(DpuMachineInfo {
-        hw_type: HostHardwareType::NvidiaDgxVr,
+        hw_type: HardwareType::NvidiaDgxVr,
         bmc_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x14, 0x01]),
         host_mac_address,
         oob_mac_address: MacAddress::new([0x02, 0x00, 0x00, 0xbf, 0x14, 0x03]),

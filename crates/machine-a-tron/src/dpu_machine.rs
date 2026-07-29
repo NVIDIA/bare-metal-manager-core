@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
-    BmcCommand, DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, SetSystemPowerResult,
+    BmcCommand, DpuMachineInfo, DpuSettings, HardwareType, MachineInfo, SetSystemPowerResult,
     SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
@@ -36,7 +36,7 @@ use crate::config::{MachineATronContext, PersistedDpuMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
-use crate::status::{BmcStatus, EndpointStatus, MachineStatus, MachineStatusConfig};
+use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::tui::HostDetails;
 use crate::{MachineConfig, saturating_add_duration_to_instant};
 
@@ -112,7 +112,7 @@ impl DpuMachine {
     }
 
     pub fn new(
-        hw_type: HostHardwareType,
+        hw_type: HardwareType,
         mat_host: Uuid,
         dpu_index: u8,
         app_context: Arc<MachineATronContext>,
@@ -385,7 +385,7 @@ impl DpuMachineHandle {
             live_state: Arc::new(RwLock::new(live_state)),
             mat_id,
             dpu_info: DpuMachineInfo {
-                hw_type: HostHardwareType::default(),
+                hw_type: HardwareType::default(),
                 bmc_mac_address: mac,
                 host_mac_address: mac,
                 oob_mac_address: mac,
@@ -458,10 +458,16 @@ impl DpuMachineHandle {
         }
     }
 
-    pub fn status(&self, config: &MachineStatusConfig) -> MachineStatus {
+    pub fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let live_state = self.0.live_state.read().unwrap();
-        MachineStatus {
+        DeviceStatus {
             mat_id: self.0.mat_id.to_string(),
+            device_kind: DeviceKind::Dpu,
+            device_id: live_state
+                .observed_machine_id
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| self.0.mat_id.to_string()),
             machine_id: live_state
                 .observed_machine_id
                 .as_ref()

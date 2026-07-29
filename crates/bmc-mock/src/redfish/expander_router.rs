@@ -261,7 +261,7 @@ mod tests {
     fn test_host_mock() -> Router {
         let callbacks = Arc::new(TestCallbacks {});
         let mut mac_pool = TEST_MAC_POOL.lock().unwrap();
-        let hw_type = HostHardwareType::DellPowerEdgeR750;
+        let hw_type = HardwareType::DellPowerEdgeR750;
         let ranges_config = mac_pool.allocate_range_config().unwrap();
         crate::machine_router(
             &MachineInfo::Host(HostMachineInfo::new(

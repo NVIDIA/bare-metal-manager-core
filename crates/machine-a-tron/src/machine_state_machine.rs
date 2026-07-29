@@ -24,8 +24,8 @@ use std::time::Duration;
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostHardwareType, HostnameQuerying,
-    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HardwareType, HostnameQuerying, MachineInfo,
+    MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
@@ -49,7 +49,7 @@ use crate::machine_state_machine::MachineStateError::MissingMachineId;
 use crate::machine_utils::{
     PxeError, PxeResponse, forge_agent_control, get_validation_id, send_pxe_boot_request,
 };
-use crate::{PersistedDpuMachine, PersistedHostMachine};
+use crate::{PersistedDevice, PersistedDpuMachine};
 
 pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 
@@ -224,7 +224,7 @@ pub enum BmcRegistrationMode {
 }
 
 pub enum PersistedMachine {
-    Host(PersistedHostMachine),
+    Host(PersistedDevice),
     Dpu(PersistedDpuMachine),
 }
 
@@ -1085,7 +1085,7 @@ impl MachineStateMachine {
         );
 
         let pw_override = match &self.machine_info {
-            MachineInfo::Host(host) if host.hw_type == HostHardwareType::LiteOnPowerShelf => None,
+            MachineInfo::Host(host) if host.hw_type == HardwareType::LiteOnPowerShelf => None,
             MachineInfo::Host(_) => self.app_context.app_config.host_bmc_password.as_deref(),
             MachineInfo::Dpu(_) => self.app_context.app_config.dpu_bmc_password.as_deref(),
         };
@@ -1140,8 +1140,8 @@ impl MachineStateMachine {
             MachineInfo::Dpu(_) => config.dpus_in_nic_mode,
             MachineInfo::Host(host) => matches!(
                 host.hw_type,
-                bmc_mock::HostHardwareType::LiteOnPowerShelf
-                    | bmc_mock::HostHardwareType::NvidiaSwitchNd5200Ld
+                bmc_mock::HardwareType::LiteOnPowerShelf
+                    | bmc_mock::HardwareType::NvidiaSwitchNd5200Ld
             ),
         }
     }

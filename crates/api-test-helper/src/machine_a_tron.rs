@@ -22,7 +22,7 @@ use bmc_mock::mac_address_pool::MacAddressPool;
 use forge_tls::client_config::get_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, DhcpClient, HostMachineHandle, MachineATron,
+    BmcMockRegistry, BmcRegistrationMode, DeviceHandle, DhcpClient, MachineATron,
     MachineATronConfig, MachineATronContext, UdpDhcpService, api_throttler,
 };
 use rpc::forge_api_client::FailOverOn;
@@ -43,7 +43,7 @@ pub async fn run_local(
     repo_root: &Path,
     bmc_address_registry: Option<BmcMockRegistry>,
     mac_address_pool: Arc<Mutex<MacAddressPool>>,
-) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
+) -> eyre::Result<(Vec<DeviceHandle>, MachineATronHandle)> {
     app_config.validate()?;
 
     let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
@@ -100,32 +100,32 @@ pub async fn run_local(
     });
 
     let mat = MachineATron::new(app_context.clone());
-    let machine_handles = mat.make_machines(false).await?;
+    let simulators = mat.make_devices(false).await?;
+    let provisionable_handles = simulators.provisionable_handles();
 
     let (stop_tx, stop_rx) = oneshot::channel();
-    let machine_handles_clone = machine_handles.clone();
+    let device_simulators = simulators.devices().to_vec();
     let join_handle = tokio::spawn(async move {
         stop_rx.await.ok(); // this finishes when stop_tx is dropped
 
         try_join_all(
-            machine_handles_clone
+            device_simulators
                 .iter()
-                .map(HostMachineHandle::abort_and_wait),
+                .map(|simulator| simulator.shutdown()),
         )
         .await?;
 
-        try_join_all(
-            machine_handles_clone
-                .into_iter()
-                .map(|m| m.delete_from_api(app_context.api_client())),
-        )
+        try_join_all(device_simulators.into_iter().map(|simulator| {
+            let api_client = app_context.api_client();
+            async move { simulator.delete_from_api(api_client).await }
+        }))
         .await?;
 
         Ok(())
     });
 
     Ok((
-        machine_handles,
+        provisionable_handles,
         MachineATronHandle {
             _stop_tx: stop_tx,
             _join_handle: join_handle,

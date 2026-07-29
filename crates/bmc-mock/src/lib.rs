@@ -58,7 +58,7 @@ pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
 pub const DUMMY_FACTORY_DPU_PASSWORD: &str = "0penBmc";
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
-pub enum HostHardwareType {
+pub enum HardwareType {
     #[serde(rename = "dell_poweredge_r750")]
     #[default]
     DellPowerEdgeR750,
@@ -93,7 +93,7 @@ pub enum HostHardwareType {
     GenericSupermicro,
 }
 
-impl fmt::Display for HostHardwareType {
+impl fmt::Display for HardwareType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::DellPowerEdgeR750 => "Dell PowerEdge R750".fmt(f),
@@ -114,7 +114,7 @@ impl fmt::Display for HostHardwareType {
     }
 }
 
-impl HostHardwareType {
+impl HardwareType {
     // This function returns how many DPUs must be attached to the
     // platform. If None than platform can support variable number of
     // DPUs.
