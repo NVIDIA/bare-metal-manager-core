@@ -19,6 +19,7 @@ use ::rpc::forge::BmcCredentialRotationRequest;
 use ::rpc::forge::bmc_credential_rotation_request::Mode;
 use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use mac_address::MacAddress;
 
 #[derive(Parser, Debug, Clone)]
 #[command(after_long_help = "\
@@ -67,15 +68,15 @@ pub struct ForceSet {
         help = "MAC of the BMC to target. Provide this, --id, or both; if both \
                 are given they must identify the same device."
     )]
-    pub bmc_mac: Option<String>,
+    pub bmc_mac: Option<MacAddress>,
 }
 
-impl From<&ForceSet> for BmcCredentialRotationRequest {
-    fn from(args: &ForceSet) -> Self {
+impl From<ForceSet> for BmcCredentialRotationRequest {
+    fn from(args: ForceSet) -> Self {
         Self {
             machine_id: args.id,
             mode: Mode::Set as i32,
-            bmc_mac: args.bmc_mac.clone().unwrap_or_default(),
+            bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
     }
 }
@@ -102,7 +103,7 @@ pub struct ForceClear {
     pub id: Option<MachineId>,
 
     #[clap(long, help = "MAC of the BMC whose pending request should be cleared.")]
-    pub bmc_mac: Option<String>,
+    pub bmc_mac: Option<MacAddress>,
 }
 
 impl From<ForceClear> for BmcCredentialRotationRequest {
@@ -110,7 +111,7 @@ impl From<ForceClear> for BmcCredentialRotationRequest {
         Self {
             machine_id: args.id,
             mode: Mode::Clear as i32,
-            bmc_mac: args.bmc_mac.unwrap_or_default(),
+            bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
     }
 }

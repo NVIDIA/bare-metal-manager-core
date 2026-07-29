@@ -38,12 +38,13 @@ pub(crate) async fn trigger_bmc_credential_rotation(
 
     log_request_data(&request);
     let req = request.into_inner();
+    let mode = req.mode();
 
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = resolve_target_machine(&mut txn, req.machine_id, &req.bmc_mac).await?;
+    let machine_id = resolve_target_machine(&mut txn, req.machine_id, req.bmc_mac).await?;
 
-    match req.mode() {
+    match mode {
         Mode::Set => {
             db::machine::set_bmc_credential_rotation_requested(&mut txn, machine_id).await?;
         }
@@ -72,15 +73,15 @@ pub(crate) async fn trigger_bmc_credential_rotation(
 async fn resolve_target_machine(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
-    bmc_mac: &str,
+    bmc_mac: Option<String>,
 ) -> Result<MachineId, CarbideError> {
-    let bmc_mac = if bmc_mac.is_empty() {
-        None
-    } else {
-        Some(bmc_mac.parse::<MacAddress>().map_err(|_| {
-            CarbideError::InvalidArgument(format!("bmc_mac '{bmc_mac}' is not a valid MAC address"))
-        })?)
-    };
+    let bmc_mac = bmc_mac
+        .map(|mac| {
+            mac.parse::<MacAddress>().map_err(|_| {
+                CarbideError::InvalidArgument(format!("bmc_mac '{mac}' is not a valid MAC address"))
+            })
+        })
+        .transpose()?;
 
     let resolved = match (machine_id, bmc_mac) {
         (machine_id, Some(mac)) => {
@@ -94,7 +95,7 @@ async fn resolve_target_machine(
                 && machine_id != mac_machine_id
             {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "BMC {mac} belongs to machine {mac_machine_id}, not the requested machine {machine_id}"
+                    "bmc {mac} belongs to machine {mac_machine_id}, not the requested machine {machine_id}"
                 )));
             }
             mac_machine_id

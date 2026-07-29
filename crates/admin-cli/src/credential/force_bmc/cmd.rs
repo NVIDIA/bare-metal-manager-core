@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as forgerpc;
-
 use super::args::{ForceClear, ForceSet};
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
@@ -33,11 +31,11 @@ fn describe_target(id: Option<String>, bmc_mac: Option<String>) -> String {
 }
 
 pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let target = describe_target(data.id.map(|id| id.to_string()), data.bmc_mac.clone());
-    api_client
-        .0
-        .trigger_bmc_credential_rotation(forgerpc::BmcCredentialRotationRequest::from(&data))
-        .await?;
+    let target = describe_target(
+        data.id.map(|id| id.to_string()),
+        data.bmc_mac.map(|mac| mac.to_string()),
+    );
+    api_client.0.trigger_bmc_credential_rotation(data).await?;
     println!(
         "Requested force-converge of {target}. The state controller rotates it on its next \
          sweep (bypassing backoff); confirm this device converged with \
@@ -48,11 +46,11 @@ pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()>
 }
 
 pub async fn clear(data: ForceClear, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let target = describe_target(data.id.map(|id| id.to_string()), data.bmc_mac.clone());
-    api_client
-        .0
-        .trigger_bmc_credential_rotation(forgerpc::BmcCredentialRotationRequest::from(data))
-        .await?;
+    let target = describe_target(
+        data.id.map(|id| id.to_string()),
+        data.bmc_mac.map(|mac| mac.to_string()),
+    );
+    api_client.0.trigger_bmc_credential_rotation(data).await?;
     println!("Cleared any pending BMC force-converge request for {target}.");
     Ok(())
 }

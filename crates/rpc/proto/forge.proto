@@ -5900,10 +5900,10 @@ message BmcCredentialRotationRequest {
   // Address the target BMC by the owning machine's id, by its BMC MAC, or by
   // both. A machine (host or DPU) has exactly one BMC, so either identifier
   // alone uniquely names the device; if both are supplied they must agree.
-  // At least one of machine_id / bmc_mac must be set.
-  common.MachineId machine_id = 2;
-  // MAC of the BMC to target. Optional; empty means "unset".
-  string bmc_mac = 3;
+  // At least one of machine_id / bmc_mac must be set (enforced server-side).
+  optional common.MachineId machine_id = 2;
+  // MAC of the BMC to target.
+  optional string bmc_mac = 3;
 }
 
 message HostReprovisioningListRequest {

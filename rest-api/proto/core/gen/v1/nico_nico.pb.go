@@ -33500,10 +33500,10 @@ type BmcCredentialRotationRequest struct {
 	// Address the target BMC by the owning machine's id, by its BMC MAC, or by
 	// both. A machine (host or DPU) has exactly one BMC, so either identifier
 	// alone uniquely names the device; if both are supplied they must agree.
-	// At least one of machine_id / bmc_mac must be set.
-	MachineId *MachineId `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3" json:"machine_id,omitempty"`
-	// MAC of the BMC to target. Optional; empty means "unset".
-	BmcMac        string `protobuf:"bytes,3,opt,name=bmc_mac,json=bmcMac,proto3" json:"bmc_mac,omitempty"`
+	// At least one of machine_id / bmc_mac must be set (enforced server-side).
+	MachineId *MachineId `protobuf:"bytes,2,opt,name=machine_id,json=machineId,proto3,oneof" json:"machine_id,omitempty"`
+	// MAC of the BMC to target.
+	BmcMac        *string `protobuf:"bytes,3,opt,name=bmc_mac,json=bmcMac,proto3,oneof" json:"bmc_mac,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -33553,8 +33553,8 @@ func (x *BmcCredentialRotationRequest) GetMachineId() *MachineId {
 }
 
 func (x *BmcCredentialRotationRequest) GetBmcMac() string {
-	if x != nil {
-		return x.BmcMac
+	if x != nil && x.BmcMac != nil {
+		return *x.BmcMac
 	}
 	return ""
 }
@@ -64966,16 +64966,19 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\tinitiator\x18\x03 \x01(\x0e2\x16.forge.UpdateInitiatorR\tinitiator\"\x1a\n" +
 	"\x04Mode\x12\a\n" +
 	"\x03Set\x10\x00\x12\t\n" +
-	"\x05Clear\x10\x01\"\xd4\x01\n" +
+	"\x05Clear\x10\x01\"\xf9\x01\n" +
 	"\x1cBmcCredentialRotationRequest\x12<\n" +
-	"\x04mode\x18\x01 \x01(\x0e2(.forge.BmcCredentialRotationRequest.ModeR\x04mode\x120\n" +
+	"\x04mode\x18\x01 \x01(\x0e2(.forge.BmcCredentialRotationRequest.ModeR\x04mode\x125\n" +
 	"\n" +
-	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdR\tmachineId\x12\x17\n" +
-	"\abmc_mac\x18\x03 \x01(\tR\x06bmcMac\"+\n" +
+	"machine_id\x18\x02 \x01(\v2\x11.common.MachineIdH\x00R\tmachineId\x88\x01\x01\x12\x1c\n" +
+	"\abmc_mac\x18\x03 \x01(\tH\x01R\x06bmcMac\x88\x01\x01\"+\n" +
 	"\x04Mode\x12\x0f\n" +
 	"\vUnspecified\x10\x00\x12\a\n" +
 	"\x03Set\x10\x01\x12\t\n" +
-	"\x05Clear\x10\x02\"\x1f\n" +
+	"\x05Clear\x10\x02B\r\n" +
+	"\v_machine_idB\n" +
+	"\n" +
+	"\b_bmc_mac\"\x1f\n" +
 	"\x1dHostReprovisioningListRequest\"\xb8\x03\n" +
 	"\x1eHostReprovisioningListResponse\x12V\n" +
 	"\x05hosts\x18\x01 \x03(\v2@.forge.HostReprovisioningListResponse.HostReprovisioningListItemR\x05hosts\x1a\xbd\x02\n" +
@@ -71924,6 +71927,7 @@ func file_nico_nico_proto_init() {
 		(*FindBmcIpsRequest_MacAddress)(nil),
 		(*FindBmcIpsRequest_Serial)(nil),
 	}
+	file_nico_nico_proto_msgTypes[426].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[430].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[431].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[432].OneofWrappers = []any{}

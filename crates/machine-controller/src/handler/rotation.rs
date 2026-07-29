@@ -61,23 +61,28 @@ struct BmcEndpoint {
     port: Option<u16>,
 }
 
-fn bmc_endpoint(machine: &Machine) -> Option<BmcEndpoint> {
-    let info = &machine.status.bmc_info;
-    Some(BmcEndpoint {
-        device_mac: info.mac?,
-        host: info.ip?.to_string(),
-        port: info.port,
-    })
+impl BmcEndpoint {
+    /// Build an endpoint from a machine's BMC info, or `None` when the BMC lacks
+    /// a MAC or IP (unkeyable / unreachable, so it is skipped).
+    fn from_machine(machine: &Machine) -> Option<Self> {
+        let info = &machine.status.bmc_info;
+        Some(Self {
+            device_mac: info.mac?,
+            host: info.ip?.to_string(),
+            port: info.port,
+        })
+    }
 }
 
 /// The host BMC followed by each DPU BMC that exposes both a MAC and an IP. A
 /// device missing either cannot be keyed or reached, so it is skipped (the
 /// entry guard likewise never selects it).
-fn managed_host_bmc_endpoints(mh: &ManagedHostStateSnapshot) -> Vec<BmcEndpoint> {
+fn managed_host_bmc_endpoints(
+    mh: &ManagedHostStateSnapshot,
+) -> impl Iterator<Item = BmcEndpoint> + '_ {
     std::iter::once(&mh.host_snapshot)
         .chain(mh.dpu_snapshots.iter())
-        .filter_map(bmc_endpoint)
-        .collect()
+        .filter_map(BmcEndpoint::from_machine)
 }
 
 /// `true` when the host BMC or any DPU BMC is behind the staged site-wide target
@@ -150,7 +155,7 @@ pub(crate) async fn rotate_managed_host_bmcs(
         if !force && !is_sitewide_bmc_rotation_enabled {
             continue;
         }
-        match bmc_endpoint(machine) {
+        match BmcEndpoint::from_machine(machine) {
             Some(endpoint) => {
                 if matches!(
                     rotate_endpoint(services, endpoint, force).await,
@@ -194,8 +199,8 @@ pub(crate) fn bmc_rotation_force_requested(mh: &ManagedHostStateSnapshot) -> boo
 
 /// The machine ids carrying a pending force-converge request, so the controller
 /// can clear exactly those rows once the forced tick settles.
-fn forced_bmc_machine_ids(mh: &ManagedHostStateSnapshot) -> Vec<MachineId> {
-    forced_bmc_machines(mh).map(|m| m.id).collect()
+fn forced_bmc_machine_ids(mh: &ManagedHostStateSnapshot) -> impl Iterator<Item = MachineId> + '_ {
+    forced_bmc_machines(mh).map(|m| m.id)
 }
 
 /// Clear the one-shot force-converge flag on exactly the machines that carried a
@@ -212,8 +217,8 @@ pub(crate) async fn clear_forced_bmc_requests(
     services: &MachineStateHandlerServices,
     mh: &ManagedHostStateSnapshot,
 ) -> Result<Option<PgTransaction<'static>>, StateHandlerError> {
-    let forced_machine_ids = forced_bmc_machine_ids(mh);
-    if forced_machine_ids.is_empty() {
+    let mut forced_machine_ids = forced_bmc_machine_ids(mh).peekable();
+    if forced_machine_ids.peek().is_none() {
         return Ok(None);
     }
     let mut txn = services.db_pool.begin().await?;
@@ -411,7 +416,6 @@ mod tests {
 
     fn selected_macs(mh: &ManagedHostStateSnapshot) -> Vec<MacAddress> {
         managed_host_bmc_endpoints(mh)
-            .iter()
             .map(|e| e.device_mac)
             .collect()
     }
@@ -452,7 +456,8 @@ mod tests {
     #[test]
     fn bmc_endpoint_carries_resolved_host_and_port() {
         let mh = snapshot_with_distinct_bmcs();
-        let endpoint = bmc_endpoint(&mh.host_snapshot).expect("host BMC is fully addressable");
+        let endpoint =
+            BmcEndpoint::from_machine(&mh.host_snapshot).expect("host BMC is fully addressable");
         assert_eq!(endpoint.device_mac, mac(1));
         assert_eq!(endpoint.host, ip(1).to_string());
         // The fixture seeds the standard Redfish port.
