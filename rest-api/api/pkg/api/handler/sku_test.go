@@ -787,8 +787,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.SkuList
 		require.NoError(t, protojson.Unmarshal(fixture.requests[0].RequestJSON, &coreReq))
@@ -830,8 +830,8 @@ func TestCreateSkuHandler(t *testing.T) {
 		rec := fixture.request(t, http.MethodPost, "", req, fixture.createHandler.Handle)
 		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[1].FullMethod)
 
 		var response model.APISkuMutationResponse
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
@@ -864,7 +864,21 @@ func TestCreateSkuHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 1)
-		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
+	})
+
+	t.Run("returns conflict when the REST projection already exists", func(t *testing.T) {
+		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
+
+		rec := fixture.request(t, http.MethodPost, "", validSkuCreateRequest(fixture.siteID), fixture.createHandler.Handle)
+
+		require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+		require.Len(t, fixture.requests, 2)
+		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[1].FullMethod)
+		assert.Contains(t, rec.Body.String(), "sku-1")
+		assert.Contains(t, rec.Body.String(), "inspect")
+		assert.Contains(t, rec.Body.String(), "update")
 	})
 
 	t.Run("returns error when Core create fails", func(t *testing.T) {
@@ -877,7 +891,7 @@ func TestCreateSkuHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 1)
-		assert.Equal(t, createSkuMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
 		_, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 	})
@@ -961,8 +975,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, updateSkuMetadataMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_UpdateSkuMetadata_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.SkuUpdateMetadataRequest
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
@@ -995,8 +1009,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, updateSkuMetadataMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_UpdateSkuMetadata_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.SkuUpdateMetadataRequest
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
@@ -1029,8 +1043,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, replaceSkuMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_ReplaceSku_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.Sku
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
@@ -1066,8 +1080,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, replaceSkuMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_ReplaceSku_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.Sku
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
@@ -1096,8 +1110,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, replaceSkuMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_ReplaceSku_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.Sku
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
@@ -1130,8 +1144,8 @@ func TestUpdateSkuHandler(t *testing.T) {
 		}, fixture.updateHandler.Handle)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 2)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
-		assert.Equal(t, replaceSkuMethod, fixture.requests[1].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_ReplaceSku_FullMethodName, fixture.requests[1].FullMethod)
 
 		var coreReq corev1.Sku
 		require.NoError(t, protojson.Unmarshal(fixture.requests[1].RequestJSON, &coreReq))
@@ -1169,7 +1183,7 @@ func TestUpdateSkuHandler(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 		assert.JSONEq(t, `{"source":"","message":"Could not find SKU with the specified ID","data":null}`, rec.Body.String())
 		require.Len(t, fixture.requests, 1)
-		assert.Equal(t, findSkusByIDsMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[0].FullMethod)
 	})
 
 	t.Run("returns not found for SKU not present in REST database", func(t *testing.T) {
@@ -1204,7 +1218,7 @@ func TestDeleteSkuHandler(t *testing.T) {
 		rec := fixture.request(t, http.MethodDelete, "sku-1", nil, fixture.deleteHandler.Handle)
 		require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 1)
-		assert.Equal(t, deleteSkuMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_DeleteSku_FullMethodName, fixture.requests[0].FullMethod)
 
 		var coreReq corev1.SkuIdList
 		require.NoError(t, protojson.Unmarshal(fixture.requests[0].RequestJSON, &coreReq))
@@ -1245,7 +1259,7 @@ func TestDeleteSkuHandler(t *testing.T) {
 		rec := fixture.request(t, http.MethodDelete, "sku-1", nil, fixture.deleteHandler.Handle)
 		require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 		require.Len(t, fixture.requests, 1)
-		assert.Equal(t, deleteSkuMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_DeleteSku_FullMethodName, fixture.requests[0].FullMethod)
 		_, err := cdbm.NewSkuDAO(fixture.deleteHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		assert.ErrorIs(t, err, cdb.ErrDoesNotExist)
 	})
@@ -1264,7 +1278,7 @@ func TestDeleteSkuHandler(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
 		assert.Contains(t, rec.Body.String(), "Core unavailable")
 		require.Len(t, fixture.requests, 1)
-		assert.Equal(t, deleteSkuMethod, fixture.requests[0].FullMethod)
+		assert.Equal(t, corev1.Forge_DeleteSku_FullMethodName, fixture.requests[0].FullMethod)
 		_, err := cdbm.NewSkuDAO(fixture.deleteHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		assert.NoError(t, err)
 	})
@@ -1334,37 +1348,37 @@ func newSkuManagementFixtureWithOptions(t *testing.T, roles []string, options sk
 	client := &tmocks.Client{}
 	existing := existingSkuProto()
 	if options.createError != nil {
-		fixture.addWorkflowError(client, createSkuMethod, options.createError)
+		fixture.addWorkflowError(client, corev1.Forge_CreateSku_FullMethodName, options.createError)
 	} else {
-		fixture.addWorkflow(t, client, createSkuMethod, &corev1.SkuIdList{Ids: []string{"sku-1"}})
+		fixture.addWorkflow(t, client, corev1.Forge_CreateSku_FullMethodName, &corev1.SkuIdList{Ids: []string{"sku-1"}})
 	}
 	if options.findError != nil {
-		fixture.addWorkflowError(client, findSkusByIDsMethod, options.findError)
+		fixture.addWorkflowError(client, corev1.Forge_FindSkusByIds_FullMethodName, options.findError)
 	} else {
 		findResponse := options.findResponse
 		if findResponse == nil {
 			findResponse = &corev1.SkuList{Skus: []*corev1.Sku{existing}}
 		}
-		fixture.addWorkflow(t, client, findSkusByIDsMethod, findResponse)
+		fixture.addWorkflow(t, client, corev1.Forge_FindSkusByIds_FullMethodName, findResponse)
 	}
 	replaceResponse := options.replaceResponse
 	if replaceResponse == nil {
 		replaceResponse = existing
 	}
 	if options.replaceError != nil {
-		fixture.addWorkflowError(client, replaceSkuMethod, options.replaceError)
+		fixture.addWorkflowError(client, corev1.Forge_ReplaceSku_FullMethodName, options.replaceError)
 	} else {
-		fixture.addWorkflow(t, client, replaceSkuMethod, replaceResponse)
+		fixture.addWorkflow(t, client, corev1.Forge_ReplaceSku_FullMethodName, replaceResponse)
 	}
 	if options.updateMetadataError != nil {
-		fixture.addWorkflowError(client, updateSkuMetadataMethod, options.updateMetadataError)
+		fixture.addWorkflowError(client, corev1.Forge_UpdateSkuMetadata_FullMethodName, options.updateMetadataError)
 	} else {
-		fixture.addWorkflow(t, client, updateSkuMetadataMethod, nil)
+		fixture.addWorkflow(t, client, corev1.Forge_UpdateSkuMetadata_FullMethodName, nil)
 	}
 	if options.deleteError != nil {
-		fixture.addWorkflowError(client, deleteSkuMethod, options.deleteError)
+		fixture.addWorkflowError(client, corev1.Forge_DeleteSku_FullMethodName, options.deleteError)
 	} else {
-		fixture.addWorkflow(t, client, deleteSkuMethod, nil)
+		fixture.addWorkflow(t, client, corev1.Forge_DeleteSku_FullMethodName, nil)
 	}
 
 	scp := sc.NewClientPool(nil)

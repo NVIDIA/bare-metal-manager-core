@@ -307,14 +307,6 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, apiSku)
 }
 
-const (
-	createSkuMethod         = "/forge.Forge/CreateSku"
-	findSkusByIDsMethod     = "/forge.Forge/FindSkusByIds"
-	updateSkuMetadataMethod = "/forge.Forge/UpdateSkuMetadata"
-	replaceSkuMethod        = "/forge.Forge/ReplaceSku"
-	deleteSkuMethod         = "/forge.Forge/DeleteSku"
-)
-
 func retryOnceOnUniqueConstraint(operation func() error) error {
 	err := operation()
 	errorChecker := cdb.PostgresErrorChecker{}
@@ -325,9 +317,35 @@ func retryOnceOnUniqueConstraint(operation func() error) error {
 	return operation()
 }
 
-// upsertSkuProjection writes the Core SKU state into the REST database. The
-// update path also reconciles a row that Site inventory sync wrote before a
-// successful REST create could persist it.
+func createSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uuid.UUID, coreSKU *corev1.Sku) error {
+	if coreSKU == nil || coreSKU.Id == "" {
+		return errors.New("cannot persist an empty Core SKU")
+	}
+
+	projected := &cdbm.SKU{}
+	projected.FromProto(coreSKU, siteID)
+	skuDAO := cdbm.NewSkuDAO(dbSession)
+
+	return cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
+		if err != nil {
+			return err
+		}
+
+		_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
+			SkuID:                projected.ID,
+			SiteID:               projected.SiteID,
+			Description:          projected.Description,
+			Components:           projected.Components,
+			DeviceType:           projected.DeviceType,
+			AssociatedMachineIds: projected.AssociatedMachineIds,
+		})
+		return err
+	})
+}
+
+// upsertSkuProjection writes the Core SKU state into the REST database for an
+// update, creating a missing projection or reconciling an existing one.
 func upsertSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uuid.UUID, coreSKU *corev1.Sku) error {
 	if coreSKU == nil || coreSKU.Id == "" {
 		return errors.New("cannot persist an empty Core SKU")
@@ -470,7 +488,7 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 
 	logger.Info().Str("skuID", apiReq.ID).Str("siteID", siteID).Msg("creating SKU via Core proxy")
 	var ids corev1.SkuIdList
-	apiErr = common.ExecuteCoreGRPC(ctx, stc, createSkuMethod, apiReq.ToProto(), &ids, siteID)
+	apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_CreateSku_FullMethodName, apiReq.ToProto(), &ids, siteID)
 	if apiErr != nil {
 		logAPIError(logger, apiErr, "failed to create SKU via Core proxy")
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -483,7 +501,7 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 	apiErr = common.ExecuteCoreGRPC(
 		ctx,
 		stc,
-		findSkusByIDsMethod,
+		corev1.Forge_FindSkusByIds_FullMethodName,
 		&corev1.SkusByIdsRequest{Ids: []string{ids.Ids[0]}},
 		&response,
 		siteID,
@@ -503,8 +521,18 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 		skuToPersist = response.Skus[0]
 	}
 
-	err = upsertSkuProjection(ctx, csh.dbSession, siteUUID, skuToPersist)
+	err = createSkuProjection(ctx, csh.dbSession, siteUUID, skuToPersist)
 	if err != nil {
+		errorChecker := cdb.PostgresErrorChecker{}
+		if errorChecker.IsUniqueConstraintError(err) {
+			message := fmt.Sprintf(
+				"SKU %q already exists; inspect it with GET /v2/org/%s/nico/sku/%s and retry changes as an update",
+				skuToPersist.Id,
+				org,
+				skuToPersist.Id,
+			)
+			return cutil.NewAPIErrorResponse(c, http.StatusConflict, message, nil)
+		}
 		logger.Error().Err(err).Str("skuID", ids.Ids[0]).Str("siteID", siteID).
 			Msg("SKU created in Core but failed to update REST DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was created in Core but failed to update REST DB", nil)
@@ -595,7 +623,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 	apiErr = common.ExecuteCoreGRPC(
 		ctx,
 		stc,
-		findSkusByIDsMethod,
+		corev1.Forge_FindSkusByIds_FullMethodName,
 		&corev1.SkusByIdsRequest{Ids: []string{skuID}},
 		&response,
 		siteID,
@@ -614,7 +642,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 	if apiReq.Components == nil {
 		updatedSKU = apiReq.ApplyMetadataToProto(response.Skus[0])
 		logger.Info().Str("skuID", skuID).Str("siteID", siteID).Msg("updating SKU metadata via Core proxy")
-		apiErr = common.ExecuteCoreGRPC(ctx, stc, updateSkuMetadataMethod, apiReq.ToMetadataProto(), nil, siteID)
+		apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_UpdateSkuMetadata_FullMethodName, apiReq.ToMetadataProto(), nil, siteID)
 		if apiErr != nil {
 			logAPIError(logger, apiErr, "failed to update SKU metadata via Core proxy")
 			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -622,7 +650,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 	} else {
 		updatedReq := apiReq.ToReplacementProto(response.Skus[0])
 		logger.Info().Str("skuID", skuID).Str("siteID", siteID).Msg("updating SKU via Core proxy")
-		apiErr = common.ExecuteCoreGRPC(ctx, stc, replaceSkuMethod, updatedReq, updatedSKU, siteID)
+		apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_ReplaceSku_FullMethodName, updatedReq, updatedSKU, siteID)
 		if apiErr != nil {
 			logAPIError(logger, apiErr, "failed to update SKU via Core proxy")
 			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, nil)
@@ -706,7 +734,7 @@ func (dsh DeleteSkuHandler) Handle(c echo.Context) error {
 	}
 
 	logger.Info().Str("skuID", skuID).Str("siteID", siteID).Msg("deleting SKU via Core proxy")
-	apiErr = common.ExecuteCoreGRPC(ctx, stc, deleteSkuMethod, &corev1.SkuIdList{Ids: []string{skuID}}, nil, siteID)
+	apiErr = common.ExecuteCoreGRPC(ctx, stc, corev1.Forge_DeleteSku_FullMethodName, &corev1.SkuIdList{Ids: []string{skuID}}, nil, siteID)
 	if apiErr != nil {
 		if apiErr.Code != http.StatusNotFound {
 			logAPIError(logger, apiErr, "failed to delete SKU via Core proxy")
