@@ -673,6 +673,7 @@ impl MachineHandle {
             api_state: live_state.api_state.clone(),
             power_state: live_state.power_state.to_string(),
             machine_ip: live_state.machine_ip.map(|ip| ip.to_string()),
+            nvos_ip: None,
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),

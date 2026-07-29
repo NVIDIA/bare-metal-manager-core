@@ -59,6 +59,8 @@ pub struct MockDiscoveryData {
 
 static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
 static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
+const DUMMY_NVOS_USERNAME: &str = "admin";
+const DUMMY_NVOS_PASSWORD: &str = "factory_password";
 
 #[derive(Debug, Clone)]
 pub struct ApiClient(pub ForgeApiClient);
@@ -633,8 +635,8 @@ impl ApiClient {
                 bmc_username: DUMMY_FACTORY_USERNAME.to_string(),
                 bmc_password: DUMMY_FACTORY_PASSWORD.to_string(),
                 switch_serial_number,
-                nvos_username: None,
-                nvos_password: None,
+                nvos_username: Some(DUMMY_NVOS_USERNAME.to_string()),
+                nvos_password: Some(DUMMY_NVOS_PASSWORD.to_string()),
                 bmc_ip_address: String::new(),
                 nvos_ip_address: None,
                 metadata: None,

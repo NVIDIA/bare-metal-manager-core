@@ -84,6 +84,8 @@ pub struct DeviceStatus {
     pub power_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine_ip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nvos_ip: Option<String>,
     pub bmc: BmcStatus,
     pub dpus: Vec<DeviceStatus>,
 }

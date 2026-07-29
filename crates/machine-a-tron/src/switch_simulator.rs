@@ -38,13 +38,14 @@ use crate::dhcp_wrapper::{DhcpRequestInfo, DhcpRequester, DhcpResponseInfo, vend
 use crate::machine_state_machine::{MachineStateError, OsImage};
 use crate::saturating_add_duration_to_instant;
 use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
-use crate::switch_fsm::{Action, Event, SwitchFsm, Timer};
+use crate::switch_fsm::{Action, DhcpEndpoint, Event, SwitchFsm, Timer};
 use crate::tui::UiUpdate;
 
 #[derive(Debug)]
 struct SwitchLiveState {
     power_state: MockPowerState,
     bmc_ip: Option<Ipv4Addr>,
+    nvos_ip: Option<Ipv4Addr>,
     ipmi_endpoint: Option<IpmiEndpoint>,
     ssh_host_key: Option<String>,
     state: &'static str,
@@ -55,6 +56,7 @@ impl SwitchLiveState {
         Self {
             power_state: fsm.power_state(),
             bmc_ip: None,
+            nvos_ip: None,
             ipmi_endpoint: None,
             ssh_host_key: None,
             state: fsm.state_string(),
@@ -125,7 +127,8 @@ impl SwitchActor {
         mac_pool: &mut MacAddressPool,
         hw_mac_addr_pool: MacAddressPoolConfig,
     ) -> Self {
-        let (fsm, actions) = SwitchFsm::init(false);
+        // Simulated switches start powered so NVOS can boot and expose its management interface.
+        let (fsm, actions) = SwitchFsm::init(true);
         Self {
             mat_id: Uuid::new_v4(),
             machine_config_section,
@@ -225,17 +228,32 @@ impl SwitchActor {
         while let Some(action) = self.actions.front().copied() {
             self.update_live_state();
             match action {
-                Action::Dhcp => match self.bmc_dhcp_discovery().await {
+                Action::Dhcp(DhcpEndpoint::Bmc) => match self.bmc_dhcp_discovery().await {
                     Ok(dhcp_info) => {
                         self.bmc_dhcp_info = Some(dhcp_info);
                         self.actions.pop_front();
-                        self.fsm_event(Event::DhcpComplete);
+                        self.fsm_event(Event::DhcpComplete(DhcpEndpoint::Bmc));
                     }
                     Err(error) => {
                         tracing::warn!(
                             device_id = %self.mat_id,
                             error = %error,
                             "Switch BMC DHCP failed",
+                        );
+                        return Some(self.config.run_interval_working);
+                    }
+                },
+                Action::Dhcp(DhcpEndpoint::Nvos) => match self.nvos_dhcp_discovery().await {
+                    Ok(dhcp_info) => {
+                        self.live_state.write().unwrap().nvos_ip = Some(dhcp_info.ip_address);
+                        self.actions.pop_front();
+                        self.fsm_event(Event::DhcpComplete(DhcpEndpoint::Nvos));
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            device_id = %self.mat_id,
+                            error = %error,
+                            "Switch NVOS DHCP failed",
                         );
                         return Some(self.config.run_interval_working);
                     }
@@ -253,6 +271,10 @@ impl SwitchActor {
                         return Some(self.config.run_interval_working);
                     }
                 },
+                Action::StopNvos => {
+                    self.live_state.write().unwrap().nvos_ip = None;
+                    self.actions.pop_front();
+                }
                 Action::SetTimer(Timer::PowerCycle) => {
                     self.power_cycle_alarm = Some(
                         mailbox
@@ -299,6 +321,26 @@ impl SwitchActor {
                 vendor_class: vendor_class(&machine_info, DhcpRequester::Bmc),
             })
             .await
+    }
+
+    async fn nvos_dhcp_discovery(&self) -> eyre::Result<DhcpResponseInfo> {
+        let [nvos_mac_address] = self.host_info.nvos_mac_addresses.as_slice() else {
+            eyre::bail!(
+                "switch must have exactly one NVOS MAC address, found {}",
+                self.host_info.nvos_mac_addresses.len(),
+            );
+        };
+
+        Ok(self
+            .app_context
+            .dhcp_client
+            .request_ip(DhcpRequestInfo {
+                mac_address: *nvos_mac_address,
+                relay_address: self.config.admin_dhcp_relay_address,
+                // No DHCP option 60 value has been verified for NVOS.
+                vendor_class: None,
+            })
+            .await?)
     }
 
     async fn setup_bmc(
@@ -500,6 +542,7 @@ impl SwitchHandle {
             api_state: "Unknown".to_string(),
             power_state: state.power_state.to_string(),
             machine_ip: None,
+            nvos_ip: state.nvos_ip.map(|ip| ip.to_string()),
             bmc: BmcStatus {
                 ip: state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
