@@ -85,8 +85,8 @@ func (h CreateMachineValidationRunHandler) Handle(c echo.Context) error {
 	}
 
 	if err := apiRequest.Validate(); err != nil {
-		logger.Warn().Err(err).Msg("error validating on-demand Machine validation request data")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate on-demand Machine validation request data", err)
+		logger.Warn().Err(err).Msg("Error validating Machine Validation Run creation request data")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Machine Validation Run creation request data", err)
 	}
 
 	provider, err := common.GetInfrastructureProviderForOrg(ctx, nil, h.dbSession, org)

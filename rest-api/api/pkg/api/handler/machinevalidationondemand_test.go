@@ -182,6 +182,7 @@ func TestCreateMachineValidationRunHandlerRejectsInvalidOptions(t *testing.T) {
 	recorder := fixture.request(t, model.APIMachineValidationOnDemandRequest{Tags: []string{""}})
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "Error validating Machine Validation Run creation request data")
 	assert.Empty(t, fixture.proxiedReq.FullMethod)
 }
 
