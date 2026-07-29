@@ -1,12 +1,8 @@
 ---
-tags: ["current", "deployment", "ntp", "security", "database"]
+tags: ["next", "deployment", "ntp", "security", "database"]
 ---
 
-## NVIDIA Infra Controller v2.0 <Badge intent="launch">Current</Badge>
-
-<Tip>
-  NICo v2.0 is scheduled for release in late July, 2026.
-</Tip>
+## NVIDIA Infra Controller v2.0 <Badge intent="launch">Next</Badge>
 
 <Warning title="Upgrade note: REST database consolidation">
 The NICo REST API database has moved from a standalone PostgreSQL instance to the shared Zalando-managed `nico-pg-cluster`. A new `nico_rest` database and `nico-rest.nico` user are provisioned automatically (gated on `rest.enabled: true`). Database credentials are now synced by External Secrets Operator as the `nico-rest-pg-creds` secret in the `nico-rest` namespace, replacing the former `db-creds` secret.
@@ -26,7 +22,7 @@ To upgrade from v0.x, do the following:
 
 NICo now ships a built-in NTP service. The `nico-ntp` subchart deploys a 3-replica [chrony](https://chrony-project.org/) StatefulSet, each replica exposed on its own MetalLB LoadBalancer VIP so DPUs have a stable, site-local clock source. The Kea DHCP hook advertises these VIPs to DPUs as DHCP option 42 NTP servers.
 
-Enable the service by setting `nico-ntp.externalService.enabled: true`, assigning three VIPs via `nico-ntp.externalService.perPodAnnotations`, and setting `nico-dhcp.config.kea.hookParameters.ntpServer` to the same VIPs (comma-separated). Enterprise NTP servers in `siteConfig.ntp_servers` continue to be used for BMC pre-ingestion time sync and can coexist with `nico-ntp`. Upstream NTP peers default to `time{1-4}.google.com`; override via `nico-ntp.ntp.upstreamServers` for air-gapped environments.
+Enable the service by setting `nico-ntp.externalService.enabled: true`, assigning three VIPs via `nico-ntp.externalService.perPodAnnotations`, and setting `nico-dhcp.config.kea.hookParameters.ntpServer` to the same VIPs (comma-separated). Enterprise NTP servers in `siteConfig.ntp_servers` continue to be used for BMC pre-ingestion time sync and can coexist with `nico-ntp`. Upstream NTP peers default to `time1.google.com` through `time4.google.com`; override via `nico-ntp.ntp.upstreamServers` for air-gapped environments.
 
 ### NVSwitch credential rotation
 
