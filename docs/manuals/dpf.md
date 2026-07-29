@@ -1150,8 +1150,8 @@ nico-admin-cli dpf enable <host-machine-id>
 ```
 
 | Argument | Required | Notes |
-|---|:---:|---|
-| `<host-machine-id>` | yes | Must be a **host** machine id; DPU ids are rejected. |
+| -------- | :------: | ----- |
+| `<host-machine-id>` | yes | Must be a **host** machine id; DPU IDs are rejected. |
 
 Sets `machines.dpf.enabled = true` on the given host's runtime row by calling
 the `ModifyDPFState` RPC.
