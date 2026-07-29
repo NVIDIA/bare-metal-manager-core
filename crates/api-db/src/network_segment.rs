@@ -256,34 +256,52 @@ pub async fn for_prefix_containing_address(
     }
 }
 
-/// Resolve the segment that owns a configured static address.
+/// Resolve the managed segment whose configured prefix contains a static
+/// address.
 ///
-/// A segment type is a guard: the address must already fall within a managed
-/// prefix of that type. Without a guard, addresses outside managed prefixes
-/// continue to use `static-assignments`.
-pub async fn for_static_address(
+/// Unlike [`for_static_address`], this never falls back to
+/// `static-assignments`. ExpectedInterface declarations using an explicit
+/// allocation policy or a DPU role use this stricter lookup.
+pub async fn for_managed_static_address(
     txn: &mut PgConnection,
     address: IpAddr,
     expected_segment_type: Option<NetworkSegmentType>,
 ) -> DatabaseResult<NetworkSegment> {
+    let segment = for_prefix_containing_address(&mut *txn, address)
+        .await?
+        .ok_or_else(|| {
+            DatabaseError::InvalidArgument(match expected_segment_type {
+                Some(expected_segment_type) => format!(
+                    "fixed IP {address} is not within a configured {expected_segment_type} network segment",
+                ),
+                None => {
+                    format!("fixed IP {address} is not within a configured network segment")
+                }
+            })
+        })?;
+
+    if let Some(expected_segment_type) = expected_segment_type
+        && segment.config.segment_type != expected_segment_type
+    {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "fixed IP {address} belongs to {} network segment {}, not the expected {expected_segment_type} segment type",
+            segment.config.segment_type, segment.config.name,
+        )));
+    }
+
+    Ok(segment)
+}
+
+/// Resolve the segment that owns a configured static address.
+///
+/// Addresses outside managed prefixes use `static-assignments`.
+pub async fn for_static_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> DatabaseResult<NetworkSegment> {
     match for_prefix_containing_address(&mut *txn, address).await? {
-        Some(segment) => {
-            if let Some(expected_segment_type) = expected_segment_type
-                && segment.config.segment_type != expected_segment_type
-            {
-                return Err(DatabaseError::InvalidArgument(format!(
-                    "fixed IP {address} belongs to {} network segment {}, not the expected {expected_segment_type} segment type",
-                    segment.config.segment_type, segment.config.name,
-                )));
-            }
-            Ok(segment)
-        }
-        None => match expected_segment_type {
-            Some(expected_segment_type) => Err(DatabaseError::InvalidArgument(format!(
-                "fixed IP {address} is not within a configured {expected_segment_type} network segment",
-            ))),
-            None => static_assignments(&mut *txn).await,
-        },
+        Some(segment) => Ok(segment),
+        None => static_assignments(&mut *txn).await,
     }
 }
 

@@ -892,6 +892,7 @@ dependencies = [
  "mac_address",
  "nix 0.31.3",
  "nv-redfish",
+ "quick-xml 0.39.4",
  "rand 0.10.1",
  "regex",
  "rustls",

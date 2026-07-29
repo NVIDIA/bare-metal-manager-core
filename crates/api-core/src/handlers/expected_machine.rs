@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ::rpc::forge as rpc;
 use lazy_static::lazy_static;
@@ -394,6 +394,7 @@ fn validate_expected_interfaces(host_nics: &[ExpectedHostNic]) -> Result<(), Car
 fn validate_expected_interface_role_and_allocation(
     host_nics: &[ExpectedHostNic],
 ) -> Result<(), CarbideError> {
+    let mut roles_by_mac = HashMap::new();
     for interface in host_nics {
         interface.validate_ip_allocation().map_err(|message| {
             CarbideError::InvalidArgument(format!(
@@ -404,6 +405,19 @@ fn validate_expected_interface_role_and_allocation(
         if interface.primary.is_some() && !interface.role.is_host() {
             return Err(CarbideError::InvalidArgument(format!(
                 "only a role=host interface may set primary; {} has role {}",
+                interface.mac_address, interface.role,
+            )));
+        }
+        // One MAC may have separate IPv4 and IPv6 fixed reservations, so
+        // duplicate entries remain valid. Their role still has to agree:
+        // DHCP consumes one matching declaration while Site Explorer consumes
+        // every declaration, and role controls row type, primary behavior, and
+        // Redfish scanning in both paths.
+        if let Some(existing_role) = roles_by_mac.insert(interface.mac_address, interface.role)
+            && existing_role != interface.role
+        {
+            return Err(CarbideError::InvalidArgument(format!(
+                "host_nics entries for MAC {} must use the same role; found {existing_role} and {}",
                 interface.mac_address, interface.role,
             )));
         }
@@ -985,6 +999,92 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_expected_interface_macs_require_matching_roles() {
+        let shared_mac: MacAddress = "7A:7B:7C:7D:7E:81".parse().unwrap();
+        let other_mac: MacAddress = "7A:7B:7C:7D:7E:82".parse().unwrap();
+        let interface = |mac_address, role| ExpectedHostNic {
+            mac_address,
+            role,
+            ..Default::default()
+        };
+        let fixed_host = |fixed_ip| ExpectedHostNic {
+            mac_address: shared_mac,
+            fixed_ip: Some(fixed_ip),
+            ..Default::default()
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "legacy Host dual-stack reservations",
+                    input: vec![
+                        fixed_host("192.0.2.81".parse().unwrap()),
+                        fixed_host("2001:db8::81".parse().unwrap()),
+                    ],
+                    expect: true,
+                },
+                Check {
+                    scenario: "same DPU OS role",
+                    input: vec![
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        ),
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        ),
+                    ],
+                    expect: true,
+                },
+                Check {
+                    scenario: "different MACs may use different roles",
+                    input: vec![
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        ),
+                        interface(
+                            other_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuBmc,
+                        ),
+                    ],
+                    expect: true,
+                },
+                Check {
+                    scenario: "DPU OS then DPU BMC",
+                    input: vec![
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        ),
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuBmc,
+                        ),
+                    ],
+                    expect: false,
+                },
+                Check {
+                    scenario: "DPU BMC then DPU OS",
+                    input: vec![
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuBmc,
+                        ),
+                        interface(
+                            shared_mac,
+                            model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        ),
+                    ],
+                    expect: false,
+                },
+            ],
+            |host_nics| validate_expected_interface_role_and_allocation(&host_nics).is_ok(),
+        );
+    }
+
+    #[test]
     fn omitted_role_and_allocation_are_preserved_per_list_entry() {
         let mac_address: MacAddress = "7A:7B:7C:7D:7E:91".parse().unwrap();
         let existing = ExpectedMachine {
@@ -1005,7 +1105,7 @@ mod tests {
                     },
                     ExpectedHostNic {
                         mac_address,
-                        role: model::expected_machine::ExpectedInterfaceRole::DpuOs,
+                        role: model::expected_machine::ExpectedInterfaceRole::DpuBmc,
                         ip_allocation: Some(
                             model::expected_machine::ExpectedInterfaceIpAllocation::Dynamic,
                         ),
@@ -1044,7 +1144,7 @@ mod tests {
         assert_eq!(replacement.host_nics[0].network_segment_type, None);
         assert_eq!(
             replacement.host_nics[1].role,
-            Some(rpc::ExpectedInterfaceRole::DpuOs as i32),
+            Some(rpc::ExpectedInterfaceRole::DpuBmc as i32),
         );
         assert_eq!(
             replacement.host_nics[1].ip_allocation,

@@ -133,7 +133,7 @@ pub struct Args {
     #[clap(
         long = "host_nics",
         value_name = "HOST_NICS",
-        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc and ip_allocation=dynamic|fixed|retained. An omitted role defaults to host. When ip_allocation is omitted, fixed_ip implies fixed; otherwise it defaults to dynamic.",
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc and ip_allocation=dynamic|fixed|retained. An omitted role defaults to host. When ip_allocation is omitted, fixed_ip implies fixed; otherwise it defaults to dynamic. Explicit fixed policies and DPU fixed addresses must fall within a configured managed prefix; legacy host entries with an omitted policy keep the static-assignments fallback.",
         action = clap::ArgAction::Append
     )]
     pub host_nics: Option<String>,

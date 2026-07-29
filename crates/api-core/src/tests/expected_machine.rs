@@ -2614,6 +2614,172 @@ async fn test_expected_machine_update_fixed_interface_single_batch_parity(
     Ok(())
 }
 
+/// Explicit fixed policies require a managed prefix in both update APIs, while
+/// legacy Host entries retain their `static-assignments` fallback.
+#[crate::sqlx_test]
+async fn test_expected_machine_update_fixed_interface_requires_managed_prefix(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    /// One update API and allocation-policy combination.
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        fixed_ip: &'static str,
+        use_batch: bool,
+        explicit_policy: bool,
+    }
+
+    for case in [
+        Case {
+            name: "single legacy Host update",
+            suffix: 0x74,
+            fixed_ip: "203.0.113.240",
+            use_batch: false,
+            explicit_policy: false,
+        },
+        Case {
+            name: "batch legacy Host update",
+            suffix: 0x76,
+            fixed_ip: "203.0.113.241",
+            use_batch: true,
+            explicit_policy: false,
+        },
+        Case {
+            name: "single explicit Fixed update",
+            suffix: 0x78,
+            fixed_ip: "203.0.113.242",
+            use_batch: false,
+            explicit_policy: true,
+        },
+        Case {
+            name: "batch explicit Fixed update",
+            suffix: 0x7a,
+            fixed_ip: "203.0.113.243",
+            use_batch: true,
+            explicit_policy: true,
+        },
+    ] {
+        let fixed_ip: std::net::IpAddr = case.fixed_ip.parse()?;
+        let id = Uuid::new_v4();
+        let bmc_mac: MacAddress = format!("5A:5B:5C:5D:61:{:02X}", case.suffix).parse()?;
+        let interface_mac: MacAddress =
+            format!("5A:5B:5C:5D:61:{:02X}", case.suffix + 1).parse()?;
+        let serial = format!("FIXED-PREFIX-{:02X}", case.suffix);
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.to_string(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                ..Default::default()
+            }))
+            .await?;
+
+        let update = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: interface_mac.to_string(),
+                ip_allocation: case
+                    .explicit_policy
+                    .then_some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed as i32),
+                fixed_ip: Some(fixed_ip.to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = if case.use_batch {
+            env.api
+                .update_expected_machines(tonic::Request::new(
+                    rpc::forge::BatchExpectedMachineOperationRequest {
+                        expected_machines: Some(ExpectedMachineList {
+                            expected_machines: vec![update],
+                        }),
+                        accept_partial_results: false,
+                    },
+                ))
+                .await
+                .map(|_| ())
+        } else {
+            env.api
+                .update_expected_machine(tonic::Request::new(update))
+                .await
+                .map(|_| ())
+        };
+
+        if case.explicit_policy {
+            let error = result.expect_err(case.name);
+            assert_eq!(
+                error.code(),
+                tonic::Code::InvalidArgument,
+                "case: {}",
+                case.name,
+            );
+            assert!(
+                error
+                    .message()
+                    .contains("not within a configured network segment"),
+                "case {}: {error}",
+                case.name,
+            );
+        } else {
+            result?;
+        }
+
+        let expected_interface_count = if case.explicit_policy { 0 } else { 1 };
+        let mut txn = env.pool.begin().await?;
+        let interfaces =
+            db::machine_interface::find_by_mac_address(&mut *txn, interface_mac).await?;
+        assert_eq!(
+            interfaces.len(),
+            expected_interface_count,
+            "case: {}",
+            case.name,
+        );
+        if let Some(interface) = interfaces.first() {
+            assert_eq!(interface.addresses, vec![fixed_ip], "case: {}", case.name,);
+            let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+            assert_eq!(
+                interface.segment_id, static_assignments.id,
+                "case: {}",
+                case.name,
+            );
+        }
+        txn.rollback().await?;
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(
+            stored.host_nics.len(),
+            expected_interface_count,
+            "case {}: a rejected update must leave expected configuration unchanged",
+            case.name,
+        );
+    }
+
+    Ok(())
+}
+
 #[crate::sqlx_test]
 async fn test_legacy_bmc_update_preserves_interface_behavior_and_restores_naming(
     pool: sqlx::PgPool,

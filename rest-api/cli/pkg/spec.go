@@ -60,7 +60,8 @@ type Parameter struct {
 }
 
 type RequestBody struct {
-	Content map[string]MediaType `yaml:"content"`
+	Required bool                 `yaml:"required"`
+	Content  map[string]MediaType `yaml:"content"`
 }
 
 type MediaType struct {

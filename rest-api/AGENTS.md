@@ -305,7 +305,10 @@ Keep handlers thin and reuse the common surfaces already in the tree:
 6. For synchronous Temporal workflows, reuse the existing workflow ID,
    timeout, task queue, `common.UnwrapWorkflowError`, and
    `common.TerminateWorkflowOnTimeOut` patterns from the nearest handler instead
-   of inventing new error plumbing.
+   of inventing new error plumbing. When a request spans caller, workflow, and
+   activity or RPC deadlines, keep those budgets strictly increasing toward the
+   caller and test every boundary; an outer timeout alone does not bound work
+   that has already started.
 7. Return curated REST models, not DB models, Core protobufs, Flow protobufs, or
    secret-bearing request bodies. Log identifiers, method names, kinds, and
    site IDs; do not log raw request bodies that may contain credentials

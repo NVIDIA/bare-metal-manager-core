@@ -229,9 +229,10 @@ pub enum ExpectedInterfaceIpAllocation {
     /// Allocate a normal DHCP lease that may expire and change. A configured
     /// segment-type guard must match the segment selected by the DHCP relay.
     Dynamic,
-    /// Reserve the operator-specified [`ExpectedHostNic::fixed_ip`]. Prefix
-    /// containment finds the segment, and a configured segment-type guard must
-    /// match it.
+    /// Reserve the operator-specified [`ExpectedHostNic::fixed_ip`]. An
+    /// explicit Fixed policy or DPU role requires a configured managed prefix
+    /// to contain the address. That prefix selects the segment, and a
+    /// configured segment-type guard must match it.
     Fixed,
     /// Allocate through DHCP, then change that address row to Static for the
     /// lifetime of this interface row. The address is not saved in
@@ -290,9 +291,11 @@ pub struct ExpectedHostNic {
     /// behavior where this field only narrows initial DHCP segment selection.
     /// This compatibility rule is exposed by [`Self::segment_type_guard`].
     /// `None` (with no legacy [`Self::nic_type`]) leaves DHCP selection
-    /// unconstrained; a fixed IP still derives its segment from the address.
-    /// Updates retain the existing full-replacement behavior, so omission
-    /// clears this field.
+    /// unconstrained. Fixed uses the managed prefix containing the address;
+    /// only a legacy Host declaration with an omitted policy may fall back to
+    /// `static-assignments` when no configured prefix contains it. Updates
+    /// retain the existing full-replacement behavior, so omission clears this
+    /// field.
     #[serde(default)]
     pub network_segment_type: Option<NetworkSegmentType>,
     /// Legacy free-form NIC-type segment hint (`bf3`, `onboard`, `oob`, ...).
@@ -372,6 +375,18 @@ impl ExpectedHostNic {
         self.fixed_ip.ok_or("ip_allocation=fixed requires fixed_ip")
     }
 
+    /// Return whether this declaration keeps the legacy Host allocation
+    /// behavior.
+    ///
+    /// Before roles and allocation policies existed, Host fixed IPs outside
+    /// every managed prefix used `static-assignments`, and
+    /// `network_segment_type` only narrowed the first DHCP segment selection.
+    /// An explicit policy or either DPU role opts into the generalized
+    /// ExpectedInterface contract instead.
+    pub fn uses_legacy_host_allocation(&self) -> bool {
+        self.role.is_host() && self.ip_allocation.is_none()
+    }
+
     /// Return the typed segment guard for declarations using the generalized
     /// ExpectedInterface policy contract.
     ///
@@ -381,7 +396,7 @@ impl ExpectedHostNic {
     /// DPU role opts into the same guard semantics for every allocation path.
     pub fn segment_type_guard(&self) -> Option<NetworkSegmentType> {
         self.network_segment_type
-            .filter(|_| self.ip_allocation.is_some() || !self.role.is_host())
+            .filter(|_| !self.uses_legacy_host_allocation())
     }
 
     /// Return the network segment type that narrows Dynamic or Retained DHCP
@@ -1514,6 +1529,7 @@ mod tests {
             fixed_ip: Option<IpAddr>,
             network_segment_type: Option<NetworkSegmentType>,
             expected_guard: Option<NetworkSegmentType>,
+            uses_legacy_host_allocation: bool,
         }
 
         for case in [
@@ -1524,6 +1540,7 @@ mod tests {
                 fixed_ip: None,
                 network_segment_type: Some(NetworkSegmentType::Admin),
                 expected_guard: None,
+                uses_legacy_host_allocation: true,
             },
             Case {
                 name: "legacy Host fixed IP inference",
@@ -1532,6 +1549,7 @@ mod tests {
                 fixed_ip: Some("192.0.2.10".parse().unwrap()),
                 network_segment_type: Some(NetworkSegmentType::Admin),
                 expected_guard: None,
+                uses_legacy_host_allocation: true,
             },
             Case {
                 name: "explicit Host Dynamic policy",
@@ -1540,6 +1558,7 @@ mod tests {
                 fixed_ip: None,
                 network_segment_type: Some(NetworkSegmentType::Admin),
                 expected_guard: Some(NetworkSegmentType::Admin),
+                uses_legacy_host_allocation: false,
             },
             Case {
                 name: "explicit Host Fixed policy",
@@ -1548,6 +1567,7 @@ mod tests {
                 fixed_ip: Some("192.0.2.10".parse().unwrap()),
                 network_segment_type: Some(NetworkSegmentType::Admin),
                 expected_guard: Some(NetworkSegmentType::Admin),
+                uses_legacy_host_allocation: false,
             },
             Case {
                 name: "explicit Host Retained policy",
@@ -1556,6 +1576,7 @@ mod tests {
                 fixed_ip: None,
                 network_segment_type: Some(NetworkSegmentType::Admin),
                 expected_guard: Some(NetworkSegmentType::Admin),
+                uses_legacy_host_allocation: false,
             },
             Case {
                 name: "DPU OS role",
@@ -1564,6 +1585,7 @@ mod tests {
                 fixed_ip: None,
                 network_segment_type: Some(NetworkSegmentType::Admin),
                 expected_guard: Some(NetworkSegmentType::Admin),
+                uses_legacy_host_allocation: false,
             },
             Case {
                 name: "DPU BMC role",
@@ -1572,6 +1594,7 @@ mod tests {
                 fixed_ip: None,
                 network_segment_type: Some(NetworkSegmentType::Underlay),
                 expected_guard: Some(NetworkSegmentType::Underlay),
+                uses_legacy_host_allocation: false,
             },
             Case {
                 name: "no typed segment",
@@ -1580,6 +1603,7 @@ mod tests {
                 fixed_ip: None,
                 network_segment_type: None,
                 expected_guard: None,
+                uses_legacy_host_allocation: false,
             },
         ] {
             let interface = ExpectedHostNic {
@@ -1592,6 +1616,12 @@ mod tests {
             assert_eq!(
                 interface.segment_type_guard(),
                 case.expected_guard,
+                "{}",
+                case.name,
+            );
+            assert_eq!(
+                interface.uses_legacy_host_allocation(),
+                case.uses_legacy_host_allocation,
                 "{}",
                 case.name,
             );
