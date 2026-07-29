@@ -280,7 +280,21 @@ Starting with v2.0.0 the chart defaults changed from the legacy `carbide`/`forge
 to `nico`. A **fresh install** works out of the box with no overrides — all default service
 names, SPIFFE identities, and trust domains are already `nico`-prefixed.
 
-A site **upgrading from a pre-2.0.0 release** needs to preserve the old names so that
+> **Cutting over to nico naming on an existing site:** if you want to fully migrate an
+> existing site from `carbide`/`forge` naming to `nico` naming rather than preserving the
+> old names in-place, the safe procedure is:
+> 1. Back up the PostgreSQL database (`pg_dump`).
+> 2. Uninstall the current release (`helm uninstall nico -n forge-system`).
+> 3. Re-install from scratch with the new defaults and your target namespace
+>    (`helm upgrade --install nico ./helm -n nico-system --create-namespace -f values-production.yaml`).
+> 4. Restore the database into the new cluster (`pg_restore`).
+>
+> This is necessary because Kubernetes Services, Certificates, and SPIFFE identities cannot
+> be renamed in-place without a coordinated restart of every component and re-issuance of
+> every DPU agent certificate. A backup/restore avoids that coordination.
+
+A site **upgrading from a pre-2.0.0 release** that wants to keep the old names running
+without a full cut-over needs to preserve the old names so that
 running DPU agents (which have certificates issued under `forge.local` and dial
 `carbide-api.forge-system`) keep working without a coordinated cut-over. Add the following
 block to your site values file (in addition to your normal site-specific overrides):
