@@ -14,9 +14,12 @@ The NICo REST API database has moved from a standalone PostgreSQL instance to th
 To upgrade from v0.x, do the following:
 
 1. Back up the REST database from the old standalone PostgreSQL pod.
-1. Run `setup.sh` as normal to provision the new database and apply the ESO secret sync.
-1. (Optional) Migrate data from the backup into `nico_rest` on `nico-pg-cluster` if you need to preserve existing REST state.
-1. Confirm `nico-rest-pg-creds` exists in the `nico-rest` namespace before you start the `nico-rest-db` migration job
+1. Run `./setup.sh --skip-rest` to provision the prerequisites and External Secrets without starting the REST chart or its migration job.
+1. Quiesce all writes to the existing REST API.
+1. Restore the backup into `nico_rest` on `nico-pg-cluster`.
+1. Rerun `./setup.sh` without `--skip-rest`.
+
+   The REST chart and `nico-rest-db` migration job start only after the restore is complete.
 </Warning>
 
 ### NTP service
