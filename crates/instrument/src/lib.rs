@@ -97,6 +97,12 @@
 //! }
 //! ```
 //!
+//! `#[label(name = "component")]` exists for a frozen metric key that cannot
+//! also be the Rust field name because Event logs reserve `component`. For a
+//! field such as `publisher: Publisher`, the metric keeps `component` while
+//! the generated log keeps `publisher`. Context and observation fields do not
+//! support this compatibility alias.
+//!
 //! The metric name is validated at compile time -- the `carbide_` prefix, the
 //! `_total` suffix for counters, a unit suffix for histograms:
 //!
@@ -354,6 +360,29 @@ pub fn emit<E: Event>(event: E) {
             histogram.record(event.observation(), event.labels().as_ref());
         }
         __private::CachedInstrument::None => {}
+    }
+}
+
+/// `initialize_counter_series` exposes one Event counter label set at zero
+/// without writing the Event's log line. It uses the same cached instrument as
+/// [`emit`], so the global meter provider must already be installed before this
+/// call. Context fields are ignored; only the Event's bounded labels select the
+/// series.
+///
+/// Returns `false` without registering anything when `event` does not declare
+/// `metric = counter`.
+#[must_use = "a false result means the Event is not a counter"]
+pub fn initialize_counter_series<E: Event>(event: &E) -> bool {
+    if !matches!(E::METRIC, MetricKind::Counter) {
+        return false;
+    }
+
+    match event.__instrument() {
+        __private::CachedInstrument::Counter(counter) => {
+            counter.add(0, event.labels().as_ref());
+            true
+        }
+        __private::CachedInstrument::Histogram(_) | __private::CachedInstrument::None => false,
     }
 }
 

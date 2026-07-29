@@ -57,7 +57,7 @@ func ExecuteCoreGRPC(ctx context.Context, stc tclient.Client, fullMethod string,
 	workflowID := fmt.Sprintf("core-grpc-%s-%s", path.Base(fullMethod), uuid.NewString())
 	workflowOptions := tclient.StartWorkflowOptions{
 		ID:                       workflowID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		WorkflowExecutionTimeout: coreproxy.WorkflowExecutionTimeout,
 		TaskQueue:                queue.SiteTaskQueue,
 		WorkflowIDReusePolicy:    temporalEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}

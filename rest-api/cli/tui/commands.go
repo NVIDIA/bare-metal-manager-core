@@ -21,12 +21,13 @@ import (
 type Command struct {
 	Name        string
 	Description string
+	Sensitive   bool
 	Run         func(s *Session, args []string) error
 }
 
 // AllCommands returns all available commands.
 func AllCommands() []Command {
-	return []Command{
+	commands := []Command{
 		{Name: "site list", Description: "List all sites", Run: cmdSiteList},
 		{Name: "site get", Description: "Get site details", Run: cmdSiteGet},
 		{Name: "site create", Description: "Create a site", Run: cmdSiteCreate},
@@ -173,6 +174,7 @@ func AllCommands() []Command {
 		{Name: "env", Description: "Show NICO_* environment variables in use", Run: cmdEnv},
 		{Name: "help", Description: "Show available commands", Run: cmdHelp},
 	}
+	return appendGeneratedCommands(commands)
 }
 
 // LogCmd prints the equivalent cli one-liner for reference.
@@ -3818,7 +3820,7 @@ func cmdTenantIdentityTokenDelegationUpdate(s *Session, args []string) error {
 		if err != nil {
 			return err
 		}
-		sec, err := PromptText("clientSecretBasic.clientSecret (required, write-only)", true)
+		sec, err := PromptSecret("clientSecretBasic.clientSecret (required, write-only)", true)
 		if err != nil {
 			return err
 		}

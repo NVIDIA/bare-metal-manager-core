@@ -51,6 +51,11 @@ use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
+const KEY_PRODUCT_FAMILY: &str = "product_family";
+const KEY_ROLE: &str = "role";
+const KEY_VENDOR: &str = "vendor";
+const ROLE_COMPUTE: &str = "compute";
+
 struct ExploredHostFixture {
     host: ExploredManagedHost,
     host_report: EndpointExplorationReport,
@@ -237,7 +242,28 @@ async fn test_machine_creator_compute_rms_request_uses_rack_profile(
     };
 
     assert_eq!(node.rack_id, rack_id.to_string());
+
     assert_eq!(node.r#type, Some(rms::NodeType::ComputeGb200Nvidia as i32));
+
+    let descriptor = node.node_descriptor.as_ref().expect("node descriptor");
+
+    assert_eq!(
+        descriptor.attributes.get(KEY_ROLE).map(String::as_str),
+        Some(ROLE_COMPUTE)
+    );
+
+    assert_eq!(
+        descriptor.attributes.get(KEY_VENDOR).map(String::as_str),
+        Some("NVIDIA")
+    );
+
+    assert_eq!(
+        descriptor
+            .attributes
+            .get(KEY_PRODUCT_FAMILY)
+            .map(String::as_str),
+        Some("gb200")
+    );
 
     Ok(())
 }
@@ -577,6 +603,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resource_pools = ResourcePoolBuilder::default()
+        .with_loopback_ip_v6("2001:db8::/125")
         .with_secondary_vtep_ip("172.21.0.0/29")
         .build();
     let test_harness = TestHarness::builder(pool.clone())
@@ -599,6 +626,12 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
     let initial_loopback_pool_stats = db::resource_pool::stats(
         &mut *txn,
         env.api().common_pools().ethernet.pool_loopback_ip.name(),
+    )
+    .await?;
+
+    let initial_loopback_v6_pool_stats = db::resource_pool::stats(
+        &mut *txn,
+        env.api().common_pools().ethernet.pool_loopback_ip_v6.name(),
     )
     .await?;
 
@@ -688,6 +721,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
         txn.commit().await?;
 
         let expected_loopback_ip = dpu_machine.network_config.loopback_ip.unwrap().to_string();
+        assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
         let expected_secondary_overlay_vtep_ip = dpu_machine
             .network_config
             .secondary_overlay_vtep_ip
@@ -736,6 +770,24 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
         assert_eq!(&hm.id, host_machine_id.as_ref().unwrap());
         dpu_machines.push(dpu_machine);
     }
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::resource_pool::stats(
+            &mut *txn,
+            env.api().common_pools().ethernet.pool_loopback_ip_v6.name()
+        )
+        .await?,
+        ResourcePoolStats {
+            used: expected_loopback_count,
+            free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
+            auto_assign_free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
+            auto_assign_used: expected_loopback_count,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
+        }
+    );
+    txn.commit().await?;
 
     // And make sure resource pool stats agree with how many
     // secondary vteps should have been assigned.

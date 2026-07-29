@@ -1,7 +1,7 @@
 # Per-Object State Progress Metrics
 
 - **Issue:** [#2186](https://github.com/NVIDIA/infra-controller/issues/2186) · **Related:** [#191](https://github.com/NVIDIA/infra-controller/issues/191), [#2168](https://github.com/NVIDIA/infra-controller/pull/2168)
-- **Status:** Proposal
+- **Status:** Implemented (deviations from the original proposal are noted inline)
 
 ## Problem
 
@@ -47,9 +47,14 @@ own listener:
 ```toml
 [observability.per_object_state_metrics]
 enabled = true                    # default: false
-listen_address = "0.0.0.0:9091"
+listen_address = "[::]:9091"      # dual-stack default
 object_types = ["machine", "switch", "power_shelf", "rack"]  # default: all
 ```
+
+`object_types` deserializes into an enum, so a mistyped token fails config
+parsing instead of silently emitting nothing. Every state controller feeds
+the endpoint, so `network_segment`, `vpc_prefix`, `spdm_attestation`, and
+`ib_partition` are also valid.
 
 This lets operators scrape it slower (60–120s — the series change only on
 state transitions), route it to a different tenant/retention, or skip it —
@@ -80,9 +85,11 @@ carbide_object_state_entered_timestamp_seconds{object_type="machine",object_id="
 Covers three asks at once: lifecycle timestamp, state age
 (`time() - ...` — a timestamp beats an age gauge: it changes only on
 transition, compresses well, and is exact at query time), and **current state
-as join key** via its labels. On transition the entry is replaced, so exactly
-one series per object exists. Entry time = iteration time − `time_in_state`
-(already computed by the processor).
+as join key** via its labels. On transition the entry is replaced by the
+committing iteration (including the new state's re-resolved SLA), so exactly
+one series per object exists per process (see the multi-replica caveat in
+the Queries section). Entry time = the controller state's version timestamp
+(exact and immune to handler latency and clock-skew fallbacks).
 
 #### `carbide_object_state_sla_seconds`
 
@@ -106,11 +113,15 @@ carbide_object_manual_intervention_required{object_type="machine",object_id="fm1
 ```
 
 Emitted when the latest iteration hit `StateHandlerError::ManualInterventionRequired`
-(reason = its existing `metric_label()`) or a terminal `Failed` state (reason =
-stable snake_case token from `FailureCause` — never free-text error strings).
-These two triggers are the complete v1 set — precision here matters more than
-recall; further triggers (e.g. substate `Failed` variants with exhausted
-retries) are added only after operational experience. `TimeInStateAboveSla`
+(reason = its existing `metric_label()`) or a terminal failure state: machine
+`Failed` with a non-`NoError` cause (reason = stable snake_case token from
+`FailureCause` — never free-text error strings), and switch/rack/power-shelf
+`Error` states (reason = the fixed token `"error"`, because their stored
+causes are free text). A transient non-intervention error (timeout, DB error)
+leaves an existing series untouched rather than clearing it, so a stuck
+object doesn't flap out of alerts on one bad iteration. Further triggers
+(e.g. substate `Failed` variants with exhausted retries) are added only after
+operational experience. `TimeInStateAboveSla`
 is deliberately **excluded**: SLA breach is a symptom, fully expressible from
 the two metrics above; mixing it in makes this set noisy during mass-slowness
 incidents, exactly when it must be precise.
@@ -137,8 +148,11 @@ One series per *relationship* resolves a concern about multiple DPU hosts:
 a 4-DPU host is 4 association series, while its state series stays one. There
 is also no `blocking_dpu_id` label on it; the host reports the
 least-progressed DPU's substate (matching the `metric_state_names`
-behavior), and since DPUs are machines with their own state series, the
-association join identifies the blocking DPU.
+behavior). DPUs are **not** state-controller objects (the machine controller
+excludes them from its object list), so they get no state series of their
+own; the association join is for mapping DPU-level telemetry (which carries
+`dpu_id`, e.g. `carbide_forge_dpu_agent_last_call`) onto the host and its
+state series.
 
 Instances get no state series of their own: they are machine substates
 (`Assigned { instance_state }`), not separate state-controller objects, so
@@ -162,12 +176,27 @@ Churn is bounded by transition rate, observable in advance via the existing
 
 ## Queries (issue use cases)
 
+Two caveats apply to all joins below:
+
+- **Multiple API replicas.** Series live in the memory of whichever replica
+  last processed the object, so with `replicas > 1` a scraped fleet can
+  briefly expose the same object from more than one pod (the stale copy ages
+  out within the hold period). Aggregate away the scrape instance first —
+  e.g. `max by (object_type, object_id, state, substate) (...)` — before
+  joining, or run a single replica for this endpoint.
+- **Transitions vs. scrapes.** The three state families are updated as
+  separate series; a scrape landing mid-transition can see them disagree on
+  `state` for one interval. Alerts on these joins should carry a `for:` of at
+  least one scrape interval.
+
 **Stuck beyond per-object SLA** (warning; critical = `2 *`):
 
 ```
-(time() - carbide_object_state_entered_timestamp_seconds)
+max by (object_type, object_id, state, substate)
+    (time() - carbide_object_state_entered_timestamp_seconds)
   > on(object_type, object_id, state, substate) group_left()
-    carbide_object_state_sla_seconds
+    max by (object_type, object_id, state, substate)
+        (carbide_object_state_sla_seconds)
 ```
 
 **Manual-intervention ratio and triage breakdown:**
@@ -228,20 +257,31 @@ semantics.
 
 We extend the `PerObjectMetricsRegistry`, rather than adding a sibling:
 - Generalize the entry payload from classification-only to per-metric series:
-  a `gauge(name, description)` handle API where writers `set`/`set_all`/
-  `clear` an object's series for that metric (the existing classification
-  gauge becomes the first handle, keeping its config gating and behavior).
-- Let each handle register on a caller-supplied `Meter`, so the new state
-  gauges land on the per-object endpoint while the existing
-  `carbide_object_unhealthy_by_classification_count` stays on the main
-  endpoint (moving it is a scrape-config-visible change; do it as a later,
-  separately announced step).
+  a `gauge(name, help, label_names)` handle API where writers `set`/`set_all`/
+  `clear`/`touch` an object's series for that metric (the existing
+  classification gauge becomes the first handle, keeping its config gating
+  and behavior).
+- **Deviation from the proposal:** each handle registers a native Prometheus
+  collector on a caller-supplied `prometheus::Registry`, not an OpenTelemetry
+  `Meter`. OpenTelemetry instruments enforce a per-stream cardinality limit
+  (2000 series by default), which a per-object fleet vastly exceeds; native
+  pull collection has no such limit and skips the SDK's per-series
+  aggregation on every scrape. The existing
+  `carbide_object_unhealthy_by_classification_count` stays an OTel gauge on
+  the main endpoint (moving it is a scrape-config-visible change; do it as a
+  later, separately announced step).
 
 **Feed point: the generic processor** (`processor.rs`), which already holds
-object ID, (transitioned) state, `time_in_state`, `StateSla`, and handler
-error per iteration — one `registry.record_state(...)` call there gives
-**every** state controller per-object metrics with zero per-controller code.
-Wiring mirrors [#2168](https://github.com/NVIDIA/infra-controller/pull/2168): constructed in `setup.rs`, registered on the per-object
-meter, threaded via the controller builder. `carbide_object_info` and
-associations are recorded from the machine-controller handler, which already
-loads rack/SKU/DPU/instance data next to the existing per-object health call.
+object ID, (transitioned) state, the state version's timestamp, `StateSla`,
+and handler error per iteration — one record call there gives **every** state
+controller per-object metrics with zero per-controller code (the only
+per-controller code is the optional `manual_intervention_reason` state hook).
+A committed transition is published by the committing iteration, including
+the new state's re-resolved SLA. Objects the handler deletes have their
+series removed by that same iteration; objects deleted out-of-band are
+cleared by the enqueuer's next sweep, which diffs consecutive live sets
+(hold-period eviction remains the backstop). Wiring mirrors [#2168](https://github.com/NVIDIA/infra-controller/pull/2168): constructed in `setup.rs`, registered on the per-object
+Prometheus registry, threaded via the controller builder.
+`carbide_object_info` and associations are recorded from the
+machine-controller handler, which already loads rack/SKU/DPU/instance data
+next to the existing per-object health call.

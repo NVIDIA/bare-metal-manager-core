@@ -122,6 +122,21 @@ devspace deploy --skip-build -n nico-system
 devspace deploy --force-build
 ```
 
+To deploy a local DSX Exchange-compatible event bus and enable NICo's managed
+host state publisher, opt in with the `dsx-exchange` profile:
+
+```bash
+devspace deploy --profile dsx-exchange
+```
+
+This profile adds a single-node, unauthenticated NATS MQTT service alongside
+NICo in the local development namespace and publishes managed host state to
+`NICO/v1/machine/<machine-id>/state`. It also republishes current state every
+10 seconds so a local subscriber can observe messages after the initial state
+transitions. The event bus and publisher remain disabled when the profile is
+not selected. The profile does not enable the separate inbound
+`nico-dsx-exchange-consumer`.
+
 The post-deploy setup uses temporary port-forwards to register the site and verifies that machines from Core are visible through the REST API. To keep the REST API and Keycloak available on localhost after `devspace deploy` exits, run these in separate terminals:
 
 ```bash

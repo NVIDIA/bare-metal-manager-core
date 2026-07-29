@@ -41,7 +41,7 @@ use crate::errors::{ErrorCode, ErrorSubsystem, ModelError, ModelResult, Operator
 use crate::firmware::{Firmware, FirmwareComponentType};
 use crate::hardware_info::{DmiData, HardwareInfo, HardwareInfoError};
 use crate::machine::machine_id::{MissingHardwareInfo, from_hardware_info_with_type};
-use crate::machine_boot_interface::MachineBootInterface;
+use crate::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use crate::power_shelf::power_shelf_id;
 use crate::switch::switch_id;
 
@@ -219,8 +219,9 @@ pub struct ExploredEndpoint {
     /// The MAC address of the boot interface (primary interface) for this host endpoint
     pub boot_interface_mac: Option<MacAddress>,
     /// The vendor-native Redfish interface id of the boot interface, captured
-    /// alongside `boot_interface_mac`. Combined with the MAC via
-    /// [`ExploredEndpoint::boot_interface`] to form a [`MachineBootInterface`].
+    /// alongside `boot_interface_mac`. [`ExploredEndpoint::boot_interface`]
+    /// returns the complete pair, while
+    /// [`ExploredEndpoint::boot_interface_target`] preserves a MAC-only target.
     pub boot_interface_id: Option<String>,
 }
 
@@ -239,6 +240,19 @@ impl ExploredEndpoint {
     /// interface id.
     pub fn boot_interface(&self) -> Option<MachineBootInterface> {
         MachineBootInterface::from_parts(self.boot_interface_mac, self.boot_interface_id.clone())
+    }
+
+    /// Returns the boot interface selector Site Explorer should evaluate.
+    ///
+    /// A complete endpoint record yields [`MachineBootInterfaceTarget::Pair`].
+    /// Older records with only `boot_interface_mac` remain usable as
+    /// [`MachineBootInterfaceTarget::MacOnly`]. An interface id by itself
+    /// cannot identify the target and yields `None`.
+    pub fn boot_interface_target(&self) -> Option<MachineBootInterfaceTarget> {
+        MachineBootInterfaceTarget::from_parts(
+            self.boot_interface_mac,
+            self.boot_interface_id.clone(),
+        )
     }
 
     /// find_version will locate a version number within an ExploredEndpoint
@@ -1330,8 +1344,8 @@ impl EndpointExplorationError {
 
 impl OperatorError for EndpointExplorationError {
     fn operator_error_code(&self) -> ErrorCode {
-        // Every code in this module is a site-explorer code, so the subsystem is
-        // assumed rather than repeated per arm.
+        // Most variants use Site Explorer codes; the DPU BIOS variant below
+        // keeps its existing DPU-specific code.
         use ErrorSubsystem::SiteExplorer;
         match self {
             EndpointExplorationError::ConnectionTimeout { .. } => {
@@ -1659,12 +1673,28 @@ pub struct Inventory {
     pub release_date: Option<String>,
 }
 
-/// `MachineSetupStatus` definition. Matches redfish definition
+/// The result of one Redfish machine-setup check.
+///
+/// `is_done` and `diffs` mirror the vendor result. The evaluated boot interface
+/// records the logical target NICo asked the backend to assess, so a later
+/// controller never has to infer it from endpoint columns that may have changed
+/// after the report was written.
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "PascalCase")]
 pub struct MachineSetupStatus {
     pub is_done: bool,
     pub diffs: Vec<MachineSetupDiff>,
+    /// The logical boot-interface target NICo asked the backend to assess.
+    ///
+    /// This does not claim that the backend used every identifier in the
+    /// target: a backend may match with a subset (NvRedfish currently uses the
+    /// MAC) while retaining the requested `Pair` identity. This lives inside
+    /// `MachineSetupStatus` so the report's versioned JSON stores the
+    /// observation and its target together. Reports written before target
+    /// capture leave it as `None`, which tells a later controller not to treat
+    /// the status as evidence for a newly selected interface.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluated_boot_interface: Option<MachineBootInterfaceTarget>,
 }
 
 /// `BootOrder` definition.
@@ -2510,7 +2540,9 @@ mod explored_mlx_device_tests {
 #[cfg(test)]
 mod tests {
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
+    use carbide_test_support::{
+        Case, Check, check_cases, check_values, scenarios, value_scenarios,
+    };
 
     use super::*;
     use crate::firmware::FirmwareComponent;
@@ -2604,6 +2636,455 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_boot_interface_target_preserves_legacy_mac_only_records() {
+        let mac = MacAddress::new([0x02, 0, 0, 0, 0, 1]);
+
+        value_scenarios!(run = |(boot_interface_mac, boot_interface_id)| {
+            let mut endpoint = create_test_endpoint(Vec::new());
+            endpoint.boot_interface_mac = boot_interface_mac;
+            endpoint.boot_interface_id = boot_interface_id;
+            endpoint.boot_interface_target()
+        };
+            "complete pair" {
+                (Some(mac), Some("NIC.Slot.7-1-1".to_string())) =>
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address: mac,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+            }
+
+            "legacy MAC only" {
+                (Some(mac), None) => Some(MachineBootInterfaceTarget::MacOnly(mac)),
+            }
+
+            "interface id without MAC" {
+                (None, Some("NIC.Slot.7-1-1".to_string())) => None,
+            }
+
+            "no stored target" {
+                (None, None) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn machine_setup_status_json_correlates_the_evaluated_target() {
+        let mac = MacAddress::new([0x02, 0, 0, 0, 0, 1]);
+
+        value_scenarios!(run = |status: MachineSetupStatus| {
+            let json = serde_json::to_value(&status).expect("status serializes");
+            let round_trip =
+                serde_json::from_value(json.clone()).expect("serialized status deserializes");
+            (json, round_trip)
+        };
+            "status without a target remains backward compatible" {
+                MachineSetupStatus {
+                    is_done: true,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: None,
+                } => (
+                    serde_json::json!({
+                        "IsDone": true,
+                        "Diffs": [],
+                    }),
+                    MachineSetupStatus {
+                        is_done: true,
+                        diffs: Vec::new(),
+                        evaluated_boot_interface: None,
+                    },
+                ),
+            }
+
+            "paired target" {
+                MachineSetupStatus {
+                    is_done: false,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
+                        MachineBootInterface {
+                            mac_address: mac,
+                            interface_id: "NIC.Slot.7-1-1".to_string(),
+                        },
+                    )),
+                } => (
+                    serde_json::json!({
+                        "IsDone": false,
+                        "Diffs": [],
+                        "EvaluatedBootInterface": {
+                            "Pair": {
+                                "MacAddress": "02:00:00:00:00:01",
+                                "InterfaceId": "NIC.Slot.7-1-1",
+                            },
+                        },
+                    }),
+                    MachineSetupStatus {
+                        is_done: false,
+                        diffs: Vec::new(),
+                        evaluated_boot_interface: Some(MachineBootInterfaceTarget::Pair(
+                            MachineBootInterface {
+                                mac_address: mac,
+                                interface_id: "NIC.Slot.7-1-1".to_string(),
+                            },
+                        )),
+                    },
+                ),
+            }
+
+            "legacy MAC-only target" {
+                MachineSetupStatus {
+                    is_done: true,
+                    diffs: Vec::new(),
+                    evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac)),
+                } => (
+                    serde_json::json!({
+                        "IsDone": true,
+                        "Diffs": [],
+                        "EvaluatedBootInterface": {
+                            "MacOnly": "02:00:00:00:00:01",
+                        },
+                    }),
+                    MachineSetupStatus {
+                        is_done: true,
+                        diffs: Vec::new(),
+                        evaluated_boot_interface: Some(MachineBootInterfaceTarget::MacOnly(mac)),
+                    },
+                ),
+            }
+        );
+
+        let legacy: MachineSetupStatus = serde_json::from_str(r#"{"IsDone":true,"Diffs":[]}"#)
+            .expect("reports written before target capture still deserialize");
+        assert_eq!(legacy.evaluated_boot_interface, None);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum MitigationGroup {
+        Network,
+        HardwareCompatibility,
+        Credentials,
+        IntermittentCredentials,
+        DpuRecovery,
+        DgxRetry,
+        NoMitigation,
+    }
+
+    impl MitigationGroup {
+        fn from_mitigation(mitigation: Option<&str>) -> Self {
+            match mitigation {
+                None => Self::NoMitigation,
+                Some(mitigation) if mitigation.contains("force-restarts the DPU") => {
+                    Self::DpuRecovery
+                }
+                Some(mitigation)
+                    if mitigation.contains("general DGX H100/H200 Redfish API information") =>
+                {
+                    Self::DgxRetry
+                }
+                Some(mitigation) if mitigation.starts_with("Transient:") => {
+                    Self::IntermittentCredentials
+                }
+                Some(mitigation)
+                    if mitigation.contains("PUT /v2/org/{org}/nico/credential/bmc") =>
+                {
+                    Self::Credentials
+                }
+                Some(mitigation) if mitigation.contains("Hardware Compatibility List") => {
+                    Self::HardwareCompatibility
+                }
+                Some(mitigation) if mitigation.contains("network reachability") => Self::Network,
+                Some(mitigation) => panic!("unclassified mitigation: {mitigation}"),
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct EndpointErrorBehavior {
+        code: ErrorCode,
+        unauthorized: bool,
+        unreachable: bool,
+        redfish: bool,
+        invalid_dpu_bios_response: bool,
+        intermittent_unauthorized_count: Option<u32>,
+        mitigation_group: MitigationGroup,
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct EndpointPredicates {
+        unauthorized: bool,
+        unreachable: bool,
+        redfish: bool,
+        invalid_dpu_bios_response: bool,
+    }
+
+    fn expected_error_behavior(
+        code: ErrorCode,
+        predicates: EndpointPredicates,
+        intermittent_unauthorized_count: Option<u32>,
+        mitigation_group: MitigationGroup,
+    ) -> EndpointErrorBehavior {
+        let EndpointPredicates {
+            unauthorized,
+            unreachable,
+            redfish,
+            invalid_dpu_bios_response,
+        } = predicates;
+        EndpointErrorBehavior {
+            code,
+            unauthorized,
+            unreachable,
+            redfish,
+            invalid_dpu_bios_response,
+            intermittent_unauthorized_count,
+            mitigation_group,
+        }
+    }
+
+    #[test]
+    fn endpoint_exploration_error_behavior_is_stable() {
+        use ErrorSubsystem::SiteExplorer;
+        use MitigationGroup::*;
+
+        check_values(
+            [
+                Check {
+                    scenario: "connection timeout",
+                    input: EndpointExplorationError::ConnectionTimeout {
+                        details: "timeout".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 100),
+                        EndpointPredicates {
+                            unreachable: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Network,
+                    ),
+                },
+                Check {
+                    scenario: "connection refused",
+                    input: EndpointExplorationError::ConnectionRefused {
+                        details: "refused".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 101),
+                        EndpointPredicates {
+                            unreachable: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Network,
+                    ),
+                },
+                Check {
+                    scenario: "unreachable",
+                    input: EndpointExplorationError::Unreachable {
+                        details: Some("network".to_string()),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 102),
+                        EndpointPredicates {
+                            unreachable: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Network,
+                    ),
+                },
+                Check {
+                    scenario: "unsupported vendor",
+                    input: EndpointExplorationError::UnsupportedVendor {
+                        vendor: "unknown".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 120),
+                        EndpointPredicates::default(),
+                        None,
+                        HardwareCompatibility,
+                    ),
+                },
+                Check {
+                    scenario: "missing redfish",
+                    input: EndpointExplorationError::MissingRedfish { uri: None },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 121),
+                        EndpointPredicates::default(),
+                        None,
+                        NoMitigation,
+                    ),
+                },
+                Check {
+                    scenario: "missing vendor",
+                    input: EndpointExplorationError::MissingVendor { observed: None },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 122),
+                        EndpointPredicates::default(),
+                        None,
+                        HardwareCompatibility,
+                    ),
+                },
+                Check {
+                    scenario: "redfish error",
+                    input: EndpointExplorationError::RedfishError {
+                        details: "request failed".to_string(),
+                        response_body: None,
+                        response_code: Some(500),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 130),
+                        EndpointPredicates {
+                            redfish: true,
+                            ..Default::default()
+                        },
+                        None,
+                        NoMitigation,
+                    ),
+                },
+                Check {
+                    scenario: "DGX firmware inventory forbidden",
+                    input: EndpointExplorationError::VikingFWInventoryForbiddenError {
+                        details: "forbidden".to_string(),
+                        response_body: None,
+                        response_code: Some(403),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 131),
+                        EndpointPredicates::default(),
+                        None,
+                        DgxRetry,
+                    ),
+                },
+                Check {
+                    scenario: "unauthorized",
+                    input: EndpointExplorationError::Unauthorized {
+                        details: "unauthorized".to_string(),
+                        response_body: None,
+                        response_code: Some(401),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 140),
+                        EndpointPredicates {
+                            unauthorized: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "missing credentials",
+                    input: EndpointExplorationError::MissingCredentials {
+                        key: "bmc".to_string(),
+                        cause: "missing".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 141),
+                        EndpointPredicates::default(),
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "secrets engine",
+                    input: EndpointExplorationError::SecretsEngineError {
+                        cause: "unavailable".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 142),
+                        EndpointPredicates::default(),
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "set credentials",
+                    input: EndpointExplorationError::SetCredentials {
+                        key: "bmc".to_string(),
+                        cause: "failed".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 143),
+                        EndpointPredicates::default(),
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "avoid lockout",
+                    input: EndpointExplorationError::AvoidLockout,
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 144),
+                        EndpointPredicates {
+                            unauthorized: true,
+                            ..Default::default()
+                        },
+                        None,
+                        Credentials,
+                    ),
+                },
+                Check {
+                    scenario: "intermittent unauthorized",
+                    input: EndpointExplorationError::IntermittentUnauthorized {
+                        details: "temporary unauthorized response".to_string(),
+                        response_body: None,
+                        response_code: Some(401),
+                        consecutive_count: 3,
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 145),
+                        EndpointPredicates::default(),
+                        Some(3),
+                        IntermittentCredentials,
+                    ),
+                },
+                Check {
+                    scenario: "other",
+                    input: EndpointExplorationError::Other {
+                        details: "unexpected".to_string(),
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(SiteExplorer, 199),
+                        EndpointPredicates::default(),
+                        None,
+                        NoMitigation,
+                    ),
+                },
+                Check {
+                    scenario: "invalid DPU BIOS response",
+                    input: EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                        details: "attributes not ready".to_string(),
+                        response_body: None,
+                        response_code: None,
+                    },
+                    expect: expected_error_behavior(
+                        ErrorCode::nico(ErrorSubsystem::Dpu, 134),
+                        EndpointPredicates {
+                            redfish: true,
+                            invalid_dpu_bios_response: true,
+                            ..Default::default()
+                        },
+                        None,
+                        DpuRecovery,
+                    ),
+                },
+            ],
+            |error| {
+                let schema = error.operator_error_schema();
+                EndpointErrorBehavior {
+                    code: schema.error_code,
+                    unauthorized: error.is_unauthorized(),
+                    unreachable: error.is_unreachable(),
+                    redfish: error.is_redfish(),
+                    invalid_dpu_bios_response: error.is_dpu_redfish_bios_response_invalid(),
+                    intermittent_unauthorized_count: error.intermittent_unauthorized_count(),
+                    mitigation_group: MitigationGroup::from_mitigation(
+                        schema.mitigation.as_deref(),
+                    ),
+                }
+            },
+        );
+    }
+
+    #[test]
     fn dpu_bios_error_schema_contains_operator_action() {
         let error = EndpointExplorationError::InvalidDpuRedfishBiosResponse {
             details: "DPU BMC BIOS attributes not ready".to_string(),
@@ -2612,15 +3093,13 @@ mod tests {
         };
 
         let schema = error.operator_error_schema();
+        let mitigation = schema
+            .mitigation
+            .as_deref()
+            .expect("DPU BIOS errors have recovery guidance");
 
-        assert_eq!(
-            schema.error_code,
-            EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_CODE
-        );
-        assert_eq!(
-            schema.mitigation.as_deref(),
-            Some(EndpointExplorationError::INVALID_DPU_REDFISH_BIOS_RESPONSE_MITIGATION)
-        );
+        assert!(mitigation.contains("force-restarts the DPU"));
+        assert!(mitigation.contains("BMC reset"));
         assert!(
             schema
                 .text
@@ -2758,59 +3237,75 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_find_all_versions_single_match() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware", Some("1.2.3")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0], &"1.2.3".to_string());
+    struct FindAllVersionsInput {
+        regex_pattern: &'static str,
+        inventories: Vec<(&'static str, Option<&'static str>)>,
     }
 
     #[test]
-    fn test_find_all_versions_multiple_matches() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware_1", Some("1.2.3")),
-            ("BMC_Firmware_2", Some("2.3.4")),
-            ("BMC_Firmware_3", Some("3.4.5")),
-            ("DPU_UEFI", Some("4.5.6")),
-        ]);
+    fn find_all_versions_returns_each_populated_match() {
+        check_values(
+            [
+                Check {
+                    scenario: "anchored pattern returns its exact match",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"^BMC_Firmware$",
+                        inventories: vec![
+                            ("BMC_Firmware", Some("1.2.3")),
+                            ("DPU_UEFI", Some("4.5.6")),
+                        ],
+                    },
+                    expect: vec!["1.2.3".to_string()],
+                },
+                Check {
+                    scenario: "returns matching versions in inventory order",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"BMC_Firmware",
+                        inventories: vec![
+                            ("BMC_Firmware_1", Some("1.2.3")),
+                            ("BMC_Firmware_2", Some("2.3.4")),
+                            ("BMC_Firmware_3", Some("3.4.5")),
+                            ("DPU_UEFI", Some("4.5.6")),
+                        ],
+                    },
+                    expect: vec![
+                        "1.2.3".to_string(),
+                        "2.3.4".to_string(),
+                        "3.4.5".to_string(),
+                    ],
+                },
+                Check {
+                    scenario: "returns no versions when no inventory matches",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"^BMC_Firmware$",
+                        inventories: vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))],
+                    },
+                    expect: Vec::new(),
+                },
+                Check {
+                    scenario: "skips a matching inventory without a version",
+                    input: FindAllVersionsInput {
+                        regex_pattern: r"BMC_Firmware",
+                        inventories: vec![
+                            ("BMC_Firmware_1", Some("1.2.3")),
+                            ("BMC_Firmware_2", None),
+                            ("BMC_Firmware_3", Some("3.4.5")),
+                        ],
+                    },
+                    expect: vec!["1.2.3".to_string(), "3.4.5".to_string()],
+                },
+            ],
+            |input| {
+                let fw_info = create_test_firmware(FirmwareComponentType::Bmc, input.regex_pattern);
+                let endpoint = create_test_endpoint(input.inventories);
 
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 3);
-        assert_eq!(results[0], &"1.2.3".to_string());
-        assert_eq!(results[1], &"2.3.4".to_string());
-        assert_eq!(results[2], &"3.4.5".to_string());
-    }
-
-    #[test]
-    fn test_find_all_versions_no_matches() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"^BMC_Firmware$");
-        let endpoint =
-            create_test_endpoint(vec![("DPU_UEFI", Some("4.5.6")), ("Other", Some("7.8.9"))]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 0);
-    }
-
-    #[test]
-    fn test_find_all_versions_skips_none() {
-        let fw_info = create_test_firmware(FirmwareComponentType::Bmc, r"BMC_Firmware");
-        let endpoint = create_test_endpoint(vec![
-            ("BMC_Firmware_1", Some("1.2.3")),
-            ("BMC_Firmware_2", None),
-            ("BMC_Firmware_3", Some("3.4.5")),
-        ]);
-
-        let results = endpoint.find_all_versions(&fw_info, FirmwareComponentType::Bmc);
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0], &"1.2.3".to_string());
-        assert_eq!(results[1], &"3.4.5".to_string());
+                endpoint
+                    .find_all_versions(&fw_info, FirmwareComponentType::Bmc)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            },
+        );
     }
 
     #[test]

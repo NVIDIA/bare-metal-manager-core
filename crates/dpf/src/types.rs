@@ -43,10 +43,12 @@ impl BmcPasswordProvider for String {
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
 pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
 pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
-
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
 pub const DTS_SERVICE_NAME: &str = "dts";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME: &str = "doca-weave-dhcp-agent";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME: &str = "doca-weave-flow-controller";
+pub const DOCA_XPLANE_SERVICE_NAME: &str = "doca-xplane";
 
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.
@@ -270,6 +272,7 @@ pub struct DpuFlavorBridgeDefinition {
 pub enum DpuDeploymentType {
     Bf3,
     Bf4Generic,
+    Bf4Astra,
 }
 
 /// Information about a DPU device (DPUDevice CR).
@@ -471,6 +474,21 @@ pub struct DpuSummary {
     pub spec_dpu_node_name: String,
     pub status_phase: Option<String>,
     pub status_bfb_file: Option<String>,
+}
+
+/// Service version resolved from a DPUDeployment's services and their DPUServiceTemplate CRs.
+/// Used by [`crate::DpfSdk::get_service_versions_for_dpu`] to populate the DPU inventory.
+#[derive(Debug, Clone)]
+pub struct DpuServiceVersion {
+    /// Image case: basename after the final `/` of `helmChart.values.image.repository`.
+    /// Helm fallback: `helmChart.source.chart`.
+    pub name: String,
+    /// Image case: `helmChart.values.image.tag`.
+    /// Helm fallback: `helmChart.source.version`.
+    pub version: String,
+    /// Image case: `helmChart.values.image.repository` up to (not including) the final `/`.
+    /// Helm fallback: `helmChart.source.repoURL`.
+    pub url: String,
 }
 
 /// Helm-chart version observed on a live `DPUServiceTemplate` CR. Used by

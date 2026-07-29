@@ -22,6 +22,13 @@
 		<tr/>
 	</thead>
 	<tbody>
+	{% if hosts.is_empty() %}
+		{% if active_maintenance_filter == "maintenance" %}
+			<tr><td colspan="11">No machines match the selected filters.</td></tr>
+		{% else %}
+			<tr><td colspan="12">No machines match the selected filters.</td></tr>
+		{% endif %}
+	{% endif %}
 	{% for host in hosts %}
 		<tr>
 			<td>{{ host.machine_id|machine_id_link|safe }}</td>

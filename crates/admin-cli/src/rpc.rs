@@ -932,8 +932,7 @@ impl ApiClient {
         Ok(self.0.update_expected_machine(request).await?)
     }
 
-    /// Replaces the entire expected-machine table from JSON. Entries with `bmc_ip_address` trigger
-    /// the same static BMC `machine_interface` setup as a single create.
+    /// Replaces the entire expected-machine table from JSON.
     pub async fn replace_all_expected_machines(
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,
@@ -1176,6 +1175,8 @@ impl ApiClient {
                 reserve_first: 0,
                 free_ip_count: 1,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             segment_type: NetworkSegmentType::Tenant as i32,
             id: Some(id),
@@ -1251,6 +1252,8 @@ impl ApiClient {
                 // computed by the server, ignored on create
                 free_ip_count: 1,
                 svi_ip: None,
+                free_ip_count_v2: None,
+                free_ip_count_saturated: false,
             }],
             segment_type: NetworkSegmentType::HostInband as i32,
             id: Some(id),
@@ -1961,6 +1964,22 @@ impl ApiClient {
         Ok(self
             .0
             .update_instance_config(update_instance_request)
+            .await?)
+    }
+
+    pub async fn set_container_registry_credential(
+        &self,
+        registry: String,
+        username: String,
+        password: String,
+    ) -> CarbideCliResult<()> {
+        Ok(self
+            .0
+            .set_container_registry_credential(rpc::SetContainerRegistryCredentialRequest {
+                registry,
+                username,
+                password,
+            })
             .await?)
     }
 

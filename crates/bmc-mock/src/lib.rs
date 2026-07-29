@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 pub mod ipmi;
 pub mod ipmi_sim;
+pub mod libvirt;
+pub mod simulated;
 
 mod auth_router;
 mod bmc_state;
@@ -46,9 +48,10 @@ pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
 };
 pub use mock_machine_router::{
-    BmcCommand, SetSystemPowerError, SetSystemPowerResult, machine_router,
+    BmcCommand, MachineRouterOptions, SetSystemPowerError, SetSystemPowerResult, machine_router,
     machine_router_with_injection_store,
 };
+pub use redfish::virtual_media::DeviceConfig as VirtualMediaDeviceConfig;
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";
 pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";

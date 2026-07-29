@@ -67,6 +67,8 @@ pub async fn spawn(config: Config) -> Result<SpawnHandle, SpawnError> {
 
     // 3) Start metrics server
     let metrics_handle = metrics::spawn(config.clone(), metrics).await?;
+    let listen_address = server.listen_address();
+    let metrics_address = metrics_handle.metrics_address();
 
     // 4) Wait for a shutdown signal, then shut down the above
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -78,6 +80,8 @@ pub async fn spawn(config: Config) -> Result<SpawnHandle, SpawnError> {
     });
 
     Ok(SpawnHandle {
+        listen_address,
+        metrics_address,
         shutdown_tx,
         join_handle,
     })
@@ -94,8 +98,20 @@ pub enum SpawnError {
 }
 
 pub struct SpawnHandle {
+    listen_address: std::net::SocketAddr,
+    metrics_address: std::net::SocketAddr,
     shutdown_tx: oneshot::Sender<()>,
     join_handle: JoinHandle<()>,
+}
+
+impl SpawnHandle {
+    pub fn listen_address(&self) -> std::net::SocketAddr {
+        self.listen_address
+    }
+
+    pub fn metrics_address(&self) -> std::net::SocketAddr {
+        self.metrics_address
+    }
 }
 
 impl ShutdownHandle<()> for SpawnHandle {

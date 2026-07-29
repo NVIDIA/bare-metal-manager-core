@@ -589,6 +589,35 @@ nicocli instance status-history <instance-id>
 
 The instance detail response is rich -- it includes `interfaces[]` with assigned IP addresses and VPC prefix info, `ipxeScript` showing the live boot script, `serialConsoleUrl` for console access, full machine and SKU metadata, and any active `deprecations[]` warnings. The API uses inline `deprecations[]` arrays to flag fields scheduled for removal -- watch for these in your responses.
 
+### Phone-home
+
+`phoneHomeEnabled` (`--phone-home-enabled`) controls whether NICo waits for the booted operating system to call back -- to "phone home" -- before it reports the instance as ready. It is a property of the operating-system definition (`operating-system create` / `operating-system update`) and can also be set per instance (`instance create` / `instance update`).
+
+**What it does.** When phone-home is enabled, NICo does not consider the instance fully provisioned until the booted OS contacts NICo's metadata service from inside the guest. The instance is held in a provisioning state -- the transition to `Ready` is gated -- until that callback arrives. When it is disabled, NICo reports the instance ready as soon as provisioning and config sync finish, without waiting for any signal from the OS.
+
+**What NICo injects.** When phone-home is enabled, NICo edits your `userData` for you -- you do *not* add the callback yourself. NICo parses your cloud-init YAML, strips any existing [`phone_home`](https://cloudinit.readthedocs.io/en/latest/reference/modules.html#phone-home) block, and inserts one that POSTs to the site's metadata endpoint:
+
+```yaml
+#cloud-config
+# ... your first-boot setup (SSH keys, passwords, packages, ...) ...
+phone_home:
+  url: http://169.254.169.254:7777/latest/meta-data/phone_home
+  post: all
+```
+
+The injected `url` is the site-configured phone-home endpoint (`site.phoneHomeUrl`; default `http://169.254.169.254:7777/latest/meta-data/phone_home`), which the platform operator can override per deployment. If you supply no `userData`, NICo generates a minimal `#cloud-config` containing only the block above. Disabling phone-home reverses this, and NICo removes the matching `phone_home` block it manages. Because NICo rewrites your user-data as YAML, **any `userData` you provide must be valid cloud-init YAML (a `#cloud-config` mapping) when phone-home is enabled**. The API rejects requests with invalid user-data. (Supplying no user-data is fine: NICo generates the minimal `#cloud-config` shown above.)
+
+cloud-init runs the `phone_home` module in its final stage, after the rest of your configuration has been applied, so the callback fires only after your setup has completed. When NICo receives the POST, it records the contact and releases the readiness gate, allowing the instance to become `Ready`.
+
+**When to use it.** Enable phone-home when "ready" must mean "the guest has finished its own first-boot setup" -- for example, to delay readiness until cloud-init has applied SSH keys and passwords, so that automation watching for `Ready` does not connect before the host is fully configured. Leave phone-home disabled when NICo finishing provisioning is a sufficient ready signal and you do not need a callback from inside the guest.
+
+**Notes and caveats.**
+
+- Phone-home only gates *status reporting*. It does not change how the host is provisioned or booted -- the reboot into the provisioned OS happens identically whether or not phone-home is enabled.
+- If phone-home is enabled but the booted OS never runs cloud-init, or the guest cannot reach the metadata endpoint, the callback never arrives and the instance stays in its provisioning state, never reporting ready.
+- The metadata endpoint (by default, `169.254.169.254:7777`) is not a tenant-facing API, and is reachable only from the provisioned host over its link-local metadata link.
+- Rebooting the instance with a one-time custom iPXE override (`instance update --reboot-with-custom-ipxe=true`) re-arms the gate when phone-home is enabled: NICo clears the recorded contact, so the OS must phone home again before the instance is reported ready.
+
 ### Batch Instance Creation
 
 For creating multiple identical instances at once, use `instance batch-create`. Unlike `create`, batch-create takes a single shared spec plus a count -- it provisions N instances with auto-generated names from the same instance type, tenant, and VPC. `nicocli instance batch-create --help` shows:

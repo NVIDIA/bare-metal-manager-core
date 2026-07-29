@@ -70,7 +70,8 @@ abbreviated as `…/nico/...` thereafter.
 
 | Task | Role | Interface |
 |---|---|---|
-| Put hosts in NIC / no-DPU mode (site-wide `dpu_mode`, per-host `ExpectedMachine.dpu_mode`) | Operator | **TOML** — Day 0 / rare; API restart |
+| Set hosts to `nic` or `ignore` through the site-wide `dpu_policy` | Operator | **TOML** — Day 0 / rare; API restart |
+| Set one host's DPU policy with `--dpu-policy` | Operator | **`nico-admin-cli`** (`em add` / `em patch`) — updating the declaration needs no API restart; applying a changed policy to an already-ingested host requires [force-delete and re-ingestion](../../provisioning/boot-interfaces-and-dpu-modes.md#35-flipping-a-dpu-to-nic-mode) |
 | Declare `HostInband` underlay segments | Operator | **TOML** (`[networks.<name>]`, `type = "hostinband"`) — Day 0 |
 | Create an additional `HostInband` segment after initial setup | Operator | **Restart-applied TOML** (`[networks]`), or runtime **`nico-admin-cli`** (`network-segment create`) — see [Configuring HostInband Segments](#2-configuring-hostinband-network-segments) |
 | Inspect / delete a `HostInband` segment | Operator | **`nico-admin-cli`** (`network-segment show` / `delete`) |
@@ -99,34 +100,53 @@ are running without a NICo-managed DPU, the underlay segments those hosts sit on
 are declared as `HostInband` segments, and (optionally) instance types exist so
 tenants can request the right machines.
 
-### 1. Put hosts in NIC or no-DPU mode
+### 1. Set the host DPU policy
 
-Whether a host is a "zero-DPU" host is decided by its **DPU mode**, which has
-three values:
+Whether NICo treats a host as a "zero-DPU" host is decided by its **DPU policy**,
+which has three values:
 
-| `dpu_mode` value | Meaning |
+| `dpu_policy` value | Meaning |
 |---|---|
-| `dpu_mode` | *(default)* The DPU is managed by NICo: BFB/firmware upgrades, HBN deployment, DPU agent, and the tenant overlay all apply. |
-| `nic_mode` | A DPU is physically present but is operated as a plain NIC. NICo skips DPU provisioning and overlay management for the host. |
-| `no_dpu` | The host has no DPU hardware; its NIC sits directly on the underlay. |
+| `manage` | *(site/effective default)* The DPU is managed by NICo: BFB/firmware upgrades, HBN deployment, DPU agent, and the tenant overlay all apply. A per-host `manage` declaration inherits the site policy rather than overriding it. |
+| `nic` | A DPU is physically present but should be operated as a plain NIC. NICo skips DPU provisioning and overlay management for the host. |
+| `ignore` | NICo does not configure or attach DPU hardware. Use this for a host without DPUs or when installed DPUs should be intentionally ignored. |
 
-Both `nic_mode` and `no_dpu` make the host a **zero-DPU host** for the purposes
+Both `nic` and `ignore` make the host a **zero-DPU host** for the purposes
 of Flat VPCs: NICo does not manage an overlay for it, and its only valid tenant
 attachments are `HostInband` segments.
 
-Set the mode in either of two places, with the per-host value taking precedence:
+Set the policy in either of two places. Per-host `nic` and `ignore`
+override the site-wide setting; per-host `manage` or an omitted per-host value
+instead defers to the site-wide setting for backward compatibility:
 
 - **Site-wide**, in the API server configuration:
 
   ```toml
   [site_explorer]
-  dpu_mode = "nic_mode"   # or "no_dpu"; omit entirely for the default "dpu_mode"
+  dpu_policy = "nic"   # or "ignore"; omit entirely for the default "manage"
   ```
 
-- **Per host**, on the host's `ExpectedMachine` entry, via the `dpu_mode` field.
-  An explicit per-host `nic_mode` or `no_dpu` always wins over the site-wide
-  setting; a per-host default (or no entry) defers to the site-wide value, which
-  in turn defaults to managed `dpu_mode`.
+- **Per host**, on the host's `ExpectedMachine` entry, via the admin CLI's
+  `--dpu-policy` option or the `dpu_policy` key in admin JSON. Per-host
+  `nic` and `ignore` override the site-wide setting; for backward
+  compatibility, per-host `manage` or an omitted policy defers to the site-wide
+  value, which defaults to `manage`.
+
+Existing configuration and admin JSON input remain readable: the previous
+`dpu_policy` value `use_as_nic` remains accepted, as do the legacy `dpu_mode`
+key and values `dpu_mode`, `nic_mode`, and `no_dpu`, which map to `manage`,
+`nic`, and `ignore`, respectively. The admin CLI likewise accepts the previous
+`use-as-nic` value and `--dpu-mode dpu-mode|nic-mode|no-dpu`; use
+`--dpu-policy manage|nic|ignore` for new automation.
+
+The Forge RPC intentionally retains `ExpectedMachine.dpu_mode` (field 16,
+`DpuMode`) as its stable compatibility surface. Direct gRPC clients continue to
+send `DPU_MODE`, `NIC_MODE`, or `NO_DPU`; NICo translates those values at the
+RPC boundary to the internal `manage`, `nic`, and `ignore` policies.
+`HostDpuPolicy` and `dpu_policy` are model, configuration, admin-CLI, and admin
+JSON vocabulary rather than Forge protobuf symbols. Responses translate
+non-default policies back through `dpu_mode`; the default `manage` policy might
+leave that field unset.
 
 Two related Day-0 settings matter for zero-DPU sites:
 
@@ -135,10 +155,11 @@ Two related Day-0 settings matter for zero-DPU sites:
   regular `Admin` segment type for their admin-network attachment.
 - **`rack_management_enabled`** (top-level, default `false`). This is the
   standalone / air-gapped rack-manager mode for GB200/GB300/VR144 deployments.
-  It runs DPUs in NIC mode and disables DPU BFB/firmware upgrades, HBN
-  deployment, the DPU agent, and the tenant DPU overlay — i.e. it is one of the
-  ways a whole site ends up as zero-DPU hosts. Enable it only when running NICo
-  with Rack Manager for those platforms.
+  It is not a DPU-policy override: rack-manager deployments that run DPUs as
+  NICs must also set `[site_explorer] dpu_policy = "nic"` (or set that
+  policy per host). The resulting `nic` policy produces zero-DPU hosts;
+  the rack-management flag alone does not. Enable the flag only when running
+  NICo with Rack Manager for those platforms.
 
 Because a zero-DPU host has no DPU to DHCP and identify host NICs for it, the
 host's data-NIC **MAC addresses must be registered** on its `ExpectedMachine`
@@ -147,8 +168,10 @@ one NIC per host is marked the **primary** (boot) interface. NICo records each
 registered host NIC as an interface bound to a `HostInband` segment, which is
 what the tenant's instance later attaches to.
 
-These are TOML / expected-machine settings and therefore Day-0 (or rare,
-restart-applied) changes.
+Site-wide TOML changes are Day-0 (or rare, restart-applied) changes. Per-host
+Expected Machine declarations can be updated through the admin CLI without an
+API restart; applying a changed policy to an already-ingested host requires
+force-delete and re-ingestion.
 
 ### 2. Configuring HostInband network segments
 
@@ -241,7 +264,7 @@ or `nicocli` (its wrapper), which expose the full surface:
 For a zero-DPU site, create instance type(s) describing the zero-DPU machines'
 capabilities and associate those machines, so tenants can request instances of
 that type. The instance type itself does **not** carry a "no-DPU" flag — what
-makes a host zero-DPU is its `dpu_mode` (above). The instance type simply selects
+makes a host zero-DPU is its `dpu_policy` (above). The instance type simply selects
 which machines are allocatable; whether the selected host is zero-DPU then
 governs the network model at allocation time.
 
@@ -409,9 +432,10 @@ operator SDN integration can tie its switch-side configuration to the VPC.
 
 **Operator — site is Flat-ready:**
 
-1. Hosts resolve to a zero-DPU mode. Confirm the intended hosts report
-   `nic_mode` or `no_dpu` (per-host `ExpectedMachine.dpu_mode`, or the site-wide
-   `[site_explorer] dpu_mode`).
+1. Confirm each intended host's effective policy resolves to `nic` or
+   `ignore` after applying per-host and site-wide inheritance. Per-host
+   `nic` and `ignore` win; per-host `manage` or an omitted value inherits
+   `[site_explorer] dpu_policy`.
 2. `HostInband` segments exist. `nico-admin-cli network-segment show` lists the
    declared segments with the expected prefix, gateway, and a VLAN/VNI assigned.
 3. Each zero-DPU host's data-NIC MACs are registered, and the host shows

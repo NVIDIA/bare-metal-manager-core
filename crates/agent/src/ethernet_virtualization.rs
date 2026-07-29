@@ -2051,6 +2051,12 @@ mod tests {
 
         // Test without an NSG to make sure there are no changes for pre-FNN users
         // if they don't opt-in to a network security group.
+        //
+        // The `true` is `second_interface_l2`, which makes this the bridge case as well --
+        // `nvue_startup.yaml.expected` already carries the `bridge:` blocks. Extend this
+        // test rather than adding a separate bridge one; the last attempt at that passed
+        // these exact arguments against a byte-identical copy of the golden, so a bridge
+        // regression needed both files updated before anything would fail.
         let network_config = netconf(virtualization_type, 32, 24, false, None, true, false);
 
         let td = tempfile::tempdir()?;
@@ -2080,45 +2086,6 @@ mod tests {
 
         // check startup.yaml
         let expected = include_str!("../templates/tests/nvue_startup.yaml.expected");
-        compare_diffed(hbn_root.join(nvue::PATH), expected)?;
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_with_tenant_nvue_with_bridge() -> Result<(), Box<dyn std::error::Error>> {
-        let virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
-
-        // Both interfaces are L2 segments, so IncludeBridge is true and the bridge block is emitted.
-        let network_config = netconf(virtualization_type, 32, 24, false, None, true, false);
-
-        let td = tempfile::tempdir()?;
-        let hbn_root = td.path();
-        fs::create_dir_all(hbn_root.join("var/support"))?;
-        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
-        let update_flavor = NvueUpdateFlavor::StartupFile {
-            hbn_root,
-            skip_post: true,
-        };
-
-        let has_changes = super::update_nvue(
-            virtualization_type,
-            update_flavor,
-            &network_config,
-            HBNDeviceNames::hbn_23(),
-        )
-        .await?;
-        assert!(
-            has_changes,
-            "update_nvue should have written the file, there should be changes"
-        );
-
-        // check ACLs
-        let expected = include_str!("../templates/tests/70-forge_nvue.rules.expected");
-        compare_diffed(hbn_root.join(nvue::PATH_ACL), expected)?;
-
-        // check startup.yaml (includes bridge block)
-        let expected = include_str!("../templates/tests/nvue_startup_with_bridge.yaml.expected");
         compare_diffed(hbn_root.join(nvue::PATH), expected)?;
 
         Ok(())

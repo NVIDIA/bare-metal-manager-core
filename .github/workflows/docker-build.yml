@@ -75,6 +75,11 @@ on:
         required: false
         default: false
         type: boolean
+      cache:
+        description: 'Use the GitHub Actions buildx layer cache. Turn off for images whose Dockerfile has no RUN steps.'
+        required: false
+        default: true
+        type: boolean
       timeout_minutes:
         description: 'Job timeout in minutes'
         required: false
@@ -229,8 +234,8 @@ jobs:
           provenance: ${{ github.repository == 'NVIDIA/infra-controller' && 'mode=min' || 'false' }}
           tags: ${{ steps.tag_list.outputs.tags }}
           build-args: ${{ steps.parse-args.outputs.build_args }}
-          cache-from: type=gha
-          cache-to: ${{ inputs.push && 'type=gha,mode=max' || '' }}
+          cache-from: ${{ inputs.cache && 'type=gha' || '' }}
+          cache-to: ${{ inputs.cache && inputs.push && 'type=gha,mode=max' || '' }}
 
       - name: Login to target registry
         if: ${{ inputs.push && !contains(inputs.platforms, ',') && github.repository != 'NVIDIA/infra-controller' }}

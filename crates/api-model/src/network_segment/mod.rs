@@ -525,7 +525,7 @@ mod tests {
                     vpc_prefix_id: None,
                     vpc_prefix: None,
                     svi_ip: None,
-                    num_free_ips: 0,
+                    num_free_ips: None,
                 })
                 .collect(),
             created: now,

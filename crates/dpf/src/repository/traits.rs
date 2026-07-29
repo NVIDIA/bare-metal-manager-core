@@ -256,7 +256,11 @@ pub trait K8sConfigRepository: Send + Sync {
         name: &str,
         namespace: &str,
     ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError>;
-    async fn create_secret(
+    /// Create the Secret, or overwrite the data of an existing one. Callers
+    /// rewrite this Secret when the underlying credential rotates, so an
+    /// implementation that skips existing objects would silently pin the
+    /// cluster to the first value ever written.
+    async fn apply_secret(
         &self,
         name: &str,
         namespace: &str,

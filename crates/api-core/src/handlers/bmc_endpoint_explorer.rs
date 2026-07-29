@@ -33,11 +33,11 @@ use model::machine_boot_interface::MachineBootInterface;
 use model::predicted_machine_interface::PredictedMachineInterface;
 use model::site_explorer::{BlueFieldOperatingMode, PreingestionState};
 use sqlx::PgConnection;
-use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacted};
+use crate::handlers::utils::resolve_bmc_address;
 
 /// Resolve the boot interface an admin Redfish action should target, the same
 /// way the machine-controller resolves it.
@@ -46,8 +46,8 @@ use crate::api::{Api, log_machine_id, log_request_data, log_request_data_redacte
 /// `pick_boot_interface` selects the machine's primary interface -- the same
 /// row the machine-controller configures boot from -- and the row's own
 /// captured id completes the [`MachineBootInterface`], or the action targets
-/// the MAC alone ([`BootInterfaceTarget::MacOnly`], no id fallback), exactly
-/// like the controller's `boot_interface_target`.
+/// only the MAC ([`BootInterfaceTarget::MacOnly`]), exactly like the
+/// controller's `boot_interface_target`.
 ///
 /// A machine with no `machine_interfaces` rows yet (a zero-DPU/NIC-mode
 /// machine awaiting its first DHCP lease) resolves from its
@@ -94,8 +94,8 @@ fn resolve_admin_boot_interface_target(
                     .and_then(PredictedMachineInterface::boot_interface)
             })
     };
-    // Resolution chose `mac`; its `MachineBootInterface` is the target, or the
-    // MAC alone when no interface id has been captured (no id fallback).
+    // Resolution chose `mac`; use its `MachineBootInterface` when known, or
+    // `BootInterfaceTarget::MacOnly` when no `interface_id` has been captured.
     let target_for = |mac: MacAddress, pair: Option<MachineBootInterface>| -> BootInterfaceTarget {
         pair.map_or(BootInterfaceTarget::MacOnly(mac), BootInterfaceTarget::Pair)
     };
@@ -648,12 +648,13 @@ pub(crate) async fn explore(
             .map(ExpectedEntity::PowerShelf)
     };
 
-    // Look up boot_interface_mac from existing explored endpoint if available
+    // Use the same stored boot-interface target as periodic exploration.
     let mut txn = api.txn_begin().await?;
-    let boot_interface_mac = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
+    let boot_interface = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
         .await?
         .first()
-        .and_then(|ep| ep.boot_interface_mac);
+        .and_then(|ep| ep.boot_interface_target())
+        .map(Into::into);
     txn.commit().await?;
 
     let report = api
@@ -663,7 +664,7 @@ pub(crate) async fn explore(
             &machine_interface,
             expected.as_ref(),
             None,
-            boot_interface_mac,
+            boot_interface.as_ref(),
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -865,20 +866,7 @@ async fn resolve_bmc_interface(
     api: &Api,
     request: &rpc::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), Status> {
-    let address = if request.ip_address.contains(':') {
-        request.ip_address.clone()
-    } else {
-        format!("{}:443", request.ip_address)
-    };
-
-    let mut addrs = lookup_host(address).await?;
-    let Some(bmc_addr) = addrs.next() else {
-        return Err(CarbideError::InvalidArgument(format!(
-            "could not resolve {}. must be hostname[:port] or IPv4[:port]",
-            request.ip_address
-        ))
-        .into());
-    };
+    let bmc_addr = resolve_bmc_address(&request.ip_address).await?;
 
     let bmc_mac_address: MacAddress;
     if let Some(mac_str) = &request.mac_address {

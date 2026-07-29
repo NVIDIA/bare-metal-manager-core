@@ -7,6 +7,8 @@
 // pulling in gRPC dependencies.
 package types
 
+import "fmt"
+
 // ComponentType represents the type of a rack component.
 type ComponentType string
 
@@ -19,6 +21,21 @@ const (
 	ComponentTypeUMS        ComponentType = "UMS"
 	ComponentTypeCDU        ComponentType = "CDU"
 )
+
+// Validate checks that the component type identifies a concrete supported type.
+func (ct ComponentType) Validate() error {
+	switch ct {
+	case ComponentTypeCompute,
+		ComponentTypeNVSwitch,
+		ComponentTypePowerShelf,
+		ComponentTypeTORSwitch,
+		ComponentTypeUMS,
+		ComponentTypeCDU:
+		return nil
+	default:
+		return fmt.Errorf("unknown component type %q", ct)
+	}
+}
 
 // BMCType represents the type of BMC (Baseboard Management Controller).
 type BMCType string

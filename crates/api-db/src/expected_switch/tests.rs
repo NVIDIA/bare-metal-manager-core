@@ -89,7 +89,23 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let mut txn = pool.begin().await.unwrap();
     let switches = create_expected_switches(&mut txn).await;
 
-    assert_eq!(switches[0].serial_number, "SW-SN-001");
+    // This used to assert `switches[0].serial_number == "SW-SN-001"` -- the string the
+    // fixture had just built with `format!` -- so the finder this test is named for never
+    // ran at all.
+    let found = db::expected_switch::find_by_bmc_mac_address(&mut txn, switches[0].bmc_mac_address)
+        .await?
+        .expect("the switch we just created should be findable by its BMC MAC");
+    assert_eq!(found.bmc_mac_address, switches[0].bmc_mac_address);
+    assert_eq!(found.serial_number, switches[0].serial_number);
+
+    // 0xff is past the six switches the fixture creates.
+    let unknown_mac = mac_address::MacAddress::new([0x44, 0x44, 0x11, 0x11, 0x00, 0xff]);
+    assert!(
+        db::expected_switch::find_by_bmc_mac_address(&mut txn, unknown_mac)
+            .await?
+            .is_none()
+    );
+
     Ok(())
 }
 

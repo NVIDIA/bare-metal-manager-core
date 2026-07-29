@@ -254,7 +254,7 @@ async fn fetch_network_status(
                 inventory
                     .components
                     .iter()
-                    .find(|c| c.name == "forge-dpu-agent")
+                    .find(|c| c.name == "carbide-dpu-agent" || c.name == "forge-dpu-agent")
                     .map(|c| c.version.clone())
             })
             .unwrap_or_default();

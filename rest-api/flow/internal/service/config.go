@@ -11,6 +11,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/endpoint"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/authz"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/certs"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/clients/temporal"
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/config"
@@ -76,6 +77,10 @@ type Config struct {
 	// When set, these take precedence over CERTDIR / the k8s default.
 	// Either all three fields must be set or none.
 	CertConfig pkgcerts.Config
+
+	// Authorization identifies the mTLS-authenticated services allowed to call
+	// Flow. It is required whenever TLS is available.
+	Authorization authz.Config
 }
 
 // Validate checks the Config for unsafe combinations and returns an error for
@@ -85,6 +90,7 @@ type Config struct {
 //  2. DevMode in a non-development environment — staging and production block it.
 //  3. Partial CertConfig — all three cert paths must be set together or not at all.
 //  4. Missing TLS in staging or production — those environments require mTLS.
+//  5. Secure gRPC without a valid service-identity allowlist.
 func (c Config) Validate() error {
 	envStr, err := GetDeploymentEnv()
 	if err != nil {
@@ -106,9 +112,25 @@ func (c Config) Validate() error {
 		return err
 	}
 
-	// Rule 3: staging and production require TLS.
-	if (env == envStaging || env == envProduction) && !certs.IsTLSAvailable(c.CertConfig) {
+	if certs.IsTLSAvailable(c.CertConfig) {
+		if err := c.Authorization.Validate(); err != nil {
+			return fmt.Errorf("gRPC service authorization: %w", err)
+		}
+
+		return nil
+	}
+
+	if env == envStaging || env == envProduction {
 		return fmt.Errorf("%q environment requires TLS certificates to be present", env)
+	}
+
+	if err := c.Authorization.Mode.Validate(); err != nil {
+		return fmt.Errorf("gRPC service authorization: %w", err)
+	}
+
+	if len(c.Authorization.AllowedServiceIdentities) > 0 ||
+		c.Authorization.Mode != authz.ModeAudit {
+		return fmt.Errorf("gRPC service authorization requires TLS")
 	}
 
 	return nil

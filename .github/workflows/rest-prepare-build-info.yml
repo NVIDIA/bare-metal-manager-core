@@ -78,7 +78,7 @@ jobs:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           NGC_PATH_OVERRIDE: ${{ vars.NICO_TARGET_NGC_PATH }}
         run: |
-          RAW_VERSION=$(git describe --tags --first-parent --always --long)
+          RAW_VERSION=$(git describe --tags --first-parent --always)
           SEMANTIC_VERSION="${RAW_VERSION}"
 
           SHORT_SHA=$(git rev-parse --short HEAD)
@@ -151,11 +151,12 @@ jobs:
           echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
           echo "push_requested=$PUSH_REQUESTED" >> $GITHUB_OUTPUT
 
-          # Strict SemVer for Helm chart version, aligned with core's helm_version derivation.
-          # `git describe` output `v1.6.0-3-gabc1234` becomes `1.6.0-3.gabc1234`
-          # (leading `v` stripped, last `-` -> `.`).
-          HELM_VERSION_BASE="${RAW_VERSION#v}"
-          HELM_VERSION=$(echo "$HELM_VERSION_BASE" | sed 's/\(.*\)-/\1./')
+          # Helm chart version: strip leading `v`, then for non-exact-tag commits replace the
+          # last `-` with `.` to align with core helm_version (e.g. `v1.6.0-3-gabc1234` -> `1.6.0-3.gabc1234`).
+          HELM_VERSION="${RAW_VERSION#v}"
+          if [[ "$RAW_VERSION" =~ -g[0-9a-f]+$ ]]; then
+            HELM_VERSION=$(echo "$HELM_VERSION" | sed 's/\(.*\)-/\1./')
+          fi
           echo "helm_version=$HELM_VERSION" >> $GITHUB_OUTPUT
 
           echo "Generated build information:"

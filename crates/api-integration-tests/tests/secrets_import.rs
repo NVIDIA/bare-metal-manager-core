@@ -21,6 +21,7 @@
 
 use std::str::FromStr;
 
+use bmc_vendor::DpuModel;
 use carbide_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialType, CredentialWriter,
     Credentials, MqttCredentialType, NicLockdownIkm,
@@ -79,7 +80,9 @@ fn generate_test_secrets(min_count: usize) -> Vec<(CredentialKey, Credentials)> 
         ),
         (
             CredentialKey::DpuRedfish {
-                credential_type: CredentialType::DpuHardwareDefault,
+                credential_type: CredentialType::DpuHardwareDefault {
+                    model: DpuModel::Unknown,
+                },
             },
             cred("dpu-redfish-hw", "pass"),
         ),
@@ -97,7 +100,9 @@ fn generate_test_secrets(min_count: usize) -> Vec<(CredentialKey, Credentials)> 
         ),
         (
             CredentialKey::DpuUefi {
-                credential_type: CredentialType::DpuHardwareDefault,
+                credential_type: CredentialType::DpuHardwareDefault {
+                    model: DpuModel::Unknown,
+                },
             },
             cred("dpu-uefi-hw", "pass"),
         ),

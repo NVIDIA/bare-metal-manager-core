@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
+use std::net::Ipv6Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -23,11 +25,25 @@ use async_trait::async_trait;
 use carbide_instrument::red;
 use carbide_secrets::credentials::{CredentialReader, Credentials};
 use carbide_utils::HostPortPair;
+use carbide_utils::redfish::format_forwarded_host_parameter;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Endpoint, Redfish};
 
 use crate::libredfish::instrumented::{InstrumentedRedfish, REDFISH_BACKEND};
 use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
+
+/// Formats a host for the URL authority that `libredfish` constructs internally.
+///
+/// `libredfish::Endpoint` accepts a host and port separately, but the pinned
+/// implementation interpolates them into a URL string. Keep callers' host values
+/// bare and add IPv6 brackets only at this external serialization boundary.
+fn libredfish_endpoint_host(host: &str) -> Cow<'_, str> {
+    if host.parse::<Ipv6Addr>().is_ok() {
+        Cow::Owned(format!("[{host}]"))
+    } else {
+        Cow::Borrowed(host)
+    }
+}
 
 pub struct RedfishClientPoolImpl {
     pool: libredfish::RedfishClientPool,
@@ -97,7 +113,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         };
 
         let endpoint = Endpoint {
-            host: host.to_string(),
+            host: libredfish_endpoint_host(host).into_owned(),
             port,
             user: username,
             password,
@@ -112,7 +128,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             vec![(
                 http::HeaderName::from_str("forwarded")
                     .map_err(|err| RedfishClientCreationError::InvalidHeader(err.to_string()))?,
-                format!("host={original_host}"),
+                format_forwarded_host_parameter(original_host),
             )]
         } else {
             Vec::default()
@@ -160,5 +176,27 @@ impl RedfishClientPool for RedfishClientPoolImpl {
 
     fn credential_reader(&self) -> &dyn CredentialReader {
         &*self.credential_reader
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::libredfish_endpoint_host;
+
+    #[test]
+    fn endpoint_host_brackets_only_bare_ipv6_literals() {
+        value_scenarios!(run = |host| libredfish_endpoint_host(host).into_owned();
+            "unchanged hosts" {
+                "bmc.example.com" => "bmc.example.com".to_string(),
+                "192.0.2.10" => "192.0.2.10".to_string(),
+                "[2001:db8::10]" => "[2001:db8::10]".to_string(),
+            }
+
+            "bracketed IPv6 host" {
+                "2001:db8::10" => "[2001:db8::10]".to_string(),
+            }
+        );
     }
 }

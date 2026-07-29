@@ -562,6 +562,8 @@ pub fn sanitize_unit(unit: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::{Check, check_values};
+
     use super::*;
 
     #[test]
@@ -586,5 +588,79 @@ mod tests {
             assert_eq!(registry.registry.desc.fq_name, expected_fq_name);
             assert_eq!(registry.registry.desc.help, id);
         }
+    }
+
+    #[test]
+    fn sanitize_unit_cases() {
+        check_values(
+            [
+                Check {
+                    scenario: "percent symbol",
+                    input: "%",
+                    expect: "percent".to_string(),
+                },
+                Check {
+                    scenario: "degree Celsius",
+                    input: "°C",
+                    expect: "celsius".to_string(),
+                },
+                Check {
+                    scenario: "Celsius abbreviation",
+                    input: "c",
+                    expect: "celsius".to_string(),
+                },
+                Check {
+                    scenario: "Redfish Celsius unit",
+                    input: "CEL",
+                    expect: "celsius".to_string(),
+                },
+                Check {
+                    scenario: "degree Fahrenheit",
+                    input: "°F",
+                    expect: "fahrenheit".to_string(),
+                },
+                Check {
+                    scenario: "Fahrenheit abbreviation",
+                    input: "f",
+                    expect: "fahrenheit".to_string(),
+                },
+                Check {
+                    scenario: "volts",
+                    input: "V",
+                    expect: "volts".to_string(),
+                },
+                Check {
+                    scenario: "amperes",
+                    input: "A",
+                    expect: "amperes".to_string(),
+                },
+                Check {
+                    scenario: "amps alias",
+                    input: "Amps",
+                    expect: "amperes".to_string(),
+                },
+                Check {
+                    scenario: "watts",
+                    input: "W",
+                    expect: "watts".to_string(),
+                },
+                Check {
+                    scenario: "hertz",
+                    input: "Hz",
+                    expect: "hertz".to_string(),
+                },
+                Check {
+                    scenario: "revolutions per minute",
+                    input: "RPM",
+                    expect: "rpm".to_string(),
+                },
+                Check {
+                    scenario: "punctuation is normalized",
+                    input: "J/s",
+                    expect: "j_s".to_string(),
+                },
+            ],
+            sanitize_unit,
+        );
     }
 }

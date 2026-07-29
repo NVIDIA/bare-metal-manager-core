@@ -16,6 +16,7 @@
  */
 
 use carbide_ib_fabric::config::IBFabricConfig;
+use carbide_instrument::testing::MetricsCapture;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_managed_host};
@@ -34,7 +35,18 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
     )
     .await;
 
+    let iteration_metrics = MetricsCapture::start();
     env.run_ib_fabric_monitor_iteration().await;
+    let iteration_count = iteration_metrics
+        .histogram_count_delta("carbide_ib_monitor_iteration_latency_milliseconds", &[]);
+    // Other API tests can drive the same process-global Event concurrently.
+    // The Event-level test pins exact-once behavior; this integration check
+    // only proves the real monitor path reaches the Event registry.
+    assert!(
+        iteration_count >= 1,
+        "expected the monitor pass to record latency, observed {iteration_count}"
+    );
+    drop(iteration_metrics);
     assert_eq!(
         env.test_meter
             .formatted_metric("carbide_ib_monitor_fabrics_count")
@@ -65,13 +77,6 @@ async fn test_ib_fabric_monitor(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             .unwrap(),
         r#"{fabric="default"} 1"#
     );
-    assert_eq!(
-        env.test_meter
-            .formatted_metric("carbide_ib_monitor_iteration_latency_milliseconds_count")
-            .unwrap(),
-        r#"1"#
-    );
-
     // The fabric is configured securely
     assert_eq!(
         env.test_meter

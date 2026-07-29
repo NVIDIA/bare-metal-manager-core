@@ -180,7 +180,7 @@ Before releasing the repair instance, inspect the machine again and preserve any
 restish nico-stg get-machine <repair-tenant-org-id> <machine-id>
 ```
 
-Machine label updates replace the full label map. Labels not included in the update request are removed. Labels are limited to 10 key/value pairs, so keep repair labels short and preserve required placement labels such as rack, site, or pool hints.
+Machine label updates replace the full label map. Labels not included in the update request are removed. Labels are limited to 16 key/value pairs, so keep repair labels short and preserve required placement labels such as rack, site, or pool hints.
 
 When repair succeeds, create `repair-status-completed-labels.json`:
 

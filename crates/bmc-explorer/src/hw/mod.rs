@@ -156,3 +156,38 @@ impl fmt::Display for BiosAttrValue<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bmc_vendor::BMCVendor;
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[test]
+    fn hw_type_bmc_vendor_maps_each_variant() {
+        value_scenarios!(run = |hardware_type: HwType| hardware_type.bmc_vendor();
+            "generic AMI has no canonical vendor" {
+                HwType::Ami => None,
+            }
+
+            "hardware types map to canonical vendors" {
+                HwType::Bluefield => Some(BMCVendor::Nvidia),
+                HwType::Dell => Some(BMCVendor::Dell),
+                HwType::Gb200 => Some(BMCVendor::Nvidia),
+                HwType::DgxGb300 => Some(BMCVendor::Nvidia),
+                HwType::Hpe => Some(BMCVendor::Hpe),
+                HwType::Lenovo => Some(BMCVendor::Lenovo),
+                HwType::LenovoAmi => Some(BMCVendor::LenovoAMI),
+                HwType::LenovoGb300 => Some(BMCVendor::LenovoAMI),
+                HwType::SupermicroGb300 => Some(BMCVendor::Supermicro),
+                HwType::Supermicro => Some(BMCVendor::Supermicro),
+                HwType::Viking => Some(BMCVendor::Nvidia),
+                HwType::LiteonPowerShelf => Some(BMCVendor::Liteon),
+                HwType::DeltaPowerShelf => Some(BMCVendor::Delta),
+                HwType::NvSwitch => Some(BMCVendor::Nvidia),
+                HwType::VeraRubin => Some(BMCVendor::Nvidia),
+            }
+        );
+    }
+}

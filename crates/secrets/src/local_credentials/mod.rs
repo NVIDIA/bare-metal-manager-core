@@ -70,7 +70,12 @@ pub struct MachineIdentityConfig {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CredentialSnapshot {
+    /// Legacy single DPU BMC factory default (catch-all when no per-model entry exists).
+    /// Kept for backward compatibility; prefer `dpu_redfish_factory_default_by_model`.
     pub dpu_redfish_factory_default: Option<UsernamePassword>,
+    /// Per-model DPU BMC factory defaults, keyed by [`bmc_vendor::DpuModel`].
+    /// Takes precedence over `dpu_redfish_factory_default` when present.
+    pub dpu_redfish_factory_default_by_model: HashMap<bmc_vendor::DpuModel, UsernamePassword>,
     pub dpu_redfish_site_default: Option<UsernamePassword>,
     pub host_redfish_factory_default_by_vendor: HashMap<bmc_vendor::BMCVendor, UsernamePassword>,
     pub host_redfish_site_default: Option<UsernamePassword>,
@@ -88,9 +93,12 @@ impl CredentialSnapshot {
     pub fn get_credentials(&self, key: &CredentialKey) -> Option<Credentials> {
         match key {
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
-                    self.dpu_redfish_factory_default.clone().map(Into::into)
-                }
+                CredentialType::DpuHardwareDefault { model } => self
+                    .dpu_redfish_factory_default_by_model
+                    .get(model)
+                    .cloned()
+                    .or_else(|| self.dpu_redfish_factory_default.clone())
+                    .map(Into::into),
                 CredentialType::SiteDefault => {
                     self.dpu_redfish_site_default.clone().map(Into::into)
                 }
@@ -105,13 +113,13 @@ impl CredentialSnapshot {
                 CredentialType::SiteDefault => {
                     self.host_redfish_site_default.clone().map(Into::into)
                 }
-                CredentialType::DpuHardwareDefault => None,
+                CredentialType::DpuHardwareDefault { .. } => None,
             },
             CredentialKey::UfmAuth { fabric } => {
                 self.ufm_auth_by_fabric.get(fabric).cloned().map(Into::into)
             }
             CredentialKey::DpuUefi { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     self.dpu_uefi_factory_default.clone().map(Into::into)
                 }
                 CredentialType::SiteDefault => self.dpu_uefi_site_default.clone().map(Into::into),
@@ -178,6 +186,9 @@ mod tests {
         let mut host_vendors = HashMap::new();
         host_vendors.insert(bmc_vendor::BMCVendor::Dell, up("dell-u", "dell-p"));
 
+        let mut dpu_models = HashMap::new();
+        dpu_models.insert(bmc_vendor::DpuModel::BlueField3, up("bf3-u", "bf3-p"));
+
         let mut ufm = HashMap::new();
         ufm.insert("fabric-1".to_string(), up("ufm-u", "ufm-p"));
 
@@ -186,6 +197,7 @@ mod tests {
 
         CredentialSnapshot {
             dpu_redfish_factory_default: Some(up("drf-u", "drf-p")),
+            dpu_redfish_factory_default_by_model: dpu_models,
             dpu_redfish_site_default: Some(up("drs-u", "drs-p")),
             host_redfish_factory_default_by_vendor: host_vendors,
             host_redfish_site_default: Some(up("hrs-u", "hrs-p")),
@@ -212,8 +224,23 @@ mod tests {
         let snap = populated_snapshot();
         value_scenarios!(run = |key| snap.get_credentials(&key);
             "dpu redfish" {
+                // per-model entry takes precedence
                 CredentialKey::DpuRedfish {
-                    credential_type: CredentialType::DpuHardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::BlueField3,
+                    },
+                } => Some(cred("bf3-u", "bf3-p")),
+                // unknown model falls back to legacy dpu_redfish_factory_default
+                CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::Unknown,
+                    },
+                } => Some(cred("drf-u", "drf-p")),
+                // unconfigured model also falls back to legacy field
+                CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::BlueField4,
+                    },
                 } => Some(cred("drf-u", "drf-p")),
                 CredentialKey::DpuRedfish {
                     credential_type: CredentialType::SiteDefault,
@@ -247,7 +274,9 @@ mod tests {
 
             "dpu uefi" {
                 CredentialKey::DpuUefi {
-                    credential_type: CredentialType::DpuHardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::Unknown,
+                    },
                 } => Some(cred("duf-u", "duf-p")),
                 CredentialKey::DpuUefi {
                     credential_type: CredentialType::SiteDefault,
@@ -289,7 +318,9 @@ mod tests {
                     },
                 } => None,
                 CredentialKey::HostRedfish {
-                    credential_type: CredentialType::DpuHardwareDefault,
+                    credential_type: CredentialType::DpuHardwareDefault {
+                        model: bmc_vendor::DpuModel::Unknown,
+                    },
                 } => None,
             }
         );

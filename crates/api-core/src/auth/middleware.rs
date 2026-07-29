@@ -23,7 +23,7 @@ use tonic::service::AxumBody;
 use tower_http::auth::AsyncAuthorizeRequest;
 
 use crate::auth::internal_rbac_rules::InternalRBACRules;
-use crate::auth::{AuthContext, CasbinAuthorizer, Predicate};
+use crate::auth::{AuthContext, CasbinAuthorizer, Predicate, PrincipalClass};
 
 /// A caller was denied by an authorizer -- the canonical security signal.
 /// The denial rate is the alert; `authorizer` names the engine that denied
@@ -57,40 +57,55 @@ struct AuthorizationDenied {
     reason: String,
 }
 
-/// The strongest kind of identity among a request's principals, as the
-/// bounded `principal_class` label on [`AuthorizationDenied`]. Variants are
-/// declared weakest-first so the derived `Ord` is the precedence order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, carbide_instrument::LabelValue)]
-enum PrincipalClass {
-    Anonymous,
-    TrustedCertificate,
-    SpiffeMachine,
-    SpiffeService,
-    ExternalUser,
-}
-
-impl PrincipalClass {
-    fn classify(principals: &[Principal]) -> Self {
-        principals
-            .iter()
-            .map(|principal| match principal {
-                Principal::ExternalUser(_) => PrincipalClass::ExternalUser,
-                Principal::SpiffeServiceIdentifier(_) => PrincipalClass::SpiffeService,
-                Principal::SpiffeMachineIdentifier(_) => PrincipalClass::SpiffeMachine,
-                Principal::TrustedCertificate => PrincipalClass::TrustedCertificate,
-                Principal::Anonymous => PrincipalClass::Anonymous,
-            })
-            .max()
-            // A request that presented no principals at all is anonymous.
-            .unwrap_or(PrincipalClass::Anonymous)
-    }
-}
-
-/// Which authorization engine denied the call.
+/// Which authorization engine handled the call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, carbide_instrument::LabelValue)]
 enum Authorizer {
     Casbin,
     InternalRbac,
+}
+
+/// `CasbinAuthContextMissing` means the authentication middleware did not run
+/// before Casbin. The request still fails closed with a 500; the Event keeps
+/// the existing warning and makes the wiring error visible as a counter.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "casbin_auth_context_missing",
+    metric_name = "carbide_auth_context_missing_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "CasbinHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.",
+    describe = "Number of Forge authorization requests missing authentication context, by authorizer"
+)]
+struct CasbinAuthContextMissing {
+    #[label]
+    authorizer: Authorizer,
+    #[context]
+    method: String,
+    #[context]
+    client_address: String,
+}
+
+/// `InternalRbacAuthContextMissing` records the same wiring failure at the
+/// static rule layer. It shares the counter with Casbin while retaining the
+/// handler-specific warning operators already see.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "internal_rbac_auth_context_missing",
+    metric_name = "carbide_auth_context_missing_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = "InternalRBACHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.",
+    describe = "Number of Forge authorization requests missing authentication context, by authorizer"
+)]
+struct InternalRbacAuthContextMissing {
+    #[label]
+    authorizer: Authorizer,
+    #[context]
+    method: String,
+    #[context]
+    client_address: String,
 }
 
 /// The peer address of the connection a request arrived on, as recorded by
@@ -150,13 +165,11 @@ where
                         .extensions_mut()
                         .get_mut::<AuthContext>()
                         .ok_or_else(|| {
-                            tracing::warn!(
-                                "CasbinHandler::authorize() found a request with \
-                                no AuthContext in its extensions. This may mean \
-                                the authentication middleware didn't run \
-                                successfully, or the middleware layers are \
-                                nested in the wrong order."
-                            );
+                            carbide_instrument::emit(CasbinAuthContextMissing {
+                                authorizer: Authorizer::Casbin,
+                                method: method_name.clone(),
+                                client_address: client_address(peer_address),
+                            });
                             empty_response_with_status(StatusCode::INTERNAL_SERVER_ERROR)
                         })?;
 
@@ -285,15 +298,14 @@ where
             let request_permitted = match RequestClass::from(&request) {
                 // Forge-owned endpoints must go through access control.
                 RequestClass::ForgeMethod(method_name) => {
+                    let request_peer_address = peer_address(&request);
                     let req_auth_context =
                         request.extensions().get::<AuthContext>().ok_or_else(|| {
-                            tracing::warn!(
-                                "InternalRBACHandler::authorize() found a request with \
-                                no AuthContext in its extensions. This may mean \
-                                the authentication middleware didn't run \
-                                successfully, or the middleware layers are \
-                                nested in the wrong order."
-                            );
+                            carbide_instrument::emit(InternalRbacAuthContextMissing {
+                                authorizer: Authorizer::InternalRbac,
+                                method: method_name.clone(),
+                                client_address: client_address(request_peer_address),
+                            });
                             empty_response_with_status(StatusCode::INTERNAL_SERVER_ERROR)
                         })?;
                     let principals = &req_auth_context.principals;
@@ -310,7 +322,7 @@ where
                                 .map(Principal::audit_identity)
                                 .collect::<Vec<_>>()
                                 .join(","),
-                            client_address: client_address(peer_address(&request)),
+                            client_address: client_address(request_peer_address),
                             reason: "no internal RBAC rule permits these principals".to_string(),
                         });
                     }
@@ -374,11 +386,131 @@ mod tests {
         request
     }
 
+    fn forge_request_without_auth_context(uri: &str, peer_address: &str) -> Request<()> {
+        let mut request = Request::builder().uri(uri).body(()).expect("request");
+        request
+            .extensions_mut()
+            .insert(Arc::new(ConnectionAttributes {
+                peer_address: peer_address.parse().expect("socket address"),
+                peer_certificates: Vec::new(),
+            }));
+        request
+    }
+
     fn field<'a>(log: &'a CapturedLog, name: &str) -> Option<&'a str> {
         log.fields
             .iter()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.as_str())
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum MissingAuthContextHandler {
+        Casbin,
+        InternalRbac,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct MissingAuthContextObservation {
+        status: StatusCode,
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        authorizer: String,
+        method: String,
+        client_address: String,
+        counter_delta: f64,
+    }
+
+    fn observe_missing_auth_context(
+        handler: MissingAuthContextHandler,
+    ) -> MissingAuthContextObservation {
+        let metrics = MetricsCapture::start();
+        let request =
+            forge_request_without_auth_context("/forge.Forge/PowerControl", "203.0.113.15:41000");
+        let mut status = None;
+
+        let logs = capture_logs(|| {
+            let result = match handler {
+                MissingAuthContextHandler::Casbin => {
+                    let mut handler =
+                        CasbinHandler::new(Arc::new(CasbinAuthorizer::new(Arc::new(DenyAll))));
+                    handler.authorize(request).now_or_never()
+                }
+                MissingAuthContextHandler::InternalRbac => {
+                    let mut handler = InternalRBACHandler::new();
+                    handler.authorize(request).now_or_never()
+                }
+            }
+            .expect("the authorization future has no awaits");
+            status = Some(
+                result
+                    .expect_err("missing AuthContext must fail closed")
+                    .status(),
+            );
+        });
+
+        let event = logs
+            .iter()
+            .find(|log| field(log, "metric_name") == Some("carbide_auth_context_missing_total"))
+            .expect("the missing AuthContext warning");
+        let authorizer = field(event, "authorizer").expect("authorizer label");
+
+        MissingAuthContextObservation {
+            status: status.expect("the handler returned a response"),
+            level: event.level,
+            metadata_name: event.metadata_name.clone(),
+            message: event.message.clone(),
+            authorizer: authorizer.to_string(),
+            method: field(event, "method").expect("method context").to_string(),
+            client_address: field(event, "client_address")
+                .expect("client address context")
+                .to_string(),
+            counter_delta: metrics.counter_delta(
+                "carbide_auth_context_missing_total",
+                &[("authorizer", authorizer)],
+            ),
+        }
+    }
+
+    /// Both authorizers fail closed when authentication did not attach an
+    /// `AuthContext`. Their Events keep the existing handler-specific warning
+    /// while sharing one counter, split by the bounded `authorizer` label.
+    #[test]
+    fn missing_auth_context_logs_counts_and_fails_closed() {
+        check_values(
+            [
+                Check {
+                    scenario: "Casbin",
+                    input: MissingAuthContextHandler::Casbin,
+                    expect: MissingAuthContextObservation {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        level: tracing::Level::WARN,
+                        metadata_name: "casbin_auth_context_missing".to_string(),
+                        message: "CasbinHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.".to_string(),
+                        authorizer: "casbin".to_string(),
+                        method: "PowerControl".to_string(),
+                        client_address: "203.0.113.15:41000".to_string(),
+                        counter_delta: 1.0,
+                    },
+                },
+                Check {
+                    scenario: "internal RBAC",
+                    input: MissingAuthContextHandler::InternalRbac,
+                    expect: MissingAuthContextObservation {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        level: tracing::Level::WARN,
+                        metadata_name: "internal_rbac_auth_context_missing".to_string(),
+                        message: "InternalRBACHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.".to_string(),
+                        authorizer: "internal_rbac".to_string(),
+                        method: "PowerControl".to_string(),
+                        client_address: "203.0.113.15:41000".to_string(),
+                        counter_delta: 1.0,
+                    },
+                },
+            ],
+            observe_missing_auth_context,
+        );
     }
 
     /// The denial branch is a contract: one emit writes the log line (method,

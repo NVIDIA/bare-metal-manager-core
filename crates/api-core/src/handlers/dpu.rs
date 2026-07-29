@@ -22,6 +22,7 @@ use std::str::FromStr;
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::model::{RpcInto, RpcTryFrom};
 use ::rpc::{common as rpc_common, forge as rpc};
+use carbide_dpf::dpu_cr_name;
 use carbide_network::virtualization::VpcVirtualizationType;
 use carbide_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use carbide_utils::arch::CpuArchitecture;
@@ -32,9 +33,10 @@ use db::{
     network_segment,
 };
 use futures_util::future::join_all;
+use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
-use model::hardware_info::MachineInventory;
+use model::hardware_info::{MachineInventory, MachineInventorySoftwareComponent};
 use model::instance::config::extension_services::InstanceExtensionServiceConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::network::MachineNetworkStatusObservation;
@@ -66,6 +68,42 @@ fn build_consolidated_network_config(
     rpc::ManagedHostNetworkConfig {
         loopback_ip: dpu_loopback_ip.to_string(),
         quarantine_state: host_network_config.quarantine_state.clone().map(Into::into),
+    }
+}
+
+/// FNN renders family-specific deny policies, while ETV exposes only its IPv4 policy. Filter at
+/// this per-DPU boundary so a mixed site can send IPv6 to FNN without changing the IPv4-only wire
+/// contract for ETV, Flat, and older agents.
+fn deny_prefixes_for_agent(
+    prefixes: &[IpNetwork],
+    network_virtualization_type: VpcVirtualizationType,
+) -> Vec<String> {
+    let supports_ipv6 = network_virtualization_type == VpcVirtualizationType::Fnn;
+
+    prefixes
+        .iter()
+        .filter(|prefix| supports_ipv6 || prefix.is_ipv4())
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Builds the deprecated deny field with the same address-family contract as `deny_prefixes`.
+///
+/// Mutual isolation folds site-fabric prefixes into this field, so those prefixes must pass
+/// through the per-DPU filter as well.
+fn deprecated_deny_prefixes_for_agent(
+    deny_prefixes: &[String],
+    site_fabric_prefixes: &[IpNetwork],
+    isolation_behavior: VpcIsolationBehaviorType,
+    network_virtualization_type: VpcVirtualizationType,
+) -> Vec<String> {
+    match isolation_behavior {
+        VpcIsolationBehaviorType::MutualIsolation => {
+            let site_fabric_prefixes =
+                deny_prefixes_for_agent(site_fabric_prefixes, network_virtualization_type);
+            [site_fabric_prefixes.as_slice(), deny_prefixes].concat()
+        }
+        VpcIsolationBehaviorType::Open => deny_prefixes.to_vec(),
     }
 }
 
@@ -491,29 +529,26 @@ pub(crate) async fn get_managed_host_network_config_inner(
         api.eth_data.asn
     };
 
-    let deny_prefixes: Vec<String> = api
-        .eth_data
-        .deny_prefixes
-        .iter()
-        .map(|net| net.to_string())
-        .collect();
+    let deny_prefixes =
+        deny_prefixes_for_agent(&api.eth_data.deny_prefixes, network_virtualization_type);
 
-    let site_fabric_prefixes: Vec<String> = api
+    let site_fabric_networks = api
         .eth_data
         .site_fabric_prefixes
         .as_ref()
         .map(|s| s.as_ip_slice())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let site_fabric_prefixes: Vec<String> = site_fabric_networks
         .iter()
         .map(|net| net.to_string())
         .collect();
 
-    let deprecated_deny_prefixes = match api.runtime_config.vpc_isolation_behavior {
-        VpcIsolationBehaviorType::MutualIsolation => {
-            [site_fabric_prefixes.as_slice(), deny_prefixes.as_slice()].concat()
-        }
-        VpcIsolationBehaviorType::Open => deny_prefixes.clone(),
-    };
+    let deprecated_deny_prefixes = deprecated_deny_prefixes_for_agent(
+        &deny_prefixes,
+        site_fabric_networks,
+        api.runtime_config.vpc_isolation_behavior,
+        network_virtualization_type,
+    );
 
     // Strip the source_type for the route servers that we feed back to the DPUs -- they just care
     // about the IP address. Although, maybe in the future, we might be interested in sending the
@@ -814,6 +849,76 @@ pub(crate) async fn update_agent_reported_inventory(
 
     let request = request.into_inner();
     let dpu_machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
+
+    // For DPF-ingested DPUs the agent runs containerized and cannot enumerate
+    // the DPF services directly. Read service versions from the DPF operator
+    // on every inventory report so the DB stays current after upgrades.
+    let mut txn = api.txn_begin().await?;
+    let host_snapshot =
+        db::managed_host::load_snapshot(&mut txn, &dpu_machine_id, LoadSnapshotOptions::default())
+            .await?;
+    txn.commit().await?;
+
+    if let Some(snapshot) = host_snapshot
+        && snapshot.host_snapshot.config.dpf.used_for_ingestion
+    {
+        let machine = snapshot
+            .dpu_snapshots
+            .iter()
+            .find(|d| d.id == dpu_machine_id)
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "dpu",
+                id: dpu_machine_id.to_string(),
+            })?;
+
+        let dpf_sdk = api.dpf_sdk.as_ref().ok_or_else(|| {
+            CarbideError::internal(format!(
+                "dpf SDK unavailable but DPU {dpu_machine_id} was ingested via DPF"
+            ))
+        })?;
+
+        // Both BMC MACs are needed to build the DPU CR name queried from the DPF
+        // operator. If either is not yet recorded, skip the DPF inventory update
+        // for this report rather than rejecting it; a later heartbeat retries once
+        // the MACs are known.
+        let (Some(dpu_device_id), Some(host_node_id)) =
+            (machine.dpf_id(), snapshot.host_snapshot.dpf_id())
+        else {
+            tracing::debug!(
+                machine_id = %dpu_machine_id,
+                "skipping DPF service inventory update: DPU or host BMC MAC not yet known"
+            );
+            return Ok(Response::new(()));
+        };
+        let dpu_name = dpu_cr_name(&dpu_device_id, &host_node_id);
+
+        let service_versions = dpf_sdk
+            .get_service_versions_for_dpu(&dpu_name)
+            .await
+            .map_err(|e| CarbideError::internal(e.to_string()))?;
+
+        let inventory = MachineInventory {
+            components: service_versions
+                .into_iter()
+                .map(|v| MachineInventorySoftwareComponent {
+                    name: v.name,
+                    version: v.version,
+                    url: v.url,
+                })
+                .collect(),
+        };
+
+        let mut txn = api.txn_begin().await?;
+        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
+        txn.commit().await?;
+
+        tracing::debug!(
+            machine_id = %dpu_machine_id,
+            component_count = inventory.components.len(),
+            "updated DPF service inventory from operator",
+        );
+        return Ok(Response::new(()));
+    }
 
     if let Some(inventory) = request.inventory.as_ref() {
         let mut txn = api.txn_begin().await?;
@@ -1389,6 +1494,68 @@ pub(crate) async fn get_bgp_password(
 }
 
 #[cfg(test)]
+mod deny_prefix_tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[test]
+    fn prefixes_follow_the_effective_virtualizer() {
+        let prefixes = ["192.0.2.0/24", "2001:db8::/32"].map(|prefix| prefix.parse().unwrap());
+        let ipv4_only = vec!["192.0.2.0/24".to_string()];
+
+        value_scenarios!(
+            run = |virtualization_type| {
+                deny_prefixes_for_agent(&prefixes, virtualization_type)
+            };
+            "dual-stack agent policy" {
+                VpcVirtualizationType::Fnn => vec![
+                    "192.0.2.0/24".to_string(),
+                    "2001:db8::/32".to_string(),
+                ],
+            }
+
+            "non-FNN wire compatibility" {
+                VpcVirtualizationType::EthernetVirtualizer => ipv4_only.clone(),
+                VpcVirtualizationType::EthernetVirtualizerWithNvue => ipv4_only.clone(),
+                VpcVirtualizationType::Flat => ipv4_only,
+            }
+        );
+    }
+
+    #[test]
+    fn deprecated_field_filters_dual_stack_site_fabric() {
+        let deny_prefixes = vec!["198.51.100.0/24".to_string()];
+        let site_fabric_prefixes =
+            ["192.0.2.0/24", "2001:db8::/32"].map(|prefix| prefix.parse().unwrap());
+        let fnn_prefixes = vec![
+            "192.0.2.0/24".to_string(),
+            "2001:db8::/32".to_string(),
+            "198.51.100.0/24".to_string(),
+        ];
+        let ipv4_only = vec!["192.0.2.0/24".to_string(), "198.51.100.0/24".to_string()];
+
+        value_scenarios!(
+            run = |virtualization_type| deprecated_deny_prefixes_for_agent(
+                &deny_prefixes,
+                &site_fabric_prefixes,
+                VpcIsolationBehaviorType::MutualIsolation,
+                virtualization_type,
+            );
+            "dual-stack FNN compatibility field" {
+                VpcVirtualizationType::Fnn => fnn_prefixes,
+            }
+
+            "IPv4-only compatibility field" {
+                VpcVirtualizationType::EthernetVirtualizer => ipv4_only.clone(),
+                VpcVirtualizationType::EthernetVirtualizerWithNvue => ipv4_only.clone(),
+                VpcVirtualizationType::Flat => ipv4_only,
+            }
+        );
+    }
+}
+
+#[cfg(test)]
 mod consolidated_network_config_tests {
     use std::net::Ipv4Addr;
 
@@ -1441,6 +1608,7 @@ mod consolidated_network_config_tests {
             // be served to the DPU agent -- the DPU's own loopback_ip
             // (passed separately) is what matters.
             loopback_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 99))),
+            loopback_ip_v6: None,
             secondary_overlay_vtep_ip: Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 100))),
             // The host-level use_admin_network is reported in a separate
             // top-level response field, not in this consolidated struct.

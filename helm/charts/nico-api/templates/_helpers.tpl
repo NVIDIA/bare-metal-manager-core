@@ -184,3 +184,11 @@ selector:
   matchLabels:
     app.kubernetes.io/metrics: {{ .name }}
 {{- end }}
+
+{{/*
+Whether the per-object state metrics listener, port, and Service are active:
+enabled with a non-empty (and non-null) objectTypes list.
+*/}}
+{{- define "nico-api.perObjectStateMetricsActive" -}}
+{{- if and .Values.service.perObjectStateMetrics.enabled (gt (len (default list .Values.service.perObjectStateMetrics.objectTypes)) 0) -}}true{{- end -}}
+{{- end }}

@@ -66,7 +66,45 @@ async fn test_lookup_by_mac(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         .expect("unable to create transaction on database pool");
     let shelves = create_expected_power_shelves(&mut txn).await;
 
-    assert_eq!(shelves[0].serial_number, "PS-SN-001");
+    // This used to assert `shelves[0].serial_number == "PS-SN-001"` -- the string the
+    // fixture had just built with `format!` -- so the finder this test is named for never
+    // ran at all.
+    let found =
+        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, shelves[0].bmc_mac_address)
+            .await?
+            .expect("the power shelf we just created should be findable by its BMC MAC");
+    assert_eq!(found.bmc_mac_address, shelves[0].bmc_mac_address);
+    assert_eq!(found.serial_number, shelves[0].serial_number);
+
+    // 0xff is past the six shelves the fixture creates.
+    let unknown_mac = mac_address::MacAddress::new([0x44, 0x44, 0x22, 0x22, 0x00, 0xff]);
+    assert!(
+        db::expected_power_shelf::find_by_bmc_mac_address(&mut txn, unknown_mac)
+            .await?
+            .is_none()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_create_preserves_bmc_ip_addresses(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = pool.begin().await?;
+    let shelves = create_expected_power_shelves(&mut txn).await;
+
+    // Shelves at indices 3 and 4 are created with IP addresses
+    assert_eq!(
+        shelves[3].bmc_ip_address,
+        Some("192.168.1.100".parse().unwrap())
+    );
+    assert_eq!(
+        shelves[4].bmc_ip_address,
+        Some("192.168.1.101".parse().unwrap())
+    );
+
+    txn.rollback().await?;
     Ok(())
 }
 

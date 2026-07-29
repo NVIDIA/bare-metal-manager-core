@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Carbide NVLink Manager"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_nvlink_manager"
@@ -16,6 +17,7 @@ test-support = []
 [dependencies]
 carbide-api-db = { path = "../api-db" }
 carbide-api-model = { path = "../api-model" }
+carbide-instrument = { path = "../instrument" }
 carbide-rack = { path = "../rack" }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils" }
@@ -51,9 +53,14 @@ uuid = { features = ["v4", "serde"], workspace = true }
 x509-parser = { workspace = true }
 
 [dev-dependencies]
+carbide-api-db = { path = "../api-db", features = ["test-support"] }
+carbide-api-model = { path = "../api-model", features = ["test-support"] }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
+carbide-macros = { path = "../macros" }
+carbide-sqlx-testing = { path = "../sqlx-testing" }
+carbide-test-support = { path = "../test-support" }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 rcgen = { workspace = true }
-tempfile = { workspace = true }
 
 [lints]
 workspace = true

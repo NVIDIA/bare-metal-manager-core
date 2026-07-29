@@ -124,6 +124,9 @@ tags:
   - name: UEFI Credential
     description: |-
       UEFI Credential endpoints allow creating site-default host and DPU UEFI credentials for a Site
+  - name: Site Explorer
+    description: |-
+      Site Explorer discovers BMC endpoints on a Site and tracks their exploration state.
   - name: Allocation
     description: |-
       Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
@@ -189,6 +192,9 @@ tags:
       Deprecation history:
 
       - `isCloudInit` on create and update requests is deprecated and ignored; the response field is derived from whether `userData` is non-empty.
+  - name: iPXE Template
+    description: |-
+      iPXE Templates are read-only definitions propagated from nico-core into the REST API. Each template has a stable core UUID and a globally unique name; per-site availability is tracked in IpxeTemplateSiteAssociation records rather than on the template row itself. List and retrieve operations return templates reported at sites the caller is authorized for (optionally filtered by `siteId`). Templated iPXE Operating Systems reference a template by `ipxeTemplateId`.
   - name: Instance Type
     description: |-
       Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
@@ -1247,6 +1253,52 @@ paths:
       description: |-
         Create a site-default host or DPU UEFI credential. The request fails
         if the selected site-default credential already exists.
+
+        User must have authorization role with `PROVIDER_ADMIN` suffix.
+  '/v2/org/{org}/nico/site-explorer/endpoint/action':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    post:
+      summary: Trigger Site Explorer Endpoint Action
+      tags:
+        - Site Explorer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteExplorerEndpointActionRequest'
+      responses:
+        '200':
+          description: The action completed for every selected endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteExplorerEndpointAction'
+        '400':
+          $ref: '#/components/responses/GenericHttpError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/GenericHttpError'
+        '412':
+          $ref: '#/components/responses/GenericHttpError'
+        '500':
+          $ref: '#/components/responses/GenericHttpError'
+        '504':
+          $ref: '#/components/responses/GenericHttpError'
+      operationId: create-site-explorer-endpoint-action
+      description: |-
+        Clear the last exploration error or queue re-exploration for all
+        explored endpoints at a Site or an explicit BMC IP address list.
+
+        The operation calls Core once per endpoint. If a call fails, processing
+        stops and endpoints earlier in the list may already have completed.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/allocation':
@@ -3747,7 +3799,7 @@ paths:
       description: |-
         Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-        All items in a batch update must provide the same set of fields.
+        All items in a batch update must provide the same set of fields, except that `bmcIpAddress` may be omitted or set to `null` to preserve that machine's current BMC IP address.
 
         Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -8018,11 +8070,9 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       operationId: get-all-operating-system
       description: |-
-        Get an Operating System by ID
+        List Operating Systems visible to the caller's Tenant.
 
-        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have authorization role with `PROVIDER_ADMIN` suffix.
-
-        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have authorization role with `TENANT_ADMIN` suffix.
+        Org must have a Tenant entity. User must have authorization role with `TENANT_ADMIN` suffix. Only Operating Systems whose `tenantId` matches the caller's Tenant are returned.
       parameters:
         - schema:
             type: string
@@ -8034,6 +8084,7 @@ paths:
             enum:
               - Image
               - iPXE
+              - TemplatedIpxe
           in: query
           name: type
           description: Filter Operating Systems by Type
@@ -9580,7 +9631,7 @@ paths:
     get:
       summary: Retrieve DPU Machines attached to a host Machine
       description: |
-        Retrieve DPU Machines attached to the host Machine, including the full network configuration sent to the DPU agent.
+        Retrieve DPU Machines attached to the host Machine, including network configuration fields exposed by the REST API. Internal-only and sensitive fields from the Core configuration are omitted.
 
         The response is built by scheduling a synchronous Temporal `GetDpuMachines` workflow against the Machine's Site for the DPU Machine IDs referenced by the host Machine's interfaces.
 
@@ -11711,6 +11762,113 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Tray
+  '/v2/org/{org}/nico/ipxe-template':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+    get:
+      summary: Get all iPXE templates
+      description: |-
+        Get all iPXE templates propagated from nico-core. Optionally restrict to one or more sites with the siteId query parameter.
+
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
+      operationId: get-all-ipxe-template
+      tags:
+        - iPXE Template
+      parameters:
+        - schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          name: siteId
+          in: query
+          required: false
+          description: 'Optional site ID(s); may be repeated to restrict results to templates available at any of the sites'
+        - schema:
+            type: integer
+            example: 1
+            default: 1
+            minimum: 1
+          in: query
+          name: pageNumber
+          description: Page number for pagination query
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            example: 20
+          in: query
+          name: pageSize
+          description: Page size for pagination query
+        - schema:
+            type: string
+            enum:
+              - NAME_ASC
+              - NAME_DESC
+              - CREATED_ASC
+              - CREATED_DESC
+              - UPDATED_ASC
+              - UPDATED_DESC
+          in: query
+          name: orderBy
+          description: Ordering for pagination query
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/IpxeTemplate'
+          headers:
+            X-Pagination:
+              schema:
+                type: string
+                example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "NAME_ASC"}'
+              description: Pagination result in JSON format
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+  '/v2/org/{org}/nico/ipxe-template/{ipxeTemplateId}':
+    parameters:
+      - schema:
+          type: string
+        name: org
+        in: path
+        required: true
+        description: Name of the Org
+      - schema:
+          type: string
+          format: uuid
+        name: ipxeTemplateId
+        in: path
+        required: true
+        description: Stable template ID (UUID from core)
+    get:
+      summary: Retrieve an iPXE template
+      description: |-
+        Retrieve an iPXE template by its stable core ID. The caller must be authorized for at least one Site at which the template is available.
+
+        The Infrastructure Provider and Tenant are inferred from the org's membership. User must have authorization role with `PROVIDER_ADMIN`, `PROVIDER_VIEWER`, or `TENANT_ADMIN` suffix.
+      operationId: get-ipxe-template
+      tags:
+        - iPXE Template
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IpxeTemplate'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   '/v2/org/{org}/nico/network-security-group':
     parameters:
       - schema:
@@ -13646,6 +13804,67 @@ components:
           enum:
             - Host
             - DPU
+    SiteExplorerEndpointActionRequest:
+      type: object
+      title: SiteExplorerEndpointActionRequest
+      description: Request to trigger a Site Explorer action for explored endpoints.
+      required:
+        - siteId
+        - action
+        - target
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose explored endpoints are targeted.
+        action:
+          type: string
+          description: Site Explorer endpoint action to trigger.
+          enum:
+            - ClearError
+            - ReExplore
+        target:
+          type: string
+          description: Endpoint set to target.
+          enum:
+            - All
+            - EndpointIds
+        endpointIds:
+          type: array
+          description: BMC IP addresses to target when target is EndpointIds.
+          items:
+            type: string
+    SiteExplorerEndpointAction:
+      type: object
+      title: SiteExplorerEndpointAction
+      description: Completed Site Explorer endpoint action.
+      required:
+        - siteId
+        - action
+        - target
+        - endpointIds
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site whose explored endpoints were targeted.
+        action:
+          type: string
+          description: Site Explorer endpoint action that completed.
+          enum:
+            - ClearError
+            - ReExplore
+        target:
+          type: string
+          description: Endpoint set that was selected.
+          enum:
+            - All
+            - EndpointIds
+        endpointIds:
+          type: array
+          description: BMC IP addresses for which the action completed.
+          items:
+            type: string
     BMCResetRequest:
       type: object
       title: BMCResetRequest
@@ -16773,6 +16992,7 @@ components:
           enum:
             - iPXE
             - Image
+            - TemplatedIpxe
         imageUrl:
           type:
             - string
@@ -16814,6 +17034,21 @@ components:
             - string
             - 'null'
           description: 'iPXE script or URL, only applicable for iPXE-based Operating System'
+        ipxeTemplateId:
+          type:
+            - string
+            - 'null'
+          description: 'ID of the iPXE template used, only present for Templated iPXE Operating System'
+        ipxeTemplateParameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeParameter'
+          description: 'Parameters passed to the iPXE template (Templated iPXE only)'
+        ipxeTemplateArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeArtifact'
+          description: 'Artifacts for the iPXE OS definition (Templated iPXE only). authToken is redacted.'
         userData:
           type:
             - string
@@ -16871,6 +17106,125 @@ components:
         - Deleting
         - Error
         - Deactivated
+    OperatingSystemIpxeParameter:
+      title: OperatingSystemIpxeParameter
+      type: object
+      description: A name/value parameter passed to an iPXE template
+      required:
+        - name
+        - value
+      properties:
+        name:
+          type: string
+          description: Parameter name (used as a variable in the template)
+        value:
+          type: string
+          description: Parameter value
+    OperatingSystemIpxeArtifact:
+      title: OperatingSystemIpxeArtifact
+      type: object
+      description: An artifact (kernel, initrd, ISO, ...) referenced by an iPXE OS definition
+      required:
+        - name
+        - url
+      properties:
+        name:
+          type: string
+          description: Artifact name
+        url:
+          type: string
+          description: Original URL for the artifact
+        sha:
+          type:
+            - string
+            - 'null'
+          description: Optional SHA256 checksum
+        authType:
+          type:
+            - string
+            - 'null'
+          description: 'Optional auth type: Basic or Bearer'
+        authToken:
+          type:
+            - string
+            - 'null'
+          description: 'Optional auth token. Redacted in API responses.'
+        cacheStrategy:
+          type: string
+          enum:
+            - CacheAsNeeded
+            - LocalOnly
+            - CachedOnly
+            - RemoteOnly
+          description: How to handle caching for this artifact
+    IpxeTemplate:
+      title: IpxeTemplate
+      type: object
+      description: An iPXE script template propagated (read-only) from nico-core
+      required:
+        - id
+        - name
+        - template
+        - requiredParams
+        - reservedParams
+        - requiredArtifacts
+        - visibility
+      examples:
+        - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+          name: ubuntu-autoinstall
+          template: |
+            #!ipxe
+            kernel ${kernel_url} initrd=initrd autoinstall
+            initrd ${initrd_url}
+            boot
+          requiredParams:
+            - kernel_url
+            - initrd_url
+          reservedParams:
+            - mac
+          requiredArtifacts:
+            - kernel
+            - initrd
+          visibility: Public
+          created: '2026-07-14T14:15:22Z'
+          updated: '2026-07-14T14:15:22Z'
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable template UUID assigned by core
+        name:
+          type: string
+          description: Globally unique template name
+        template:
+          type: string
+          description: Raw iPXE script content
+        requiredParams:
+          type: array
+          items:
+            type: string
+          description: Parameters that must be provided to render the template
+        reservedParams:
+          type: array
+          items:
+            type: string
+          description: Parameters reserved by the template and not user-supplied
+        requiredArtifacts:
+          type: array
+          items:
+            type: string
+          description: Artifact names required for the template
+        visibility:
+          type: string
+          description: 'Template visibility: Internal or Public'
+        created:
+          type: string
+          format: date-time
+          readOnly: true
+        updated:
+          type: string
+          format: date-time
+          readOnly: true
     OperatingSystemSiteAssociation:
       title: OperatingSystemSiteAssociation
       type: object
@@ -16987,12 +17341,20 @@ components:
           items:
             type: string
             format: uuid
-          description: 'Specify only one Site if an Operating System is image-based; more than one Site is not supported.'
+          description: >-
+            Target Sites for the Operating System. For image-based OS specify exactly one
+            Site (more than one is not supported). For Templated iPXE OS at least one Site
+            is required and the list is fixed at creation: it cannot be changed on update.
+            Not applicable to raw iPXE OS.
         ipxeScript:
           type:
             - string
             - 'null'
-          description: 'iPXE script or URL, only applicable for iPXE-based OS. Cannot be specified if imageUrl is specified'
+          deprecated: true
+          description: >-
+            Deprecated: raw iPXE Operating Systems are superseded by Templated iPXE
+            (ipxeTemplateId). iPXE script or URL, only applicable for iPXE-based OS.
+            Cannot be specified if imageUrl is specified.
         imageUrl:
           type:
             - string
@@ -17046,6 +17408,21 @@ components:
         allowOverride:
           type: boolean
           description: Indicates if the user data can be overridden at Instance creation time
+        ipxeTemplateId:
+          type:
+            - string
+            - 'null'
+          description: 'ID of the iPXE template to use; identifies a Templated iPXE Operating System. Mutually exclusive with ipxeScript and imageUrl.'
+        ipxeTemplateParameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeParameter'
+          description: 'Parameters passed to the iPXE template (Templated iPXE only).'
+        ipxeTemplateArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeArtifact'
+          description: 'Artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition (Templated iPXE only).'
       required:
         - name
     OperatingSystemUpdateRequest:
@@ -17152,6 +17529,21 @@ components:
             - string
             - 'null'
           description: Optional deactivation note if OS is inactive
+        ipxeTemplateId:
+          type:
+            - string
+            - 'null'
+          description: 'ID of the iPXE template to use (Templated iPXE only). Mutually exclusive with ipxeScript and imageUrl.'
+        ipxeTemplateParameters:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeParameter'
+          description: 'Parameters passed to the iPXE template (Templated iPXE only).'
+        ipxeTemplateArtifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperatingSystemIpxeArtifact'
+          description: 'Artifacts (kernel, initrd, ISO, ...) for the iPXE OS definition (Templated iPXE only).'
     InstanceType:
       title: InstanceType
       type: object
@@ -20215,6 +20607,7 @@ components:
               created: '2019-08-24T14:15:22Z'
               updated: '2019-08-24T14:15:22Z'
           maintenanceMessage: null
+          scoutVersion: 2.6.1
           health:
             source: aggregate-host-health
             observedAt: null
@@ -20345,6 +20738,12 @@ components:
             - string
             - 'null'
           description: 'If the Machine is in maintenance mode, this message will typically describe the reason and how long it is expected to be in maintenance'
+        scoutVersion:
+          type:
+            - string
+            - 'null'
+          description: 'Scout version reported by the Machine, if known'
+          readOnly: true
         health:
           $ref: '#/components/schemas/MachineHealth'
           description: 'Health information about the machine'
@@ -21510,7 +21909,7 @@ components:
             - string
             - 'null'
           description: |-
-            Optional BMC IP address (IPv4 or IPv6). A non-null address sets the value and pre-allocates a reserved IP for the BMC. An explicit null clears the value. In an individual update, omission preserves the current value. Empty strings are invalid.
+            Optional BMC IP address (IPv4 or IPv6). A non-empty address sets the value and pre-allocates a reserved IP for the BMC. An empty string clears the value. Omission or null preserves the current value.
         name:
           type:
             - string
@@ -24851,7 +25250,7 @@ components:
     DpuMachine:
       title: DpuMachine
       type: object
-      description: A DPU Machine with its complete network configuration sent to the DPU agent.
+      description: A DPU Machine with network configuration fields exposed by the REST API.
       properties:
         id:
           type: string
@@ -24899,7 +25298,7 @@ components:
           description: Lifecycle state of the DPU
         dpuNetworkConfig:
           $ref: '#/components/schemas/DpuNetworkConfig'
-          description: Complete network configuration sent to the DPU agent
+          description: Network configuration fields exposed by the REST API
         lastRebooted:
           type:
             - string
@@ -24981,7 +25380,7 @@ components:
     DpuNetworkConfig:
       title: DpuNetworkConfig
       type: object
-      description: Complete network configuration for a DPU Machine sent to the DPU agent
+      description: Network configuration fields exposed for a DPU Machine. Internal-only and sensitive fields from the Core configuration are omitted.
       properties:
         asn:
           type: integer

@@ -4,7 +4,8 @@ Helm chart for deploying Machine-A-Tron - a mock machine simulator for NICo test
 
 ## Overview
 
-Machine-A-Tron creates simulated bare-metal machines that behave like real hosts, allowing you to:
+Machine-A-Tron creates simulated bare-metal machines that behave like real hosts,
+allowing you to:
 
 - Test NICo without physical hardware
 - Simulate multiple hosts, DPUs, switches and power shelves
@@ -39,6 +40,7 @@ helm upgrade --install nico ./helm \
 
 **NICo Site Config:**
 
+```toml
 [site_explorer]
 override_target_host = "nico-machine-a-tron-bmc-mock"
 override_target_port = 1266
@@ -48,7 +50,8 @@ override_target_port = 1266
 
 ## Mode 2: ClusterIP Mode (Scale Testing)
 
-**Use for load testing environments where simulated machines run alongside real hardware.**
+**Use for load testing environments where simulated machines run alongside real
+hardware.**
 
 Each simulated BMC gets a dedicated ClusterIP service. Supports multi-pod deployments.
 
@@ -167,6 +170,7 @@ pods:
 ### What Gets Created
 
 **Per pod:**
+
 | Resource | Name Pattern |
 |----------|--------------|
 | Deployment | `nico-machine-a-tron-pod-0` |
@@ -175,11 +179,13 @@ pods:
 | Service | `nico-machine-a-tron-pod-0-bmc-mock` |
 
 **Per BMC:**
+
 | Resource | Name Pattern |
 |----------|--------------|
 | ClusterIP Service | `nico-machine-a-tron-bmc-10-100-0-2` |
 
 **Cluster-scoped:**
+
 | Resource | Name |
 |----------|------|
 | ServiceCIDR | `nico-machine-a-tron-bmc-cidr` |
@@ -187,6 +193,7 @@ pods:
 ### Scale Guidelines
 
 **BMC count per GB200 NVL72 rack:**
+
 | Component | Count | BMCs per Unit | Total |
 |-----------|-------|---------------|-------|
 | Compute trays | 18 | 3 (1 tray + 2 BF3) | 54 |
@@ -195,6 +202,7 @@ pods:
 | **Total per rack** | | | **71** |
 
 **CIDR sizing:**
+
 | CIDR | Usable IPs | Racks per Pod |
 |------|------------|---------------|
 | /24 | 253 | ~3 |
@@ -215,6 +223,7 @@ create_machines = true
 
 **Network config per pod:**
 
+```toml
 [networks.pod-0-oob]
 type = "underlay"
 prefix = "10.100.0.0/22"
@@ -236,6 +245,9 @@ gateway = "10.100.4.1"
 pods:
   <pod-name>:
     cidr: ""  # Required for bmcServices mode
+    macAddressPool:  # Optional: override auto-generated MAC pool
+      base: "02:00:00:00:00:00"
+      hostBits: 16
     machines:
       <group-name>:
         hwType: wiwynn_gb200_nvl
@@ -245,6 +257,55 @@ pods:
         adminDhcpRelayAddress: "192.168.176.1"
         # ... other machine settings
 ```
+
+### MAC Address Pool Configuration
+
+Each pod needs unique MAC addresses to avoid collisions in multi-pod deployments.
+By default, the chart auto-generates unique MAC pools per pod based on pod index.
+
+**Two pools are configured:**
+
+1. **`mac_address_pool`** - Standalone MACs for BMC and management interfaces:
+   - Host BMC MAC
+   - DPU BMC MAC (per DPU)
+   - DPU Host MAC (representor interface, per DPU)
+   - DPU OOB MAC (out-of-band management, per DPU)
+   - NVOS MACs (for switches)
+
+   *Example: GB200 host with 2 DPUs needs ~7 MACs from this pool.*
+
+2. **`hw_mac_address_ranges`** - Contiguous MAC blocks for NICs:
+   - ConnectX NICs (e.g., CX-8 needs 10 consecutive MACs)
+   - Storage NICs
+   - Management NICs
+
+   *Real hardware has contiguous MAC blocks assigned at manufacturing.*
+
+```yaml
+macAddressPool:
+  enabled: true       # Enable auto-generation
+  basePrefix: "02:00" # First 2 bytes (locally administered)
+  hostBits: 16        # ~65K MACs per pod
+
+hwMacAddressRanges:
+  enabled: true       # Enable auto-generation
+  basePrefix: "02:01" # First 2 bytes
+  hostBits: 24        # Total range size
+  rangeHostBits: 8    # 256 MACs per allocation
+```
+
+**Auto-generated formats:**
+
+- `mac_address_pool`: `02:00:PP:XX:XX:XX` (PP = pod index)
+- `hw_mac_address_ranges`: `02:01:PP:XX:XX:XX` (PP = pod index)
+
+**Example with 3 pods:**
+
+| Pod | mac_address_pool | hw_mac_address_ranges |
+|-----|------------------|----------------------|
+| mat-0 | `02:00:00:00:00:00` | `02:01:00:00:00:00` |
+| mat-1 | `02:00:01:00:00:00` | `02:01:01:00:00:00` |
+| mat-2 | `02:00:02:00:00:00` | `02:01:02:00:00:00` |
 
 ### BMC Services Configuration
 
@@ -303,10 +364,15 @@ Causes:
 
 Verify selector labels match:
 
-# Check service selector
-kubectl -n nico-mat get svc nico-machine-a-tron-bmc-10-100-0-2 -o jsonpath='{.spec.selector}'
+**Check service selector:**
 
-# Check pod labels
+```bash
+kubectl -n nico-mat get svc nico-machine-a-tron-bmc-10-100-0-2 -o jsonpath='{.spec.selector}'
+```
+
+**Check pod labels:**
+
+```bash
 kubectl -n nico-mat get pods -l nvidia-infra-controller/pod-name=pod-0 --show-labels
 ```
 

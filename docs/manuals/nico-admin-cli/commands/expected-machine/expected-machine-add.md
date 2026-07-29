@@ -16,7 +16,7 @@ nico-admin-cli-expected-machine-add - Add expected machine
 \[**--host_nics**\] \[**--rack_id**\]
 \[**--default_pause_ingestion_and_poweron**\] \[**--dpf-enabled**\]
 \[**--extended**\] \[**--bmc-ip-address**\]
-\[**--bmc-retain-credentials**\] \[**--dpu-mode**\]
+\[**--bmc-retain-credentials**\] \[**--dpu-policy**\]
 \[**--disable-lockdown**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
@@ -114,23 +114,23 @@ factory-default credentials in Vault as-is\
 
 - false
 
-**--dpu-mode** *\<DPU_MODE\>*  
-Per-host DPU operating mode. \`dpu-mode\` (default): DPUs are managed by
-NICo; \`nic-mode\`: DPU hardware present but treated as a plain NIC;
-\`no-dpu\`: no DPU hardware at all. Unset defers to the site-wide
-\`\[site_explorer\] dpu_mode\` setting (which itself falls back to
-\`dpu-mode\` when not set).\
+**--dpu-policy** *\<DPU_POLICY\>*\
+Per-host DPU policy. \`manage\` (default): inherit the site policy,
+which defaults to managing DPUs; \`nic\`: configure DPU hardware
+as plain NICs; \`ignore\`: do not configure or attach DPU hardware.
+Unset defers to the site-wide \`\[site_explorer\] dpu_policy\` setting.
+The previous \`use-as-nic\` value remains accepted as an alias. The legacy
+\`--dpu-mode\` flag also remains accepted: \`dpu-mode\` maps to \`manage\`,
+\`nic-mode\` to \`nic\`, and \`no-dpu\` to \`ignore\`.\
 
 \
 *Possible values:*
 
-- unspecified
+- manage
 
-- dpu-mode
+- nic
 
-- nic-mode
-
-- no-dpu
+- ignore
 
 **--disable-lockdown** *\<DISABLE_LOCKDOWN\>*  
 If true, do not lock down the server as part of lifecycle management
@@ -163,7 +163,7 @@ Print help (see a summary with -h)
 nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1
 nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --meta-name MyMachine --label DATACENTER:XYZ --sku-id DGX-H100-640GB
 nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --bmc-ip-address 192.0.2.20
-nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --dpu-mode nic-mode
+nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --dpu-policy nic
 ```
 
 ---

@@ -182,6 +182,16 @@ impl<T: CredentialReader + ?Sized> CredentialReader for Arc<T> {
 
 #[async_trait]
 pub trait CredentialWriter: Send + Sync {
+    /// Reads the value persisted by this writer, bypassing any composite reader
+    /// precedence or local overrides.
+    ///
+    /// Callers use this after a security-sensitive write when publishing state
+    /// requires proof that the configured write target contains the value.
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError>;
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -199,6 +209,13 @@ pub trait CredentialWriter: Send + Sync {
 
 #[async_trait]
 impl<T: CredentialWriter + ?Sized> CredentialWriter for Arc<T> {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        (**self).get_credentials_from_writer(key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -249,6 +266,13 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialReader
 impl<R: CredentialReader, W: CredentialWriter> CredentialWriter
     for CompositeCredentialManager<R, W>
 {
+    async fn get_credentials_from_writer(
+        &self,
+        key: &CredentialKey,
+    ) -> Result<Option<Credentials>, SecretsError> {
+        self.writer.get_credentials_from_writer(key).await
+    }
+
     async fn set_credentials(
         &self,
         key: &CredentialKey,
@@ -278,7 +302,7 @@ impl<R: CredentialReader, W: CredentialWriter> CredentialManager
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum CredentialType {
-    DpuHardwareDefault,
+    DpuHardwareDefault { model: bmc_vendor::DpuModel },
     HostHardwareDefault { vendor: bmc_vendor::BMCVendor },
     SiteDefault,
 }
@@ -311,6 +335,11 @@ pub enum BmcCredentialType {
     BmcForgeAdmin {
         bmc_mac_address: MacAddress,
     },
+    /// Site-wide DPU BMC `service` account password
+    /// (`machines/bmc/site/dpu_service`). Written on first ingestion of a DPU
+    /// BMC that exposes a factory `service` account (currently BF4 only; BF3
+    /// has none). Distinct from the site-wide BMC root password.
+    SiteWideDpuBmcService,
 }
 
 impl BmcCredentialType {
@@ -430,6 +459,9 @@ pub enum CredentialKey {
     RackMaintenanceAccessToken {
         rack_id: RackId,
     },
+    ContainerRegistry {
+        registry: String,
+    },
 }
 
 /// The site-wide default credentials endpoint exploration requires before it
@@ -472,6 +504,7 @@ pub enum CredentialPrefix {
     MqttAuth,
     MachineIdentityEncryptionKey,
     RackMaintenanceAccessToken,
+    ContainerRegistry,
 }
 
 impl CredentialPrefix {
@@ -495,6 +528,7 @@ impl CredentialPrefix {
             Self::MqttAuth => "mqtt/",
             Self::MachineIdentityEncryptionKey => "machine_identity/",
             Self::RackMaintenanceAccessToken => "racks/",
+            Self::ContainerRegistry => "container_registries/",
         }
     }
 
@@ -517,7 +551,19 @@ impl CredentialPrefix {
             Self::MqttAuth,
             Self::MachineIdentityEncryptionKey,
             Self::RackMaintenanceAccessToken,
+            Self::ContainerRegistry,
         ]
+    }
+}
+
+/// Returns the vault path segment for a `DpuModel`. `Unknown` maps to `"root"` to
+/// preserve backward compatibility with the pre-per-model vault entry.
+fn dpu_model_vault_segment(model: bmc_vendor::DpuModel) -> &'static str {
+    match model {
+        bmc_vendor::DpuModel::BlueField2 => "bf2",
+        bmc_vendor::DpuModel::BlueField3 => "bf3",
+        bmc_vendor::DpuModel::BlueField4 => "bf4",
+        bmc_vendor::DpuModel::Unknown => "root",
     }
 }
 
@@ -583,6 +629,7 @@ impl CredentialKey {
                 CredentialPrefix::MachineIdentityEncryptionKey
             }
             Self::RackMaintenanceAccessToken { .. } => CredentialPrefix::RackMaintenanceAccessToken,
+            Self::ContainerRegistry { .. } => CredentialPrefix::ContainerRegistry,
         }
     }
 
@@ -595,8 +642,11 @@ impl CredentialKey {
                 Cow::from(format!("machines/{machine_id}/dpu-hbn"))
             }
             CredentialKey::DpuRedfish { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
-                    Cow::from("machines/all_dpus/factory_default/bmc-metadata-items/root")
+                CredentialType::DpuHardwareDefault { model } => {
+                    let segment = dpu_model_vault_segment(*model);
+                    Cow::from(format!(
+                        "machines/all_dpus/factory_default/bmc-metadata-items/{segment}"
+                    ))
                 }
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_dpus/site_default/bmc-metadata-items/root")
@@ -614,7 +664,7 @@ impl CredentialKey {
                 CredentialType::SiteDefault => {
                     Cow::from("machines/all_hosts/site_default/bmc-metadata-items/root")
                 }
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     unreachable!(
                         "HostRedfish / DpuHardwareDefault is an invalid credential combination"
                     );
@@ -622,7 +672,7 @@ impl CredentialKey {
             },
             CredentialKey::UfmAuth { fabric } => Cow::from(format!("ufm/{fabric}/auth")),
             CredentialKey::DpuUefi { credential_type } => match credential_type {
-                CredentialType::DpuHardwareDefault => {
+                CredentialType::DpuHardwareDefault { .. } => {
                     Cow::from("machines/all_dpus/factory_default/uefi-metadata-items/auth")
                 }
                 CredentialType::SiteDefault => {
@@ -651,6 +701,9 @@ impl CredentialKey {
                 BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
                 )),
+                BmcCredentialType::SiteWideDpuBmcService => {
+                    Cow::from("machines/bmc/site/dpu_service")
+                }
             },
             CredentialKey::NicLockdownIkm { credential_type } => match credential_type {
                 NicLockdownIkm::SiteWide { version } => {
@@ -693,6 +746,9 @@ impl CredentialKey {
             },
             CredentialKey::RackMaintenanceAccessToken { rack_id } => {
                 Cow::from(format!("racks/{rack_id}/maintenance/access-token"))
+            }
+            CredentialKey::ContainerRegistry { registry } => {
+                Cow::from(format!("container_registries/{registry}/auth"))
             }
         }
     }
@@ -798,6 +854,15 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn dpu_bmc_service_site_wide_path() {
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::SiteWideDpuBmcService,
+        };
+        assert_eq!(key.to_key_str(), "machines/bmc/site/dpu_service");
+        assert_eq!(key.prefix(), CredentialPrefix::BmcCredentials);
+    }
+
     // Pins the exact Vault path for the versioned lockdown IKM, including
     // how the version is rendered (v{N}), since other components and the
     // seed migration depend on this layout.
@@ -900,6 +965,13 @@ mod tests {
                 password: "read-pass".to_string(),
             })
         );
+
+        let writer_readback = composite
+            .get_credentials_from_writer(&key)
+            .await
+            .expect("writer readback");
+
+        assert_eq!(writer_readback, Some(write_cred));
     }
 
     #[tokio::test]
@@ -971,10 +1043,24 @@ mod tests {
                     expect: PathChecks::all_hold(),
                 },
                 Check {
-                    scenario: "dpu redfish hardware default",
+                    scenario: "dpu redfish hardware default (unknown/root)",
                     input: Row {
                         key: CredentialKey::DpuRedfish {
-                            credential_type: CredentialType::DpuHardwareDefault,
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::Unknown,
+                            },
+                        },
+                        expected_prefix: "machines/all_dpus/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "dpu redfish hardware default (bf3)",
+                    input: Row {
+                        key: CredentialKey::DpuRedfish {
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::BlueField3,
+                            },
                         },
                         expected_prefix: "machines/all_dpus/",
                     },
@@ -1026,7 +1112,9 @@ mod tests {
                     scenario: "dpu uefi hardware default",
                     input: Row {
                         key: CredentialKey::DpuUefi {
-                            credential_type: CredentialType::DpuHardwareDefault,
+                            credential_type: CredentialType::DpuHardwareDefault {
+                                model: bmc_vendor::DpuModel::Unknown,
+                            },
                         },
                         expected_prefix: "machines/all_dpus/",
                     },
@@ -1081,6 +1169,16 @@ mod tests {
                             credential_type: BmcCredentialType::BmcForgeAdmin {
                                 bmc_mac_address: mac,
                             },
+                        },
+                        expected_prefix: "machines/bmc/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
+                Check {
+                    scenario: "bmc site wide dpu service",
+                    input: Row {
+                        key: CredentialKey::BmcCredentials {
+                            credential_type: BmcCredentialType::SiteWideDpuBmcService,
                         },
                         expected_prefix: "machines/bmc/",
                     },
@@ -1201,6 +1299,16 @@ mod tests {
                     },
                     expect: PathChecks::all_hold(),
                 },
+                Check {
+                    scenario: "container registry",
+                    input: Row {
+                        key: CredentialKey::ContainerRegistry {
+                            registry: "nvcr.io".to_string(),
+                        },
+                        expected_prefix: "container_registries/",
+                    },
+                    expect: PathChecks::all_hold(),
+                },
             ],
             |Row {
                  key,
@@ -1276,6 +1384,9 @@ mod tests {
                 key_id: "k".to_string(),
             },
             CredentialKey::RackMaintenanceAccessToken { rack_id },
+            CredentialKey::ContainerRegistry {
+                registry: "nvcr.io".to_string(),
+            },
         ];
 
         for key in &keys {
@@ -1295,6 +1406,6 @@ mod tests {
     #[test]
     fn prefix_all_is_complete() {
         let all = CredentialPrefix::all();
-        assert_eq!(all.len(), 16);
+        assert_eq!(all.len(), 17);
     }
 }

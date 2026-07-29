@@ -1414,7 +1414,7 @@ async fn test_power_shelf_state_history_multiple(
 
     // Test state history for multiple power shelves
     let mut txn = env.pool.begin().await?;
-    let _history_by_ids = db::state_history::find_by_object_ids(
+    let history_by_ids = db::state_history::find_by_object_ids(
         &mut txn,
         db::state_history::StateHistoryTableId::PowerShelf,
         &[power_shelf1_id, power_shelf2_id],
@@ -1422,9 +1422,14 @@ async fn test_power_shelf_state_history_multiple(
     .await?;
     txn.commit().await?;
 
-    // println!("history_by_ids: {:?}", history_by_ids);
-    // assert!(history_by_ids.contains_key(&power_shelf1_id));
-    // assert!(history_by_ids.contains_key(&power_shelf2_id));
+    // Nothing has run a controller iteration yet -- the state machine still isn't wired up
+    // (see the TODO further down) -- so neither shelf has any history to find. The
+    // commented-out assertions this replaces looked the ids up directly, but the map is
+    // keyed by the *stringified* id, so they could not have compiled as written.
+    assert!(
+        history_by_ids.is_empty(),
+        "no power shelf should have state history before a controller iteration runs"
+    );
 
     // Test individual power shelf state history
     let mut txn = env.pool.begin().await?;

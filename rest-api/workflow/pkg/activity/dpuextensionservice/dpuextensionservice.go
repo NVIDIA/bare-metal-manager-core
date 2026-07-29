@@ -144,9 +144,10 @@ func (mde ManageDpuExtensionService) UpdateDpuExtensionServicesInDB(ctx context.
 
 			created, err := time.Parse(DpuExtensionServiceTimeFormat, controllerDpuExtensionService.LatestVersionInfo.Created)
 			if err != nil {
+				if controllerDpuExtensionService.LatestVersionInfo.Created != "" {
+					slogger.Error().Err(err).Str("Created", controllerDpuExtensionService.LatestVersionInfo.Created).Msg("failed to parse timestamp for version info")
+				}
 				created = dpuExtensionService.Updated
-			} else if controllerDpuExtensionService.LatestVersionInfo.Created != "" {
-				slogger.Error().Err(err).Str("Created", controllerDpuExtensionService.LatestVersionInfo.Created).Msg("failed to parse timestamp for version info")
 			}
 
 			if dpuExtensionService.Version != nil && *dpuExtensionService.Version != latestVersion {

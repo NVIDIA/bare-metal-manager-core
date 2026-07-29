@@ -23,6 +23,9 @@
 				<option value="all">All</option>
 				<option value="healthy" {% if active_health_alerts_filter == "healthy" %}selected{% endif %}>Healthy</option>
 				<option value="unhealthy" {% if active_health_alerts_filter == "unhealthy" %}selected{% endif %}>Unhealthy</option>
+				{% for a in health_alert_ids %}
+        			<option value="{{ a }}" {% if active_health_alerts_filter == a.as_str() %}selected{% endif %}>{{ a }}</option>
+    			{% endfor %}
 			</select>
 		</div>
 		<div class="filter-item">

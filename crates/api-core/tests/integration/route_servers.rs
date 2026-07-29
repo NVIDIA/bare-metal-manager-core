@@ -122,6 +122,46 @@ async fn test_remove_route_servers(pool: PgPool) -> Result<(), Box<dyn std::erro
 }
 
 #[sqlx_test]
+async fn test_remove_route_servers_wrong_source_type(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = TestHarness::builder(pool).build().await;
+    let servers = [IpAddr::from_str("1.2.3.4")?];
+
+    // Add a server with ConfigFile source type
+    let request = tonic::Request::new(RouteServers {
+        route_servers: servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::ConfigFile as i32,
+    });
+    env.api().add_route_servers(request).await?;
+
+    // Try to remove it with AdminApi source type — should return not_found
+    let request = tonic::Request::new(RouteServers {
+        route_servers: servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::AdminApi as i32,
+    });
+    let result = env.api().remove_route_servers(request).await;
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), tonic::Code::NotFound);
+
+    // The row must still be present after the failed removal
+    let response = env.api().get_route_servers(tonic::Request::new(())).await?;
+    assert_eq!(response.into_inner().route_servers.len(), 1);
+
+    // Removing with the correct source type must succeed and leave the table empty
+    let request = tonic::Request::new(RouteServers {
+        route_servers: servers.iter().map(ToString::to_string).collect(),
+        source_type: RouteServerSourceTypePb::ConfigFile as i32,
+    });
+    env.api().remove_route_servers(request).await?;
+
+    let response = env.api().get_route_servers(tonic::Request::new(())).await?;
+    assert!(response.into_inner().route_servers.is_empty());
+
+    Ok(())
+}
+
+#[sqlx_test]
 async fn test_initial_set(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = TestHarness::builder(pool).build().await;
     let expected_servers = [

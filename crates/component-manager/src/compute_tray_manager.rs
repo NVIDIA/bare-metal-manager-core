@@ -29,6 +29,22 @@ pub enum ComputeTrayVendor {
     Nvidia,
 }
 
+impl From<bmc_vendor::BMCVendor> for ComputeTrayVendor {
+    fn from(vendor: bmc_vendor::BMCVendor) -> Self {
+        match vendor {
+            bmc_vendor::BMCVendor::Dell => Self::Dell,
+            bmc_vendor::BMCVendor::Hpe => Self::Hpe,
+            bmc_vendor::BMCVendor::Lenovo => Self::Lenovo,
+            bmc_vendor::BMCVendor::Supermicro => Self::Supermicro,
+            bmc_vendor::BMCVendor::Nvidia => Self::Nvidia,
+            bmc_vendor::BMCVendor::LenovoAMI
+            | bmc_vendor::BMCVendor::Liteon
+            | bmc_vendor::BMCVendor::Delta
+            | bmc_vendor::BMCVendor::Unknown => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputeTrayModel {
     Unknown,
@@ -102,4 +118,32 @@ pub trait ComputeTrayManager: Send + Sync + Debug + 'static {
     ) -> Result<Vec<ComputeTrayFirmwareUpdateStatus>, ComponentManagerError>;
 
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use bmc_vendor::BMCVendor;
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[test]
+    fn bmc_vendor_maps_to_compute_tray_vendor() {
+        value_scenarios!(run = ComputeTrayVendor::from;
+            "supported compute tray vendors" {
+                BMCVendor::Dell => ComputeTrayVendor::Dell,
+                BMCVendor::Hpe => ComputeTrayVendor::Hpe,
+                BMCVendor::Lenovo => ComputeTrayVendor::Lenovo,
+                BMCVendor::Supermicro => ComputeTrayVendor::Supermicro,
+                BMCVendor::Nvidia => ComputeTrayVendor::Nvidia,
+            }
+
+            "unsupported compute tray vendors" {
+                BMCVendor::LenovoAMI => ComputeTrayVendor::Unknown,
+                BMCVendor::Liteon => ComputeTrayVendor::Unknown,
+                BMCVendor::Delta => ComputeTrayVendor::Unknown,
+                BMCVendor::Unknown => ComputeTrayVendor::Unknown,
+            }
+        );
+    }
 }
