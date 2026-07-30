@@ -5,6 +5,7 @@ edition.workspace = true
 description = "Carbide IB fabric"
 license.workspace = true
 authors.workspace = true
+repository.workspace = true
 
 [lib]
 name = "carbide_ib_fabric"
@@ -17,6 +18,7 @@ test-support = ["dep:config-version"]
 carbide-api-db = { path = "../api-db" }
 carbide-api-model = { path = "../api-model" }
 carbide-health-report = { path = "../health-report" }
+carbide-instrument = { path = "../instrument" }
 carbide-secrets = { path = "../secrets" }
 carbide-tls = { path = "../tls" }
 carbide-utils = { path = "../utils" }
@@ -51,6 +53,7 @@ url = { workspace = true }
 [dev-dependencies]
 # Self-dependency so the crate's own tests see the `test-support` fakes.
 carbide-ib-fabric = { path = ".", features = ["test-support"] }
+carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-test-support = { path = "../test-support" }
 figment = { features = ["env", "test", "toml"], workspace = true }
 tempfile = { workspace = true }

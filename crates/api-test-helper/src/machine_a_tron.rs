@@ -22,8 +22,8 @@ use bmc_mock::mac_address_pool::MacAddressPool;
 use forge_tls::client_config::get_root_ca_path;
 use futures::future::try_join_all;
 use machine_a_tron::{
-    BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
-    MachineATronContext, api_throttler,
+    BmcMockRegistry, BmcRegistrationMode, DeviceHandle, DhcpClient, MachineATron,
+    MachineATronConfig, MachineATronContext, UdpDhcpService, api_throttler,
 };
 use rpc::forge_api_client::FailOverOn;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
@@ -43,7 +43,7 @@ pub async fn run_local(
     repo_root: &Path,
     bmc_address_registry: Option<BmcMockRegistry>,
     mac_address_pool: Arc<Mutex<MacAddressPool>>,
-) -> eyre::Result<(Vec<HostMachineHandle>, MachineATronHandle)> {
+) -> eyre::Result<(Vec<DeviceHandle>, MachineATronHandle)> {
     app_config.validate()?;
 
     let forge_root_ca_path = get_root_ca_path(None, None); // Will get it from the local repo
@@ -80,6 +80,9 @@ pub async fn run_local(
         "Got desired firmware versions from the server",
     );
 
+    let (dhcp_client, dhcp_service) =
+        DhcpClient::start(&app_config, forge_api_client.clone().into()).await?;
+
     let app_context = Arc::new(MachineATronContext {
         bmc_registration_mode: if let Some(bmc_address_registry) = bmc_address_registry.as_ref() {
             BmcRegistrationMode::BackingInstance(bmc_address_registry.clone())
@@ -92,39 +95,41 @@ pub async fn run_local(
         api_throttler,
         desired_firmware_versions: desired_firmware,
         forge_api_client,
+        dhcp_client,
         mac_address_pool,
     });
 
     let mat = MachineATron::new(app_context.clone());
-    let machine_handles = mat.make_machines(false).await?;
+    let simulators = mat.make_devices(false).await?;
+    let provisionable_handles = simulators.provisionable_handles();
 
     let (stop_tx, stop_rx) = oneshot::channel();
-    let machine_handles_clone = machine_handles.clone();
+    let device_simulators = simulators.devices().to_vec();
     let join_handle = tokio::spawn(async move {
         stop_rx.await.ok(); // this finishes when stop_tx is dropped
 
         try_join_all(
-            machine_handles_clone
+            device_simulators
                 .iter()
-                .map(HostMachineHandle::abort_and_wait),
+                .map(|simulator| simulator.shutdown()),
         )
         .await?;
 
-        try_join_all(
-            machine_handles_clone
-                .into_iter()
-                .map(|m| m.delete_from_api(app_context.api_client())),
-        )
+        try_join_all(device_simulators.into_iter().map(|simulator| {
+            let api_client = app_context.api_client();
+            async move { simulator.delete_from_api(api_client).await }
+        }))
         .await?;
 
         Ok(())
     });
 
     Ok((
-        machine_handles,
+        provisionable_handles,
         MachineATronHandle {
             _stop_tx: stop_tx,
             _join_handle: join_handle,
+            dhcp_service,
         },
     ))
 }
@@ -132,12 +137,16 @@ pub async fn run_local(
 pub struct MachineATronHandle {
     _stop_tx: oneshot::Sender<()>,
     _join_handle: JoinHandle<eyre::Result<()>>,
+    dhcp_service: Option<UdpDhcpService>,
 }
 
 impl MachineATronHandle {
-    pub async fn shutdown(self) -> eyre::Result<()> {
+    pub async fn shutdown(mut self) -> eyre::Result<()> {
         drop(self._stop_tx);
-        self._join_handle.await??;
-        Ok(())
+        let mat_result = self._join_handle.await?;
+        if let Some(dhcp_service) = self.dhcp_service.take() {
+            dhcp_service.shutdown().await?;
+        }
+        mat_result
     }
 }

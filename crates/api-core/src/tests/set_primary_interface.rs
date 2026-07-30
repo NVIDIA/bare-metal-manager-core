@@ -19,6 +19,7 @@ use std::str::FromStr;
 
 use carbide_uuid::machine::MachineInterfaceId;
 use ipnetwork::IpNetwork;
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
@@ -137,7 +138,7 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
     let host_id = host.host_snapshot.id;
 
     // One host interface is primary; pick a different (non-primary) host NIC to promote.
-    let (original_primary_id, promote_id) = {
+    let (original_primary_id, promote_id, promote_target) = {
         let mut txn = env.pool.begin().await?;
         let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
@@ -148,12 +149,16 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
             .find(|i| i.primary_interface)
             .expect("host should start with a primary interface")
             .id;
-        let promote_id = interfaces
+        let promote = interfaces
             .iter()
             .find(|i| !i.primary_interface && i.attached_dpu_machine_id.is_some())
-            .expect("host should have a non-primary host interface to promote")
-            .id;
-        (original_primary_id, promote_id)
+            .expect("host should have a non-primary host interface to promote");
+        let promote_target = MachineBootInterfaceTarget::from_parts(
+            Some(promote.mac_address),
+            promote.boot_interface_id.clone(),
+        )
+        .expect("a host interface always supplies a MAC");
+        (original_primary_id, promote.id, promote_target)
     };
 
     env.api
@@ -190,6 +195,10 @@ async fn test_set_primary_interface_promotes_a_non_primary_interface(
             .primary_interface,
         "the previously-primary interface should no longer be primary",
     );
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the successful Redfish action should persist its selected target");
+    assert_eq!(desired.value, promote_target);
 
     Ok(())
 }

@@ -22,16 +22,15 @@ use std::time::Duration;
 use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
-use carbide_instrument::{Outcome, emit};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use config_version::ConfigVersion;
 use eyre::Context;
 use forge_dpu_agent_utils::utils::create_forge_client;
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
-use crate::instrumentation::{ReportLoop, ReportLoopCompleted};
+use crate::instrumentation::ConfigFetch;
 use crate::util::{get_periodic_dpu_config, get_sitename};
 
 pub struct PeriodicFetcherState {
@@ -204,50 +203,42 @@ async fn single_fetch(
     .await;
     // The outcome covers the whole fetch: a successful RPC whose instance
     // metadata fails to convert is still a failed configuration fetch.
-    let outcome = match result {
+    match result {
         Ok(resp) => {
             state.netconf.store(Some(Arc::new(resp.clone())));
 
             match instance_metadata_from_instance(resp.instance, state.sitename.clone()) {
                 Ok(Some(config)) => {
                     state.instmeta.store(Some(Arc::new(config)));
-                    Outcome::Ok
+                    ConfigFetch::Succeeded.emit();
                 }
                 Ok(None) => {
                     state.instmeta.store(None);
-                    Outcome::Ok
+                    ConfigFetch::Succeeded.emit();
                 }
-                Err(err) => {
-                    error!(
-                        error = %err,
-                        retry_interval_seconds = state.config.config_fetch_interval.as_secs_f64(),
-                        "Failed to fetch the latest configuration. Will retry"
-                    );
-                    Outcome::Error
+                Err(err) => ConfigFetch::Failed {
+                    error: err.to_string(),
+                    retry_interval_seconds: state.config.config_fetch_interval.as_secs_f64(),
                 }
+                .emit(),
             }
         }
         Err(err) => match err.downcast_ref::<tonic::Status>() {
             Some(grpc_status) if grpc_status.code() == tonic::Code::NotFound => {
-                warn!(machine_id = %state.config.machine_id, "DPU not found");
                 state.netconf.store(None);
                 state.instmeta.store(None);
-                Outcome::Error
+                ConfigFetch::NotFound {
+                    machine_id: state.config.machine_id.to_string(),
+                }
+                .emit();
             }
-            _ => {
-                error!(
-                    retry_interval_seconds = state.config.config_fetch_interval.as_secs_f64(),
-                    error = ?err,
-                    "Failed to fetch the latest configuration. Will retry"
-                );
-                Outcome::Error
+            _ => ConfigFetch::Failed {
+                error: format!("{err:?}"),
+                retry_interval_seconds: state.config.config_fetch_interval.as_secs_f64(),
             }
+            .emit(),
         },
-    };
-    emit(ReportLoopCompleted {
-        report_loop: ReportLoop::ConfigFetch,
-        outcome,
-    });
+    }
 
     true
 }

@@ -67,6 +67,7 @@ pub mod measured_boot;
 pub mod network;
 pub mod protos;
 pub mod secrets;
+mod site_explorer_report;
 pub mod utils;
 
 #[cfg(feature = "model")]
@@ -573,6 +574,149 @@ impl FromStr for forge::InstanceSpxConfig {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         serde_json::from_str(s)
             .map_err(|e| RpcDataConversionError::JsonConversionFailure(e.to_string()))
+    }
+}
+
+/// JSON input accepted for prost's optional integer-backed interface role.
+///
+/// Admin clients may use the short enum name while protobuf-compatible clients
+/// may continue to send its integer value.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum ExpectedInterfaceRoleInput {
+    Name(String),
+    Number(i32),
+}
+
+impl forge::ExpectedInterfaceRole {
+    /// Deserialize an optional role from its short name or protobuf integer.
+    ///
+    /// JSON `null` remains `None`. `unspecified` remains an explicit protobuf
+    /// value here and becomes the legacy Host role at the model boundary.
+    pub fn deserialize_optional<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: Option<ExpectedInterfaceRoleInput> =
+            serde::Deserialize::deserialize(deserializer)?;
+        let Some(value) = value else {
+            return Ok(None);
+        };
+
+        let role = match value {
+            ExpectedInterfaceRoleInput::Number(value) => {
+                Self::try_from(value).map_err(serde::de::Error::custom)?
+            }
+            ExpectedInterfaceRoleInput::Name(name) => {
+                match name.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+                    "unspecified" | "expected_interface_role_unspecified" => Self::Unspecified,
+                    "host" | "expected_interface_role_host" => Self::Host,
+                    "dpu_os" | "dpuos" | "expected_interface_role_dpu_os" => Self::DpuOs,
+                    "dpu_bmc" | "dpubmc" | "expected_interface_role_dpu_bmc" => Self::DpuBmc,
+                    "host_bmc" | "hostbmc" | "expected_interface_role_host_bmc" => Self::HostBmc,
+                    _ => {
+                        return Err(serde::de::Error::custom(format!(
+                            "unknown expected interface role {name:?}"
+                        )));
+                    }
+                }
+            }
+        };
+        Ok(Some(role as i32))
+    }
+
+    /// Serialize an optional prost role as its short JSON name.
+    ///
+    /// `None` stays absent so model conversion can preserve the representation
+    /// used by clients that predate interface roles.
+    pub fn serialize_optional<S>(value: &Option<i32>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let Some(value) = value else {
+            return serializer.serialize_none();
+        };
+        let role = Self::try_from(*value).map_err(Error::custom)?;
+        serializer.serialize_str(match role {
+            Self::Unspecified => "unspecified",
+            Self::Host => "host",
+            Self::DpuOs => "dpu_os",
+            Self::DpuBmc => "dpu_bmc",
+            Self::HostBmc => "host_bmc",
+        })
+    }
+}
+
+/// JSON input accepted for prost's optional integer-backed IP allocation
+/// policy.
+///
+/// Admin clients may use the short enum name while protobuf-compatible clients
+/// may continue to send its integer value.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum ExpectedInterfaceIpAllocationInput {
+    Name(String),
+    Number(i32),
+}
+
+impl forge::ExpectedInterfaceIpAllocation {
+    /// Deserialize an optional allocation policy from its short name or
+    /// protobuf integer.
+    ///
+    /// JSON `null` remains `None`. `unspecified` remains an explicit protobuf
+    /// value here and becomes an omitted policy at the model boundary, where
+    /// `fixed_ip` determines the legacy policy.
+    pub fn deserialize_optional<'de, D>(deserializer: D) -> Result<Option<i32>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: Option<ExpectedInterfaceIpAllocationInput> =
+            serde::Deserialize::deserialize(deserializer)?;
+        let Some(value) = value else {
+            return Ok(None);
+        };
+
+        let policy = match value {
+            ExpectedInterfaceIpAllocationInput::Number(value) => {
+                Self::try_from(value).map_err(serde::de::Error::custom)?
+            }
+            ExpectedInterfaceIpAllocationInput::Name(name) => {
+                match name.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+                    "unspecified" | "expected_interface_ip_allocation_unspecified" => {
+                        Self::Unspecified
+                    }
+                    "dynamic" | "expected_interface_ip_allocation_dynamic" => Self::Dynamic,
+                    "fixed" | "expected_interface_ip_allocation_fixed" => Self::Fixed,
+                    "retained" | "expected_interface_ip_allocation_retained" => Self::Retained,
+                    _ => {
+                        return Err(serde::de::Error::custom(format!(
+                            "unknown expected interface IP allocation {name:?}"
+                        )));
+                    }
+                }
+            }
+        };
+        Ok(Some(policy as i32))
+    }
+
+    /// Serialize an optional prost allocation policy as its short JSON name.
+    ///
+    /// `None` stays absent; it must not become explicit `Dynamic`
+    /// because an omitted policy plus `fixed_ip` resolves to `Fixed`.
+    pub fn serialize_optional<S>(value: &Option<i32>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let Some(value) = value else {
+            return serializer.serialize_none();
+        };
+        let policy = Self::try_from(*value).map_err(Error::custom)?;
+        serializer.serialize_str(match policy {
+            Self::Unspecified => "unspecified",
+            Self::Dynamic => "dynamic",
+            Self::Fixed => "fixed",
+            Self::Retained => "retained",
+        })
     }
 }
 

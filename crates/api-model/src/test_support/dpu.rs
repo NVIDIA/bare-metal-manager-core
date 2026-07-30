@@ -29,6 +29,8 @@ pub const DPU_INFO_JSON: &[u8] = include_bytes!("../hardware_info/test_data/dpu_
 
 pub const DPU_BF3_INFO_JSON: &[u8] = include_bytes!("../hardware_info/test_data/dpu_bf3_info.json");
 
+pub const DPU_BF4_INFO_JSON: &[u8] = include_bytes!("../hardware_info/test_data/dpu_bf4_info.json");
+
 #[derive(Clone, Debug)]
 pub struct DpuConfig {
     pub serial: String,

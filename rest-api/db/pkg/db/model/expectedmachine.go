@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -347,6 +348,8 @@ type ExpectedMachineDAO interface {
 	GetAll(ctx context.Context, tx *db.Tx, filter ExpectedMachineFilterInput, page paginator.PageInput, includeRelations []string) ([]ExpectedMachine, int, error)
 	// Get returns row for specified ID
 	Get(ctx context.Context, tx *db.Tx, expectedMachineID uuid.UUID, includeRelations []string, forUpdate bool) (*ExpectedMachine, error)
+	// LockForUpdate locks rows in canonical ID order for the transaction
+	LockForUpdate(ctx context.Context, tx *db.Tx, expectedMachineIDs []uuid.UUID) error
 }
 
 // ExpectedMachineSQLDAO is an implementation of the ExpectedMachineDAO interface
@@ -493,6 +496,63 @@ func (emsd ExpectedMachineSQLDAO) Get(ctx context.Context, tx *db.Tx, expectedMa
 	return em, nil
 }
 
+// LockForUpdate locks ExpectedMachine rows in canonical ID order until the
+// transaction completes. Batch writers call this before any row-specific
+// writes so later operations cannot acquire overlapping row sets in a
+// conflicting order.
+func (emsd ExpectedMachineSQLDAO) LockForUpdate(ctx context.Context, tx *db.Tx, expectedMachineIDs []uuid.UUID) error {
+	if tx == nil {
+		return errors.New("transaction is required to lock ExpectedMachine rows")
+	}
+	if len(expectedMachineIDs) == 0 {
+		return nil
+	}
+
+	ctx, expectedMachineDAOSpan := emsd.tracerSpan.CreateChildInCurrentContext(ctx, "ExpectedMachineDAO.LockForUpdate")
+	if expectedMachineDAOSpan != nil {
+		defer expectedMachineDAOSpan.End()
+		emsd.tracerSpan.SetAttribute(expectedMachineDAOSpan, "batch_size", len(expectedMachineIDs))
+	}
+
+	uniqueIDs := make([]uuid.UUID, 0, len(expectedMachineIDs))
+	seenIDs := make(map[uuid.UUID]struct{}, len(expectedMachineIDs))
+	for _, expectedMachineID := range expectedMachineIDs {
+		if _, seen := seenIDs[expectedMachineID]; seen {
+			continue
+		}
+		seenIDs[expectedMachineID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, expectedMachineID)
+	}
+
+	var locked []ExpectedMachine
+	err := db.GetIDB(tx, emsd.dbSession).
+		NewSelect().
+		Model(&locked).
+		Column("id").
+		Where("em.id IN (?)", bun.In(uniqueIDs)).
+		OrderExpr("em.id ASC").
+		For("UPDATE").
+		Scan(ctx)
+	if err != nil {
+		return err
+	}
+	if len(locked) != len(uniqueIDs) {
+		lockedIDs := make(map[uuid.UUID]struct{}, len(locked))
+		for _, expectedMachine := range locked {
+			lockedIDs[expectedMachine.ID] = struct{}{}
+		}
+		missingIDs := make([]uuid.UUID, 0, len(uniqueIDs)-len(locked))
+		for _, expectedMachineID := range uniqueIDs {
+			if _, ok := lockedIDs[expectedMachineID]; !ok {
+				missingIDs = append(missingIDs, expectedMachineID)
+			}
+		}
+		return fmt.Errorf("ExpectedMachine rows %v were not found while locking: %w", missingIDs, db.ErrDoesNotExist)
+	}
+
+	return nil
+}
+
 // setQueryWithFilter populates the lookup query based on specified filter
 func (emsd ExpectedMachineSQLDAO) setQueryWithFilter(filter ExpectedMachineFilterInput, query *bun.SelectQuery, expectedMachineDAOSpan *stracer.CurrentContextSpan) (*bun.SelectQuery, error) {
 	if filter.SiteIDs != nil {
@@ -626,11 +686,13 @@ func (emsd ExpectedMachineSQLDAO) Update(ctx context.Context, tx *db.Tx, input E
 	return &results[0], nil
 }
 
-// UpdateMultiple updates multiple ExpectedMachines with the given parameters using a single bulk UPDATE query
-// All inputs should update the same set of fields for optimal performance
+// UpdateMultiple updates multiple ExpectedMachines with the given parameters.
+// Fields shared by the inputs use one bulk UPDATE. BMC IP and host lifecycle
+// profile updates may be omitted by individual rows, so they are applied only
+// to the rows that provide them.
 // The updated fields are assumed to be set to non-null values.
-// Since there are 2 operations (UPDATE, SELECT), it is required that
-// this library call happens within a transaction
+// Since the updates are followed by a SELECT, this library call must happen
+// within a transaction.
 func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx, inputs []ExpectedMachineUpdateInput) ([]ExpectedMachine, error) {
 	// Create a child span and set the attributes for current request
 	ctx, expectedMachineDAOSpan := emsd.tracerSpan.CreateChildInCurrentContext(ctx, "ExpectedMachineDAO.UpdateMultiple")
@@ -647,6 +709,9 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 	expectedMachines := make([]*ExpectedMachine, 0, len(inputs))
 	ids := make([]uuid.UUID, 0, len(inputs))
 	columnsSet := make(map[string]bool)
+	// `bmc_ip_address` is applied only to rows that provide it. The shared
+	// column list would otherwise clear rows whose PATCH input omitted it.
+	bmcIPUpdates := make([]*ExpectedMachine, 0, len(inputs))
 	// host_lifecycle_profile is applied in its own bulk update scoped to only the
 	// rows that set it (see below), so rows that omit it keep their existing value.
 	hlpUpdates := make([]*ExpectedMachine, 0, len(inputs))
@@ -681,8 +746,10 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 			columnsSet["machine_id"] = true
 		}
 		if input.BmcIpAddress != nil {
-			em.BmcIpAddress = input.BmcIpAddress
-			columnsSet["bmc_ip_address"] = true
+			bmcIPUpdates = append(bmcIPUpdates, &ExpectedMachine{
+				ID:           input.ExpectedMachineID,
+				BmcIpAddress: input.BmcIpAddress,
+			})
 		}
 		if input.RackID != nil {
 			em.RackID = input.RackID
@@ -748,7 +815,14 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 
 	// Add summary tracing attributes
 	if expectedMachineDAOSpan != nil && len(inputs) > 0 {
-		emsd.tracerSpan.SetAttribute(expectedMachineDAOSpan, "columns_updated", strings.Join(columns, ","))
+		traceColumns := append([]string(nil), columns...)
+		if len(bmcIPUpdates) > 0 {
+			traceColumns = append(traceColumns, "bmc_ip_address")
+		}
+		if len(hlpUpdates) > 0 {
+			traceColumns = append(traceColumns, "host_lifecycle_profile")
+		}
+		emsd.tracerSpan.SetAttribute(expectedMachineDAOSpan, "columns_updated", strings.Join(traceColumns, ","))
 		emsd.tracerSpan.SetAttribute(expectedMachineDAOSpan, "first_id", ids[0].String())
 		if len(ids) > 1 {
 			emsd.tracerSpan.SetAttribute(expectedMachineDAOSpan, "last_id", ids[len(ids)-1].String())
@@ -763,6 +837,17 @@ func (emsd ExpectedMachineSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx,
 		Exec(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(bmcIPUpdates) > 0 {
+		_, err = db.GetIDB(tx, emsd.dbSession).NewUpdate().
+			Model(&bmcIPUpdates).
+			Column("bmc_ip_address").
+			Bulk().
+			Exec(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply host_lifecycle_profile only to the rows that provided it. Rows that

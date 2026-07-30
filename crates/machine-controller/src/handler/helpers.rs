@@ -126,13 +126,14 @@ pub trait NextState {
                     all_machine_ids,
                 ),
             ReprovisionState::DpfStates { substate } => match substate {
-                DpfState::WaitingForReady { .. } | DpfState::DeviceReady => {
-                    ReprovisionState::PoweringOffHost.next_state_with_all_dpus_updated(
+                DpfState::WaitingForReady { .. }
+                | DpfState::HandleReboot { .. }
+                | DpfState::DeviceReady => ReprovisionState::PoweringOffHost
+                    .next_state_with_all_dpus_updated(
                         &state.managed_state,
                         &state.dpu_snapshots,
                         all_machine_ids,
-                    )
-                }
+                    ),
                 DpfState::Reprovisioning => ReprovisionState::DpfStates {
                     substate: DpfState::Provisioning,
                 }

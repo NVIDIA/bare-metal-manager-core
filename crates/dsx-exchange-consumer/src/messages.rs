@@ -123,7 +123,7 @@ impl<'de> Deserialize<'de> for FaultValue {
             }
         }
 
-        deserializer.deserialize_any(BinaryValueVisitor)
+        deserializer.deserialize_f64(BinaryValueVisitor)
     }
 }
 

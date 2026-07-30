@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_explorer::test_support::generate_managed_host_reports;
-use bmc_mock::HostHardwareType;
+use bmc_mock::HardwareType;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
@@ -44,9 +44,7 @@ use model::site_explorer::{
 };
 use model::test_support::{DpuConfig, ManagedHostConfig};
 use rpc::forge::GetSiteExplorationRequest;
-use rpc::site_explorer::{
-    ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
-};
+use rpc::site_explorer::ExploredDpu as RpcExploredDpu;
 use tonic::Request;
 
 use crate::env::{self, Env};
@@ -1513,28 +1511,17 @@ async fn test_site_explorer_main(pool: PgPool) -> Result<(), Box<dyn std::error:
         .expect("Should have found one managed host with zero DPUs")
         .clone();
 
+    assert_eq!(managed_host_1.host_bmc_ip, machines[1].ip);
     assert_eq!(
-        managed_host_1,
-        RpcExploredManagedHost {
-            host_bmc_ip: machines[1].ip.clone(),
-            dpu_bmc_ip: machines[0].ip.clone(),
+        managed_host_1.dpus,
+        vec![RpcExploredDpu {
+            bmc_ip: machines[0].ip.clone(),
             host_pf_mac_address: Some(mock_dpu.host_mac_address.to_string()),
-            dpus: vec![RpcExploredDpu {
-                bmc_ip: machines[0].ip.clone(),
-                host_pf_mac_address: Some(mock_dpu.host_mac_address.to_string()),
-            }]
-        }
+        }]
     );
 
-    assert_eq!(
-        managed_host_2,
-        RpcExploredManagedHost {
-            host_bmc_ip: machines[2].ip.clone(),
-            dpu_bmc_ip: "".to_string(),
-            host_pf_mac_address: None,
-            dpus: vec![],
-        }
-    );
+    assert_eq!(managed_host_2.host_bmc_ip, machines[2].ip);
+    assert!(managed_host_2.dpus.is_empty());
 
     assert_eq!(
         test_meter
@@ -3288,7 +3275,7 @@ async fn test_site_explorer_pairs_vr_bf4_from_bluefield_chassis(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = Env::new(pool).await;
 
-    let reports = generate_managed_host_reports(HostHardwareType::NvidiaDgxVr).await?;
+    let reports = generate_managed_host_reports(HardwareType::NvidiaDgxVr).await?;
     let dpu = reports
         .dpus
         .first()

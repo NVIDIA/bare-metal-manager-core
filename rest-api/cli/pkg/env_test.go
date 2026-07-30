@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"sort"
 	"strings"
@@ -266,6 +267,21 @@ func TestFormatEnvOverrides_MaskingAndPlain(t *testing.T) {
 	empty := FormatEnvOverrides(nil, false)
 	assert.True(t, strings.Contains(empty, "no NICO_* environment variables set"),
 		"empty list should produce a friendly placeholder")
+}
+
+func TestPrintEnvOverridesForDebugRedactsSensitiveValues(t *testing.T) {
+	clearAllNicoEnv(t)
+	t.Setenv("NICO_BASE_URL", "https://api.example.com")
+	t.Setenv("NICO_TOKEN", "debug-token-that-must-not-be-printed")
+
+	var output bytes.Buffer
+	printEnvOverridesForDebug(&output)
+
+	assert.Contains(t, output.String(), "NICO_BASE_URL")
+	assert.Contains(t, output.String(), "https://api.example.com")
+	assert.Contains(t, output.String(), "NICO_TOKEN")
+	assert.Contains(t, output.String(), "REDACTED")
+	assert.NotContains(t, output.String(), "debug-token-that-must-not-be-printed")
 }
 
 func TestApplyEnvOverrides_OnceLoadedConfig(t *testing.T) {

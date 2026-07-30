@@ -894,6 +894,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
 
         managed_host_config: Some(rpc::forge::ManagedHostNetworkConfig {
             loopback_ip: "127.0.0.1".to_string(),
+            loopback_ip_v6: None,
             quarantine_state: None,
         }),
         managed_host_config_version: config_version.clone(),

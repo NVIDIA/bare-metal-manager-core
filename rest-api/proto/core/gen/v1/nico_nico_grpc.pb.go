@@ -47,6 +47,8 @@ const (
 	Forge_GetVpcPrefixes_FullMethodName                                     = "/forge.Forge/GetVpcPrefixes"
 	Forge_UpdateVpcPrefix_FullMethodName                                    = "/forge.Forge/UpdateVpcPrefix"
 	Forge_DeleteVpcPrefix_FullMethodName                                    = "/forge.Forge/DeleteVpcPrefix"
+	Forge_FindSitePrefixIds_FullMethodName                                  = "/forge.Forge/FindSitePrefixIds"
+	Forge_FindSitePrefixesByIds_FullMethodName                              = "/forge.Forge/FindSitePrefixesByIds"
 	Forge_CreateVpcPeering_FullMethodName                                   = "/forge.Forge/CreateVpcPeering"
 	Forge_FindVpcPeeringIds_FullMethodName                                  = "/forge.Forge/FindVpcPeeringIds"
 	Forge_FindVpcPeeringsByIds_FullMethodName                               = "/forge.Forge/FindVpcPeeringsByIds"
@@ -189,6 +191,7 @@ const (
 	Forge_ListDpuWaitingForReprovisioning_FullMethodName                    = "/forge.Forge/ListDpuWaitingForReprovisioning"
 	Forge_TriggerHostReprovisioning_FullMethodName                          = "/forge.Forge/TriggerHostReprovisioning"
 	Forge_ListHostsWaitingForReprovisioning_FullMethodName                  = "/forge.Forge/ListHostsWaitingForReprovisioning"
+	Forge_TriggerBmcCredentialRotation_FullMethodName                       = "/forge.Forge/TriggerBmcCredentialRotation"
 	Forge_MarkManualFirmwareUpgradeComplete_FullMethodName                  = "/forge.Forge/MarkManualFirmwareUpgradeComplete"
 	Forge_ReportScoutFirmwareUpgradeStatus_FullMethodName                   = "/forge.Forge/ReportScoutFirmwareUpgradeStatus"
 	Forge_GetDpuInfoList_FullMethodName                                     = "/forge.Forge/GetDpuInfoList"
@@ -202,6 +205,8 @@ const (
 	Forge_DeleteCredential_FullMethodName                                   = "/forge.Forge/DeleteCredential"
 	Forge_RotateCredential_FullMethodName                                   = "/forge.Forge/RotateCredential"
 	Forge_GetCredentialRotationStatus_FullMethodName                        = "/forge.Forge/GetCredentialRotationStatus"
+	Forge_GetContainerRegistryCredential_FullMethodName                     = "/forge.Forge/GetContainerRegistryCredential"
+	Forge_SetContainerRegistryCredential_FullMethodName                     = "/forge.Forge/SetContainerRegistryCredential"
 	Forge_GetRouteServers_FullMethodName                                    = "/forge.Forge/GetRouteServers"
 	Forge_AddRouteServers_FullMethodName                                    = "/forge.Forge/AddRouteServers"
 	Forge_RemoveRouteServers_FullMethodName                                 = "/forge.Forge/RemoveRouteServers"
@@ -526,6 +531,9 @@ type ForgeClient interface {
 	GetVpcPrefixes(ctx context.Context, in *VpcPrefixGetRequest, opts ...grpc.CallOption) (*VpcPrefixList, error)
 	UpdateVpcPrefix(ctx context.Context, in *VpcPrefixUpdateRequest, opts ...grpc.CallOption) (*VpcPrefix, error)
 	DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletionRequest, opts ...grpc.CallOption) (*VpcPrefixDeletionResult, error)
+	// Site prefixes
+	FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error)
+	FindSitePrefixesByIds(ctx context.Context, in *SitePrefixesByIdsRequest, opts ...grpc.CallOption) (*SitePrefixList, error)
 	// VPC peering
 	CreateVpcPeering(ctx context.Context, in *VpcPeeringCreationRequest, opts ...grpc.CallOption) (*VpcPeering, error)
 	FindVpcPeeringIds(ctx context.Context, in *VpcPeeringSearchFilter, opts ...grpc.CallOption) (*VpcPeeringIdList, error)
@@ -783,6 +791,15 @@ type ForgeClient interface {
 	TriggerHostReprovisioning(ctx context.Context, in *HostReprovisioningRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// List hosts waiting for reprovisioning
 	ListHostsWaitingForReprovisioning(ctx context.Context, in *HostReprovisioningListRequest, opts ...grpc.CallOption) (*HostReprovisioningListResponse, error)
+	// Operator "force-converge this BMC now" escape hatch for a single host/DPU
+	// BMC. This is asynchronous: the handler only persists (Set) or removes
+	// (Clear) the machine's `bmc_credential_rotation_requested` flag and returns;
+	// it performs no rotation itself. A later machine-controller sweep observes a
+	// set flag and rotates the BMC, bypassing the passive site-wide gate and the
+	// device's backoff quarantine, then clears the flag once it converges. Clear
+	// only withdraws a not-yet-consumed request -- it does not undo or reset any
+	// BMC credentials that a prior sweep already rotated.
+	TriggerBmcCredentialRotation(ctx context.Context, in *BmcCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -811,6 +828,9 @@ type ForgeClient interface {
 	RotateCredential(ctx context.Context, in *RotateCredentialRequest, opts ...grpc.CallOption) (*RotateCredentialResult, error)
 	// Report convergence of an in-flight (or completed) site-wide rotation.
 	GetCredentialRotationStatus(ctx context.Context, in *CredentialRotationStatusRequest, opts ...grpc.CallOption) (*CredentialRotationStatusResult, error)
+	// Get Container registry credentials
+	GetContainerRegistryCredential(ctx context.Context, in *GetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*GetContainerRegistryCredentialResponse, error)
+	SetContainerRegistryCredential(ctx context.Context, in *SetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Route Server Management
 	GetRouteServers(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*RouteServerEntries, error)
 	AddRouteServers(ctx context.Context, in *RouteServers, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -1540,6 +1560,26 @@ func (c *forgeClient) DeleteVpcPrefix(ctx context.Context, in *VpcPrefixDeletion
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(VpcPrefixDeletionResult)
 	err := c.cc.Invoke(ctx, Forge_DeleteVpcPrefix_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindSitePrefixIds(ctx context.Context, in *SitePrefixSearchFilter, opts ...grpc.CallOption) (*SitePrefixIdList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefixIdList)
+	err := c.cc.Invoke(ctx, Forge_FindSitePrefixIds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) FindSitePrefixesByIds(ctx context.Context, in *SitePrefixesByIdsRequest, opts ...grpc.CallOption) (*SitePrefixList, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SitePrefixList)
+	err := c.cc.Invoke(ctx, Forge_FindSitePrefixesByIds_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2969,6 +3009,16 @@ func (c *forgeClient) ListHostsWaitingForReprovisioning(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *forgeClient) TriggerBmcCredentialRotation(ctx context.Context, in *BmcCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_TriggerBmcCredentialRotation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -3093,6 +3143,26 @@ func (c *forgeClient) GetCredentialRotationStatus(ctx context.Context, in *Crede
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CredentialRotationStatusResult)
 	err := c.cc.Invoke(ctx, Forge_GetCredentialRotationStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) GetContainerRegistryCredential(ctx context.Context, in *GetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*GetContainerRegistryCredentialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetContainerRegistryCredentialResponse)
+	err := c.cc.Invoke(ctx, Forge_GetContainerRegistryCredential_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) SetContainerRegistryCredential(ctx context.Context, in *SetContainerRegistryCredentialRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_SetContainerRegistryCredential_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -5980,6 +6050,9 @@ type ForgeServer interface {
 	GetVpcPrefixes(context.Context, *VpcPrefixGetRequest) (*VpcPrefixList, error)
 	UpdateVpcPrefix(context.Context, *VpcPrefixUpdateRequest) (*VpcPrefix, error)
 	DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error)
+	// Site prefixes
+	FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error)
+	FindSitePrefixesByIds(context.Context, *SitePrefixesByIdsRequest) (*SitePrefixList, error)
 	// VPC peering
 	CreateVpcPeering(context.Context, *VpcPeeringCreationRequest) (*VpcPeering, error)
 	FindVpcPeeringIds(context.Context, *VpcPeeringSearchFilter) (*VpcPeeringIdList, error)
@@ -6237,6 +6310,15 @@ type ForgeServer interface {
 	TriggerHostReprovisioning(context.Context, *HostReprovisioningRequest) (*emptypb.Empty, error)
 	// List hosts waiting for reprovisioning
 	ListHostsWaitingForReprovisioning(context.Context, *HostReprovisioningListRequest) (*HostReprovisioningListResponse, error)
+	// Operator "force-converge this BMC now" escape hatch for a single host/DPU
+	// BMC. This is asynchronous: the handler only persists (Set) or removes
+	// (Clear) the machine's `bmc_credential_rotation_requested` flag and returns;
+	// it performs no rotation itself. A later machine-controller sweep observes a
+	// set flag and rotates the BMC, bypassing the passive site-wide gate and the
+	// device's backoff quarantine, then clears the flag once it converges. Clear
+	// only withdraws a not-yet-consumed request -- it does not undo or reset any
+	// BMC credentials that a prior sweep already rotated.
+	TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error)
@@ -6265,6 +6347,9 @@ type ForgeServer interface {
 	RotateCredential(context.Context, *RotateCredentialRequest) (*RotateCredentialResult, error)
 	// Report convergence of an in-flight (or completed) site-wide rotation.
 	GetCredentialRotationStatus(context.Context, *CredentialRotationStatusRequest) (*CredentialRotationStatusResult, error)
+	// Get Container registry credentials
+	GetContainerRegistryCredential(context.Context, *GetContainerRegistryCredentialRequest) (*GetContainerRegistryCredentialResponse, error)
+	SetContainerRegistryCredential(context.Context, *SetContainerRegistryCredentialRequest) (*emptypb.Empty, error)
 	// Route Server Management
 	GetRouteServers(context.Context, *emptypb.Empty) (*RouteServerEntries, error)
 	AddRouteServers(context.Context, *RouteServers) (*emptypb.Empty, error)
@@ -6827,6 +6912,12 @@ func (UnimplementedForgeServer) UpdateVpcPrefix(context.Context, *VpcPrefixUpdat
 func (UnimplementedForgeServer) DeleteVpcPrefix(context.Context, *VpcPrefixDeletionRequest) (*VpcPrefixDeletionResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteVpcPrefix not implemented")
 }
+func (UnimplementedForgeServer) FindSitePrefixIds(context.Context, *SitePrefixSearchFilter) (*SitePrefixIdList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixIds not implemented")
+}
+func (UnimplementedForgeServer) FindSitePrefixesByIds(context.Context, *SitePrefixesByIdsRequest) (*SitePrefixList, error) {
+	return nil, status.Error(codes.Unimplemented, "method FindSitePrefixesByIds not implemented")
+}
 func (UnimplementedForgeServer) CreateVpcPeering(context.Context, *VpcPeeringCreationRequest) (*VpcPeering, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateVpcPeering not implemented")
 }
@@ -7253,6 +7344,9 @@ func (UnimplementedForgeServer) TriggerHostReprovisioning(context.Context, *Host
 func (UnimplementedForgeServer) ListHostsWaitingForReprovisioning(context.Context, *HostReprovisioningListRequest) (*HostReprovisioningListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListHostsWaitingForReprovisioning not implemented")
 }
+func (UnimplementedForgeServer) TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method TriggerBmcCredentialRotation not implemented")
+}
 func (UnimplementedForgeServer) MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkManualFirmwareUpgradeComplete not implemented")
 }
@@ -7291,6 +7385,12 @@ func (UnimplementedForgeServer) RotateCredential(context.Context, *RotateCredent
 }
 func (UnimplementedForgeServer) GetCredentialRotationStatus(context.Context, *CredentialRotationStatusRequest) (*CredentialRotationStatusResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetCredentialRotationStatus not implemented")
+}
+func (UnimplementedForgeServer) GetContainerRegistryCredential(context.Context, *GetContainerRegistryCredentialRequest) (*GetContainerRegistryCredentialResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContainerRegistryCredential not implemented")
+}
+func (UnimplementedForgeServer) SetContainerRegistryCredential(context.Context, *SetContainerRegistryCredentialRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetContainerRegistryCredential not implemented")
 }
 func (UnimplementedForgeServer) GetRouteServers(context.Context, *emptypb.Empty) (*RouteServerEntries, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRouteServers not implemented")
@@ -8592,6 +8692,42 @@ func _Forge_DeleteVpcPrefix_Handler(srv interface{}, ctx context.Context, dec fu
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).DeleteVpcPrefix(ctx, req.(*VpcPrefixDeletionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindSitePrefixIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixSearchFilter)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSitePrefixIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSitePrefixIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSitePrefixIds(ctx, req.(*SitePrefixSearchFilter))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_FindSitePrefixesByIds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SitePrefixesByIdsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).FindSitePrefixesByIds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_FindSitePrefixesByIds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).FindSitePrefixesByIds(ctx, req.(*SitePrefixesByIdsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -11152,6 +11288,24 @@ func _Forge_ListHostsWaitingForReprovisioning_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_TriggerBmcCredentialRotation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BmcCredentialRotationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TriggerBmcCredentialRotation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TriggerBmcCredentialRotation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TriggerBmcCredentialRotation(ctx, req.(*BmcCredentialRotationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_MarkManualFirmwareUpgradeComplete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MachineId)
 	if err := dec(in); err != nil {
@@ -11382,6 +11536,42 @@ func _Forge_GetCredentialRotationStatus_Handler(srv interface{}, ctx context.Con
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).GetCredentialRotationStatus(ctx, req.(*CredentialRotationStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_GetContainerRegistryCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetContainerRegistryCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).GetContainerRegistryCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_GetContainerRegistryCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).GetContainerRegistryCredential(ctx, req.(*GetContainerRegistryCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_SetContainerRegistryCredential_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetContainerRegistryCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetContainerRegistryCredential(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetContainerRegistryCredential_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetContainerRegistryCredential(ctx, req.(*SetContainerRegistryCredentialRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -16591,6 +16781,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_DeleteVpcPrefix_Handler,
 		},
 		{
+			MethodName: "FindSitePrefixIds",
+			Handler:    _Forge_FindSitePrefixIds_Handler,
+		},
+		{
+			MethodName: "FindSitePrefixesByIds",
+			Handler:    _Forge_FindSitePrefixesByIds_Handler,
+		},
+		{
 			MethodName: "CreateVpcPeering",
 			Handler:    _Forge_CreateVpcPeering_Handler,
 		},
@@ -17159,6 +17357,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Forge_ListHostsWaitingForReprovisioning_Handler,
 		},
 		{
+			MethodName: "TriggerBmcCredentialRotation",
+			Handler:    _Forge_TriggerBmcCredentialRotation_Handler,
+		},
+		{
 			MethodName: "MarkManualFirmwareUpgradeComplete",
 			Handler:    _Forge_MarkManualFirmwareUpgradeComplete_Handler,
 		},
@@ -17209,6 +17411,14 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetCredentialRotationStatus",
 			Handler:    _Forge_GetCredentialRotationStatus_Handler,
+		},
+		{
+			MethodName: "GetContainerRegistryCredential",
+			Handler:    _Forge_GetContainerRegistryCredential_Handler,
+		},
+		{
+			MethodName: "SetContainerRegistryCredential",
+			Handler:    _Forge_SetContainerRegistryCredential_Handler,
 		},
 		{
 			MethodName: "GetRouteServers",

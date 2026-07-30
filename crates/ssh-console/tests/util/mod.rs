@@ -125,7 +125,7 @@ pub async fn run_baseline_test_environment(
                         ))
                     }
                     MockBmcType::Ipmi => Ok(MockBmcHandle::Ipmi(
-                        ipmi_sim::run(format!("root@{machine_id} # ")).await?,
+                        ipmi_sim::run(format!("root@{machine_id} # ")).await?.into(),
                     )),
                 }?;
 
@@ -158,7 +158,7 @@ pub async fn run_baseline_test_environment(
                 },
                 ipmi_port: match &bmc_handle {
                     MockBmcHandle::Ssh(_) => None,
-                    MockBmcHandle::Ipmi(i) => Some(i.ipmi_sim_lan_port),
+                    MockBmcHandle::Ipmi(i) => Some(i.endpoint.listen_port),
                 },
                 bmc_user: "root".to_string(),
                 bmc_password: "password".to_string(),
@@ -198,7 +198,7 @@ pub enum MockBmcType {
 
 pub enum MockBmcHandle {
     Ssh(MockSshServerHandle),
-    Ipmi(IpmiSimHandle),
+    Ipmi(Box<IpmiSimHandle>),
 }
 
 #[derive(Debug)]

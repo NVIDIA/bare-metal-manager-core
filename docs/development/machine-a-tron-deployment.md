@@ -5,6 +5,15 @@ servers via Redfish BMC, allowing end-to-end NICo flows without real hardware. T
 guide documents everything needed to build the container image and deploy it on a
 cluster.
 
+<Note title="Version availability">
+Everything in this guide — the `nico-machine-a-tron` Helm chart,
+`helm-prereqs/setup-machine-a-tron.sh`, and the values files it references —
+landed on `main` in July 2026 (#2764) and is **not present in v2.0.x
+releases**. If your checkout is a `v2.0.0` tag or the `release/v2.0` branch,
+these paths will not exist; use a checkout of `main` (or the first release
+that includes them) to follow this guide.
+</Note>
+
 ## Overview
 
 machine-a-tron runs in **Override Mode**: site-explorer redirects all Redfish traffic
@@ -330,13 +339,29 @@ seeds, SPIFFE URI). Multi-pod adds the following requirements, all hit in practi
    `bmc_proxy` the Redfish client sends no `Forwarded` header; older bmc-mock
    builds then 404 every request with `no router configured`. Leave
    `site_explorer.bmc_proxy` unset in this mode.
-1. **Disjoint MAC pools per pod.** All machine-a-tron instances derive MACs
-   from the same default pools, so the pod that leases second is rejected on
-   every DHCP with `Network segment mismatch for existing MAC address` and
-   simulates nothing. Until the chart grows a per-pod MAC knob, supply full
-   per-pod TOML overrides via `configFiles.matConfigs.<pod>` setting distinct
-   `mac_address_pool` / `hw_mac_address_ranges` bases (see the example
-   values file).
+1. **Disjoint MAC pools per pod.** The Helm chart **auto-generates** unique
+   MAC address pools per pod based on pod index. The format is
+   `02:00:PP:XX:XX:XX` where `PP` is the pod index (0x00, 0x01, etc.).
+
+   Example with 3 pods:
+
+   - Pod mat-0: `02:00:00:00:00:00` (base)
+   - Pod mat-1: `02:00:01:00:00:00` (base)
+   - Pod mat-2: `02:00:02:00:00:00` (base)
+
+   To override, set per-pod MAC pools in values:
+
+   ```yaml
+   pods:
+     mat-0:
+       macAddressPool:
+         base: "02:00:00:00:00:00"
+         hostBits: 20
+   ```
+
+   Or disable auto-generation with `macAddressPool.enabled: false` and use
+   full TOML overrides via `configFiles.matConfigs.<pod>`.
+
 1. **One NICo network segment per pod CIDR.** `network_prefixes` allows one
    IPv4 prefix per segment, so each pod CIDR needs its own cloned underlay
    segment (same technique as the scale-mode segment fallback), gateway `.1`,

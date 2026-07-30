@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_credential_rotation::BmcRotationGate;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
@@ -30,6 +31,7 @@ use state_controller::state_handler::{StateHandlerContextObjects, StateHandlerEr
 
 use crate::config::MachineStateHandlerSiteConfig;
 use crate::metrics::MachineMetrics;
+use crate::per_object::MachinePerObjectInfo;
 
 pub struct MachineStateHandlerContextObjects {}
 
@@ -53,8 +55,15 @@ pub struct MachineStateHandlerServices {
     /// Optional Component Manager backend for rack-scale maintenance operations.
     pub component_manager: Option<Arc<ComponentManager>>,
     pub credential_manager: Arc<dyn CredentialManager>,
+    /// Short-TTL cache of the site-wide BMC rotation aggregate, shared across
+    /// this replica's per-object ticks so the steady state costs one aggregate
+    /// query per TTL window rather than a per-device query every sweep.
+    pub bmc_rotation_gate: BmcRotationGate,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
+    /// Trait/association info gauges for the per-object metrics endpoint,
+    /// present when per-object state metrics are enabled for machines.
+    pub per_object_info: Option<MachinePerObjectInfo>,
 }
 
 impl MachineStateHandlerServices {

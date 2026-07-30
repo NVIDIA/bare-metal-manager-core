@@ -12,7 +12,8 @@ import (
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 )
 
-// APIDpuNetworkConfig represents the complete network configuration for a DPU
+// APIDpuNetworkConfig represents the network configuration fields exposed by the REST API for a DPU.
+// Internal-only and sensitive Core fields are omitted; this is not the complete Core configuration.
 type APIDpuNetworkConfig struct {
 	// Asn is the Autonomous System Number for BGP routing
 	Asn int `json:"asn"`
@@ -440,7 +441,8 @@ type APIDpuMachine struct {
 	Labels map[string]string `json:"labels"`
 	// State is the lifecycle state of the DPU as reported by NICo Core
 	State string `json:"state"`
-	// DpuNetworkConfig is the complete network configuration sent to the DPU agent
+	// DpuNetworkConfig contains the network configuration fields exposed by the REST API for the DPU.
+	// Internal-only and sensitive Core fields are omitted; the REST response retains its public JSON shape.
 	DpuNetworkConfig APIDpuNetworkConfig `json:"dpuNetworkConfig"`
 	// LastRebooted is the last reboot timestamp reported by NICo Core
 	LastRebooted *time.Time `json:"lastRebooted"`

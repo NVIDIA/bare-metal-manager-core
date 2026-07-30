@@ -18,19 +18,31 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+/// Returns the canonical form of a Redfish boot-interface id.
+///
+/// Redfish ids may arrive padded by transport or vendor formatting. Only
+/// boundary ASCII whitespace is removed so Rust and the database apply the
+/// same rule without changing any non-ASCII identifier characters. An empty
+/// canonical value is not a usable id.
+pub fn canonical_redfish_boot_interface_id(interface_id: &str) -> Option<&str> {
+    let interface_id = interface_id.trim_matches(|character: char| {
+        matches!(character, ' ' | '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r')
+    });
+    (!interface_id.is_empty()).then_some(interface_id)
+}
+
 /// A host's boot interface, identified by *both* its MAC address and its
 /// vendor-native Redfish `EthernetInterface.Id`.
 ///
 /// Both fields are always present: a `MachineBootInterface` is only ever
 /// constructed from a fully-populated pair, captured while the MAC was still
-/// reported by Redfish. Carrying both identifiers is what makes boot-interface
-/// operations resilient -- callers target the MAC first and fall back to the
-/// [stable] `interface_id`, so the boot interface stays addressable even if one
-/// identifier becomes unavailable. That happens, for example, after a BlueField
-/// operating-mode flip from DPU to NIC: some vendor BIOSes stop probing the
-/// adapter and the MAC drops out of `NetworkDeviceFunctions` /
-/// `EthernetInterfaces` / `NetworkAdapters`, leaving the `interface_id` as the
-/// reliable handle.
+/// reported by Redfish. When this complete pair is available, boot-interface
+/// callers pass both identifiers to `libredfish` as one `BootInterfaceRef::Pair`;
+/// callers without an `interface_id` target the MAC alone. This allows each
+/// vendor to use the identifier its implementation expects. Dell uses
+/// `interface_id` directly, which keeps the boot interface addressable after a
+/// BlueField operating-mode flip removes its MAC from `NetworkDeviceFunctions`,
+/// `EthernetInterfaces`, and `NetworkAdapters`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct MachineBootInterface {
@@ -67,9 +79,92 @@ impl MachineBootInterface {
     }
 }
 
+/// A host boot-interface target used for both desired configuration and
+/// Redfish observations.
+///
+/// NICo retains the complete [`MachineBootInterface`] pair whenever both
+/// identifiers are known. Older records and newly discovered targets may only
+/// have the MAC, which remains a valid selector. A backend may match with only the
+/// identifiers its read path supports -- NvRedfish currently uses the MAC --
+/// while this value keeps the `Pair` identity NICo requested. The state
+/// controller can therefore compare the logical target with its current target
+/// before trusting the associated setup status.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum MachineBootInterfaceTarget {
+    /// Both the MAC and vendor-native Redfish interface id are known.
+    Pair(MachineBootInterface),
+    /// Only the MAC is known.
+    MacOnly(MacAddress),
+}
+
+impl MachineBootInterfaceTarget {
+    /// Builds the strongest usable target from an endpoint record.
+    ///
+    /// A MAC plus a non-empty interface id becomes [`Self::Pair`]. A MAC
+    /// without an id remains [`Self::MacOnly`], while an id without a MAC
+    /// cannot identify an interface and yields `None`.
+    pub fn from_parts(
+        mac_address: Option<MacAddress>,
+        interface_id: Option<String>,
+    ) -> Option<Self> {
+        let mac_address = mac_address?;
+        Some(match interface_id.none_if_empty() {
+            Some(interface_id) => Self::Pair(MachineBootInterface {
+                mac_address,
+                interface_id,
+            }),
+            None => Self::MacOnly(mac_address),
+        })
+    }
+
+    /// Returns the MAC address used to identify this target.
+    pub fn mac_address(&self) -> MacAddress {
+        match self {
+            Self::Pair(interface) => interface.mac_address,
+            Self::MacOnly(mac_address) => *mac_address,
+        }
+    }
+
+    /// Returns the vendor-native Redfish interface id when it is known.
+    pub fn interface_id(&self) -> Option<&str> {
+        match self {
+            Self::Pair(interface) => Some(&interface.interface_id),
+            Self::MacOnly(_) => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use carbide_test_support::value_scenarios;
+
     use super::*;
+
+    #[test]
+    fn redfish_boot_interface_ids_use_ascii_boundary_whitespace() {
+        value_scenarios!(run = |interface_id| {
+            canonical_redfish_boot_interface_id(interface_id)
+        };
+            "canonical" {
+                "NIC.Slot.7-1-1" => Some("NIC.Slot.7-1-1"),
+            }
+
+            "padded valid id" {
+                " \t\n\u{000b}\u{000c}\rNIC.Slot.7-1-1 \t\n\u{000b}\u{000c}\r" =>
+                    Some("NIC.Slot.7-1-1"),
+            }
+
+            "ASCII whitespace only" {
+                "\t\n" => None,
+            }
+
+            "non-ASCII boundary whitespace is retained" {
+                "\u{00a0}NIC.Slot.7-1-1\u{00a0}" =>
+                    Some("\u{00a0}NIC.Slot.7-1-1\u{00a0}"),
+            }
+        );
+    }
 
     #[test]
     fn from_parts_requires_both() {
@@ -98,5 +193,68 @@ mod tests {
             "an interface id with no MAC is not fully populated"
         );
         assert_eq!(MachineBootInterface::from_parts(None, None), None);
+    }
+
+    #[test]
+    fn target_from_parts_preserves_the_available_selector() {
+        let mac = MacAddress::new([1, 2, 3, 4, 5, 6]);
+
+        value_scenarios!(run = |(mac_address, interface_id)| {
+            MachineBootInterfaceTarget::from_parts(mac_address, interface_id)
+        };
+            "complete pair" {
+                (Some(mac), Some("NIC.Slot.7-1-1".to_string())) =>
+                    Some(MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address: mac,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    })),
+            }
+
+            "legacy MAC only" {
+                (Some(mac), None) => Some(MachineBootInterfaceTarget::MacOnly(mac)),
+            }
+
+            "empty interface id is MAC only" {
+                (Some(mac), Some(String::new())) =>
+                    Some(MachineBootInterfaceTarget::MacOnly(mac)),
+            }
+
+            "interface id without MAC" {
+                (None, Some("NIC.Slot.7-1-1".to_string())) => None,
+            }
+
+            "no target parts" {
+                (None, None) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn target_accessors_return_the_available_identifiers() {
+        let mac = MacAddress::new([1, 2, 3, 4, 5, 6]);
+
+        value_scenarios!(run = |target: MachineBootInterfaceTarget| {
+            (
+                target.mac_address(),
+                target.interface_id().map(ToOwned::to_owned),
+            )
+        };
+            "complete pair" {
+                MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address: mac,
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                }) => (
+                    mac,
+                    Some("NIC.Slot.7-1-1".to_string()),
+                ),
+            }
+
+            "MAC only" {
+                MachineBootInterfaceTarget::MacOnly(mac) => (
+                    mac,
+                    None,
+                ),
+            }
+        );
     }
 }

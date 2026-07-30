@@ -220,3 +220,251 @@ pub(crate) struct EntityInventory<B: Bmc> {
 }
 
 pub(crate) type SharedInventory<B> = Arc<ArcSwapOption<EntityInventory<B>>>;
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+
+    use super::*;
+    use crate::collectors::projection_test_support::{ProjectionFixture, TestBmc, TestEntity};
+
+    #[derive(Debug, PartialEq)]
+    struct ObservedDerivedMetric {
+        metric_type: &'static str,
+        unit: &'static str,
+        value: f64,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct ObservedEntity {
+        sensor_ids: Vec<String>,
+        entity_type: &'static str,
+        physical_context: &'static str,
+        base_attributes: Vec<(String, String)>,
+        entity_specific_attributes: Vec<(String, String)>,
+        key: String,
+        derived_metrics: Vec<ObservedDerivedMetric>,
+    }
+
+    fn observe(entity: DiscoveredEntity<TestBmc>) -> ObservedEntity {
+        ObservedEntity {
+            sensor_ids: entity
+                .sensors()
+                .iter()
+                .map(|sensor| sensor.odata_id().to_string())
+                .collect(),
+            entity_type: entity.entity_type(),
+            physical_context: entity.physical_context_fallback(),
+            base_attributes: entity
+                .base_attributes()
+                .into_iter()
+                .map(|(key, value)| (key.into_owned(), value))
+                .collect(),
+            entity_specific_attributes: entity
+                .entity_specific_attributes()
+                .into_iter()
+                .map(|(key, value)| (key.into_owned(), value))
+                .collect(),
+            key: entity.key(),
+            derived_metrics: entity
+                .derived_metrics()
+                .into_iter()
+                .map(|metric| ObservedDerivedMetric {
+                    metric_type: metric.metric_type,
+                    unit: metric.unit,
+                    value: metric.value,
+                })
+                .collect(),
+        }
+    }
+
+    #[tokio::test]
+    async fn inventory_projection_cases() {
+        let fixture = ProjectionFixture::new().await;
+
+        check_values(
+            [
+                Check {
+                    scenario: "populated processor",
+                    input: fixture.entity(TestEntity::Processor).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![
+                            "/redfish/v1/Chassis/CH0/Sensors/CPU0_Voltage".to_string(),
+                        ],
+                        entity_type: "processor",
+                        physical_context: "cpu",
+                        base_attributes: vec![
+                            ("processor_id".to_string(), "CPU0".to_string()),
+                            ("system_id".to_string(), "SYS0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![
+                            ("processor_type".to_string(), "cpu".to_string()),
+                            ("model".to_string(), "Grace".to_string()),
+                        ],
+                        key: "/redfish/v1/Systems/SYS0/Processors/CPU0".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "sparse processor",
+                    input: fixture.entity(TestEntity::SparseProcessor).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "processor",
+                        physical_context: "cpu",
+                        base_attributes: vec![
+                            ("processor_id".to_string(), "CPU-sparse".to_string()),
+                            ("system_id".to_string(), "SYS0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![],
+                        key: "/redfish/v1/Systems/SYS0/Processors/CPU-sparse".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "populated memory",
+                    input: fixture.entity(TestEntity::Memory).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "memory",
+                        physical_context: "memory",
+                        base_attributes: vec![
+                            ("memory_id".to_string(), "DIMM0".to_string()),
+                            ("system_id".to_string(), "SYS0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![
+                            ("device_type".to_string(), "ddr5".to_string()),
+                            ("model".to_string(), "HMCG94AGBRA".to_string()),
+                        ],
+                        key: "/redfish/v1/Systems/SYS0/Memory/DIMM0".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "sparse memory",
+                    input: fixture.entity(TestEntity::SparseMemory).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "memory",
+                        physical_context: "memory",
+                        base_attributes: vec![
+                            ("memory_id".to_string(), "DIMM-sparse".to_string()),
+                            ("system_id".to_string(), "SYS0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![],
+                        key: "/redfish/v1/Systems/SYS0/Memory/DIMM-sparse".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "populated drive",
+                    input: fixture.entity(TestEntity::Drive).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "drive",
+                        physical_context: "storage_device",
+                        base_attributes: vec![
+                            ("drive_id".to_string(), "D0".to_string()),
+                            ("storage_id".to_string(), "ST0".to_string()),
+                            ("system_id".to_string(), "SYS0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![(
+                            "model".to_string(),
+                            "NVMe-1".to_string(),
+                        )],
+                        key: "/redfish/v1/Systems/SYS0/Storage/ST0/Drives/D0".to_string(),
+                        derived_metrics: vec![ObservedDerivedMetric {
+                            metric_type: "drive_predicted_media_life_left",
+                            unit: "percentage",
+                            value: 80.0,
+                        }],
+                    },
+                },
+                Check {
+                    scenario: "sparse drive",
+                    input: fixture.entity(TestEntity::SparseDrive).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "drive",
+                        physical_context: "storage_device",
+                        base_attributes: vec![
+                            ("drive_id".to_string(), "D-sparse".to_string()),
+                            ("storage_id".to_string(), "ST0".to_string()),
+                            ("system_id".to_string(), "SYS0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![],
+                        key: "/redfish/v1/Systems/SYS0/Storage/ST0/Drives/D-sparse".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "populated power supply",
+                    input: fixture.entity(TestEntity::PowerSupply).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "powersupply",
+                        physical_context: "power_supply",
+                        base_attributes: vec![
+                            ("powersupply_id".to_string(), "PS0".to_string()),
+                            ("chassis_id".to_string(), "CH0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![(
+                            "model".to_string(),
+                            "PSU-3KW".to_string(),
+                        )],
+                        key: "/redfish/v1/Chassis/CH0/PowerSubsystem/PowerSupplies/PS0".to_string(),
+                        derived_metrics: vec![ObservedDerivedMetric {
+                            metric_type: "powersupply_capacity",
+                            unit: "watts",
+                            value: 3000.0,
+                        }],
+                    },
+                },
+                Check {
+                    scenario: "sparse power supply",
+                    input: fixture.entity(TestEntity::SparsePowerSupply).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "powersupply",
+                        physical_context: "power_supply",
+                        base_attributes: vec![
+                            ("powersupply_id".to_string(), "PS-sparse".to_string()),
+                            ("chassis_id".to_string(), "CH0".to_string()),
+                        ],
+                        entity_specific_attributes: vec![],
+                        key: "/redfish/v1/Chassis/CH0/PowerSubsystem/PowerSupplies/PS-sparse"
+                            .to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "populated chassis",
+                    input: fixture.entity(TestEntity::Chassis).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "chassis",
+                        physical_context: "chassis",
+                        base_attributes: vec![("chassis_id".to_string(), "CH0".to_string())],
+                        entity_specific_attributes: vec![("model".to_string(), "HGX".to_string())],
+                        key: "/redfish/v1/Chassis/CH0".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+                Check {
+                    scenario: "sparse chassis",
+                    input: fixture.entity(TestEntity::SparseChassis).await,
+                    expect: ObservedEntity {
+                        sensor_ids: vec![],
+                        entity_type: "chassis",
+                        physical_context: "chassis",
+                        base_attributes: vec![("chassis_id".to_string(), "CH-sparse".to_string())],
+                        entity_specific_attributes: vec![],
+                        key: "/redfish/v1/Chassis/CH-sparse".to_string(),
+                        derived_metrics: vec![],
+                    },
+                },
+            ],
+            observe,
+        );
+    }
+}

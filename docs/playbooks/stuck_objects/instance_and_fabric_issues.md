@@ -91,7 +91,7 @@ Common causes:
 | Symptom | Likely cause |
 |---|---|
 | no `nvlink_info` | pre-existing machine has not been populated. |
-| NMX-C or NMX-M connect error | TLS, credentials, endpoint, or network issue. |
+| NMX-C connect error | TLS, endpoint, or network issue. |
 | partition cleanup pending | stale binding or delayed fabric observation. |
 | placement failure | topology, domain health, or requested instance shape mismatch. |
 

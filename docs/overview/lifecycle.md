@@ -62,8 +62,8 @@ applicable network planes:
   VRFs. This requires no leaf switch configuration changes.
 - **InfiniBand**: UFM assigns P_Key partitions to the host's InfiniBand ports
   for the specific tenant.
-- **NVLink**: NMX-M APIs configure NVLink partition assignments for the tenant's
-  NVL domain.
+- **NVLink**: NMX-C APIs configure GPU membership in the requested NVLink
+  logical partitions.
 
 ### Host Lockdown
 

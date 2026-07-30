@@ -13,7 +13,7 @@ The chart is designed for production environments where NICo manages the full li
 | #  | Subchart | Description |
 |----|----------|-------------|
 | 1  | **nico-api** | Core API server (gRPC + REST). Manages machines, provisioning, networking, and firmware. Requires PostgreSQL and Vault. |
-| 2  | **nico-bmc-proxy** | Authenticating proxy for connecting to BMCs over HTTPS (Redfish). |
+| 2  | **nico-bmc-proxy** | Authenticating proxy for connecting to BMCs over HTTPS (Redfish). Required for DPS-based power provisioning. |
 | 3  | **nico-dhcp** | Kea DHCP server for bare-metal PXE boot and IP assignment. |
 | 4  | **nico-dns** | Authoritative DNS server (StatefulSet) for managed machines and VPCs. |
 | 5  | **nico-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. Disabled by default. |
@@ -79,7 +79,7 @@ Top-level `global:` values are automatically passed to all subcharts.
 The chart packages three dashboards built from NICo's exported Prometheus
 metrics: a site overview, object lifecycle diagnostics, and API performance.
 They are disabled by default because this chart does not install Grafana.
-The source JSON files live in [`dashboards/`](./dashboards/) and can also be
+The source JSON files live in [`observability/dashboards/`](./observability/dashboards/) and can also be
 imported into Grafana directly.
 
 To expose the dashboards to a Grafana dashboard sidecar in the release
@@ -124,6 +124,10 @@ Each subchart can be independently enabled or disabled. All core NICo services a
 ```yaml
 nico-api:
   enabled: true        # Core API -- usually always enabled
+nico-bmc-proxy:
+  enabled: true        # BMC proxy — required for DPS-based power provisioning;
+                       # disable only when an external BMC proxy is deployed
+                       # and wired separately
 nico-dhcp:
   enabled: true        # DHCP for PXE boot
 nico-dns:
@@ -154,15 +158,29 @@ The `global.image.repository` and `global.image.tag` values **must** be set -- t
 | `unbound` | `unbound.image.repository` / `.tag` | `""` (must be set) |
 | `unbound` (exporter) | `unbound.exporterImage.repository` / `.tag` | `""` (must be set) |
 
+### WebUI Authentication
+
+The `/admin` WebUI defaults to HTTP Basic Auth with username `admin`. By
+default, Helm creates `nico-api-web-basic-auth` with a generated password and
+preserves that password across direct Helm upgrades. Release notes show a
+`kubectl` command for retrieving it without printing it during installation.
+
+For an operator-managed password, set
+`nico-api.webAuth.basic.existingSecret.name` and `.key`. Set
+`nico-api.webAuth.mode` to `oauth2` or `none` to select another mode; those
+modes do not create or reference the Basic password Secret. If a non-Helm or
+older deployment does not supply `CARBIDE_WEB_BASIC_AUTH_PASSWORD`, nico-api
+falls back to a temporary per-process password reported in its startup logs.
+
 ### OAuth2 / SSO Setup
 
 To enable OAuth2 authentication (for example, Azure AD or Okta), configure the `nico-api.extraEnv` values:
 
 ```yaml
 nico-api:
+  webAuth:
+    mode: oauth2
   extraEnv:
-    - name: CARBIDE_WEB_AUTH_TYPE
-      value: "oauth2"
     - name: CARBIDE_WEB_OAUTH2_AUTH_ENDPOINT
       value: "https://your-idp/authorize"
     - name: CARBIDE_WEB_OAUTH2_TOKEN_ENDPOINT
@@ -171,6 +189,8 @@ nico-api:
       value: "your-client-id"
     - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS
       value: "group1,group2"
+    - name: CARBIDE_WEB_ALLOWED_ACCESS_GROUPS_ID_LIST
+      value: "<group1-id>,<group2-id>"
     - name: CARBIDE_WEB_OAUTH2_CLIENT_SECRET
       valueFrom:
         secretKeyRef:
@@ -178,7 +198,12 @@ nico-api:
           key: client_secret
 ```
 
-The `extraEnv` array supports any Kubernetes `env` spec, including `valueFrom` references to Secrets and ConfigMaps.
+The `extraEnv` array supports any Kubernetes `env` spec, including `valueFrom`
+references to Secrets and ConfigMaps. For backward compatibility, a
+`CARBIDE_WEB_AUTH_TYPE` entry in `extraEnv` takes precedence over
+`webAuth.mode`, and the chart does not emit a duplicate mode variable.
+Password variables in `extraEnv` remain supported, but
+`webAuth.basic.existingSecret` is preferred.
 
 ### External LoadBalancer Services
 
@@ -273,6 +298,113 @@ helm diff upgrade nico ./helm \
   --namespace forge-system \
   -f values-production.yaml
 ```
+
+### Upgrading from pre-2.0.0 (carbide/forge naming)
+
+Starting with v2.0.0 the chart defaults changed from the legacy `carbide`/`forge` naming
+to `nico`. A **fresh install** works out of the box with no overrides — all default service
+names, SPIFFE identities, and trust domains are already `nico`-prefixed.
+
+> **Cutting over to nico naming on an existing site:** if you want to fully migrate an
+> existing site from `carbide`/`forge` naming to `nico` naming rather than preserving the
+> old names in-place, the safe procedure is:
+> 1. Back up the PostgreSQL database (`pg_dump`).
+> 2. Uninstall the current release (`helm uninstall nico -n forge-system`).
+> 3. Re-install from scratch with the new defaults and your target namespace
+>    (`helm upgrade --install nico ./helm -n nico-system --create-namespace -f values-production.yaml`).
+> 4. Restore the database into the new cluster (`pg_restore`).
+>
+> This is necessary because Kubernetes Services, Certificates, and SPIFFE identities cannot
+> be renamed in-place without a coordinated restart of every component and re-issuance of
+> every DPU agent certificate. A backup/restore avoids that coordination.
+
+A site **upgrading from a pre-2.0.0 release** that wants to keep the old names running
+without a full cut-over needs to preserve the old names so that
+running DPU agents (which have certificates issued under `forge.local` and dial
+`carbide-api.forge-system`) keep working without a coordinated cut-over. Add the following
+block to your site values file (in addition to your normal site-specific overrides):
+
+```yaml
+# Preserves pre-2.0.0 carbide/forge naming across the upgrade.
+# Safe to remove once every DPU agent on the site has been re-issued a certificate
+# under nico.local and updated to the new binary that dials nico-api.
+global:
+  spiffe:
+    trustDomain: forge.local   # existing certs were issued under forge.local
+
+nico-api:
+  nameOverride: carbide-api
+  certificate:
+    identityNamespace: forge-system
+  auth:
+    namespace: forge-system    # accept /forge-system/sa/ and /forge-system/machine/ SPIFFE paths
+    principals:
+      dhcp: carbide-dhcp
+      dns: carbide-dns
+
+nico-bmc-proxy:
+  nameOverride: carbide-bmc-proxy
+  certificate:
+    identityNamespace: forge-system
+  auth:
+    namespace: forge-system
+    apiPrincipal: carbide-api
+
+nico-dhcp:
+  nameOverride: carbide-dhcp
+  apiServiceName: carbide-api
+  certificate:
+    identityNamespace: forge-system
+
+nico-dns:
+  nameOverride: carbide-dns
+  apiServiceName: carbide-api
+  certificate:
+    identityNamespace: forge-system
+
+nico-dsx-exchange-consumer:
+  nameOverride: carbide-dsx-exchange-consumer
+  certificate:
+    identityNamespace: forge-system
+
+nico-hardware-health:
+  nameOverride: carbide-hardware-health
+  certificate:
+    identityNamespace: forge-system
+
+nico-pxe:
+  nameOverride: carbide-pxe
+  apiServiceName: carbide-api
+  certificate:
+    identityNamespace: forge-system
+
+nico-ssh-console-rs:
+  nameOverride: carbide-ssh-console-rs
+  apiServiceName: carbide-api
+  certificate:
+    identityNamespace: forge-system
+```
+
+This is also available as a ready-to-use overlay at
+[`examples/carbide-legacy.yaml`](./examples/carbide-legacy.yaml).
+
+**Why each block matters:**
+
+- `global.spiffe.trustDomain: forge.local` — all existing DPU agent and service certificates
+  were issued under this trust domain. Changing it before reissuing every cert breaks mTLS
+  cluster-wide.
+- `nameOverride: carbide-*` — keeps each Kubernetes Service name stable so existing clients
+  find the service. Without this, `helm upgrade` deletes `carbide-api` and creates `nico-api`,
+  causing an outage window and breaking any client that cached the old DNS name.
+- `certificate.identityNamespace: forge-system` — keeps the SPIFFE URI of each service
+  consistent with what Vault and peer services expect (e.g.
+  `spiffe://forge.local/forge-system/sa/carbide-api`).
+- `auth.namespace: forge-system` — tells `nico-api` to accept SPIFFE IDs whose path contains
+  `/forge-system/`, which is what pre-2.0.0 client certificates present.
+- `apiServiceName: carbide-api` — tells `nico-pxe`, `nico-dhcp`, `nico-dns`, and
+  `nico-ssh-console-rs` to dial `carbide-api` (the name the Service has after `nameOverride`),
+  rather than the new default `nico-api`. Without this, those services build a URL pointing at
+  a Service that does not exist.
 
 ## Uninstalling
 

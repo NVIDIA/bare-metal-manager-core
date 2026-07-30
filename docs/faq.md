@@ -87,9 +87,9 @@ Yes, NICo supports NVLink partitioning.
 * **Ethernet**: VXLAN with EVPN for VPC creation on DPUs
 * **E/W Ethernet (Spectrum-X)**: A CX-based firmware, named "DPA", which uses VXLAN on CX switches (as part of a future release)
 * **Infiniband**: UFM-based partition key (P_Key) assignment
-* **NVLink**: NMX-M-based partition management
+* **NVLink**: NMX-C-based partition management
 
-DPUs enforce Ethernet isolation in hardware, UFM enforces InfiniBand isolation, and NMX-M enforces NVLink isolation--all coordinated by NICo.
+DPUs enforce Ethernet isolation in hardware, UFM enforces InfiniBand isolation, and NMX-C enforces NVLink isolation--all coordinated by NICo.
 
 **When NICo is used to maintain tenancy enforcement for Ethernet (N/S), does it require access to make changes to Spectrum (SN) switches running Cumulus, or are all changes limited to HBN (Host-Based Networking) on the DPU?**
 
@@ -107,7 +107,7 @@ NICo configures the host BMC to disable connectivity from within the host to the
 
 **Can NICo be used to manage a portion of a cluster?**
 
-NICo requires the N/S and OOB Ethernet DHCP relays pointed to the NICo DHCP service as well as access to UFM and NMX-M for E/W. Additionally, the EVPN topology must be visible to all nodes that are managed by the same cluster. If the DC operator wants to separate EVPN/DHCP into VLANs and VRFs, then you can arbitrarily assign nodes to NICo management or not. NMX-M and UFM are not multi–tenant aware, so there's a possibility of two things configuring NMX-M and UFM from interfering with each other.
+NICo requires the N/S and OOB Ethernet DHCP relays pointed to the NICo DHCP service as well as access to UFM and NMX-C for E/W. Additionally, the EVPN topology must be visible to all nodes that are managed by the same cluster. If the DC operator wants to separate EVPN/DHCP into VLANs and VRFs, then you can arbitrarily assign nodes to NICo management or not. NMX-C and UFM are not multi-tenant aware, so multiple controllers configuring the same fabric can interfere with each other.
 
 **How does NICo select a bare metal host to satisfy the request for an instance? What selection criteria is supported?**
 

@@ -51,6 +51,11 @@ use rpc::forge::forge_server::Forge;
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
+const KEY_PRODUCT_FAMILY: &str = "product_family";
+const KEY_ROLE: &str = "role";
+const KEY_VENDOR: &str = "vendor";
+const ROLE_COMPUTE: &str = "compute";
+
 struct ExploredHostFixture {
     host: ExploredManagedHost,
     host_report: EndpointExplorationReport,
@@ -112,15 +117,28 @@ fn machine_creator(env: &Env, config: SiteExplorerConfig) -> MachineCreator {
 }
 
 fn machine_creator_with_rms(env: &Env, rms_sim: &RmsSim) -> MachineCreator {
+    // Rack attributes are inherited by the compute descriptor, while its
+    // role-level attribute replaces the identical rack-level key.
     let rack_profiles = RackProfileConfig {
         rack_profiles: [(
             TEST_RMS_RACK_PROFILE_ID.to_string(),
             RackProfile {
                 product_family: Some(RackProductFamily::Gb200),
                 rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
+                attributes: HashMap::from([
+                    ("attribute1".to_string(), "rack-value".to_string()),
+                    (
+                        "additional_attribute2".to_string(),
+                        "additional-value".to_string(),
+                    ),
+                ]),
                 rack_capabilities: RackCapabilitiesSet {
                     compute: RackCapabilityCompute {
                         vendor: Some("NVIDIA".to_string()),
+                        attributes: HashMap::from([(
+                            "attribute1".to_string(),
+                            "compute-value".to_string(),
+                        )]),
                         ..Default::default()
                     },
                     switch: RackCapabilitySwitch {
@@ -237,7 +255,41 @@ async fn test_machine_creator_compute_rms_request_uses_rack_profile(
     };
 
     assert_eq!(node.rack_id, rack_id.to_string());
+
     assert_eq!(node.r#type, Some(rms::NodeType::ComputeGb200Nvidia as i32));
+
+    let descriptor = node.node_descriptor.as_ref().expect("node descriptor");
+
+    assert_eq!(
+        descriptor.attributes.get(KEY_ROLE).map(String::as_str),
+        Some(ROLE_COMPUTE)
+    );
+
+    assert_eq!(
+        descriptor.attributes.get(KEY_VENDOR).map(String::as_str),
+        Some("NVIDIA")
+    );
+
+    assert_eq!(
+        descriptor
+            .attributes
+            .get(KEY_PRODUCT_FAMILY)
+            .map(String::as_str),
+        Some("gb200")
+    );
+
+    assert_eq!(
+        descriptor
+            .attributes
+            .get("additional_attribute2")
+            .map(String::as_str),
+        Some("additional-value")
+    );
+
+    assert_eq!(
+        descriptor.attributes.get("attribute1").map(String::as_str),
+        Some("compute-value")
+    );
 
     Ok(())
 }
@@ -577,6 +629,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let resource_pools = ResourcePoolBuilder::default()
+        .with_loopback_ip_v6("2001:db8::/125")
         .with_secondary_vtep_ip("172.21.0.0/29")
         .build();
     let test_harness = TestHarness::builder(pool.clone())
@@ -599,6 +652,12 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
     let initial_loopback_pool_stats = db::resource_pool::stats(
         &mut *txn,
         env.api().common_pools().ethernet.pool_loopback_ip.name(),
+    )
+    .await?;
+
+    let initial_loopback_v6_pool_stats = db::resource_pool::stats(
+        &mut *txn,
+        env.api().common_pools().ethernet.pool_loopback_ip_v6.name(),
     )
     .await?;
 
@@ -688,6 +747,7 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
         txn.commit().await?;
 
         let expected_loopback_ip = dpu_machine.network_config.loopback_ip.unwrap().to_string();
+        assert!(dpu_machine.network_config.loopback_ip_v6.is_some());
         let expected_secondary_overlay_vtep_ip = dpu_machine
             .network_config
             .secondary_overlay_vtep_ip
@@ -736,6 +796,24 @@ async fn test_machine_creator_creates_multi_dpu_managed_host(
         assert_eq!(&hm.id, host_machine_id.as_ref().unwrap());
         dpu_machines.push(dpu_machine);
     }
+
+    let mut txn = env.pool.begin().await?;
+    assert_eq!(
+        db::resource_pool::stats(
+            &mut *txn,
+            env.api().common_pools().ethernet.pool_loopback_ip_v6.name()
+        )
+        .await?,
+        ResourcePoolStats {
+            used: expected_loopback_count,
+            free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
+            auto_assign_free: initial_loopback_v6_pool_stats.free - expected_loopback_count,
+            auto_assign_used: expected_loopback_count,
+            non_auto_assign_free: 0,
+            non_auto_assign_used: 0
+        }
+    );
+    txn.commit().await?;
 
     // And make sure resource pool stats agree with how many
     // secondary vteps should have been assigned.
@@ -955,6 +1033,117 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     assert_eq!(value.attached_dpu_machine_id.unwrap(), dpu_machine_id);
     assert_eq!(value.machine_id.unwrap(), dpu_machine_id);
     txn.rollback().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_all_dpu_interfaces_attach_if_created_after_multi_dpu_machine_creation(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const NUM_DPUS: usize = 2;
+
+    let env = Env::new(pool).await;
+    let creator = machine_creator(&env, machine_creator_config(false));
+    let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
+    let mut fixture = explored_host_fixture(&env, &mock_host).await;
+
+    assert!(
+        creator
+            .create_managed_host(
+                &fixture.host,
+                &mut fixture.host_report,
+                Some(&expected_machine(&mock_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    for dpu in &mock_host.dpus {
+        dhcp_discover_dpu_oob_iface(env.api(), env.underlay_segment, dpu.oob_mac_address).await;
+    }
+
+    assert!(
+        !creator
+            .create_managed_host(
+                &fixture.host,
+                &mut EndpointExplorationReport::default(),
+                Some(&expected_machine(&mock_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    let mut txn = env.pool.begin().await?;
+    for (dpu_index, dpu) in mock_host.dpus.iter().enumerate() {
+        let dpu_index = dpu_index.try_into().expect("DPU index should fit into u8");
+        let interfaces =
+            db::machine_interface::find_by_mac_address(&mut *txn, dpu.oob_mac_address).await?;
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(
+            interfaces[0].machine_id,
+            Some(fixture.dpu_machine_ids[&dpu_index])
+        );
+        assert_eq!(
+            interfaces[0].attached_dpu_machine_id,
+            Some(fixture.dpu_machine_ids[&dpu_index])
+        );
+    }
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_machine_creator_rejects_partial_dpu_machine_set(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    const NUM_DPUS: usize = 2;
+
+    let env = Env::new(pool).await;
+    let creator = machine_creator(&env, machine_creator_config(false));
+    let mock_host = ManagedHostConfig::default().with_dpu_count(NUM_DPUS);
+    let mut fixture = explored_host_fixture(&env, &mock_host).await;
+
+    // Ingest an earlier report containing only the first DPU so that both its machine and its
+    // host association exist. The complete report below should then be rejected as a partial set.
+    let partial_host = ExploredManagedHost {
+        host_bmc_ip: fixture.host.host_bmc_ip,
+        dpus: vec![fixture.host.dpus[0].clone()],
+    };
+    let mut partial_host_report = fixture.host_report.clone();
+    assert!(
+        creator
+            .create_managed_host(
+                &partial_host,
+                &mut partial_host_report,
+                Some(&expected_machine(&mock_host)),
+                &env.pool,
+            )
+            .await?
+    );
+
+    creator
+        .create_managed_host(
+            &fixture.host,
+            &mut fixture.host_report,
+            Some(&expected_machine(&mock_host)),
+            &env.pool,
+        )
+        .await
+        .expect_err("a partial DPU machine set should be rejected");
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::machine::find_one(
+            &mut *txn,
+            &fixture.dpu_machine_ids[&1],
+            MachineSearchConfig::default(),
+        )
+        .await?
+        .is_none()
+    );
+    txn.commit().await?;
 
     Ok(())
 }

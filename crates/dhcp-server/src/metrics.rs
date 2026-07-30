@@ -20,8 +20,10 @@
 //! while the per-packet log lines stay reachable at DEBUG for forensics. A
 //! drop is the operational error, so its event also writes the ERROR line --
 //! one declaration moves the counter and logs the reason together.
+//! Timestamp-file failures share a counter by operation while their paths,
+//! host interface, and errors remain log-only diagnostics.
 
-use carbide_instrument::{Event, LabelValue};
+use carbide_instrument::{DynamicMessage, Event, LabelValue, MetricFamily};
 use dhcproto::v4::MessageType;
 
 use crate::errors::DhcpError;
@@ -116,6 +118,130 @@ impl From<&DhcpError> for DropReason {
     }
 }
 
+/// The timestamp-file operation that failed. These are the only three file
+/// operations performed by the DHCP server, so the metric remains bounded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum TimestampFileOperation {
+    Initialize,
+    Write,
+    Read,
+}
+
+/// `SocketSetupOperation` identifies the bounded syscall or socket option that
+/// failed. Interface names, addresses, and error text stay on the log line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum SocketSetupOperation {
+    Create,
+    ReuseAddress,
+    SetNonblocking,
+    BindAddress,
+    SetBroadcast,
+    BindDevice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+pub(crate) enum SocketSetupNextAction {
+    Retry,
+    Panic,
+}
+
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dhcp_socket_setup_failures_total",
+    kind = counter,
+    component = "nico-dhcp",
+    describe = "Number of DHCP socket setup failures, by operation and next action."
+)]
+pub(crate) struct DhcpSocketSetupFailures {
+    operation: SocketSetupOperation,
+    next_action: SocketSetupNextAction,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_server_socket_setup_failed",
+    metric_family = DhcpSocketSetupFailures,
+    log = info,
+    message = dynamic
+)]
+pub(crate) struct DhcpSocketSetupFailed {
+    #[label]
+    operation: SocketSetupOperation,
+    #[label]
+    next_action: SocketSetupNextAction,
+    #[context(value)]
+    retry: i64,
+    #[context]
+    error: String,
+}
+
+impl DhcpSocketSetupFailed {
+    pub(crate) fn new(
+        operation: SocketSetupOperation,
+        next_action: SocketSetupNextAction,
+        retry: i32,
+        error: String,
+    ) -> Self {
+        Self {
+            operation,
+            next_action,
+            retry: i64::from(retry),
+            error,
+        }
+    }
+}
+
+impl DynamicMessage for DhcpSocketSetupFailed {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            SocketSetupOperation::Create => "Socket creation failed",
+            SocketSetupOperation::ReuseAddress
+            | SocketSetupOperation::SetNonblocking
+            | SocketSetupOperation::BindAddress
+            | SocketSetupOperation::SetBroadcast
+            | SocketSetupOperation::BindDevice => "Socket set option failed",
+        }
+    }
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_server_interface_bind_failed",
+    metric_family = DhcpSocketSetupFailures,
+    log = info,
+    message = "Interface not ready, retrying"
+)]
+pub(crate) struct DhcpInterfaceBindFailed {
+    #[label]
+    operation: SocketSetupOperation,
+    #[label]
+    next_action: SocketSetupNextAction,
+    #[context(value)]
+    interface_name: String,
+    #[context(value)]
+    retries_left: i64,
+    #[context]
+    error: String,
+}
+
+impl DhcpInterfaceBindFailed {
+    pub(crate) fn new(
+        next_action: SocketSetupNextAction,
+        interface_name: String,
+        retries_left: i32,
+        error: String,
+    ) -> Self {
+        Self {
+            operation: SocketSetupOperation::BindDevice,
+            next_action,
+            interface_name,
+            retries_left: i64::from(retries_left),
+            error,
+        }
+    }
+}
+
 /// A DHCP packet was decoded from the wire, whatever becomes of it next.
 #[derive(Event)]
 #[event(
@@ -169,17 +295,573 @@ pub struct DhcpReplySent {
     pub message_type: MessageTypeLabel,
 }
 
+/// The startup write could not initialize the timestamp file. This server
+/// generation does not start after the failure.
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_timestamp_file_initialization_failed",
+    metric_name = "carbide_dhcp_timestamp_file_failures_total",
+    component = "nico-dhcp",
+    log = error,
+    metric = counter,
+    message = "Failed to init DHCP timestamps file",
+    describe = "Number of DHCP timestamp file failures, by operation"
+)]
+pub(crate) struct DhcpTimestampFileInitializationFailed {
+    #[label]
+    operation: TimestampFileOperation,
+    #[context]
+    dhcp_timestamps_path: String,
+    #[context]
+    error: String,
+}
+
+impl DhcpTimestampFileInitializationFailed {
+    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
+        Self {
+            operation: TimestampFileOperation::Initialize,
+            dhcp_timestamps_path,
+            error,
+        }
+    }
+}
+
+/// Updating the in-memory timestamp succeeded, but persisting the file failed.
+/// Packet processing continues because the timestamp write is best effort.
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_timestamp_file_write_failed",
+    metric_name = "carbide_dhcp_timestamp_file_failures_total",
+    component = "nico-dhcp",
+    log = error,
+    metric = counter,
+    message = "Failed to write DHCP timestamps file",
+    describe = "Number of DHCP timestamp file failures, by operation"
+)]
+pub(crate) struct DhcpTimestampFileWriteFailed {
+    #[label]
+    operation: TimestampFileOperation,
+    #[context]
+    dhcp_timestamps_path: String,
+    #[context]
+    host_interface_id: String,
+    #[context]
+    error: String,
+}
+
+impl DhcpTimestampFileWriteFailed {
+    pub(crate) fn new(
+        dhcp_timestamps_path: String,
+        host_interface_id: String,
+        error: String,
+    ) -> Self {
+        Self {
+            operation: TimestampFileOperation::Write,
+            dhcp_timestamps_path,
+            host_interface_id,
+            error,
+        }
+    }
+}
+
+/// The control RPC could not read the timestamp file. It still returns an
+/// empty list so callers keep treating an unreadable file as no requests yet.
+#[derive(Event)]
+#[event(
+    event_name = "dhcp_timestamp_file_read_failed",
+    metric_name = "carbide_dhcp_timestamp_file_failures_total",
+    component = "nico-dhcp",
+    log = warn,
+    metric = counter,
+    message = "Failed to read DHCP timestamps file",
+    describe = "Number of DHCP timestamp file failures, by operation"
+)]
+pub(crate) struct DhcpTimestampFileReadFailed {
+    #[label]
+    operation: TimestampFileOperation,
+    #[context]
+    dhcp_timestamps_path: String,
+    #[context]
+    error: String,
+}
+
+impl DhcpTimestampFileReadFailed {
+    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
+        Self {
+            operation: TimestampFileOperation::Read,
+            dhcp_timestamps_path,
+            error,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use carbide_instrument::emit;
-    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_instrument::testing::{CapturedFieldKind, MetricsCapture, capture_logs};
     use carbide_test_support::{Check, check_values};
     use dhcproto::v4::OptionCode;
     use dhcproto::v4::relay::RelayCode;
 
     use super::*;
+
+    const SOCKET_SETUP_FAILURE_METRIC: &str = "carbide_dhcp_socket_setup_failures_total";
+    const TIMESTAMP_FILE_FAILURE_METRIC: &str = "carbide_dhcp_timestamp_file_failures_total";
+
+    struct SocketSetupFailureCase {
+        emit: fn(),
+        operation: &'static str,
+        next_action: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct SocketSetupFailureObservation {
+        counter_delta: f64,
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        operation: Option<String>,
+        next_action: Option<String>,
+        retry: Option<String>,
+        retry_kind: Option<CapturedFieldKind>,
+        error: Option<String>,
+        error_kind: Option<CapturedFieldKind>,
+        interface_name: Option<String>,
+        interface_name_kind: Option<CapturedFieldKind>,
+        retries_left: Option<String>,
+        retries_left_kind: Option<CapturedFieldKind>,
+    }
+
+    struct TimestampFileFailureInput {
+        emit: fn(),
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TimestampFileFailureObservation {
+        initialize_delta: f64,
+        write_delta: f64,
+        read_delta: f64,
+        log: TimestampFileFailureLog,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TimestampFileFailureLog {
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        operation: Option<String>,
+        dhcp_timestamps_path: Option<String>,
+        host_interface_id: Option<String>,
+        error: Option<String>,
+    }
+
+    fn emit_timestamp_initialization_failure() {
+        emit(DhcpTimestampFileInitializationFailed::new(
+            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
+            "permission denied".to_string(),
+        ));
+    }
+
+    fn emit_timestamp_write_failure() {
+        emit(DhcpTimestampFileWriteFailed::new(
+            "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
+            "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
+            "read-only file system".to_string(),
+        ));
+    }
+
+    fn emit_timestamp_read_failure() {
+        emit(DhcpTimestampFileReadFailed::new(
+            "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
+            "file not found".to_string(),
+        ));
+    }
+
+    fn observe_timestamp_file_failure(
+        input: TimestampFileFailureInput,
+    ) -> TimestampFileFailureObservation {
+        let metrics = MetricsCapture::start();
+        let mut logs = capture_logs(input.emit);
+        assert_eq!(logs.len(), 1, "a timestamp-file failure logs once");
+        let log = logs.pop().expect("the timestamp-file failure log");
+        let field = |name: &str| log.field(name).map(str::to_owned);
+
+        TimestampFileFailureObservation {
+            initialize_delta: metrics.counter_delta(
+                TIMESTAMP_FILE_FAILURE_METRIC,
+                &[("operation", "initialize")],
+            ),
+            write_delta: metrics
+                .counter_delta(TIMESTAMP_FILE_FAILURE_METRIC, &[("operation", "write")]),
+            read_delta: metrics
+                .counter_delta(TIMESTAMP_FILE_FAILURE_METRIC, &[("operation", "read")]),
+            log: TimestampFileFailureLog {
+                level: log.level,
+                metadata_name: log.metadata_name.clone(),
+                message: log.message.clone(),
+                event_name: field("event_name"),
+                metric_name: field("metric_name"),
+                operation: field("operation"),
+                dhcp_timestamps_path: field("dhcp_timestamps_path"),
+                host_interface_id: field("host_interface_id"),
+                error: field("error"),
+            },
+        }
+    }
+
+    fn expected_timestamp_file_failure(
+        operation: &str,
+        level: tracing::Level,
+        event_name: &str,
+        message: &str,
+        dhcp_timestamps_path: &str,
+        host_interface_id: Option<&str>,
+        error: &str,
+    ) -> TimestampFileFailureObservation {
+        TimestampFileFailureObservation {
+            initialize_delta: if operation == "initialize" { 1.0 } else { 0.0 },
+            write_delta: if operation == "write" { 1.0 } else { 0.0 },
+            read_delta: if operation == "read" { 1.0 } else { 0.0 },
+            log: TimestampFileFailureLog {
+                level,
+                metadata_name: event_name.to_string(),
+                message: message.to_string(),
+                event_name: Some(event_name.to_string()),
+                metric_name: Some(TIMESTAMP_FILE_FAILURE_METRIC.to_string()),
+                operation: Some(operation.to_string()),
+                dhcp_timestamps_path: Some(dhcp_timestamps_path.to_string()),
+                host_interface_id: host_interface_id.map(str::to_owned),
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    fn observe_socket_setup_failure(
+        metrics: &MetricsCapture,
+        case: SocketSetupFailureCase,
+    ) -> SocketSetupFailureObservation {
+        let mut logs = capture_logs(case.emit);
+        assert_eq!(logs.len(), 1, "one socket failure logs once");
+        let log = logs.pop().expect("the socket setup failure log");
+        let field = |name: &str| log.field(name).map(str::to_owned);
+
+        SocketSetupFailureObservation {
+            counter_delta: metrics.counter_delta(
+                SOCKET_SETUP_FAILURE_METRIC,
+                &[
+                    ("operation", case.operation),
+                    ("next_action", case.next_action),
+                ],
+            ),
+            level: log.level,
+            metadata_name: log.metadata_name.clone(),
+            message: log.message.clone(),
+            event_name: field("event_name"),
+            metric_name: field("metric_name"),
+            operation: field("operation"),
+            next_action: field("next_action"),
+            retry: field("retry"),
+            retry_kind: log.field_kind("retry"),
+            error: field("error"),
+            error_kind: log.field_kind("error"),
+            interface_name: field("interface_name"),
+            interface_name_kind: log.field_kind("interface_name"),
+            retries_left: field("retries_left"),
+            retries_left_kind: log.field_kind("retries_left"),
+        }
+    }
+
+    fn expected_socket_setup_failure(
+        diagnostic: (&str, &str),
+        operation: &str,
+        next_action: &str,
+        retry: Option<i32>,
+        error: Option<&str>,
+        interface_name: Option<&str>,
+        retries_left: Option<i32>,
+    ) -> SocketSetupFailureObservation {
+        let (metadata_name, message) = diagnostic;
+        SocketSetupFailureObservation {
+            counter_delta: 1.0,
+            level: tracing::Level::INFO,
+            metadata_name: metadata_name.to_string(),
+            message: message.to_string(),
+            event_name: Some(metadata_name.to_string()),
+            metric_name: Some(SOCKET_SETUP_FAILURE_METRIC.to_string()),
+            operation: Some(operation.to_string()),
+            next_action: Some(next_action.to_string()),
+            retry: retry.map(|value| value.to_string()),
+            retry_kind: retry.map(|_| CapturedFieldKind::I64),
+            error: error.map(str::to_owned),
+            error_kind: error.map(|_| CapturedFieldKind::Debug),
+            interface_name: interface_name.map(str::to_owned),
+            interface_name_kind: interface_name.map(|_| CapturedFieldKind::String),
+            retries_left: retries_left.map(|value| value.to_string()),
+            retries_left_kind: retries_left.map(|_| CapturedFieldKind::I64),
+        }
+    }
+
+    #[test]
+    fn socket_setup_failures_keep_the_existing_diagnostics() {
+        let metrics = MetricsCapture::start();
+
+        check_values(
+            [
+                Check {
+                    scenario: "socket creation will retry",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpSocketSetupFailed::new(
+                                SocketSetupOperation::Create,
+                                SocketSetupNextAction::Retry,
+                                0,
+                                "too many open files".to_string(),
+                            ))
+                        },
+                        operation: "create",
+                        next_action: "retry",
+                    },
+                    expect: expected_socket_setup_failure(
+                        ("dhcp_server_socket_setup_failed", "Socket creation failed"),
+                        "create",
+                        "retry",
+                        Some(0),
+                        Some("too many open files"),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "reuse-address setup will retry",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpSocketSetupFailed::new(
+                                SocketSetupOperation::ReuseAddress,
+                                SocketSetupNextAction::Retry,
+                                1,
+                                "operation not supported".to_string(),
+                            ))
+                        },
+                        operation: "reuse_address",
+                        next_action: "retry",
+                    },
+                    expect: expected_socket_setup_failure(
+                        (
+                            "dhcp_server_socket_setup_failed",
+                            "Socket set option failed",
+                        ),
+                        "reuse_address",
+                        "retry",
+                        Some(1),
+                        Some("operation not supported"),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "nonblocking setup will retry",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpSocketSetupFailed::new(
+                                SocketSetupOperation::SetNonblocking,
+                                SocketSetupNextAction::Retry,
+                                2,
+                                "bad file descriptor".to_string(),
+                            ))
+                        },
+                        operation: "set_nonblocking",
+                        next_action: "retry",
+                    },
+                    expect: expected_socket_setup_failure(
+                        (
+                            "dhcp_server_socket_setup_failed",
+                            "Socket set option failed",
+                        ),
+                        "set_nonblocking",
+                        "retry",
+                        Some(2),
+                        Some("bad file descriptor"),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "address bind will retry",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpSocketSetupFailed::new(
+                                SocketSetupOperation::BindAddress,
+                                SocketSetupNextAction::Retry,
+                                3,
+                                "address in use".to_string(),
+                            ))
+                        },
+                        operation: "bind_address",
+                        next_action: "retry",
+                    },
+                    expect: expected_socket_setup_failure(
+                        (
+                            "dhcp_server_socket_setup_failed",
+                            "Socket set option failed",
+                        ),
+                        "bind_address",
+                        "retry",
+                        Some(3),
+                        Some("address in use"),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "broadcast setup exhausts the outer loop",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpSocketSetupFailed::new(
+                                SocketSetupOperation::SetBroadcast,
+                                SocketSetupNextAction::Panic,
+                                9,
+                                "permission denied".to_string(),
+                            ))
+                        },
+                        operation: "set_broadcast",
+                        next_action: "panic",
+                    },
+                    expect: expected_socket_setup_failure(
+                        (
+                            "dhcp_server_socket_setup_failed",
+                            "Socket set option failed",
+                        ),
+                        "set_broadcast",
+                        "panic",
+                        Some(9),
+                        Some("permission denied"),
+                        None,
+                        None,
+                    ),
+                },
+                Check {
+                    scenario: "device bind will retry",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpInterfaceBindFailed::new(
+                                SocketSetupNextAction::Retry,
+                                "pf0hpf".to_string(),
+                                1,
+                                "device not found".to_string(),
+                            ))
+                        },
+                        operation: "bind_device",
+                        next_action: "retry",
+                    },
+                    expect: expected_socket_setup_failure(
+                        (
+                            "dhcp_server_interface_bind_failed",
+                            "Interface not ready, retrying",
+                        ),
+                        "bind_device",
+                        "retry",
+                        None,
+                        Some("device not found"),
+                        Some("pf0hpf"),
+                        Some(1),
+                    ),
+                },
+                Check {
+                    scenario: "device bind exhausts its retry loop",
+                    input: SocketSetupFailureCase {
+                        emit: || {
+                            emit(DhcpInterfaceBindFailed::new(
+                                SocketSetupNextAction::Panic,
+                                "pf0hpf".to_string(),
+                                0,
+                                "permission denied".to_string(),
+                            ))
+                        },
+                        operation: "bind_device",
+                        next_action: "panic",
+                    },
+                    expect: expected_socket_setup_failure(
+                        (
+                            "dhcp_server_interface_bind_failed",
+                            "Interface not ready, retrying",
+                        ),
+                        "bind_device",
+                        "panic",
+                        None,
+                        Some("permission denied"),
+                        Some("pf0hpf"),
+                        Some(0),
+                    ),
+                },
+            ],
+            |case| observe_socket_setup_failure(&metrics, case),
+        );
+    }
+
+    /// Every timestamp-file failure keeps its historical diagnostic while the
+    /// operation label selects exactly one series in the shared counter.
+    #[test]
+    fn timestamp_file_failures_log_and_count_by_operation() {
+        // No other test in this binary triggers a timestamp-file failure. The
+        // exact process-global counter deltas below rely on that isolation;
+        // keep any future call-site failure test under the same log capture.
+        check_values(
+            [
+                Check {
+                    scenario: "initialization failure",
+                    input: TimestampFileFailureInput {
+                        emit: emit_timestamp_initialization_failure,
+                    },
+                    expect: expected_timestamp_file_failure(
+                        "initialize",
+                        tracing::Level::ERROR,
+                        "dhcp_timestamp_file_initialization_failed",
+                        "Failed to init DHCP timestamps file",
+                        "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
+                        None,
+                        "permission denied",
+                    ),
+                },
+                Check {
+                    scenario: "post-reply write failure",
+                    input: TimestampFileFailureInput {
+                        emit: emit_timestamp_write_failure,
+                    },
+                    expect: expected_timestamp_file_failure(
+                        "write",
+                        tracing::Level::ERROR,
+                        "dhcp_timestamp_file_write_failed",
+                        "Failed to write DHCP timestamps file",
+                        "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
+                        Some("60cef902-9779-4666-8362-c9bb4b37185f"),
+                        "read-only file system",
+                    ),
+                },
+                Check {
+                    scenario: "read failure",
+                    input: TimestampFileFailureInput {
+                        emit: emit_timestamp_read_failure,
+                    },
+                    expect: expected_timestamp_file_failure(
+                        "read",
+                        tracing::Level::WARN,
+                        "dhcp_timestamp_file_read_failed",
+                        "Failed to read DHCP timestamps file",
+                        "/var/support/forge-dhcp/logs/dhcp_timestamps.json",
+                        None,
+                        "file not found",
+                    ),
+                },
+            ],
+            observe_timestamp_file_failure,
+        );
+    }
 
     #[test]
     fn message_type_label_maps_the_rfc2131_set_and_buckets_the_rest() {

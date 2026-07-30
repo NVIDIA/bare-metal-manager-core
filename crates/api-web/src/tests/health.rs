@@ -30,34 +30,10 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);
 
-    async fn verify_history(app: &axum::Router, machine_id: String) {
-        let response = app
-            .clone()
-            .oneshot(
-                web_request_builder()
-                    .uri(format!("/admin/machine/{machine_id}/health"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body_bytes = response
-            .into_body()
-            .collect()
-            .await
-            .expect("Empty response body?")
-            .to_bytes();
-
-        let body = String::from_utf8_lossy(&body_bytes);
-        assert!(body.contains("History"));
-    }
-
     // Health page for Machine which was never ingested
-    verify_history(
+    verify_health_page_not_found(
         &app,
-        "fm100ht09g4atrqgjb0b83b2to1qa1hfugks9mhutb0umcng1rkr54vliqg".to_string(),
+        "/admin/machine/fm100ht09g4atrqgjb0b83b2to1qa1hfugks9mhutb0umcng1rkr54vliqg/health",
     )
     .await;
 
@@ -83,7 +59,41 @@ async fn test_health_of_nonexisting_machine(pool: sqlx::PgPool) {
             .is_empty()
     );
 
-    verify_history(&app, host_machine_id.to_string()).await;
+    verify_health_page_not_found(&app, &format!("/admin/machine/{host_machine_id}/health")).await;
+
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{host_machine_id}/health-history"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    assert!(String::from_utf8_lossy(&body_bytes).contains("History"));
+}
+
+#[crate::sqlx_test]
+async fn test_health_of_nonexisting_components(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+
+    for path in [
+        "/admin/rack/missing-rack/health",
+        "/admin/power-shelf/ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0/health",
+        "/admin/switch/sw100ntjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0/health",
+        "/admin/nvlink-domain/00000000-0000-0000-0000-000000000001/health",
+    ] {
+        verify_health_page_not_found(&app, path).await;
+    }
 }
 
 #[crate::sqlx_test]
@@ -104,20 +114,49 @@ async fn test_add_remove_health_report_via_web_ui(pool: sqlx::PgPool) {
         }
     }"#;
 
-    post_machine_health_report(&app, &host_machine_id.to_string(), "add-report", payload).await;
+    let machine_id = host_machine_id.to_string();
+    let status = post_machine_health_report_with_request_context(
+        &app,
+        &machine_id,
+        "add-report",
+        payload,
+        "cross-site",
+        "https://attacker.example",
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 
-    let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let body = get_machine_health_page(&app, &machine_id).await;
+    assert!(!body.contains("web-health-test"));
+
+    post_machine_health_report(&app, &machine_id, "add-report", payload).await;
+
+    let body = get_machine_health_page(&app, &machine_id).await;
+    assert!(body.contains("web-health-test"));
+
+    let status = post_machine_health_report_with_request_context(
+        &app,
+        &machine_id,
+        "remove-report",
+        r#"{"source":"web-health-test"}"#,
+        "cross-site",
+        "https://attacker.example",
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let body = get_machine_health_page(&app, &machine_id).await;
     assert!(body.contains("web-health-test"));
 
     post_machine_health_report(
         &app,
-        &host_machine_id.to_string(),
+        &machine_id,
         "remove-report",
         r#"{"source":"web-health-test"}"#,
     )
     .await;
 
-    let body = get_machine_health_page(&app, &host_machine_id.to_string()).await;
+    let body = get_machine_health_page(&app, &machine_id).await;
     assert!(!body.contains("web-health-test"));
 }
 
@@ -647,19 +686,40 @@ async fn post_machine_health_report(
     action: &str,
     payload: &str,
 ) {
-    let response = app
-        .clone()
+    let status = post_machine_health_report_with_request_context(
+        app,
+        machine_id,
+        action,
+        payload,
+        "same-origin",
+        "https://with.the.most",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+async fn post_machine_health_report_with_request_context(
+    app: &axum::Router,
+    machine_id: &str,
+    action: &str,
+    payload: &str,
+    sec_fetch_site: &str,
+    origin: &str,
+) -> StatusCode {
+    app.clone()
         .oneshot(
             web_request_builder()
                 .method(Method::POST)
                 .uri(format!("/admin/machine/{machine_id}/health/{action}"))
                 .header("Content-Type", "application/json")
+                .header("Sec-Fetch-Site", sec_fetch_site)
+                .header("Origin", origin)
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
         .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+        .unwrap()
+        .status()
 }
 
 async fn get_machine_health_page(app: &axum::Router, machine_id: &str) -> String {
@@ -725,6 +785,24 @@ async fn get_nvlink_domain_health_page(app: &axum::Router, domain_id: &str) -> S
         .expect("Empty response body?")
         .to_bytes();
     String::from_utf8_lossy(&body_bytes).into_owned()
+}
+
+async fn verify_health_page_not_found(app: &axum::Router, path: &str) {
+    let response = app
+        .clone()
+        .oneshot(web_request_builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body = String::from_utf8_lossy(&body_bytes);
+    assert!(!body.contains("Health Report Management"));
 }
 
 fn aggregate_health_section(body: &str) -> &str {

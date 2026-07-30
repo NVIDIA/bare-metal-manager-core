@@ -40,6 +40,7 @@ use libredfish::{
     Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, SystemPowerControl,
 };
+use mac_address::MacAddress;
 
 use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -79,6 +80,41 @@ struct RedfishSimState {
     /// When set, overrides the `Manufacturer` returned by `get_chassis`, so
     /// tests can drive `probe_bmc_vendor`'s Lite-On/Delta chassis fallback.
     chassis_manufacturer: Option<String>,
+    platform_actions: Vec<RedfishSimPlatformAction>,
+    /// Lossless `machine_setup_status` target observations. These reads stay
+    /// separate from mutating platform actions and preserve both `Pair` fields.
+    machine_setup_status_targets: HashMap<String, Vec<Option<RedfishSimBootInterfaceRef>>>,
+    /// Opt-in authentication enforcement. Off by default so existing tests
+    /// (which pass arbitrary or anonymous credentials) are undisturbed. When on,
+    /// `get_accounts` returns `401` unless the client was created with a
+    /// `Direct` credential whose password matches the seeded `users` entry, so
+    /// credential-probe paths (e.g. `bmc_credentials_valid`) can be exercised.
+    enforce_auth: bool,
+    /// When set, `get_accounts` fails with a non-authentication transport error
+    /// (`503`), so callers' error-propagation paths can be exercised distinctly
+    /// from an unauthorized rejection.
+    get_accounts_error: bool,
+    /// Opt-in password-reuse policy. When on, a password *change* whose new
+    /// value equals the account's current password is rejected (`400`), modeling
+    /// the real BMCs that refuse a same-value change -- the exact behavior BMC
+    /// credential rotation's crash recovery must avoid triggering.
+    reject_password_reuse: bool,
+    /// When set, every password *change* fails with a
+    /// [`RedfishError::GenericError`] carrying this message (tests seed it with a
+    /// secret to assert redaction end to end). Takes precedence over the auth
+    /// and reuse checks so it can model a change that fails after authenticating.
+    change_password_error: Option<String>,
+}
+
+/// Build the `HTTPErrorCode` a real BMC would return for a rejected request, so
+/// [`RedfishError::is_unauthorized`] (and callers keying off the status) behave
+/// as they do against hardware.
+fn sim_http_error(status: http::StatusCode, url: &str, body: &str) -> RedfishError {
+    RedfishError::HTTPErrorCode {
+        url: url.to_string(),
+        status_code: status,
+        response_body: body.to_string(),
+    }
 }
 
 /// Snapshot of a single `RedfishClientPool::create_client` invocation.
@@ -93,6 +129,7 @@ struct RedfishSimHostState {
     power: PowerState,
     lockdown: libredfish::EnabledDisabled,
     actions: Vec<RedfishSimAction>,
+    boot_interface_targets: Vec<Option<RedfishSimBootInterfaceRef>>,
     /// Whether this host's `HttpDev1` UEFI HTTP-boot device is enabled in BIOS.
     /// Defaults to `true` (the steady state after `machine_setup`): the boot
     /// device is present, so `set_boot_order_dpu_first` can promote it and
@@ -117,6 +154,7 @@ impl Default for RedfishSimHostState {
             power: PowerState::default(),
             lockdown: libredfish::EnabledDisabled::Disabled,
             actions: Vec::default(),
+            boot_interface_targets: Vec::default(),
             // Enabled by default so existing tests, which never model a
             // de-enumeration, see the boot order configure normally.
             http_dev1_enabled: true,
@@ -165,6 +203,19 @@ impl RedfishSim {
         }
     }
 
+    /// Return every logical boot-interface selector supplied to
+    /// `machine_setup`, `is_bios_setup`, `is_boot_order_setup`, or
+    /// `set_boot_order_dpu_first` on one endpoint.
+    pub fn boot_interface_targets(&self, host: &str) -> Vec<Option<RedfishSimBootInterfaceRef>> {
+        self.state
+            .lock()
+            .unwrap()
+            .hosts
+            .get(host)
+            .map(|state| state.boot_interface_targets.clone())
+            .unwrap_or_default()
+    }
+
     /// Return the simulated lockdown state for each Redfish client target.
     pub fn lockdown_states(&self) -> Vec<EnabledDisabled> {
         self.state
@@ -174,6 +225,26 @@ impl RedfishSim {
             .values()
             .map(|host| host.lockdown)
             .collect()
+    }
+
+    /// Return calls related to platform configuration and UEFI credentials.
+    pub fn platform_actions(&self) -> Vec<RedfishSimPlatformAction> {
+        self.state.lock().unwrap().platform_actions.clone()
+    }
+
+    /// Returns each boot-interface selector supplied to
+    /// `Redfish::machine_setup_status` for one simulated endpoint.
+    pub fn machine_setup_status_targets(
+        &self,
+        host: &str,
+    ) -> Vec<Option<RedfishSimBootInterfaceRef>> {
+        self.state
+            .lock()
+            .unwrap()
+            .machine_setup_status_targets
+            .get(host)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Build a simulator with optional SPDM / firmware-integration test flags.
@@ -262,12 +333,42 @@ impl RedfishSim {
             .insert(username.to_string(), password.to_string());
     }
 
+    pub fn user_password(&self, account_id: &str) -> Option<String> {
+        self.state.lock().unwrap().users.get(account_id).cloned()
+    }
+
     /// Make `change_password` (the by-username path) fail with
     /// [`RedfishError::PasswordChangeRequired`], modeling a factory BMC that
     /// blocks it until change-on-first-use. `change_password_by_id` still
     /// succeeds, so this exercises the `AMI`/`LenovoGB300` rotation fallback.
     pub fn set_password_change_required(&self, required: bool) {
         self.state.lock().unwrap().password_change_required = required;
+    }
+
+    /// Enable opt-in authentication enforcement (see [`RedfishSimState::enforce_auth`]):
+    /// once on, `get_accounts` authorizes against the seeded `users` map, so
+    /// credential-probe paths can distinguish valid from rejected credentials.
+    pub fn set_enforce_auth(&self, enforce: bool) {
+        self.state.lock().unwrap().enforce_auth = enforce;
+    }
+
+    /// Force the next `get_accounts` calls to fail with a non-authentication
+    /// transport error (`503`), to exercise a caller's error-propagation path.
+    pub fn set_get_accounts_error(&self, error: bool) {
+        self.state.lock().unwrap().get_accounts_error = error;
+    }
+
+    /// Enable the opt-in password-reuse policy (see
+    /// [`RedfishSimState::reject_password_reuse`]): a same-value password change
+    /// is rejected, so a caller that must not issue one is held to it.
+    pub fn set_reject_password_reuse(&self, reject: bool) {
+        self.state.lock().unwrap().reject_password_reuse = reject;
+    }
+
+    /// Force every password change to fail with a [`RedfishError::GenericError`]
+    /// carrying `message`, so redaction of the recorded error can be asserted.
+    pub fn set_change_password_error(&self, message: impl Into<String>) {
+        self.state.lock().unwrap().change_password_error = Some(message.into());
     }
 
     /// Override the `Vendor` reported by `get_service_root`. Set it to an
@@ -313,6 +414,45 @@ pub struct RedfishSimTimepoint {
     pos: HashMap<String, usize>,
 }
 
+/// Platform-configuration calls recorded separately from power actions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RedfishSimPlatformAction {
+    SetHostRshim { host: String },
+    SetHostPrivilegeLevel { host: String },
+    IsBiosSetup { host: String },
+    UefiSetup { dpu: bool },
+}
+
+/// Owned form of the boot-interface reference observed by the Redfish
+/// simulator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RedfishSimBootInterfaceRef {
+    Mac(MacAddress),
+    InterfaceId(String),
+    Pair {
+        mac_address: MacAddress,
+        interface_id: String,
+    },
+}
+
+impl From<libredfish::BootInterfaceRef<'_>> for RedfishSimBootInterfaceRef {
+    fn from(value: libredfish::BootInterfaceRef<'_>) -> Self {
+        match value {
+            libredfish::BootInterfaceRef::Mac(mac_address) => Self::Mac(mac_address),
+            libredfish::BootInterfaceRef::InterfaceId(interface_id) => {
+                Self::InterfaceId(interface_id.to_string())
+            }
+            libredfish::BootInterfaceRef::Pair {
+                mac_address,
+                interface_id,
+            } => Self::Pair {
+                mac_address,
+                interface_id: interface_id.to_string(),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RedfishSimAction {
     Power(libredfish::SystemPowerControl),
@@ -353,14 +493,24 @@ impl RedfishSimActions {
             .flat_map(|actions| actions.iter().cloned())
             .collect()
     }
+
+    /// Return Redfish actions issued to one simulated endpoint.
+    pub fn for_host(&self, host: &str) -> Vec<RedfishSimAction> {
+        self.host_actions.get(host).cloned().unwrap_or_default()
+    }
 }
 
 /// Stringifies a [`libredfish::BootInterfaceRef`] for recording in
 /// [`RedfishSimAction`], so tests can assert on the targeted boot interface
-/// regardless of which variant was used.
+/// regardless of which variant was used. Paired targets use their MAC because
+/// the simulator action fields and existing assertions model boot-interface
+/// targets as MAC strings.
 fn boot_interface_ref_to_string(boot_interface: libredfish::BootInterfaceRef<'_>) -> String {
     match boot_interface {
-        libredfish::BootInterfaceRef::Mac(mac) => mac.to_string(),
+        libredfish::BootInterfaceRef::Mac(mac)
+        | libredfish::BootInterfaceRef::Pair {
+            mac_address: mac, ..
+        } => mac.to_string(),
         libredfish::BootInterfaceRef::InterfaceId(id) => id.to_string(),
     }
 }
@@ -369,6 +519,38 @@ struct RedfishSimClient {
     state: Arc<Mutex<RedfishSimState>>,
     _host: String,
     _port: Option<u16>,
+    /// Credential this client was created with. Ignored unless
+    /// [`RedfishSimState::enforce_auth`] is on, in which case authenticated
+    /// operations authorize against it.
+    auth: RedfishAuth,
+}
+
+impl RedfishSimClient {
+    /// Under [`RedfishSimState::enforce_auth`], authorize the credential this
+    /// client was created with against the seeded `users`. Returns a `401`
+    /// error on a mismatch (or a non-`Direct` credential); a no-op when
+    /// enforcement is off, preserving the behavior existing tests rely on.
+    fn authorize(&self, state: &RedfishSimState, url: &str) -> Result<(), RedfishError> {
+        if !state.enforce_auth {
+            return Ok(());
+        }
+        let authorized = match &self.auth {
+            RedfishAuth::Direct(user, password) => state
+                .users
+                .get(user)
+                .is_some_and(|stored| stored == password),
+            RedfishAuth::Anonymous | RedfishAuth::Key(_) => false,
+        };
+        if authorized {
+            Ok(())
+        } else {
+            Err(sim_http_error(
+                http::StatusCode::UNAUTHORIZED,
+                url,
+                "sim: unauthorized",
+            ))
+        }
+    }
 }
 
 impl Redfish for RedfishSimClient {
@@ -451,6 +633,9 @@ impl Redfish for RedfishSimClient {
             // `set_boot_order_dpu_first` can then promote the device and the
             // boot order sticks. Per-host, so it recovers only this host.
             host_state.http_dev1_enabled = true;
+            host_state
+                .boot_interface_targets
+                .push(boot_interface.map(RedfishSimBootInterfaceRef::from));
             host_state.actions.push(RedfishSimAction::MachineSetup {
                 oem_manager_profiles: oem_manager_profiles.clone(),
                 boot_interface_mac: boot_interface.map(boot_interface_ref_to_string),
@@ -461,9 +646,16 @@ impl Redfish for RedfishSimClient {
 
     fn machine_setup_status<'a>(
         &'a self,
-        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
+        boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<libredfish::MachineSetupStatus, RedfishError>> {
         Box::pin(async move {
+            self.state
+                .lock()
+                .unwrap()
+                .machine_setup_status_targets
+                .entry(self._host.clone())
+                .or_default()
+                .push(boot_interface.map(RedfishSimBootInterfaceRef::from));
             Ok(libredfish::MachineSetupStatus {
                 is_done: true,
                 diffs: vec![],
@@ -602,11 +794,29 @@ impl Redfish for RedfishSimClient {
         Box::pin(async move {
             let s_user = user.to_string();
             let mut state = self.state.lock().unwrap();
+            if let Some(message) = &state.change_password_error {
+                return Err(RedfishError::GenericError {
+                    error: message.clone(),
+                });
+            }
             if state.password_change_required {
                 return Err(RedfishError::PasswordChangeRequired);
             }
+            self.authorize(&state, "AccountService/Accounts")?;
             if !state.users.contains_key(&s_user) {
                 return Err(RedfishError::UserNotFound(s_user));
+            }
+            if state.reject_password_reuse
+                && state
+                    .users
+                    .get(&s_user)
+                    .is_some_and(|current| current == new)
+            {
+                return Err(sim_http_error(
+                    http::StatusCode::BAD_REQUEST,
+                    "AccountService/Accounts",
+                    "sim: new password must differ from current",
+                ));
             }
             state.users.insert(s_user, new.to_string());
             Ok(())
@@ -621,8 +831,26 @@ impl Redfish for RedfishSimClient {
         Box::pin(async move {
             let s_acct = account_id.to_string();
             let mut state = self.state.lock().unwrap();
+            if let Some(message) = &state.change_password_error {
+                return Err(RedfishError::GenericError {
+                    error: message.clone(),
+                });
+            }
+            self.authorize(&state, "AccountService/Accounts")?;
             if !state.users.contains_key(&s_acct) {
                 return Err(RedfishError::UserNotFound(s_acct));
+            }
+            if state.reject_password_reuse
+                && state
+                    .users
+                    .get(&s_acct)
+                    .is_some_and(|current| current == new_pass)
+            {
+                return Err(sim_http_error(
+                    http::StatusCode::BAD_REQUEST,
+                    "AccountService/Accounts",
+                    "sim: new password must differ from current",
+                ));
             }
             state.users.insert(s_acct, new_pass.to_string());
             Ok(())
@@ -1277,7 +1505,36 @@ impl Redfish for RedfishSimClient {
         'a,
         Result<Vec<libredfish::model::account_service::ManagerAccount>, RedfishError>,
     > {
-        Box::pin(async move { todo!() })
+        Box::pin(async move {
+            let state = self.state.lock().unwrap();
+            if state.get_accounts_error {
+                return Err(sim_http_error(
+                    http::StatusCode::SERVICE_UNAVAILABLE,
+                    "AccountService/Accounts",
+                    "sim: forced get_accounts error",
+                ));
+            }
+            // Reading the account collection is gated behind login on a real BMC,
+            // so authorize the credential this client was created with (a no-op
+            // unless enforcement is on).
+            self.authorize(&state, "AccountService/Accounts")?;
+            let accounts = state
+                .users
+                .keys()
+                .map(|name| libredfish::model::account_service::ManagerAccount {
+                    odata: libredfish::model::OData::default(),
+                    id: Some(name.clone()),
+                    username: name.clone(),
+                    password: None,
+                    role_id: "Administrator".to_string(),
+                    name: None,
+                    description: None,
+                    enabled: Some(true),
+                    locked: Some(false),
+                })
+                .collect();
+            Ok(accounts)
+        })
     }
     fn set_machine_password_policy<'a>(
         &'a self,
@@ -1346,6 +1603,9 @@ impl Redfish for RedfishSimClient {
             // re-create a de-enumerated one. So the order reads as configured
             // exactly when this host's HTTP boot device is currently enabled.
             host_state.is_boot_order_setup = Some(host_state.http_dev1_enabled);
+            host_state
+                .boot_interface_targets
+                .push(Some(RedfishSimBootInterfaceRef::from(boot_interface)));
             host_state
                 .actions
                 .push(RedfishSimAction::SetBootOrderDpuFirst {
@@ -1483,7 +1743,14 @@ impl Redfish for RedfishSimClient {
         &'a self,
         _enabled: EnabledDisabled,
     ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            self.state.lock().unwrap().platform_actions.push(
+                RedfishSimPlatformAction::SetHostRshim {
+                    host: self._host.clone(),
+                },
+            );
+            Ok(())
+        })
     }
 
     fn get_host_rshim<'a>(
@@ -1531,6 +1798,9 @@ impl Redfish for RedfishSimClient {
             // updated only by this host's own `set_boot_order_dpu_first` /
             // `set_is_boot_order_setup`, so other hosts can't flip it.
             let is_boot_order_setup = host_state.is_boot_order_setup.unwrap_or(true);
+            host_state
+                .boot_interface_targets
+                .push(Some(RedfishSimBootInterfaceRef::from(boot_interface)));
             host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
                 boot_interface_mac: boot_interface_ref_to_string(boot_interface),
             });
@@ -1540,9 +1810,23 @@ impl Redfish for RedfishSimClient {
 
     fn is_bios_setup<'a>(
         &'a self,
-        _: Option<libredfish::BootInterfaceRef<'a>>,
+        boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
-        Box::pin(async move { Ok(self.state.lock().unwrap().is_bios_setup.unwrap_or(true)) })
+        Box::pin(async move {
+            let mut state = self.state.lock().unwrap();
+            state
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .boot_interface_targets
+                .push(boot_interface.map(RedfishSimBootInterfaceRef::from));
+            state
+                .platform_actions
+                .push(RedfishSimPlatformAction::IsBiosSetup {
+                    host: self._host.clone(),
+                });
+            Ok(state.is_bios_setup.unwrap_or(true))
+        })
     }
 
     fn get_secure_boot_certificate<'a>(
@@ -1926,7 +2210,14 @@ impl Redfish for RedfishSimClient {
         &'a self,
         _level: HostPrivilegeLevel,
     ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            self.state.lock().unwrap().platform_actions.push(
+                RedfishSimPlatformAction::SetHostPrivilegeLevel {
+                    host: self._host.clone(),
+                },
+            );
+            Ok(())
+        })
     }
 
     fn set_utc_timezone<'a>(&'a self) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
@@ -1967,7 +2258,7 @@ impl RedfishClientPool for RedfishSim {
         &self,
         host: &str,
         port: Option<u16>,
-        _auth: RedfishAuth,
+        auth: RedfishAuth,
         vendor: Option<RedfishVendor>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         {
@@ -1981,11 +2272,8 @@ impl RedfishClientPool for RedfishSim {
                 .hosts
                 .entry(host.to_string())
                 .or_insert(RedfishSimHostState {
-                    power: PowerState::On,
                     lockdown: default_lockdown,
-                    actions: Default::default(),
-                    http_dev1_enabled: true,
-                    is_boot_order_setup: None,
+                    ..Default::default()
                 });
             if state.fw_version.is_empty() {
                 state.fw_version = Arc::new("24.10-17".to_string());
@@ -1995,6 +2283,7 @@ impl RedfishClientPool for RedfishSim {
             state: self.state.clone(),
             _host: host.to_string(),
             _port: port,
+            auth,
         }))
     }
 
@@ -2005,9 +2294,14 @@ impl RedfishClientPool for RedfishSim {
     async fn uefi_setup(
         &self,
         _client: &dyn Redfish,
-        _dpu: bool,
+        dpu: bool,
         _sitewide_uefi_credentials: carbide_secrets::credentials::Credentials,
     ) -> Result<Option<String>, RedfishClientCreationError> {
+        self.state
+            .lock()
+            .unwrap()
+            .platform_actions
+            .push(RedfishSimPlatformAction::UefiSetup { dpu });
         Ok(None)
     }
 }

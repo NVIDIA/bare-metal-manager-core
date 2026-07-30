@@ -21,7 +21,7 @@ use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use ::rpc::model::machine::ManagedHostStateSnapshotRpc;
 use carbide_redfish::libredfish::RedfishAuth;
-use carbide_secrets::credentials::{BmcCredentialType, CredentialKey};
+use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::hardware_info::MachineNvLinkInfo;
@@ -34,6 +34,34 @@ use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
+
+/// Resolve the host UEFI credential to authenticate a *clear* with while
+/// force-deleting a machine, keyed by the password the device currently holds
+/// (see `host_uefi_clear_credential_key`). Best effort: any failure returns
+/// `None`, so the force-delete skips the clear rather than aborting.
+///
+/// Resolve the key while the txn is open, commit, then read the secret -- the
+/// remote reader (Vault) request must not run while we hold the connection.
+async fn resolve_host_uefi_clear_credentials(
+    api: &Api,
+    bmc_mac_address: mac_address::MacAddress,
+) -> Option<Credentials> {
+    let mut txn = api.txn_begin().await.ok()?;
+    let key =
+        crate::handlers::uefi::host_uefi_clear_credential_key(&mut txn, bmc_mac_address).await;
+    if let Err(err) = txn.commit().await {
+        tracing::warn!(
+            %bmc_mac_address,
+            error = %err,
+            "Failed to commit while resolving host UEFI clear credentials; skipping clear"
+        );
+        return None;
+    }
+    let clear_key = key.ok()?;
+    crate::handlers::uefi::read_uefi_credentials(api.redfish_pool.credential_reader(), &clear_key)
+        .await
+        .ok()
+}
 
 pub(crate) async fn find_machine_ids(
     api: &Api,
@@ -527,20 +555,8 @@ pub(crate) async fn admin_force_delete_machine(
                             // authenticate the clear (table-driven). Best effort: if it
                             // cannot be resolved, skip the clear rather than aborting the
                             // force-delete.
-                            let clear_credentials = match api.txn_begin().await {
-                                Ok(mut txn) => {
-                                    let credentials =
-                                        crate::handlers::uefi::host_uefi_clear_credentials(
-                                            &mut txn,
-                                            api.redfish_pool.credential_reader(),
-                                            bmc_mac_address,
-                                        )
-                                        .await;
-                                    let _ = txn.commit().await;
-                                    credentials.ok()
-                                }
-                                Err(_) => None,
-                            };
+                            let clear_credentials =
+                                resolve_host_uefi_clear_credentials(api, bmc_mac_address).await;
                             if let Some(clear_credentials) = clear_credentials {
                                 match api
                                     .redfish_pool
@@ -638,9 +654,10 @@ pub(crate) async fn admin_force_delete_machine(
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
 
     // Clean up the explored tables next, in site-explorer's write order
-    // (`explored_managed_hosts`, then `explored_endpoints`, then interface
-    // rows), so this delete and a concurrent exploration pass can't hold the
-    // same tables in opposite orders.
+    // (`explored_managed_hosts`, then each machine topology and its
+    // `explored_endpoints` row, then interface rows), so this delete and a
+    // concurrent exploration pass can't hold the same tables in opposite
+    // orders.
     if let Some(machine) = &host_machine
         && let Some(addr) = machine.status.bmc_info.ip
     {
@@ -667,6 +684,10 @@ pub(crate) async fn admin_force_delete_machine(
             "Cleaning up explored endpoint",
         );
 
+        // Site Explorer refreshes firmware in machine_topologies before it
+        // updates this endpoint. Lock in the same order; force_cleanup later
+        // deletes the already-locked topology row.
+        db::machine_topology::lock_by_machine_id(&mut txn, &machine.id).await?;
         db::explored_endpoints::delete(&mut txn, addr).await?;
     }
 
@@ -729,6 +750,26 @@ pub(crate) async fn admin_force_delete_machine(
                 &api.common_pools.ethernet.pool_loopback_ip,
                 &mut txn,
                 loopback_ip,
+            )
+            .await?
+        }
+
+        // The machine snapshot predates `ForceDeletion`, so a concurrent
+        // backfill can make its IPv6 field stale. The pool owner remains the
+        // authoritative reservation source during deletion.
+        if let Some(loopback_ip_v6) = db::resource_pool::find_owned_allocation(
+            &api.common_pools.ethernet.pool_loopback_ip_v6,
+            &mut txn,
+            model::resource_pool::OwnerType::Machine,
+            &dpu_machine.id.to_string(),
+        )
+        .await
+        .map_err(CarbideError::from)?
+        {
+            db::resource_pool::release(
+                &api.common_pools.ethernet.pool_loopback_ip_v6,
+                &mut txn,
+                loopback_ip_v6,
             )
             .await?
         }

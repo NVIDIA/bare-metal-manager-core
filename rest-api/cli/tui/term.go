@@ -54,7 +54,7 @@ func ReadKey() (KeyEvent, error) {
 
 	if buf[0] == KeyEscape {
 		seq := make([]byte, 2)
-		n, err := os.Stdin.Read(seq)
+		n, err := readEscapeSequence(os.Stdin, seq)
 		if err != nil || n < 2 {
 			return KeyEvent{Char: KeyEscape}, nil
 		}

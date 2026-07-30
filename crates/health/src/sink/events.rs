@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
@@ -48,6 +49,7 @@ pub struct EventContext {
     pub collector_type: &'static str,
     pub metadata: Option<EndpointMetadata>,
     pub rack_id: Option<RackId>,
+    pub labels: BTreeMap<String, String>,
 }
 
 impl EventContext {
@@ -58,11 +60,16 @@ impl EventContext {
             collector_type,
             metadata: endpoint.metadata.clone(),
             rack_id: endpoint.rack_id.clone(),
+            labels: endpoint.labels.clone(),
         }
     }
 
     pub fn endpoint_key(&self) -> &str {
         &self.endpoint_key
+    }
+
+    pub fn labels(&self) -> &BTreeMap<String, String> {
+        &self.labels
     }
 
     /// Returns machine metadata when this context belongs to a machine endpoint.
@@ -76,13 +83,20 @@ impl EventContext {
 
     /// Returns the stable NICo machine ID when the endpoint is a machine.
     pub fn machine_id(&self) -> Option<MachineId> {
-        self.machine_metadata().map(|machine| machine.machine_id)
+        self.machine_metadata()
+            .and_then(|machine| machine.machine_id)
     }
 
     /// Returns the machine chassis serial when the endpoint is a machine.
     pub fn machine_serial(&self) -> Option<&str> {
         self.machine_metadata()
             .and_then(|machine| machine.machine_serial.as_deref())
+    }
+
+    /// Returns the UUID reported by the primary Redfish ComputerSystem.
+    pub fn system_uuid(&self) -> Option<uuid::Uuid> {
+        self.machine_metadata()
+            .and_then(|machine| machine.system_uuid.get())
     }
 
     /// Returns the uniform GPU driver version when it is known for the machine.
@@ -532,7 +546,7 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::endpoint::{MachineData, PowerShelfData, SwitchData};
+    use crate::endpoint::{MachineData, PowerShelfData, SharedSystemUuid, SwitchData};
 
     #[derive(Clone, Copy)]
     enum ContextKind {
@@ -640,8 +654,9 @@ mod tests {
         let metadata = match kind {
             ContextKind::Empty => None,
             ContextKind::Machine => Some(EndpointMetadata::Machine(MachineData {
-                machine_id: machine_id(),
+                machine_id: Some(machine_id()),
                 machine_serial: Some("MN-001".to_string()),
+                system_uuid: SharedSystemUuid::default(),
                 slot_number: Some(7),
                 tray_index: Some(3),
                 nvlink_domain_uuid: Some(nvlink_domain_id()),
@@ -669,7 +684,27 @@ mod tests {
             collector_type: "unit-test",
             metadata,
             rack_id: Some(RackId::new("rack-1")),
+            labels: Default::default(),
         }
+    }
+
+    #[tokio::test]
+    async fn cloned_event_context_observes_later_system_uuid_resolution() {
+        let system_uuid = SharedSystemUuid::default();
+        let mut context = context(ContextKind::Machine);
+        let Some(EndpointMetadata::Machine(machine)) = context.metadata.as_mut() else {
+            panic!("machine context");
+        };
+        machine.system_uuid = system_uuid.clone();
+        let collector_context = context.clone();
+        let expected = uuid::uuid!("4c4c4544-0044-4710-8052-cac04f4b4632");
+
+        system_uuid
+            .get_or_try_init(|| async { Ok::<_, std::convert::Infallible>(Some(expected)) })
+            .await
+            .expect("infallible UUID initialization");
+
+        assert_eq!(collector_context.system_uuid(), Some(expected));
     }
 
     fn summarize_context(context: EventContext) -> ContextSummary {
@@ -820,6 +855,10 @@ mod tests {
             "NVUE leakage" {
                 ReportSource::NvueLeakage => "nvue-leakage",
             }
+
+            "GPU inventory" {
+                ReportSource::GpuInventory => "gpu-inventory",
+            }
         );
     }
 
@@ -858,6 +897,17 @@ mod tests {
                 Probe::NvueLeakage => ProbeSummary {
                     as_str: "NvueLeakage",
                     health_report_id: "NvueLeakage".to_string(),
+                },
+            }
+
+            // GpuInventory is the one probe whose id is not just its own name -- it
+            // deliberately reuses "SkuValidation" so out-of-band GPU-count alerts dedup
+            // against the machine-controller's in-band SKU alerts. That makes it the row
+            // most worth pinning, and it was the only one missing.
+            "GPU inventory reuses the SkuValidation probe id" {
+                Probe::GpuInventory => ProbeSummary {
+                    as_str: "SkuValidation",
+                    health_report_id: "SkuValidation".to_string(),
                 },
             }
         );

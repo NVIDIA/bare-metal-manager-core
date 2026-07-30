@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,16 +26,23 @@ use axum::routing::get;
 use axum_template::TemplateEngine;
 use base64::Engine as _;
 use carbide_host_support::agent_config;
+use carbide_host_support::bootstrap_ca::BootstrapCaSource;
 use carbide_instrument::emit;
 use carbide_uuid::machine::MachineInterfaceId;
 use rpc::forge;
 use rpc::forge::PxeDomain;
 
 use crate::common::{AppState, Machine};
-use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome};
+use crate::metrics::{BootEndpoint, OutcomeReason, PxeBootOutcome, PxeCloudInitRequestFailed};
 
 const DEFAULT_NUM_OF_VFS: u32 = 16;
 const DEFAULT_HBN_BRIDGE: &str = "br-hbn";
+
+fn parse_bootstrap_ca_source(value: i32) -> Result<BootstrapCaSource, String> {
+    forge::BootstrapCaSource::try_from(value)
+        .map(BootstrapCaSource::from)
+        .map_err(|_| format!("unknown bootstrap CA source value {value}"))
+}
 
 /// Generates the content of the /etc/forge/config.toml file.
 ///
@@ -66,10 +74,10 @@ fn log_and_generate_generic_error(
     error: String,
     reason: OutcomeReason,
 ) -> (String, HashMap<String, String>) {
-    tracing::error!(error = %error, "cloud-init request could not be served");
-    emit(PxeBootOutcome {
+    emit(PxeCloudInitRequestFailed {
         endpoint: BootEndpoint::CloudInit,
         reason,
+        error,
     });
     let mut template_data: HashMap<String, String> = HashMap::new();
     template_data.insert(
@@ -94,6 +102,7 @@ fn user_data_handler(
     vf_intercept_bridge_sf: Option<String>,
     api_url_override: Option<String>,
     pxe_url_override: Option<String>,
+    bootstrap_ca_source: BootstrapCaSource,
     state: State<AppState>,
 ) -> (String, HashMap<String, String>) {
     let config = state.runtime_config.clone();
@@ -125,6 +134,10 @@ fn user_data_handler(
     context.insert(
         "forge_agent_config_b64".to_string(),
         base64::engine::general_purpose::STANDARD.encode(forge_agent_config),
+    );
+    context.insert(
+        "bootstrap_ca_source".to_string(),
+        bootstrap_ca_source.to_string(),
     );
 
     let bmc_fw_update = state
@@ -225,26 +238,36 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
             ) {
                 (Some(interface), Some(domain)) => match interface.id {
                     Some(machine_interface_id) => {
-                        emit(PxeBootOutcome {
-                            endpoint: BootEndpoint::CloudInit,
-                            reason: OutcomeReason::Ok,
-                        });
-                        user_data_handler(
-                            machine_interface_id,
-                            interface,
-                            domain,
-                            discovery_instructions.hbn_reps,
-                            discovery_instructions.hbn_sfs,
-                            discovery_instructions.num_of_vfs,
-                            discovery_instructions.vf_intercept_bridge_name,
-                            discovery_instructions.host_representor_intercept_bridging,
-                            discovery_instructions.hbn_bridge,
-                            discovery_instructions.vf_intercept_bridge_port,
-                            discovery_instructions.vf_intercept_bridge_sf,
-                            machine.instructions.api_url_override,
-                            machine.instructions.pxe_url_override,
-                            state.clone(),
-                        )
+                        match parse_bootstrap_ca_source(discovery_instructions.bootstrap_ca_source)
+                        {
+                            Ok(bootstrap_ca_source) => {
+                                emit(PxeBootOutcome {
+                                    endpoint: BootEndpoint::CloudInit,
+                                    reason: OutcomeReason::Ok,
+                                });
+                                user_data_handler(
+                                    machine_interface_id,
+                                    interface,
+                                    domain,
+                                    discovery_instructions.hbn_reps,
+                                    discovery_instructions.hbn_sfs,
+                                    discovery_instructions.num_of_vfs,
+                                    discovery_instructions.vf_intercept_bridge_name,
+                                    discovery_instructions.host_representor_intercept_bridging,
+                                    discovery_instructions.hbn_bridge,
+                                    discovery_instructions.vf_intercept_bridge_port,
+                                    discovery_instructions.vf_intercept_bridge_sf,
+                                    machine.instructions.api_url_override,
+                                    machine.instructions.pxe_url_override,
+                                    bootstrap_ca_source,
+                                    state.clone(),
+                                )
+                            }
+                            Err(error) => log_and_generate_generic_error(
+                                error,
+                                OutcomeReason::InstructionsInvalid,
+                            ),
+                        }
                     }
                     None => log_and_generate_generic_error(
                         format!("The interface ID should not be null: {interface:?}"),
@@ -305,27 +328,49 @@ fn extract_network_config(custom_cloud_init: &str) -> Option<String> {
     serde_yaml::to_string(value.get("network")?).ok()
 }
 
+/// Default network-config served when a tenant hasn't provided a custom
+/// `network:` key in their cloud-init userdata. cloud-init's own default
+/// behavior (no network-config at all) only DHCPs the first network
+/// interface it finds; this instead DHCPs every matching interface, under
+/// both the predictable ("en*") and legacy ("eth*") naming conventions,
+/// so multi-NIC hosts come up with working networking on every port.
+const DEFAULT_NETWORK_CONFIG: &str = r#"version: 2
+ethernets:
+  predictable-names:
+    match:
+      name: "en*"
+    dhcp4: true
+    dhcp6: true
+  legacy-names:
+    match:
+      name: "eth*"
+    dhcp4: true
+    dhcp6: true
+"#;
+
+/// Resolves the network-config YAML to use for a machine: the `network:`
+/// key extracted from the tenant's custom cloud-init userdata if present,
+/// otherwise DEFAULT_NETWORK_CONFIG (DHCP on every interface), rather
+/// than an empty document that would fall back to cloud-init's own
+/// first-interface-only default.
+fn resolve_network_config(custom_cloud_init: Option<&str>) -> Cow<'static, str> {
+    custom_cloud_init
+        .and_then(extract_network_config)
+        .map(Cow::Owned)
+        .unwrap_or(Cow::Borrowed(DEFAULT_NETWORK_CONFIG))
+}
+
 /// Serves NoCloud's `network-config` document for a tenant's assigned
 /// machine, extracted from any `network:` key present in their custom
-/// cloud-init userdata. Renders empty when no such key is present, which
-/// cloud-init treats as "no custom network config" and falls back to
-/// its default DHCP behavior.
+/// cloud-init userdata. When no such key is present, serves
+/// DEFAULT_NETWORK_CONFIG instead of an empty document, so hosts get
+/// DHCP on every interface by default rather than cloud-init's own
+/// first-interface-only behavior.
 pub async fn network_config(machine: Machine, state: State<AppState>) -> impl IntoResponse {
-    let network_config_yaml = machine
-        .instructions
-        .custom_cloud_init
-        .as_deref()
-        .and_then(extract_network_config)
-        .unwrap_or_default();
-
-    let mut template_data: HashMap<String, String> = HashMap::new();
-    template_data.insert("network_config".to_string(), network_config_yaml);
-
-    axum_template::Render(
-        "network-config".to_string(),
-        state.engine.clone(),
-        template_data,
-    )
+    let network_config_yaml =
+        resolve_network_config(machine.instructions.custom_cloud_init.as_deref());
+    let template_data = HashMap::from([("network_config", network_config_yaml)]);
+    axum_template::Render("network-config", state.engine.clone(), template_data)
 }
 
 pub async fn vendor_data(state: State<AppState>) -> impl IntoResponse {
@@ -368,11 +413,109 @@ mod tests {
     use std::fs;
 
     use carbide_instrument::testing::MetricsCapture;
+    use carbide_test_support::{Check, check_values};
 
     use super::*;
     use crate::common::test_app_state;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/test_data");
+
+    fn render_user_data_for_bootstrap_ca(source: BootstrapCaSource) -> String {
+        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let tera = tera::Tera::new(template_glob).unwrap();
+        let context = HashMap::from([
+            ("bootstrap_ca_source".to_string(), source.to_string()),
+            (
+                "api_url".to_string(),
+                "https://carbide-api.forge".to_string(),
+            ),
+            (
+                "forge_agent_config_b64".to_string(),
+                "W21hY2hpbmVdCg==".to_string(),
+            ),
+            ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_hbn_bridge".to_string(), "br-hbn".to_string()),
+            ("hostname".to_string(), "test-host".to_string()),
+            (
+                "interface_id".to_string(),
+                "91609f10-c91d-470d-a260-6293ea0c1234".to_string(),
+            ),
+            ("num_of_vfs".to_string(), "3".to_string()),
+            (
+                "pxe_url".to_string(),
+                "http://carbide-pxe.forge".to_string(),
+            ),
+            ("seconds_since_epoch".to_string(), "0".to_string()),
+        ]);
+
+        tera.render(
+            "user-data",
+            &tera::Context::from_serialize(context).unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn bootstrap_ca_source_protobuf_values_fail_closed() {
+        check_values(
+            [
+                Check {
+                    scenario: "legacy download preserves historical command without local validation",
+                    input: forge::BootstrapCaSource::LegacyDownload as i32,
+                    expect: Ok(BootstrapCaSource::LegacyDownload),
+                },
+                Check {
+                    scenario: "embedded",
+                    input: forge::BootstrapCaSource::Embedded as i32,
+                    expect: Ok(BootstrapCaSource::Embedded),
+                },
+                Check {
+                    scenario: "mounted",
+                    input: forge::BootstrapCaSource::Mounted as i32,
+                    expect: Ok(BootstrapCaSource::Mounted),
+                },
+                Check {
+                    scenario: "unknown",
+                    input: 99,
+                    expect: Err("unknown bootstrap CA source value 99".to_string()),
+                },
+            ],
+            parse_bootstrap_ca_source,
+        );
+    }
+
+    #[test]
+    fn user_data_template_applies_bootstrap_ca_policy() {
+        check_values(
+            [
+                Check {
+                    scenario: "legacy download",
+                    input: BootstrapCaSource::LegacyDownload,
+                    expect: (1, false, false, false, false),
+                },
+                Check {
+                    scenario: "embedded",
+                    input: BootstrapCaSource::Embedded,
+                    expect: (0, true, true, false, true),
+                },
+                Check {
+                    scenario: "mounted",
+                    input: BootstrapCaSource::Mounted,
+                    expect: (0, true, false, true, false),
+                },
+            ],
+            |source| {
+                let rendered = render_user_data_for_bootstrap_ca(source);
+                (
+                    rendered.matches("ip vrf exec mgmt curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca").count(),
+                    rendered.contains("validate_bootstrap_ca()"),
+                    rendered.contains("install_embedded_bootstrap_ca /opt/forge/embedded_forge_root.pem /opt/forge/forge_root.pem"),
+                    rendered.contains("accept_mounted_bootstrap_ca /opt/forge/forge_root.pem"),
+                    rendered.contains("  /embedded_forge_root.pem"),
+                )
+            },
+        );
+    }
 
     #[test]
     fn forge_agent_config() {
@@ -443,6 +586,10 @@ mod tests {
 
         let context = HashMap::from([
             (
+                "bootstrap_ca_source".to_string(),
+                "legacy_download".to_string(),
+            ),
+            (
                 "api_url".to_string(),
                 "https://carbide-api.forge".to_string(),
             ),
@@ -496,6 +643,10 @@ mod tests {
 
         let context = HashMap::from([
             (
+                "bootstrap_ca_source".to_string(),
+                "legacy_download".to_string(),
+            ),
+            (
                 "api_url".to_string(),
                 "https://carbide-api.forge".to_string(),
             ),
@@ -532,6 +683,13 @@ mod tests {
             )
             .unwrap();
 
+        // Verify unavailable representors do not abort the remaining cloud-init work.
+        assert!(rendered.contains(
+            r#"set interface "${host_representor}" type=dpdk mtu_request=9216 external_ids='{}' || true"#
+        ));
+        assert!(rendered.contains(
+            r#"ofport_request=$(ovs-vsctl get interface "${host_representor}" ofport) || true"#
+        ));
         assert!(rendered.contains("ovs-vsctl get bridge br-sfc external_ids"));
         assert!(rendered.contains("ovs-vsctl --may-exist add-port br-sfc"));
         assert!(rendered.contains(
@@ -580,10 +738,15 @@ mod tests {
             None,
             None,
             None,
+            BootstrapCaSource::LegacyDownload,
             state,
         );
 
         assert_eq!(template_key, "user-data");
+        assert_eq!(
+            context.get("bootstrap_ca_source").map(String::as_str),
+            Some("legacy_download"),
+        );
         assert_eq!(
             context.get("hostname").map(String::as_str),
             Some("node-01.forge.example.com"),
@@ -622,6 +785,7 @@ mod tests {
             None,
             None,
             None,
+            BootstrapCaSource::LegacyDownload,
             state,
         );
 
@@ -678,6 +842,71 @@ mod tests {
                         .and_then(|e| e.get("eth0"))
                         .is_some(),
                     "case '{}': expected eth0 config present",
+                    case.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_network_config_handles_various_inputs() {
+        struct Case {
+            name: &'static str,
+            custom_cloud_init: Option<&'static str>,
+            expect_default: bool,
+        }
+
+        let cases = [
+            Case {
+                name: "no network key in custom cloud-init",
+                custom_cloud_init: Some("#cloud-config\nwrite_files: []\n"),
+                expect_default: true,
+            },
+            Case {
+                name: "network key present in custom cloud-init",
+                custom_cloud_init: Some(
+                    "#cloud-config\nnetwork:\n  version: 2\n  ethernets:\n    eth0:\n      addresses:\n        - 10.10.10.50/24\n",
+                ),
+                expect_default: false,
+            },
+            Case {
+                name: "no custom cloud-init at all",
+                custom_cloud_init: None,
+                expect_default: true,
+            },
+        ];
+
+        for case in cases {
+            let result = resolve_network_config(case.custom_cloud_init);
+
+            if case.expect_default {
+                assert_eq!(
+                    result, DEFAULT_NETWORK_CONFIG,
+                    "case '{}' failed",
+                    case.name
+                );
+            } else {
+                let parsed: serde_yaml::Value = serde_yaml::from_str(&result).unwrap_or_else(|e| {
+                    panic!("case '{}': result was not valid YAML: {}", case.name, e)
+                });
+                assert_eq!(
+                    parsed.get("version").unwrap().as_u64().unwrap(),
+                    2,
+                    "case '{}' failed",
+                    case.name
+                );
+                let eth0_addresses = parsed
+                    .get("ethernets")
+                    .and_then(|e| e.get("eth0"))
+                    .and_then(|e| e.get("addresses"))
+                    .and_then(|a| a.as_sequence())
+                    .unwrap_or_else(|| {
+                        panic!("case '{}': expected ethernets.eth0.addresses", case.name)
+                    });
+                assert_eq!(
+                    eth0_addresses[0].as_str().unwrap(),
+                    "10.10.10.50/24",
+                    "case '{}' failed",
                     case.name
                 );
             }

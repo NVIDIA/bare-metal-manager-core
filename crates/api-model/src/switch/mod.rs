@@ -65,10 +65,6 @@ pub struct SwitchStatus {
     pub health_status: String, // "ok", "warning", "critical"
 }
 
-fn default_continue_after_firmware_upgrade() -> bool {
-    true
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "lowercase")]
 #[allow(clippy::enum_variant_names)]
@@ -96,9 +92,11 @@ pub struct SwitchMaintenanceRequest {
 pub struct SwitchReprovisionRequest {
     pub requested_at: DateTime<Utc>,
     pub initiator: String,
-    /// Continue through rack-managed post-firmware phases such as NVOS/NMXC.
-    #[serde(default = "default_continue_after_firmware_upgrade")]
-    pub continue_after_firmware_upgrade: bool,
+    /// Rack maintenance activities that initiated this request. The switch
+    /// controller uses these to decide which ReProvisioning phases to wait for
+    /// (firmware / NVOS / NMXC). Empty means all activities.
+    #[serde(default)]
+    pub activities: Vec<crate::rack::MaintenanceActivity>,
 }
 
 pub use crate::rack::{
@@ -863,24 +861,19 @@ mod tests {
     }
 
     #[test]
-    fn reprovision_request_defaults_continue_after_firmware_upgrade_to_true() {
-        scenarios!(
-            run = |json| {
-                serde_json::from_str::<SwitchReprovisionRequest>(json)
-                    .map(|r| r.continue_after_firmware_upgrade)
-                    .map_err(drop)
-            };
-            "omitted flag defaults to true" {
-                r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op"}"# => Yields(true),
-            }
+    fn reprovision_request_defaults_activities_to_empty() {
+        let request: SwitchReprovisionRequest =
+            serde_json::from_str(r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op"}"#)
+                .expect("SwitchReprovisionRequest should deserialize");
+        assert!(request.activities.is_empty());
+    }
 
-            "explicit false is honored" {
-                r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op","continue_after_firmware_upgrade":false}"# => Yields(false),
-            }
-
-            "explicit true is honored" {
-                r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op","continue_after_firmware_upgrade":true}"# => Yields(true),
-            }
-        );
+    #[test]
+    fn reprovision_request_ignores_legacy_fields() {
+        let request: SwitchReprovisionRequest = serde_json::from_str(
+            r#"{"requested_at":"2026-01-01T00:00:00Z","initiator":"op","continue_after_firmware_upgrade":true,"scope":{"activities":[]}}"#,
+        )
+        .expect("legacy continue_after_firmware_upgrade and scope fields should be ignored");
+        assert!(request.activities.is_empty());
     }
 }

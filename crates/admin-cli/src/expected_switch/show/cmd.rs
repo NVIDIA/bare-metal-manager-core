@@ -20,29 +20,71 @@ use std::collections::HashMap;
 use mac_address::MacAddress;
 use prettytable::{Table, row};
 use rpc::admin_cli::OutputFormat;
-use rpc::forge::{ExpectedSwitchRequest, LinkedExpectedSwitch};
+use rpc::forge::{ExpectedSwitch, ExpectedSwitchList, ExpectedSwitchRequest, LinkedExpectedSwitch};
 
 use super::args::Args;
 use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
+use crate::{async_write, async_writeln};
+
+enum ShowResult {
+    Single(ExpectedSwitch),
+    List(ExpectedSwitchList),
+}
+
+enum RenderOutcome {
+    Complete,
+    TableRequired(ExpectedSwitchList),
+}
+
+async fn render_show_result(
+    result: ShowResult,
+    output_format: OutputFormat,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+) -> CarbideCliResult<RenderOutcome> {
+    match result {
+        ShowResult::Single(expected_switch) => {
+            if output_format == OutputFormat::Json {
+                async_writeln!(
+                    output,
+                    "{}",
+                    serde_json::to_string_pretty(&expected_switch)?
+                )?;
+            } else {
+                async_writeln!(output, "{:#?}", expected_switch)?;
+            }
+            Ok(RenderOutcome::Complete)
+        }
+        ShowResult::List(expected_switches) if output_format == OutputFormat::Json => {
+            async_writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&expected_switches)?
+            )?;
+            Ok(RenderOutcome::Complete)
+        }
+        ShowResult::List(expected_switches) => Ok(RenderOutcome::TableRequired(expected_switches)),
+    }
+}
 
 pub async fn show(
     query: &Args,
     api_client: &ApiClient,
     output_format: OutputFormat,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
 ) -> CarbideCliResult<()> {
     let req: Option<ExpectedSwitchRequest> = query.try_into()?;
 
-    if let Some(req) = req {
-        let expected_switch = api_client.0.get_expected_switch(req).await?;
-        println!("{:#?}", expected_switch);
-        return Ok(());
-    }
+    let result = if let Some(req) = req {
+        ShowResult::Single(api_client.0.get_expected_switch(req).await?)
+    } else {
+        ShowResult::List(api_client.0.get_all_expected_switches().await?)
+    };
 
-    let expected_switches = api_client.0.get_all_expected_switches().await?;
-    if output_format == OutputFormat::Json {
-        println!("{}", serde_json::to_string_pretty(&expected_switches)?);
-    }
+    let expected_switches = match render_show_result(result, output_format, output).await? {
+        RenderOutcome::Complete => return Ok(()),
+        RenderOutcome::TableRequired(expected_switches) => expected_switches,
+    };
 
     let linked_switches = api_client.0.get_all_expected_switches_linked().await?;
     let linked_by_bmc_mac: HashMap<String, LinkedExpectedSwitch> = linked_switches
@@ -68,7 +110,8 @@ pub async fn show(
             }
         }));
 
-    convert_and_print_into_nice_table(&expected_switches, &linked_by_bmc_mac, &expected_mi)?;
+    convert_and_print_into_nice_table(output, &expected_switches, &linked_by_bmc_mac, &expected_mi)
+        .await?;
 
     Ok(())
 }
@@ -92,7 +135,8 @@ fn format_interface_ip(
     "Undiscovered".to_string()
 }
 
-fn convert_and_print_into_nice_table(
+async fn convert_and_print_into_nice_table(
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     expected_switches: &::rpc::forge::ExpectedSwitchList,
     linked_by_bmc_mac: &HashMap<String, LinkedExpectedSwitch>,
     expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,
@@ -152,7 +196,56 @@ fn convert_and_print_into_nice_table(
         ]);
     }
 
-    table.printstd();
+    async_write!(output, "{}", table)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+    use crate::async_write::CapturedOutput;
+
+    fn expected_switch() -> ExpectedSwitch {
+        ExpectedSwitch {
+            bmc_mac_address: "00:11:22:33:44:55".to_string(),
+            switch_serial_number: "switch-1".to_string(),
+            ..Default::default()
+        }
+    }
+
+    async fn render_json(result: ShowResult) -> (RenderOutcome, Value) {
+        let mut captured = CapturedOutput::new();
+        let outcome = render_show_result(result, OutputFormat::Json, captured.writer())
+            .await
+            .expect("JSON output should render");
+        let output = captured.into_bytes().await;
+        let json = serde_json::from_slice(&output)
+            .expect("the complete captured output should be one JSON document");
+        (outcome, json)
+    }
+
+    #[tokio::test]
+    async fn single_json_output_is_complete_document() {
+        let (outcome, json) = render_json(ShowResult::Single(expected_switch())).await;
+
+        assert!(matches!(outcome, RenderOutcome::Complete));
+        assert_eq!(json["switch_serial_number"], "switch-1");
+    }
+
+    #[tokio::test]
+    async fn list_json_output_is_complete_document() {
+        let list = ExpectedSwitchList {
+            expected_switches: vec![expected_switch()],
+        };
+        let (outcome, json) = render_json(ShowResult::List(list)).await;
+
+        assert!(matches!(outcome, RenderOutcome::Complete));
+        assert_eq!(
+            json["expected_switches"][0]["switch_serial_number"],
+            "switch-1"
+        );
+    }
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -572,6 +573,27 @@ type UpdateExpectedMachineHandler struct {
 	tracerSpan *cutil.TracerSpan
 }
 
+// expectedMachineBmcMacUnchanged accepts an omitted MAC or another spelling of
+// the stored MAC. The BMC MAC identifies the ExpectedMachine in Core, so PATCH
+// may reassert that identity but cannot replace it.
+func expectedMachineBmcMacUnchanged(stored string, submitted *string) bool {
+	if submitted == nil {
+		return true
+	}
+
+	storedMAC, storedErr := net.ParseMAC(stored)
+	submittedMAC, submittedErr := net.ParseMAC(*submitted)
+	return storedErr == nil && submittedErr == nil && slices.Equal(storedMAC, submittedMAC)
+}
+
+// expectedMachineBmcMacImmutableValidationError keeps the single and batch
+// PATCH validation responses aligned.
+func expectedMachineBmcMacImmutableValidationError() validation.Errors {
+	return validation.Errors{
+		"bmcMacAddress": errors.New("BMC MAC address cannot be changed after creation"),
+	}
+}
+
 // NewUpdateExpectedMachineHandler initializes and returns a new handler for updating ExpectedMachine
 func NewUpdateExpectedMachineHandler(dbSession *cdb.Session, scp *sc.ClientPool, cfg *config.Config) UpdateExpectedMachineHandler {
 	return UpdateExpectedMachineHandler{
@@ -687,6 +709,17 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Machine", nil)
 	}
 
+	if !expectedMachineBmcMacUnchanged(expectedMachine.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := expectedMachineBmcMacImmutableValidationError()
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Machine update data", validationErrors)
+	}
+
+	bmcIPAddress := apiRequest.BmcIpAddress
+	clearBmcIPAddress := bmcIPAddress != nil && *bmcIPAddress == ""
+	if clearBmcIPAddress {
+		bmcIPAddress = nil
+	}
+
 	updatedExpectedMachine, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) (*cdbm.ExpectedMachine, error) {
 		// Note: DefaultBmcUsername and BmcPassword are not stored in DB, only passed to workflow
 		em, err := emDAO.Update(
@@ -694,8 +727,7 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.ExpectedMachineUpdateInput{
 				ExpectedMachineID:        expectedMachine.ID,
-				BmcMacAddress:            apiRequest.BmcMacAddress,
-				BmcIpAddress:             apiRequest.BmcIpAddress,
+				BmcIpAddress:             bmcIPAddress,
 				ChassisSerialNumber:      apiRequest.ChassisSerialNumber,
 				SkuID:                    apiRequest.SkuID,
 				FallbackDpuSerialNumbers: apiRequest.FallbackDPUSerialNumbers,
@@ -717,7 +749,7 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
 		}
 
-		if apiRequest.HasBmcIpAddress() && apiRequest.BmcIpAddress == nil {
+		if clearBmcIPAddress {
 			em, err = emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
 				ExpectedMachineID: expectedMachine.ID,
 				BmcIpAddress:      true,
@@ -732,6 +764,10 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			Username: apiRequest.DefaultBmcUsername,
 			Password: apiRequest.DefaultBmcPassword,
 		})
+		// REST storage keeps its current value when this PATCH omits the
+		// address. Core needs the request value instead: nil preserves its
+		// current HostBmc configuration, while an empty string clears it.
+		updateExpectedMachineRequest.BmcIpAddress = apiRequest.BmcIpAddress
 
 		logger.Info().Msg("triggering ExpectedMachine update workflow")
 
@@ -1291,12 +1327,10 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 
 	// Validate each item, also collect requested sku IDs
 	// - ID is required and must be unique
-	// - BMC address is optional but must be unique
 	// - Serial Number is optional but must be unique
 	// Note: this is early partial validation before we try to call the DB.
 	validationErrors := validation.Errors{} //
 	idMap := make(map[uuid.UUID]int)        // Map Expected Machine ID to its index in the request array
-	bmcMacMap := make(map[string]int)
 	serialMap := make(map[string]int)
 	requestedSkuIDs := make(map[string]bool)
 	for i, req := range apiRequests {
@@ -1326,15 +1360,6 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			idMap[mid] = i
 		}
 
-		if req.BmcMacAddress != nil {
-			lowerMac := strings.ToLower(*req.BmcMacAddress)
-			if prev, ok := bmcMacMap[lowerMac]; ok {
-				common.AddToValidationErrors(itemErrors, "bmcMacAddress", fmt.Errorf(
-					"duplicate BMC MAC address '%s' found at indices %d and %d", *req.BmcMacAddress, prev, i))
-			}
-			bmcMacMap[lowerMac] = i
-		}
-
 		if req.ChassisSerialNumber != nil {
 			lowerSerial := strings.ToLower(*req.ChassisSerialNumber)
 			if prev, ok := serialMap[lowerSerial]; ok {
@@ -1362,7 +1387,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	// but we also want to retrieve full Expected Machines from Site to check for Serial uniqueness.
 	// We will split into multiple queries:
 	// 1. Retrieve SiteID and Site by loading the requested ExpectedMachine records
-	// 2. Retrieve all Expected Machines for that Site to check for MAC/Serial uniqueness.
+	// 2. Retrieve all Expected Machines for that Site to check for Serial uniqueness.
 	// 3. Retrieve all SKUs for that Site to validate SKU IDs in the request.
 	// All of these are pure validation reads and stay outside the WithTxResult call below.
 	// TODO: now that we have a unique index on (mac,siteID) we should reconsider adding unique indices on (serial,siteID).
@@ -1444,6 +1469,21 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site", nil)
 	}
 
+	// Validate the stored identity only after the caller's Site access is known.
+	// Otherwise the error would reveal whether a submitted MAC matched a machine
+	// the caller cannot access.
+	validationErrors = validation.Errors{}
+	for i, req := range apiRequests {
+		mid, _ := uuid.Parse(*req.ID)
+		em := requestedEmMap[mid]
+		if !expectedMachineBmcMacUnchanged(em.BmcMacAddress, req.BmcMacAddress) {
+			validationErrors[strconv.Itoa(i)] = expectedMachineBmcMacImmutableValidationError()
+		}
+	}
+	if len(validationErrors) > 0 {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Machine update data", validationErrors)
+	}
+
 	// Retrieve all ExpectedMachines on Site from DB to allow unicity checks at
 	// Site level. Pure validation read, kept outside the write transaction.
 	expectedMachinesOnSite, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
@@ -1478,42 +1518,32 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		uniqueSkuIDsOnSite[sku.ID] = true
 	}
 
-	// Verify unicity of BMC MAC Addresses and Serial Numbers with existing records on Site
-	expectedMachineMacAddressChecker := common.NewUniqueChecker[uuid.UUID]()
+	// Verify Serial Number uniqueness with existing records on Site
 	expectedMachineSerialNumberChecker := common.NewUniqueChecker[uuid.UUID]()
 
 	// Load DB data into checkers
 	for i := range expectedMachinesOnSite { // iterate on ALL Expected Machine on Site
 		em := &expectedMachinesOnSite[i]
-		expectedMachineMacAddressChecker.Update(em.ID, em.BmcMacAddress)
 		if em.ChassisSerialNumber != "" {
 			expectedMachineSerialNumberChecker.Update(em.ID, em.ChassisSerialNumber)
 		}
 	}
 
-	// Apply changes to MAC and Serial to checkers
+	// Apply Serial changes to the checker
 	for _, req := range apiRequests {
 		mid, _ := uuid.Parse(*req.ID)
-		if req.BmcMacAddress != nil {
-			expectedMachineMacAddressChecker.Update(mid, *req.BmcMacAddress)
-		}
 		if req.ChassisSerialNumber != nil {
 			expectedMachineSerialNumberChecker.Update(mid, *req.ChassisSerialNumber)
 		}
 	}
 
-	// Final checks: unicity of MAC, Serial, and existence of SKUs
+	// Final checks: Serial uniqueness and existence of SKUs
 	validationErrors = validation.Errors{}
 	for i, req := range apiRequests {
 		itemErrors := validation.Errors{}
 		strIndex := strconv.Itoa(i) // index/key as string for validation errors map
 		mid, _ := uuid.Parse(*req.ID)
 
-		// Check MAC unicity
-		if req.BmcMacAddress != nil && expectedMachineMacAddressChecker.DoesIDHaveConflict(mid) {
-			common.AddToValidationErrors(itemErrors, "bmcMacAddress", fmt.Errorf(
-				"Expected Machine with BMC MAC Address: %s already exist", *req.BmcMacAddress))
-		}
 		// Check Serial unicity
 		if req.ChassisSerialNumber != nil && expectedMachineSerialNumberChecker.DoesIDHaveConflict(mid) {
 			common.AddToValidationErrors(itemErrors, "chassisSerialNumber", fmt.Errorf(
@@ -1539,8 +1569,9 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	// by the DB record's ID rather than by slice index, so correlation
 	// doesn't depend on the DAO preserving input order.
 	credsByID := make(map[uuid.UUID]cdbm.ExpectedMachineCredentials, len(apiRequests))
+	bmcIPRequestsByID := make(map[uuid.UUID]*string, len(apiRequests))
 	updateInputs := make([]cdbm.ExpectedMachineUpdateInput, 0, len(apiRequests))
-	bmcIPClearIDs := make([]uuid.UUID, 0)
+	bmcIPClearIDs := make(map[uuid.UUID]struct{})
 	for _, machineReq := range apiRequests {
 		// APIExpectedMachineUpdateRequest must allow nil ID for single update use case. If present here, it has already been validated.
 		if machineReq.ID == nil {
@@ -1553,13 +1584,15 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			Username: machineReq.DefaultBmcUsername,
 			Password: machineReq.DefaultBmcPassword,
 		}
-		if machineReq.HasBmcIpAddress() && machineReq.BmcIpAddress == nil {
-			bmcIPClearIDs = append(bmcIPClearIDs, emID)
+		bmcIPRequestsByID[emID] = machineReq.BmcIpAddress
+		bmcIPAddress := machineReq.BmcIpAddress
+		if bmcIPAddress != nil && *bmcIPAddress == "" {
+			bmcIPClearIDs[emID] = struct{}{}
+			bmcIPAddress = nil
 		}
 		updateInputs = append(updateInputs, cdbm.ExpectedMachineUpdateInput{
 			ExpectedMachineID:        emID,
-			BmcMacAddress:            machineReq.BmcMacAddress,
-			BmcIpAddress:             machineReq.BmcIpAddress,
+			BmcIpAddress:             bmcIPAddress,
 			ChassisSerialNumber:      machineReq.ChassisSerialNumber,
 			SkuID:                    machineReq.SkuID,
 			FallbackDpuSerialNumbers: machineReq.FallbackDPUSerialNumbers,
@@ -1576,10 +1609,29 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			HostLifecycleProfile:     machineReq.HostLifecycleProfile.ToDBModelPtr(),
 		})
 	}
-
 	// Update provided ExpectedMachines in DB
 	updatedExpectedMachines, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
-		for _, expectedMachineID := range bmcIPClearIDs {
+		// Lock the full target set before clearing any one row. Clear touches
+		// only a subset, while UpdateMultiple writes every target; without this
+		// canonical lock pass, overlapping batches can each hold a different
+		// cleared row and deadlock during the bulk update.
+		derr := emDAO.LockForUpdate(ctx, tx, slices.Collect(maps.Keys(idMap)))
+		if derr != nil {
+			if errors.Is(derr, cdb.ErrDoesNotExist) {
+				return nil, cutil.NewAPIError(http.StatusConflict, "One or more Expected Machines were removed before the batch update completed", nil)
+			}
+			logger.Error().Err(derr).Msg("error locking ExpectedMachine records for batch update")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
+		}
+
+		// Clear first so UpdateMultiple's final SELECT sees nil. Its scoped
+		// BMC IP update cannot restore cleared rows. Every target row is already
+		// locked above, so the subset clear cannot introduce a second order.
+		for _, input := range updateInputs {
+			expectedMachineID := input.ExpectedMachineID
+			if _, ok := bmcIPClearIDs[expectedMachineID]; !ok {
+				continue
+			}
 			_, derr := emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
 				ExpectedMachineID: expectedMachineID,
 				BmcIpAddress:      true,
@@ -1607,7 +1659,11 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 				logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("UpdateMultiple returned a machine with an unrecognized ID")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to correlate updated Expected Machine to request", nil)
 			}
-			workflowMachines = append(workflowMachines, em.ToProto(creds))
+			workflowMachine := em.ToProto(creds)
+			// Use the PATCH value at the workflow boundary instead of the REST
+			// row, which may contain an address this request did not touch.
+			workflowMachine.BmcIpAddress = bmcIPRequestsByID[em.ID]
+			workflowMachines = append(workflowMachines, workflowMachine)
 		}
 
 		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering Expected Machine update workflow")

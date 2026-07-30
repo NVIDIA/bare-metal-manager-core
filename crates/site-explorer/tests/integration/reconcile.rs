@@ -17,6 +17,7 @@
 
 use std::net::IpAddr;
 
+use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_test_harness::prelude::*;
 use carbide_test_harness::test_support::network_segment::create_static_assignments_segment;
 use mac_address::MacAddress;
@@ -30,11 +31,12 @@ async fn init(pool: &PgPool) -> TestHarness {
     test_harness
 }
 
-/// Site-explorer reconciles every `expected_*` row's configured static IPs into
-/// `machine_interface` rows by calling `try_preallocate_one` per static IP during
-/// `update_explored_endpoints`. This test drives the same per-row materialization directly,
-/// covering the static-assignments-segment counterpart to the DHCP `discover()` recovery hook:
-/// devices whose IP lives outside any Carbide-managed network never reach `discover()`, so this
+/// Site-explorer reconciles configured BMC static IPs from every `expected_*`
+/// row into `machine_interface` rows by calling `try_preallocate_one` during
+/// `update_explored_endpoints`. This test drives the same per-row
+/// materialization directly, covering the static-assignments-segment
+/// counterpart to the DHCP `discover()` recovery hook: devices whose IP lives
+/// outside any Carbide-managed network never reach `discover()`, so this
 /// per-row preallocation is what gets their rows onto the books.
 #[sqlx_test]
 async fn test_site_explorer_reconcile_creates_missing_preallocations(
@@ -216,12 +218,18 @@ async fn test_site_explorer_reconcile_is_idempotent(
 async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    init(&pool).await;
+    let test_harness = init(&pool).await;
 
     let bmc_mac: MacAddress = "AA:BB:CC:DD:E1:01".parse().unwrap();
     let nic_mac: MacAddress = "AA:BB:CC:DD:E1:02".parse().unwrap();
     let fixed_ip = "10.99.0.20";
     let parsed_fixed_ip: IpAddr = fixed_ip.parse().unwrap();
+    let expected_interface = model::expected_machine::ExpectedHostNic {
+        mac_address: nic_mac,
+        nic_type: Some("onboard".into()),
+        fixed_ip: Some(parsed_fixed_ip),
+        ..Default::default()
+    };
 
     let mut txn = pool.begin().await?;
     db::expected_machine::create(
@@ -231,15 +239,7 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
             bmc_mac_address: bmc_mac,
             data: ExpectedMachineData {
                 serial_number: "reconcile-hostnic-001".to_string(),
-                host_nics: vec![model::expected_machine::ExpectedHostNic {
-                    network_segment_type: None,
-                    mac_address: nic_mac,
-                    nic_type: Some("onboard".into()),
-                    fixed_ip: Some(parsed_fixed_ip),
-                    fixed_mask: None,
-                    fixed_gateway: None,
-                    primary: None,
-                }],
+                host_nics: vec![expected_interface],
                 ..Default::default()
             },
         },
@@ -247,15 +247,16 @@ async fn test_site_explorer_reconcile_preallocates_host_nic_fixed_ip(
     .await?;
     txn.commit().await?;
 
-    carbide_site_explorer::try_preallocate_one(
-        &pool,
-        nic_mac,
-        parsed_fixed_ip,
-        model::machine_interface::InterfaceType::Data,
-        "expected_machine host NIC",
-        None,
-    )
-    .await;
+    // Drive the production reconciliation entry point so this covers loading
+    // `ExpectedMachineData.host_nics` as well as applying its policy.
+    let explorer = super::env::test_site_explorer(
+        &test_harness,
+        SiteExplorerConfig {
+            explorations_per_run: 0,
+            ..Default::default()
+        },
+    );
+    explorer.run_single_iteration().await?;
 
     let mut txn = pool.begin().await?;
     let nic_iface = db::machine_interface::find_by_mac_address(&mut *txn, nic_mac).await?;

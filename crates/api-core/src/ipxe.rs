@@ -148,7 +148,7 @@ fn operating_system_row_to_ipxe_script(
         name: row.name.clone(),
         description: row.description.clone(),
         hash: row.ipxe_definition_hash.clone().unwrap_or_default(),
-        tenant_id: Some(row.org.clone()),
+        tenant_id: row.org.clone(),
         ipxe_template_id,
         parameters,
         artifacts,

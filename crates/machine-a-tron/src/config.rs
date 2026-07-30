@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 use std::collections::{BTreeMap, HashMap};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddrV4};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bmc_mock::mac_address_pool::MacAddressPool;
-use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType};
+use bmc_mock::{DpuMachineInfo, DpuSettings, HardwareType};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use clap::Parser;
@@ -71,8 +71,8 @@ pub struct MachineATronArgs {
 pub struct MachineConfig {
     #[serde(default)]
     pub rack_id: Option<RackId>,
-    #[serde(default = "default_host_hardware_type")]
-    pub hw_type: HostHardwareType,
+    #[serde(default = "default_hardware_type")]
+    pub hw_type: HardwareType,
     pub host_count: u32,
     pub vpc_count: u32,
     pub subnets_per_vpc: u32,
@@ -205,6 +205,10 @@ pub struct MachineATronConfig {
     pub carbide_api_url: String,
     pub log_file: Option<String>,
     pub interface: String,
+
+    /// How machine-a-tron obtains DHCP leases for BMCs and directly attached hosts.
+    #[serde(default)]
+    pub dhcp: DhcpType,
     #[serde(default = "default_true")]
     pub tui_enabled: bool,
 
@@ -288,6 +292,42 @@ pub struct MachineATronConfig {
 
 impl MachineATronConfig {
     pub fn validate(&self) -> eyre::Result<()> {
+        if let DhcpType::UdpRelay {
+            server_address,
+            listen_address,
+            advertise_address,
+        } = self.dhcp
+        {
+            eyre::ensure!(
+                server_address.port() != 0,
+                "DHCP server address must use a nonzero UDP port"
+            );
+            eyre::ensure!(
+                !server_address.ip().is_unspecified()
+                    && !server_address.ip().is_broadcast()
+                    && !server_address.ip().is_multicast(),
+                "DHCP server address must use a concrete unicast IPv4 address"
+            );
+            eyre::ensure!(
+                listen_address.port() != 0,
+                "DHCP relay listen address must use a nonzero UDP port"
+            );
+            eyre::ensure!(
+                !listen_address.ip().is_broadcast() && !listen_address.ip().is_multicast(),
+                "DHCP relay listen address must use an unspecified or unicast IPv4 address"
+            );
+            eyre::ensure!(
+                !advertise_address.is_unspecified()
+                    && !advertise_address.is_broadcast()
+                    && !advertise_address.is_multicast(),
+                "DHCP relay advertise address must be a concrete unicast IPv4 address"
+            );
+        }
+
+        if self.enable_ipmi_simulation {
+            bmc_mock::ipmi_sim::validate_executable()?;
+        }
+
         for (rack_id, rack) in &self.racks {
             eyre::ensure!(!rack_id.as_str().is_empty(), "rack ID cannot be empty");
             eyre::ensure!(
@@ -308,15 +348,15 @@ impl MachineATronConfig {
         Ok(())
     }
 
-    pub fn read_persisted_machines(
+    pub fn read_persisted_devices(
         &self,
-    ) -> eyre::Result<Option<HashMap<String, Vec<PersistedHostMachine>>>> {
-        let Some(machines_persist_dir) = &self.machines_persist_dir() else {
+    ) -> eyre::Result<Option<HashMap<String, Vec<PersistedDevice>>>> {
+        let Some(devices_persist_dir) = &self.devices_persist_dir() else {
             return Ok(None);
         };
 
-        let machines_by_config_section: HashMap<String, Vec<PersistedHostMachine>> =
-            std::fs::read_dir(machines_persist_dir)?
+        let devices_by_config_section: HashMap<String, Vec<PersistedDevice>> =
+            std::fs::read_dir(devices_persist_dir)?
                 .map(|f| {
                     let f = f?;
                     let filename = f.file_name().to_string_lossy().into_owned();
@@ -335,51 +375,72 @@ impl MachineATronConfig {
                 .flatten()
                 // Build the HashMap
                 .collect();
-        Ok(Some(machines_by_config_section))
+        Ok(Some(devices_by_config_section))
     }
 
-    pub fn write_persisted_machines(&self, machines: &[PersistedHostMachine]) -> eyre::Result<()> {
-        let Some(machines_persist_dir) = &self.machines_persist_dir() else {
+    pub fn write_persisted_devices(&self, devices: &[PersistedDevice]) -> eyre::Result<()> {
+        let Some(devices_persist_dir) = &self.devices_persist_dir() else {
             return Ok(());
         };
 
-        std::fs::create_dir_all(machines_persist_dir)?;
+        std::fs::create_dir_all(devices_persist_dir)?;
 
-        let mut persisted_machines_by_section: HashMap<String, Vec<&PersistedHostMachine>> =
+        let mut persisted_devices_by_section: HashMap<String, Vec<&PersistedDevice>> =
             HashMap::new();
-        for machine in machines {
-            if let Some(machines) =
-                persisted_machines_by_section.get_mut(&machine.machine_config_section)
+        for device in devices {
+            if let Some(devices) =
+                persisted_devices_by_section.get_mut(&device.machine_config_section)
             {
-                machines.push(machine);
+                devices.push(device);
             } else {
-                persisted_machines_by_section
-                    .insert(machine.machine_config_section.clone(), vec![machine]);
+                persisted_devices_by_section
+                    .insert(device.machine_config_section.clone(), vec![device]);
             }
         }
 
-        for (config_section, persisted_machines) in persisted_machines_by_section {
+        for (config_section, persisted_devices) in persisted_devices_by_section {
             std::fs::write(
-                machines_persist_dir.join(format!("{config_section}.json")),
-                serde_json::to_vec(&persisted_machines)?,
+                devices_persist_dir.join(format!("{config_section}.json")),
+                serde_json::to_vec(&persisted_devices)?,
             )?;
         }
 
         Ok(())
     }
 
-    fn machines_persist_dir(&self) -> Option<PathBuf> {
+    fn devices_persist_dir(&self) -> Option<PathBuf> {
         self.persist_dir.as_ref().map(|d| d.join("machines"))
     }
 }
 
-/// A subset of the information about a HostMachine which is persisted to JSON to be recovered in
-/// subsequent runs of machine-a-tron.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DhcpType {
+    Api {},
+    UdpRelay {
+        /// Destination for relayed DHCP packets.
+        server_address: SocketAddrV4,
+        /// Local UDP socket used to receive relayed DHCP replies.
+        listen_address: SocketAddrV4,
+        /// Reachable IPv4 address placed in DHCP `giaddr` for server replies.
+        advertise_address: Ipv4Addr,
+    },
+}
+
+impl Default for DhcpType {
+    fn default() -> Self {
+        Self::Api {}
+    }
+}
+
+/// Device information persisted to JSON for recovery by subsequent machine-a-tron runs.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PersistedHostMachine {
+pub struct PersistedDevice {
     pub mat_id: Uuid,
     pub machine_config_section: String,
-    pub hw_type: Option<HostHardwareType>,
+    /// Modern machine-a-tron versions always persist this field. Keeping it mandatory prevents
+    /// an incomplete snapshot from silently restoring a device as the default hardware type.
+    pub hw_type: HardwareType,
     pub bmc_mac_address: MacAddress,
     pub serial: String,
     pub dpus: Vec<PersistedDpuMachine>,
@@ -395,7 +456,7 @@ pub struct PersistedHostMachine {
     pub hw_mac_addr_pool: Option<MacAddressPoolConfig>,
 }
 
-impl PersistedHostMachine {
+impl PersistedDevice {
     pub fn mac_addresses(&self) -> impl Iterator<Item = MacAddress> {
         std::iter::once(self.bmc_mac_address)
             .chain(self.dpus.iter().flat_map(|d| d.mac_addresses()))
@@ -407,7 +468,9 @@ impl PersistedHostMachine {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedDpuMachine {
     pub mat_id: Uuid,
-    pub hw_type: Option<HostHardwareType>,
+    /// Modern machine-a-tron versions always persist this field. Keeping it mandatory prevents
+    /// an incomplete snapshot from silently restoring a DPU as the default hardware type.
+    pub hw_type: HardwareType,
     pub bmc_mac_address: MacAddress,
     pub host_mac_address: MacAddress,
     pub oob_mac_address: MacAddress,
@@ -432,7 +495,7 @@ impl PersistedDpuMachine {
 impl From<PersistedDpuMachine> for DpuMachineInfo {
     fn from(value: PersistedDpuMachine) -> Self {
         Self {
-            hw_type: value.hw_type.unwrap_or_default(),
+            hw_type: value.hw_type,
             bmc_mac_address: value.bmc_mac_address,
             host_mac_address: value.host_mac_address,
             oob_mac_address: value.oob_mac_address,
@@ -462,8 +525,8 @@ fn default_network_status_run_interval() -> Duration {
     Duration::from_secs(20)
 }
 
-fn default_host_hardware_type() -> HostHardwareType {
-    HostHardwareType::default()
+fn default_hardware_type() -> HardwareType {
+    HardwareType::default()
 }
 
 fn default_scout_run_interval() -> Duration {
@@ -503,6 +566,7 @@ pub struct MachineATronContext {
     /// firmware, DPU's can mock that they already have this installed.
     pub desired_firmware_versions: Vec<DesiredFirmwareVersionEntry>,
     pub forge_api_client: ForgeApiClient,
+    pub dhcp_client: crate::dhcp_wrapper::DhcpClient,
     pub mac_address_pool: Arc<Mutex<MacAddressPool>>,
 }
 
@@ -605,6 +669,178 @@ scout_run_interval = "5s"
     #[test]
     fn ipmi_simulation_is_disabled_by_default() {
         assert!(!rack_config().enable_ipmi_simulation);
+    }
+
+    #[test]
+    fn dhcp_uses_api_by_default() {
+        assert_eq!(rack_config().dhcp, DhcpType::Api {});
+    }
+
+    #[test]
+    fn udp_relay_configuration_requires_all_addresses() {
+        check_values(
+            [
+                Check {
+                    scenario: "complete UDP relay configuration",
+                    input: r#"type = "udp_relay"
+server_address = "127.0.0.1:6767"
+listen_address = "0.0.0.0:6768"
+advertise_address = "127.0.0.1""#,
+                    expect: false,
+                },
+                Check {
+                    scenario: "missing DHCP server address",
+                    input: r#"type = "udp_relay"
+listen_address = "0.0.0.0:6768"
+advertise_address = "127.0.0.1""#,
+                    expect: true,
+                },
+                Check {
+                    scenario: "missing relay listen address",
+                    input: r#"type = "udp_relay"
+server_address = "127.0.0.1:6767"
+advertise_address = "127.0.0.1""#,
+                    expect: true,
+                },
+                Check {
+                    scenario: "missing relay advertise address",
+                    input: r#"type = "udp_relay"
+server_address = "127.0.0.1:6767"
+listen_address = "0.0.0.0:6768""#,
+                    expect: true,
+                },
+                Check {
+                    scenario: "relay address on API mode",
+                    input: r#"type = "api"
+server_address = "127.0.0.1:6767""#,
+                    expect: true,
+                },
+            ],
+            |serialized| toml::from_str::<DhcpType>(serialized).is_err(),
+        );
+    }
+
+    #[test]
+    fn udp_relay_configuration_is_validated() {
+        fn udp_relay(
+            server_address: &str,
+            listen_address: &str,
+            advertise_address: Ipv4Addr,
+        ) -> DhcpType {
+            DhcpType::UdpRelay {
+                server_address: server_address.parse().unwrap(),
+                listen_address: listen_address.parse().unwrap(),
+                advertise_address,
+            }
+        }
+
+        let mut complete = rack_config();
+        complete.dhcp = udp_relay("127.0.0.1:6767", "0.0.0.0:6768", Ipv4Addr::LOCALHOST);
+
+        let mut unspecified_advertise_address = complete.clone();
+        unspecified_advertise_address.dhcp =
+            udp_relay("127.0.0.1:6767", "0.0.0.0:6768", Ipv4Addr::UNSPECIFIED);
+
+        let mut zero_server_port = complete.clone();
+        zero_server_port.dhcp = udp_relay("127.0.0.1:0", "0.0.0.0:6768", Ipv4Addr::LOCALHOST);
+
+        let mut unspecified_server_address = complete.clone();
+        unspecified_server_address.dhcp =
+            udp_relay("0.0.0.0:6767", "0.0.0.0:6768", Ipv4Addr::LOCALHOST);
+
+        let mut multicast_server_address = complete.clone();
+        multicast_server_address.dhcp =
+            udp_relay("224.0.0.1:6767", "0.0.0.0:6768", Ipv4Addr::LOCALHOST);
+
+        let mut broadcast_server_address = complete.clone();
+        broadcast_server_address.dhcp =
+            udp_relay("255.255.255.255:6767", "0.0.0.0:6768", Ipv4Addr::LOCALHOST);
+
+        let mut zero_listen_port = complete.clone();
+        zero_listen_port.dhcp = udp_relay("127.0.0.1:6767", "0.0.0.0:0", Ipv4Addr::LOCALHOST);
+
+        let mut multicast_listen_address = complete.clone();
+        multicast_listen_address.dhcp =
+            udp_relay("127.0.0.1:6767", "224.0.0.1:6768", Ipv4Addr::LOCALHOST);
+
+        let mut broadcast_listen_address = complete.clone();
+        broadcast_listen_address.dhcp = udp_relay(
+            "127.0.0.1:6767",
+            "255.255.255.255:6768",
+            Ipv4Addr::LOCALHOST,
+        );
+
+        let mut multicast_advertise_address = complete.clone();
+        multicast_advertise_address.dhcp = udp_relay(
+            "127.0.0.1:6767",
+            "0.0.0.0:6768",
+            Ipv4Addr::new(224, 0, 0, 1),
+        );
+
+        let mut broadcast_advertise_address = complete.clone();
+        broadcast_advertise_address.dhcp =
+            udp_relay("127.0.0.1:6767", "0.0.0.0:6768", Ipv4Addr::BROADCAST);
+
+        check_cases(
+            [
+                Case {
+                    scenario: "complete UDP relay configuration",
+                    input: complete,
+                    expect: Yields(()),
+                },
+                Case {
+                    scenario: "zero DHCP server port",
+                    input: zero_server_port,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unspecified DHCP server address",
+                    input: unspecified_server_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "multicast DHCP server address",
+                    input: multicast_server_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "broadcast DHCP server address",
+                    input: broadcast_server_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "zero relay listen port",
+                    input: zero_listen_port,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "multicast relay listen address",
+                    input: multicast_listen_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "broadcast relay listen address",
+                    input: broadcast_listen_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "unspecified advertised address",
+                    input: unspecified_advertise_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "multicast advertised address",
+                    input: multicast_advertise_address,
+                    expect: Fails,
+                },
+                Case {
+                    scenario: "broadcast advertised address",
+                    input: broadcast_advertise_address,
+                    expect: Fails,
+                },
+            ],
+            |config| config.validate().map_err(drop),
+        );
     }
 
     #[test]

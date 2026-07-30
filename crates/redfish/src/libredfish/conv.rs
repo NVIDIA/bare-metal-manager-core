@@ -195,3 +195,38 @@ impl IntoModel<Evidence> for libredfish::model::component_integrity::Evidence {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+    use libredfish::model::service_root::RedfishVendor;
+
+    use super::*;
+
+    #[test]
+    fn redfish_vendors_map_to_bmc_vendors() {
+        value_scenarios!(bmc_vendor:
+            "NVIDIA Redfish implementations" {
+                RedfishVendor::AMI => BMCVendor::Nvidia,
+                RedfishVendor::NvidiaDpu => BMCVendor::Nvidia,
+                RedfishVendor::NvidiaGBx00 => BMCVendor::Nvidia,
+                RedfishVendor::NvidiaGH200 => BMCVendor::Nvidia,
+                RedfishVendor::NvidiaGBSwitch => BMCVendor::Nvidia,
+                RedfishVendor::P3809 => BMCVendor::Nvidia,
+                RedfishVendor::VeraRubin => BMCVendor::Nvidia,
+            }
+
+            "vendor-specific Redfish implementations" {
+                RedfishVendor::Dell => BMCVendor::Dell,
+                RedfishVendor::Hpe => BMCVendor::Hpe,
+                RedfishVendor::Lenovo => BMCVendor::Lenovo,
+                RedfishVendor::LenovoAMI => BMCVendor::LenovoAMI,
+                RedfishVendor::LenovoGB300 => BMCVendor::LenovoAMI,
+                RedfishVendor::LiteOnPowerShelf => BMCVendor::Liteon,
+                RedfishVendor::DeltaPowerShelf => BMCVendor::Delta,
+                RedfishVendor::Supermicro => BMCVendor::Supermicro,
+                RedfishVendor::Unknown => BMCVendor::Unknown,
+            }
+        );
+    }
+}

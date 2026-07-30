@@ -117,6 +117,9 @@ impl EnvBuilder {
             scout_reporting_timeout: runtime_config
                 .machine_state_controller
                 .scout_reporting_timeout,
+            waiting_for_measurements_timeout: runtime_config
+                .machine_state_controller
+                .waiting_for_measurements_timeout,
             uefi_boot_wait: runtime_config.machine_state_controller.uefi_boot_wait,
         };
         let power_options: PowerOptionConfig = runtime_config.power_manager_options.clone().into();
@@ -160,7 +163,14 @@ impl EnvBuilder {
             component_manager,
             credential_manager: credential_manager
                 .unwrap_or_else(|| api.credential_manager().clone()),
+            // Zero TTL: every guard re-queries the aggregate so tests observe a
+            // freshly staged rotation on the next iteration without waiting out
+            // the cache window.
+            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::with_ttl(
+                std::time::Duration::ZERO,
+            ),
             per_object_metrics_registry,
+            per_object_info: None,
         };
         let machine_controller = StateController::<MachineStateControllerIO>::builder()
             .database(pool, api.work_lock_manager_handle())

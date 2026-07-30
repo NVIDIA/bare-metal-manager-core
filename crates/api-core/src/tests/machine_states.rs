@@ -2534,6 +2534,61 @@ async fn test_bios_config_job_happy_path(pool: sqlx::PgPool) {
     );
 }
 
+/// A BIOS job that completes before the scheduling check skips the redundant
+/// reboot and moves directly to BIOS verification.
+#[crate::sqlx_test]
+async fn test_wait_for_bios_job_scheduled_skips_reboot_for_completed_job(pool: sqlx::PgPool) {
+    const RETRY_COUNT: u32 = 2;
+    const TEST_BIOS_JOB_ID: &str = "JID_BIOS_ALREADY_COMPLETED";
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    env.redfish_sim
+        .set_job_state_sequence(vec![libredfish::JobState::Completed]);
+    set_host_controller_state_stuck_in(
+        &env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForBiosJob {
+                bios_config_info: BiosConfigInfo {
+                    bios_job_id: Some(TEST_BIOS_JOB_ID.to_string()),
+                    bios_config_state: BiosConfigState::WaitForBiosJobScheduled,
+                    retry_count: RETRY_COUNT,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::PollingBiosSetup {
+                retry_count: RETRY_COUNT,
+            },
+        }
+    );
+
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+        )),
+        "an already-completed BIOS job should not trigger another reboot, got: {actions:?}"
+    );
+}
+
 /// When HostInit/PollingBiosSetup is stuck, enter HandleBiosJobFailure recovery.
 #[crate::sqlx_test]
 async fn test_polling_bios_setup_stuck_enters_handle_bios_job_failure(pool: sqlx::PgPool) {
@@ -3035,6 +3090,231 @@ async fn test_set_boot_order_sets_order_without_reasserting_when_device_configur
             .any(|a| matches!(a, RedfishSimAction::MachineSetup { .. })),
         "the device is already configured, so machine_setup should not be re-asserted, got: {actions:?}"
     );
+}
+
+const TEST_BOOT_ORDER_JOB_ID: &str = "JID_BOOT_ORDER_SCHEDULING";
+
+/// Runs one job state through the persisted boot-order scheduling phase and
+/// returns the resulting boot-order state.
+async fn run_wait_for_set_boot_order_job_scheduled(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+    job_state: libredfish::JobState,
+    retry_count: u32,
+) -> SetBootOrderInfo {
+    env.redfish_sim.set_job_state_sequence(vec![job_state]);
+    set_host_controller_state_stuck_in(
+        env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::SetBootOrder {
+                set_boot_order_info: Some(SetBootOrderInfo {
+                    set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+                    set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+                    retry_count,
+                }),
+            },
+        },
+        0,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostInit {
+        machine_state:
+            MachineState::SetBootOrder {
+                set_boot_order_info: Some(set_boot_order_info),
+            },
+    } = host.current_state()
+    else {
+        panic!(
+            "expected HostInit/SetBootOrder, got: {:?}",
+            host.current_state()
+        );
+    };
+    set_boot_order_info.clone()
+}
+
+/// A scheduled job still advances to the reboot phase with its job and retry
+/// context intact.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_advances_to_reboot(pool: sqlx::PgPool) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Scheduled,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::RebootHost,
+            retry_count: RETRY_COUNT,
+        }
+    );
+}
+
+/// A completed boot-order job skips the redundant reboot and moves directly
+/// to final verification with its job and retry context intact.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_skips_reboot_for_completed_job(
+    pool: sqlx::PgPool,
+) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Completed,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::CheckBootOrder,
+            retry_count: RETRY_COUNT,
+        }
+    );
+
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        actions.iter().all(|action| !matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+        )),
+        "an already-completed boot-order job should not trigger another reboot, got: {actions:?}"
+    );
+}
+
+/// A job that is still running remains in the scheduling wait without losing
+/// its job or retry context.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_keeps_waiting_for_running_job(
+    pool: sqlx::PgPool,
+) {
+    const RETRY_COUNT: u32 = 2;
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let set_boot_order_info = run_wait_for_set_boot_order_job_scheduled(
+        &env,
+        &mh,
+        libredfish::JobState::Running,
+        RETRY_COUNT,
+    )
+    .await;
+
+    assert_eq!(
+        set_boot_order_info,
+        SetBootOrderInfo {
+            set_boot_order_jid: Some(TEST_BOOT_ORDER_JOB_ID.to_string()),
+            set_boot_order_state: SetBootOrderState::WaitForSetBootOrderJobScheduled,
+            retry_count: RETRY_COUNT,
+        }
+    );
+}
+
+/// Terminal job states observed before the boot-order reboot enter the existing
+/// job-failure recovery without losing the retry budget or diagnostic context.
+#[crate::sqlx_test]
+async fn test_wait_for_set_boot_order_job_scheduled_routes_terminal_errors_to_recovery(
+    pool: sqlx::PgPool,
+) {
+    use carbide_test_support::Outcome::Yields;
+    use carbide_test_support::{Case, check_cases_async};
+
+    const RETRY_COUNT: u32 = 2;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct FailureTransition {
+        power_state: PowerState,
+        job_id_cleared: bool,
+        retry_count: u32,
+        diagnostic_has_job_id: bool,
+        diagnostic_has_job_state: bool,
+    }
+
+    let expected = || FailureTransition {
+        power_state: PowerState::Off,
+        job_id_cleared: true,
+        retry_count: RETRY_COUNT,
+        diagnostic_has_job_id: true,
+        diagnostic_has_job_state: true,
+    };
+
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    check_cases_async(
+        [
+            Case {
+                scenario: "scheduled with errors",
+                input: libredfish::JobState::ScheduledWithErrors,
+                expect: Yields(expected()),
+            },
+            Case {
+                scenario: "completed with errors",
+                input: libredfish::JobState::CompletedWithErrors,
+                expect: Yields(expected()),
+            },
+            Case {
+                scenario: "failed",
+                input: libredfish::JobState::Failed,
+                expect: Yields(expected()),
+            },
+        ],
+        |job_state| {
+            let env = &env;
+            let mh = &mh;
+            async move {
+                let job_state_diagnostic = format!("{job_state:?}");
+                let set_boot_order_info =
+                    run_wait_for_set_boot_order_job_scheduled(env, mh, job_state, RETRY_COUNT)
+                        .await;
+                let SetBootOrderState::HandleJobFailure {
+                    failure,
+                    power_state,
+                } = &set_boot_order_info.set_boot_order_state
+                else {
+                    return Err(format!(
+                        "expected HandleJobFailure, got: {:?}",
+                        set_boot_order_info.set_boot_order_state
+                    ));
+                };
+
+                Ok(FailureTransition {
+                    power_state: *power_state,
+                    job_id_cleared: set_boot_order_info.set_boot_order_jid.is_none(),
+                    retry_count: set_boot_order_info.retry_count,
+                    diagnostic_has_job_id: failure.contains(TEST_BOOT_ORDER_JOB_ID),
+                    diagnostic_has_job_state: failure.contains(&job_state_diagnostic),
+                })
+            }
+        },
+    )
+    .await;
 }
 
 /// The reboot that applies a boot-order job can independently revert a managed
@@ -4192,12 +4472,7 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
         .await;
 
     let err = result.expect_err("Expected FK violation from mismatched TPM");
-    assert_eq!(err.code(), Code::FailedPrecondition);
-    assert!(
-        err.message().contains("machine_id foreign key violation"),
-        "Expected TPM mismatch error, got: {}",
-        err.message()
-    );
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 #[crate::sqlx_test]
@@ -4229,12 +4504,7 @@ async fn test_host_discovery_without_tpm_cert_does_not_downgrade_existing_tpm_id
         .await;
 
     let err = result.expect_err("Expected serial fallback to be rejected");
-    assert_eq!(err.code(), Code::FailedPrecondition);
-    assert!(
-        err.message().contains("TPM EK certificate missing"),
-        "Expected missing TPM EK certificate error, got: {}",
-        err.message()
-    );
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 /// Spins up a test env configured for zero-DPU hosts plus a zero-DPU

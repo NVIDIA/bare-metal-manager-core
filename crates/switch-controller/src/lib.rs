@@ -31,6 +31,7 @@ pub mod initializing;
 pub mod io;
 pub mod maintenance;
 pub mod metrics;
+pub mod nvos_password_rotation;
 pub mod ready;
 pub mod reprovisioning;
 pub mod validating;

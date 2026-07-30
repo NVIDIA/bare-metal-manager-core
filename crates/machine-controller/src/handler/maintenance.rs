@@ -22,9 +22,7 @@ use carbide_secrets::credentials::{
 };
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use component_manager::compute_tray_manager::{
-    ComputeTrayEndpoint, ComputeTrayResult, ComputeTrayVendor,
-};
+use component_manager::compute_tray_manager::{ComputeTrayEndpoint, ComputeTrayResult};
 use db::machine as db_machine;
 use mac_address::MacAddress;
 use model::component_manager::PowerAction;
@@ -231,21 +229,10 @@ pub(super) async fn build_compute_tray_endpoint(
     let credentials = lookup_bmc_credentials(credential_manager, bmc_mac).await?;
 
     Ok(ComputeTrayEndpoint {
-        vendor: map_bmc_vendor_to_compute_tray(machine.bmc_vendor()),
+        vendor: machine.bmc_vendor().into(),
         bmc_ip,
         bmc_credentials: credentials,
     })
-}
-
-fn map_bmc_vendor_to_compute_tray(vendor: bmc_vendor::BMCVendor) -> ComputeTrayVendor {
-    match vendor {
-        bmc_vendor::BMCVendor::Dell => ComputeTrayVendor::Dell,
-        bmc_vendor::BMCVendor::Hpe => ComputeTrayVendor::Hpe,
-        bmc_vendor::BMCVendor::Lenovo => ComputeTrayVendor::Lenovo,
-        bmc_vendor::BMCVendor::Supermicro => ComputeTrayVendor::Supermicro,
-        bmc_vendor::BMCVendor::Nvidia => ComputeTrayVendor::Nvidia,
-        _ => ComputeTrayVendor::Unknown,
-    }
 }
 
 async fn lookup_bmc_credentials(

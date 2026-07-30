@@ -63,7 +63,7 @@ impl From<&forgerpc::OperatingSystem> for OsRowDisplay {
             name: os.name.clone(),
             os_type,
             status,
-            tenant_organization_id: os.tenant_organization_id.clone(),
+            tenant_organization_id: os.tenant_organization_id.clone().unwrap_or_default(),
             template_id: os
                 .ipxe_template_id
                 .map(|id| id.to_string())
@@ -211,7 +211,7 @@ impl From<forgerpc::OperatingSystem> for OsDetail {
             description: os.description.unwrap_or_default(),
             os_type,
             status,
-            tenant_organization_id: os.tenant_organization_id,
+            tenant_organization_id: os.tenant_organization_id.unwrap_or_default(),
             is_active: os.is_active,
             allow_override: os.allow_override,
             phone_home_enabled: os.phone_home_enabled,

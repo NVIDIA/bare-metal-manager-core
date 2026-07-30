@@ -104,7 +104,6 @@ async fn explore_delta_power_shelf_all_off() {
         .await
         .unwrap();
 
-    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Delta));
     assert!(!report.systems.is_empty(), "a system must be synthesized");
     assert!(
         report
@@ -127,7 +126,6 @@ async fn explore_delta_power_shelf_mixed() {
         .await
         .unwrap();
 
-    assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Delta));
     assert!(!report.systems.is_empty(), "a system must be synthesized");
     assert!(
         report

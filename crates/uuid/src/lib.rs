@@ -34,6 +34,7 @@ pub mod operating_system;
 pub mod power_shelf;
 pub mod rack;
 pub mod secret;
+pub mod site_prefix;
 pub mod spx;
 pub mod switch;
 pub mod typed_uuids;

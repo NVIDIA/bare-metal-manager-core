@@ -465,6 +465,22 @@ pub struct ConnectionAttributes {
     pub peer_certificates: Vec<CertificateDer<'static>>,
 }
 
+/// `AuthenticationConnectionAttributesMissing` records a request that reached
+/// authentication without the connection metadata installed by the listener.
+/// We still insert an empty `AuthContext` and delegate, leaving authorization
+/// to fail closed according to its existing rules.
+#[derive(carbide_instrument::Event)]
+#[event(
+    event_name = "authentication_connection_attributes_missing",
+    metric_name = "carbide_authn_connection_attributes_missing_total",
+    component = "authn",
+    log = warn,
+    metric = counter,
+    message = "No ConnectionAttributes in request extensions!",
+    describe = "Number of requests authentication could not inspect because connection attributes were missing"
+)]
+struct AuthenticationConnectionAttributesMissing;
+
 /// A request whose presented certificate chain minted no principal, counted
 /// once per request with the end-entity certificate's error. A healthy chain
 /// whose intermediates don't map -- CA certificates never do -- is not a
@@ -566,7 +582,7 @@ where
                 auth_context.principals.push(Principal::TrustedCertificate);
             }
         } else {
-            tracing::warn!("No ConnectionAttributes in request extensions!");
+            carbide_instrument::emit(AuthenticationConnectionAttributesMissing);
         }
 
         extensions.insert(auth_context);
@@ -577,6 +593,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::Mutex;
     use std::task::{Context, Poll};
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
@@ -605,6 +622,45 @@ mod tests {
         }
     }
 
+    /// `AuthContextRecorder` captures what authentication passed to the inner
+    /// service, which lets the missing-metadata test verify that the warning
+    /// does not stop or bypass the rest of the middleware chain.
+    #[derive(Clone, Default)]
+    struct AuthContextRecorder {
+        principals: Arc<Mutex<Option<Vec<Principal>>>>,
+    }
+
+    impl AuthContextRecorder {
+        fn principals(&self) -> Option<Vec<Principal>> {
+            self.principals
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+    }
+
+    impl<B> Service<Request<B>> for AuthContextRecorder {
+        type Response = ();
+        type Error = std::convert::Infallible;
+        type Future = std::future::Ready<Result<(), Self::Error>>;
+
+        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, request: Request<B>) -> Self::Future {
+            let principals = request
+                .extensions()
+                .get::<AuthContext<NoAuthorization>>()
+                .map(|context| context.principals.clone());
+            *self
+                .principals
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = principals;
+            std::future::ready(Ok(()))
+        }
+    }
+
     fn spiffe_context() -> SpiffeContext {
         SpiffeContext {
             trust_domain: TrustDomain::new("example.test").expect("trust domain"),
@@ -625,6 +681,56 @@ mod tests {
         )];
         let key = rcgen::KeyPair::generate().expect("key pair");
         params.self_signed(&key).expect("certificate").der().clone()
+    }
+
+    /// Missing `ConnectionAttributes` is a wiring error, but authentication
+    /// still installs an empty `AuthContext` before calling the inner service.
+    /// The Event records that single request without also counting a rejected
+    /// certificate.
+    #[test]
+    fn missing_connection_attributes_logs_counts_and_delegates() {
+        let metrics = MetricsCapture::start();
+        let recorder = AuthContextRecorder::default();
+        let middleware = CertDescriptionMiddleware::<NoAuthorization>::new(None, spiffe_context());
+        let mut service = middleware.layer(recorder.clone());
+
+        let logs = capture_logs(|| {
+            let request = Request::builder()
+                .uri("/forge.Forge/Anything")
+                .body(String::new())
+                .expect("request");
+            let _response_future = service.call(request);
+        });
+
+        let event = logs
+            .iter()
+            .find(|log| log.metadata_name == "authentication_connection_attributes_missing")
+            .expect("the missing connection attributes warning");
+        assert_eq!(event.level, tracing::Level::WARN);
+        assert_eq!(
+            event.message,
+            "No ConnectionAttributes in request extensions!"
+        );
+        assert_eq!(
+            event.field("event_name"),
+            Some("authentication_connection_attributes_missing")
+        );
+        assert_eq!(
+            event.field("metric_name"),
+            Some("carbide_authn_connection_attributes_missing_total")
+        );
+        assert_eq!(recorder.principals(), Some(Vec::new()));
+        assert_eq!(
+            metrics.counter_delta("carbide_authn_connection_attributes_missing_total", &[]),
+            1.0
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                "carbide_authn_client_cert_rejected_total",
+                &[("reason", "validation")]
+            ),
+            0.0
+        );
     }
 
     /// A healthy chain -- a mapping leaf plus a non-mapping second

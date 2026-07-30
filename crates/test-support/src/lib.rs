@@ -458,6 +458,54 @@ macro_rules! value_scenarios {
     };
 }
 
+/// Install the shared test log subscriber, naming `component` in the failure message.
+///
+/// Every test binary that wants tracing output needs the same registry, the same
+/// `TestWriter`, and the same set of noise-suppressing directives. `api-db` and `api-core`
+/// each grew their own copy of it -- `api-db`'s carried a comment saying as much, and
+/// declining to depend on `api-test-helper` was the reason. This crate is a leaf with no
+/// such problem, so the copy lives here now and both call it.
+///
+/// `component` only appears in the panic text, to say which binary tripped over an
+/// already-installed subscriber.
+///
+/// Panics if a global subscriber is already set. That's deliberate -- a test binary should
+/// initialize logging in exactly one place, and swallowing this hides the second one.
+pub fn setup_test_logging(component: &str) {
+    use tracing::metadata::LevelFilter;
+    use tracing_subscriber::filter::EnvFilter;
+    use tracing_subscriber::fmt::TestWriter;
+    use tracing_subscriber::prelude::*;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::Layer::default()
+                .compact()
+                .with_writer(TestWriter::new),
+        )
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy()
+                .add_directive("sqlx=warn".parse().unwrap())
+                .add_directive("tower=warn".parse().unwrap())
+                .add_directive("rustify=off".parse().unwrap())
+                .add_directive("rustls=warn".parse().unwrap())
+                .add_directive("hyper=warn".parse().unwrap())
+                .add_directive("h2=warn".parse().unwrap())
+                // Silence permissive mode related messages
+                .add_directive("carbide_api_core::auth=error".parse().unwrap()),
+        )
+        .try_init()
+    {
+        panic!(
+            "Failed to initialize trace logging for {component} tests. It's possible some earlier \
+            code path has already set a global default log subscriber: {e}"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Outcome::*;

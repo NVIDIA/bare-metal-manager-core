@@ -176,6 +176,11 @@ verification expectations.
 - Use `testify` (assert/require) for test assertions.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
+- Organize tests by the production function or method under test, not by individual
+  scenarios. Use one top-level test function named `Test<Receiver>_<Method>` or
+  `Test<Function>`—for example `TestIsStrInSlice` for `IsStrInSlice` and `TestGetAllSkuHandler_Handle` for `GetAllSkuHandler.Handle`. Define individual test
+  cases in a table and execute each case as a named `t.Run` subtest. Do not create
+  separate top-level test functions for each test case.
 - Tests run with `-p 1` (serial) and often with `-race`.
 - API handlers live in `api/pkg/api/handler/`, request/response models in
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
@@ -200,6 +205,9 @@ verification expectations.
   - PUT: APIInstanceCreateOrUpdateRequest
   - DELETE: APIInstanceDeleteRequest
   - GET: Request objects are typically not used for GET requests
+- Optional string fields that support clearing through PATCH use `""` as the
+  explicit clear value. Omission or JSON `null` preserves the stored value;
+  model these as `*string` instead of adding custom presence tracking.
 - API models should have the following naming conventions:
   - APIInstance: For full Instance details
   - APIInstanceSummary: For summary objects nested under other API resource objects
@@ -302,7 +310,10 @@ Keep handlers thin and reuse the common surfaces already in the tree:
 6. For synchronous Temporal workflows, reuse the existing workflow ID,
    timeout, task queue, `common.UnwrapWorkflowError`, and
    `common.TerminateWorkflowOnTimeOut` patterns from the nearest handler instead
-   of inventing new error plumbing.
+   of inventing new error plumbing. When a request spans caller, workflow, and
+   activity or RPC deadlines, keep those budgets strictly increasing toward the
+   caller and test every boundary; an outer timeout alone does not bound work
+   that has already started.
 7. Return curated REST models, not DB models, Core protobufs, Flow protobufs, or
    secret-bearing request bodies. Log identifiers, method names, kinds, and
    site IDs; do not log raw request bodies that may contain credentials
@@ -349,6 +360,11 @@ Endpoint tests should follow the changed surface, not just compile it:
 - Site/Core/Flow handlers should assert the workflow or proxy request arguments,
   workflow ID inputs, secret field names, timeout behavior where relevant, and
   that secrets are absent from responses and logs.
+- Operator examples must keep credentials out of command arguments; use a
+  supported prompt, stdin, or protected secret file. For asynchronous HTTP 202
+  operations, document the real completion signal and terminal states. Do not
+  present a resource read or poll as completion unless the API contract exposes
+  that transition.
 - Route tests and OpenAPI checks are part of the endpoint change; generated SDK
   updates belong in the same change only when the repo workflow requires them.
 
@@ -739,8 +755,8 @@ When adding such a field to a bulk-update DAO:
   the omitted rows keep their prior value.
 
 `ExpectedMachine.UpdateMultiple` (`db/pkg/db/model/expectedmachine.go`) applies
-`host_lifecycle_profile` this way and is the reference;
-`TestExpectedMachineSQLDAO_UpdateMultiple_HostLifecycleProfile` is the guard.
+`bmc_ip_address` this way for a scalar value and `host_lifecycle_profile` for a
+JSONB patch; their mixed-batch tests are the guards.
 
 ## Git Workflow
 
@@ -759,6 +775,8 @@ When writing git commit messages, follow the conventions below:
   otherwise expect to be present.
 - Add TODO comments for features or nuances not important to implement
   right away.
+- In Go, split variable assignment and the condition into separate lines.
+  Do not use initializer clauses such as if err := operation(); err != nil
 
 ## Commit Guidelines
 

@@ -14,6 +14,11 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 )
 
+const (
+	removeCreateExpectedRackOnFlowChangeID = "remove-create-expected-rack-on-flow"
+	removeCreateExpectedRackOnFlowVersion  = workflow.Version(1)
+)
+
 // expectedRackActivityOptions returns the common ActivityOptions used by all
 // ExpectedRack workflows.
 func expectedRackActivityOptions() workflow.ActivityOptions {
@@ -67,8 +72,7 @@ func DiscoverExpectedRackInventory(ctx workflow.Context) error {
 }
 
 // CreateExpectedRack is a workflow to create a new Expected Rack using the
-// CreateExpectedRackOnSite activity, then also creates the rack in Flow via
-// CreateExpectedRackOnFlow (best-effort).
+// CreateExpectedRackOnSite activity.
 func CreateExpectedRack(ctx workflow.Context, request *corev1.ExpectedRack) error {
 	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Create").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackProfileId().GetId()).Logger()
 
@@ -85,10 +89,13 @@ func CreateExpectedRack(ctx workflow.Context, request *corev1.ExpectedRack) erro
 		return err
 	}
 
-	// Then write to Flow (best-effort: log warning but don't fail the workflow)
-	err = workflow.ExecuteActivity(ctx, expectedRackManager.CreateExpectedRackOnFlow, request).Get(ctx, nil)
-	if err != nil {
-		logger.Warn().Err(err).Str("Activity", "CreateExpectedRackOnFlow").Msg("Failed to create rack on Flow, Core write succeeded")
+	// Preserve the Flow activity command when replaying histories created before
+	// direct Flow writes were removed.
+	if workflow.GetVersion(ctx, removeCreateExpectedRackOnFlowChangeID, workflow.DefaultVersion, removeCreateExpectedRackOnFlowVersion) == workflow.DefaultVersion {
+		err = workflow.ExecuteActivity(ctx, expectedRackManager.CreateExpectedRackOnFlow, request).Get(ctx, nil)
+		if err != nil {
+			logger.Warn().Err(err).Str("Activity", "CreateExpectedRackOnFlow").Msg("Failed to create rack on Flow, Core write succeeded")
+		}
 	}
 
 	logger.Info().Msg("completing workflow")
@@ -98,7 +105,6 @@ func CreateExpectedRack(ctx workflow.Context, request *corev1.ExpectedRack) erro
 
 // UpdateExpectedRack is a workflow to update an Expected Rack using the
 // UpdateExpectedRackOnSite activity.
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
 func UpdateExpectedRack(ctx workflow.Context, request *corev1.ExpectedRack) error {
 	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Update").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackProfileId().GetId()).Logger()
 
@@ -121,7 +127,6 @@ func UpdateExpectedRack(ctx workflow.Context, request *corev1.ExpectedRack) erro
 
 // DeleteExpectedRack is a workflow to delete an Expected Rack using the
 // DeleteExpectedRackOnSite activity.
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
 func DeleteExpectedRack(ctx workflow.Context, request *corev1.ExpectedRackRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Delete").Str("ID", request.GetRackId()).Logger()
 

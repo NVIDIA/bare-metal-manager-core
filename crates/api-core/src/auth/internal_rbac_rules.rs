@@ -74,6 +74,8 @@ impl InternalRBACRules {
         x.perm("DeleteVpc", vec![Machineatron, SiteAgent]);
         x.perm("FindVpcIds", vec![SiteAgent, ForgeAdminCLI, Machineatron]);
         x.perm("FindVpcsByIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindSitePrefixIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindSitePrefixesByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("CreateVpcPrefix", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SearchVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("GetVpcPrefixes", vec![ForgeAdminCLI, SiteAgent]);
@@ -271,14 +273,17 @@ impl InternalRBACRules {
             vec![ForgeAdminCLI, Machineatron],
         );
         x.perm("GetSiteExplorerLastRun", vec![ForgeAdminCLI, Machineatron]);
-        x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI]);
+        x.perm("ClearSiteExplorationError", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("IsBmcInManagedHost", vec![ForgeAdminCLI]);
         x.perm("Explore", vec![ForgeAdminCLI, Flow]);
-        x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow]);
+        x.perm("ReExploreEndpoint", vec![ForgeAdminCLI, Flow, SiteAgent]);
         x.perm("RefreshEndpointReport", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteExploredEndpoint", vec![ForgeAdminCLI]);
         x.perm("PauseExploredEndpointRemediation", vec![ForgeAdminCLI]);
-        x.perm("FindExploredEndpointIds", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "FindExploredEndpointIds",
+            vec![ForgeAdminCLI, Flow, SiteAgent],
+        );
         x.perm("FindExploredEndpointsByIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostIds", vec![ForgeAdminCLI, Flow]);
         x.perm("FindExploredManagedHostsByIds", vec![ForgeAdminCLI, Flow]);
@@ -314,6 +319,7 @@ impl InternalRBACRules {
         x.perm("DeleteCredential", vec![ForgeAdminCLI]);
         x.perm("RotateCredential", vec![ForgeAdminCLI]);
         x.perm("GetCredentialRotationStatus", vec![ForgeAdminCLI]);
+        x.perm("TriggerBmcCredentialRotation", vec![ForgeAdminCLI]);
         x.perm("GetRouteServers", vec![ForgeAdminCLI]);
         x.perm("AddRouteServers", vec![ForgeAdminCLI]);
         x.perm("RemoveRouteServers", vec![ForgeAdminCLI]);
@@ -488,6 +494,8 @@ impl InternalRBACRules {
             "GetMachineValidationExternalConfig",
             vec![ForgeAdminCLI, Scout],
         );
+        x.perm("GetContainerRegistryCredential", vec![ForgeAdminCLI, Scout]);
+        x.perm("SetContainerRegistryCredential", vec![ForgeAdminCLI]);
         x.perm(
             "AddUpdateMachineValidationExternalConfig",
             vec![ForgeAdminCLI, SiteAgent],
@@ -1140,6 +1148,22 @@ mod rbac_rule_tests {
             "GetAllExpectedSwitchesLinked",
             "GetAllExpectedPowerShelves",
             "GetAllExpectedPowerShelvesLinked",
+        ] {
+            assert!(
+                InternalRBACRules::allowed_from_static(
+                    method,
+                    &[Principal::SpiffeServiceIdentifier(
+                        "elektra-site-agent".to_string()
+                    )]
+                ),
+                "{method} should allow SiteAgent"
+            );
+        }
+
+        for method in [
+            "ClearSiteExplorationError",
+            "ReExploreEndpoint",
+            "FindExploredEndpointIds",
         ] {
             assert!(
                 InternalRBACRules::allowed_from_static(

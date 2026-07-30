@@ -76,19 +76,17 @@ func TestNewAPIInstance(t *testing.T) {
 
 	secondaryVpcID1 := uuid.New()
 	secondaryVpcID2 := uuid.New()
+	ipv4FamilyMode := cdbm.InterfaceVpcIPFamilyModeIPv4Only
 
 	dbis1Secondary1 := cdbm.Interface{
-		ID:          uuid.New(),
-		InstanceID:  dbi1.ID,
-		VpcPrefixID: cutil.GetPtr(uuid.New()),
-		VpcPrefix: &cdbm.VpcPrefix{
-			ID:    uuid.New(),
-			VpcID: secondaryVpcID1,
-		},
-		IsPhysical: false,
-		Status:     cdbm.InterfaceStatusPending,
-		Created:    time.Now(),
-		Updated:    time.Now(),
+		ID:              uuid.New(),
+		InstanceID:      dbi1.ID,
+		VpcID:           &secondaryVpcID1,
+		VpcIPFamilyMode: &ipv4FamilyMode,
+		IsPhysical:      false,
+		Status:          cdbm.InterfaceStatusPending,
+		Created:         time.Now(),
+		Updated:         time.Now(),
 	}
 
 	dbis1Secondary2 := cdbm.Interface{
@@ -885,7 +883,7 @@ func TestAPIInstanceCreateRequest_Validate(t *testing.T) {
 				},
 			},
 			wantErr:          true,
-			wantErrorMessage: "`secondaryVpcIds` can only be specified when `vpcPrefixId` is specified within `interfaces`",
+			wantErrorMessage: "`secondaryVpcIds` can only be specified when `vpcPrefixId` or `vpcId` is specified within `interfaces`",
 		},
 		{
 			name: "test valid Instance create request, NVLink Interfaces specified",
@@ -1027,6 +1025,68 @@ func TestAPIBatchInstanceCreateRequest_Validate(t *testing.T) {
 			if tt.wantErrorMessage != "" && err != nil {
 				assert.Contains(t, err.Error(), tt.wantErrorMessage)
 			}
+		})
+	}
+}
+
+func TestInstanceRequestsAcceptVpcSelectedSecondaryInterfaces(t *testing.T) {
+	tests := []struct {
+		name     string
+		validate func() error
+	}{
+		{
+			name: "instance create",
+			validate: func() error {
+				request := APIInstanceCreateRequest{
+					Name:              "test-instance",
+					TenantID:          uuid.NewString(),
+					InstanceTypeID:    cutil.GetPtr(uuid.NewString()),
+					VpcID:             uuid.NewString(),
+					SecondaryVpcIDs:   []string{uuid.NewString()},
+					OperatingSystemID: cutil.GetPtr(uuid.NewString()),
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{VpcPrefixID: cutil.GetPtr(uuid.NewString())},
+						{VpcID: cutil.GetPtr(uuid.NewString()), IPFamilies: []IPFamily{IPFamilyIPv4}},
+					},
+				}
+				return request.Validate()
+			},
+		},
+		{
+			name: "batch instance create",
+			validate: func() error {
+				request := APIBatchInstanceCreateRequest{
+					NamePrefix:      "test-batch",
+					Count:           2,
+					TenantID:        uuid.NewString(),
+					InstanceTypeID:  uuid.NewString(),
+					VpcID:           uuid.NewString(),
+					SecondaryVpcIDs: []string{uuid.NewString()},
+					IpxeScript:      cutil.GetPtr("test ipxe"),
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{VpcID: cutil.GetPtr(uuid.NewString()), IPFamilies: []IPFamily{IPFamilyIPv4}},
+					},
+				}
+				return request.Validate()
+			},
+		},
+		{
+			name: "instance update",
+			validate: func() error {
+				request := APIInstanceUpdateRequest{
+					SecondaryVpcIDs: []string{uuid.NewString()},
+					Interfaces: []APIInterfaceCreateOrUpdateRequest{
+						{VpcID: cutil.GetPtr(uuid.NewString()), IPFamilies: []IPFamily{IPFamilyIPv4}},
+					},
+				}
+				return request.Validate()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.NoError(t, tt.validate())
 		})
 	}
 }

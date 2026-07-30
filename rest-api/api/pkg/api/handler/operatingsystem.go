@@ -14,10 +14,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	temporalClient "go.temporal.io/sdk/client"
 	tp "go.temporal.io/sdk/temporal"
+	"google.golang.org/protobuf/proto"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/rs/zerolog"
 
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
@@ -33,6 +35,206 @@ import (
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
+
+// NICo Core (forge.Forge) Operating System methods proxied for iPXE / Templated
+// iPXE Operating Systems via the generic Core gRPC proxy (epic #1927). Image-type
+// Operating Systems continue to use the dedicated OsImage site workflows.
+const (
+	createOperatingSystemMethod = "/forge.Forge/CreateOperatingSystem"
+	updateOperatingSystemMethod = "/forge.Forge/UpdateOperatingSystem"
+	deleteOperatingSystemMethod = "/forge.Forge/DeleteOperatingSystem"
+)
+
+// syncOperatingSystemToSitesViaProxy pushes an iPXE / Templated iPXE Operating
+// System create or update to each associated site through the generic NICo Core
+// gRPC proxy, updating each site association's status (Synced on success, Error
+// on failure). The same request proto is sent to every site (the OS definition is
+// site-independent). It returns the number of sites that failed to sync.
+func syncOperatingSystemToSitesViaProxy(
+	ctx context.Context,
+	logger zerolog.Logger,
+	dbSession *cdb.Session,
+	scp *sc.ClientPool,
+	ossas []cdbm.OperatingSystemSiteAssociation,
+	fullMethod string,
+	req proto.Message,
+) int {
+	siteErrors := 0
+	for _, ossa := range ossas {
+		slogger := logger.With().Str("Site ID", ossa.SiteID.String()).Logger()
+
+		stc, cerr := scp.GetClientByID(ossa.SiteID)
+		if cerr != nil {
+			slogger.Error().Err(cerr).Msg("failed to retrieve Temporal client for Site")
+			// Site is already counted as an error below; a bookkeeping failure is
+			// logged inside and does not change the outcome for this site.
+			_ = updateOSSAStatusViaProxy(ctx, slogger, dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to connect to site")
+			siteErrors++
+			continue
+		}
+
+		// The site ID is the shared key used to encrypt any redacted secret fields
+		// for transport; no top-level secret fields are redacted here (artifact
+		// authTokens are nested and carried as-is).
+		perr := common.ExecuteCoreGRPC(ctx, stc, fullMethod, req, nil, ossa.SiteID.String())
+		if perr != nil {
+			slogger.Error().Err(perr).Int("code", perr.Code).Msg("failed to sync Operating System to site via Core proxy")
+			_ = updateOSSAStatusViaProxy(ctx, slogger, dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to sync Operating System to site")
+			siteErrors++
+			continue
+		}
+
+		// The proxy call succeeded, but if we cannot durably record the Synced
+		// status the association state is unreliable, so treat that as a site
+		// error rather than reporting the OS as fully synced.
+		if serr := updateOSSAStatusViaProxy(ctx, slogger, dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusSynced, "Operating System successfully synced to site"); serr != nil {
+			siteErrors++
+		}
+	}
+	return siteErrors
+}
+
+// updateOSSAStatusViaProxy updates an Operating System Site Association status and
+// records the corresponding status detail atomically in a single transaction, so
+// the status and its audit entry cannot diverge. Any persistence error is logged
+// and returned so callers can account for it (e.g. as a site error when computing
+// aggregate status) instead of silently reporting success.
+func updateOSSAStatusViaProxy(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, ossaID uuid.UUID, status string, message string) error {
+	err := cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+		sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+		if _, uerr := ossaDAO.Update(ctx, tx, cdbm.OperatingSystemSiteAssociationUpdateInput{
+			OperatingSystemSiteAssociationID: ossaID,
+			Status:                           cutil.GetPtr(status),
+		}); uerr != nil {
+			return uerr
+		}
+		if _, cerr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: ossaID.String(), Status: status, Message: &message}); cerr != nil {
+			return cerr
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Error().Err(err).Str("Status", status).Msg("failed to persist Operating System Site Association status")
+	}
+	return err
+}
+
+// aggregateSyncMessage returns the status-detail message for a proxy sync aggregate
+// status update (create/update), where the outcome is either a full sync or a
+// partial/complete sync failure.
+func aggregateSyncMessage(hadErrors bool) string {
+	if hadErrors {
+		return "failed to sync Operating System to one or more sites"
+	}
+	return "Operating System successfully synced to all sites"
+}
+
+// updateOperatingSystemAggregateStatus sets the Operating System's aggregate status
+// after a proxy sync attempt: Ready when all sites synced, Error when one or more failed.
+// Callers supply the operation-specific status-detail message (e.g. a sync message for
+// create/update, a deletion message for delete). The status update and its status-detail
+// audit entry are written together in a single transaction so they cannot diverge, and
+// any transaction/DB failure is returned to the caller rather than only logged.
+//
+// A Deactivated Operating System keeps its Deactivated status: the sync still pushes the
+// definition to sites, but the aggregate readiness/error status must not override the
+// user-initiated deactivation.
+func updateOperatingSystemAggregateStatus(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, osID uuid.UUID, hadErrors bool, message string) error {
+	osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+
+	status := cdbm.OperatingSystemStatusReady
+	if hadErrors {
+		status = cdbm.OperatingSystemStatusError
+	}
+
+	if err := cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+		// Serialize with other Operating System state changes (deactivation,
+		// deletion) via the per-OS advisory lock, held for the life of this
+		// transaction. This closes the read-then-write race: the deactivation guard
+		// re-reads the status under the lock, so a concurrent Deactivate cannot land
+		// between the read and the write and be clobbered by Ready/Error.
+		if lerr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(osID.String()), nil); lerr != nil {
+			logger.Error().Err(lerr).Msg("failed to acquire advisory lock on Operating System for aggregate status update")
+			return lerr
+		}
+
+		existing, gerr := osDAO.GetByID(ctx, tx, osID, nil)
+		if gerr != nil {
+			logger.Error().Err(gerr).Msg("failed to read Operating System before aggregate status update")
+			return gerr
+		}
+		// A Deactivated Operating System keeps its Deactivated status: the sync still
+		// pushed the definition to sites, but the aggregate readiness/error status
+		// must not override the user-initiated deactivation.
+		if existing.Status == cdbm.OperatingSystemStatusDeactivated {
+			logger.Info().Msg("Operating System is deactivated, preserving Deactivated status after site sync")
+			return nil
+		}
+
+		if _, uerr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: osID, Status: &status}); uerr != nil {
+			return uerr
+		}
+		sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+		if _, cerr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{EntityID: osID.String(), Status: status, Message: &message}); cerr != nil {
+			return cerr
+		}
+		return nil
+	}); err != nil {
+		logger.Error().Err(err).Msg("failed to persist aggregate Operating System status")
+		return err
+	}
+	return nil
+}
+
+// validateIpxeTemplateAvailableAtSites verifies the referenced iPXE template is
+// available (has an IpxeTemplateSiteAssociation) at every one of the given Sites.
+// A Templated iPXE Operating System is rendered on the Site from its template, so
+// per the OS sync contract it can only be synced to a Site whose Site currently has
+// that template; creating or updating one for a Site that lacks it would persist a
+// definition that can never render there. templateID must be a valid template UUID;
+// a non-existent template (no associations anywhere) is reported as unavailable at
+// every Site. An empty site set is a no-op.
+func validateIpxeTemplateAvailableAtSites(ctx context.Context, dbSession *cdb.Session, logger zerolog.Logger, templateID string, siteIDs []uuid.UUID) *cutil.APIError {
+	if len(siteIDs) == 0 {
+		return nil
+	}
+
+	tid, perr := uuid.Parse(templateID)
+	if perr != nil {
+		return cutil.NewAPIError(http.StatusBadRequest, "iPXE template ID specified in request is not a valid UUID", nil)
+	}
+
+	itsaDAO := cdbm.NewIpxeTemplateSiteAssociationDAO(dbSession)
+	itsas, _, err := itsaDAO.GetAll(ctx, nil,
+		cdbm.IpxeTemplateSiteAssociationFilterInput{
+			IpxeTemplateIDs: []uuid.UUID{tid},
+			SiteIDs:         siteIDs,
+		},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		nil,
+	)
+	if err != nil {
+		logger.Error().Err(err).Str("ipxeTemplateId", templateID).Msg("error retrieving iPXE template Site associations for Operating System validation")
+		return cutil.NewAPIError(http.StatusInternalServerError, "Failed to validate iPXE template availability, DB error", nil)
+	}
+
+	available := make(map[uuid.UUID]struct{}, len(itsas))
+	for _, a := range itsas {
+		available[a.SiteID] = struct{}{}
+	}
+	missing := make([]string, 0)
+	for _, sid := range siteIDs {
+		if _, ok := available[sid]; !ok {
+			missing = append(missing, sid.String())
+		}
+	}
+	if len(missing) > 0 {
+		logger.Warn().Str("ipxeTemplateId", templateID).Msg("iPXE template is not available at one or more target Sites")
+		return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("iPXE template %s specified in request is not available at Site(s): %v", templateID, missing), nil)
+	}
+	return nil
+}
 
 // ~~~~~ Create Handler ~~~~~ //
 
@@ -159,11 +361,9 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		})
 	}
 
-	// check OS type from request
-	osType := cdbm.OperatingSystemTypeImage
-	if apiRequest.IpxeScript != nil {
-		osType = cdbm.OperatingSystemTypeIPXE
-	}
+	// Infer OS type from the provided source fields (ipxeScript -> iPXE,
+	// ipxeTemplateId -> Templated iPXE, otherwise Image).
+	osType := apiRequest.GetOperatingSystemType()
 
 	// Set the phoneHomeEnabled if provided in request
 	phoneHomeEnabled := false
@@ -232,10 +432,26 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		rdbst = append(rdbst, *site)
 	}
 
-	// Create status based on OS type
+	// A Templated iPXE Operating System is rendered on-Site from its iPXE template,
+	// so it can only be synced to Sites that currently have the template. Reject up
+	// front if the referenced template is unavailable at any target Site rather than
+	// persist a definition that can never render there.
+	if osType == cdbm.OperatingSystemTypeTemplatedIPXE {
+		targetSiteIDs := make([]uuid.UUID, 0, len(rdbst))
+		for i := range rdbst {
+			targetSiteIDs = append(targetSiteIDs, rdbst[i].ID)
+		}
+		if apiErr := validateIpxeTemplateAvailableAtSites(ctx, csh.dbSession, logger, *apiRequest.IpxeTemplateId, targetSiteIDs); apiErr != nil {
+			return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
+		}
+	}
+
+	// Create status based on OS type. iPXE / Templated iPXE definitions are pushed
+	// to sites after commit, so Templated iPXE starts in Syncing; raw iPXE (no site
+	// associations) is immediately Ready.
 	osStatus := cdbm.OperatingSystemStatusReady
 	osStatusMessage := "Operating System is ready for use"
-	if osType == cdbm.OperatingSystemTypeImage {
+	if osType == cdbm.OperatingSystemTypeImage || osType == cdbm.OperatingSystemTypeTemplatedIPXE {
 		osStatus = cdbm.OperatingSystemStatusSyncing
 		osStatusMessage = "received Operating System creation request, syncing"
 	}
@@ -251,25 +467,28 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 	err = cdb.WithTx(ctx, csh.dbSession, func(tx *cdb.Tx) error {
 		// Create the db record for Operating System
 		osInput := cdbm.OperatingSystemCreateInput{
-			Name:               apiRequest.Name,
-			Description:        apiRequest.Description,
-			Org:                org,
-			TenantID:           &tenant.ID,
-			OsType:             osType,
-			ImageURL:           apiRequest.ImageURL,
-			ImageSHA:           apiRequest.ImageSHA,
-			ImageAuthType:      apiRequest.ImageAuthType,
-			ImageAuthToken:     apiRequest.ImageAuthToken,
-			ImageDisk:          apiRequest.ImageDisk,
-			RootFsId:           apiRequest.RootFsID,
-			RootFsLabel:        apiRequest.RootFsLabel,
-			IpxeScript:         apiRequest.IpxeScript,
-			UserData:           apiRequest.UserData,
-			AllowOverride:      apiRequest.AllowOverride,
-			EnableBlockStorage: apiRequest.EnableBlockStorage,
-			PhoneHomeEnabled:   phoneHomeEnabled,
-			Status:             osStatus,
-			CreatedBy:          dbUser.ID,
+			Name:                   apiRequest.Name,
+			Description:            apiRequest.Description,
+			Org:                    org,
+			TenantID:               &tenant.ID,
+			OsType:                 osType,
+			ImageURL:               apiRequest.ImageURL,
+			ImageSHA:               apiRequest.ImageSHA,
+			ImageAuthType:          apiRequest.ImageAuthType,
+			ImageAuthToken:         apiRequest.ImageAuthToken,
+			ImageDisk:              apiRequest.ImageDisk,
+			RootFsId:               apiRequest.RootFsID,
+			RootFsLabel:            apiRequest.RootFsLabel,
+			IpxeScript:             apiRequest.IpxeScript,
+			IpxeTemplateId:         apiRequest.IpxeTemplateId,
+			IpxeTemplateParameters: apiRequest.IpxeTemplateParameters.ToDBModel(),
+			IpxeTemplateArtifacts:  apiRequest.IpxeTemplateArtifacts.ToDBModel(),
+			UserData:               apiRequest.UserData,
+			AllowOverride:          apiRequest.AllowOverride,
+			EnableBlockStorage:     apiRequest.EnableBlockStorage,
+			PhoneHomeEnabled:       phoneHomeEnabled,
+			Status:                 osStatus,
+			CreatedBy:              dbUser.ID,
 		}
 		createdOs, derr := osDAO.Create(ctx, tx, osInput)
 		if derr != nil {
@@ -344,8 +563,13 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		}
 		dbossa = retossa
 
-		// Trigger workflows to sync Image based Operating System with various Sites
+		// Trigger workflows to sync Image based Operating System with various Sites.
+		// iPXE / Templated iPXE definitions are pushed to sites via the Core gRPC
+		// proxy after the transaction commits (see below), so they are skipped here.
 		for _, ossa := range dbossa {
+			if os.Type != cdbm.OperatingSystemTypeImage {
+				continue
+			}
 			// Iteration body wrapped in a function literal so `defer cancel()`
 			// scopes to the iteration; otherwise the deferred cancels would
 			// pile up until the WithTx closure returns.
@@ -421,10 +645,59 @@ func (csh CreateOperatingSystemHandler) Handle(c echo.Context) error {
 		return timeoutResp()
 	}
 
+	// Push iPXE / Templated iPXE Operating Systems to associated sites through the
+	// generic Core gRPC proxy (Image OSes are synced in-transaction above). Per-site
+	// failures are recorded on the association status and do not fail the request.
+	if cdbm.IsIPXEType(os.Type) && len(dbossa) > 0 {
+		req := model.BuildCreateOperatingSystemRequest(os)
+		siteErrors := syncOperatingSystemToSitesViaProxy(ctx, logger, csh.dbSession, csh.scp, dbossa, createOperatingSystemMethod, req)
+		if aerr := updateOperatingSystemAggregateStatus(ctx, logger, csh.dbSession, os.ID, siteErrors > 0, aggregateSyncMessage(siteErrors > 0)); aerr != nil {
+			logger.Error().Err(aerr).Msg("failed to update aggregate Operating System status after create sync")
+		}
+		os, dbossd, dbossa = reloadOperatingSystemForResponse(ctx, logger, csh.dbSession, os, dbossd, dbossa)
+	}
+
 	// create response
 	apiOperatingSystem := model.NewAPIOperatingSystem(os, dbossd, dbossa, sttsmap)
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusCreated, apiOperatingSystem)
+}
+
+// reloadOperatingSystemForResponse re-reads the Operating System, its recent status
+// details, and its site associations after a proxy sync so the API response reflects
+// the post-sync state. Best-effort: the caller passes the values it already holds
+// (priorSSDs, priorOSSAs), and each is replaced only on a successful re-read, so a
+// read error keeps the prior value rather than dropping it to nil.
+func reloadOperatingSystemForResponse(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, os *cdbm.OperatingSystem, priorSSDs []cdbm.StatusDetail, priorOSSAs []cdbm.OperatingSystemSiteAssociation) (*cdbm.OperatingSystem, []cdbm.StatusDetail, []cdbm.OperatingSystemSiteAssociation) {
+	osDAO := cdbm.NewOperatingSystemDAO(dbSession)
+	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dbSession)
+	sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+	reloadedOS := os
+	if v, err := osDAO.GetByID(ctx, nil, os.ID, nil); err == nil {
+		reloadedOS = v
+	} else {
+		logger.Warn().Err(err).Msg("failed to reload Operating System for response")
+	}
+
+	ssds := priorSSDs
+	if v, err := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{os.ID.String()}, common.RECENT_STATUS_DETAIL_COUNT); err == nil {
+		ssds = v
+	} else {
+		logger.Warn().Err(err).Msg("failed to reload Operating System status details for response")
+	}
+
+	ossas := priorOSSAs
+	if v, _, err := ossaDAO.GetAll(ctx, nil,
+		cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{os.ID}},
+		cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+		[]string{cdbm.SiteRelationName}); err == nil {
+		ossas = v
+	} else {
+		logger.Warn().Err(err).Msg("failed to reload Operating System site associations for response")
+	}
+
+	return reloadedOS, ssds, ossas
 }
 
 // ~~~~~ GetAll Handler ~~~~~ //
@@ -691,10 +964,6 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 	apiOperatingSystems := []*model.APIOperatingSystem{}
 
 	for _, os := range oss {
-		if os.Type == cdbm.OperatingSystemTypeImage {
-			fmt.Printf("Processing Operating System: %s, Type: %s\n", os.Name, os.Type)
-		}
-
 		curVal := os
 		apiOperatingSystem := model.NewAPIOperatingSystem(&curVal, ssdMap[os.ID.String()], dbossaMap[os.ID], sttsmap)
 		apiOperatingSystems = append(apiOperatingSystems, apiOperatingSystem)
@@ -1087,6 +1356,34 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	// For a Templated iPXE Operating System, verify the effective iPXE template (the
+	// request's template when changing it, otherwise the current one) is available at
+	// every Site the OS is synced to before updating and re-pushing it. This mirrors
+	// the create-time check and also catches a request switching to a template that
+	// is not present at the OS's Sites.
+	if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+		templatedOssas, _, oerr := ossaDAO.GetAll(ctx, nil,
+			cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{os.ID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if oerr != nil {
+			logger.Error().Err(oerr).Msg("error retrieving Operating System Site associations for iPXE template validation")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Operating System Site associations from DB", nil)
+		}
+		effectiveTemplateID := os.IpxeTemplateId
+		if apiRequest.IpxeTemplateId != nil {
+			effectiveTemplateID = apiRequest.IpxeTemplateId
+		}
+		if effectiveTemplateID != nil && len(templatedOssas) > 0 {
+			targetSiteIDs := make([]uuid.UUID, 0, len(templatedOssas))
+			for _, o := range templatedOssas {
+				targetSiteIDs = append(targetSiteIDs, o.SiteID)
+			}
+			if apiErr := validateIpxeTemplateAvailableAtSites(ctx, ush.dbSession, logger, *effectiveTemplateID, targetSiteIDs); apiErr != nil {
+				return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
+			}
+		}
+	}
+
 	// Save update status in DB
 	osStatus := cutil.GetPtr(cdbm.OperatingSystemStatusReady)
 	osStatusMessage := "Operating System has been updated and ready for use"
@@ -1100,7 +1397,7 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 		if apiRequest.IsActive != nil && *apiRequest.IsActive {
 			osStatusMessage = "Operating System has been reactivated and is ready for use"
 		}
-		if os.Type == cdbm.OperatingSystemTypeImage {
+		if os.Type == cdbm.OperatingSystemTypeImage || os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
 			osStatus = cutil.GetPtr(cdbm.OperatingSystemStatusSyncing)
 			osStatusMessage = "received Operating System update request, syncing"
 		}
@@ -1126,23 +1423,26 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			}
 		}
 		updatedOs, derr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{
-			OperatingSystemId: osID,
-			Name:              apiRequest.Name,
-			Description:       apiRequest.Description,
-			ImageURL:          apiRequest.ImageURL,
-			ImageSHA:          apiRequest.ImageSHA,
-			ImageAuthType:     apiRequest.ImageAuthType,
-			ImageAuthToken:    apiRequest.ImageAuthToken,
-			ImageDisk:         apiRequest.ImageDisk,
-			RootFsId:          apiRequest.RootFsID,
-			RootFsLabel:       apiRequest.RootFsLabel,
-			IpxeScript:        apiRequest.IpxeScript,
-			UserData:          apiRequest.UserData,
-			AllowOverride:     apiRequest.AllowOverride,
-			PhoneHomeEnabled:  apiRequest.PhoneHomeEnabled,
-			IsActive:          apiRequest.IsActive,
-			DeactivationNote:  deactivationNote,
-			Status:            osStatus,
+			OperatingSystemId:      osID,
+			Name:                   apiRequest.Name,
+			Description:            apiRequest.Description,
+			ImageURL:               apiRequest.ImageURL,
+			ImageSHA:               apiRequest.ImageSHA,
+			ImageAuthType:          apiRequest.ImageAuthType,
+			ImageAuthToken:         apiRequest.ImageAuthToken,
+			ImageDisk:              apiRequest.ImageDisk,
+			RootFsId:               apiRequest.RootFsID,
+			RootFsLabel:            apiRequest.RootFsLabel,
+			IpxeScript:             apiRequest.IpxeScript,
+			IpxeTemplateId:         apiRequest.IpxeTemplateId,
+			IpxeTemplateParameters: apiRequest.IpxeTemplateParameters.ToDBModelPtr(),
+			IpxeTemplateArtifacts:  apiRequest.IpxeTemplateArtifacts.ToDBModelPtr(),
+			UserData:               apiRequest.UserData,
+			AllowOverride:          apiRequest.AllowOverride,
+			PhoneHomeEnabled:       apiRequest.PhoneHomeEnabled,
+			IsActive:               apiRequest.IsActive,
+			DeactivationNote:       deactivationNote,
+			Status:                 osStatus,
 		})
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error updating Operating System in DB")
@@ -1277,6 +1577,44 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 			dbossas = refreshedOssas
 		}
 
+		// Templated iPXE updates re-push the definition to every associated Site via
+		// the Core proxy after commit. Mark each association (and its status detail)
+		// Syncing inside this transaction so the in-flight state is durable before any
+		// proxy update runs: validateTemplatedIpxeOsForSite gates Instance selection on
+		// a Synced association, so this prevents an Instance from being created against a
+		// definition that is mid-update. The post-commit proxy sync transitions each
+		// association to Synced or Error.
+		if uos.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
+			tmplOssas, _, derr := ossaDAO.GetAll(
+				ctx,
+				tx,
+				cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{uos.ID}},
+				cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+				nil,
+			)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error retrieving Operating System Site associations for templated iPXE update")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Operating System Site associations, DB error", nil)
+			}
+			for _, tossa := range tmplOssas {
+				if _, derr := ossaDAO.Update(ctx, tx, cdbm.OperatingSystemSiteAssociationUpdateInput{
+					OperatingSystemSiteAssociationID: tossa.ID,
+					Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusSyncing),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("unable to update the Operating System association record in DB")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Operating System Site Association status, DB error", nil)
+				}
+				if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+					EntityID: tossa.ID.String(),
+					Status:   cdbm.OperatingSystemSiteAssociationStatusSyncing,
+					Message:  cutil.GetPtr("received Operating System Association update request, syncing"),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Site Association", nil)
+				}
+			}
+		}
+
 		return nil
 	})
 	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
@@ -1291,6 +1629,28 @@ func (ush UpdateOperatingSystemHandler) Handle(c echo.Context) error {
 	}
 	if timeoutResp != nil {
 		return timeoutResp()
+	}
+
+	// Push iPXE / Templated iPXE Operating System updates to associated sites via the
+	// generic Core gRPC proxy (Image OSes are synced in-transaction above). Raw iPXE
+	// OSes without site associations have nothing to push.
+	if cdbm.IsIPXEType(uos.Type) {
+		ipxeOssas, _, oerr := ossaDAO.GetAll(ctx, nil,
+			cdbm.OperatingSystemSiteAssociationFilterInput{OperatingSystemIDs: []uuid.UUID{uos.ID}},
+			cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)},
+			[]string{cdbm.SiteRelationName})
+		if oerr != nil {
+			logger.Error().Err(oerr).Msg("error retrieving Operating System Site associations for proxy sync")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Operating System Site associations from DB", nil)
+		}
+		if len(ipxeOssas) > 0 {
+			req := model.BuildUpdateOperatingSystemRequest(uos)
+			siteErrors := syncOperatingSystemToSitesViaProxy(ctx, logger, ush.dbSession, ush.scp, ipxeOssas, updateOperatingSystemMethod, req)
+			if aerr := updateOperatingSystemAggregateStatus(ctx, logger, ush.dbSession, uos.ID, siteErrors > 0, aggregateSyncMessage(siteErrors > 0)); aerr != nil {
+				logger.Error().Err(aerr).Msg("failed to update aggregate Operating System status after update sync")
+			}
+			uos, ssds, dbossas = reloadOperatingSystemForResponse(ctx, logger, ush.dbSession, uos, ssds, dbossas)
+		}
 	}
 
 	// Send response
@@ -1403,7 +1763,10 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 	// Verify if Site is in Registered state
 	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(dsh.dbSession)
 	ossasToDelete := []cdbm.OperatingSystemSiteAssociation{}
-	if os.Type == cdbm.OperatingSystemTypeImage {
+	// Image and Templated iPXE Operating Systems propagate deletes to their
+	// associated sites (Image via OsImage workflows, Templated iPXE via the Core
+	// gRPC proxy), so their associations must be loaded.
+	if os.Type == cdbm.OperatingSystemTypeImage || os.Type == cdbm.OperatingSystemTypeTemplatedIPXE {
 		ossasToDelete, _, err = ossaDAO.GetAll(
 			ctx,
 			nil,
@@ -1418,11 +1781,13 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Operating System Site associations from DB", nil)
 		}
 
-		// Verify if associated Site is not registered state
-		for _, dbosa := range ossasToDelete {
-			if dbosa.Site.Status != cdbm.SiteStatusRegistered {
-				logger.Warn().Msg(fmt.Sprintf("unable to delete Operating System. Site: %s. is not in Registered state", dbosa.SiteID.String()))
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to delete Operating System, Associated Site: %s is not in Registered state", dbosa.Site.Name), nil)
+		// Verify if associated Site is not registered state (image-based only).
+		if os.Type == cdbm.OperatingSystemTypeImage {
+			for _, dbosa := range ossasToDelete {
+				if dbosa.Site.Status != cdbm.SiteStatusRegistered {
+					logger.Warn().Msg(fmt.Sprintf("unable to delete Operating System. Site: %s. is not in Registered state", dbosa.SiteID.String()))
+					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Failed to delete Operating System, Associated Site: %s is not in Registered state", dbosa.Site.Name), nil)
+				}
 			}
 		}
 	}
@@ -1572,6 +1937,50 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 			}
 		}
 
+		// Templated iPXE Operating Systems mark the OS (and associations) as
+		// Deleting in-transaction; the deletes are pushed to sites via the Core
+		// gRPC proxy after commit, and the OS is soft-deleted once all sites are
+		// cleaned up.
+		if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE && len(ossasToDelete) > 0 {
+			if _, derr := osDAO.Update(ctx, tx, cdbm.OperatingSystemUpdateInput{OperatingSystemId: os.ID, Status: cutil.GetPtr(cdbm.OperatingSystemStatusDeleting)}); derr != nil {
+				logger.Error().Err(derr).Msg("error updating Operating System in DB")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Operating System", nil)
+			}
+			sdDAO := cdbm.NewStatusDetailDAO(dsh.dbSession)
+			if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+				EntityID: os.ID.String(),
+				Status:   cdbm.OperatingSystemStatusDeleting,
+				Message:  cutil.GetPtr("received request for deletion, pending processing"),
+			}); derr != nil {
+				logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System", nil)
+			}
+
+			// Mark each affected association Deleting in the same transaction so the
+			// in-progress state is durable before any per-site proxy delete runs; the
+			// post-commit loop transitions each to deleted (row removed) or Error.
+			for _, ossa := range ossasToDelete {
+				if ossa.Status == cdbm.OperatingSystemSiteAssociationStatusDeleting {
+					continue
+				}
+				if _, derr := ossaDAO.Update(ctx, tx, cdbm.OperatingSystemSiteAssociationUpdateInput{
+					OperatingSystemSiteAssociationID: ossa.ID,
+					Status:                           cutil.GetPtr(cdbm.OperatingSystemSiteAssociationStatusDeleting),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("error updating Operating System Association in DB")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Operating System", nil)
+				}
+				if _, derr := sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+					EntityID: ossa.ID.String(),
+					Status:   cdbm.OperatingSystemSiteAssociationStatusDeleting,
+					Message:  cutil.GetPtr("received request for deletion, pending processing"),
+				}); derr != nil {
+					logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for Operating System Association", nil)
+				}
+			}
+		}
+
 		// Delete OS if its not Image
 		// Delete OS if there is no Operating Site Association in case of Image based OS
 		if os.Type == cdbm.OperatingSystemTypeIPXE || len(ossasToDelete) == 0 {
@@ -1596,6 +2005,57 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 	}
 	if timeoutResp != nil {
 		return timeoutResp()
+	}
+
+	// Push deletes for Templated iPXE Operating Systems to associated sites via the
+	// generic Core gRPC proxy, remove the synced associations, and soft-delete the
+	// OS once every site is cleaned up. A not-found object on a site is treated as
+	// already deleted.
+	if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE && len(ossasToDelete) > 0 {
+		req := model.BuildDeleteOperatingSystemRequest(os)
+		remaining := 0
+		for _, ossa := range ossasToDelete {
+			slogger := logger.With().Str("Site ID", ossa.SiteID.String()).Logger()
+			stc, cerr := dsh.scp.GetClientByID(ossa.SiteID)
+			if cerr != nil {
+				slogger.Error().Err(cerr).Msg("failed to retrieve Temporal client for Site")
+				_ = updateOSSAStatusViaProxy(ctx, slogger, dsh.dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to connect to site")
+				remaining++
+				continue
+			}
+			perr := common.ExecuteCoreGRPC(ctx, stc, deleteOperatingSystemMethod, req, nil, ossa.SiteID.String())
+			if perr != nil {
+				if perr.Code == http.StatusNotFound {
+					slogger.Warn().Msg("Operating System not found on site, treating delete as successful")
+				} else {
+					slogger.Error().Err(perr).Int("code", perr.Code).Msg("failed to delete Operating System on site via Core proxy")
+					_ = updateOSSAStatusViaProxy(ctx, slogger, dsh.dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to delete Operating System on site")
+					remaining++
+					continue
+				}
+			}
+			if derr := ossaDAO.Delete(ctx, nil, ossa.ID); derr != nil {
+				slogger.Error().Err(derr).Msg("failed to delete Operating System Site Association after site delete")
+				_ = updateOSSAStatusViaProxy(ctx, slogger, dsh.dbSession, ossa.ID, cdbm.OperatingSystemSiteAssociationStatusError, "failed to remove Operating System site association after site delete")
+				remaining++
+			}
+		}
+		if remaining == 0 {
+			if derr := osDAO.Delete(ctx, nil, os.ID); derr != nil {
+				logger.Error().Err(derr).Msg("failed to soft-delete Operating System after all sites cleaned up")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete Operating System", nil)
+			}
+		} else {
+			// Some sites could not be cleaned up. Transition the OS out of the
+			// transient Deleting state into Error (with per-site Error associations
+			// recorded above) so it is not stranded in Deleting forever: the state is
+			// visible via GET and the delete is idempotently retryable (already-gone
+			// sites return not-found and cleaned-up associations are no longer
+			// candidates), converging once the sites recover.
+			if aerr := updateOperatingSystemAggregateStatus(ctx, logger, dsh.dbSession, os.ID, true, "failed to delete Operating System from one or more sites"); aerr != nil {
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Operating System status", nil)
+			}
+		}
 	}
 
 	// Create response

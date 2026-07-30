@@ -4,8 +4,6 @@
 package workflow
 
 import (
-	"time"
-
 	"github.com/NVIDIA/infra-controller/rest-api/common/pkg/coreproxy"
 	"github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/activity"
 	"github.com/rs/zerolog/log"
@@ -27,7 +25,7 @@ func InvokeCoreGRPC(ctx workflow.Context, req coreproxy.Request) (coreproxy.Resp
 	// No automatic retries: a proxied call may be a non-idempotent mutation, so
 	// the activity runs exactly once and the caller decides whether to retry.
 	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
+		StartToCloseTimeout: coreproxy.ActivityStartToCloseTimeout,
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 1,
 		},

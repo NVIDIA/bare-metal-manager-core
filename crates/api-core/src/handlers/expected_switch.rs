@@ -15,7 +15,10 @@
  * limitations under the License.
  */
 
+use std::collections::HashSet;
+
 use ::rpc::forge as rpc;
+use ::rpc::forge_api_client::{EXPECTED_SWITCH_UPDATE_MASK_HEADER, ExpectedSwitchUpdateField};
 use db::{DatabaseError, expected_switch as db_expected_switch};
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
@@ -24,6 +27,96 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::Api;
 use crate::handlers::machine_interface_address::update_preallocated_machine_interface;
+
+fn parse_expected_switch_update_mask(
+    request: &Request<rpc::ExpectedSwitch>,
+) -> Result<Option<HashSet<ExpectedSwitchUpdateField>>, CarbideError> {
+    let Some(value) = request.metadata().get(EXPECTED_SWITCH_UPDATE_MASK_HEADER) else {
+        return Ok(None);
+    };
+
+    let value = value.to_str().map_err(|error| {
+        CarbideError::InvalidArgument(format!("invalid expected-switch update mask: {error}"))
+    })?;
+
+    let fields = value
+        .split(',')
+        .map(str::parse)
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|_| {
+            CarbideError::InvalidArgument(format!("invalid expected-switch update mask: {value}"))
+        })?;
+
+    Ok(Some(fields))
+}
+
+fn merge_expected_switch_patch(
+    mut patch: rpc::ExpectedSwitch,
+    current: rpc::ExpectedSwitch,
+    fields: &HashSet<ExpectedSwitchUpdateField>,
+) -> rpc::ExpectedSwitch {
+    patch.expected_switch_id = current.expected_switch_id;
+    patch.bmc_mac_address = current.bmc_mac_address;
+
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcUsername) {
+        patch.bmc_username = current.bmc_username;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcPassword) {
+        patch.bmc_password = current.bmc_password;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::SwitchSerialNumber) {
+        patch.switch_serial_number = current.switch_serial_number;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosMacAddresses) {
+        patch.nvos_mac_addresses = current.nvos_mac_addresses;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosUsername) {
+        patch.nvos_username = current.nvos_username;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosPassword) {
+        patch.nvos_password = current.nvos_password;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::RackId) {
+        patch.rack_id = current.rack_id;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcIpAddress) {
+        patch.bmc_ip_address = current.bmc_ip_address;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::NvosIpAddress) {
+        patch.nvos_ip_address = current.nvos_ip_address;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::BmcRetainCredentials) {
+        patch.bmc_retain_credentials = current.bmc_retain_credentials;
+    }
+
+    let mut patch_metadata = patch.metadata.unwrap_or_default();
+    let current_metadata = current.metadata.unwrap_or_default();
+
+    if !fields.contains(&ExpectedSwitchUpdateField::MetadataName) {
+        patch_metadata.name = current_metadata.name;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::MetadataDescription) {
+        patch_metadata.description = current_metadata.description;
+    }
+
+    if !fields.contains(&ExpectedSwitchUpdateField::MetadataLabels) {
+        patch_metadata.labels = current_metadata.labels;
+    }
+
+    patch.metadata = Some(patch_metadata);
+
+    patch
+}
 
 /// `nvos_ip_address` is paired with the single wired NVOS port. We reject any
 /// caller that sets it alongside zero-or-multiple `nvos_mac_addresses`, so the
@@ -39,6 +132,29 @@ fn validate_nvos_ip_pairing(switch: &ExpectedSwitch) -> Result<(), CarbideError>
     Ok(())
 }
 
+/// Requires NVOS username and password to be present together and non-empty.
+fn validate_nvos_credentials_pair(switch: &ExpectedSwitch) -> Result<(), CarbideError> {
+    match (&switch.nvos_username, &switch.nvos_password) {
+        (Some(username), Some(_)) if username.is_empty() => Err(CarbideError::InvalidArgument(
+            "nvos_username must not be empty".to_string(),
+        )),
+        (Some(_), Some(password)) if password.is_empty() => Err(CarbideError::InvalidArgument(
+            "nvos_password must not be empty".to_string(),
+        )),
+        (Some(_), Some(_)) | (None, None) => Ok(()),
+        _ => Err(CarbideError::InvalidArgument(
+            "nvos_username and nvos_password must be set together".to_string(),
+        )),
+    }
+}
+
+fn validate_expected_switch(switch: &ExpectedSwitch) -> Result<(), CarbideError> {
+    validate_nvos_ip_pairing(switch)?;
+    validate_nvos_credentials_pair(switch)?;
+
+    Ok(())
+}
+
 pub async fn add_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
@@ -51,7 +167,7 @@ pub async fn add_expected_switch(
                 CarbideError::InvalidArgument(e.to_string())
             })?;
 
-    validate_nvos_ip_pairing(&switch)?;
+    validate_expected_switch(&switch)?;
 
     let mut txn = api
         .database_connection
@@ -107,15 +223,8 @@ pub async fn update_expected_switch(
     api: &Api,
     request: Request<rpc::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let switch: ExpectedSwitch =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
-
-    validate_nvos_ip_pairing(&switch)?;
+    let update_mask = parse_expected_switch_update_mask(&request)?;
+    let patch = request.into_inner();
 
     let mut txn = api
         .database_connection
@@ -124,6 +233,43 @@ pub async fn update_expected_switch(
         .map_err(|e| CarbideError::Internal {
             message: format!("Database error: {}", e),
         })?;
+
+    let switch: ExpectedSwitch = if let Some(update_mask) = update_mask {
+        let lookup: ExpectedSwitchRequest = rpc::ExpectedSwitchRequest {
+            bmc_mac_address: patch.bmc_mac_address.clone(),
+            expected_switch_id: patch.expected_switch_id.clone(),
+        }
+        .try_into()
+        .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+            CarbideError::InvalidArgument(e.to_string())
+        })?;
+
+        let current = db_expected_switch::find_for_update(&mut txn, &lookup)
+            .await
+            .map_err(CarbideError::from)?
+            .ok_or_else(|| DatabaseError::NotFoundError {
+                kind: "expected_switch",
+                id: lookup
+                    .expected_switch_id
+                    .map(|id| id.to_string())
+                    .or_else(|| lookup.bmc_mac_address.map(|mac| mac.to_string()))
+                    .unwrap_or_default(),
+            })?;
+
+        merge_expected_switch_patch(patch, current.into(), &update_mask)
+            .try_into()
+            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                CarbideError::InvalidArgument(e.to_string())
+            })?
+    } else {
+        patch
+            .try_into()
+            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                CarbideError::InvalidArgument(e.to_string())
+            })?
+    };
+
+    validate_expected_switch(&switch)?;
 
     if let Some(bmc_ip) = switch.bmc_ip_address {
         update_preallocated_machine_interface(
@@ -231,6 +377,21 @@ pub async fn replace_all_expected_switches(
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
 
+    let mut switches = Vec::with_capacity(req.expected_switches.len());
+
+    for expected_switch in req.expected_switches {
+        let switch: ExpectedSwitch =
+            expected_switch
+                .try_into()
+                .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                    CarbideError::InvalidArgument(e.to_string())
+                })?;
+
+        validate_expected_switch(&switch)?;
+
+        switches.push(switch);
+    }
+
     let mut txn = api
         .database_connection
         .begin()
@@ -245,13 +406,7 @@ pub async fn replace_all_expected_switches(
         .map_err(CarbideError::from)?;
 
     // Add all new expected switches
-    for expected_switch in req.expected_switches {
-        let switch: ExpectedSwitch =
-            expected_switch
-                .try_into()
-                .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                    CarbideError::InvalidArgument(e.to_string())
-                })?;
+    for switch in switches {
         db_expected_switch::create(&mut txn, switch)
             .await
             .map_err(CarbideError::from)?;

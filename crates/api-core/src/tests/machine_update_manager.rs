@@ -165,6 +165,7 @@ async fn test_remove_machine_update_markers(
         host_machine_id,
         dpu_machine_id,
         firmware_version: "1".to_owned(),
+        dpf_managed: false,
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
@@ -321,6 +322,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         host_machine_id: host_machine_id1,
         dpu_machine_id: dpu_machine_id1,
         firmware_version: "1".to_owned(),
+        dpf_managed: false,
     };
 
     let reference = &DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {

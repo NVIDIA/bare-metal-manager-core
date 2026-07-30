@@ -23,7 +23,7 @@ use eyre::Context;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
 use russh::keys::PublicKeyBase64;
-use russh::server::{Auth, Config, Msg, Server as _, Session, run_stream};
+use russh::server::{Auth, ChannelOpenHandle, Config, Msg, Server as _, Session, run_stream};
 use russh::{Channel, ChannelId, MethodKind, MethodSet, Pty, server};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -232,10 +232,12 @@ impl server::Handler for MockSshHandler {
     async fn channel_open_session(
         &mut self,
         _channel: Channel<Msg>,
+        reply: ChannelOpenHandle,
         _session: &mut Session,
-    ) -> StdResult<bool, Self::Error> {
+    ) -> StdResult<(), Self::Error> {
         tracing::debug!("channel_open_session");
-        Ok(true)
+        reply.accept().await;
+        Ok(())
     }
 
     async fn pty_request(

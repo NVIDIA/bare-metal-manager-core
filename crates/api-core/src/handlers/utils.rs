@@ -15,10 +15,74 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
+use std::net::{IpAddr, SocketAddr};
+
+use carbide_utils::HostPortPair;
 use carbide_uuid::machine::MachineId;
+use tokio::net::lookup_host;
 
 use crate::CarbideError;
 use crate::api::log_machine_id;
+
+const DEFAULT_BMC_HTTPS_PORT: u16 = 443;
+
+/// Resolves a BMC address, applying the default HTTPS port when one is absent.
+///
+/// Bare IP literals are handled before hostname resolution so an IPv6 address's
+/// colons are never mistaken for a host/port separator. An explicit port on an
+/// IPv6 literal must use the standard `[address]:port` socket syntax.
+pub(crate) async fn resolve_bmc_address(address: &str) -> Result<SocketAddr, tonic::Status> {
+    if let Some(address) = parse_numeric_bmc_address(address) {
+        return Ok(address);
+    }
+
+    let lookup_target = bmc_lookup_target(address).map_err(tonic::Status::from)?;
+    let mut addresses = lookup_host(lookup_target.as_ref()).await?;
+
+    addresses
+        .next()
+        .ok_or_else(|| invalid_bmc_address(address, "name resolution returned no addresses").into())
+}
+
+fn parse_numeric_bmc_address(address: &str) -> Option<SocketAddr> {
+    if let Ok(address) = address.parse::<SocketAddr>() {
+        return Some(address);
+    }
+    if let Ok(address) = address.parse::<IpAddr>() {
+        return Some(SocketAddr::new(address, DEFAULT_BMC_HTTPS_PORT));
+    }
+
+    let address = address.strip_prefix('[')?.strip_suffix(']')?;
+    let address = address.parse::<IpAddr>().ok()?;
+    address
+        .is_ipv6()
+        .then(|| SocketAddr::new(address, DEFAULT_BMC_HTTPS_PORT))
+}
+
+fn bmc_lookup_target(address: &str) -> Result<Cow<'_, str>, CarbideError> {
+    if address.contains('[') || address.contains(']') {
+        return Err(invalid_bmc_address(
+            address,
+            "brackets are only valid around an IPv6 literal",
+        ));
+    }
+
+    match address
+        .parse::<HostPortPair>()
+        .map_err(|error| invalid_bmc_address(address, error))?
+    {
+        HostPortPair::HostOnly(_) => Ok(Cow::Owned(format!("{address}:{DEFAULT_BMC_HTTPS_PORT}"))),
+        HostPortPair::HostAndPort(_, _) => Ok(Cow::Borrowed(address)),
+        HostPortPair::PortOnly(_) => Err(invalid_bmc_address(address, "host is missing")),
+    }
+}
+
+fn invalid_bmc_address(address: &str, reason: impl std::fmt::Display) -> CarbideError {
+    CarbideError::InvalidArgument(format!(
+        "could not resolve BMC address {address:?}: {reason}; expected a hostname or IP address with an optional port (IPv6 with an explicit port must use [address]:port)"
+    ))
+}
 
 /// Converts a MachineID from RPC format to Model format
 /// and logs the MachineID as MachineID for the current request.
@@ -72,8 +136,79 @@ mod tests {
     use std::str::FromStr as _;
 
     use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::value_scenarios;
 
     use super::*;
+
+    #[test]
+    fn parses_numeric_bmc_addresses_with_the_expected_port() {
+        value_scenarios!(
+            run = |address: &str| parse_numeric_bmc_address(address);
+            "default HTTPS port" {
+                "192.0.2.10" => Some("192.0.2.10:443".parse().unwrap()),
+                "2001:db8::10" => Some("[2001:db8::10]:443".parse().unwrap()),
+                "[2001:db8::10]" => Some("[2001:db8::10]:443".parse().unwrap()),
+            }
+
+            "explicit port" {
+                "192.0.2.10:8443" => Some("192.0.2.10:8443".parse().unwrap()),
+                "[2001:db8::10]:8443" => Some("[2001:db8::10]:8443".parse().unwrap()),
+            }
+
+            "hostname resolution required" {
+                "bmc.example.com" => None,
+                "bmc.example.com:8443" => None,
+            }
+        );
+    }
+
+    #[test]
+    fn hostname_lookup_targets_preserve_or_default_the_port() {
+        value_scenarios!(
+            run = |address: &str| bmc_lookup_target(address).ok().map(Cow::into_owned);
+            "default HTTPS port" {
+                "bmc.example.com" => Some("bmc.example.com:443".to_string()),
+            }
+
+            "explicit port" {
+                "bmc.example.com:8443" => Some("bmc.example.com:8443".to_string()),
+            }
+
+            "invalid host and port forms" {
+                ":8443" => None,
+                "bmc.example.com:notaport" => None,
+                "[192.0.2.10]" => None,
+                "[192.0.2.10]:8443" => None,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_hostname_forms_with_the_expected_port() {
+        for (scenario, address, expected_port) in [
+            ("hostname", "localhost", 443),
+            ("hostname and port", "localhost:8443", 8443),
+        ] {
+            let resolved = resolve_bmc_address(address)
+                .await
+                .expect("localhost should resolve");
+            assert!(resolved.ip().is_loopback(), "{scenario}");
+            assert_eq!(resolved.port(), expected_port, "{scenario}");
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_bmc_address_error_describes_accepted_forms() {
+        let error = resolve_bmc_address(":8443")
+            .await
+            .expect_err("an address without a host must be rejected");
+
+        assert_eq!(error.code(), tonic::Code::InvalidArgument);
+        assert_eq!(
+            error.message(),
+            "could not resolve BMC address \":8443\": host is missing; expected a hostname or IP address with an optional port (IPv6 with an explicit port must use [address]:port)"
+        );
+    }
 
     /// One emit writes the WARN line (machine id and error as fields) AND
     /// moves the counter, with every trigger variant rendering as its

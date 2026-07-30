@@ -63,6 +63,15 @@ pub struct MachineStateControllerConfig {
         serialize_with = "as_duration"
     )]
     pub scout_reporting_timeout: Duration,
+    /// How long a host may remain in WaitingForMeasurements before being
+    /// escalated to Failed. A healthy fleet completes this state in minutes,
+    /// so a generous ceiling still catches hosts that are silently stuck.
+    #[serde(
+        default = "MachineStateControllerConfig::waiting_for_measurements_timeout_default",
+        deserialize_with = "deserialize_duration_chrono",
+        serialize_with = "as_duration"
+    )]
+    pub waiting_for_measurements_timeout: Duration,
     /// How long to wait for UEFI boot to complete after rebooting a host
     #[serde(
         default = "MachineStateControllerConfig::uefi_boot_wait_default",
@@ -95,6 +104,7 @@ impl MachineStateControllerConfig {
             dpu_up_threshold: Duration::weeks(52),
             controller: StateControllerConfig::default(),
             scout_reporting_timeout: Duration::weeks(52),
+            waiting_for_measurements_timeout: Duration::weeks(52),
             uefi_boot_wait: Duration::seconds(0),
             max_bios_config_retries: MachineStateControllerConfig::max_bios_config_retries_default(
             ),
@@ -123,6 +133,10 @@ impl MachineStateControllerConfig {
         Duration::minutes(5)
     }
 
+    pub fn waiting_for_measurements_timeout_default() -> Duration {
+        Duration::hours(4)
+    }
+
     pub fn uefi_boot_wait_default() -> Duration {
         Duration::minutes(5)
     }
@@ -146,6 +160,8 @@ impl Default for MachineStateControllerConfig {
             dpu_up_threshold: MachineStateControllerConfig::dpu_up_threshold_default(),
             scout_reporting_timeout: MachineStateControllerConfig::scout_reporting_timeout_default(
             ),
+            waiting_for_measurements_timeout:
+                MachineStateControllerConfig::waiting_for_measurements_timeout_default(),
             uefi_boot_wait: MachineStateControllerConfig::uefi_boot_wait_default(),
             max_bios_config_retries: MachineStateControllerConfig::max_bios_config_retries_default(
             ),

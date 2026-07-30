@@ -35,11 +35,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Install and run revive
+      - name: Run revive
         run: |
-          go install github.com/mgechev/revive@v1.15.0
           pkgs=$(go list ./... | grep -v $(go env GOMODCACHE))
-          go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 revive -config .revive.toml -set_exit_status
+          go list $pkgs | grep -v $(go env GOMODCACHE) | xargs -L1 go tool revive -config .revive.toml -set_exit_status
 
       - name: Run go fmt
         run: |
@@ -196,12 +195,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: rest-api/go.sum
-
-      - name: Install buf and protoc plugins
-        run: |
-          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 
       - name: Regenerate protobuf code
         run: make core-proto

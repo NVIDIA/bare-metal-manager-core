@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::mac_address_pool::MacAddressPool;
 use bmc_mock::{
-    BmcCommand, DpuMachineInfo, DpuSettings, HostHardwareType, MachineInfo, SetSystemPowerResult,
+    BmcCommand, DpuMachineInfo, DpuSettings, HardwareType, MachineInfo, SetSystemPowerResult,
     SystemPowerControl,
 };
 use carbide_uuid::machine::MachineId;
@@ -36,7 +36,7 @@ use crate::config::{MachineATronContext, PersistedDpuMachine};
 use crate::dhcp_wrapper::{DhcpRelayResult, DhcpResponseInfo, DpuDhcpRelay, DpuDhcpRelayServer};
 use crate::host_machine::HandleMessageResult;
 use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, PersistedMachine};
-use crate::status::{BmcStatus, EndpointStatus, MachineStatus, MachineStatusConfig};
+use crate::status::{BmcStatus, DeviceKind, DeviceStatus, DeviceStatusConfig, EndpointStatus};
 use crate::tui::HostDetails;
 use crate::{MachineConfig, saturating_add_duration_to_instant};
 
@@ -75,7 +75,7 @@ impl DpuMachine {
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
 
         let dpu_info = DpuMachineInfo {
-            hw_type: persisted_dpu_machine.hw_type.unwrap_or_default(),
+            hw_type: persisted_dpu_machine.hw_type,
             bmc_mac_address: persisted_dpu_machine.bmc_mac_address,
             host_mac_address: persisted_dpu_machine.host_mac_address,
             oob_mac_address: persisted_dpu_machine.oob_mac_address,
@@ -112,7 +112,7 @@ impl DpuMachine {
     }
 
     pub fn new(
-        hw_type: HostHardwareType,
+        hw_type: HardwareType,
         mat_host: Uuid,
         dpu_index: u8,
         app_context: Arc<MachineATronContext>,
@@ -385,7 +385,7 @@ impl DpuMachineHandle {
             live_state: Arc::new(RwLock::new(live_state)),
             mat_id,
             dpu_info: DpuMachineInfo {
-                hw_type: HostHardwareType::default(),
+                hw_type: HardwareType::default(),
                 bmc_mac_address: mac,
                 host_mac_address: mac,
                 oob_mac_address: mac,
@@ -433,9 +433,11 @@ impl DpuMachineHandle {
                 state.to_owned(),
                 tx,
             ))?;
-        tokio::time::timeout(timeout, rx).await?.wrap_err(format!(
-            "timed out waiting for machine up with state {state}"
-        ))
+        tokio::time::timeout(timeout, rx)
+            .await
+            .wrap_err_with(|| format!("timed out waiting for machine up with state {state}"))?
+            .wrap_err_with(|| format!("machine stopped while waiting for state {state}"))?;
+        Ok(())
     }
 
     pub fn host_details(&self) -> HostDetails {
@@ -458,10 +460,16 @@ impl DpuMachineHandle {
         }
     }
 
-    pub fn status(&self, config: &MachineStatusConfig) -> MachineStatus {
+    pub fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
         let live_state = self.0.live_state.read().unwrap();
-        MachineStatus {
+        DeviceStatus {
             mat_id: self.0.mat_id.to_string(),
+            device_kind: DeviceKind::Dpu,
+            device_id: live_state
+                .observed_machine_id
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| self.0.mat_id.to_string()),
             machine_id: live_state
                 .observed_machine_id
                 .as_ref()
@@ -471,9 +479,11 @@ impl DpuMachineHandle {
             api_state: live_state.api_state.clone(),
             power_state: live_state.power_state.to_string(),
             machine_ip: live_state.machine_ip.map(|ip| ip.to_string()),
+            nvos_ip: None,
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
+                ipmi: live_state.ipmi_endpoint.map(Into::into),
             },
             dpus: Vec::new(),
         }
@@ -494,7 +504,7 @@ impl DpuMachineHandle {
     pub fn persisted(&self) -> PersistedDpuMachine {
         PersistedDpuMachine {
             mat_id: self.0.mat_id,
-            hw_type: Some(self.0.dpu_info.hw_type),
+            hw_type: self.0.dpu_info.hw_type,
             bmc_mac_address: self.0.dpu_info.bmc_mac_address,
             host_mac_address: self.0.dpu_info.host_mac_address,
             oob_mac_address: self.0.dpu_info.oob_mac_address,

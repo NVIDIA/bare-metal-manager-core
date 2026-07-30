@@ -37,12 +37,33 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPut,
 			Handler: apiHandler.NewCreateOrUpdateBMCCredentialHandler(dbSession, scp, cfg),
 		},
+		// Site Explorer endpoint actions (Provider Admin). Composes existing
+		// single-endpoint Core methods through the generic gRPC proxy.
+		{
+			Path:    apiPathPrefix + "/site-explorer/endpoint/action",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewSiteExplorerEndpointActionHandler(dbSession, scp, cfg),
+		},
 		// Site-default UEFI credential endpoint (Provider Admin); equivalent to
 		// the admin CLI `credential add-uefi` command.
 		{
 			Path:    apiPathPrefix + "/credential/uefi",
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCreateUEFICredentialHandler(dbSession, scp),
+		},
+		// Site-wide credential rotation (Provider Admin); equivalent to the admin
+		// CLI `credential rotate` / `credential rotation-status` commands. POST
+		// stages a rotation and returns the new target version; GET reports
+		// convergence for the site or a single device by MAC.
+		{
+			Path:    apiPathPrefix + "/credential/rotation",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewRotateCredentialHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/credential/rotation",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetCredentialRotationStatusHandler(dbSession, scp),
 		},
 		// User endpoint
 		{
@@ -723,6 +744,17 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteOperatingSystemHandler(dbSession, tc, scp, cfg),
 		},
+		// iPXE Template endpoints (read-only; templates are synced from nico-core)
+		{
+			Path:    apiPathPrefix + "/ipxe-template",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllIpxeTemplateHandler(dbSession, tc, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/ipxe-template/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetIpxeTemplateHandler(dbSession, tc, cfg),
+		},
 		// NetworkSecurityGroup endpoints
 		{
 			Path:    apiPathPrefix + "/network-security-group",
@@ -975,6 +1007,48 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/task/rule/:id",
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		// Run endpoints (Flow). A run is a phased, policy-gated execution of
+		// one operation across many racks; Flow calls it an operation run.
+		{
+			Path:    apiPathPrefix + "/task/run",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/target",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskRunTargetHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/pause",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewPauseTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/resume",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewResumeTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/advance",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewAdvanceTaskRunPhaseHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/cancel",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCancelTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/rack",

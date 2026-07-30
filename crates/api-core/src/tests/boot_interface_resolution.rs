@@ -15,14 +15,11 @@
  * limitations under the License.
  */
 
-//! Admin boot-interface resolution: the by-BMC-endpoint admin RPCs
-//! (`machine_setup`, `set_dpu_first_boot_order`) resolve a host's boot
-//! interface from the machine's own `machine_interfaces` rows -- the same
-//! designation every other flow acts on -- and use site-explorer's explored
-//! default only for endpoints no machine owns. (Owned endpoints with no
-//! candidate rows -- DPU machines, BMC-only hosts -- fall through to that
-//! default too, but the explorer never records one for them, so in practice
-//! they run with no target, matching the machine-controller.)
+//! Admin boot-interface compatibility: `machine_setup` and
+//! `set_dpu_first_boot_order` prefer a managed host's persisted desired target,
+//! then fall back to its owned or predicted interfaces. After Redfish accepts a
+//! target, the action stores that exact selection for the next operator request
+//! and the later controller-convergence work.
 //!
 //! The Redfish sim records the MAC each boot-order call targeted, so these
 //! tests assert the *selection* end to end; the pair-vs-MAC-only upgrade
@@ -31,7 +28,7 @@
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
-use mac_address::MacAddress;
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
 use rpc::forge;
@@ -48,27 +45,44 @@ use crate::tests::common::api_fixtures::network_segment::{
 
 /// Creates a two-DPU host and moves its primary to a different host interface
 /// via `set_primary_interface`, returning the host id and the promoted
-/// interface's MAC -- the boot interface the admin actions under test must now
-/// target.
+/// interface targets before and after the move.
 async fn host_with_moved_primary(
     env: &api_fixtures::TestEnv,
-) -> Result<(MachineId, MacAddress), Box<dyn std::error::Error>> {
+) -> Result<
+    (
+        MachineId,
+        MachineBootInterfaceTarget,
+        MachineBootInterfaceTarget,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let host =
         api_fixtures::site_explorer::new_host(env, ManagedHostConfig::default().with_dpu_count(2))
             .await?;
     let host_id = host.host_snapshot.id;
 
-    let (promote_id, promote_mac) = {
+    let (original_target, promote_id, promote_target) = {
         let mut txn = env.pool.begin().await?;
         let interfaces = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
             .expect("host should have interface rows");
+        let original = interfaces
+            .iter()
+            .find(|i| i.primary_interface)
+            .expect("host should start with a primary interface");
         let promote = interfaces
             .iter()
             .find(|i| !i.primary_interface && i.attached_dpu_machine_id.is_some())
             .expect("host should have a non-primary host interface to promote");
-        (promote.id, promote.mac_address)
+        let target = |interface: &model::machine::MachineInterfaceSnapshot| {
+            MachineBootInterfaceTarget::from_parts(
+                Some(interface.mac_address),
+                interface.boot_interface_id.clone(),
+            )
+            .expect("a host interface always supplies a MAC")
+        };
+        (target(original), promote.id, target(promote))
     };
 
     env.api
@@ -79,7 +93,7 @@ async fn host_with_moved_primary(
         }))
         .await?;
 
-    Ok((host_id, promote_mac))
+    Ok((host_id, original_target, promote_target))
 }
 
 // An operator-moved primary is the boot interface the admin path must target:
@@ -92,7 +106,7 @@ async fn test_set_dpu_first_targets_an_operator_moved_primary(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
-    let (host_id, promote_mac) = host_with_moved_primary(&env).await?;
+    let (host_id, original_target, promote_target) = host_with_moved_primary(&env).await?;
 
     // Only observe the admin RPC below, not the promotion's own boot-order call.
     let timepoint = env.redfish_sim.timepoint();
@@ -109,10 +123,52 @@ async fn test_set_dpu_first_targets_an_operator_moved_primary(
     assert_eq!(
         actions,
         vec![RedfishSimAction::SetBootOrderDpuFirst {
-            boot_interface_mac: promote_mac.to_string(),
+            boot_interface_mac: promote_target.mac_address().to_string(),
         }],
         "the admin path should target the operator-moved primary, not the explored default",
     );
+
+    let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: Some(original_target.mac_address().to_string()),
+        }))
+        .await?;
+    let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
+    assert_eq!(
+        actions,
+        vec![RedfishSimAction::SetBootOrderDpuFirst {
+            boot_interface_mac: original_target.mac_address().to_string(),
+        }],
+        "an explicit MAC should target that NIC before it becomes desired",
+    );
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the successful Redfish action should persist its selected target");
+    assert_eq!(desired.value, original_target);
+
+    let mut txn = env.pool.begin().await?;
+    let machine = db::machine::find_one(txn.as_mut(), &host_id, Default::default())
+        .await?
+        .expect("the host should still exist");
+    let machine_desired = machine
+        .config
+        .desired_boot_interface
+        .expect("machine snapshots should include the desired boot interface");
+    assert_eq!(machine_desired.value, desired.value);
+    assert_eq!(machine_desired.version, desired.version);
+    let managed_host = db::managed_host::load_snapshot(txn.as_mut(), &host_id, Default::default())
+        .await?
+        .expect("the managed host should still exist");
+    let managed_host_desired = managed_host
+        .host_snapshot
+        .config
+        .desired_boot_interface
+        .expect("managed-host snapshots should include the desired boot interface");
+    assert_eq!(managed_host_desired.value, desired.value);
+    assert_eq!(managed_host_desired.version, desired.version);
 
     Ok(())
 }
@@ -127,7 +183,7 @@ async fn test_machine_setup_targets_an_operator_moved_primary(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
-    let (host_id, promote_mac) = host_with_moved_primary(&env).await?;
+    let (host_id, original_target, promote_target) = host_with_moved_primary(&env).await?;
 
     let timepoint = env.redfish_sim.timepoint();
 
@@ -151,9 +207,37 @@ async fn test_machine_setup_targets_an_operator_moved_primary(
         .expect("machine_setup should have been called");
     assert_eq!(
         targeted,
-        Some(promote_mac.to_string()),
+        Some(promote_target.mac_address().to_string()),
         "machine_setup should configure BIOS for the operator-moved primary",
     );
+
+    let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: Some(original_target.mac_address().to_string()),
+        }))
+        .await?;
+    let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
+    let targeted = actions
+        .iter()
+        .find_map(|action| match action {
+            RedfishSimAction::MachineSetup {
+                boot_interface_mac, ..
+            } => Some(boot_interface_mac.clone()),
+            _ => None,
+        })
+        .expect("machine_setup should have been called");
+    assert_eq!(
+        targeted,
+        Some(original_target.mac_address().to_string()),
+        "an explicit MAC should target that NIC before it becomes desired",
+    );
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the successful Redfish action should persist its selected target");
+    assert_eq!(desired.value, original_target);
 
     Ok(())
 }
@@ -287,16 +371,47 @@ async fn test_boot_interface_candidates_skips_dpu_machines(
         candidates.predicted.is_empty(),
         "a fully-leased DPU host should have no pending predictions",
     );
+    txn.commit().await?;
+
+    let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
+            machine_id: Some(dpu_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await?;
+    let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
+    let targeted = actions
+        .iter()
+        .find_map(|action| match action {
+            RedfishSimAction::MachineSetup {
+                boot_interface_mac, ..
+            } => Some(boot_interface_mac.clone()),
+            _ => None,
+        })
+        .expect("the DPU machine_setup should remain a direct Redfish action");
+    assert_eq!(
+        targeted, None,
+        "a DPU setup should not target a host boot interface",
+    );
+    let persisted_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM machine_boot_interfaces WHERE machine_id = $1")
+            .bind(dpu_id)
+            .fetch_one(&env.pool)
+            .await?;
+    assert_eq!(
+        persisted_rows, 0,
+        "a DPU admin action must remain a direct Redfish operation",
+    );
 
     Ok(())
 }
 
-// The window this PR exists for: a zero-DPU machine has been ingested, but its
-// in-band NIC has not taken its first DHCP lease -- no machine_interfaces row
-// exists yet, and site-explorer records no explored default for zero-DPU
-// hosts, so a no-MAC set_dpu_first_boot_order used to have nothing to resolve.
-// The machine's predicted interface (mac + report-derived Redfish id, kept
-// fresh every exploration since #2448) now answers.
+// A zero-DPU machine can be ingested before its in-band NIC takes its first
+// DHCP lease. There is no machine_interfaces row or explored default yet, so
+// the machine's predicted interface (MAC + report-derived Redfish id, kept
+// fresh every exploration since #2448) answers.
 #[crate::sqlx_test]
 async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
     pool: sqlx::PgPool,
@@ -316,7 +431,7 @@ async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
     // Precondition: the machine owns a prediction for the NIC and no real
     // interface row. (The prediction's content is the site-explorer ingest
     // tests' contract; here it only locates the machine.)
-    let machine_id = {
+    let (machine_id, predicted_target) = {
         let mut txn = env.pool.begin().await?;
         let predicted = db::predicted_machine_interface::find_by_mac_address(&mut txn, inband_mac)
             .await?
@@ -327,7 +442,12 @@ async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
                 .is_empty(),
             "the in-band NIC should not have a machine_interfaces row yet",
         );
-        predicted.machine_id
+        let target = MachineBootInterfaceTarget::from_parts(
+            Some(predicted.mac_address),
+            predicted.boot_interface_id,
+        )
+        .expect("the prediction always supplies a MAC");
+        (predicted.machine_id, target)
     };
 
     let timepoint = env.redfish_sim.timepoint();
@@ -348,6 +468,10 @@ async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
         }],
         "the machine awaiting its first lease should resolve from its predicted interface",
     );
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &machine_id)
+        .await?
+        .expect("the predicted host should retain the target Redfish accepted");
+    assert_eq!(desired.value, predicted_target);
 
     Ok(())
 }

@@ -1,3 +1,15 @@
+{{- $bootstrapRootCa := default (dict) .Values.bootstrapRootCa -}}
+{{- $bootstrapRootCaConfigMapName := $bootstrapRootCa.configMapName | default "" -}}
+{{- $bootstrapRootCaSecretName := $bootstrapRootCa.secretName | default "" -}}
+{{- if and $bootstrapRootCaConfigMapName $bootstrapRootCaSecretName -}}
+{{- fail "nico-pxe: set only one of bootstrapRootCa.configMapName or bootstrapRootCa.secretName" -}}
+{{- end -}}
+{{- $bootstrapRootCaEnabled := or $bootstrapRootCaConfigMapName $bootstrapRootCaSecretName -}}
+{{- $bootstrapRootCaKey := $bootstrapRootCa.key | default "ca.crt" -}}
+{{- $env := deepCopy (default (dict) .Values.env) -}}
+{{- if $bootstrapRootCaEnabled -}}
+{{- $_ := set $env "FORGE_BOOTSTRAP_ROOT_CAFILE_PATH" "/var/run/secrets/bootstrap-root-ca/ca.crt" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -60,7 +72,7 @@ spec:
               if [ -x /opt/nico/nico ]; then BIN=/opt/nico/nico; else BIN=/opt/carbide/carbide; fi
               exec "$BIN" -s {{ .Values.bootArtifacts.servePath }}
           env:
-            {{- range $key, $value := .Values.env }}
+            {{- range $key, $value := $env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
@@ -84,6 +96,11 @@ spec:
             - name: spiffe
               mountPath: /var/run/secrets/spiffe.io
               readOnly: true
+            {{- if $bootstrapRootCaEnabled }}
+            - name: bootstrap-root-ca
+              mountPath: /var/run/secrets/bootstrap-root-ca
+              readOnly: true
+            {{- end }}
             {{- if .Values.bootArtifactContainers }}
             - name: boot-artifacts
               mountPath: /forge-boot-artifacts/blobs/internal
@@ -92,6 +109,22 @@ spec:
         - name: spiffe
           secret:
             secretName: {{ include "nico-pxe.name" . }}-certificate
+        {{- if $bootstrapRootCaEnabled }}
+        - name: bootstrap-root-ca
+          {{- if $bootstrapRootCaConfigMapName }}
+          configMap:
+            name: {{ $bootstrapRootCaConfigMapName | quote }}
+            items:
+              - key: {{ $bootstrapRootCaKey | quote }}
+                path: ca.crt
+          {{- else }}
+          secret:
+            secretName: {{ $bootstrapRootCaSecretName | quote }}
+            items:
+              - key: {{ $bootstrapRootCaKey | quote }}
+                path: ca.crt
+          {{- end }}
+        {{- end }}
         {{- if .Values.bootArtifactContainers }}
         - name: boot-artifacts
           emptyDir: {}

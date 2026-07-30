@@ -105,7 +105,7 @@ use model::rack_type::{
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
 use model::tenant::TenantOrganizationId;
-use model::test_support::dpu::DPU_BF3_INFO_JSON;
+use model::test_support::dpu::{DPU_BF3_INFO_JSON, DPU_BF4_INFO_JSON};
 use model::test_support::{DpuConfig, HardwareInfoTemplate, ManagedHostConfig};
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
@@ -338,7 +338,9 @@ impl TestEnv {
             site_config: self.config.machine_state_handler_site_config().into(),
             component_manager: self.test_component_manager.clone(),
             credential_manager: self.test_credential_manager.clone(),
+            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
             per_object_metrics_registry: self.per_object_metrics_registry(),
+            per_object_info: None,
         }
     }
 
@@ -446,6 +448,7 @@ impl TestEnv {
             ManagedHostState::PreAssignedMeasuring { .. } => state.clone(),
             ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
+            ManagedHostState::RotatingBmc { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
@@ -1483,6 +1486,9 @@ pub async fn create_test_env_with_overrides(
         power_down_wait: Duration::seconds(0),
         failure_retry_time: Duration::seconds(0),
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
+        waiting_for_measurements_timeout: config
+            .machine_state_controller
+            .waiting_for_measurements_timeout,
         uefi_boot_wait: Duration::seconds(0),
     };
 
@@ -1547,7 +1553,9 @@ pub async fn create_test_env_with_overrides(
                 site_config: config.machine_state_handler_site_config().into(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                per_object_info: None,
             }
             .into(),
         )
@@ -1653,6 +1661,7 @@ pub async fn create_test_env_with_overrides(
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                rack_firmware_reprovisioning_enabled: false,
             }
             .into(),
         )
@@ -1741,11 +1750,9 @@ pub async fn create_test_env_with_overrides(
             explore_mode: SiteExplorerExploreMode::NvRedfish,
         },
         test_meter.meter(),
-        api.endpoint_explorer.clone(),
-        Arc::new(config.get_firmware_config()),
+        api.endpoint_exploration_service.clone(),
         common_pools.clone(),
         api.work_lock_manager_handle.clone(),
-        api.endpoint_exploration_locks.clone(),
         site_explorer_rack_profiles,
         rms_sim.as_rms_client(),
         credential_manager.clone(),
@@ -2419,10 +2426,27 @@ pub async fn create_managed_host_with_dpf_multi(
     env: &TestEnv,
     dpu_count: usize,
 ) -> TestManagedHost {
+    create_managed_host_with_dpf_multi_hw(env, dpu_count, DPU_BF3_INFO_JSON).await
+}
+
+/// Create a managed host with a single BF4 DPU using the DPF path. The DPU's
+/// `dmi_data.product_name` identifies it as BlueField-4, which the DPU platform
+/// handler uses to skip the BF3-only vendor `machine_setup`/platform steps.
+pub async fn create_managed_host_with_dpf_bf4(env: &TestEnv) -> TestManagedHost {
+    create_managed_host_with_dpf_multi_hw(env, 1, DPU_BF4_INFO_JSON).await
+}
+
+/// Create a managed host with `dpu_count` DPUs using the DPF path, each DPU built
+/// from the given hardware-info template (BF3 vs BF4 differ by `product_name`).
+pub async fn create_managed_host_with_dpf_multi_hw(
+    env: &TestEnv,
+    dpu_count: usize,
+    hardware_info_json: &'static [u8],
+) -> TestManagedHost {
     assert!(dpu_count >= 1, "need to specify at least 1 dpu");
     let dpu_configs: Vec<DpuConfig> = (0..dpu_count)
         .map(|_| {
-            DpuConfig::with_hardware_info_template(HardwareInfoTemplate::Custom(DPU_BF3_INFO_JSON))
+            DpuConfig::with_hardware_info_template(HardwareInfoTemplate::Custom(hardware_info_json))
         })
         .collect();
     let mh_config = ManagedHostConfig::default().with_dpus(dpu_configs);

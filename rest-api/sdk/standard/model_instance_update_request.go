@@ -48,9 +48,9 @@ type InstanceUpdateRequest struct {
 	PhoneHomeEnabled NullableBool `json:"phoneHomeEnabled,omitempty"`
 	// Update labels of the Instance. The labels will be replaced with the labels sent in the request. Any labels not included in the request will be removed. To retain existing labels, fetch them first and include them in this request.
 	Labels map[string]string `json:"labels,omitempty"`
-	// IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
+	// IDs of additional VPCs the Instance should attach to through non-primary interfaces. This field may only be specified when every entry in `interfaces` uses `vpcPrefixId` or `vpcId`. IDs must be unique, must be valid UUIDs, and must not include the primary `vpcId`.
 	SecondaryVpcIds []string `json:"secondaryVpcIds,omitempty"`
-	// Update Interfaces of the Instance. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.
+	// Complete updated Interface configuration for the Instance. Interfaces must all be Subnet-backed or all be VPC-backed; VPC-backed interfaces may use an explicit `vpcPrefixId` or ask the Controller to select a prefix using `vpcId` and `ipFamilies`. Mutually exclusive with `autoNetwork`: when `autoNetwork` is true this list MUST be empty.
 	Interfaces []InterfaceCreateRequest `json:"interfaces,omitempty"`
 	// When set, asks NICo to auto-resolve the Instance's network interfaces from the host's underlay (HostInband) segments. `null` leaves the value unchanged; `true` (re-)resolves; `false` returns to explicit interface configuration. When `true`, the Instance's VPC MUST already have `networkVirtualizationType: FLAT`, `interfaces` MUST be empty or omitted, and `secondaryVpcIds` MUST be empty or omitted.
 	AutoNetwork NullableBool `json:"autoNetwork,omitempty"`

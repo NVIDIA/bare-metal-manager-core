@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -50,8 +51,10 @@ use crate::crds::dpuserviceconfigurations_generated::{
     DpuServiceConfigurationServiceConfigurationConfigPortsPortsProtocol,
     DpuServiceConfigurationServiceConfigurationConfigPortsServiceType,
     DpuServiceConfigurationServiceConfigurationHelmChart,
-    DpuServiceConfigurationServiceConfigurationServiceDaemonSet, DpuServiceConfigurationSpec,
-    DpuServiceConfigurationUpgradePolicy,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSet,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy,
+    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate,
+    DpuServiceConfigurationSpec, DpuServiceConfigurationUpgradePolicy,
 };
 use crate::crds::dpuserviceinterfaces_generated::{
     DPUServiceInterface, DpuServiceInterfaceSpec, DpuServiceInterfaceTemplate,
@@ -81,9 +84,10 @@ use crate::types::{
     BlueFieldSoftwareParams, BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME,
     DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpfProxyDetails,
     DpuDeploymentType, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo, DpuNodeSummary,
-    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
-    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
+    DpuServiceVersion, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig,
+    OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol, ServiceDefinition,
+    ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -234,13 +238,35 @@ where
 {
     /// Fetch password, write the K8s BMC secret, spawn refresh task,
     /// and return the constructed SDK.
+    ///
+    /// The BMC password is not necessarily available the first time this runs.
+    /// It comes from the site-wide BMC root credential, which operators set
+    /// *through the API this SDK is initializing*, so on a fresh site the
+    /// credential does not exist yet. When a refresh interval is configured the
+    /// initial read is therefore best-effort: initialization continues without
+    /// the Secret, and the refresh task writes it as soon as the credential
+    /// appears — no restart needed. Without a refresh interval nothing would
+    /// ever retry, so there a failed read stays fatal.
     async fn init_secret_and_task(self) -> Result<DpfSdk<R, L>, DpfError> {
         let repo = Arc::new(self.repo);
         let namespace = self.namespace;
         let provider = self.bmc_password_provider;
 
-        let password = provider.get_bmc_password().await?;
-        write_bmc_secret::<R>(&repo, &namespace, &password).await?;
+        let password = match provider.get_bmc_password().await {
+            Ok(password) => {
+                write_bmc_secret::<R>(&repo, &namespace, &password).await?;
+                Some(password)
+            }
+            Err(error) if self.bmc_password_refresh_interval.is_some() => {
+                tracing::warn!(
+                    %error,
+                    secret = SECRET_NAME,
+                    "BMC password unavailable; DPF secret will be written once the credential is set"
+                );
+                None
+            }
+            Err(error) => return Err(error),
+        };
 
         let guard = if let Some(interval) = self.bmc_password_refresh_interval {
             Some(spawn_bmc_refresh(
@@ -305,25 +331,30 @@ async fn write_bmc_secret<R: K8sConfigRepository>(
 ) -> Result<(), DpfError> {
     let mut data = BTreeMap::new();
     data.insert("password".to_string(), password.as_bytes().to_vec());
-    K8sConfigRepository::create_secret(repo, SECRET_NAME, namespace, data).await
+    K8sConfigRepository::apply_secret(repo, SECRET_NAME, namespace, data).await
 }
 
 /// Fetch the current BMC password from the provider and update the K8s
 /// secret when it differs from `last_password`. Returns the password
 /// value that should be remembered for the next comparison.
+///
+/// `last_password` is `None` when no password has been written yet — either
+/// because the credential was unset at startup, or because every write since
+/// has failed. That case writes on the next successful read, which is how a
+/// site that boots without the site-wide BMC root recovers on its own.
 async fn refresh_bmc_secret_if_changed<R: K8sConfigRepository>(
     repo: &R,
     namespace: &str,
     provider: &impl BmcPasswordProvider,
-    last_password: String,
-) -> String {
+    last_password: Option<String>,
+) -> Option<String> {
     match provider.get_bmc_password().await {
-        Ok(new_pw) if new_pw != last_password => {
+        Ok(new_pw) if Some(&new_pw) != last_password.as_ref() => {
             if let Err(e) = write_bmc_secret::<R>(repo, namespace, &new_pw).await {
                 tracing::error!(error = %e, "Failed to refresh BMC secret");
                 last_password
             } else {
-                new_pw
+                Some(new_pw)
             }
         }
         Err(e) => {
@@ -339,7 +370,7 @@ fn spawn_bmc_refresh<R, P>(
     repo: Arc<R>,
     namespace: String,
     provider: P,
-    password: String,
+    password: Option<String>,
     interval: Duration,
     join_set: Option<&mut tokio::task::JoinSet<()>>,
 ) -> Result<tokio_util::sync::DropGuard, DpfError>
@@ -589,6 +620,7 @@ pub fn deployment_cr_suffix(deployment_type: DpuDeploymentType) -> &'static str 
     match deployment_type {
         DpuDeploymentType::Bf3 => "",
         DpuDeploymentType::Bf4Generic => "bf4generic",
+        DpuDeploymentType::Bf4Astra => "bf4astra",
     }
 }
 
@@ -708,28 +740,24 @@ pub fn build_service_configuration(
         })
     });
 
-    let service_daemon_set = svc.service_daemon_set_annotations.as_ref().map(|annos| {
-        DpuServiceConfigurationServiceConfigurationServiceDaemonSet {
-            annotations: Some(annos.clone()),
-            labels: None,
-            resources: None,
-            update_strategy: None,
-        }
-    });
-
-    let service_configuration = if config_ports_crd.is_some()
-        || helm_chart_config.is_some()
-        || service_daemon_set.is_some()
-    {
-        Some(DpuServiceConfigurationServiceConfiguration {
-            config_ports: config_ports_crd,
-            deploy_in_cluster: None,
-            helm_chart: helm_chart_config,
-            service_daemon_set,
-        })
-    } else {
-        None
+    let service_daemon_set = DpuServiceConfigurationServiceConfigurationServiceDaemonSet {
+        annotations: svc.service_daemon_set_annotations.clone(),
+        labels: None,
+        resources: None,
+        update_strategy: Some(
+            DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy {
+                rolling_update: Some(DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate{ max_surge: None, max_unavailable: Some(IntOrString::String("100%".to_string())) }),
+                r#type: Some("RollingUpdate".into()),
+            },
+        ),
     };
+
+    let service_configuration = Some(DpuServiceConfigurationServiceConfiguration {
+        config_ports: config_ports_crd,
+        deploy_in_cluster: None,
+        helm_chart: helm_chart_config,
+        service_daemon_set: Some(service_daemon_set),
+    });
 
     DPUServiceConfiguration {
         metadata: ObjectMeta {
@@ -784,8 +812,9 @@ pub fn build_deployment(
     namespace: &str,
     interfaces: &[DpuServiceInterfaceTemplateDefinition],
     deployment_node_labels: BTreeMap<String, String>,
-    suffix: &str,
+    deployment_type: DpuDeploymentType,
 ) -> DPUDeployment {
+    let suffix = deployment_cr_suffix(deployment_type);
     let services_map: BTreeMap<String, DpuDeploymentServices> = services
         .iter()
         .map(|svc| {
@@ -922,7 +951,8 @@ pub fn build_deployment(
                     r#type: DpuDeploymentDpusDpuSetStrategyType::OnDelete,
                 },
                 secure_boot: None,
-                astra_enabled: None,
+                astra_enabled: matches!(deployment_type, DpuDeploymentType::Bf4Astra)
+                    .then_some(true),
                 blue_field_software: match source {
                     DpuProvisioningSource::Bfb(_) => None,
                     DpuProvisioningSource::BlueFieldSoftware(name) => Some(name.clone()),
@@ -1256,7 +1286,7 @@ async fn create_flavor_services_and_deployment<
         namespace,
         &interfaces,
         deployment_node_labels,
-        suffix,
+        deployment_type,
     );
     DpuDeploymentRepository::apply(repo, &deployment).await?;
     Ok(())
@@ -1567,6 +1597,13 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
         let Some(dpu) = dpu else {
             return Err(DpfError::not_found("DPU", cr_name));
         };
+
+        // A DPU being torn down (e.g. right after reprovision deleted it) still reports
+        // its old status.phase (often Ready) until the operator's finalizer runs. Treat
+        // a set deletionTimestamp as authoritative so callers never act on the stale phase.
+        if dpu.metadata.deletion_timestamp.is_some() {
+            return Ok(DpuPhase::Deleting);
+        }
 
         let Some(status) = dpu.status else {
             return Err(DpfError::InvalidState(format!(
@@ -2006,6 +2043,124 @@ impl<R: DpuServiceTemplateRepository, L> DpfSdk<R, L> {
     }
 }
 
+impl<R: DpuRepository + DpuDeploymentRepository + DpuServiceTemplateRepository, L> DpfSdk<R, L> {
+    /// Resolve the installed service versions for a DPU by looking up its owning
+    /// DPUDeployment (via the `svc.dpu.nvidia.com/owned-by-dpudeployment` label on the DPU CR)
+    /// and reading each service's DPUServiceTemplate.
+    ///
+    /// Each returned [`DpuServiceVersion`] is derived per field:
+    /// - `version`: `helmChart.values.image.tag` when set and non-empty, else
+    ///   `helmChart.source.version`.
+    /// - `url` + `name`: when `helmChart.values.image.repository` is set, it is
+    ///   split at its final `/` into `url` (registry/path) and `name` (image name);
+    ///   otherwise `url` is `helmChart.source.repoURL` and `name` is
+    ///   `helmChart.source.chart`. If no name can be derived, the DPUDeployment
+    ///   service name is used.
+    ///
+    /// Returns an error when any referenced DPUServiceTemplate is absent so
+    /// callers cannot persist a partial inventory snapshot.
+    pub async fn get_service_versions_for_dpu(
+        &self,
+        dpu_name: &str,
+    ) -> Result<Vec<DpuServiceVersion>, DpfError> {
+        let dpu = DpuRepository::get(&*self.repo, dpu_name, &self.namespace)
+            .await?
+            .ok_or_else(|| DpfError::InvalidState(format!("DPU CR not found: {dpu_name}")))?;
+
+        let owner_label = dpu
+            .metadata
+            .labels
+            .as_ref()
+            .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL))
+            .ok_or_else(|| {
+                DpfError::InvalidState(format!(
+                    "DPU {dpu_name} is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label"
+                ))
+            })?;
+
+        let deployment_name = owner_label
+            .strip_prefix(&format!("{}_", self.namespace))
+            .unwrap_or(owner_label.as_str());
+
+        let deployment =
+            DpuDeploymentRepository::get(&*self.repo, deployment_name, &self.namespace)
+                .await?
+                .ok_or_else(|| {
+                    DpfError::InvalidState(format!(
+                        "DPUDeployment {deployment_name} not found for DPU {dpu_name}"
+                    ))
+                })?;
+
+        let mut versions = Vec::new();
+        for (service_name, service) in &deployment.spec.services {
+            let Some(template_name) = &service.service_template else {
+                continue;
+            };
+            let template =
+                DpuServiceTemplateRepository::get(&*self.repo, template_name, &self.namespace)
+                    .await?
+                    .ok_or_else(|| {
+                        DpfError::InvalidState(format!(
+                            "DPUServiceTemplate {template_name} not found for service \
+                             {service_name} in DPUDeployment {deployment_name}"
+                        ))
+                    })?;
+
+            let image_values = template
+                .spec
+                .helm_chart
+                .values
+                .as_ref()
+                .and_then(|v| v.get("image"));
+            let image_tag = image_values
+                .and_then(|img| img.get("tag"))
+                .and_then(|tag| tag.as_str())
+                .filter(|s| !s.is_empty());
+            let image_repo = image_values
+                .and_then(|img| img.get("repository"))
+                .and_then(|r| r.as_str())
+                .filter(|s| !s.is_empty());
+
+            // Version is the image tag when set, otherwise the Helm chart version.
+            // These are independent of the image repository: a template that only
+            // overrides the tag must still report that tag.
+            let version = image_tag
+                .map(str::to_string)
+                .unwrap_or_else(|| template.spec.helm_chart.source.version.clone());
+
+            // url + name: split the image repository at its final '/' when present
+            // (registry/path as url, image name as name); otherwise fall back to the
+            // Helm source repo URL and chart name.
+            let (url, mut name) = if let Some(repo) = image_repo {
+                repo.rsplit_once('/')
+                    .map(|(prefix, base)| (prefix.to_string(), base.to_string()))
+                    .unwrap_or_else(|| (String::new(), repo.to_string()))
+            } else {
+                (
+                    template.spec.helm_chart.source.repo_url.clone(),
+                    template
+                        .spec
+                        .helm_chart
+                        .source
+                        .chart
+                        .clone()
+                        .unwrap_or_default(),
+                )
+            };
+
+            // Never emit a nameless component; the DPUDeployment service name is a
+            // stable identifier when neither the image basename nor chart name is set.
+            if name.is_empty() {
+                name = service_name.clone();
+            }
+
+            versions.push(DpuServiceVersion { name, version, url });
+        }
+
+        Ok(versions)
+    }
+}
+
 impl<R: DpuRepository, L: ResourceLabeler> DpfSdk<R, L> {
     /// Create a watcher builder for DPF events.
     ///
@@ -2036,6 +2191,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
 
     use async_trait::async_trait;
+    use carbide_test_support::value_scenarios;
     use kube::Resource;
 
     use super::*;
@@ -2078,7 +2234,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            "bf3",
+            DpuDeploymentType::Bf3,
         );
 
         let otel = deployment
@@ -2139,7 +2295,7 @@ mod tests {
             TEST_NAMESPACE,
             &[],
             BTreeMap::new(),
-            bf4_suffix,
+            DpuDeploymentType::Bf4Generic,
         );
         let entry = bf4_deployment
             .spec
@@ -2153,6 +2309,39 @@ mod tests {
         assert_eq!(
             entry.service_configuration.as_deref(),
             Some("doca-hbn-bf4generic")
+        );
+    }
+
+    #[test]
+    fn deployment_type_controls_cr_suffix_and_astra_enablement() {
+        value_scenarios!(
+            run = |deployment_type| {
+                let deployment = build_deployment(
+                    &[],
+                    "deployment",
+                    &DpuProvisioningSource::Bfb("bfb".to_string()),
+                    "flavor",
+                    TEST_NAMESPACE,
+                    &[],
+                    BTreeMap::new(),
+                    deployment_type,
+                );
+                (
+                    deployment_cr_suffix(deployment_type),
+                    deployment.spec.dpus.astra_enabled,
+                )
+            };
+            "BF3 preserves unsuffixed resource names" {
+                DpuDeploymentType::Bf3 => ("", None),
+            }
+
+            "generic BF4 uses its deployment suffix" {
+                DpuDeploymentType::Bf4Generic => ("bf4generic", None),
+            }
+
+            "Astra BF4 uses its deployment suffix and enables Astra" {
+                DpuDeploymentType::Bf4Astra => ("bf4astra", Some(true)),
+            }
         );
     }
 
@@ -2365,7 +2554,7 @@ mod tests {
         ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
             Ok(None)
         }
-        async fn create_secret(
+        async fn apply_secret(
             &self,
             _name: &str,
             _ns: &str,
@@ -2801,6 +2990,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_dpu_phase_reports_deleting_when_terminating() {
+        use kube::core::ObjectMeta;
+
+        use crate::crds::dpus_generated::{DpuSpec, DpuStatus, DpuStatusPhase};
+
+        let mock = SdkMock::new();
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, String::new())
+            .build_without_resources()
+            .await
+            .unwrap();
+
+        // A DPU that has been deleted (reprovision) but whose finalizer has not yet
+        // run: it carries a deletionTimestamp while its status.phase is still Ready.
+        let dpu_name = "node-dpu-001-device-dpu-001";
+        let dpu = DPU {
+            metadata: ObjectMeta {
+                name: Some(dpu_name.to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                deletion_timestamp: Some(terminating_timestamp()),
+                ..Default::default()
+            },
+            spec: DpuSpec {
+                bfb: Some("bf-bundle".to_string()),
+                bmc_ip: None,
+                cluster: None,
+                dpu_device_name: "dpu-001".to_string(),
+                dpu_flavor: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
+                dpu_node_name: "node-dpu-001".to_string(),
+                node_effect: DpuNodeEffect {
+                    apply_on_label_change: None,
+                    custom_action: None,
+                    custom_label: None,
+                    drain: None,
+                    force: None,
+                    hold: None,
+                    no_effect: None,
+                    node_maintenance_additional_requestors: None,
+                    taint: None,
+                },
+                pci_address: None,
+                serial_number: "SN123".to_string(),
+                blue_field_software: None,
+                secure_boot: None,
+                astra_enabled: None,
+            },
+            status: Some(DpuStatus {
+                phase: DpuStatusPhase::Ready,
+                addresses: None,
+                bf_cfg_file: None,
+                bfb_file: None,
+                bfb_version: None,
+                conditions: None,
+                dpf_version: None,
+                dpu_install_interface: None,
+                dpu_mode: None,
+                firmware: None,
+                observed_generation: None,
+                pci_device: None,
+                post_provisioning_node_effect: None,
+                required_reset: None,
+                agent_last_startup_time: None,
+                agent_status: None,
+                dpu_type: None,
+                operational_conditions: None,
+                previous_phase: None,
+                redfish_task_id: None,
+                secure_boot: None,
+                deployment_mode: None,
+                hostless: None,
+                identity_mode: None,
+                outdated: None,
+                reboot_status: None,
+            }),
+        };
+        mock.dpus
+            .write()
+            .unwrap()
+            .insert(format!("{}/{}", TEST_NAMESPACE, dpu_name), dpu);
+
+        let phase = sdk.get_dpu_phase("dpu-001", "node-dpu-001").await.unwrap();
+        assert_eq!(
+            phase,
+            DpuPhase::Deleting,
+            "a DPU with a deletionTimestamp must report Deleting even though its stale status.phase is Ready"
+        );
+    }
+
+    #[tokio::test]
     async fn test_namespace_isolation() {
         let mock = SdkMock::new();
 
@@ -2877,7 +3154,7 @@ mod tests {
         ) -> Result<Option<BTreeMap<String, Vec<u8>>>, DpfError> {
             Ok(None)
         }
-        async fn create_secret(
+        async fn apply_secret(
             &self,
             _name: &str,
             _ns: &str,
@@ -2901,16 +3178,33 @@ mod tests {
         }
     }
 
+    /// Provider that always fails, standing in for a site where the site-wide
+    /// BMC root credential has not been set yet.
+    struct UnsetBmcPasswordProvider;
+
+    #[async_trait]
+    impl BmcPasswordProvider for UnsetBmcPasswordProvider {
+        async fn get_bmc_password(&self) -> Result<String, DpfError> {
+            Err(DpfError::InvalidState(
+                "Site wide BMC root credentials not set".into(),
+            ))
+        }
+    }
+
     #[tokio::test]
     async fn test_refresh_writes_secret_when_password_changes() {
         let mock = SecretTrackingMock::default();
         let provider = "new-password".to_string();
 
-        let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "old-password".into())
-                .await;
+        let result = refresh_bmc_secret_if_changed(
+            &mock,
+            TEST_NAMESPACE,
+            &provider,
+            Some("old-password".into()),
+        )
+        .await;
 
-        assert_eq!(result, "new-password");
+        assert_eq!(result.as_deref(), Some("new-password"));
         assert_eq!(
             mock.secrets_written.lock().unwrap().as_slice(),
             &["new-password"]
@@ -2923,9 +3217,10 @@ mod tests {
         let provider = "same".to_string();
 
         let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "same".into()).await;
+            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, Some("same".into()))
+                .await;
 
-        assert_eq!(result, "same");
+        assert_eq!(result.as_deref(), Some("same"));
         assert!(mock.secrets_written.lock().unwrap().is_empty());
     }
 
@@ -2937,11 +3232,80 @@ mod tests {
         };
         let provider = "new-password".to_string();
 
+        let result = refresh_bmc_secret_if_changed(
+            &mock,
+            TEST_NAMESPACE,
+            &provider,
+            Some("old-password".into()),
+        )
+        .await;
+
+        assert_eq!(result.as_deref(), Some("old-password"));
+    }
+
+    /// The recovery path for a site that booted before the site-wide BMC root
+    /// credential was set: nothing has been written yet, so the first
+    /// successful read must write the Secret.
+    #[tokio::test]
+    async fn test_refresh_writes_secret_when_no_password_written_yet() {
+        let mock = SecretTrackingMock::default();
+        let provider = "first-password".to_string();
+
+        let result = refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, None).await;
+
+        assert_eq!(result.as_deref(), Some("first-password"));
+        assert_eq!(
+            mock.secrets_written.lock().unwrap().as_slice(),
+            &["first-password"]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refresh_stays_unwritten_while_password_unavailable() {
+        let mock = SecretTrackingMock::default();
+
         let result =
-            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &provider, "old-password".into())
+            refresh_bmc_secret_if_changed(&mock, TEST_NAMESPACE, &UnsetBmcPasswordProvider, None)
                 .await;
 
-        assert_eq!(result, "old-password");
+        assert_eq!(result, None);
+        assert!(mock.secrets_written.lock().unwrap().is_empty());
+    }
+
+    /// A fresh site sets the site-wide BMC root credential *through* the API,
+    /// so initialization must survive the credential being unset, leaving the
+    /// Secret to the refresh task.
+    #[tokio::test]
+    async fn test_build_succeeds_when_bmc_password_unset_and_refresh_configured() {
+        let mock = SecretTrackingMock::default();
+
+        let sdk = DpfSdkBuilder::new(mock.clone(), TEST_NAMESPACE, UnsetBmcPasswordProvider)
+            .with_bmc_password_refresh_interval(Duration::from_secs(3600))
+            .build_without_resources()
+            .await
+            .expect("initialization tolerates an unset BMC password");
+
+        assert_eq!(sdk.namespace(), TEST_NAMESPACE);
+        assert!(mock.secrets_written.lock().unwrap().is_empty());
+    }
+
+    /// Without a refresh task nothing would ever retry the read, so an unset
+    /// credential stays fatal rather than leaving the Secret permanently absent.
+    #[tokio::test]
+    async fn test_build_fails_when_bmc_password_unset_and_no_refresh_configured() {
+        let mock = SecretTrackingMock::default();
+
+        let Err(error) = DpfSdkBuilder::new(mock, TEST_NAMESPACE, UnsetBmcPasswordProvider)
+            .build_without_resources()
+            .await
+        else {
+            panic!("an unset BMC password with no refresh task is fatal");
+        };
+
+        assert!(
+            matches!(error, DpfError::InvalidState(msg) if msg.contains("BMC root credentials")),
+            "unexpected error"
+        );
     }
 
     fn terminating_timestamp() -> k8s_openapi::apimachinery::pkg::apis::meta::v1::Time {
@@ -3043,6 +3407,11 @@ mod tests {
             is_primary: true,
         };
         sdk.register_dpu_device(info).await.unwrap();
+
+        // This branch is a deliberate no-op: an existing, non-terminating device is left
+        // alone. `.unwrap()` only said no error came back -- assert no second device was
+        // created alongside it, which is the whole of what "left alone" means here.
+        assert_eq!(mock.devices.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3120,6 +3489,9 @@ mod tests {
             deployment_type: DpuDeploymentType::Bf3,
         };
         sdk.register_dpu_node(info).await.unwrap();
+
+        // Same no-op branch for nodes.
+        assert_eq!(mock.nodes.read().unwrap().len(), 1);
     }
 
     #[tokio::test]
@@ -3271,12 +3643,14 @@ mod tests {
                 .unique_name(crate::flavor::DEFAULT_FLAVOR_NAME)
                 .unwrap(),
         );
+        let flavor_name = flavor.metadata.name.clone().unwrap();
         mock.flavors
             .write()
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(
+        let expected_name = flavor_name.clone();
+        let returned = create_dpu_flavor(
             &mock,
             TEST_NAMESPACE,
             crate::flavor::DEFAULT_FLAVOR_NAME,
@@ -3285,6 +3659,12 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // The whole contract of this branch is "reuse what's already there". `.unwrap()`
+        // only proved it didn't error -- so check it hands back the existing flavor's name
+        // and, more to the point, that it didn't quietly create a second one alongside it.
+        assert_eq!(returned, expected_name);
+        assert_eq!(mock.flavors.read().unwrap().len(), 1);
     }
 
     #[derive(Clone, Default)]

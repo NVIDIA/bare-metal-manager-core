@@ -105,9 +105,11 @@ jobs:
       prod_image_registry: ${{ steps.registry.outputs.prod_registry }}
       helm_version: ${{ steps.version.outputs.helm_version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
+      major_minor_version: ${{ steps.base-container-gate.outputs.major_minor_version }}
       extras_container_ref: ${{ steps.resolve-extras.outputs.extras_container_ref }}
       build_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_container_x86_64_run }}
       build_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
+      build_container_x86_64_version_latest: ${{ steps.base-container-gate.outputs.build_container_x86_64_version_latest }}
       build_container_x86_64_ref: ${{ steps.base-container-gate.outputs.build_container_x86_64_ref }}
       runtime_container_x86_64_ref: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_ref }}
       build_container_aarch64_ref: ${{ steps.base-container-gate.outputs.build_container_aarch64_ref }}
@@ -116,14 +118,19 @@ jobs:
       build_artifacts_container_aarch64_ref: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_ref }}
       runtime_container_x86_64_run: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_run }}
       runtime_container_x86_64_version: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
+      runtime_container_x86_64_version_latest: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version_latest }}
       build_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_container_aarch64_run }}
       build_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_container_aarch64_version }}
+      build_container_aarch64_version_latest: ${{ steps.base-container-gate.outputs.build_container_aarch64_version_latest }}
       build_artifacts_container_x86_64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_run }}
       build_artifacts_container_x86_64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_version }}
+      build_artifacts_container_x86_64_version_latest: ${{ steps.base-container-gate.outputs.build_artifacts_container_x86_64_version_latest }}
       build_artifacts_container_aarch64_run: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_run }}
       build_artifacts_container_aarch64_version: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version }}
+      build_artifacts_container_aarch64_version_latest: ${{ steps.base-container-gate.outputs.build_artifacts_container_aarch64_version_latest }}
       runtime_container_aarch64_run: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_run }}
       runtime_container_aarch64_version: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version }}
+      runtime_container_aarch64_version_latest: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_version_latest }}
       proto_files_changed: ${{ steps.base-container-gate.outputs.proto_files_changed }}
       core_rpc_proto_files_changed: ${{ steps.base-container-gate.outputs.core_rpc_proto_files_changed }}
       source_files_changed: ${{ steps.base-container-gate.outputs.source_files_changed }}
@@ -164,6 +171,7 @@ jobs:
               - 'Cargo.lock'
               - 'Makefile.toml'
               - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yaml'
       - name: Calculate version
         id: version
         run: |
@@ -415,52 +423,67 @@ jobs:
           echo "core_rpc_proto_files_changed=${core_rpc_proto_files_changed}" >> "$GITHUB_OUTPUT"
           echo "source_files_changed=${source_files_changed}" >> "$GITHUB_OUTPUT"
 
+          MAJOR_MINOR=$(echo "${VERSION}" | cut -d. -f1,2)
+          echo "major_minor_version=${MAJOR_MINOR}" >> "$GITHUB_OUTPUT"
+
           if [[ "$build_container_x86_64_run" == "true" ]]; then
             echo "build_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_ref=${TARGET_REGISTRY}/build-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_version_latest=${TARGET_REGISTRY}/build-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_container_x86_64_ref=${SOURCE_REGISTRY}/build-container-x86_64:latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$runtime_container_x86_64_run" == "true" ]]; then
             echo "runtime_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "runtime_container_x86_64_ref=${TARGET_REGISTRY}/runtime-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_version_latest=${TARGET_REGISTRY}/runtime-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
             echo "runtime_container_x86_64_ref=${SOURCE_REGISTRY}/runtime-container-x86_64:latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_container_aarch64_run" == "true" ]]; then
             echo "build_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_container_aarch64_ref=${TARGET_REGISTRY}/build-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_version_latest=${TARGET_REGISTRY}/build-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_container_aarch64_ref=${SOURCE_REGISTRY}/build-container-aarch64:latest" >> "$GITHUB_OUTPUT"
+            echo "build_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$runtime_container_aarch64_run" == "true" ]]; then
             echo "runtime_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "runtime_container_aarch64_ref=${TARGET_REGISTRY}/runtime-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_version_latest=${TARGET_REGISTRY}/runtime-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "runtime_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
             echo "runtime_container_aarch64_ref=${SOURCE_REGISTRY}/runtime-container-aarch64:latest" >> "$GITHUB_OUTPUT"
+            echo "runtime_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_x86_64_run" == "true" ]]; then
             echo "build_artifacts_container_x86_64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_x86_64_ref=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-x86_64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_x86_64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_x86_64_ref=${SOURCE_REGISTRY}/build-artifacts-container-x86_64:latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_x86_64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
           if [[ "$build_artifacts_container_aarch64_run" == "true" ]]; then
             echo "build_artifacts_container_aarch64_version=${VERSION}" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_aarch64_ref=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_version_latest=${TARGET_REGISTRY}/build-artifacts-container-aarch64:${MAJOR_MINOR}-latest" >> "$GITHUB_OUTPUT"
           else
             echo "build_artifacts_container_aarch64_version=latest" >> "$GITHUB_OUTPUT"
             echo "build_artifacts_container_aarch64_ref=${SOURCE_REGISTRY}/build-artifacts-container-aarch64:latest" >> "$GITHUB_OUTPUT"
+            echo "build_artifacts_container_aarch64_version_latest=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Decide release container publish strategy
@@ -507,6 +530,7 @@ jobs:
           RUNTIME_REF_AARCH64: ${{ steps.base-container-gate.outputs.runtime_container_aarch64_ref }}
           VERSION: ${{ steps.version.outputs.version }}
           SHORT_SHA: ${{ steps.version.outputs.short_sha }}
+          HELM_VERSION: ${{ steps.version.outputs.helm_version }}
           BUILD_VERSION: ${{ steps.base-container-gate.outputs.build_container_x86_64_version }}
           RUNTIME_VERSION: ${{ steps.base-container-gate.outputs.runtime_container_x86_64_version }}
           BUILD_VERSION_AARCH64: ${{ steps.base-container-gate.outputs.build_container_aarch64_version }}
@@ -521,7 +545,8 @@ jobs:
             --arg SHORT_SHA "$SHORT_SHA" \
             --arg BUILD "$BUILD_REF" \
             --arg RUNTIME "$RUNTIME_REF" \
-            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME}')
+            --arg HELM_VERSION "$HELM_VERSION" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_X86_64: $BUILD, CONTAINER_RUNTIME_X86_64: $RUNTIME, CARBIDE_BUILD_HELM_VERSION: $HELM_VERSION}')
 
           echo "build_args=${BUILD_ARGS}" >> "$GITHUB_OUTPUT"
 
@@ -532,7 +557,8 @@ jobs:
             --arg SHORT_SHA "$SHORT_SHA" \
             --arg BUILD "$BUILD_REF_AARCH64" \
             --arg RUNTIME "$RUNTIME_REF_AARCH64" \
-            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_AARCH64: $BUILD, CONTAINER_RUNTIME_AARCH64: $RUNTIME}')
+            --arg HELM_VERSION "$HELM_VERSION" \
+            '{VERSION: $VERSION, CI_COMMIT_SHORT_SHA: $SHORT_SHA, CONTAINER_BUILD_AARCH64: $BUILD, CONTAINER_RUNTIME_AARCH64: $RUNTIME, CARBIDE_BUILD_HELM_VERSION: $HELM_VERSION}')
 
           echo "build_args_aarch64=${BUILD_ARGS_AARCH64}" >> "$GITHUB_OUTPUT"
 
@@ -550,6 +576,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.build-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_container_x86_64_version }}
+      additional_tags: ${{ needs.prepare.outputs.build_container_x86_64_version_latest }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
@@ -567,6 +594,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.build-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_container_aarch64_version }}
+      additional_tags: ${{ needs.prepare.outputs.build_container_aarch64_version_latest }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
@@ -584,6 +612,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.runtime-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-x86_64
       image_tag: ${{ needs.prepare.outputs.runtime_container_x86_64_version }}
+      additional_tags: ${{ needs.prepare.outputs.runtime_container_x86_64_version_latest }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
@@ -601,6 +630,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.runtime-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/runtime-container-aarch64
       image_tag: ${{ needs.prepare.outputs.runtime_container_aarch64_version }}
+      additional_tags: ${{ needs.prepare.outputs.runtime_container_aarch64_version_latest }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
@@ -618,6 +648,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-x86_64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-x86_64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_x86_64_version }}
+      additional_tags: ${{needs.prepare.outputs.build_artifacts_container_x86_64_version_latest }}
       platforms: linux/amd64
       runner: linux-amd64-cpu4
       push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
@@ -635,6 +666,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.build-artifacts-container-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/build-artifacts-container-aarch64
       image_tag: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
+      additional_tags: ${{ needs.prepare.outputs.build_artifacts_container_aarch64_version_latest }}
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ github.repository == 'NVIDIA/infra-controller' || needs.prepare.outputs.publish_images == 'true' }}
@@ -671,6 +703,7 @@ jobs:
       build_args: ${{ needs.prepare.outputs.release_build_args }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/amd64
       runner: linux-amd64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -704,6 +737,7 @@ jobs:
       build_args: ${{ needs.prepare.outputs.release_build_args_aarch64 }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
       runner: linux-arm64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -751,6 +785,11 @@ jobs:
               ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide@${{ needs.build-release-container-x86_64.outputs.image_digest }} \
               ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64@${{ needs.build-release-container-aarch64.outputs.image_digest }}
 
+            docker buildx imagetools create -t \
+              ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide:${{ needs.prepare.outputs.major_minor_version }}-latest \
+              ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide@${{ needs.build-release-container-x86_64.outputs.image_digest }} \
+              ${{ needs.prepare.outputs.image_registry }}/nvmetal-carbide-aarch64@${{ needs.build-release-container-aarch64.outputs.image_digest }}
+
   build-machine-a-tron:
     if: >-
       ${{
@@ -771,6 +810,7 @@ jobs:
           needs.prepare.outputs.short_sha) }}
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine-a-tron
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/machine-a-tron:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/amd64
       runner: linux-amd64-cpu16
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -838,7 +878,6 @@ jobs:
             -e DATABASE_URL='postgresql://root@%2Fvar%2Frun%2Fpostgresql/root' \
             -e SCCACHE_DIR=/sccache \
             -e RUSTC_WRAPPER=sccache \
-            -e CARGO_PROFILE_RELEASE_DEBUG=true \
             -e CI_COMMIT_SHORT_SHA="${CI_COMMIT_SHORT_SHA}" \
             -e VERSION="${VERSION}" \
             -e CONTAINER_REPO_ROOT=/carbide \
@@ -870,6 +909,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
@@ -890,6 +930,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.release-forge-cli
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_BUILD":"${{ needs.prepare.outputs.build_artifacts_container_aarch64_ref }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
@@ -934,6 +975,11 @@ jobs:
 
             docker buildx imagetools create -t \
               ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli:latest \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
+
+            docker buildx imagetools create -t \
+              ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli:${{ needs.prepare.outputs.major_minor_version }}-latest \
               ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-x86_64:${{ needs.prepare.outputs.version }} \
               ${{ needs.prepare.outputs.image_registry }}/forge-admin-cli-aarch64:${{ needs.prepare.outputs.version }}
 
@@ -1040,8 +1086,11 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-x86_64
+      # No RUN steps to cache, and the multi-GB blob COPY layer alone can exhaust the 10 GB per-repo Actions cache quota.
+      cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-x86_64:${{ needs.prepare.outputs.major_minor_version }}-latest
       # Multi-arch on push so this x86_64 boot-artifacts carrier can run as an
       # init container on both amd64 and arm64 control-plane nodes; the payload
       # it ships is unchanged (x86_64 boot blobs). The Dockerfile has no RUN
@@ -1073,8 +1122,11 @@ jobs:
       source_registry_host: ${{ needs.prepare.outputs.source_registry_host }}
       target_prebuild_login: ${{ needs.prepare.outputs.bases_rebuilt == 'true' && needs.prepare.outputs.publish_images == 'true' }}
       dockerfile_path: dev/docker/Dockerfile.release-artifacts-aarch64
+      # No RUN steps to cache, and the multi-GB blob COPY layer alone can exhaust the 10 GB per-repo Actions cache quota.
+      cache: false
       image_name: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/boot-artifacts-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       # Container arch is independent of the payload: this carrier always ships
       # the aarch64 boot blobs as files. Build it multi-arch on push so it can
       # run as an init container on both amd64 and arm64 control-plane nodes. The
@@ -1167,6 +1219,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-runner
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine-validation-runner
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/machine-validation-runner:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.runtime_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
@@ -1187,6 +1240,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/machine_validation:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_X86_64":"${{ needs.prepare.outputs.runtime_container_x86_64_ref }}"}'
       platforms: linux/amd64
       runner: linux-amd64-cpu4
@@ -1213,6 +1267,7 @@ jobs:
       dockerfile_path: dev/docker/Dockerfile.machine-validation-config-aarch64
       image_name: ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64:${{ needs.prepare.outputs.major_minor_version }}-latest
       build_args: '{"CI_COMMIT_SHORT_SHA":"${{ needs.prepare.outputs.short_sha }}","CONTAINER_RUNTIME_AARCH64":"${{ needs.prepare.outputs.runtime_container_aarch64_ref }}"}'
       platforms: linux/arm64
       runner: linux-arm64-cpu4
@@ -1256,6 +1311,11 @@ jobs:
           command: |
             docker buildx imagetools create -t \
               ${{ needs.prepare.outputs.image_registry }}/machine_validation:${{ needs.prepare.outputs.version }} \
+              ${{ needs.prepare.outputs.image_registry }}/machine_validation@${{ needs.build-release-machine-validation-artifacts-x86-host.outputs.image_digest }} \
+              ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64@${{ needs.build-release-machine-validation-artifacts-arm-host.outputs.image_digest }}
+
+            docker buildx imagetools create -t \
+              ${{ needs.prepare.outputs.image_registry }}/machine_validation:${{ needs.prepare.outputs.major_minor_version }}-latest \
               ${{ needs.prepare.outputs.image_registry }}/machine_validation@${{ needs.build-release-machine-validation-artifacts-x86-host.outputs.image_digest }} \
               ${{ needs.prepare.outputs.image_registry }}/machine_validation-aarch64@${{ needs.build-release-machine-validation-artifacts-arm-host.outputs.image_digest }}
 
@@ -1327,12 +1387,6 @@ jobs:
           cache: true
           cache-dependency-path: rest-api/go.sum
 
-      - name: Install buf and protoc plugins
-        run: |
-          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
-          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
-          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
-
       - name: Regenerate REST protos from Core protos
         run: make -C rest-api core-proto
 
@@ -1354,7 +1408,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Build pull request merge result
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git -c user.name="CI merge validation" \
+            -c user.email=ci@example.invalid \
+            merge --no-commit --no-ff origin/main
+
+      - name: Validate Cargo metadata
+        run: cargo metadata --locked --no-deps --format-version 1 >/dev/null
 
       # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
       # a local database at compile time to validate SQL queries and return types.
@@ -1560,6 +1626,7 @@ jobs:
       context_path: .
       image_name: ${{ needs.prepare.outputs.image_registry }}/otelcol-contrib
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/otelcol-contrib:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1578,6 +1645,7 @@ jobs:
       context_path: .
       image_name: ${{ needs.prepare.outputs.image_registry }}/transceiver-exporter
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/transceiver-exporter:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1614,6 +1682,7 @@ jobs:
       dockerfile_path: bluefield/containers/forge-dpu-agent/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dpu-agent
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-dpu-agent:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1633,6 +1702,7 @@ jobs:
       dockerfile_path: bluefield/containers/forge-dhcp-server/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/forge-dhcp-server
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/forge-dhcp-server:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}
@@ -1652,6 +1722,7 @@ jobs:
       dockerfile_path: bluefield/containers/carbide-fmds/Dockerfile
       image_name: ${{ needs.prepare.outputs.image_registry }}/carbide-fmds
       image_tag: ${{ needs.prepare.outputs.version }}
+      additional_tags: ${{ needs.prepare.outputs.image_registry }}/carbide-fmds:${{ needs.prepare.outputs.major_minor_version }}-latest
       platforms: linux/arm64
       runner: linux-arm64-cpu4
       push: ${{ needs.prepare.outputs.publish_images == 'true' }}

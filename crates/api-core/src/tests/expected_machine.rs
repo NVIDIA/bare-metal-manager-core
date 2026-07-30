@@ -21,7 +21,10 @@ use common::api_fixtures::{
 };
 use db::{self};
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use model::expected_machine::{
+    BmcIpAllocationType, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole, ExpectedMachine,
+    ExpectedMachineData,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedMachineList, ExpectedMachineRequest};
 use uuid::Uuid;
@@ -66,6 +69,7 @@ async fn create_fixture_expected_machines(pool: &sqlx::PgPool) {
     }
     txn.commit().await.unwrap();
 }
+
 // Test API functionality
 /*
   // Expected Machine Management
@@ -488,10 +492,103 @@ async fn test_replace_all_expected_machines(pool: sqlx::PgPool) {
     // None will become Some(false), so we have to make the adjustment
     let mut expected_machine_3_clone = expected_machine_3.clone();
     expected_machine_3_clone.default_pause_ingestion_and_poweron = Some(false);
-
     assert_eq!(expected_machine_1, resulting_machine_1);
     assert_eq!(expected_machine_2, resulting_machine_2);
     assert_eq!(expected_machine_3_clone, resulting_machine_3);
+}
+
+#[crate::sqlx_test]
+async fn test_replace_all_prevalidates_batch_before_clearing_existing_machines(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    fn replacement(
+        bmc_mac_address: &str,
+        chassis_serial_number: &str,
+    ) -> rpc::forge::ExpectedMachine {
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac_address.into(),
+            bmc_username: "ADMIN_NEW".into(),
+            bmc_password: "PASS_NEW".into(),
+            chassis_serial_number: chassis_serial_number.into(),
+            ..Default::default()
+        }
+    }
+
+    create_fixture_expected_machines(&pool).await;
+    let env = create_test_env(pool).await;
+    let mut original = env
+        .api
+        .get_all_expected_machines(tonic::Request::new(()))
+        .await?
+        .into_inner()
+        .expected_machines;
+    original.sort_by_key(|machine| machine.bmc_mac_address.clone());
+
+    let mut invalid_policy = replacement("6A:6B:6C:6D:6E:71", "SERIAL-FIXED");
+    invalid_policy.host_nics = vec![rpc::forge::ExpectedHostNic {
+        mac_address: "6A:6B:6C:6D:6E:72".into(),
+        ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed as i32),
+        ..Default::default()
+    }];
+
+    let duplicate_id = Uuid::new_v4().to_string();
+    let mut duplicate_id_a = replacement("6A:6B:6C:6D:6E:74", "SERIAL-DUP-ID-A");
+    duplicate_id_a.id = Some(::rpc::common::Uuid {
+        value: duplicate_id.clone(),
+    });
+    let mut duplicate_id_b = replacement("6A:6B:6C:6D:6E:75", "SERIAL-DUP-ID-B");
+    duplicate_id_b.id = Some(::rpc::common::Uuid {
+        value: duplicate_id,
+    });
+
+    for (case, replacements, expected_error) in [
+        (
+            "invalid interface policy",
+            vec![
+                replacement("6A:6B:6C:6D:6E:70", "SERIAL-VALID"),
+                invalid_policy,
+            ],
+            "ip_allocation=fixed requires fixed_ip",
+        ),
+        (
+            "duplicate BMC MAC",
+            vec![
+                replacement("6A:6B:6C:6D:6E:73", "SERIAL-DUP-MAC-A"),
+                replacement("6A:6B:6C:6D:6E:73", "SERIAL-DUP-MAC-B"),
+            ],
+            "duplicate expected machine BMC MAC address",
+        ),
+        (
+            "duplicate id",
+            vec![duplicate_id_a, duplicate_id_b],
+            "duplicate expected machine id",
+        ),
+    ] {
+        let error = env
+            .api
+            .replace_all_expected_machines(tonic::Request::new(ExpectedMachineList {
+                expected_machines: replacements,
+            }))
+            .await
+            .expect_err("invalid replacement should be rejected");
+        assert_eq!(error.code(), tonic::Code::InvalidArgument, "case: {case}");
+        assert!(
+            error.message().contains(expected_error),
+            "case: {case}; unexpected rejection reason: {}",
+            error.message(),
+        );
+
+        let mut remaining = env
+            .api
+            .get_all_expected_machines(tonic::Request::new(()))
+            .await?
+            .into_inner()
+            .expected_machines;
+        remaining.sort_by_key(|machine| machine.bmc_mac_address.clone());
+        assert_eq!(remaining, original, "case: {case}");
+    }
+
+    Ok(())
 }
 
 #[crate::sqlx_test()]
@@ -637,6 +734,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_retain_credentials: None,
         dpu_mode: None,
         bmc_ip_allocation: None,
+        replace_host_nics: false,
         host_lifecycle_profile: None,
         #[allow(deprecated)]
         dpf_enabled: true,
@@ -1308,8 +1406,15 @@ async fn test_batch_create_missing_id(pool: sqlx::PgPool) {
 async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    let id1 = Uuid::new_v4();
-    let id2 = Uuid::new_v4();
+    // Send the larger ID first so the update path must reorder its row locks
+    // and then restore the request order in its response.
+    let first_id = Uuid::new_v4();
+    let second_id = Uuid::new_v4();
+    let (id1, id2) = if first_id > second_id {
+        (first_id, second_id)
+    } else {
+        (second_id, first_id)
+    };
 
     // Create initial machines
     let create_req = rpc::forge::BatchExpectedMachineOperationRequest {
@@ -1388,6 +1493,8 @@ async fn test_batch_update_expected_machines_all_or_nothing_success(pool: sqlx::
     assert_eq!(results.len(), 2);
     assert!(results[0].success);
     assert!(results[1].success);
+    assert_eq!(results[0].id.as_ref().unwrap().value, id1.to_string());
+    assert_eq!(results[1].id.as_ref().unwrap().value, id2.to_string());
 
     // Verify both machines were updated
     let get_req1 = rpc::forge::ExpectedMachineRequest {
@@ -1645,6 +1752,877 @@ async fn test_batch_update_expected_machines_partial_results(pool: sqlx::PgPool)
     assert_eq!(machine3.into_inner().bmc_username, "admin3_updated");
 }
 
+/// Older clients omit newly-added expected-interface fields. Single and batch
+/// updates preserve stored values, while explicit Unspecified values reset
+/// those fields to their legacy defaults.
+#[crate::sqlx_test]
+async fn test_update_expected_machine_preserves_interface_fields_omitted_by_older_client(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    struct Case {
+        scenario: &'static str,
+        suffix: u8,
+        role: Option<i32>,
+        allocation: Option<i32>,
+        use_batch: bool,
+        expected_role: Option<i32>,
+        expected_allocation: Option<i32>,
+    }
+
+    for Case {
+        scenario,
+        suffix,
+        role,
+        allocation,
+        use_batch,
+        expected_role,
+        expected_allocation,
+    } in [
+        Case {
+            scenario: "single update, omitted",
+            suffix: 0x63,
+            role: None,
+            allocation: None,
+            use_batch: false,
+            expected_role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+            expected_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+        },
+        Case {
+            scenario: "single update, unspecified",
+            suffix: 0x66,
+            role: Some(rpc::forge::ExpectedInterfaceRole::Unspecified as i32),
+            allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Unspecified as i32),
+            use_batch: false,
+            expected_role: None,
+            expected_allocation: None,
+        },
+        Case {
+            scenario: "batch update, omitted",
+            suffix: 0x69,
+            role: None,
+            allocation: None,
+            use_batch: true,
+            expected_role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+            expected_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+        },
+        Case {
+            scenario: "batch update, unspecified",
+            suffix: 0x6c,
+            role: Some(rpc::forge::ExpectedInterfaceRole::Unspecified as i32),
+            allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Unspecified as i32),
+            use_batch: true,
+            expected_role: None,
+            expected_allocation: None,
+        },
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac: MacAddress = format!("7A:7B:7C:7D:7E:{suffix:02X}").parse()?;
+        let dpu_bmc_mac: MacAddress = format!("7A:7B:7C:7D:7E:{:02X}", suffix + 1).parse()?;
+        let new_dpu_os_mac: MacAddress = format!("7A:7B:7C:7D:7E:{:02X}", suffix + 2).parse()?;
+        let serial = format!("EM-COMPAT-{suffix:02X}");
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.to_string(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    mac_address: dpu_bmc_mac.to_string(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }))
+            .await?;
+
+        let update = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "UPDATED_ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: dpu_bmc_mac.to_string(),
+                    role,
+                    ip_allocation: allocation,
+                    ..Default::default()
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: new_dpu_os_mac.to_string(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuOs as i32),
+                    ip_allocation: allocation,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        if use_batch {
+            let response = env
+                .api
+                .update_expected_machines(tonic::Request::new(
+                    rpc::forge::BatchExpectedMachineOperationRequest {
+                        expected_machines: Some(rpc::forge::ExpectedMachineList {
+                            expected_machines: vec![update],
+                        }),
+                        accept_partial_results: false,
+                    },
+                ))
+                .await?
+                .into_inner();
+            assert!(response.results[0].success, "case: {scenario}");
+            let returned = response.results[0]
+                .expected_machine
+                .as_ref()
+                .expect("successful batch update should return the request representation");
+            let returned_interface = returned
+                .host_nics
+                .iter()
+                .find(|interface| interface.mac_address == dpu_bmc_mac.to_string())
+                .expect("batch result should include the stored interface");
+            assert!(
+                returned.metadata.is_none(),
+                "case {scenario}: batch results should preserve the request representation",
+            );
+            #[allow(deprecated)]
+            {
+                assert!(
+                    !returned.dpf_enabled,
+                    "case {scenario}: batch results should not normalize legacy defaults",
+                );
+            }
+            assert_eq!(returned_interface.role, role, "case: {scenario}",);
+            assert_eq!(
+                returned_interface.ip_allocation, allocation,
+                "case: {scenario}",
+            );
+        } else {
+            env.api
+                .update_expected_machine(tonic::Request::new(update))
+                .await?;
+        }
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+
+        assert_eq!(retrieved.bmc_username, "UPDATED_ADMIN", "case: {scenario}");
+        let retained = retrieved
+            .host_nics
+            .iter()
+            .find(|interface| interface.mac_address == dpu_bmc_mac.to_string())
+            .expect("stored interface should remain present");
+        assert_eq!(
+            retained.role, expected_role,
+            "case {scenario}: role should match the requested update semantics",
+        );
+        assert_eq!(
+            retained.ip_allocation, expected_allocation,
+            "case {scenario}: allocation should match the requested update semantics",
+        );
+
+        let added = retrieved
+            .host_nics
+            .iter()
+            .find(|interface| interface.mac_address == new_dpu_os_mac.to_string())
+            .expect("new interface should be added");
+        assert_eq!(
+            added.ip_allocation, None,
+            "case {scenario}: a new interface should keep allocation inference",
+        );
+    }
+
+    Ok(())
+}
+
+/// Wait until an expected-machine writer is blocked by the test transaction.
+async fn wait_until_expected_machine_write_is_blocked(pool: &sqlx::PgPool, blocker_pid: i32) {
+    for _ in 0..300 {
+        let blocked: bool = sqlx::query_scalar(
+            r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM pg_stat_activity AS activity
+                    WHERE activity.datname = current_database()
+                      AND activity.wait_event_type = 'Lock'
+                      AND $1 = ANY(pg_blocking_pids(activity.pid))
+                      AND activity.query ILIKE '%' || $2 || '%'
+                )
+            "#,
+        )
+        .bind(blocker_pid)
+        .bind("expected_machines")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if blocked {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    panic!("expected-machine write never waited for the database lock");
+}
+
+#[crate::sqlx_test]
+async fn test_concurrent_older_client_update_preserves_interface_fields(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (case, suffix, use_batch) in [
+        ("single update by MAC", 0x78, false),
+        ("batch update by ID", 0x7a, true),
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac_address = format!("7A:7B:7C:7D:81:{suffix:02X}");
+        let interface_mac_address = format!("7A:7B:7C:7D:81:{:02X}", suffix + 1);
+        let chassis_serial_number = format!("EM-LOCK-{suffix:02X}");
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac_address.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: chassis_serial_number.clone(),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    mac_address: interface_mac_address.clone(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuOs as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }))
+            .await?;
+
+        let mut blocker = env.pool.begin().await?;
+        let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *blocker)
+            .await?;
+        let mut newer = db::expected_machine::find_by_id(&mut *blocker, id)
+            .await?
+            .expect("expected machine should exist");
+        newer.data.host_nics[0].role = ExpectedInterfaceRole::DpuBmc;
+        newer.data.host_nics[0].ip_allocation = Some(ExpectedInterfaceIpAllocation::Retained);
+        db::expected_machine::update(&mut blocker, &newer).await?;
+
+        let update = rpc::forge::ExpectedMachine {
+            id: use_batch.then(|| ::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac_address.clone(),
+            bmc_username: "UPDATED_ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number,
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: interface_mac_address,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let api = env.api.clone();
+        let update_task = tokio::spawn(async move {
+            if use_batch {
+                let response = api
+                    .update_expected_machines(tonic::Request::new(
+                        rpc::forge::BatchExpectedMachineOperationRequest {
+                            expected_machines: Some(ExpectedMachineList {
+                                expected_machines: vec![update],
+                            }),
+                            accept_partial_results: false,
+                        },
+                    ))
+                    .await?
+                    .into_inner();
+                assert!(
+                    response.results[0].success,
+                    "batch update failed: {:?}",
+                    response.results[0].error_message
+                );
+            } else {
+                api.update_expected_machine(tonic::Request::new(update))
+                    .await?;
+            }
+            Ok::<(), tonic::Status>(())
+        });
+
+        wait_until_expected_machine_write_is_blocked(&env.pool, blocker_pid).await;
+        blocker.commit().await?;
+        let update_result =
+            tokio::time::timeout(std::time::Duration::from_secs(10), update_task).await?;
+        update_result??;
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(stored.bmc_username, "UPDATED_ADMIN", "case: {case}");
+        assert_eq!(
+            stored.host_nics[0].role,
+            Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+            "case: {case}"
+        );
+        assert_eq!(
+            stored.host_nics[0].ip_allocation,
+            Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+            "case: {case}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Replace-all must preserve the latest interface fields when an older client
+/// races with a single-machine update.
+#[crate::sqlx_test]
+async fn test_concurrent_replace_all_preserves_latest_interface_fields(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let id = Uuid::new_v4();
+    let bmc_mac_address = "7A:7B:7C:7D:81:7C".to_string();
+    let interface_mac_address = "7A:7B:7C:7D:81:7D".to_string();
+    let chassis_serial_number = "EM-REPLACE-LOCK-7C".to_string();
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac_address.clone(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: chassis_serial_number.clone(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: interface_mac_address.clone(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::DpuOs as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut blocker = env.pool.begin().await?;
+    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *blocker)
+        .await?;
+    let mut newer = db::expected_machine::find_for_update(
+        &mut blocker,
+        &model::expected_machine::ExpectedMachineRequest {
+            id: Some(id),
+            bmc_mac_address: None,
+        },
+    )
+    .await?
+    .expect("expected machine should exist");
+    newer.data.host_nics[0].role = ExpectedInterfaceRole::DpuBmc;
+    newer.data.host_nics[0].ip_allocation = Some(ExpectedInterfaceIpAllocation::Retained);
+
+    let replacement = rpc::forge::ExpectedMachine {
+        id: Some(::rpc::common::Uuid {
+            value: id.to_string(),
+        }),
+        bmc_mac_address: bmc_mac_address.clone(),
+        bmc_username: "OLDER_CLIENT".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number,
+        host_nics: vec![rpc::forge::ExpectedHostNic {
+            mac_address: interface_mac_address,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let api = env.api.clone();
+    let replace_task = tokio::spawn(async move {
+        api.replace_all_expected_machines(tonic::Request::new(ExpectedMachineList {
+            expected_machines: vec![replacement],
+        }))
+        .await?;
+        Ok::<(), tonic::Status>(())
+    });
+
+    wait_until_expected_machine_write_is_blocked(&env.pool, blocker_pid).await;
+    db::expected_machine::update(&mut blocker, &newer).await?;
+    blocker.commit().await?;
+    let replace_result =
+        tokio::time::timeout(std::time::Duration::from_secs(10), replace_task).await?;
+    replace_result??;
+
+    let stored = env
+        .api
+        .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+            bmc_mac_address: String::new(),
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(stored.bmc_username, "OLDER_CLIENT");
+    assert_eq!(
+        stored.host_nics[0].role,
+        Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+    );
+    assert_eq!(
+        stored.host_nics[0].ip_allocation,
+        Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_replace_all_preserves_interface_fields_omitted_by_older_client(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    struct Case {
+        scenario: &'static str,
+        suffix: u8,
+        role: Option<i32>,
+        allocation: Option<i32>,
+        omit_id: bool,
+        expected_role: Option<i32>,
+        expected_allocation: Option<i32>,
+    }
+
+    for Case {
+        scenario,
+        suffix,
+        role,
+        allocation,
+        omit_id,
+        expected_role,
+        expected_allocation,
+    } in [
+        Case {
+            scenario: "omitted fields and id",
+            suffix: 0x72,
+            role: None,
+            allocation: None,
+            omit_id: true,
+            expected_role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+            expected_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+        },
+        Case {
+            scenario: "Unspecified fields",
+            suffix: 0x74,
+            role: Some(rpc::forge::ExpectedInterfaceRole::Unspecified as i32),
+            allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Unspecified as i32),
+            omit_id: false,
+            expected_role: None,
+            expected_allocation: None,
+        },
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac = format!("7A:7B:7C:7D:80:{suffix:02X}");
+        let interface_mac = format!("7A:7B:7C:7D:80:{:02X}", suffix + 1);
+        let serial = format!("EM-REPLACE-COMPAT-{suffix:02X}");
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    mac_address: interface_mac.clone(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }))
+            .await?;
+
+        env.api
+            .replace_all_expected_machines(tonic::Request::new(ExpectedMachineList {
+                expected_machines: vec![rpc::forge::ExpectedMachine {
+                    id: (!omit_id).then(|| ::rpc::common::Uuid {
+                        value: id.to_string(),
+                    }),
+                    bmc_mac_address: bmc_mac.clone(),
+                    bmc_username: "UPDATED".into(),
+                    bmc_password: "PASS".into(),
+                    chassis_serial_number: serial,
+                    host_nics: vec![rpc::forge::ExpectedHostNic {
+                        mac_address: interface_mac,
+                        role,
+                        ip_allocation: allocation,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+            }))
+            .await?;
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: if omit_id { bmc_mac } else { String::new() },
+                id: (!omit_id).then(|| ::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(stored.bmc_username, "UPDATED", "case: {scenario}");
+        assert_eq!(stored.host_nics[0].role, expected_role, "case: {scenario}",);
+        assert_eq!(
+            stored.host_nics[0].ip_allocation, expected_allocation,
+            "case: {scenario}",
+        );
+    }
+
+    Ok(())
+}
+
+/// Replace-all retains its legacy full-replacement behavior for top-level BMC
+/// fields, while preserving a nested HostBmc that an older client cannot send.
+#[crate::sqlx_test]
+async fn test_replace_all_distinguishes_legacy_and_nested_host_bmc_omission(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        previous_nested: bool,
+        replacement_nested: bool,
+        initial_allocation: rpc::forge::BmcIpAllocationType,
+        expected_address: Option<&'static str>,
+        expected_nested: bool,
+        expected_allocation: Option<rpc::forge::ExpectedInterfaceIpAllocation>,
+    }
+
+    for case in [
+        Case {
+            name: "legacy omission clears the top-level address",
+            suffix: 0x82,
+            previous_nested: false,
+            replacement_nested: false,
+            initial_allocation: rpc::forge::BmcIpAllocationType::Fixed,
+            expected_address: None,
+            expected_nested: false,
+            expected_allocation: None,
+        },
+        Case {
+            name: "older client omission preserves nested HostBmc",
+            suffix: 0x84,
+            previous_nested: true,
+            replacement_nested: false,
+            initial_allocation: rpc::forge::BmcIpAllocationType::Fixed,
+            expected_address: Some("192.0.2.251"),
+            expected_nested: true,
+            expected_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed),
+        },
+        Case {
+            name: "legacy row can be replaced with nested HostBmc",
+            suffix: 0x86,
+            previous_nested: false,
+            replacement_nested: true,
+            initial_allocation: rpc::forge::BmcIpAllocationType::Dynamic,
+            expected_address: None,
+            expected_nested: true,
+            expected_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic),
+        },
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac = format!("7A:7B:7C:7D:82:{:02X}", case.suffix);
+        let serial = format!("EM-REPLACE-HOST-BMC-{:02X}", case.suffix);
+        let address = "192.0.2.251";
+        let host_nics = case
+            .previous_nested
+            .then(|| rpc::forge::ExpectedHostNic {
+                mac_address: bmc_mac.clone(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed as i32),
+                fixed_ip: Some(address.into()),
+                ..Default::default()
+            })
+            .into_iter()
+            .collect();
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                bmc_ip_address: (!case.previous_nested
+                    && case.initial_allocation == rpc::forge::BmcIpAllocationType::Fixed)
+                    .then(|| address.into()),
+                bmc_ip_allocation: (!case.previous_nested)
+                    .then_some(case.initial_allocation as i32),
+                host_nics,
+                ..Default::default()
+            }))
+            .await?;
+
+        env.api
+            .replace_all_expected_machines(tonic::Request::new(ExpectedMachineList {
+                expected_machines: vec![rpc::forge::ExpectedMachine {
+                    id: Some(::rpc::common::Uuid {
+                        value: id.to_string(),
+                    }),
+                    bmc_mac_address: bmc_mac.clone(),
+                    bmc_username: "UPDATED".into(),
+                    bmc_password: "PASS".into(),
+                    chassis_serial_number: serial,
+                    host_nics: case
+                        .replacement_nested
+                        .then(|| rpc::forge::ExpectedHostNic {
+                            mac_address: bmc_mac.clone(),
+                            role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                            ip_allocation: Some(
+                                rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32,
+                            ),
+                            ..Default::default()
+                        })
+                        .into_iter()
+                        .collect(),
+                    ..Default::default()
+                }],
+            }))
+            .await?;
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(
+            stored.bmc_ip_address.as_deref(),
+            case.expected_address,
+            "case: {}",
+            case.name,
+        );
+        let stored_host_bmc = stored.host_nics.iter().find(|interface| {
+            interface.role == Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32)
+        });
+        assert_eq!(
+            stored_host_bmc.is_some(),
+            case.expected_nested,
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            stored_host_bmc
+                .and_then(|interface| interface.ip_allocation)
+                .and_then(|allocation| {
+                    rpc::forge::ExpectedInterfaceIpAllocation::try_from(allocation).ok()
+                }),
+            case.expected_allocation,
+            "case: {}",
+            case.name,
+        );
+    }
+
+    Ok(())
+}
+
+/// New clients can mark `host_nics` as a complete replacement so an empty
+/// list, or a list without HostBmc, removes nested-only BMC settings. Older
+/// writers leave the marker false and retain the compatibility behavior
+/// covered by `test_replace_all_distinguishes_legacy_and_nested_host_bmc_omission`.
+#[crate::sqlx_test]
+async fn test_authoritative_host_nics_replacement_removes_nested_host_bmc(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    enum Operation {
+        SingleUpdate,
+        BatchUpdate,
+        ReplaceAll,
+    }
+
+    for (scenario, suffix, operation, keep_host_interface) in [
+        (
+            "single update with an empty list",
+            0x88,
+            Operation::SingleUpdate,
+            false,
+        ),
+        (
+            "single update with a Host-only list",
+            0x8a,
+            Operation::SingleUpdate,
+            true,
+        ),
+        (
+            "batch update with an empty list",
+            0x8c,
+            Operation::BatchUpdate,
+            false,
+        ),
+        (
+            "batch update with a Host-only list",
+            0x8e,
+            Operation::BatchUpdate,
+            true,
+        ),
+        (
+            "replace-all with an empty list",
+            0x90,
+            Operation::ReplaceAll,
+            false,
+        ),
+        (
+            "replace-all with a Host-only list",
+            0x92,
+            Operation::ReplaceAll,
+            true,
+        ),
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac = format!("7A:7B:7C:7D:82:{suffix:02X}");
+        let host_mac = format!("7A:7B:7C:7D:82:{:02X}", suffix + 1);
+        let serial = format!("EM-AUTHORITATIVE-HOST-NICS-{suffix:02X}");
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    mac_address: bmc_mac.clone(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }))
+            .await?;
+
+        let host_nics = keep_host_interface
+            .then(|| rpc::forge::ExpectedHostNic {
+                mac_address: host_mac.clone(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::Host as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                ..Default::default()
+            })
+            .into_iter()
+            .collect();
+        let replacement = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.clone(),
+            bmc_username: "UPDATED".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            host_nics,
+            bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Retained as i32),
+            replace_host_nics: true,
+            ..Default::default()
+        };
+
+        match operation {
+            Operation::SingleUpdate => {
+                env.api
+                    .update_expected_machine(tonic::Request::new(replacement))
+                    .await?;
+            }
+            Operation::BatchUpdate => {
+                let response = env
+                    .api
+                    .update_expected_machines(tonic::Request::new(
+                        rpc::forge::BatchExpectedMachineOperationRequest {
+                            expected_machines: Some(ExpectedMachineList {
+                                expected_machines: vec![replacement],
+                            }),
+                            accept_partial_results: false,
+                        },
+                    ))
+                    .await?
+                    .into_inner();
+                assert!(response.results[0].success, "case: {scenario}");
+            }
+            Operation::ReplaceAll => {
+                env.api
+                    .replace_all_expected_machines(tonic::Request::new(ExpectedMachineList {
+                        expected_machines: vec![replacement],
+                    }))
+                    .await?;
+            }
+        }
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+        assert!(
+            stored.host_nics.iter().all(|interface| {
+                interface.role != Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32)
+            }),
+            "case {scenario}: the nested HostBmc should be removed",
+        );
+        assert_eq!(
+            stored.host_nics.len(),
+            usize::from(keep_host_interface),
+            "case: {scenario}",
+        );
+        assert_eq!(
+            stored.bmc_ip_allocation,
+            Some(rpc::forge::BmcIpAllocationType::Retained as i32),
+            "case {scenario}: compatibility allocation should remain available",
+        );
+    }
+
+    Ok(())
+}
+
 // test_patch_dpf_enabled_none_to_true verifies that when an expected machine is
 // added with is_dpf_enabled: None, the value defaults to true on insert, and a
 // subsequent update with is_dpf_enabled: None preserves that value.
@@ -1859,6 +2837,377 @@ async fn test_update_expected_machine_add_static_ip(pool: sqlx::PgPool) {
     );
 }
 
+/// Single and batch updates use the same fixed expected-interface
+/// reconciliation, including the role-derived interface settings.
+#[crate::sqlx_test]
+async fn test_expected_machine_update_fixed_interface_single_batch_parity(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (case, suffix, fixed_ip, use_batch) in [
+        ("single update", 0x70, "192.0.2.220", false),
+        ("batch update", 0x72, "192.0.2.221", true),
+    ] {
+        let fixed_ip: std::net::IpAddr = fixed_ip.parse()?;
+        let id = Uuid::new_v4();
+        let bmc_mac: MacAddress = format!("5A:5B:5C:5D:60:{suffix:02X}").parse()?;
+        let interface_mac: MacAddress = format!("5A:5B:5C:5D:60:{:02X}", suffix + 1).parse()?;
+        let serial = format!("FIXED-INTERFACE-{suffix:02X}");
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.to_string(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                ..Default::default()
+            }))
+            .await?;
+
+        let update = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: interface_mac.to_string(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed as i32),
+                fixed_ip: Some(fixed_ip.to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        if use_batch {
+            let response = env
+                .api
+                .update_expected_machines(tonic::Request::new(
+                    rpc::forge::BatchExpectedMachineOperationRequest {
+                        expected_machines: Some(ExpectedMachineList {
+                            expected_machines: vec![update],
+                        }),
+                        accept_partial_results: false,
+                    },
+                ))
+                .await?
+                .into_inner();
+            assert!(response.results[0].success, "case: {case}");
+        } else {
+            env.api
+                .update_expected_machine(tonic::Request::new(update))
+                .await?;
+        }
+
+        let mut txn = env.pool.begin().await?;
+        let interfaces =
+            db::machine_interface::find_by_mac_address(&mut *txn, interface_mac).await?;
+        assert_eq!(interfaces.len(), 1, "case: {case}");
+        assert_eq!(
+            interfaces[0].interface_type,
+            model::machine_interface::InterfaceType::Bmc,
+            "case: {case}",
+        );
+        assert!(!interfaces[0].primary_interface, "case: {case}");
+        assert_eq!(interfaces[0].addresses, vec![fixed_ip], "case: {case}",);
+
+        let addresses =
+            db::machine_interface_address::find_for_interface(&mut txn, interfaces[0].id).await?;
+        assert_eq!(addresses.len(), 1, "case: {case}");
+        assert_eq!(
+            addresses[0].allocation_type,
+            model::allocation_type::AllocationType::Static,
+            "case: {case}",
+        );
+        txn.rollback().await?;
+    }
+
+    Ok(())
+}
+
+/// Explicit fixed policies require a managed prefix in both update APIs, while
+/// legacy Host entries retain their `static-assignments` fallback.
+#[crate::sqlx_test]
+async fn test_expected_machine_update_fixed_interface_requires_managed_prefix(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    /// One update API and allocation-policy combination.
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        fixed_ip: &'static str,
+        use_batch: bool,
+        explicit_policy: bool,
+    }
+
+    for case in [
+        Case {
+            name: "single legacy Host update",
+            suffix: 0x74,
+            fixed_ip: "203.0.113.240",
+            use_batch: false,
+            explicit_policy: false,
+        },
+        Case {
+            name: "batch legacy Host update",
+            suffix: 0x76,
+            fixed_ip: "203.0.113.241",
+            use_batch: true,
+            explicit_policy: false,
+        },
+        Case {
+            name: "single explicit Fixed update",
+            suffix: 0x78,
+            fixed_ip: "203.0.113.242",
+            use_batch: false,
+            explicit_policy: true,
+        },
+        Case {
+            name: "batch explicit Fixed update",
+            suffix: 0x7a,
+            fixed_ip: "203.0.113.243",
+            use_batch: true,
+            explicit_policy: true,
+        },
+    ] {
+        let fixed_ip: std::net::IpAddr = case.fixed_ip.parse()?;
+        let id = Uuid::new_v4();
+        let bmc_mac: MacAddress = format!("5A:5B:5C:5D:61:{:02X}", case.suffix).parse()?;
+        let interface_mac: MacAddress =
+            format!("5A:5B:5C:5D:61:{:02X}", case.suffix + 1).parse()?;
+        let serial = format!("FIXED-PREFIX-{:02X}", case.suffix);
+
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.to_string(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                ..Default::default()
+            }))
+            .await?;
+
+        let update = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: interface_mac.to_string(),
+                ip_allocation: case
+                    .explicit_policy
+                    .then_some(rpc::forge::ExpectedInterfaceIpAllocation::Fixed as i32),
+                fixed_ip: Some(fixed_ip.to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = if case.use_batch {
+            env.api
+                .update_expected_machines(tonic::Request::new(
+                    rpc::forge::BatchExpectedMachineOperationRequest {
+                        expected_machines: Some(ExpectedMachineList {
+                            expected_machines: vec![update],
+                        }),
+                        accept_partial_results: false,
+                    },
+                ))
+                .await
+                .map(|_| ())
+        } else {
+            env.api
+                .update_expected_machine(tonic::Request::new(update))
+                .await
+                .map(|_| ())
+        };
+
+        if case.explicit_policy {
+            let error = result.expect_err(case.name);
+            assert_eq!(
+                error.code(),
+                tonic::Code::InvalidArgument,
+                "case: {}",
+                case.name,
+            );
+            assert!(
+                error
+                    .message()
+                    .contains("not within a configured network segment"),
+                "case {}: {error}",
+                case.name,
+            );
+        } else {
+            result?;
+        }
+
+        let expected_interface_count = if case.explicit_policy { 0 } else { 1 };
+        let mut txn = env.pool.begin().await?;
+        let interfaces =
+            db::machine_interface::find_by_mac_address(&mut *txn, interface_mac).await?;
+        assert_eq!(
+            interfaces.len(),
+            expected_interface_count,
+            "case: {}",
+            case.name,
+        );
+        if let Some(interface) = interfaces.first() {
+            assert_eq!(interface.addresses, vec![fixed_ip], "case: {}", case.name,);
+            let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+            assert_eq!(
+                interface.segment_id, static_assignments.id,
+                "case: {}",
+                case.name,
+            );
+        }
+        txn.rollback().await?;
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: String::new(),
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(
+            stored.host_nics.len(),
+            expected_interface_count,
+            "case {}: a rejected update must leave expected configuration unchanged",
+            case.name,
+        );
+    }
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_legacy_bmc_update_preserves_interface_behavior_and_restores_naming(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "5A:5B:5C:5D:5E:61".parse()?;
+    let initial_ip: std::net::IpAddr = "192.0.2.210".parse()?;
+    let configured_ip: std::net::IpAddr = "192.0.2.211".parse()?;
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "root".into(),
+            bmc_password: "testpass".into(),
+            chassis_serial_number: "UPDATE-ADDRESSLESS-BMC".into(),
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    db::machine_interface::preallocate_bmc_machine_interface(&mut txn, bmc_mac, initial_ip, None)
+        .await?;
+    let interface = db::machine_interface::find_by_mac_address(txn.as_mut(), bmc_mac)
+        .await?
+        .pop()
+        .expect("BMC preallocation should create an interface");
+    db::machine_interface_address::delete(&mut txn, &interface.id).await?;
+    db::machine_interface::sync_hostname_after_address_change(&mut txn, interface.id).await?;
+    let addressless = db::machine_interface::find_one(txn.as_mut(), interface.id).await?;
+    assert_eq!(
+        addressless.interface_type,
+        model::machine_interface::InterfaceType::Bmc,
+    );
+    assert!(!addressless.primary_interface);
+    assert!(addressless.hostname.starts_with("noip-"));
+    assert!(addressless.domain_id.is_none());
+    txn.commit().await?;
+
+    let mut update = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+    update.id = None;
+    update.bmc_ip_address = Some(configured_ip.to_string());
+    env.api
+        .update_expected_machine(tonic::Request::new(update))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let updated = db::machine_interface::find_one(txn.as_mut(), interface.id).await?;
+    txn.rollback().await?;
+    assert_eq!(
+        updated.interface_type,
+        model::machine_interface::InterfaceType::Bmc,
+    );
+    assert!(!updated.primary_interface);
+    assert_eq!(updated.addresses, vec![configured_ip]);
+    assert!(!updated.hostname.starts_with("noip-"));
+    assert_eq!(updated.domain_id, Some(env.domain.into()));
+
+    // Once addressed, legacy BMC updates remain decoupled from the managed
+    // interface. This also needs to hold on upgraded sites that do not have
+    // the newer static-assignments anchor.
+    let external_ip: std::net::IpAddr = "203.0.113.211".parse()?;
+    let mut txn = env.pool.begin().await?;
+    let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+    db::network_segment::final_delete(static_assignments.id, txn.as_mut()).await?;
+    assert!(
+        db::network_segment::for_prefix_containing_address(txn.as_mut(), external_ip)
+            .await?
+            .is_none(),
+    );
+    txn.commit().await?;
+
+    let mut update = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+    update.id = None;
+    update.bmc_ip_address = Some(external_ip.to_string());
+    env.api
+        .update_expected_machine(tonic::Request::new(update))
+        .await?;
+
+    let expected = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+    assert_eq!(expected.bmc_ip_address, Some(external_ip.to_string()));
+
+    let mut txn = env.pool.begin().await?;
+    let unchanged = db::machine_interface::find_one(txn.as_mut(), interface.id).await?;
+    txn.rollback().await?;
+    assert_eq!(unchanged.addresses, vec![configured_ip]);
+
+    Ok(())
+}
+
 #[crate::sqlx_test()]
 async fn test_update_expected_machine_change_static_ip(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -1945,148 +3294,6 @@ async fn test_add_expected_machine_with_invalid_static_ip(pool: sqlx::PgPool) {
     );
 }
 
-#[test]
-fn test_expected_machine_data_accepts_ipv6_host_nic_fixed_ip() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "IPV6-HOST-NIC-FIXED-IP".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_ip: Some("2001:db8::66".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let data = ExpectedMachineData::try_from(expected_machine).unwrap();
-
-    assert_eq!(
-        data.host_nics[0].fixed_ip,
-        Some("2001:db8::66".parse().unwrap())
-    );
-}
-
-#[test]
-fn test_expected_machine_data_rejects_invalid_host_nic_fixed_ip() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "INVALID-HOST-NIC-FIXED-IP".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_ip: Some("not-a-valid-ip".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let err = match ExpectedMachineData::try_from(expected_machine) {
-        Ok(_) => panic!("invalid host NIC fixed IP should fail conversion"),
-        Err(err) => err,
-    };
-
-    assert!(err.to_string().contains("Invalid fixed IP"));
-}
-
-#[test]
-fn test_expected_machine_data_accepts_ipv6_host_nic_fixed_gateway() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "IPV6-HOST-NIC-FIXED-GATEWAY".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_gateway: Some("2001:db8::1".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let data = ExpectedMachineData::try_from(expected_machine).unwrap();
-
-    assert_eq!(
-        data.host_nics[0].fixed_gateway,
-        Some("2001:db8::1".parse().unwrap())
-    );
-}
-
-#[test]
-fn test_expected_machine_data_rejects_invalid_host_nic_fixed_gateway() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "INVALID-HOST-NIC-FIXED-GATEWAY".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "5A:5B:5C:5D:5E:66".to_string(),
-            fixed_gateway: Some("not-a-valid-ip".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let err = match ExpectedMachineData::try_from(expected_machine) {
-        Ok(_) => panic!("invalid host NIC fixed gateway should fail conversion"),
-        Err(err) => err,
-    };
-
-    assert!(err.to_string().contains("Invalid fixed gateway"));
-}
-
-#[test]
-fn test_expected_machine_data_rejects_invalid_host_nic_mac_address() {
-    let expected_machine = rpc::forge::ExpectedMachine {
-        bmc_mac_address: "5A:5B:5C:5D:5E:65".to_string(),
-        bmc_username: "root".into(),
-        bmc_password: "testpass".into(),
-        chassis_serial_number: "INVALID-HOST-NIC-MAC".into(),
-        host_nics: vec![rpc::forge::ExpectedHostNic {
-            mac_address: "not-a-mac".to_string(),
-            fixed_ip: Some("192.0.2.66".to_string()),
-            ..Default::default()
-        }],
-        metadata: Some(rpc::forge::Metadata::default()),
-        id: Some(::rpc::common::Uuid {
-            value: uuid::Uuid::new_v4().to_string(),
-        }),
-        ..Default::default()
-    };
-
-    let err = match ExpectedMachineData::try_from(expected_machine) {
-        Ok(_) => panic!("invalid host NIC MAC should fail conversion"),
-        Err(err) => err,
-    };
-
-    assert!(
-        matches!(
-            &err,
-            ::rpc::errors::RpcDataConversionError::InvalidMacAddress(mac)
-                if mac == "not-a-mac"
-        ),
-        "got: {err}"
-    );
-}
-
 /// Adding an expected machine with `host_nics[].fixed_ip` should result in a static
 /// `machine_interface` for that NIC. The materialization is deferred: site-explorer's
 /// reconciliation pass (or the DHCP discover hook) is what creates the row. The test
@@ -2098,7 +3305,13 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
     let env = create_test_env(pool).await;
     let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:01".parse().unwrap();
     let nic_mac: MacAddress = "7A:7B:7C:7D:7E:02".parse().unwrap();
-    let fixed_ip = "192.0.2.230";
+    let fixed_ip: std::net::IpAddr = "192.0.2.230".parse()?;
+    let expected_interface = model::expected_machine::ExpectedHostNic {
+        mac_address: nic_mac,
+        nic_type: Some("onboard".into()),
+        fixed_ip: Some(fixed_ip),
+        ..Default::default()
+    };
 
     env.api
         .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
@@ -2108,29 +3321,18 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
             bmc_password: "PASS".into(),
             chassis_serial_number: "EM-FIXEDIP-001".into(),
             host_nics: vec![rpc::forge::ExpectedHostNic {
-                network_segment_type: None,
                 mac_address: nic_mac.to_string(),
                 nic_type: Some("onboard".into()),
-                fixed_ip: Some(fixed_ip.into()),
-                fixed_mask: None,
-                fixed_gateway: None,
-                primary: None,
+                fixed_ip: Some(fixed_ip.to_string()),
+                ..Default::default()
             }],
             ..Default::default()
         }))
         .await?;
 
-    // Add doesn't preallocate inline; mimic what site-explorer does on the next iteration --
-    // materialize the host NIC's static fixed_ip.
-    carbide_site_explorer::try_preallocate_one(
-        &env.pool,
-        nic_mac,
-        fixed_ip.parse().unwrap(),
-        model::machine_interface::InterfaceType::Data,
-        "expected_machine host NIC",
-        None,
-    )
-    .await;
+    // Add doesn't preallocate inline; run the same allocation-policy helper
+    // that Site Explorer uses on its next iteration.
+    carbide_site_explorer::try_apply_expected_interface(&env.pool, &expected_interface, None).await;
 
     let mut txn = env.pool.begin().await?;
     let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, nic_mac).await?;
@@ -2140,7 +3342,7 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
         "should have one interface for the host NIC MAC"
     );
     assert!(
-        interfaces[0].addresses.contains(&fixed_ip.parse().unwrap()),
+        interfaces[0].addresses.contains(&fixed_ip),
         "interface should have the fixed IP"
     );
 
@@ -2182,6 +3384,7 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: None,
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -2305,6 +3508,7 @@ async fn test_dhcp_discover_preallocates_host_nic_fixed_ip_for_unknown_mac(
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: None,
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -2478,6 +3682,7 @@ async fn test_dhcp_honors_primary_host_nic(
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: Some(true),
+                ..Default::default()
             }],
             ..Default::default()
         }))
@@ -2542,6 +3747,7 @@ async fn test_dhcp_marks_non_primary_mac_as_non_primary(
                     fixed_mask: None,
                     fixed_gateway: None,
                     primary: Some(true),
+                    ..Default::default()
                 },
                 rpc::forge::ExpectedHostNic {
                     network_segment_type: None,
@@ -2551,6 +3757,7 @@ async fn test_dhcp_marks_non_primary_mac_as_non_primary(
                     fixed_mask: None,
                     fixed_gateway: None,
                     primary: None,
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -2610,6 +3817,7 @@ async fn test_add_rejects_multiple_primary_host_nics(
                     fixed_mask: None,
                     fixed_gateway: None,
                     primary: Some(true),
+                    ..Default::default()
                 },
                 rpc::forge::ExpectedHostNic {
                     network_segment_type: None,
@@ -2619,6 +3827,7 @@ async fn test_add_rejects_multiple_primary_host_nics(
                     fixed_mask: None,
                     fixed_gateway: None,
                     primary: Some(true),
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -2626,6 +3835,64 @@ async fn test_add_rejects_multiple_primary_host_nics(
         .await;
 
     let err = result.expect_err("multi-primary ExpectedMachine should be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+
+    Ok(())
+}
+
+/// Batch updates use the same primary-interface validation as single writes.
+#[crate::sqlx_test]
+async fn test_batch_update_rejects_multiple_primary_host_nics(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let id = Uuid::new_v4();
+    let bmc_mac = "9A:9B:9C:9D:9E:30";
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.into(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-BATCH-DUPLICATE-PRIMARY-001".into(),
+            ..Default::default()
+        }))
+        .await?;
+
+    let update = rpc::forge::ExpectedMachine {
+        id: Some(::rpc::common::Uuid {
+            value: id.to_string(),
+        }),
+        bmc_mac_address: bmc_mac.into(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "EM-BATCH-DUPLICATE-PRIMARY-001".into(),
+        host_nics: ["9A:9B:9C:9D:9E:31", "9A:9B:9C:9D:9E:32"]
+            .into_iter()
+            .map(|mac_address| rpc::forge::ExpectedHostNic {
+                mac_address: mac_address.into(),
+                primary: Some(true),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let result = env
+        .api
+        .update_expected_machines(tonic::Request::new(
+            rpc::forge::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(rpc::forge::ExpectedMachineList {
+                    expected_machines: vec![update],
+                }),
+                accept_partial_results: false,
+            },
+        ))
+        .await;
+
+    let err = result.expect_err("batch update with multiple primary interfaces should fail");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
     Ok(())
@@ -2663,6 +3930,7 @@ async fn test_declared_primary_survives_dhcp_arrival_order(
                     fixed_mask: None,
                     fixed_gateway: None,
                     primary: Some(true),
+                    ..Default::default()
                 },
                 rpc::forge::ExpectedHostNic {
                     network_segment_type: None,
@@ -2672,6 +3940,7 @@ async fn test_declared_primary_survives_dhcp_arrival_order(
                     fixed_mask: None,
                     fixed_gateway: None,
                     primary: None,
+                    ..Default::default()
                 },
             ],
             ..Default::default()
@@ -2847,22 +4116,21 @@ async fn test_update_changes_dpu_mode(
     Ok(())
 }
 
-/// `ExpectedMachine.bmc_ip_allocation` round-trips through the API: a non-default
-/// value (`Dynamic`, `Retained`) set on the wire persists to the DB and reads back
-/// unchanged (the default/unset case is covered separately below). `Dynamic`/`Retained`
-/// are used here because they're valid with no `bmc_ip_address` (which these requests
-/// omit); `Fixed` requires an address and is exercised by the validation tests.
+/// Every non-default `ExpectedMachine.bmc_ip_allocation` value persists and
+/// reads back unchanged. Fixed includes its required compatibility address;
+/// the default/unset case is covered separately below.
 #[crate::sqlx_test]
 async fn test_bmc_ip_allocation_round_trip_for_non_default_values(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    for (idx, mode) in [
-        rpc::forge::BmcIpAllocationType::Dynamic,
-        rpc::forge::BmcIpAllocationType::Retained,
+    for (idx, (mode, bmc_ip_address)) in [
+        (rpc::forge::BmcIpAllocationType::Dynamic, None),
+        (rpc::forge::BmcIpAllocationType::Retained, None),
+        (rpc::forge::BmcIpAllocationType::Fixed, Some("192.0.2.25")),
     ]
-    .iter()
+    .into_iter()
     .enumerate()
     {
         let mac = format!("5A:5B:5C:5D:5F:{idx:02X}");
@@ -2871,7 +4139,8 @@ async fn test_bmc_ip_allocation_round_trip_for_non_default_values(
             bmc_username: "ADMIN".into(),
             bmc_password: "PASS".into(),
             chassis_serial_number: format!("EM-BMC-ALLOC-{idx}"),
-            bmc_ip_allocation: Some(*mode as i32),
+            bmc_ip_allocation: Some(mode as i32),
+            bmc_ip_address: bmc_ip_address.map(str::to_string),
             ..Default::default()
         };
 
@@ -2890,8 +4159,13 @@ async fn test_bmc_ip_allocation_round_trip_for_non_default_values(
 
         assert_eq!(
             retrieved.bmc_ip_allocation,
-            Some(*mode as i32),
+            Some(mode as i32),
             "bmc_ip_allocation {mode:?} should survive DB round-trip unchanged"
+        );
+        assert_eq!(
+            retrieved.bmc_ip_address.as_deref(),
+            bmc_ip_address,
+            "bmc_ip_address for {mode:?} should survive DB round-trip unchanged"
         );
     }
 
@@ -3178,6 +4452,784 @@ async fn test_bmc_ip_allocation_combinations_enforced_at_the_api_boundary(
     Ok(())
 }
 
+/// Host BMC declarations keep the top-level BMC MAC as the machine identity.
+///
+/// Clients that serialize `primary=false` for every interface remain accepted,
+/// while ambiguous declarations are rejected before normalization or storage.
+#[crate::sqlx_test]
+async fn test_host_bmc_declaration_validation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    /// One Host BMC declaration accepted or rejected by the API boundary.
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        interfaces: Vec<rpc::forge::ExpectedHostNic>,
+        expected_error: Option<&'static str>,
+    }
+
+    for case in [
+        Case {
+            name: "one declaration with compatibility primary false",
+            suffix: 0x20,
+            interfaces: vec![rpc::forge::ExpectedHostNic {
+                mac_address: "5A:5B:5C:5D:62:20".into(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                primary: Some(false),
+                ..Default::default()
+            }],
+            expected_error: None,
+        },
+        Case {
+            name: "two Host BMC declarations",
+            suffix: 0x21,
+            interfaces: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: "5A:5B:5C:5D:62:21".into(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: "5A:5B:5C:5D:62:21".into(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                    ..Default::default()
+                },
+            ],
+            expected_error: Some("at most one role=host_bmc interface"),
+        },
+        Case {
+            name: "Host BMC MAC differs from the machine key",
+            suffix: 0x22,
+            interfaces: vec![rpc::forge::ExpectedHostNic {
+                mac_address: "5A:5B:5C:5D:62:FF".into(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                ..Default::default()
+            }],
+            expected_error: Some("must match expected machine BMC MAC"),
+        },
+        Case {
+            name: "Host BMC declares itself primary",
+            suffix: 0x23,
+            interfaces: vec![rpc::forge::ExpectedHostNic {
+                mac_address: "5A:5B:5C:5D:62:23".into(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                primary: Some(true),
+                ..Default::default()
+            }],
+            expected_error: Some("cannot set primary=true"),
+        },
+        Case {
+            name: "one MAC has conflicting roles",
+            suffix: 0x24,
+            interfaces: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: "5A:5B:5C:5D:62:A4".into(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuOs as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: "5A:5B:5C:5D:62:A4".into(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                },
+            ],
+            expected_error: Some("must use the same role"),
+        },
+        Case {
+            name: "machine BMC MAC uses a non-HostBmc role",
+            suffix: 0x25,
+            interfaces: vec![rpc::forge::ExpectedHostNic {
+                mac_address: "5A:5B:5C:5D:62:25".into(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::DpuBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                ..Default::default()
+            }],
+            expected_error: Some("may only be configured with role=host_bmc"),
+        },
+    ] {
+        let bmc_mac = format!("5A:5B:5C:5D:62:{:02X}", case.suffix);
+        let result = env
+            .api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                bmc_mac_address: bmc_mac.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: format!("HOST-BMC-VALIDATION-{:02X}", case.suffix),
+                host_nics: case.interfaces,
+                ..Default::default()
+            }))
+            .await;
+
+        match case.expected_error {
+            Some(expected_error) => {
+                let error = result.expect_err("invalid Host BMC declaration should be rejected");
+                assert_eq!(
+                    error.code(),
+                    tonic::Code::InvalidArgument,
+                    "case: {}",
+                    case.name,
+                );
+                assert!(
+                    error.message().contains(expected_error),
+                    "case {}: unexpected rejection reason: {}",
+                    case.name,
+                    error.message(),
+                );
+            }
+            None => {
+                result?;
+                let stored = env
+                    .api
+                    .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                        bmc_mac_address: bmc_mac,
+                        id: None,
+                    }))
+                    .await?
+                    .into_inner();
+                let host_bmcs = stored
+                    .host_nics
+                    .iter()
+                    .filter(|interface| {
+                        interface.role == Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32)
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(host_bmcs.len(), 1, "case: {}", case.name);
+                assert_eq!(
+                    host_bmcs[0].primary, None,
+                    "case {}: primary=false should normalize to omission",
+                    case.name,
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Legacy-only input keeps its earlier storage shape, while nested and mixed
+/// input store one Host BMC and matching compatibility columns.
+#[crate::sqlx_test]
+async fn test_host_bmc_normalizes_legacy_nested_and_mixed_configuration(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    /// One source combination and its normalized allocation.
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        bmc_ip_address: Option<&'static str>,
+        bmc_ip_allocation: Option<rpc::forge::BmcIpAllocationType>,
+        nested: Option<rpc::forge::ExpectedHostNic>,
+        expected_address: Option<&'static str>,
+        expected_allocation: ExpectedInterfaceIpAllocation,
+        expected_nested: bool,
+    }
+
+    for case in [
+        Case {
+            name: "legacy fields only",
+            suffix: 0x30,
+            bmc_ip_address: None,
+            bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Dynamic),
+            nested: None,
+            expected_address: None,
+            expected_allocation: ExpectedInterfaceIpAllocation::Dynamic,
+            expected_nested: false,
+        },
+        Case {
+            name: "nested declaration only",
+            suffix: 0x31,
+            bmc_ip_address: None,
+            bmc_ip_allocation: None,
+            nested: Some(rpc::forge::ExpectedHostNic {
+                mac_address: "5A:5B:5C:5D:63:31".into(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
+                ..Default::default()
+            }),
+            expected_address: None,
+            expected_allocation: ExpectedInterfaceIpAllocation::Retained,
+            expected_nested: true,
+        },
+        Case {
+            name: "legacy fields override the nested baseline",
+            suffix: 0x32,
+            bmc_ip_address: Some("192.0.2.232"),
+            bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Fixed),
+            nested: Some(rpc::forge::ExpectedHostNic {
+                mac_address: "5A:5B:5C:5D:63:32".into(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                ..Default::default()
+            }),
+            expected_address: Some("192.0.2.232"),
+            expected_allocation: ExpectedInterfaceIpAllocation::Fixed,
+            expected_nested: true,
+        },
+    ] {
+        let bmc_mac: MacAddress = format!("5A:5B:5C:5D:63:{:02X}", case.suffix).parse()?;
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                bmc_mac_address: bmc_mac.to_string(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: format!("HOST-BMC-NORMALIZE-{:02X}", case.suffix),
+                bmc_ip_address: case.bmc_ip_address.map(Into::into),
+                bmc_ip_allocation: case.bmc_ip_allocation.map(|allocation| allocation as i32),
+                host_nics: case.nested.into_iter().collect(),
+                ..Default::default()
+            }))
+            .await?;
+
+        let mut txn = env.pool.begin().await?;
+        let stored = db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac)
+            .await?
+            .expect("expected machine should exist");
+        let host_bmcs = stored
+            .data
+            .host_nics
+            .iter()
+            .filter(|interface| interface.role.is_host_bmc())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            host_bmcs.len(),
+            usize::from(case.expected_nested),
+            "case: {}",
+            case.name,
+        );
+        let effective_host_bmc = stored.effective_host_bmc();
+        assert_eq!(
+            effective_host_bmc.resolved_ip_allocation(),
+            case.expected_allocation,
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            effective_host_bmc.fixed_ip.map(|ip| ip.to_string()),
+            case.expected_address.map(str::to_string),
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            stored
+                .data
+                .bmc_ip_allocation
+                .resolved(stored.data.bmc_ip_address.is_some()),
+            case.expected_allocation,
+            "case {}: compatibility allocation should match the nested declaration",
+            case.name,
+        );
+        assert_eq!(
+            stored.data.bmc_ip_address.map(|ip| ip.to_string()),
+            case.expected_address.map(str::to_string),
+            "case {}: compatibility address should match the nested declaration",
+            case.name,
+        );
+    }
+
+    Ok(())
+}
+
+/// Single and batch create/update paths store the same canonical Host BMC
+/// declaration and compatibility fields.
+#[crate::sqlx_test]
+async fn test_host_bmc_normalization_has_single_and_batch_parity(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        is_update: bool,
+        use_batch: bool,
+    }
+
+    for case in [
+        Case {
+            name: "single create",
+            suffix: 0x40,
+            is_update: false,
+            use_batch: false,
+        },
+        Case {
+            name: "batch create",
+            suffix: 0x41,
+            is_update: false,
+            use_batch: true,
+        },
+        Case {
+            name: "single update",
+            suffix: 0x42,
+            is_update: true,
+            use_batch: false,
+        },
+        Case {
+            name: "batch update",
+            suffix: 0x43,
+            is_update: true,
+            use_batch: true,
+        },
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac: MacAddress = format!("5A:5B:5C:5D:64:{:02X}", case.suffix).parse()?;
+        let serial = format!("HOST-BMC-PARITY-{:02X}", case.suffix);
+        let base = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            ..Default::default()
+        };
+        if case.is_update {
+            env.api
+                .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                    bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Dynamic as i32),
+                    ..base.clone()
+                }))
+                .await?;
+        }
+
+        let request = rpc::forge::ExpectedMachine {
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: bmc_mac.to_string(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
+                ..Default::default()
+            }],
+            ..base
+        };
+        if case.use_batch {
+            let operation = rpc::forge::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(ExpectedMachineList {
+                    expected_machines: vec![request],
+                }),
+                accept_partial_results: false,
+            };
+            let response = if case.is_update {
+                env.api
+                    .update_expected_machines(tonic::Request::new(operation))
+                    .await?
+            } else {
+                env.api
+                    .create_expected_machines(tonic::Request::new(operation))
+                    .await?
+            };
+            assert!(
+                response.into_inner().results[0].success,
+                "case: {}",
+                case.name,
+            );
+        } else if case.is_update {
+            env.api
+                .update_expected_machine(tonic::Request::new(request))
+                .await?;
+        } else {
+            env.api
+                .add_expected_machine(tonic::Request::new(request))
+                .await?;
+        }
+
+        let mut txn = env.pool.begin().await?;
+        let stored = db::expected_machine::find_by_id(&mut *txn, id)
+            .await?
+            .expect("expected machine should exist");
+        let host_bmcs = stored
+            .data
+            .host_nics
+            .iter()
+            .filter(|interface| interface.role.is_host_bmc())
+            .collect::<Vec<_>>();
+        assert_eq!(host_bmcs.len(), 1, "case: {}", case.name);
+        assert_eq!(
+            host_bmcs[0].ip_allocation,
+            Some(ExpectedInterfaceIpAllocation::Retained),
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            host_bmcs[0].network_segment_type,
+            Some(model::network_segment::NetworkSegmentType::Admin),
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            stored.data.bmc_ip_allocation,
+            BmcIpAllocationType::Retained,
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(stored.data.bmc_ip_address, None, "case: {}", case.name,);
+    }
+
+    Ok(())
+}
+
+/// Compatibility columns remain authoritative for rows changed by an older
+/// writer. Reads expose their value without losing nested-only settings, and
+/// the next ordinary update repairs the stored nested declaration.
+#[crate::sqlx_test]
+async fn test_host_bmc_compatibility_drift_is_read_and_healed(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let id = Uuid::new_v4();
+    let bmc_mac: MacAddress = "5A:5B:5C:5D:65:50".parse()?;
+    let base = rpc::forge::ExpectedMachine {
+        id: Some(::rpc::common::Uuid {
+            value: id.to_string(),
+        }),
+        bmc_mac_address: bmc_mac.to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "HOST-BMC-DRIFT".into(),
+        ..Default::default()
+    };
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: bmc_mac.to_string(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
+                ..Default::default()
+            }],
+            ..base.clone()
+        }))
+        .await?;
+
+    // Simulate an older writer that knows only the compatibility columns.
+    let mut txn = env.pool.begin().await?;
+    let mut drifted = db::expected_machine::find_by_id(&mut *txn, id)
+        .await?
+        .expect("expected machine should exist");
+    drifted.data.bmc_ip_allocation = BmcIpAllocationType::Dynamic;
+    drifted.data.bmc_ip_address = None;
+    db::expected_machine::update(&mut txn, &drifted).await?;
+    txn.commit().await?;
+
+    let read = env
+        .api
+        .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+            bmc_mac_address: String::new(),
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+        }))
+        .await?
+        .into_inner();
+    let effective = read
+        .host_nics
+        .iter()
+        .find(|interface| interface.role == Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32))
+        .expect("read should synthesize the effective Host BMC");
+    assert_eq!(
+        effective.ip_allocation,
+        Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+    );
+    assert_eq!(
+        effective.network_segment_type,
+        Some(rpc::forge::NetworkSegmentType::Admin as i32),
+        "nested-only settings should survive compatibility drift",
+    );
+
+    // An old client can omit the nested Host BMC during an unrelated update.
+    env.api
+        .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_username: "UPDATED_ADMIN".into(),
+            ..base
+        }))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let healed = db::expected_machine::find_by_id(&mut *txn, id)
+        .await?
+        .expect("expected machine should exist");
+    let nested = healed
+        .data
+        .host_nics
+        .iter()
+        .find(|interface| interface.role.is_host_bmc())
+        .expect("ordinary update should retain and heal the Host BMC");
+    assert_eq!(
+        nested.ip_allocation,
+        Some(ExpectedInterfaceIpAllocation::Dynamic),
+    );
+    assert_eq!(
+        nested.network_segment_type,
+        Some(model::network_segment::NetworkSegmentType::Admin),
+    );
+    assert_eq!(healed.data.bmc_ip_allocation, BmcIpAllocationType::Dynamic,);
+    assert_eq!(healed.data.bmc_username, "UPDATED_ADMIN");
+
+    Ok(())
+}
+
+/// Single and batch updates preserve an omitted legacy Fixed policy while
+/// allowing nested-only settings to change. Explicit Unspecified still resets
+/// that compatibility policy even when the stored HostBmc role is omitted.
+#[crate::sqlx_test]
+async fn test_host_bmc_updates_preserve_and_reset_compatibility_fixed(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        use_batch: bool,
+    }
+
+    for case in [
+        Case {
+            name: "single update",
+            suffix: 0x54,
+            use_batch: false,
+        },
+        Case {
+            name: "batch update",
+            suffix: 0x56,
+            use_batch: true,
+        },
+    ] {
+        let id = Uuid::new_v4();
+        let bmc_mac = format!("5A:5B:5C:5D:65:{:02X}", case.suffix);
+        let serial = format!("HOST-BMC-FIXED-PRESENCE-{:02X}", case.suffix);
+        let address = format!("192.0.2.{}", case.suffix);
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: bmc_mac.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                bmc_ip_address: Some(address.clone()),
+                bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Fixed as i32),
+                host_nics: vec![rpc::forge::ExpectedHostNic {
+                    mac_address: bmc_mac.clone(),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                    fixed_ip: Some(address.clone()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }))
+            .await?;
+
+        let update = |ip_allocation| rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: bmc_mac.clone(),
+            bmc_username: "UPDATED_ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial.clone(),
+            bmc_ip_address: Some(address.clone()),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: bmc_mac.clone(),
+                // Omitted role and policy model clients that do not know the
+                // stored HostBmc details.
+                role: None,
+                ip_allocation,
+                fixed_ip: Some(address.clone()),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Admin as i32),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let apply_update = |machine: rpc::forge::ExpectedMachine| async {
+            if case.use_batch {
+                env.api
+                    .update_expected_machines(tonic::Request::new(
+                        rpc::forge::BatchExpectedMachineOperationRequest {
+                            expected_machines: Some(ExpectedMachineList {
+                                expected_machines: vec![machine],
+                            }),
+                            accept_partial_results: false,
+                        },
+                    ))
+                    .await
+                    .map(|_| ())
+            } else {
+                env.api
+                    .update_expected_machine(tonic::Request::new(machine))
+                    .await
+                    .map(|_| ())
+            }
+        };
+
+        apply_update(update(None)).await?;
+
+        let mut txn = env.pool.begin().await?;
+        let preserved = db::expected_machine::find_by_id(&mut *txn, id)
+            .await?
+            .expect("expected machine should exist");
+        txn.rollback().await?;
+        let preserved_host_bmc = preserved
+            .data
+            .host_nics
+            .iter()
+            .find(|interface| interface.role.is_host_bmc())
+            .expect("nested HostBmc should remain present");
+        assert_eq!(
+            preserved.data.bmc_ip_allocation,
+            BmcIpAllocationType::Fixed,
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            preserved_host_bmc.ip_allocation, None,
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            preserved_host_bmc.network_segment_type,
+            Some(model::network_segment::NetworkSegmentType::Admin),
+            "case: {}",
+            case.name,
+        );
+
+        apply_update(update(Some(
+            rpc::forge::ExpectedInterfaceIpAllocation::Unspecified as i32,
+        )))
+        .await?;
+
+        let mut txn = env.pool.begin().await?;
+        let reset = db::expected_machine::find_by_id(&mut *txn, id)
+            .await?
+            .expect("expected machine should exist");
+        txn.rollback().await?;
+        assert_eq!(
+            reset.data.bmc_ip_allocation,
+            BmcIpAllocationType::Auto,
+            "case: {}",
+            case.name,
+        );
+        assert_eq!(
+            reset.data.bmc_ip_address.map(|ip| ip.to_string()),
+            Some(address.clone()),
+            "case: {}",
+            case.name,
+        );
+    }
+
+    Ok(())
+}
+
+/// Both update APIs reject changing the BMC MAC selected by an ExpectedMachine
+/// ID, leaving the original alternate key intact.
+#[crate::sqlx_test]
+async fn test_expected_machine_update_rejects_bmc_mac_change(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    struct Case {
+        name: &'static str,
+        suffix: u8,
+        use_batch: bool,
+    }
+
+    for case in [
+        Case {
+            name: "single update",
+            suffix: 0x60,
+            use_batch: false,
+        },
+        Case {
+            name: "batch update",
+            suffix: 0x62,
+            use_batch: true,
+        },
+    ] {
+        let id = Uuid::new_v4();
+        let original_mac = format!("5A:5B:5C:5D:66:{:02X}", case.suffix);
+        let changed_mac = format!("5A:5B:5C:5D:66:{:02X}", case.suffix + 1);
+        let serial = format!("HOST-BMC-KEY-{:02X}", case.suffix);
+        env.api
+            .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+                id: Some(::rpc::common::Uuid {
+                    value: id.to_string(),
+                }),
+                bmc_mac_address: original_mac.clone(),
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                chassis_serial_number: serial.clone(),
+                ..Default::default()
+            }))
+            .await?;
+
+        let update = rpc::forge::ExpectedMachine {
+            id: Some(::rpc::common::Uuid {
+                value: id.to_string(),
+            }),
+            bmc_mac_address: changed_mac,
+            bmc_username: "UPDATED_ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: serial,
+            ..Default::default()
+        };
+        let error = if case.use_batch {
+            env.api
+                .update_expected_machines(tonic::Request::new(
+                    rpc::forge::BatchExpectedMachineOperationRequest {
+                        expected_machines: Some(ExpectedMachineList {
+                            expected_machines: vec![update],
+                        }),
+                        accept_partial_results: false,
+                    },
+                ))
+                .await
+                .expect_err("batch BMC MAC change should be rejected")
+        } else {
+            env.api
+                .update_expected_machine(tonic::Request::new(update))
+                .await
+                .expect_err("BMC MAC change should be rejected")
+        };
+        assert_eq!(
+            error.code(),
+            tonic::Code::InvalidArgument,
+            "case: {}",
+            case.name,
+        );
+        assert!(
+            error.message().contains("cannot change BMC MAC address"),
+            "case {}: unexpected rejection reason: {}",
+            case.name,
+            error.message(),
+        );
+
+        let stored = env
+            .api
+            .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+                bmc_mac_address: original_mac,
+                id: None,
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(stored.bmc_username, "ADMIN", "case: {}", case.name);
+    }
+
+    Ok(())
+}
+
 /// Make sure expected_machines.json, which uses create_missing_from,
 /// follows the shared codepath for handling interface allocation.
 #[crate::sqlx_test]
@@ -3187,7 +5239,7 @@ async fn test_create_missing_from_preallocates_interfaces(
     let env = create_test_env(pool).await;
     let bmc_mac: MacAddress = "AA:BB:CC:DD:EE:01".parse().unwrap();
     let nic_mac: MacAddress = "AA:BB:CC:DD:EE:02".parse().unwrap();
-    let bmc_ip: std::net::IpAddr = "192.0.2.240".parse().unwrap();
+    let bmc_ip: std::net::IpAddr = "203.0.113.240".parse().unwrap();
     let host_ip: std::net::IpAddr = "192.0.2.241".parse().unwrap();
 
     let machine = ExpectedMachine {
@@ -3206,6 +5258,7 @@ async fn test_create_missing_from_preallocates_interfaces(
                 fixed_mask: None,
                 fixed_gateway: None,
                 primary: Some(true),
+                ..Default::default()
             }],
             ..Default::default()
         },
@@ -3219,26 +5272,28 @@ async fn test_create_missing_from_preallocates_interfaces(
     .await?;
     txn.commit().await?;
 
-    // Mimic site-explorer's per-row materialization: one preallocate per static IP on the
-    // entity we just inserted.
-    carbide_site_explorer::try_preallocate_one(
+    // Run the same effective-interface path as Site Explorer. The legacy BMC
+    // address is intentionally outside every managed prefix, so its inferred
+    // HostBmc declaration must retain the static-assignments fallback.
+    let mut txn = env.pool.begin().await?;
+    let stored = db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac)
+        .await?
+        .expect("expected machine should exist");
+    txn.rollback().await?;
+    carbide_site_explorer::try_apply_expected_interface(
         &env.pool,
-        bmc_mac,
-        bmc_ip,
-        model::machine_interface::InterfaceType::Bmc,
-        "expected_machine BMC",
+        &stored.effective_host_bmc(),
         None,
     )
     .await;
-    carbide_site_explorer::try_preallocate_one(
-        &env.pool,
-        nic_mac,
-        host_ip,
-        model::machine_interface::InterfaceType::Data,
-        "expected_machine host NIC",
-        None,
-    )
-    .await;
+    for interface in stored
+        .data
+        .host_nics
+        .iter()
+        .filter(|interface| interface.mac_address != stored.bmc_mac_address)
+    {
+        carbide_site_explorer::try_apply_expected_interface(&env.pool, interface, None).await;
+    }
 
     let mut txn = env.pool.begin().await?;
     for (mac, expected_ip) in [(bmc_mac, bmc_ip), (nic_mac, host_ip)] {
@@ -3253,6 +5308,15 @@ async fn test_create_missing_from_preallocates_interfaces(
             "machine_interface for MAC {mac} should carry static IP {expected_ip}, got {:?}",
             interfaces[0].addresses,
         );
+        if mac == bmc_mac {
+            assert_eq!(
+                interfaces[0].interface_type,
+                model::machine_interface::InterfaceType::Bmc,
+            );
+            assert!(!interfaces[0].primary_interface);
+            let static_assignments = db::network_segment::static_assignments(txn.as_mut()).await?;
+            assert_eq!(interfaces[0].segment_id, static_assignments.id);
+        }
     }
 
     // Re-running create_missing_from with the same input must be a no-op (idempotent).

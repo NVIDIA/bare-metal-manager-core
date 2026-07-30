@@ -7038,6 +7038,7 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
         host_machine_id: mh.host().id,
         dpu_machine_id: mh.dpu_ids[0],
         firmware_version: "test".to_string(),
+        dpf_managed: false,
     };
 
     db::dpu_machine_update::trigger_reprovisioning_for_managed_host(&mut txn, &[machine_update])
@@ -7356,6 +7357,64 @@ async fn test_allocate_instance_with_extension_services(
     assert_eq!(
         instance_snapshot.config.extension_services.service_configs[0].service_id,
         service.service_id.parse().unwrap()
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_allocate_instance_with_extension_services_rejected_on_dpf_host(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    let (service, _, _) = create_dpu_extension_services(&env).await?;
+
+    let mut txn = env.pool.begin().await?;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    txn.commit().await?;
+
+    let result = env
+        .api
+        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+            machine_id: Some(mh.id),
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                nvlink: None,
+                spxconfig: None,
+                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                    service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                        service_id: service.service_id,
+                        version: service.latest_version_info.unwrap().version,
+                    }],
+                }),
+            }),
+            instance_id: None,
+            instance_type_id: None,
+            metadata: Some(rpc::Metadata {
+                name: "dpf-extension-service".to_string(),
+                description: String::new(),
+                labels: vec![],
+            }),
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .expect_err("extension services must be rejected on a DPF-managed host");
+
+    assert_eq!(result.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        result.message(),
+        format!(
+            "DPU extension services are not supported on DPF-managed host {}",
+            mh.id
+        )
     );
 
     Ok(())
@@ -7853,6 +7912,67 @@ async fn test_update_instance_with_extension_services(
     assert!(err.message().starts_with(
         "duplicate extension services in configuration. only one version of each service is allowed"
     ));
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_attach_extension_service_rejected_on_dpf_host(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+    let (service, _, _) = create_dpu_extension_services(&env).await?;
+    let tinstance = mh
+        .instance_builer(&env)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+
+    let mut txn = env.pool.begin().await?;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &mh.id).await?;
+    txn.commit().await?;
+
+    let result = env
+        .api
+        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+            instance_id: Some(tinstance.id),
+            if_version_match: None,
+            config: Some(rpc::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(single_interface_network_config(segment_id)),
+                infiniband: None,
+                network_security_group_id: None,
+                nvlink: None,
+                spxconfig: None,
+                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                    service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+                        service_id: service.service_id,
+                        version: service.latest_version_info.unwrap().version,
+                    }],
+                }),
+            }),
+            metadata: Some(rpc::Metadata {
+                name: "dpf-extension-service".to_string(),
+                description: String::new(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .expect_err("attaching an extension service must fail on a DPF-managed host");
+
+    assert_eq!(result.code(), tonic::Code::FailedPrecondition);
+    assert_eq!(
+        result.message(),
+        format!(
+            "DPU extension services are not supported on DPF-managed host {}",
+            mh.id
+        )
+    );
 
     Ok(())
 }

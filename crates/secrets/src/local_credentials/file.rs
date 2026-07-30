@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
 use notify::{PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -30,6 +31,74 @@ use crate::credentials::{CredentialKey, CredentialReader, Credentials};
 
 const DEFAULT_FILE_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const DEFAULT_CREDENTIALS_FILE_PATH: &str = "secrets.yaml";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, LabelValue)]
+enum StaticCredentialWatcherOperation {
+    PrimaryWatch,
+    PollWatch,
+    Reload,
+}
+
+#[derive(Event)]
+#[event(
+    event_name = "static_credential_watcher_failed",
+    metric_name = "carbide_static_credential_watcher_failures_total",
+    component = "nico-api",
+    log = warn,
+    metric = counter,
+    message = dynamic,
+    describe = "Number of static credential watcher failures, by operation."
+)]
+struct StaticCredentialWatcherFailed {
+    #[label]
+    operation: StaticCredentialWatcherOperation,
+    #[context]
+    error: String,
+}
+
+impl DynamicMessage for StaticCredentialWatcherFailed {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            StaticCredentialWatcherOperation::PrimaryWatch => {
+                "primary static credential watcher error"
+            }
+            StaticCredentialWatcherOperation::PollWatch => "credentials file watcher event error",
+            StaticCredentialWatcherOperation::Reload => "failed to reload credentials file",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatchEventDelivery {
+    Primary,
+    Poll,
+}
+
+fn forward_watch_event(
+    delivery: WatchEventDelivery,
+    tx: &mpsc::Sender<notify::Result<notify::Event>>,
+    result: notify::Result<notify::Event>,
+) {
+    if let Err(err) = tx.blocking_send(result) {
+        // A closed receiver means this watcher is tearing down, not that file
+        // observation or credential reload failed. Keep this as a plain WARN
+        // so shutdown cannot increment the live-failure counter.
+        match delivery {
+            WatchEventDelivery::Primary => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to send static credential watch event",
+                );
+            }
+            WatchEventDelivery::Poll => {
+                tracing::warn!(
+                    error = %err,
+                    "failed to send static credential poll event",
+                );
+            }
+        }
+    }
+}
 
 #[derive(Default, Clone, Debug, Deserialize, Serialize)]
 pub struct FileCredentialsConfig {
@@ -82,16 +151,14 @@ impl FileCredentialsWatcher {
         let mut primary = RecommendedWatcher::new(
             move |res: notify::Result<notify::Event>| match res {
                 Ok(ref event) if event.kind.is_create() || event.kind.is_modify() => {
-                    if let Err(err) = tx_clone.blocking_send(res) {
-                        tracing::warn!(
-                            error = %err,
-                            "failed to send static credential watch event",
-                        );
-                    }
+                    forward_watch_event(WatchEventDelivery::Primary, &tx_clone, res);
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    tracing::warn!(error = %err, "primary static credential watcher error");
+                    emit(StaticCredentialWatcherFailed {
+                        operation: StaticCredentialWatcherOperation::PrimaryWatch,
+                        error: err.to_string(),
+                    });
                 }
             },
             notify::Config::default(),
@@ -104,12 +171,7 @@ impl FileCredentialsWatcher {
 
         let mut secondary = PollWatcher::new(
             move |res| {
-                if let Err(err) = tx.blocking_send(res) {
-                    tracing::warn!(
-                        error = %err,
-                        "failed to send static credential poll event",
-                    );
-                }
+                forward_watch_event(WatchEventDelivery::Poll, &tx, res);
             },
             notify::Config::default()
                 .with_poll_interval(poll_interval)
@@ -140,18 +202,18 @@ impl FileCredentialsWatcher {
                                 credentials_clone.store(Arc::new(updated));
                             }
                             Err(err) => {
-                                tracing::warn!(
-                                    error = %err,
-                                    "failed to reload credentials file",
-                                );
+                                emit(StaticCredentialWatcherFailed {
+                                    operation: StaticCredentialWatcherOperation::Reload,
+                                    error: err.to_string(),
+                                });
                             }
                         }
                     }
                     Err(err) => {
-                        tracing::warn!(
-                            error = %err,
-                            "credentials file watcher event error",
-                        );
+                        emit(StaticCredentialWatcherFailed {
+                            operation: StaticCredentialWatcherOperation::PollWatch,
+                            error: err.to_string(),
+                        });
                     }
                 }
             }
@@ -194,6 +256,8 @@ impl CredentialReader for FileCredentialsWatcher {
 
 #[cfg(test)]
 mod tests {
+    use carbide_instrument::testing::{MetricsCapture, capture_logs};
+    use carbide_test_support::{Check, check_values};
     use tempfile::tempdir;
 
     use super::*;
@@ -362,6 +426,217 @@ mod tests {
                 username: "v2".to_string(),
                 password: "secret-2".to_string(),
             })
+        );
+    }
+
+    const WATCHER_FAILURE_METRIC: &str = "carbide_static_credential_watcher_failures_total";
+
+    #[derive(Clone, Copy)]
+    struct WatcherFailureCase {
+        operation: StaticCredentialWatcherOperation,
+        operation_label: &'static str,
+        error: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct WatcherFailureObservation {
+        counter_delta: f64,
+        level: tracing::Level,
+        metadata_name: String,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        operation: Option<String>,
+        error: Option<String>,
+    }
+
+    fn watcher_failure_delta(metrics: &MetricsCapture) -> f64 {
+        ["primary_watch", "poll_watch", "reload"]
+            .iter()
+            .map(|operation| {
+                metrics.counter_delta(WATCHER_FAILURE_METRIC, &[("operation", operation)])
+            })
+            .sum()
+    }
+
+    #[test]
+    fn live_watcher_failures_keep_the_existing_diagnostics() {
+        let metrics = MetricsCapture::start();
+
+        check_values(
+            [
+                Check {
+                    scenario: "primary watcher reports an error",
+                    input: WatcherFailureCase {
+                        operation: StaticCredentialWatcherOperation::PrimaryWatch,
+                        operation_label: "primary_watch",
+                        error: "inotify queue overflow",
+                    },
+                    expect: WatcherFailureObservation {
+                        counter_delta: 1.0,
+                        level: tracing::Level::WARN,
+                        metadata_name: "static_credential_watcher_failed".to_string(),
+                        message: "primary static credential watcher error".to_string(),
+                        event_name: Some("static_credential_watcher_failed".to_string()),
+                        metric_name: Some(WATCHER_FAILURE_METRIC.to_string()),
+                        operation: Some("primary_watch".to_string()),
+                        error: Some("inotify queue overflow".to_string()),
+                    },
+                },
+                Check {
+                    scenario: "poll watcher reports an error",
+                    input: WatcherFailureCase {
+                        operation: StaticCredentialWatcherOperation::PollWatch,
+                        operation_label: "poll_watch",
+                        error: "stat failed",
+                    },
+                    expect: WatcherFailureObservation {
+                        counter_delta: 1.0,
+                        level: tracing::Level::WARN,
+                        metadata_name: "static_credential_watcher_failed".to_string(),
+                        message: "credentials file watcher event error".to_string(),
+                        event_name: Some("static_credential_watcher_failed".to_string()),
+                        metric_name: Some(WATCHER_FAILURE_METRIC.to_string()),
+                        operation: Some("poll_watch".to_string()),
+                        error: Some("stat failed".to_string()),
+                    },
+                },
+                Check {
+                    scenario: "credential reload fails",
+                    input: WatcherFailureCase {
+                        operation: StaticCredentialWatcherOperation::Reload,
+                        operation_label: "reload",
+                        error: "invalid yaml",
+                    },
+                    expect: WatcherFailureObservation {
+                        counter_delta: 1.0,
+                        level: tracing::Level::WARN,
+                        metadata_name: "static_credential_watcher_failed".to_string(),
+                        message: "failed to reload credentials file".to_string(),
+                        event_name: Some("static_credential_watcher_failed".to_string()),
+                        metric_name: Some(WATCHER_FAILURE_METRIC.to_string()),
+                        operation: Some("reload".to_string()),
+                        error: Some("invalid yaml".to_string()),
+                    },
+                },
+            ],
+            |case| {
+                let mut logs = capture_logs(|| {
+                    emit(StaticCredentialWatcherFailed {
+                        operation: case.operation,
+                        error: case.error.to_string(),
+                    });
+                });
+                assert_eq!(logs.len(), 1, "one watcher failure logs once");
+                let log = logs.pop().expect("the watcher failure log");
+                let field = |name: &str| log.field(name).map(str::to_owned);
+
+                WatcherFailureObservation {
+                    counter_delta: metrics.counter_delta(
+                        WATCHER_FAILURE_METRIC,
+                        &[("operation", case.operation_label)],
+                    ),
+                    level: log.level,
+                    metadata_name: log.metadata_name.clone(),
+                    message: log.message.clone(),
+                    event_name: field("event_name"),
+                    metric_name: field("metric_name"),
+                    operation: field("operation"),
+                    error: field("error"),
+                }
+            },
+        );
+    }
+
+    #[derive(Clone, Copy)]
+    struct ClosedReceiverCase {
+        delivery: WatchEventDelivery,
+        message: &'static str,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct ClosedReceiverObservation {
+        counter_delta: f64,
+        level: tracing::Level,
+        message: String,
+        event_name: Option<String>,
+        metric_name: Option<String>,
+        error: Option<String>,
+    }
+
+    #[test]
+    fn closed_receiver_warnings_do_not_count_as_live_watcher_failures() {
+        let metrics = MetricsCapture::start();
+
+        check_values(
+            [
+                Check {
+                    scenario: "primary receiver is closed",
+                    input: ClosedReceiverCase {
+                        delivery: WatchEventDelivery::Primary,
+                        message: "failed to send static credential watch event",
+                    },
+                    expect: ClosedReceiverObservation {
+                        counter_delta: 0.0,
+                        level: tracing::Level::WARN,
+                        message: "failed to send static credential watch event".to_string(),
+                        event_name: None,
+                        metric_name: None,
+                        error: Some("channel closed".to_string()),
+                    },
+                },
+                Check {
+                    scenario: "poll receiver is closed",
+                    input: ClosedReceiverCase {
+                        delivery: WatchEventDelivery::Poll,
+                        message: "failed to send static credential poll event",
+                    },
+                    expect: ClosedReceiverObservation {
+                        counter_delta: 0.0,
+                        level: tracing::Level::WARN,
+                        message: "failed to send static credential poll event".to_string(),
+                        event_name: None,
+                        metric_name: None,
+                        error: Some("channel closed".to_string()),
+                    },
+                },
+            ],
+            |case| {
+                let (tx, rx) = mpsc::channel(1);
+                drop(rx);
+                let logs = capture_logs(|| {
+                    forward_watch_event(
+                        case.delivery,
+                        &tx,
+                        Err(notify::Error::generic("watch failed")),
+                    );
+                });
+                let matching_logs = logs
+                    .into_iter()
+                    .filter(|log| log.message == case.message)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    matching_logs.len(),
+                    1,
+                    "one failed delivery writes its historical WARN"
+                );
+                let log = matching_logs
+                    .into_iter()
+                    .next()
+                    .expect("the failed delivery log");
+                let event_name = log.field("event_name").map(str::to_owned);
+                let metric_name = log.field("metric_name").map(str::to_owned);
+                let error = log.field("error").map(str::to_owned);
+
+                ClosedReceiverObservation {
+                    counter_delta: watcher_failure_delta(&metrics),
+                    level: log.level,
+                    message: log.message,
+                    event_name,
+                    metric_name,
+                    error,
+                }
+            },
         );
     }
 }

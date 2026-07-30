@@ -7,17 +7,17 @@ Provider-side hardware onboarding for NICo using the REST API and `nicocli`. Thi
 Make sure the following are in place before you begin:
 
 1. NICo is deployed and the REST API service is reachable at a known URL.
-2. You have `nicocli` installed (`make nico-cli` from the infra-controller repo) and a working config under `~/.nico/`. For setup, authentication, and config conventions, see the [Quick Start Guide](../getting-started/quick-start.md) and the nicocli reference guide.
-3. You hold the `PROVIDER_ADMIN` role in the org you are operating in. Tenant Admins with `targetedInstanceCreation` capability can also register Expected Machines, but the canonical path is provider-side.
-4. DHCP requests from all managed host BMC networks have been forwarded to the NICo DHCP service.
-5. For every host you plan to register, you have:
+1. You have `nicocli` installed (`make nico-cli` from the infra-controller repo) and a working config under `~/.nico/`. For setup, authentication, and config conventions, see the [Quick Start Guide](../getting-started/quick-start.md) and the nicocli reference guide.
+1. You hold the `PROVIDER_ADMIN` role in the org you are operating in. Tenant Admins with `targetedInstanceCreation` capability can also register Expected Machines, but the canonical path is provider-side.
+1. DHCP requests from all managed host BMC networks have been forwarded to the NICo DHCP service.
+1. For every host you plan to register, you have:
    - The MAC address of the host BMC
    - The chassis serial number
    - The host BMC factory default username and password
 
 Verify connectivity:
 
-```
+```bash
 nicocli site list
 nicocli user get
 ```
@@ -32,46 +32,67 @@ The Expected Machine endpoints are scoped per-org per-site. All requests require
 
 ### Single Machine
 
-Create one Expected Machine with explicit flags:
+Prompt for the BMC password and send the request body over stdin so the secret
+does not appear in shell history or the process list:
 
 ```bash
-nicocli expected-machine create \
-  --site-id <site-uuid> \
-  --bmc-mac-address <mac> \
-  --chassis-serial-number <chassis-serial> \
-  --default-bmc-username <bmc-user> \
-  --default-bmc-password <bmc-password>
+read -r -s -p 'Factory-default BMC password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs \
+    --arg siteId '<site-uuid>' \
+    --arg bmcMacAddress '<mac>' \
+    --arg chassisSerialNumber '<chassis-serial>' \
+    --arg defaultBmcUsername '<bmc-user>' \
+    '{
+      siteId: $siteId,
+      bmcMacAddress: $bmcMacAddress,
+      chassisSerialNumber: $chassisSerialNumber,
+      defaultBmcUsername: $defaultBmcUsername,
+      defaultBmcPassword: .
+    }' |
+  nicocli expected-machine create --data-file -
+unset NICO_PASSWORD
 ```
 
-Required flags: `--site-id`, `--bmc-mac-address`, `--chassis-serial-number`. The BMC credentials are optional on the REST schema but required in practice -- without them NICo cannot authenticate to the BMC for discovery.
+Required request fields are `siteId`, `bmcMacAddress`, and
+`chassisSerialNumber`. The BMC credentials are optional on the REST schema but
+required in practice -- without them NICo cannot authenticate to the BMC for
+discovery.
 
 Optional flags add metadata or pre-allocate resources:
 
 | Flag | Purpose |
-|---|---|
+| ---- | ------- |
 | `--bmc-ip-address` | Pre-allocate a reserved BMC IP (IPv4 or IPv6) instead of letting DHCP assign one |
 | `--rack-id` | Associate with a rack identifier |
 | `--sku-id` | Associate with a SKU |
 | `--manufacturer`, `--model`, `--firmware-version`, `--name`, `--description` | Free-text hardware metadata |
 | `--slot-id`, `--tray-idx`, `--host-id` | Physical placement within a rack/tray |
 
-You can also pass the entire request body as JSON:
+You can also pass additional fields in the stdin JSON object. Keep the password
+on stdin rather than writing it into the command:
 
 ```bash
-nicocli expected-machine create --data-file - <<'EOF'
-{
-  "siteId": "<site-uuid>",
-  "bmcMacAddress": "<mac>",
-  "defaultBmcUsername": "<bmc-user>",
-  "defaultBmcPassword": "<bmc-password>",
-  "chassisSerialNumber": "<chassis-serial>",
-  "fallbackDPUSerialNumbers": ["<dpu-serial-1>", "<dpu-serial-2>"],
-  "labels": {
-    "environment": "production",
-    "rack": "A1"
-  }
-}
-EOF
+read -r -s -p 'Factory-default BMC password: ' NICO_PASSWORD
+printf '\n'
+printf '%s' "$NICO_PASSWORD" |
+  jq -Rs \
+    --arg siteId '<site-uuid>' \
+    --arg bmcMacAddress '<mac>' \
+    --arg chassisSerialNumber '<chassis-serial>' \
+    --arg defaultBmcUsername '<bmc-user>' \
+    '{
+      siteId: $siteId,
+      bmcMacAddress: $bmcMacAddress,
+      defaultBmcUsername: $defaultBmcUsername,
+      defaultBmcPassword: .,
+      chassisSerialNumber: $chassisSerialNumber,
+      fallbackDPUSerialNumbers: ["<dpu-serial-1>", "<dpu-serial-2>"],
+      labels: {environment: "production", rack: "A1"}
+    }' |
+  nicocli expected-machine create --data-file -
+unset NICO_PASSWORD
 ```
 
 `fallbackDPUSerialNumbers` is JSON-only (no flag form) and is needed for DGX-H100 or other machines where the NetworkAdapter serial number is not available in the host Redfish.
@@ -119,12 +140,12 @@ Once Expected Machines are registered and the trust policy is in place, NICo's S
 The high-level flow:
 
 1. **DHCP discovery**: the host BMC sends a DHCP request; NICo assigns an IP and Site Explorer probes the BMC over Redfish using the factory default credentials from the Expected Machine, then rotates the BMC password to the site-wide credential. See [Redfish Workflow](../architecture/redfish_workflow.md).
-2. **Preingestion**: NICo runs a preingestion state machine against each discovered BMC endpoint (host and DPU). It checks BMC clock drift against site time, resetting the BMC if needed. For host endpoints, firmware components are upgraded to the minimum version required for ingestion.
-3. **DPU-host pairing**: Site Explorer correlates host and DPU serial numbers to form matched pairs. Once DPUs are validated and paired, the `ManagedHost` object is created and the state machine starts.
-4. **`DpuDiscoveringState` / `DPUInit`**: NICo configures Secure Boot on the DPU, installs the DPU OS (BFB image), and power-cycles the host to apply the new DPU configuration.
-5. **`HostInit`**: NICo configures BIOS, sets the host boot order, optionally collects TPM attestation measurements, waits for hardware discovery via the `scout` agent, and applies UEFI lockdown. When `scout` reports back, NICo replaces the temporary predicted host ID (prefix `fm100p`) with a stable host ID (prefix `fm100h`) derived from the host's DMI serial data or TPM certificate.
-6. **`BomValidating` / `Validation`**: NICo validates discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
-7. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned.
+1. **Preingestion**: NICo runs a preingestion state machine against each discovered BMC endpoint (host and DPU). It checks BMC clock drift against site time, resetting the BMC if needed. For host endpoints, firmware components are upgraded to the minimum version required for ingestion.
+1. **DPU-host pairing**: Site Explorer correlates host and DPU serial numbers to form matched pairs. Once DPUs are validated and paired, the `ManagedHost` object is created and the state machine starts.
+1. **`DpuDiscoveringState` / `DPUInit`**: NICo configures Secure Boot on the DPU, installs the DPU OS (BFB image), and power-cycles the host to apply the new DPU configuration.
+1. **`HostInit`**: NICo configures BIOS, sets the host boot order, optionally collects TPM attestation measurements, waits for hardware discovery via the `scout` agent, and applies UEFI lockdown. When `scout` reports back, NICo replaces the temporary predicted host ID (prefix `fm100p`) with a stable host ID (prefix `fm100h`) derived from the host's DMI serial data or TPM certificate.
+1. **`BomValidating` / `Validation`**: NICo validates discovered hardware against the expected SKU. If hardware validation is enabled, the host is rebooted and tested before proceeding.
+1. **`Ready`**: the host transitions through `HostInit/Discovered` and enters the available pool, ready for an instance to be assigned.
 
 For the full DPU lifecycle, see [DPU Lifecycle Management](../dpu-management/dpu-lifecycle-management.md). For the complete state transitions, see [Managed Host State Diagrams](../architecture/state_machines/managedhost.md).
 
@@ -132,19 +153,19 @@ For the full DPU lifecycle, see [DPU Lifecycle Management](../dpu-management/dpu
 
 Once machines reach `Ready`, they show up in the Machine REST endpoint. List all machines on a site:
 
-```
+```bash
 nicocli machine list --output table
 ```
 
 Inspect a single machine:
 
-```
+```bash
 nicocli machine get <machine-id>
 ```
 
 Include hardware metadata (CPU, memory, interfaces, etc.):
 
-```
+```bash
 nicocli machine get <machine-id> --include-metadata
 ```
 
@@ -165,7 +186,7 @@ Both flows assume hardware ingestion is complete -- which this page covers.
 
 When a machine is not being created or is stuck in a pre-`Ready` state, start with the Machine REST endpoint:
 
-```
+```bash
 nicocli machine list --output table
 nicocli machine get <machine-id>
 ```
@@ -208,7 +229,7 @@ For more DPU-specific troubleshooting (Secure Boot configuration, BMC password r
 
 ### Listing and Filtering
 
-```
+```bash
 nicocli expected-machine list --output table
 nicocli expected-machine list --site-id <site-uuid> --output table
 nicocli expected-machine list --include-relation Site --output table
@@ -218,7 +239,7 @@ Pagination is on by default (`--page-number`, `--page-size`); use `--all` to fet
 
 ### Single-Entry Operations
 
-```
+```bash
 nicocli expected-machine get <expected-machine-id>
 nicocli expected-machine update <expected-machine-id> --rack-id rack-02
 nicocli expected-machine delete <expected-machine-id>
@@ -228,7 +249,7 @@ nicocli expected-machine delete <expected-machine-id>
 
 ### Batch Update
 
-```
+```bash
 nicocli expected-machine batch-update --data-file updates.json
 ```
 
@@ -238,7 +259,7 @@ Where `updates.json` is a JSON array of `ExpectedMachineUpdateRequest` objects. 
 
 To dump the current table as JSON:
 
-```
+```bash
 nicocli expected-machine list --all --output json
 ```
 

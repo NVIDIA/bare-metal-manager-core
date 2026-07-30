@@ -25,14 +25,14 @@ probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 
 **--sort-by** *\<SORT_BY\>* \[default: primary-id\]  
-Sort output by specified field\
+Sort output by specified field  
 
-\
+  
 *Possible values:*
 
-- primary-id: Sort by the primary id
-
-- state: Sort by state
+> - primary-id: Sort by the primary id
+>
+> - state: Sort by state
 
 **-h**, **--help**  
 Print help (see a summary with -h)
@@ -42,6 +42,7 @@ Print help (see a summary with -h)
 | Subcommand | Description |
 |---|---|
 | [`get-report`](./site-explorer-get-report.md) | Retrieves the latest site exploration report |
+| [`mlx-devices`](./site-explorer-mlx-devices.md) | Report Mellanox/BlueField device NIC firmware from explored Redfish data. |
 | [`explore`](./site-explorer-explore.md) | Asks carbide-api to explore a single host and prints the report. Does not store it. |
 | [`re-explore`](./site-explorer-re-explore.md) | Asks carbide-api to explore a single host in the next exploration cycle. The results will be stored. |
 | [`refresh`](./site-explorer-refresh.md) | Immediately probes a BMC endpoint and persists the report. |

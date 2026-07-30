@@ -18,7 +18,6 @@
 // tests/runner_integration_tests.rs
 // Integration tests for MlxConfigRunner functionality
 
-use std::fs;
 use std::time::Duration;
 
 use carbide_test_support::Outcome::*;
@@ -117,30 +116,32 @@ fn test_empty_assignments() {
     assert!(result.is_ok());
 }
 
-// The smoke tests below can't pin an outcome: without a mockable mlxconfig binary
-// the operation may succeed or fail depending on the host. Each one asserts the
-// weaker contract that the flow runs to completion without panicking. They stay
-// standalone (no outcome to fold into a table) but share `dry_run_runner`.
+// Everything below drives `dry_run_runner`, which short-circuits before mlxconfig is ever
+// invoked: `query` returns an empty result rather than shelling out, `set` returns `Ok(())`,
+// and `sync`/`compare` take their counts from the assignment list. That makes the results
+// fully determined and host-independent.
+//
+// The comment that used to sit here claimed the opposite -- that no outcome could be pinned
+// without a mockable mlxconfig -- and every test below discarded its result with `let _ =`
+// on the strength of it. Since a dry-run query reports no current values, `sync` and
+// `compare` can never find a variable to change, which is the interesting half of the
+// contract and is now asserted.
 
 #[test]
 fn test_sync_with_no_changes_needed() {
     let runner = dry_run_runner();
 
-    // Create a mock JSON response file that matches our desired values
-    let json_data = common::create_sample_json_response("01:00.0");
-    let temp_file = tempfile::NamedTempFile::new().unwrap();
-    let json_string = serde_json::to_string_pretty(&json_data).unwrap();
-    fs::write(temp_file.path(), json_string).unwrap();
+    let assignments = &[("SRIOV_EN", "true"), ("NUM_OF_VFS", "16")];
 
-    // Since we're in dry_run mode, the sync operation will attempt to parse
-    // but won't actually execute mlxconfig commands. We can't mock the command
-    // execution easily, but this exercises the basic sync flow setup.
-    let assignments = &[
-        ("SRIOV_EN", "true"), // Already true in mock JSON
-        ("NUM_OF_VFS", "16"), // Already 16 in mock JSON
-    ];
-
-    let _ = runner.sync(assignments);
+    let result = runner
+        .sync(assignments)
+        .expect("dry-run sync should succeed");
+    assert_eq!(result.variables_checked, 2);
+    assert_eq!(
+        result.variables_changed, 0,
+        "a dry-run query returns no current values, so nothing can be found to change"
+    );
+    assert!(result.changes_applied.is_empty());
 }
 
 #[test]
@@ -148,20 +149,27 @@ fn test_compare_operation() {
     let runner = dry_run_runner();
 
     let assignments = &[
-        ("SRIOV_EN", "false"), // Different from mock JSON (which has true)
-        ("NUM_OF_VFS", "32"),  // Different from mock JSON (which has 16)
-        ("POWER_MODE", "LOW"), // Different from mock JSON (which has HIGH)
+        ("SRIOV_EN", "false"),
+        ("NUM_OF_VFS", "32"),
+        ("POWER_MODE", "LOW"),
     ];
 
-    // Fails in the query phase (no mockable mlxconfig); exercises the compare setup.
-    let _ = runner.compare(assignments);
+    let result = runner
+        .compare(assignments)
+        .expect("dry-run compare should succeed");
+    assert_eq!(result.variables_checked, 3);
+    assert_eq!(
+        result.variables_needing_change, 0,
+        "nothing to compare against without a real query"
+    );
+    assert!(result.planned_changes.is_empty());
 }
 
 #[test]
 fn test_set_with_array_variables() {
     let runner = dry_run_runner();
 
-    // Test sparse array assignments
+    // Sparse indices, deliberately non-contiguous.
     let assignments = &[
         ("GPIO_ENABLED[0]", "true"),
         ("GPIO_ENABLED[2]", "false"),
@@ -169,33 +177,33 @@ fn test_set_with_array_variables() {
         ("GPIO_MODES[3]", "bidirectional"),
     ];
 
-    // In dry run mode, this should process the assignments and build the command
-    // but not actually execute it.
-    let _ = runner.set(assignments);
+    assert!(
+        runner.set(assignments).is_ok(),
+        "sparse array assignments should resolve against the registry and build a command"
+    );
 }
 
 #[test]
 fn test_query_all_variables() {
     let runner = dry_run_runner();
 
-    // Exercises the query_all flow (no mockable mlxconfig to actually execute).
-    let _ = runner.query_all();
+    let result = runner
+        .query_all()
+        .expect("dry-run query_all should succeed");
+    assert!(
+        result.variables.is_empty(),
+        "a dry run reports nothing back from the card"
+    );
 }
 
 #[test]
 fn test_query_specific_variables() {
     let runner = dry_run_runner();
 
-    // Exercises the query flow (no mockable mlxconfig to actually execute).
-    let _ = runner.query(["SRIOV_EN", "NUM_OF_VFS"]);
-}
-
-#[test]
-fn test_query_array_variables() {
-    let runner = dry_run_runner();
-
-    // Query array variables - should expand to individual indices.
-    let _ = runner.query(["GPIO_ENABLED", "THERMAL_SENSORS"]);
+    let result = runner
+        .query(["SRIOV_EN", "NUM_OF_VFS"])
+        .expect("dry-run query should succeed");
+    assert!(result.variables.is_empty());
 }
 
 #[test]
@@ -204,12 +212,18 @@ fn test_sync_vs_set_vs_compare_consistency() {
 
     let assignments = &[("SRIOV_EN", "true"), ("NUM_OF_VFS", "32")];
 
-    // All three operations accept the same assignments and run to completion without
-    // panicking. We can't pin their outcome (no mockable mlxconfig), and the original
-    // test deliberately tolerated mixed success/failure across the three.
-    let _ = runner.set(assignments);
-    let _ = runner.sync(assignments);
-    let _ = runner.compare(assignments);
+    // The point of the test is that all three agree on the same assignment list, so pin
+    // that rather than just running them: each accepts the two variables, and neither
+    // sync nor compare finds anything to do without a real query behind it.
+    assert!(runner.set(assignments).is_ok());
+
+    let synced = runner.sync(assignments).expect("sync should succeed");
+    assert_eq!(synced.variables_checked, 2);
+    assert_eq!(synced.variables_changed, 0);
+
+    let compared = runner.compare(assignments).expect("compare should succeed");
+    assert_eq!(compared.variables_checked, 2);
+    assert_eq!(compared.variables_needing_change, 0);
 }
 
 #[test]
@@ -225,11 +239,12 @@ fn test_different_device_identifiers() {
     ];
 
     for device in &devices {
-        // Construction should succeed for every device format, and a basic operation
-        // should run without panicking.
         let options = ExecOptions::new().with_dry_run(true);
         let runner = MlxConfigRunner::with_options(device.to_string(), registry.clone(), options);
-        let _ = runner.set([("SRIOV_EN", "true")]);
+        assert!(
+            runner.set([("SRIOV_EN", "true")]).is_ok(),
+            "device identifier {device} should be accepted"
+        );
     }
 }
 
@@ -251,10 +266,13 @@ fn test_execution_options_propagation() {
     ];
 
     for options in test_cases {
-        // The runner builds with each option combination and runs without panicking.
+        // Only the dry-run cases can be asserted here -- the others would shell out to a
+        // real mlxconfig. What this pins is that no option combination makes the runner
+        // reject an assignment it would otherwise accept.
+        let dry_run = options.clone().with_dry_run(true);
         let runner =
-            MlxConfigRunner::with_options("01:00.0".to_string(), registry.clone(), options);
-        let _ = runner.set([("SRIOV_EN", "true")]);
+            MlxConfigRunner::with_options("01:00.0".to_string(), registry.clone(), dry_run);
+        assert!(runner.set([("SRIOV_EN", "true")]).is_ok());
     }
 }
 
@@ -275,7 +293,7 @@ mod realistic_scenarios {
         // Typical SRIOV configuration
         let sriov_config = &[("SRIOV_EN", "true"), ("NUM_OF_VFS", "8")];
 
-        let _ = runner.set(sriov_config);
+        assert!(runner.set(sriov_config).is_ok());
     }
 
     #[test]
@@ -293,7 +311,7 @@ mod realistic_scenarios {
             ("GPIO_MODES[3]", "bidirectional"),
         ];
 
-        let _ = runner.set(gpio_config);
+        assert!(runner.set(gpio_config).is_ok());
     }
 
     #[test]
@@ -311,6 +329,8 @@ mod realistic_scenarios {
             ("PERFORMANCE_PRESET", "8"),
         ];
 
-        let _ = runner.sync(perf_config);
+        let result = runner.sync(perf_config).expect("sync should succeed");
+        assert_eq!(result.variables_checked, 4);
+        assert_eq!(result.variables_changed, 0);
     }
 }

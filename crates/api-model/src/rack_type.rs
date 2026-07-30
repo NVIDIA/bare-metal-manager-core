@@ -17,8 +17,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// RackHardwareType identifies the hardware type of a rack.
 /// This is a flexible string-based type to allow new hardware types
@@ -65,23 +67,114 @@ impl From<&str> for RackHardwareType {
     }
 }
 
-/// RackProductFamily identifies the product family shared by rack components.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "text", rename_all = "snake_case")]
-#[serde(rename_all = "snake_case")]
+/// Identifies the product family shared by rack components.
+///
+/// String parsing trims outer whitespace, recognizes the lowercase
+/// `gb200` and `gb300` values, and preserves other non-empty identifiers in
+/// [`RackProductFamily::Other`]. Named variants retain existing API behavior;
+/// the open-ended variant lets descriptor-based backends accept new product
+/// families without a NICo release.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RackProductFamily {
     /// GB200 rack hardware.
     Gb200,
+
     /// GB300 rack hardware.
     Gb300,
+
+    /// A non-empty product-family identifier not represented by a named variant.
+    ///
+    /// The original spelling is preserved after outer whitespace is removed.
+    Other(String),
+}
+
+impl RackProductFamily {
+    /// Returns the product-family identifier sent to descriptor-based backends.
+    ///
+    /// Named variants use their canonical lowercase value. Values stored in
+    /// [`RackProductFamily::Other`] retain their original spelling with outer
+    /// whitespace removed.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Gb200 => "gb200",
+            Self::Gb300 => "gb300",
+            Self::Other(value) => value.trim(),
+        }
+    }
 }
 
 impl fmt::Display for RackProductFamily {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RackProductFamily::Gb200 => write!(f, "gb200"),
-            RackProductFamily::Gb300 => write!(f, "gb300"),
+        f.write_str(self.as_str())
+    }
+}
+
+/// Error returned for an empty rack product-family identifier.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("rack product family must not be empty")]
+pub struct RackProductFamilyParseError;
+
+impl FromStr for RackProductFamily {
+    type Err = RackProductFamilyParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let value = value.trim();
+
+        if value.is_empty() {
+            return Err(RackProductFamilyParseError);
         }
+
+        Ok(match value {
+            "gb200" => Self::Gb200,
+            "gb300" => Self::Gb300,
+            value => Self::Other(value.to_string()),
+        })
+    }
+}
+
+impl Serialize for RackProductFamily {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RackProductFamily {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse()
+            .map_err(D::Error::custom)
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for RackProductFamily {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for RackProductFamily {
+    fn encode_by_ref(
+        &self,
+        buf: &mut sqlx::postgres::PgArgumentBuffer,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        <&str as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str(), buf)
+    }
+}
+
+impl sqlx::Decode<'_, sqlx::Postgres> for RackProductFamily {
+    fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
+        let value = <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        value.parse().map_err(Into::into)
     }
 }
 
@@ -186,6 +279,14 @@ pub struct RackCapabilityCompute {
     /// Slot IDs that compute trays are expected to occupy.
     #[serde(default)]
     pub slot_ids: Option<Vec<u32>>,
+
+    /// Optional custom attributes for compute trays.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. These attributes override rack-level
+    /// attributes with identical keys when a consumer combines both maps.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 /* ********************************** */
@@ -210,6 +311,14 @@ pub struct RackCapabilitySwitch {
     /// Slot IDs that switches are expected to occupy.
     #[serde(default)]
     pub slot_ids: Option<Vec<u32>>,
+
+    /// Optional custom attributes for switches.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. These attributes override rack-level
+    /// attributes with identical keys when a consumer combines both maps.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 /* ********************************** */
@@ -234,6 +343,14 @@ pub struct RackCapabilityPowerShelf {
     /// Slot IDs that power shelves are expected to occupy.
     #[serde(default)]
     pub slot_ids: Option<Vec<u32>>,
+
+    /// Optional custom attributes for power shelves.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. These attributes override rack-level
+    /// attributes with identical keys when a consumer combines both maps.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 }
 
 /* ********************************** */
@@ -271,6 +388,14 @@ pub struct RackProfile {
 
     #[serde(default)]
     pub rack_hardware_class: Option<RackHardwareClass>,
+
+    /// Optional custom attributes inherited by each component role.
+    ///
+    /// Missing maps default to empty. Keys and values are preserved exactly,
+    /// with case-sensitive key matching. Role-level attributes override
+    /// rack-level attributes with identical keys.
+    #[serde(default)]
+    pub attributes: HashMap<String, String>,
 
     pub rack_capabilities: RackCapabilitiesSet,
 }
@@ -321,18 +446,21 @@ mod tests {
                         count: 18,
                         vendor: Some("NVIDIA".to_string()),
                         slot_ids: None,
+                        attributes: HashMap::new(),
                     },
                     switch: RackCapabilitySwitch {
                         name: None,
                         count: 9,
                         vendor: None,
                         slot_ids: None,
+                        attributes: HashMap::new(),
                     },
                     power_shelf: RackCapabilityPowerShelf {
                         name: None,
                         count: 8,
                         vendor: None,
                         slot_ids: None,
+                        attributes: HashMap::new(),
                     },
                 },
                 ..Default::default()
@@ -349,26 +477,38 @@ mod tests {
 
     #[test]
     fn test_rack_profile_config_toml_deserialization() {
+        // Inline and expanded TOML tables produce the same attribute maps, and
+        // deserialization does not normalize custom keys or values.
         let toml_str = r#"
 [NVL72]
 product_family = "gb200"
+attributes = { attribute1 = "value1", additional_attribute2 = "value2" }
 
 [NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
 vendor = "NVIDIA"
+attributes = { attribute1 = "compute-value", additional_attribute2 = "  MiXeD-Value  " }
 
 [NVL72.rack_capabilities.switch]
 count = 9
+attributes = { attribute1 = "switch-value" }
 
 [NVL72.rack_capabilities.power_shelf]
 count = 8
+attributes = { additional_attribute2 = "power-shelf-value" }
 
 [NVL36]
-product_family = "gb200"
+product_family = "test-product-family"
+
+[NVL36.attributes]
+attribute1 = "value1"
 
 [NVL36.rack_capabilities.compute]
 count = 9
+
+[NVL36.rack_capabilities.compute.attributes]
+additional_attribute2 = "compute-value"
 
 [NVL36.rack_capabilities.switch]
 count = 9
@@ -387,8 +527,58 @@ count = 2
             Some("GB200")
         );
 
+        assert_eq!(
+            nvl72.attributes,
+            HashMap::from([
+                ("attribute1".to_string(), "value1".to_string()),
+                ("additional_attribute2".to_string(), "value2".to_string()),
+            ])
+        );
+
+        assert_eq!(
+            nvl72.rack_capabilities.compute.attributes,
+            HashMap::from([
+                ("attribute1".to_string(), "compute-value".to_string()),
+                (
+                    "additional_attribute2".to_string(),
+                    "  MiXeD-Value  ".to_string(),
+                ),
+            ])
+        );
+
+        assert_eq!(
+            nvl72.rack_capabilities.switch.attributes,
+            HashMap::from([("attribute1".to_string(), "switch-value".to_string())])
+        );
+
+        assert_eq!(
+            nvl72.rack_capabilities.power_shelf.attributes,
+            HashMap::from([(
+                "additional_attribute2".to_string(),
+                "power-shelf-value".to_string(),
+            )])
+        );
+
         let nvl36 = config.get("NVL36").unwrap();
-        assert_eq!(nvl36.product_family, Some(RackProductFamily::Gb200));
+
+        assert_eq!(
+            nvl36.product_family,
+            Some(RackProductFamily::Other("test-product-family".to_string()))
+        );
+
+        assert_eq!(
+            nvl36.attributes,
+            HashMap::from([("attribute1".to_string(), "value1".to_string())])
+        );
+
+        assert_eq!(
+            nvl36.rack_capabilities.compute.attributes,
+            HashMap::from([(
+                "additional_attribute2".to_string(),
+                "compute-value".to_string(),
+            )])
+        );
+
         assert_eq!(nvl36.rack_capabilities.compute.count, 9);
         assert_eq!(nvl36.rack_capabilities.switch.count, 9);
         assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
@@ -450,6 +640,28 @@ count = 2
         assert_eq!(nvl36.rack_hardware_type, None);
         assert_eq!(nvl36.rack_hardware_topology, None);
         assert_eq!(nvl36.rack_hardware_class, None);
+        assert!(nvl36.attributes.is_empty());
+        assert!(nvl36.rack_capabilities.compute.attributes.is_empty());
+        assert!(nvl36.rack_capabilities.switch.attributes.is_empty());
+        assert!(nvl36.rack_capabilities.power_shelf.attributes.is_empty());
+    }
+
+    #[test]
+    fn test_rack_profile_config_rejects_duplicate_attribute_keys() {
+        // TOML rejects repeated literal keys before Serde constructs the map.
+        let toml_str = r#"
+[NVL36]
+attributes = { attribute1 = "value1", attribute1 = "value2" }
+
+[NVL36.rack_capabilities.compute]
+count = 9
+[NVL36.rack_capabilities.switch]
+count = 9
+[NVL36.rack_capabilities.power_shelf]
+count = 2
+"#;
+
+        assert!(toml::from_str::<RackProfileConfig>(toml_str).is_err());
     }
 
     #[test]
@@ -607,6 +819,13 @@ count = 2
             "gb300 round-trips" {
                 RackProductFamily::Gb300 => Yields(("\"gb300\"".to_string(), RackProductFamily::Gb300)),
             }
+
+            "arbitrary family round-trips" {
+                RackProductFamily::Other("test-product-family".to_string()) => Yields((
+                    "\"test-product-family\"".to_string(),
+                    RackProductFamily::Other("test-product-family".to_string()),
+                )),
+            }
         );
     }
 
@@ -620,6 +839,10 @@ count = 2
 
             "gb300" {
                 RackProductFamily::Gb300 => "gb300".to_string(),
+            }
+
+            "arbitrary family" {
+                RackProductFamily::Other(" test-product-family ".to_string()) => "test-product-family".to_string(),
             }
         );
     }
@@ -636,12 +859,16 @@ count = 2
                 "\"gb300\"" => Yields(RackProductFamily::Gb300),
             }
 
-            "unknown product family" {
-                "\"gb400\"" => Fails,
+            "arbitrary product family" {
+                "\"test-product-family\"" => Yields(RackProductFamily::Other("test-product-family".to_string())),
             }
 
-            "wrong case" {
-                "\"GB200\"" => Fails,
+            "arbitrary product family preserves case" {
+                "\"GB200\"" => Yields(RackProductFamily::Other("GB200".to_string())),
+            }
+
+            "empty product family" {
+                "\"  \"" => Fails,
             }
         );
     }

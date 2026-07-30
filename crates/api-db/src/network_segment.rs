@@ -256,6 +256,55 @@ pub async fn for_prefix_containing_address(
     }
 }
 
+/// Resolve the managed segment whose configured prefix contains a static
+/// address.
+///
+/// Unlike [`for_static_address`], this never falls back to
+/// `static-assignments`. ExpectedInterface declarations using an explicit
+/// allocation policy or a DPU role use this stricter lookup.
+pub async fn for_managed_static_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+    expected_segment_type: Option<NetworkSegmentType>,
+) -> DatabaseResult<NetworkSegment> {
+    let segment = for_prefix_containing_address(&mut *txn, address)
+        .await?
+        .ok_or_else(|| {
+            DatabaseError::InvalidArgument(match expected_segment_type {
+                Some(expected_segment_type) => format!(
+                    "fixed IP {address} is not within a configured {expected_segment_type} network segment",
+                ),
+                None => {
+                    format!("fixed IP {address} is not within a configured network segment")
+                }
+            })
+        })?;
+
+    if let Some(expected_segment_type) = expected_segment_type
+        && segment.config.segment_type != expected_segment_type
+    {
+        return Err(DatabaseError::InvalidArgument(format!(
+            "fixed IP {address} belongs to {} network segment {}, not the expected {expected_segment_type} segment type",
+            segment.config.segment_type, segment.config.name,
+        )));
+    }
+
+    Ok(segment)
+}
+
+/// Resolve the segment that owns a configured static address.
+///
+/// Addresses outside managed prefixes use `static-assignments`.
+pub async fn for_static_address(
+    txn: &mut PgConnection,
+    address: IpAddr,
+) -> DatabaseResult<NetworkSegment> {
+    match for_prefix_containing_address(&mut *txn, address).await? {
+        Some(segment) => Ok(segment),
+        None => static_assignments(&mut *txn).await,
+    }
+}
+
 /// Returns all network segments that contain at least one relay/gateway IP.
 pub async fn for_relay_all(
     txn: &mut PgConnection,
@@ -697,7 +746,7 @@ where
                 })
             };
 
-        let mut allocated_addresses = IpAllocator::new(
+        let allocator = IpAllocator::new(
             &mut *conn,
             record,
             dhcp_handler,
@@ -711,14 +760,14 @@ where
             )
         })?;
 
-        let nfree = allocated_addresses.num_free().map_err(|e| {
-            DatabaseError::new(
-                "IpAllocator.num_free error",
-                sqlx::Error::Io(std::io::Error::other(e.to_string())),
-            )
-        })?;
-
-        record.prefixes[0].num_free_ips = nfree;
+        for prefix in &mut record.prefixes {
+            prefix.num_free_ips = Some(allocator.num_free(prefix.id).map_err(|e| {
+                DatabaseError::new(
+                    "IpAllocator.num_free error",
+                    sqlx::Error::Io(std::io::Error::other(e.to_string())),
+                )
+            })?);
+        }
     }
 
     Ok(())
@@ -1059,6 +1108,89 @@ mod tests {
         persist(segment, &mut txn, NetworkSegmentControllerState::Ready).await?;
         txn.commit().await?;
         Ok(segment_id)
+    }
+
+    #[crate::sqlx_test]
+    async fn free_ip_counts_are_populated_for_every_dual_stack_prefix(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let segment = persist(
+            NewNetworkSegment {
+                id: uuid::Uuid::new_v4().into(),
+                name: "dual-stack-free-counts".to_string(),
+                subdomain_id: None,
+                vpc_id: None,
+                mtu: 1500,
+                // Configure IPv6 first so the fixture does not imply an IPv4-first
+                // contract. The assertions below find each family explicitly because
+                // `json_agg` does not guarantee row order.
+                prefixes: vec![
+                    NewNetworkPrefix {
+                        prefix: "2001:db8::/64".parse()?,
+                        gateway: None,
+                        dhcpv6_link_address: None,
+                        num_reserved: 0,
+                    },
+                    NewNetworkPrefix {
+                        prefix: "192.0.2.0/30".parse()?,
+                        gateway: None,
+                        dhcpv6_link_address: None,
+                        num_reserved: 0,
+                    },
+                ],
+                vlan_id: None,
+                vni: None,
+                segment_type: NetworkSegmentType::Admin,
+                can_stretch: None,
+                allocation_strategy: Default::default(),
+            },
+            &mut txn,
+            NetworkSegmentControllerState::Ready,
+        )
+        .await?;
+
+        let found_without_counts = find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::One(IdColumn, &segment.id),
+            NetworkSegmentSearchConfig::default(),
+        )
+        .await?;
+        assert_eq!(found_without_counts.len(), 1);
+        assert!(
+            found_without_counts[0]
+                .prefixes
+                .iter()
+                .all(|prefix| prefix.num_free_ips.is_none())
+        );
+
+        let mut found = find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::One(IdColumn, &segment.id),
+            NetworkSegmentSearchConfig {
+                include_num_free_ips: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+        assert_eq!(found.len(), 1);
+        let found = found.pop().expect("persisted segment should be returned");
+        assert_eq!(found.id, segment.id);
+
+        let ipv4 = found
+            .prefixes
+            .iter()
+            .find(|prefix| prefix.prefix.is_ipv4())
+            .expect("IPv4 prefix should be returned");
+        let ipv6 = found
+            .prefixes
+            .iter()
+            .find(|prefix| prefix.prefix.is_ipv6())
+            .expect("IPv6 prefix should be returned");
+        assert_eq!(ipv4.num_free_ips, Some(2));
+        assert_eq!(ipv6.num_free_ips, Some(u64::MAX as u128 - 1));
+
+        Ok(())
     }
 
     #[crate::sqlx_test]

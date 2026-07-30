@@ -35,8 +35,12 @@ pub struct NetworkPrefix {
     pub vpc_prefix_id: Option<VpcPrefixId>,
     pub vpc_prefix: Option<IpNetwork>,
     pub svi_ip: Option<IpAddr>,
-    #[serde(default)]
-    pub num_free_ips: u32,
+    /// Exact free-address count populated when
+    /// `NetworkSegmentSearchConfig::include_num_free_ips` is enabled.
+    ///
+    /// `None` means accounting was skipped; `Some(0)` is an exact zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_free_ips: Option<u128>,
 }
 
 #[derive(Debug)]
@@ -70,7 +74,7 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
             dhcpv6_link_address: row.try_get("dhcpv6_link_address")?,
             num_reserved: row.try_get("num_reserved")?,
             svi_ip: row.try_get("svi_ip")?,
-            num_free_ips: 0,
+            num_free_ips: None,
         })
     }
 }
