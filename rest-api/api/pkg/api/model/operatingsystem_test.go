@@ -891,7 +891,7 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 			TenantOrg:           "test",
 			SiteID:              dbossa[0].SiteID,
 			EnableSerialConsole: true,
-			Config:              map[string]interface{}{},
+			Config:              cdbm.TenantSiteConfig{},
 			Created:             cdb.GetCurTime(),
 			Updated:             cdb.GetCurTime(),
 		},

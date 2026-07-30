@@ -52,8 +52,9 @@ nico-api:
   hostname: ""   # REQUIRED: external nico-api hostname (e.g. api-<site>.<domain>)
 
   ## Trust admin-CLI client certs minted from the site CA (CN=site-root) so admin-cli works
-  ## with NO manual ConfigMap edit. Pair with helm-prereqs vault.nicoCliClientRole (ou: "Invalid").
+  ## with NO manual ConfigMap edit. Pair with helm-prereqs vault.nicoCliClientRole.
   ## "site-root" is the CN of the cert-manager site root created by nico-prereqs — generic, keep as-is.
+  ## This issuer-CN entry is what authorizes admin-CLI certs; the cert's OU only names the group.
   auth:
     additionalIssuerCns:
       - "site-root"

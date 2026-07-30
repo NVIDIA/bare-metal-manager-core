@@ -968,9 +968,19 @@ impl RuleInfo {
                 .iter()
                 .flat_map(|x| match *x {
                     RulePrincipal::ForgeAdminCLI => {
+                        // The group is NOT compared: `is_proper_subset_of`
+                        // matches any ExternalUser against any ExternalUser,
+                        // so this value is documentation-only. What actually
+                        // gates admin-CLI access is the client cert mapping to
+                        // an ExternalUser at all (issuer CN listed in
+                        // `auth.additional_issuer_cns`). Keep the value in
+                        // sync with the helm-prereqs `nicoCliClientRole` OU so
+                        // audit logs read sensibly; its previous placeholder
+                        // ("Invalid") leaked into chart defaults as if it were
+                        // load-bearing (issue #3662).
                         vec![Principal::ExternalUser(ExternalUserInfo::new(
                             None,
-                            "Invalid".to_string(),
+                            "nico-cli-client".to_string(),
                             None,
                         ))]
                     }

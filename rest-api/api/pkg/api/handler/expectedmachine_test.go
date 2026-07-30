@@ -528,10 +528,7 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		Name:           "privileged-tenant",
 		Org:            privilegedTenantOrg,
 		OrgDisplayName: cutil.GetPtr("Privileged Tenant Org"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
-		CreatedBy: privilegedTenantUserID,
+		CreatedBy:      privilegedTenantUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(privilegedTenant).Exec(ctx)
 	assert.Nil(t, err)
@@ -547,6 +544,18 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 	assert.Nil(t, err)
 
 	privilegedTenantUser := createMockUser(privilegedTenantOrg, authz.TenantAdminRole)
+	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		AccountNumber:             common.GenerateAccountNumber(),
+		TenantID:                  &privilegedTenant.ID,
+		TenantOrg:                 privilegedTenantOrg,
+		InfrastructureProviderID:  infraProv.ID,
+		InfrastructureProviderOrg: org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 privilegedTenantUserID,
+	}).Exec(ctx)
+	assert.Nil(t, err)
 
 	// Dual-role org: same org acts as both Infrastructure Provider and privileged Tenant
 	dualRoleOrg := "dual-role-org"
@@ -564,10 +573,7 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 		Name:           "dual-role-tenant",
 		Org:            dualRoleOrg,
 		OrgDisplayName: cutil.GetPtr("Dual Role Org"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
-		CreatedBy: dualRoleUserID,
+		CreatedBy:      dualRoleUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(dualRoleTenant).Exec(ctx)
 	assert.Nil(t, err)
@@ -602,15 +608,46 @@ func TestGetAllExpectedMachineHandler_Handle(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(dualRoleTenantSite).Exec(ctx)
 	assert.Nil(t, err)
 
-	// External site owned by a different provider but accessible to dual-role tenant via TenantSite
+	// External site owned by a different provider; tenant access requires an
+	// explicit per-site TargetedInstanceCreation override because the Ready
+	// TenantAccount on the unmanaged provider has the capability disabled globally.
+	siteOverrideTrue := true
 	dualRoleExternalTenantSite := &cdbm.TenantSite{
 		ID:        uuid.New(),
 		TenantID:  dualRoleTenant.ID,
 		TenantOrg: dualRoleOrg,
 		SiteID:    unmanagedSite.ID,
+		Config:    cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideTrue},
 		CreatedBy: dualRoleUserID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(dualRoleExternalTenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		AccountNumber:             common.GenerateAccountNumber(),
+		TenantID:                  &dualRoleTenant.ID,
+		TenantOrg:                 dualRoleOrg,
+		InfrastructureProviderID:  dualRoleIP.ID,
+		InfrastructureProviderOrg: dualRoleOrg,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                 dualRoleUserID,
+	}).Exec(ctx)
+	assert.Nil(t, err)
+	// Ready account with the unmanaged provider has global capability disabled;
+	// the external/unmanaged site is reachable via the explicit TenantSite override above.
+	_, err = dbSession.DB.NewInsert().Model(&cdbm.TenantAccount{
+		ID:                        uuid.New(),
+		AccountNumber:             common.GenerateAccountNumber(),
+		TenantID:                  &dualRoleTenant.ID,
+		TenantOrg:                 dualRoleOrg,
+		InfrastructureProviderID:  unmanagedIP.ID,
+		InfrastructureProviderOrg: unmanagedIP.Org,
+		Status:                    cdbm.TenantAccountStatusReady,
+		Config:                    cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+		CreatedBy:                 dualRoleUserID,
+	}).Exec(ctx)
 	assert.Nil(t, err)
 
 	dualRoleEM, err := emDAO.Create(ctx, nil, cdbm.ExpectedMachineCreateInput{
@@ -1721,10 +1758,116 @@ func TestDeleteExpectedMachineHandler_Handle(t *testing.T) {
 	}
 }
 
+// TestExpectedMachineTenantSiteOverrideDenied verifies that TenantSite association
+// does not grant access when global capability is enabled but the Site override is false.
+func TestExpectedMachineTenantSiteOverrideDenied(t *testing.T) {
+	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
+	ctx := context.Background()
+
+	ipOrg := "test-ip-org-override"
+	ip := &cdbm.InfrastructureProvider{
+		ID:   uuid.New(),
+		Name: "test-provider-override",
+		Org:  ipOrg,
+	}
+	_, err := dbSession.DB.NewInsert().Model(ip).Exec(ctx)
+	assert.Nil(t, err)
+
+	site := &cdbm.Site{
+		ID:                       uuid.New(),
+		Name:                     "test-site-override",
+		Org:                      ipOrg,
+		InfrastructureProviderID: ip.ID,
+		Status:                   cdbm.SiteStatusRegistered,
+	}
+	_, err = dbSession.DB.NewInsert().Model(site).Exec(ctx)
+	assert.Nil(t, err)
+
+	tenantOrg := "test-tenant-org-override"
+	tenant := &cdbm.Tenant{
+		ID:             uuid.New(),
+		Name:           "test-tenant-override",
+		Org:            tenantOrg,
+		OrgDisplayName: cutil.GetPtr("Test Tenant Override"),
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenant).Exec(ctx)
+	assert.Nil(t, err)
+
+	tenantUser := &cdbm.User{
+		ID:    uuid.New(),
+		Email: cutil.GetPtr("tenant-override@example.com"),
+		OrgData: cdbm.OrgData{
+			tenantOrg: cdbm.Org{
+				ID:          125,
+				Name:        tenantOrg,
+				DisplayName: "Test Tenant Org Override",
+				OrgType:     "ENTERPRISE",
+				Roles:       []string{authz.TenantAdminRole},
+			},
+		},
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantUser).Exec(ctx)
+	assert.Nil(t, err)
+
+	tenantAccount := &cdbm.TenantAccount{
+		ID:                       uuid.New(),
+		AccountNumber:            "TA-override",
+		TenantID:                 &tenant.ID,
+		TenantOrg:                tenantOrg,
+		InfrastructureProviderID: ip.ID,
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
+		CreatedBy:                tenantUser.ID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
+	assert.Nil(t, err)
+
+	siteOverrideFalse := false
+	tenantSite := &cdbm.TenantSite{
+		ID:        uuid.New(),
+		TenantID:  tenant.ID,
+		TenantOrg: tenantOrg,
+		SiteID:    site.ID,
+		Config:    cdbm.TenantSiteConfig{TargetedInstanceCreation: &siteOverrideFalse},
+		CreatedBy: tenantUser.ID,
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantSite).Exec(ctx)
+	assert.Nil(t, err)
+
+	cfg := common.GetTestConfig()
+	e := echo.New()
+	handler := NewCreateExpectedMachineHandler(dbSession, sc.NewClientPool(nil), cfg)
+
+	reqBody, err := json.Marshal(model.APIExpectedMachineCreateRequest{
+		SiteID:              site.ID.String(),
+		BmcMacAddress:       "AA:BB:CC:DD:EE:99",
+		DefaultBmcUsername:  cutil.GetPtr("admin"),
+		DefaultBmcPassword:  cutil.GetPtr("password"),
+		ChassisSerialNumber: "OVERRIDE-DENIED-CHASSIS",
+	})
+	assert.Nil(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/v2/org/"+tenantOrg+"/nico/expected-machine", bytes.NewReader(reqBody))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req = req.WithContext(ctx)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.Set("user", tenantUser)
+	c.SetParamNames("orgName")
+	c.SetParamValues(tenantOrg)
+
+	err = handler.Handle(c)
+	assert.Nil(t, err)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "Response: %v", rec.Body.String())
+}
+
 // TestTenantWithTargetedInstanceCreationCapability tests that tenants with TargetedInstanceCreation
 // capability can create, get, update, and delete Expected Machines
 func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	dbSession := testExpectedMachineInitDB(t)
+	defer dbSession.Close()
 
 	ctx := context.Background()
 	var err error
@@ -1756,9 +1899,6 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		Name:           "test-tenant",
 		Org:            tenantOrg,
 		OrgDisplayName: cutil.GetPtr("Test Tenant"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenant).Exec(ctx)
 	assert.Nil(t, err)
@@ -1780,7 +1920,9 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 	_, err = dbSession.DB.NewInsert().Model(tenantUser).Exec(ctx)
 	assert.Nil(t, err)
 
-	// Create TenantAccount linking tenant to infrastructure provider
+	// Create a Ready TenantAccount with TargetedInstanceCreation enabled. The
+	// TenantSite below has no explicit override and therefore inherits this
+	// account default.
 	tenantAccount := &cdbm.TenantAccount{
 		ID:                       uuid.New(),
 		AccountNumber:            "TA-12345",
@@ -1788,6 +1930,7 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		TenantOrg:                tenantOrg,
 		InfrastructureProviderID: ip.ID,
 		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 		CreatedBy:                tenantUser.ID,
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
@@ -1810,9 +1953,6 @@ func TestTenantWithTargetedInstanceCreationCapability(t *testing.T) {
 		Name:           "test-tenant-no-cap",
 		Org:            tenantOrg2,
 		OrgDisplayName: cutil.GetPtr("Test Tenant No Cap"),
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: false, // No capability
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenant2).Exec(ctx)
 	assert.Nil(t, err)

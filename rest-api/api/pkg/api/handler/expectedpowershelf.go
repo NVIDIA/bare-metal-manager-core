@@ -70,12 +70,6 @@ func (cepsh CreateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cepsh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	// Bind request data to API model
 	apiRequest := model.APIExpectedPowerShelfCreateRequest{}
@@ -100,6 +94,12 @@ func (cepsh CreateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site targeted by this request.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cepsh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -223,7 +223,7 @@ func NewGetAllExpectedPowerShelfHandler(dbSession *cdb.Session, cfg *config.Conf
 
 // Handle godoc
 // @Summary Get all ExpectedPowerShelves
-// @Description Get all ExpectedPowerShelves
+// @Description Get all ExpectedPowerShelves. Provider callers may omit siteId to list across their Sites; Tenant callers must specify siteId.
 // @Tags ExpectedPowerShelf
 // @Accept json
 // @Produce json
@@ -247,18 +247,15 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaepsh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	filterInput := cdbm.ExpectedPowerShelfFilterInput{}
 
 	// Get Site ID from query param if specified
 	siteIDStr := c.QueryParam("siteId")
+	var site *cdbm.Site
+	var err error
+	var privilegeScope *common.TenantPrivilegeScope
 	if siteIDStr != "" {
-		site, err := common.GetSiteFromIDString(ctx, nil, siteIDStr, gaepsh.dbSession)
+		site, err = common.GetSiteFromIDString(ctx, nil, siteIDStr, gaepsh.dbSession)
 		if err != nil {
 			if errors.Is(err, cdb.ErrDoesNotExist) {
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site specified in request data does not exist", nil)
@@ -266,7 +263,17 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
 		}
+		privilegeScope = &common.TenantPrivilegeScope{SiteID: &site.ID}
+	}
 
+	// A missing scope is the documented provider-wide list exemption above;
+	// tenant callers without siteId are rejected below.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaepsh.dbSession, org, dbUser, true, privilegeScope)
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
+	if site != nil {
 		// Validate ProviderTenantSite relationship and site state
 		hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, gaepsh.dbSession, site, infrastructureProvider, tenant)
 		if apiError != nil {
@@ -278,8 +285,8 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		}
 
 		filterInput.SiteIDs = []uuid.UUID{site.ID}
-	} else if tenant != nil {
-		// Tenants must specify a Site ID
+	} else if tenant != nil && infrastructureProvider == nil {
+		// Tenant-only callers must specify a Site ID.
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Site ID must be specified in query when retrieving Expected Power Shelves as a Tenant", nil)
 	} else {
 		// Get all Sites for the org's Infrastructure Provider
@@ -311,7 +318,7 @@ func (gaepsh GetAllExpectedPowerShelfHandler) Handle(c echo.Context) error {
 
 	// Validate pagination request
 	pageRequest := pagination.PageRequest{}
-	err := c.Bind(&pageRequest)
+	err = c.Bind(&pageRequest)
 	if err != nil {
 		logger.Warn().Err(err).Msg("error binding pagination request data into API model")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to parse request pagination data", nil)
@@ -404,12 +411,6 @@ func (gepsh GetExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gepsh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Power Shelf ID from URL param
 	expectedPowerShelfIDStr := c.Param("id")
 	expectedPowerShelfID, err := uuid.Parse(expectedPowerShelfIDStr)
@@ -449,6 +450,12 @@ func (gepsh GetExpectedPowerShelfHandler) Handle(c echo.Context) error {
 			logger.Error().Err(err).Msg("error retrieving Site from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Power Shelf due to DB error", nil)
 		}
+	}
+
+	// Scope tenant privilege to the Expected Power Shelf's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gepsh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -512,12 +519,6 @@ func (uepsh UpdateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uepsh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Power Shelf ID from URL param
 	expectedPowerShelfID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -567,6 +568,12 @@ func (uepsh UpdateExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	if site == nil {
 		logger.Error().Msg("no Site relation found for Expected Power Shelf")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Power Shelf", nil)
+	}
+
+	// Scope tenant privilege to the Expected Power Shelf's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uepsh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -682,12 +689,6 @@ func (depsh DeleteExpectedPowerShelfHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, depsh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Power Shelf ID from URL param
 	expectedPowerShelfID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -713,6 +714,12 @@ func (depsh DeleteExpectedPowerShelfHandler) Handle(c echo.Context) error {
 	if site == nil {
 		logger.Error().Msg("no Site relation found for Expected Power Shelf")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Power Shelf", nil)
+	}
+
+	// Scope tenant privilege to the Expected Power Shelf's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, depsh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
