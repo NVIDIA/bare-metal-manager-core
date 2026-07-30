@@ -25,7 +25,10 @@ mod tests {
 
     use ::rpc::measured_boot::{FromGrpc, FromGrpcOpt};
     use carbide_uuid::machine::MachineId;
-    use carbide_uuid::measured_boot::TrustedMachineId;
+    use carbide_uuid::measured_boot::{
+        MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
+        TrustedMachineId,
+    };
     use measured_boot::pcr::PcrRegisterValue;
     use measured_boot::records::MeasurementApprovedMachineRecord;
     use model::machine::{CURRENT_STATE_MODEL_VERSION, ManagedHostState};
@@ -1637,6 +1640,120 @@ mod tests {
         let req = mbrpc::ListMeasurementTrustedProfilesRequest {};
         let resp = site::handle_list_measurement_trusted_profiles(api, req).await?;
         assert_eq!(0, resp.approval_records.len());
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_remove_measurement_trust_approvals(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let env = create_test_env(db_conn).await;
+        let api = &env.api;
+
+        let add_resp = site::handle_add_measurement_trusted_machine(
+            api,
+            mbrpc::AddMeasurementTrustedMachineRequest {
+                machine_id: "*".to_string(),
+                approval_type: mbrpc::MeasurementApprovedTypePb::Persist.into(),
+                pcr_registers: String::new(),
+                comments: String::new(),
+            },
+        )
+        .await?;
+        let remove_resp = site::handle_remove_measurement_trusted_machine(
+            api,
+            mbrpc::RemoveMeasurementTrustedMachineRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_machine_request::Selector::MachineId(
+                        "*".to_string(),
+                    ),
+                ),
+            },
+        )
+        .await?;
+        assert_eq!(
+            add_resp.approval_record.unwrap().approval_id,
+            remove_resp.approval_record.unwrap().approval_id
+        );
+
+        let missing_machine_id = site::handle_remove_measurement_trusted_machine(
+            api,
+            mbrpc::RemoveMeasurementTrustedMachineRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_machine_request::Selector::MachineId(
+                        "*".to_string(),
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_machine_id.code(), tonic::Code::NotFound);
+
+        let missing_machine_approval = site::handle_remove_measurement_trusted_machine(
+            api,
+            mbrpc::RemoveMeasurementTrustedMachineRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_machine_request::Selector::ApprovalId(
+                        MeasurementApprovedMachineId::new(),
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_machine_approval.code(), tonic::Code::NotFound);
+
+        let missing_profile_id = site::handle_remove_measurement_trusted_profile(
+            api,
+            mbrpc::RemoveMeasurementTrustedProfileRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_profile_request::Selector::ProfileId(
+                        MeasurementSystemProfileId::new(),
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_profile_id.code(), tonic::Code::NotFound);
+
+        let missing_profile_approval = site::handle_remove_measurement_trusted_profile(
+            api,
+            mbrpc::RemoveMeasurementTrustedProfileRequest {
+                selector: Some(
+                    mbrpc::remove_measurement_trusted_profile_request::Selector::ApprovalId(
+                        MeasurementApprovedProfileId::new(),
+                    ),
+                ),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_profile_approval.code(), tonic::Code::NotFound);
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn test_trust_approval_requires_existing_profile(
+        db_conn: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let env = create_test_env(db_conn).await;
+
+        let missing_profile = site::handle_add_measurement_trusted_profile(
+            &env.api,
+            mbrpc::AddMeasurementTrustedProfileRequest {
+                profile_id: Some(MeasurementSystemProfileId::new()),
+                approval_type: mbrpc::MeasurementApprovedTypePb::Persist.into(),
+                pcr_registers: None,
+                comments: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(missing_profile.code(), tonic::Code::NotFound);
 
         Ok(())
     }

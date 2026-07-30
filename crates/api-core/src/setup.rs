@@ -1553,6 +1553,9 @@ async fn initialize_and_start_controllers<'a>(
                     .switch_state_controller
                     .effective_switch_mtls_services_as_i32(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_enabled: carbide_config.bmc_rotation_enabled,
             }
             .into(),
         )

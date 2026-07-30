@@ -1098,12 +1098,11 @@ func TestGetSiteHandler_Handle(t *testing.T) {
 	tn2 := testSiteBuildTenant(t, dbSession, "test-tenant-2", tnOrg2, tnu2)
 	assert.NotNil(t, tn2)
 
-	// Tenant 3 is privileged
+	// Tenant 3 is privileged via Ready TenantAccount.config
 	tn3 := testSiteBuildTenant(t, dbSession, "test-tenant-3", tnOrg3, tnu3)
 	assert.NotNil(t, tn3)
-	tn3 = testInstanceUpdateTenantCapability(t, dbSession, tn3)
 
-	ta3 := common.TestBuildTenantAccount(t, dbSession, ip, &tn3.ID, tnOrg3, cdbm.TenantAccountStatusReady, tnu3)
+	ta3 := common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn3.ID, tnOrg3, cdbm.TenantAccountStatusReady, tnu3)
 	assert.NotNil(t, ta3)
 
 	// Tenant 1 has an allocation
@@ -2868,9 +2867,8 @@ func TestSiteHandler_GetStatusDetails(t *testing.T) {
 	tn3 := testSiteBuildTenant(t, dbSession, "Test Tenant 3", tnOrg3, tnu3)
 	assert.NotNil(t, tn3)
 
-	// Tenant 3 is privileged
-	tn3 = testInstanceUpdateTenantCapability(t, dbSession, tn3)
-	ta3 := common.TestBuildTenantAccount(t, dbSession, ip, &tn3.ID, tnOrg3, cdbm.TenantAccountStatusReady, tnu3)
+	// Tenant 3 is privileged via Ready TenantAccount.config
+	ta3 := common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn3.ID, tnOrg3, cdbm.TenantAccountStatusReady, tnu3)
 	assert.NotNil(t, ta3)
 
 	// Tenant 1 has an Allocation

@@ -95,6 +95,9 @@ use db::credential_rotation::{
 };
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
+use model::bmc_info::BmcInfo;
+use model::machine::Machine;
+use model::switch::Switch;
 use sqlx::PgPool;
 
 /// All work in this crate is the `bmc` credential family.
@@ -241,6 +244,237 @@ pub struct BmcRotationTarget {
     pub port: Option<u16>,
     /// Precise dispatch vendor `set_bmc_root_password` branches on.
     pub vendor: RedfishVendor,
+}
+
+/// A reachable, keyable BMC endpoint: the MAC that keys both the
+/// `device_credential_rotation` row and the per-device Vault secret, plus where
+/// to reach it. Vendor-independent -- it is the precursor a controller resolves
+/// a dispatch vendor for (by probing at rotation time) to form a
+/// [`BmcRotationTarget`]. Each device state controller builds these from its own
+/// snapshot: the machine controller from the host BMC and each DPU BMC, the
+/// switch controller from the switch's single BMC.
+#[derive(Debug, Clone)]
+pub struct BmcEndpoint {
+    /// BMC MAC keying the rotation row and the per-device secret.
+    pub device_mac: MacAddress,
+    /// BMC host (IP or hostname).
+    pub host: String,
+    /// BMC port, when non-default.
+    pub port: Option<u16>,
+}
+
+impl BmcEndpoint {
+    /// Build an endpoint from a device's BMC info, or `None` when the BMC lacks
+    /// a MAC or IP (unkeyable / unreachable, so there is nothing to rotate).
+    fn from_bmc_info(info: &BmcInfo) -> Option<Self> {
+        Some(Self {
+            device_mac: info.mac?,
+            host: info.ip?.to_string(),
+            port: info.port,
+        })
+    }
+
+    /// The BMC endpoint of a machine (a managed host or one of its DPUs), or
+    /// `None` when that machine's BMC is unkeyable / unreachable.
+    pub fn from_machine(machine: &Machine) -> Option<Self> {
+        Self::from_bmc_info(&machine.status.bmc_info)
+    }
+
+    /// The BMC endpoint of a switch, or `None` when the switch has no BMC info
+    /// or it is unkeyable / unreachable.
+    pub fn from_switch(switch: &Switch) -> Option<Self> {
+        Self::from_bmc_info(switch.bmc_info.as_ref()?)
+    }
+
+    /// Pair this endpoint with a caller-resolved dispatch `vendor` to form the
+    /// [`BmcRotationTarget`] the engine rotates.
+    pub fn into_target(self, vendor: RedfishVendor) -> BmcRotationTarget {
+        BmcRotationTarget {
+            device_mac: self.device_mac,
+            host: self.host,
+            port: self.port,
+            vendor,
+        }
+    }
+}
+
+#[cfg(test)]
+mod bmc_endpoint_tests {
+    use std::net::IpAddr;
+
+    use super::*;
+
+    fn mac(last: u8) -> MacAddress {
+        MacAddress::new([0x02, 0, 0, 0, 0, last])
+    }
+
+    fn ip(last: u8) -> IpAddr {
+        IpAddr::from([10, 0, 0, last])
+    }
+
+    fn bmc_info(mac: Option<MacAddress>, ip: Option<IpAddr>, port: Option<u16>) -> BmcInfo {
+        BmcInfo {
+            machine_interface_id: None,
+            ip,
+            port,
+            mac,
+            version: None,
+            firmware_version: None,
+        }
+    }
+
+    #[test]
+    fn endpoint_resolves_from_bmc_info() {
+        let endpoint = BmcEndpoint::from_bmc_info(&bmc_info(Some(mac(1)), Some(ip(1)), Some(8443)))
+            .expect("a fully addressable BMC yields an endpoint");
+        assert_eq!(endpoint.device_mac, mac(1));
+        assert_eq!(endpoint.host, ip(1).to_string());
+        assert_eq!(endpoint.port, Some(8443));
+    }
+
+    #[test]
+    fn endpoint_is_none_when_mac_missing() {
+        // No MAC means the rotation row / per-device secret cannot be keyed.
+        assert!(BmcEndpoint::from_bmc_info(&bmc_info(None, Some(ip(1)), None)).is_none());
+    }
+
+    #[test]
+    fn endpoint_is_none_when_ip_missing() {
+        // No IP means the BMC cannot be reached.
+        assert!(BmcEndpoint::from_bmc_info(&bmc_info(Some(mac(1)), None, None)).is_none());
+    }
+}
+
+/// Transient-failure retry budget for a single BMC-rotation entry. Device-level
+/// failures are handled by the engine (quarantine + backoff), so this only
+/// bounds re-entries caused by transient *bookkeeping* errors before a
+/// controller gives up and returns to its steady state; the entry guard
+/// re-enters on the next sweep if a device still lags.
+pub const MAX_BMC_ROTATION_RETRIES: u32 = 3;
+
+/// Outcome of one BMC-rotation tick, as seen by a device state controller.
+///
+/// The tick may cover one device (a switch or power-shelf BMC) or several (a
+/// managed host's host BMC plus each DPU BMC); either way it collapses to
+/// whether every device reached a terminal engine outcome or at least one hit a
+/// transient bookkeeping failure worth retrying.
+pub enum BmcRotationTick {
+    /// Every device reached a terminal outcome (converged, quarantined, or no
+    /// work). The controller should leave the rotation state; the entry guard
+    /// re-enters later if a quarantined device becomes eligible again.
+    Settled,
+    /// At least one device hit a transient bookkeeping failure. The controller
+    /// should retry the tick, bounded by the state's retry budget.
+    Retry,
+}
+
+/// What a state controller should do after one BMC-rotation tick, independent of
+/// which controller or state drives it. Keeping this state-neutral lets the
+/// machine (`ManagedHostState::RotatingBmc`), switch
+/// (`SwitchControllerState::RotatingBmc`), and (later) power-shelf controllers
+/// share one retry/budget policy and remain thin maps onto their own state
+/// constructors.
+pub enum RotationStep {
+    /// The tick reached a terminal outcome for every device (converged,
+    /// quarantined, or no work): leave the rotation state, and it is safe to
+    /// clear any one-shot force request because the forced attempt genuinely
+    /// fired. The entry guard re-enters on a later sweep if a device lags again.
+    Settled,
+    /// The transient-retry budget was exhausted without settling. Leave the
+    /// rotation state, but do *not* treat a force request as satisfied: the
+    /// forced attempt never cleanly ran (the failures were pre-hardware
+    /// bookkeeping errors that record no quarantine), so leaving the flag set
+    /// lets the entry guard re-attempt on a later sweep instead of silently
+    /// dropping the operator's request.
+    GaveUp,
+    /// Re-enter the rotation state carrying this incremented retry count.
+    Retry { retry_count: u32 },
+}
+
+/// Fold one tick outcome and the current retry count into the next
+/// [`RotationStep`]. Device-level failures are already handled by the engine
+/// (quarantine + backoff); this only bounds re-entries caused by *transient
+/// bookkeeping* failures before a controller falls back to its steady state.
+///
+/// `object_id` is used only for the give-up log line, so any controller passes
+/// its own identifier (a machine, switch, or power-shelf id).
+pub fn advance(
+    tick: BmcRotationTick,
+    retry_count: u32,
+    object_id: impl std::fmt::Display,
+) -> RotationStep {
+    match tick {
+        BmcRotationTick::Settled => RotationStep::Settled,
+        BmcRotationTick::Retry => {
+            let next = retry_count + 1;
+            if next >= MAX_BMC_ROTATION_RETRIES {
+                tracing::warn!(
+                    %object_id,
+                    "BMC rotation exhausted its transient-retry budget; returning to steady state (a pending force request stays set so the entry guard re-attempts on a later sweep; a passively-lagging device is re-selected by the gate)"
+                );
+                RotationStep::GaveUp
+            } else {
+                RotationStep::Retry { retry_count: next }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod retry_seam_tests {
+    use super::{BmcRotationTick, MAX_BMC_ROTATION_RETRIES, RotationStep, advance};
+
+    /// Any Display value stands in for a real object id; the seam uses it only
+    /// for the give-up log line.
+    const OBJECT_ID: &str = "test-object";
+
+    #[test]
+    fn advance_settles_regardless_of_retry_count() {
+        // A settled tick always leaves the rotation state, even mid-budget: every
+        // device reached a terminal outcome, so there is nothing left to retry.
+        // `Settled` (not `GaveUp`) is what authorizes the caller to clear a
+        // satisfied force request.
+        assert!(matches!(
+            advance(BmcRotationTick::Settled, 0, OBJECT_ID),
+            RotationStep::Settled
+        ));
+        assert!(matches!(
+            advance(
+                BmcRotationTick::Settled,
+                MAX_BMC_ROTATION_RETRIES - 1,
+                OBJECT_ID
+            ),
+            RotationStep::Settled
+        ));
+    }
+
+    #[test]
+    fn advance_retries_with_incremented_count_within_budget() {
+        // A transient failure below budget re-enters carrying count+1, so the
+        // budget actually advances toward its bound rather than looping forever.
+        let RotationStep::Retry { retry_count } = advance(BmcRotationTick::Retry, 0, OBJECT_ID)
+        else {
+            panic!("a transient failure below budget must retry");
+        };
+        assert_eq!(retry_count, 1);
+    }
+
+    #[test]
+    fn advance_gives_up_at_budget() {
+        // The last attempt before the bound (count+1 == MAX) stops retrying and
+        // falls back to the steady state instead of exceeding the budget. It
+        // reports `GaveUp` rather than `Settled` so the caller leaves a pending
+        // force request in place (the forced attempt never cleanly ran) instead
+        // of silently clearing it.
+        assert!(matches!(
+            advance(
+                BmcRotationTick::Retry,
+                MAX_BMC_ROTATION_RETRIES - 1,
+                OBJECT_ID
+            ),
+            RotationStep::GaveUp
+        ));
+    }
 }
 
 /// Errors that abort a rotation tick as a transient handler failure (so the

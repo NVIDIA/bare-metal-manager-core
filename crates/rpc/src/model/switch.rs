@@ -237,6 +237,7 @@ mod tests {
             deleted: None,
             bmc_mac_address: None,
             bmc_info: None,
+            bmc_credential_rotation_requested: false,
             controller_state: Versioned::new(
                 SwitchControllerState::Ready,
                 config_version::ConfigVersion::initial(),
@@ -300,6 +301,7 @@ mod tests {
             deleted: None,
             bmc_mac_address: None,
             bmc_info: None,
+            bmc_credential_rotation_requested: false,
             controller_state: Versioned::new(
                 SwitchControllerState::Created,
                 config_version::ConfigVersion::initial(),

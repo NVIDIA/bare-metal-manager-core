@@ -20,19 +20,27 @@ use crate::errors::CarbideCliResult;
 use crate::rpc::ApiClient;
 
 /// A human-readable description of whichever BMC identifier(s) the operator
-/// supplied, for the confirmation message.
-fn describe_target(id: Option<String>, bmc_mac: Option<String>) -> String {
-    match (id, bmc_mac) {
-        (Some(id), Some(mac)) => format!("machine {id} (BMC {mac})"),
-        (Some(id), None) => format!("machine {id}"),
-        (None, Some(mac)) => format!("BMC {mac}"),
-        (None, None) => "the requested BMC".to_string(),
+/// supplied, for the confirmation message. `machine_id` and `switch_id` are
+/// mutually exclusive (enforced by clap), so at most one device id is set.
+fn describe_target(
+    machine_id: Option<String>,
+    switch_id: Option<String>,
+    bmc_mac: Option<String>,
+) -> String {
+    match (machine_id, switch_id, bmc_mac) {
+        (Some(id), _, Some(mac)) => format!("machine {id} (BMC {mac})"),
+        (Some(id), _, None) => format!("machine {id}"),
+        (None, Some(id), Some(mac)) => format!("switch {id} (BMC {mac})"),
+        (None, Some(id), None) => format!("switch {id}"),
+        (None, None, Some(mac)) => format!("BMC {mac}"),
+        (None, None, None) => "the requested BMC".to_string(),
     }
 }
 
 pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()> {
     let target = describe_target(
         data.id.map(|id| id.to_string()),
+        data.switch_id.map(|id| id.to_string()),
         data.bmc_mac.map(|mac| mac.to_string()),
     );
     api_client.0.trigger_bmc_credential_rotation(data).await?;
@@ -48,6 +56,7 @@ pub async fn set(data: ForceSet, api_client: &ApiClient) -> CarbideCliResult<()>
 pub async fn clear(data: ForceClear, api_client: &ApiClient) -> CarbideCliResult<()> {
     let target = describe_target(
         data.id.map(|id| id.to_string()),
+        data.switch_id.map(|id| id.to_string()),
         data.bmc_mac.map(|mac| mac.to_string()),
     );
     api_client.0.trigger_bmc_credential_rotation(data).await?;

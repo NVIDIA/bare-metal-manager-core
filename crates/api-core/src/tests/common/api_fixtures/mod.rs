@@ -1682,6 +1682,9 @@ pub async fn create_test_env_with_overrides(
                     &component_manager::config::effective_switch_mtls_services(&[]),
                 ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                redfish_client_pool: redfish_sim.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_enabled: false,
             }
             .into(),
         )

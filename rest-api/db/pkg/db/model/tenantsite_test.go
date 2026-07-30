@@ -68,7 +68,7 @@ func TestTenantSiteSQLDAO_GetByID(t *testing.T) {
 	tn := TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, tnu)
 
 	site := TestBuildSite(t, dbSession, ip, "Test Site 1", ipu)
-	ts := TestBuildTenantSite(t, dbSession, tn, site, map[string]interface{}{}, tnu)
+	ts := TestBuildTenantSite(t, dbSession, tn, site, nil, tnu)
 
 	type fields struct {
 		dbSession *db.Session
@@ -172,7 +172,7 @@ func TestTenantSiteSQLDAO_GetByTenantIDAndSiteID(t *testing.T) {
 	tn := TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, tnu)
 
 	site := TestBuildSite(t, dbSession, ip, "Test Site 1", ipu)
-	ts := TestBuildTenantSite(t, dbSession, tn, site, map[string]interface{}{}, tnu)
+	ts := TestBuildTenantSite(t, dbSession, tn, site, nil, tnu)
 
 	type fields struct {
 		dbSession *db.Session
@@ -282,17 +282,15 @@ func TestTenantSiteSQLDAO_GetAll(t *testing.T) {
 	tnu2 := TestBuildUser(t, dbSession, uuid.NewString(), tnOrg2, tnRoles)
 	tn2 := TestBuildTenant(t, dbSession, "Test Tenant 2", tnOrg2, tnu2)
 
-	config := map[string]interface{}{
-		"test-key": "test-value",
-	}
+	config := &TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)}
 
 	sites := []*Site{}
 	siteCount := 30
-	for i := 0; i < siteCount; i++ {
+	for i := range siteCount {
 		site := TestBuildSite(t, dbSession, ip, fmt.Sprintf("test-site-%d", i), ipu)
 		sites = append(sites, site)
 		if i%2 == 0 {
-			TestBuildTenantSite(t, dbSession, tn1, site, map[string]interface{}{}, tnu1)
+			TestBuildTenantSite(t, dbSession, tn1, site, nil, tnu1)
 		} else {
 			TestBuildTenantSite(t, dbSession, tn2, site, config, tnu2)
 		}
@@ -406,8 +404,8 @@ func TestTenantSiteSQLDAO_GetAll(t *testing.T) {
 				dbSession: dbSession,
 			},
 			args: args{
-				configKey: cutil.GetPtr("test-key"),
-				configVal: cutil.GetPtr("test-value"),
+				configKey: cutil.GetPtr("targetedInstanceCreation"),
+				configVal: cutil.GetPtr("true"),
 			},
 			wantCount:      siteCount / 2,
 			wantTotalCount: siteCount / 2,
@@ -513,7 +511,7 @@ func TestTenantSiteSQLDAO_Create(t *testing.T) {
 		tenantID  uuid.UUID
 		tenantOrg string
 		siteID    uuid.UUID
-		config    map[string]interface{}
+		config    *TenantSiteConfig
 		createdBy uuid.UUID
 	}
 
@@ -536,14 +534,14 @@ func TestTenantSiteSQLDAO_Create(t *testing.T) {
 				tenantID:  tn.ID,
 				tenantOrg: tnOrg,
 				siteID:    site.ID,
-				config:    map[string]interface{}{"test-key": "test-value"},
+				config:    &TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
 				createdBy: tnu.ID,
 			},
 			want: &TenantSite{
 				TenantID:  tn.ID,
 				TenantOrg: tnOrg,
 				SiteID:    site.ID,
-				Config:    map[string]interface{}{"test-key": "test-value"},
+				Config:    TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
 				CreatedBy: tnu.ID,
 			},
 			verifyChildSpanner: true,
@@ -564,7 +562,7 @@ func TestTenantSiteSQLDAO_Create(t *testing.T) {
 				TenantID:  tn.ID,
 				TenantOrg: tnOrg,
 				SiteID:    site.ID,
-				Config:    map[string]interface{}{},
+				Config:    TenantSiteConfig{},
 				CreatedBy: tnu.ID,
 			},
 		},
@@ -620,7 +618,7 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 	tn := TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, tnu)
 
 	site := TestBuildSite(t, dbSession, ip, "Test Site 1", ipu)
-	ts := TestBuildTenantSite(t, dbSession, tn, site, map[string]interface{}{}, tnu)
+	ts := TestBuildTenantSite(t, dbSession, tn, site, nil, tnu)
 
 	type fields struct {
 		dbSession *db.Session
@@ -628,7 +626,7 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 	type args struct {
 		id                  uuid.UUID
 		enableSerialConsole *bool
-		config              map[string]interface{}
+		config              *TenantSiteConfig
 	}
 
 	// OTEL Spanner configuration
@@ -663,11 +661,11 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 			},
 			args: args{
 				id:     ts.ID,
-				config: map[string]interface{}{"test-key": "test-value"},
+				config: &TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
 			},
 			want: &TenantSite{
 				ID:     ts.ID,
-				Config: map[string]interface{}{"test-key": "test-value"},
+				Config: TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(true)},
 			},
 		},
 	}
@@ -700,6 +698,20 @@ func TestTenantSiteSQLDAO_Update(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("remove targetedInstanceCreation", func(t *testing.T) {
+		tsWithOverride := TestBuildTenantSite(t, dbSession, tn, TestBuildSite(t, dbSession, ip, "Test Site 2", ipu),
+			&TenantSiteConfig{TargetedInstanceCreation: cutil.GetPtr(false)}, tnu)
+
+		tssd := TenantSiteSQLDAO{dbSession: dbSession}
+		got, err := tssd.Update(ctx, nil, TenantSiteUpdateInput{
+			TenantSiteID: tsWithOverride.ID,
+			Config:       &TenantSiteConfig{},
+		})
+		assert.NoError(t, err)
+		assert.Nil(t, got.Config.TargetedInstanceCreation)
+	})
+
 }
 
 func TestTenantSiteSQLDAO_Delete(t *testing.T) {
@@ -721,7 +733,7 @@ func TestTenantSiteSQLDAO_Delete(t *testing.T) {
 	tn := TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, tnu)
 
 	site := TestBuildSite(t, dbSession, ip, "Test Site 1", ipu)
-	ts := TestBuildTenantSite(t, dbSession, tn, site, map[string]interface{}{}, tnu)
+	ts := TestBuildTenantSite(t, dbSession, tn, site, nil, tnu)
 
 	type fields struct {
 		dbSession *db.Session

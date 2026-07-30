@@ -46,6 +46,12 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 	org3 := "test-org-3"
 	user3 := common.TestBuildUser(t, dbSession, uuid.NewString(), org3, []string{authz.TenantAdminRole})
 
+	org4 := "test-org-4"
+	user4 := common.TestBuildUser(t, dbSession, uuid.NewString(), org4, []string{authz.ProviderAdminRole, authz.TenantAdminRole})
+	ip4 := common.TestBuildInfrastructureProvider(t, dbSession, "test-provider-4", org4, user4)
+	tn4 := common.TestBuildTenant(t, dbSession, "test-tenant-4", org4, user4)
+	ta4 := common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip4, &tn4.ID, org4, cdbm.TenantAccountStatusPending, user4)
+
 	tests := []struct {
 		name                  string
 		org                   string
@@ -69,6 +75,12 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 			org:                   org3,
 			user:                  user3,
 			serviceAccountEnabled: false,
+		},
+		{
+			name:                  "test get current ServiceAccount promotes existing capable TenantAccount to Ready",
+			org:                   org4,
+			user:                  user4,
+			serviceAccountEnabled: true,
 		},
 	}
 
@@ -140,6 +152,21 @@ func TestServiceAccountHandler_GetCurrent(t *testing.T) {
 				sds, sdErr := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{tas[0].ID.String()}, common.RECENT_STATUS_DETAIL_COUNT)
 				require.NoError(t, sdErr)
 				require.NotEmpty(t, sds, "service-account-created tenant account should have a status detail")
+				assert.Equal(t, cdbm.TenantAccountStatusReady, sds[0].Status)
+			}
+
+			if test.org == org4 {
+				taDAO := cdbm.NewTenantAccountDAO(dbSession)
+				sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+
+				updatedTA, taErr := taDAO.GetByID(ctx, nil, ta4.ID, nil)
+				require.NoError(t, taErr)
+				assert.Equal(t, cdbm.TenantAccountStatusReady, updatedTA.Status)
+				assert.True(t, updatedTA.Config.TargetedInstanceCreation)
+
+				sds, sdErr := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{ta4.ID.String()}, common.RECENT_STATUS_DETAIL_COUNT)
+				require.NoError(t, sdErr)
+				require.NotEmpty(t, sds, "service-account-promoted tenant account should have a status detail")
 				assert.Equal(t, cdbm.TenantAccountStatusReady, sds[0].Status)
 			}
 		})
