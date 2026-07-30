@@ -30,6 +30,7 @@ use bmc_mock::{
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
+use rand::RngExt;
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
 use rpc::forge_agent_control_response::Action;
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,68 @@ use crate::machine_utils::{
 use crate::{PersistedDpuMachine, PersistedHostMachine};
 
 pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
+
+// RFC 2131 section 4.1's Ethernet example starts at four seconds, doubles to a
+// 64-second base, and adds uniform jitter from -1 through +1 second.
+const DHCP_RETRY_INITIAL_DELAY: Duration = Duration::from_secs(4);
+const DHCP_RETRY_MAX_DELAY: Duration = Duration::from_secs(64);
+const DHCP_RETRY_JITTER_MILLIS: i64 = 1_000;
+
+fn dhcp_retry_delay(retry_attempt: u32, jitter_millis: i64) -> Duration {
+    assert!((-DHCP_RETRY_JITTER_MILLIS..=DHCP_RETRY_JITTER_MILLIS).contains(&jitter_millis));
+
+    let multiplier = 1_u32 << retry_attempt.min(4);
+    let base_delay = DHCP_RETRY_INITIAL_DELAY
+        .saturating_mul(multiplier)
+        .min(DHCP_RETRY_MAX_DELAY);
+    let delay_millis = i64::try_from(base_delay.as_millis()).expect("DHCP retry delay fits in i64")
+        + jitter_millis;
+    Duration::from_millis(u64::try_from(delay_millis).expect("DHCP retry delay is positive"))
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DhcpRetryState {
+    attempt: u32,
+    deadline: Option<Instant>,
+}
+
+impl DhcpRetryState {
+    fn reset(&mut self) {
+        self.attempt = 0;
+        self.deadline = None;
+    }
+
+    // Determine how long a DHCP action needs to be parked in the queue
+    // without being re-attempted. Actions behind Dhcp(_) are also effectively
+    // blocked till the backoff expires.
+    fn remaining_backoff(&self, now: Instant) -> Option<Duration> {
+        let remaining = self.deadline?.saturating_duration_since(now);
+        (!remaining.is_zero()).then_some(remaining)
+    }
+
+    fn schedule_next(&mut self, now: Instant, jitter_millis: i64) -> Duration {
+        let retry_attempt = self.attempt;
+        self.attempt = self.attempt.saturating_add(1);
+        let retry_delay = dhcp_retry_delay(retry_attempt, jitter_millis);
+        self.deadline = Some(now + retry_delay);
+        retry_delay
+    }
+}
+
+/// Abandon a queued machine DHCP request when the machine powers off or cycles
+/// so that we can actively drain everything behind the Dhcp(_) action barrier.
+/// If any future action needs to run regardless of DHCP status, need to include
+/// that action here.
+fn abandon_machine_dhcp_on_power_change(
+    actions: &mut VecDeque<FsmAction>,
+    dhcp_retry: &mut DhcpRetryState,
+) {
+    let is_machine_dhcp = |action: &FsmAction| matches!(action, FsmAction::Dhcp(DhcpType::Machine));
+    if actions.iter().any(is_machine_dhcp) {
+        actions.retain(|action| !is_machine_dhcp(action));
+        dhcp_retry.reset();
+    }
+}
 
 fn direct_dhcp_relay_address(
     is_host: bool,
@@ -83,6 +146,7 @@ pub struct MachineStateMachine {
     agent_polling_deadline: Option<(Instant, Timer)>,
     bmc_dhcp_info: Option<DhcpResponseInfo>,
     machine_dhcp_info: Option<DhcpResponseInfo>,
+    dhcp_retry: DhcpRetryState,
     machine_discovery_result: Option<MachineDiscoveryResult>,
 
     actions: VecDeque<FsmAction>,
@@ -254,6 +318,7 @@ impl MachineStateMachine {
             agent_polling_deadline: None,
             bmc_dhcp_info: None,
             machine_dhcp_info: None,
+            dhcp_retry: DhcpRetryState::default(),
             machine_discovery_result: None,
             installed_os: initial_os_image,
             live_state: Arc::new(RwLock::new(LiveState {
@@ -294,6 +359,7 @@ impl MachineStateMachine {
             bmc_state: None,
             bmc_injection: Arc::new(InjectionStore::new()),
             machine_dhcp_info: None,
+            dhcp_retry: DhcpRetryState::default(),
             machine_discovery_result: None,
             machine_on_deadline: None,
             agent_polling_deadline: None,
@@ -353,6 +419,11 @@ impl MachineStateMachine {
     pub async fn process_actions(&mut self) -> Option<Duration> {
         while let Some(action) = self.actions.front() {
             self.update_live_state();
+            if matches!(action, FsmAction::Dhcp(_))
+                && let Some(remaining) = self.dhcp_retry.remaining_backoff(Instant::now())
+            {
+                return Some(remaining);
+            }
             match action {
                 FsmAction::SetupBmc => match self.setup_bmc().await {
                     Ok((bmc_mock, bmc_state)) => {
@@ -391,18 +462,20 @@ impl MachineStateMachine {
                 FsmAction::Dhcp(DhcpType::Bmc) => match self.bmc_dhcp_discovery().await {
                     Ok(bmc_dhcp_info) => {
                         self.bmc_dhcp_info = Some(bmc_dhcp_info);
+                        self.dhcp_retry.reset();
                         self.actions.pop_front();
                         self.fsm_event(Event::DhcpComplete(DhcpType::Bmc))
                     }
-                    Err(_) => return Some(self.config.run_interval_working),
+                    Err(_) => return Some(self.next_dhcp_retry_delay(DhcpType::Bmc)),
                 },
                 FsmAction::Dhcp(DhcpType::Machine) => match self.machine_dhcp_discovery().await {
                     Ok(machine_dhcp_info) => {
                         self.machine_dhcp_info = Some(machine_dhcp_info);
+                        self.dhcp_retry.reset();
                         self.actions.pop_front();
                         self.fsm_event(Event::DhcpComplete(DhcpType::Machine))
                     }
-                    Err(_) => return Some(self.config.run_interval_working),
+                    Err(_) => return Some(self.next_dhcp_retry_delay(DhcpType::Machine)),
                 },
                 FsmAction::PxeBootRequest => match self.pxe_boot_request().await {
                     Ok(os_image) => {
@@ -454,6 +527,7 @@ impl MachineStateMachine {
                         self.machine_on_deadline = None;
                         self.power_cycle_deadline = None;
                         self.agent_polling_deadline = None;
+                        self.dhcp_retry.reset();
                         // Let the FSM own the transition: it is returned by `event()`,
                         // not assigned here.
                         self.fsm_event(Event::DpuFlippedToNicMode);
@@ -516,7 +590,24 @@ impl MachineStateMachine {
         None
     }
 
+    fn next_dhcp_retry_delay(&mut self, dhcp_type: DhcpType) -> Duration {
+        let retry_attempt = self.dhcp_retry.attempt;
+        let jitter_millis =
+            rand::rng().random_range(-DHCP_RETRY_JITTER_MILLIS..=DHCP_RETRY_JITTER_MILLIS);
+        let retry_delay = self.dhcp_retry.schedule_next(Instant::now(), jitter_millis);
+        tracing::debug!(
+            ?dhcp_type,
+            retry_attempt,
+            retry_delay_milliseconds = retry_delay.as_millis(),
+            "scheduled DHCP retry"
+        );
+        retry_delay
+    }
+
     fn fsm_event(&mut self, event: Event) {
+        if matches!(event, Event::PowerCycle | Event::PowerOff) {
+            abandon_machine_dhcp_on_power_change(&mut self.actions, &mut self.dhcp_retry);
+        }
         let old_state = self.fsm;
         let (new_state, actions) = self.fsm.event(event);
         tracing::info!(previous_state = ?old_state, ?event, next_state = ?new_state, ?actions, "machine FSM step");
@@ -1270,6 +1361,234 @@ mod tests {
                 },
             ],
             |(is_host, host_inband)| direct_dhcp_relay_address(is_host, admin, host_inband),
+        );
+    }
+
+    #[test]
+    fn dhcp_retry_delay_uses_rfc_2131_backoff() {
+        check_values(
+            [
+                Check {
+                    scenario: "first retry with minimum jitter",
+                    input: (0, -1_000),
+                    expect: Duration::from_secs(3),
+                },
+                Check {
+                    scenario: "first retry without jitter",
+                    input: (0, 0),
+                    expect: Duration::from_secs(4),
+                },
+                Check {
+                    scenario: "first retry with maximum jitter",
+                    input: (0, 1_000),
+                    expect: Duration::from_secs(5),
+                },
+                Check {
+                    scenario: "second retry doubles the base",
+                    input: (1, 0),
+                    expect: Duration::from_secs(8),
+                },
+                Check {
+                    scenario: "third retry doubles the base",
+                    input: (2, 0),
+                    expect: Duration::from_secs(16),
+                },
+                Check {
+                    scenario: "fourth retry doubles the base",
+                    input: (3, 0),
+                    expect: Duration::from_secs(32),
+                },
+                Check {
+                    scenario: "fifth retry reaches the cap",
+                    input: (4, 0),
+                    expect: Duration::from_secs(64),
+                },
+                Check {
+                    scenario: "later retry remains capped with minimum jitter",
+                    input: (u32::MAX, -1_000),
+                    expect: Duration::from_secs(63),
+                },
+                Check {
+                    scenario: "later retry remains capped with maximum jitter",
+                    input: (u32::MAX, 1_000),
+                    expect: Duration::from_secs(65),
+                },
+            ],
+            |(retry_attempt, jitter_millis)| dhcp_retry_delay(retry_attempt, jitter_millis),
+        );
+    }
+
+    #[test]
+    fn dhcp_retry_state_increments_and_resets() {
+        #[derive(Clone, Copy)]
+        enum Step {
+            Fail,
+            Reset,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "first failure uses attempt 0",
+                    input: &[Step::Fail][..],
+                    expect: (Duration::from_secs(4), 1),
+                },
+                Check {
+                    scenario: "consecutive failures advance the ladder",
+                    input: &[Step::Fail, Step::Fail, Step::Fail][..],
+                    expect: (Duration::from_secs(16), 3),
+                },
+                Check {
+                    scenario: "reset after failures restarts the ladder",
+                    input: &[Step::Fail, Step::Fail, Step::Reset, Step::Fail][..],
+                    expect: (Duration::from_secs(4), 1),
+                },
+                Check {
+                    scenario: "reset after a failure returns attempt to zero",
+                    input: &[Step::Fail, Step::Reset][..],
+                    expect: (Duration::ZERO, 0),
+                },
+            ],
+            |steps| {
+                let now = Instant::now();
+                let mut retry = DhcpRetryState::default();
+                let mut last_delay = Duration::ZERO;
+                for step in steps {
+                    match step {
+                        Step::Fail => last_delay = retry.schedule_next(now, 0),
+                        Step::Reset => {
+                            retry.reset();
+                            last_delay = Duration::ZERO;
+                        }
+                    }
+                }
+                (last_delay, retry.attempt)
+            },
+        );
+    }
+
+    #[test]
+    fn dhcp_retry_backoff_is_held_until_its_deadline() {
+        let scheduled_at = Instant::now();
+
+        check_values(
+            [
+                Check {
+                    scenario: "no retry scheduled yet",
+                    input: (0, Duration::ZERO),
+                    expect: None,
+                },
+                Check {
+                    scenario: "early wake-up while the backoff is pending",
+                    input: (1, Duration::from_secs(1)),
+                    expect: Some(Duration::from_secs(3)),
+                },
+                Check {
+                    scenario: "early wake-up on a later, longer rung",
+                    input: (3, Duration::from_secs(1)),
+                    expect: Some(Duration::from_secs(15)),
+                },
+                Check {
+                    scenario: "wake-up exactly at the deadline",
+                    input: (1, Duration::from_secs(4)),
+                    expect: None,
+                },
+                Check {
+                    scenario: "wake-up after the deadline",
+                    input: (1, Duration::from_secs(9)),
+                    expect: None,
+                },
+            ],
+            |(failures, elapsed)| {
+                let mut retry = DhcpRetryState::default();
+                for _ in 0..failures {
+                    retry.schedule_next(scheduled_at, 0);
+                }
+                retry.remaining_backoff(scheduled_at + elapsed)
+            },
+        );
+    }
+
+    /// What a power change leaves behind: the remaining action queue (rendered
+    /// through `Debug`, since `FsmAction` is not `PartialEq`), the retry ladder
+    /// position, and whether a retry deadline is still parked.
+    #[derive(Debug, Eq, PartialEq)]
+    struct PowerChangeOutcome {
+        remaining_actions: Vec<String>,
+        attempt: u32,
+        backoff_pending: bool,
+    }
+
+    fn outcome(actions: &VecDeque<FsmAction>, retry: &DhcpRetryState) -> PowerChangeOutcome {
+        PowerChangeOutcome {
+            remaining_actions: actions.iter().map(|action| format!("{action:?}")).collect(),
+            attempt: retry.attempt,
+            backoff_pending: retry.deadline.is_some(),
+        }
+    }
+
+    #[test]
+    fn power_change_abandons_a_queued_machine_dhcp() {
+        let queued = |actions: &[FsmAction]| VecDeque::from(actions.to_vec());
+
+        check_values(
+            [
+                Check {
+                    scenario: "failing machine DHCP no longer blocks power-off cleanup",
+                    input: (queued(&[FsmAction::Dhcp(DhcpType::Machine)]), 3),
+                    expect: PowerChangeOutcome {
+                        remaining_actions: vec![],
+                        attempt: 0,
+                        backoff_pending: false,
+                    },
+                },
+                Check {
+                    scenario: "unrelated queued actions are preserved",
+                    input: (
+                        queued(&[
+                            FsmAction::SetupBmc,
+                            FsmAction::Dhcp(DhcpType::Machine),
+                            FsmAction::CleanupOnPowerOff,
+                        ]),
+                        1,
+                    ),
+                    expect: PowerChangeOutcome {
+                        remaining_actions: vec![
+                            format!("{:?}", FsmAction::SetupBmc),
+                            format!("{:?}", FsmAction::CleanupOnPowerOff),
+                        ],
+                        attempt: 0,
+                        backoff_pending: false,
+                    },
+                },
+                Check {
+                    scenario: "out-of-band BMC DHCP keeps its backoff across a power change",
+                    input: (queued(&[FsmAction::Dhcp(DhcpType::Bmc)]), 2),
+                    expect: PowerChangeOutcome {
+                        remaining_actions: vec![format!("{:?}", FsmAction::Dhcp(DhcpType::Bmc))],
+                        attempt: 2,
+                        backoff_pending: true,
+                    },
+                },
+                Check {
+                    scenario: "power change without a queued DHCP changes nothing",
+                    input: (queued(&[FsmAction::PxeBootRequest]), 0),
+                    expect: PowerChangeOutcome {
+                        remaining_actions: vec![format!("{:?}", FsmAction::PxeBootRequest)],
+                        attempt: 0,
+                        backoff_pending: false,
+                    },
+                },
+            ],
+            |(mut actions, failures)| {
+                let now = Instant::now();
+                let mut retry = DhcpRetryState::default();
+                for _ in 0..failures {
+                    retry.schedule_next(now, 0);
+                }
+                abandon_machine_dhcp_on_power_change(&mut actions, &mut retry);
+                outcome(&actions, &retry)
+            },
         );
     }
 }
