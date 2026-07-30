@@ -2987,6 +2987,29 @@ async fn set_pending_boot_interface(
     pending
 }
 
+/// Replaces the fixture's DMI vendor so controller vendor branches can be
+/// exercised after ordinary ingestion has completed.
+async fn set_host_hardware_vendor(env: &TestEnv, mh: &TestManagedHost, vendor: &str) {
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let mut hardware_info = host
+        .status
+        .hardware_info
+        .expect("fixture host should have hardware information");
+    hardware_info
+        .dmi_data
+        .as_mut()
+        .expect("fixture host should have DMI information")
+        .sys_vendor = vendor.to_string();
+    db::machine_topology::set_topology_update_needed(txn.as_mut(), &host.id, true)
+        .await
+        .unwrap();
+    db::machine_topology::create_or_update(txn.as_mut(), &host.id, &hardware_info)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+}
+
 /// A zero-DPU host skips the DPU reachability wait, but it must still poll the
 /// requested lockdown mode so Disable returns to platform configuration.
 #[crate::sqlx_test]
@@ -3043,8 +3066,48 @@ async fn test_zero_dpu_lockdown_wait_preserves_mode_transition(pool: sqlx::PgPoo
 #[crate::sqlx_test]
 async fn test_discovered_host_with_pending_boot_config_enters_convergence(pool: sqlx::PgPool) {
     let env = create_zero_dpu_test_env(pool).await;
-    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let mut host_config = ManagedHostConfig::zero_dpu();
+    host_config.vendor = Some(bmc_vendor::BMCVendor::Supermicro);
+    let mh = create_managed_host_with_config(&env, host_config).await;
+    set_host_hardware_vendor(&env, &mh, "Supermicro").await;
     let pending = set_pending_boot_interface(&env, &mh).await;
+
+    set_host_controller_state_stuck_in(
+        &env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: model::machine::LockdownInfo {
+                    state: model::machine::LockdownState::PollingLockdownStatus,
+                    mode: LockdownMode::Enable,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+    let lockdown_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.pending_boot_interface_config_version(),
+        Some(pending.version),
+        "a locked Supermicro read must not publish boot verification"
+    );
+    drop(txn);
+    assert!(
+        !env.redfish_sim
+            .actions_since(&lockdown_checkpoint)
+            .all_hosts()
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::IsBootOrderSetup { .. })),
+        "HostInit must defer Supermicro verification until the unlocked Ready flow"
+    );
 
     set_host_controller_state_stuck_in(
         &env,
@@ -3070,6 +3133,105 @@ async fn test_discovered_host_with_pending_boot_config_enters_convergence(pool: 
             post_lock_verification_retry_count: 0,
             boot_config_state: ReadyBootConfigState::Prepare,
         },
+    );
+}
+
+/// Supermicro boot-order reads can be stale under lockdown. Ready must create
+/// its exact verification while unlocked, then retain that proof while
+/// restoring lockdown instead of trusting a contradictory locked read.
+#[crate::sqlx_test]
+async fn test_supermicro_ready_boot_config_uses_unlocked_verification(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mut host_config = ManagedHostConfig::zero_dpu();
+    host_config.vendor = Some(bmc_vendor::BMCVendor::Supermicro);
+    let mh = create_managed_host_with_config(&env, host_config).await;
+    set_host_hardware_vendor(&env, &mh, "Supermicro").await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let expected_mac = pending.value.mac_address().to_string();
+    let locking = ManagedHostState::BootConfiguring {
+        desired_version: pending.version,
+        desired_boot_interface: pending.value.clone(),
+        post_lock_verification_retry_count: 0,
+        boot_config_state: ReadyBootConfigState::LockHost {
+            terminal_failure: None,
+        },
+    };
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+    let convergence_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration_until_state_matches(&mh.id, 10, locking.clone())
+        .await;
+
+    let history = mh.host().parsed_history(None).await;
+    assert!(
+        history.iter().any(|state| matches!(
+            state,
+            ManagedHostState::BootConfiguring {
+                desired_version,
+                boot_config_state: ReadyBootConfigState::UnlockHost { .. },
+                ..
+            } if *desired_version == pending.version
+        )),
+        "Supermicro convergence must pass through the unlock choreography: {history:#?}"
+    );
+    let convergence_actions = env
+        .redfish_sim
+        .actions_since(&convergence_checkpoint)
+        .all_hosts();
+    assert!(
+        convergence_actions.iter().any(|action| matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+        )),
+        "Supermicro must reboot after lockdown is disabled: {convergence_actions:?}"
+    );
+    assert!(
+        convergence_actions.iter().any(|action| matches!(
+            action,
+            RedfishSimAction::IsBootOrderSetup { boot_interface_mac }
+                if boot_interface_mac == &expected_mac
+        )),
+        "Supermicro must verify the exact target before relocking: {convergence_actions:?}"
+    );
+
+    // Model the stale locked view reported by Supermicro after the durable
+    // unlocked verification has advanced the controller to LockHost.
+    env.redfish_sim.set_is_boot_order_setup(false);
+    let lock_checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(host.current_state(), &ManagedHostState::Ready);
+    assert_eq!(host.pending_boot_interface_config_version(), None);
+    assert_eq!(
+        host.status
+            .boot_interface_status_observation
+            .as_ref()
+            .map(|observation| observation.config_version),
+        Some(pending.version),
+    );
+    drop(txn);
+
+    let lock_actions = env.redfish_sim.actions_since(&lock_checkpoint).all_hosts();
+    assert!(
+        !lock_actions
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::IsBootOrderSetup { .. })),
+        "LockHost must not replace the durable unlocked proof with a stale locked read: {lock_actions:?}"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|state| *state == libredfish::EnabledDisabled::Enabled),
+        "the target must be verified only after lockdown is restored"
     );
 }
 

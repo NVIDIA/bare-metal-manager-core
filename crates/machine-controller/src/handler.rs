@@ -5885,6 +5885,18 @@ async fn handle_ready_boot_config(
 
     match boot_config_state {
         ReadyBootConfigState::Prepare => {
+            if mh_snapshot.host_snapshot.bmc_vendor().is_supermicro() {
+                // A locked Supermicro BMC can report stale boot order. Reboot
+                // after disabling lockdown before performing the exact read.
+                return Ok(StateHandlerOutcome::transition(ready_boot_configuring(
+                    desired,
+                    post_lock_verification_retry_count,
+                    ReadyBootConfigState::UnlockHost {
+                        unlock_host_state: UnlockHostState::DisableLockdown,
+                    },
+                )));
+            }
+
             let redfish_client = ctx
                 .services
                 .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
@@ -5907,12 +5919,8 @@ async fn handle_ready_boot_config(
             };
             let preflight_complete = matches!(preflight_decision, HostBootConfigDecision::Complete);
 
-            let next_state = if preflight_complete
-                && !mh_snapshot.host_snapshot.bmc_vendor().is_supermicro()
-            {
+            let next_state = if preflight_complete {
                 // Avoid opening an ordinary host that is already correct.
-                // Supermicro retains its established unlock-and-reboot read
-                // path because lockdown can make its boot-order read stale.
                 ReadyBootConfigState::LockHost {
                     terminal_failure: None,
                 }
@@ -6320,18 +6328,33 @@ async fn handle_ready_boot_config(
                 }
             }
 
-            // This state is restartable, so re-observe after lockdown is
-            // restored rather than trusting an earlier pre-crash read.
-            let inspection = inspect_host_boot_config(
-                redfish_client.as_ref(),
-                mh_snapshot,
-                &captured_boot_interface,
-            )
-            .await?;
-            if !matches!(
-                decide_host_boot_config(inspection),
-                HostBootConfigDecision::Complete
-            ) {
+            let boot_config_verified =
+                if mh_snapshot.host_snapshot.bmc_vendor().is_supermicro() && !lockdown_disabled {
+                    // For a still-current desired generation, entry into LockHost
+                    // durably records an exact read while Supermicro lockdown was
+                    // disabled. Locked boot-order reads can be stale, so that
+                    // checkpoint is stronger evidence than another Redfish read.
+                    tracing::info!(
+                        machine_id = %mh_snapshot.host_snapshot.id,
+                        desired_version = %desired.version,
+                        "Using the pre-lock Supermicro boot verification",
+                    );
+                    true
+                } else {
+                    // This state is restartable, so re-observe after lockdown is
+                    // restored rather than trusting an earlier pre-crash read.
+                    let inspection = inspect_host_boot_config(
+                        redfish_client.as_ref(),
+                        mh_snapshot,
+                        &captured_boot_interface,
+                    )
+                    .await?;
+                    matches!(
+                        decide_host_boot_config(inspection),
+                        HostBootConfigDecision::Complete
+                    )
+                };
+            if !boot_config_verified {
                 let mut txn = ctx.services.db_pool.begin().await?;
                 let current_desired = db::machine_desired_boot_interface::lock(
                     txn.as_mut(),
@@ -6486,6 +6509,20 @@ async fn complete_host_init_lockdown(
     else {
         return Ok(outcome);
     };
+
+    if mh_snapshot.host_snapshot.bmc_vendor().is_supermicro()
+        && !mh_snapshot.host_snapshot.host_profile.disable_lockdown
+    {
+        // Supermicro boot-order reads can become stale after lockdown. HostInit
+        // has no persisted pre-lock verification boundary, so leave this
+        // generation pending for the Ready convergence flow.
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            desired_version = %desired.version,
+            "Deferring Supermicro boot verification until Ready convergence",
+        );
+        return Ok(outcome);
+    }
 
     let redfish_client = match ctx
         .services
