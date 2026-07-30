@@ -105,6 +105,7 @@ pub async fn run(
         credential_manager,
         certificate_provider,
         db_pool,
+        work_lock_manager_handle,
         secrets_context,
     } = setup_resources(
         &carbide_config,
@@ -125,6 +126,7 @@ pub async fn run(
         credential_manager,
         certificate_provider,
         db_pool,
+        work_lock_manager_handle,
         secrets_context,
         admin_ui_routes_builder,
         cancel_token,

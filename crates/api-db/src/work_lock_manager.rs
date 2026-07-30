@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use carbide_instrument::{Event, LabelValue, emit};
 use sqlx::pool::PoolConnection;
-use sqlx::{PgConnection, PgPool, Postgres};
+use sqlx::{PgConnection, PgPool, PgTransaction, Postgres};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
@@ -148,6 +148,12 @@ static COMMAND_BUFFER_SIZE: usize = 100;
 /// services while holding the lock, a WorkLockManager instead does an atomic write to a
 /// `work_locks` table, vending [`WorkLock`] objects back, which release the lock on Drop. In case
 /// of a crash where drop is not called, each work lock expires after a time interval.
+///
+/// This is a lease, not a fencing token. Exclusivity lasts while keepalives
+/// retain the lease; after expiry, another worker can acquire the key while old
+/// code is still running. PostgreSQL mutations can use
+/// [`WorkLock::fence_transaction`]; external side effects need their own
+/// fencing or idempotency mechanism.
 ///
 /// This is returned by [`start`], and can be used to communicate to acquire [`WorkLock`] items for doing
 #[derive(Clone)]
@@ -289,8 +295,9 @@ async fn run_loop(
             WorkLockManagerCommand::ReleaseLock(WorkLockReleaseCommand {
                 work_key,
                 worker_id,
+                reply_tx,
             }) => {
-                release_lock(db, &work_key, worker_id)
+                let result = release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
                         emit(WorkLockFailed::Release {
@@ -299,9 +306,13 @@ async fn run_loop(
                             failure: WorkLockFailure::from_release_error(e),
                             error: e.to_string(),
                         });
-                    })
-                    .ok();
-                tracing::debug!(%work_key, "Released work lock");
+                    });
+                if result.is_ok() {
+                    tracing::debug!(%work_key, "Released work lock");
+                }
+                if let Some(reply_tx) = reply_tx {
+                    reply_tx.send(result).ok();
+                }
             }
 
             WorkLockManagerCommand::KeepLockAlive {
@@ -397,24 +408,30 @@ pub struct WorkLock {
     manager: WorkLockManagerHandle,
     work_key: WorkKey,
     worker_id: WorkerId,
+    release_on_drop: bool,
 }
 
 impl Drop for WorkLock {
     fn drop(&mut self) {
+        // Let the keepalive loop stop.
+        self.keepalive_stop_tx.take();
+        if !self.release_on_drop {
+            return;
+        }
+
         tracing::debug!(
             work_key = %self.work_key,
             worker_id = %self.worker_id,
             "Releasing work lock",
         );
 
-        // Let the keepalive loop stop
-        self.keepalive_stop_tx.take();
-
-        // Release the lock now
+        // Queue the release. Callers that will immediately shut down the
+        // manager can use `release` to wait for the database acknowledgment.
         self.manager
             .send_release_command(WorkLockReleaseCommand {
                 work_key: self.work_key.clone(),
                 worker_id: self.worker_id,
+                reply_tx: None,
             })
             .inspect_err(|e| {
                 emit(WorkLockFailed::ReleaseDispatch {
@@ -486,9 +503,81 @@ impl WorkLock {
             manager,
             work_key,
             worker_id,
+            release_on_drop: true,
             #[cfg(test)]
             join_handle,
         }
+    }
+
+    /// Release this lock and wait until the manager processes the database
+    /// deletion.
+    ///
+    /// Dropping a lock normally queues the same deletion. Use this method when
+    /// the caller may shut down the manager immediately afterward.
+    pub async fn release(mut self) -> Result<(), ReleaseLockError> {
+        self.keepalive_stop_tx.take();
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        // Explicit release owns the attempt from here. A dispatch failure means
+        // the receiver is gone, so Drop cannot recover by sending it again.
+        self.release_on_drop = false;
+        self.manager
+            .send_release_command(WorkLockReleaseCommand {
+                work_key: self.work_key.clone(),
+                worker_id: self.worker_id,
+                reply_tx: Some(reply_tx),
+            })
+            .inspect_err(|error| {
+                emit(WorkLockFailed::ReleaseDispatch {
+                    work_key: self.work_key.clone(),
+                    worker_id: self.worker_id,
+                    error: error.to_string(),
+                });
+            })
+            .map_err(|error| ReleaseLockError::WorkLockManagerSend(error.to_string()))?;
+
+        reply_rx.await??;
+        Ok(())
+    }
+
+    /// Fence database writes performed under this lock.
+    ///
+    /// This takes a key-share lock on the `work_locks` row until `txn` ends and
+    /// verifies that it still names this worker. A replacement acquisition
+    /// changes `worker_id`, which is part of
+    /// `idx_work_locks_on_worker_id_and_key`, so PostgreSQL must wait for the
+    /// fence before it can update that key. Deletion waits too, while the
+    /// manager's non-key `last_keepalive` updates can continue normally.
+    ///
+    /// Nominal lease expiry without takeover is allowed: locking this row
+    /// serializes any later takeover behind the transaction, and callers must
+    /// finish all protected writes before committing it.
+    ///
+    /// Keep the transaction short and free of external I/O. A replica that
+    /// tries to acquire this key waits for the fence in its single manager
+    /// loop, which also delays that replica's unrelated lock commands.
+    pub async fn fence_transaction(&self, txn: &mut PgTransaction<'_>) -> DatabaseResult<()> {
+        let query = r#"
+SELECT true
+FROM work_locks
+WHERE work_key = $1 AND worker_id = $2
+FOR KEY SHARE
+        "#;
+        let still_held: Option<bool> = sqlx::query_scalar(query)
+            .bind(&self.work_key)
+            .bind(self.worker_id)
+            .fetch_optional(&mut **txn)
+            .await
+            .map_err(|e| DatabaseError::query(query, e))?;
+
+        if still_held.is_none() {
+            return Err(DatabaseError::FailedPrecondition(format!(
+                "work lock is no longer held for work_key={}, worker_id={}",
+                self.work_key, self.worker_id,
+            )));
+        }
+
+        Ok(())
     }
 
     #[cfg(test)]
@@ -674,6 +763,7 @@ struct QueuedWorkLockManagerCommand {
 struct WorkLockReleaseCommand {
     work_key: WorkKey,
     worker_id: WorkerId,
+    reply_tx: Option<oneshot::Sender<DatabaseResult<()>>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -703,6 +793,18 @@ pub enum AcquireLockError {
     WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
     #[error(transparent)]
     Timeout(#[from] tokio::time::error::Elapsed),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReleaseLockError {
+    #[error(transparent)]
+    Database(#[from] DatabaseError),
+    #[error("error sending ReleaseLock command to WorkLockManager: {0}")]
+    WorkLockManagerSend(String),
+    #[error(
+        "error receiving ReleaseLock reply from WorkLockManager, database connections are likely failing; the lease will expire instead: {0}"
+    )]
+    WorkLockManagerReply(#[from] tokio::sync::oneshot::error::RecvError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1202,6 +1304,162 @@ mod tests {
     }
 
     #[crate::sqlx_test]
+    async fn explicit_release_waits_for_database_deletion(pool: PgPool) {
+        let mut join_set = JoinSet::new();
+        let manager = start(&mut join_set, pool.clone(), Default::default())
+            .await
+            .expect("start work lock manager");
+        let work_key = "acknowledged-release".to_string();
+        let work_lock = manager
+            .try_acquire_lock(work_key.clone())
+            .await
+            .expect("acquire work lock");
+
+        work_lock
+            .release()
+            .await
+            .expect("release work lock with acknowledgment");
+        join_set.abort_all();
+        drop(join_set);
+
+        let query = "SELECT count(*) FROM work_locks WHERE work_key = $1";
+        let row_count: i64 = sqlx::query_scalar(query)
+            .bind(work_key)
+            .fetch_one(&pool)
+            .await
+            .expect("check released work lock");
+        assert_eq!(
+            row_count, 0,
+            "release acknowledgment returned before the work_locks row was deleted"
+        );
+    }
+
+    #[crate::sqlx_test]
+    async fn fenced_transaction_allows_keepalive_and_rejects_stale_owner(pool: PgPool) {
+        // Isolate the deliberate stale-release metric from neighboring tests.
+        let _metrics_guard = MetricsCapture::start();
+        let mut join_set = JoinSet::new();
+        let owner_manager = start(
+            &mut join_set,
+            pool.clone(),
+            KeepaliveConfig {
+                interval: Duration::from_secs(60),
+                timeout: Duration::from_millis(500),
+            },
+        )
+        .await
+        .expect("start work lock manager");
+        let replacement_manager = start(
+            &mut join_set,
+            pool.clone(),
+            KeepaliveConfig {
+                interval: Duration::from_secs(60),
+                timeout: Duration::from_millis(500),
+            },
+        )
+        .await
+        .expect("start replacement work lock manager");
+        let work_key = "fenced-transaction".to_string();
+        let old_lock = owner_manager
+            .try_acquire_lock(work_key.clone())
+            .await
+            .expect("acquire original work lock");
+
+        let mut fence_txn = pool.begin().await.expect("begin fenced transaction");
+        old_lock
+            .fence_transaction(&mut fence_txn)
+            .await
+            .expect("fence original owner");
+        let fence_task = tokio::spawn(async move {
+            sqlx::query("SELECT pg_sleep(1)")
+                .execute(&mut *fence_txn)
+                .await
+                .expect("hold fenced transaction");
+            fence_txn.commit().await.expect("commit fenced transaction");
+        });
+
+        // `FOR KEY SHARE` must leave the manager's non-key keepalive update
+        // unblocked while the fence keeps ownership changes out.
+        tokio::time::timeout(
+            Duration::from_millis(250),
+            owner_manager.keep_lock_alive(work_key.clone(), old_lock.worker_id),
+        )
+        .await
+        .expect("keepalive blocked behind fenced transaction")
+        .expect("keep fenced owner alive");
+
+        tokio::time::timeout(
+            Duration::from_millis(250),
+            sqlx::query(
+                "UPDATE work_locks SET last_keepalive = now() - interval '1 second' \
+             WHERE work_key = $1",
+            )
+            .bind(&work_key)
+            .execute(&pool),
+        )
+        .await
+        .expect("lease expiry update blocked behind fenced transaction")
+        .expect("expire original lease");
+
+        let replacement_manager_for_acquire = replacement_manager.clone();
+        let replacement_work_key = work_key.clone();
+        let replacement_task = tokio::spawn(async move {
+            replacement_manager_for_acquire
+                .try_acquire_lock(replacement_work_key)
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !replacement_task.is_finished(),
+            "lease takeover passed the fenced transaction"
+        );
+
+        fence_task.await.expect("fence task panicked");
+        let new_lock = replacement_task
+            .await
+            .expect("replacement task panicked")
+            .expect("acquire replacement work lock");
+
+        let mut stale_txn = pool.begin().await.expect("begin stale transaction");
+        let stale_error = old_lock
+            .fence_transaction(&mut stale_txn)
+            .await
+            .expect_err("superseded owner must not fence writes");
+        assert!(
+            matches!(&stale_error, DatabaseError::FailedPrecondition(_)),
+            "unexpected stale-owner error: {stale_error}"
+        );
+        stale_txn
+            .rollback()
+            .await
+            .expect("roll back stale transaction");
+
+        let mut current_txn = pool.begin().await.expect("begin current transaction");
+        new_lock
+            .fence_transaction(&mut current_txn)
+            .await
+            .expect("replacement owner must fence writes");
+        current_txn
+            .rollback()
+            .await
+            .expect("roll back current transaction");
+
+        old_lock
+            .release()
+            .await
+            .expect_err("superseded owner must not release replacement lock");
+        new_lock
+            .release()
+            .await
+            .expect("release replacement work lock");
+        drop(owner_manager);
+        drop(replacement_manager);
+        tokio::time::timeout(Duration::from_secs(3), join_set.join_all())
+            .await
+            .expect("WorkLockManager did not shut down in a timely manner");
+    }
+
+    #[crate::sqlx_test]
     async fn commands_and_releases_keep_fifo_order(pool: PgPool) {
         let keepalive_config = KeepaliveConfig::default();
         let mut db = pool.acquire().await.unwrap();
@@ -1230,6 +1488,7 @@ mod tests {
             .send_release_command(WorkLockReleaseCommand {
                 work_key: work_key.clone(),
                 worker_id,
+                reply_tx: None,
             })
             .unwrap();
         let (acquire_reply_tx, acquire_reply_rx) = oneshot::channel();
@@ -1256,6 +1515,7 @@ mod tests {
             .send_release_command(WorkLockReleaseCommand {
                 work_key,
                 worker_id: replacement_worker_id,
+                reply_tx: None,
             })
             .unwrap();
         drop(manager);
