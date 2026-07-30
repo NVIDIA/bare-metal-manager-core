@@ -54,9 +54,10 @@ const (
 	defaultDbUser     = "nsmuser"
 	defaultDbPassword = "nsmpassword"
 
-	// default vault config
-	defaultVaultToken   = "nsmvaultroot"
-	defaultVaultAddress = "http://127.0.0.1:8201"
+	// NICo Core has no default address on purpose: the obvious guess
+	// (localhost:50051) is NSM's own listener, so a missing value would have
+	// NSM dial itself. Persistent mode rejects an empty address at startup.
+	defaultCoreAPIURL = ""
 
 	// default firmware config
 	defaultFirmwarePackagesDir = ""
@@ -78,9 +79,8 @@ var (
 	dbName     string
 	dbCertPath string
 
-	// Vault config
-	vaultToken   string
-	vaultAddress string
+	// NICo Core config
+	coreAPIURL string
 
 	// Firmware config
 	firmwarePackagesDir string
@@ -105,7 +105,7 @@ func init() {
 	// Flags with environment variable fallbacks for Kubernetes deployment compatibility.
 	// Environment variables take precedence over defaults, CLI flags take precedence over env vars.
 	serveCmd.Flags().IntVarP(&port, "port", "p", getEnvIntOrDefault("NSM_PORT", defaultServicePort), "Port for the gRPC server (env: NSM_PORT)") //nolint
-	serveCmd.Flags().StringVarP(&datastoreType, "datastore", "d", string(defaultDataStoreType), "DataStore Type")
+	serveCmd.Flags().StringVarP(&datastoreType, "datastore", "d", getEnvOrDefault("NSM_DATASTORE", string(defaultDataStoreType)), "DataStore Type: Persistent or InMemory (env: NSM_DATASTORE)")
 
 	serveCmd.Flags().StringVarP(&dbUser, "db_user", "u", getEnvOrDefault("DB_USER", defaultDbUser), "DB User (env: DB_USER)")
 	serveCmd.Flags().StringVarP(&dbPassword, "db_password", "b", getEnvOrDefault("DB_PASSWORD", defaultDbPassword), "DB Password (env: DB_PASSWORD)")
@@ -114,8 +114,7 @@ func init() {
 	serveCmd.Flags().StringVarP(&dbName, "db_name", "n", getEnvOrDefault("DB_DATABASE", defaultDbName), "DB Name (env: DB_DATABASE)")
 	serveCmd.Flags().StringVarP(&dbCertPath, "db_cert_path", "c", getEnvOrDefault("DB_CERT_PATH", ""), "DB CA Certificate Path (env: DB_CERT_PATH)")
 
-	serveCmd.Flags().StringVarP(&vaultToken, "vault_token", "t", getEnvOrDefault("VAULT_TOKEN", defaultVaultToken), "Vault Token (env: VAULT_TOKEN)")
-	serveCmd.Flags().StringVarP(&vaultAddress, "vault_address", "a", getEnvOrDefault("VAULT_ADDR", defaultVaultAddress), "Vault Address (env: VAULT_ADDR)")
+	serveCmd.Flags().StringVarP(&coreAPIURL, "core_api_url", "a", getEnvOrDefault("NICO_CORE_API_URL", defaultCoreAPIURL), "NICo Core API address, source of switch credentials (env: NICO_CORE_API_URL)")
 
 	// Firmware manager flags
 	serveCmd.Flags().StringVar(&firmwarePackagesDir, "fw_bundles_dir", getEnvOrDefault("FW_BUNDLES_DIR", defaultFirmwarePackagesDir), "Firmware bundles directory (env: FW_BUNDLES_DIR)")
@@ -131,9 +130,8 @@ func doServe() {
 		svc.Config{
 			Port:          port,
 			DataStoreType: nvswitchmanager.DataStoreType(strings.ToLower(datastoreType)),
-			VaultConf: credentials.VaultConfig{
-				Address: vaultAddress,
-				Token:   vaultToken,
+			CoreConf: credentials.CoreConfig{
+				Address: coreAPIURL,
 			},
 			DBConf: db.Config{
 				Host:              dbHostName,
@@ -160,7 +158,7 @@ func doServe() {
 		log.Fatalf("failed to create the new gRPC server: %v\n", err)
 	}
 
-	log.Printf("New service is created with port: %+v, data store type: %s, vault address: %s", port, datastoreType, vaultAddress)
+	log.Printf("New service is created with port: %+v, data store type: %s, core api url: %s", port, datastoreType, coreAPIURL)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)

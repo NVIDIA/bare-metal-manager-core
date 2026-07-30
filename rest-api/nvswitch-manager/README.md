@@ -9,7 +9,7 @@ NV-Switch Manager is a gRPC service for managing NVIDIA DGX GB200 NVLink Switch 
 3. Redfish access: pkg/redfish (thin wrapper around gofish)
 4. Firmware management: pkg/firmwaremanager (worker pool, upgrade strategies, update tracking)
 5. Registry: pkg/nvswitchregistry (Postgres or InMemory), pkg/db (Bun ORM + pgx)
-6. Credentials: pkg/credentials (Vault KV or InMemory)
+6. Credentials: pkg/credentials (read-only; NICo Core or InMemory)
 
 ## Architecture Overview
 The service is layered with clear separation of responsibilities:
@@ -33,8 +33,10 @@ The service is layered with clear separation of responsibilities:
     2. Implementations: Postgres (prod), InMemory (dev/tests).
     3. Authoritative source of device inventory for the service.
 6. Secrets: Credential Manager — pkg/credentials
-    1. Stores and retrieves per-device credentials keyed by MAC address.
-    2. Implementations: Vault KV v2 (prod), InMemory (dev/tests).
+    1. Retrieves per-device credentials keyed by BMC MAC address. Read-only:
+       NICo Core owns switch credential storage and rotation, keeping them
+       envelope-encrypted in Postgres, so NSM never writes them.
+    2. Implementations: NICo Core over mTLS gRPC (prod), InMemory (dev/tests).
     3. Explicitly separated from the device registry to isolate secret material.
 
 This architecture emphasizes stateless orchestration at the service layer (driven by gRPC), separation of concerns for identity (device registry) and secrets (credential manager), firmware lifecycle management with background workers and upgrade strategies, and a clean boundary to device access through Redfish and SSH client wrappers. The design favors idempotency where possible, supports both in-memory and persistent backends, and treats firmware as a first-class workflow with update tracking and well-defined error semantics.
@@ -73,35 +75,57 @@ go build -o nvswitch-manager
 ```
 
 ### 4. Start the NV-Switch Manager gRPC service
-Run with a persistent backend (Postgres + Vault):
+
+For local work, run in-memory — no database, no NICo Core, no certificates:
 
 ```
-# minimal (defaults)
+./nvswitch-manager serve -d InMemory
+```
+
+Persistent mode uses Postgres for inventory and NICo Core for credentials.
+
+> **Core version dependency.** Persistent mode calls two Core RPCs that are not
+> in older releases: `GetSwitchBmcCredentials`, and `GetSwitchNvosCredentials`
+> with the `bmc_mac_addr` selector. **Upgrade nico-api before nico-flow.**
+> There is no fallback path — NSM keys credentials by BMC MAC and holds no
+> Carbide `SwitchId` — so against an older Core every credential lookup fails
+> with `Unimplemented` or `InvalidArgument`. NSM surfaces that error rather
+> than proceeding with a stale credential.
+
+Credential lookups dial Core over mTLS with the SPIFFE certificates in `CERTDIR`
+(default `/var/run/secrets/spiffe.io`), and the Core address below is a
+cluster-internal Service DNS name, so **these commands are meant to run in the
+cluster**. To run them from a workstation you need the certificates on disk and
+a reachable Core endpoint (e.g. `kubectl port-forward` plus a `localhost:` URL).
+
+Supply the database credentials through the `DB_USER` / `DB_PASSWORD`
+environment variables. Every flag below has an environment fallback, and
+`--db_user` / `--db_password` equivalents are deliberately omitted from these
+examples: arguments are visible in the process list and shell history.
+
+```
+export DB_USER=... DB_PASSWORD=...
+
+# minimal (reads DB_* and NICO_CORE_API_URL from the environment)
 ./nvswitch-manager serve -d Persistent
 
 # explicit flags
 ./nvswitch-manager serve \
   --datastore Persistent \
   --port 50051 \
-  --db_user nsmuser \
-  --db_password nsmpassword \
   --db_port 5432 \
   --db_host localhost \
   --db_name nsmdatabase \
-  --vault_token nsmvaultroot \
-  --vault_address http://127.0.0.1:8201
+  --core_api_url nico-api.nico-system.svc.cluster.local:1079
 
 # short flags
 ./nvswitch-manager serve \
   -d Persistent \
   -p 50051 \
-  -u nsmuser \
-  -b nsmpassword \
   -r 5432 \
   -o localhost \
   -n nsmdatabase \
-  -t nsmvaultroot \
-  -a http://127.0.0.1:8201
+  -a nico-api.nico-system.svc.cluster.local:1079
 ```
 
 ### 5. Exercise the API via grpcui

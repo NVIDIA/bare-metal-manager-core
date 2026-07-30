@@ -26,6 +26,17 @@ func newTestManager() *NVSwitchManager {
 	}
 }
 
+// seeder exposes the in-memory store's write methods, which the read-only
+// CredentialManager interface does not carry. Registration no longer stores
+// credentials in persistent mode, so tests seed them the same way local dev
+// does.
+func seeder(t *testing.T, nm *NVSwitchManager) *credentials.InMemoryCredentialManager {
+	t.Helper()
+	m, ok := nm.CredentialManager.(*credentials.InMemoryCredentialManager)
+	require.True(t, ok, "test manager must use the in-memory credential manager")
+	return m
+}
+
 func mustParseBMC(t *testing.T, mac, ip string) *bmc.BMC {
 	t.Helper()
 	b, err := bmc.New(mac, ip, nil)
@@ -130,11 +141,11 @@ func TestNVSwitchManager_Get(t *testing.T) {
 
 			if tc.setupBMCCred {
 				c := credential.New("admin", "pass")
-				require.NoError(t, nm.CredentialManager.PutBMC(ctx, tray.BMC.MAC, &c))
+				require.NoError(t, seeder(t, nm).PutBMC(ctx, tray.BMC.MAC, &c))
 			}
 			if tc.setupNVOSCred {
 				c := credential.New("nvos_admin", "nvos_pass")
-				require.NoError(t, nm.CredentialManager.PutNVOS(ctx, tray.BMC.MAC, &c))
+				require.NoError(t, seeder(t, nm).PutNVOS(ctx, tray.BMC.MAC, &c))
 			}
 
 			_, _, err := nm.Registry.Register(ctx, tray)

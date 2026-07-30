@@ -24,18 +24,26 @@ func TestConfigValidate(t *testing.T) {
 			cfg:       Config{}, // zero-value DataStoreType means no extra validation
 			expectErr: false,
 		},
-		"vault datastore with nil VaultConfig returns error": {
+		"core datastore with nil CoreConfig returns error": {
 			cfg: Config{
-				DataStoreType: DatastoreTypeVault,
-				VaultConfig:   nil,
+				DataStoreType: DatastoreTypeCore,
+				CoreConfig:    nil,
 			},
 			expectErr:   true,
-			errContains: "vault config needs to be specified",
+			errContains: "core config needs to be specified",
 		},
-		"vault datastore with non-nil VaultConfig delegates to VaultConfig.Validate": {
+		"core datastore with empty address delegates to CoreConfig.Validate": {
 			cfg: Config{
-				DataStoreType: DatastoreTypeVault,
-				VaultConfig:   &VaultConfig{Address: "http://127.0.0.1", Token: "x"},
+				DataStoreType: DatastoreTypeCore,
+				CoreConfig:    &CoreConfig{Address: "  "},
+			},
+			expectErr:   true,
+			errContains: "invalid core api address",
+		},
+		"core datastore with non-empty address validates": {
+			cfg: Config{
+				DataStoreType: DatastoreTypeCore,
+				CoreConfig:    &CoreConfig{Address: "nico-api:50051"},
 			},
 			expectErr: false,
 		},

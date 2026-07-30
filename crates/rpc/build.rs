@@ -982,6 +982,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.GetSwitchNvosCredentialsRequest",
             "#[derive(serde::Serialize)]",
         )
+        // The nested oneof is its own type and needs the derive separately,
+        // otherwise the enclosing message's Serialize impl has nothing to call.
+        .type_attribute(
+            "forge.GetSwitchNvosCredentialsRequest.selector",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.GetSwitchBmcCredentialsRequest",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.SwitchNvosInfo", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.PlacementInRack",

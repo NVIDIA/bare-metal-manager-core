@@ -274,6 +274,13 @@ service Forge {
   // Query for BMC Credentials
   rpc GetBmcCredentials(GetBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
   rpc GetSwitchNvosCredentials(GetSwitchNvosCredentialsRequest) returns (GetBmcCredentialsResponse);
+  // Query for a switch BMC's stored root credential by BMC MAC.
+  //
+  // Distinct from GetBmcCredentials: that RPC resolves a machine BMC's IP and
+  // mints a Redfish session token, neither of which applies to switch BMCs.
+  // This one reads the stored username/password the same way Core's own
+  // component-manager lookup does.
+  rpc GetSwitchBmcCredentials(GetSwitchBmcCredentialsRequest) returns (GetBmcCredentialsResponse);
 
   // Admin CLI actions
 
@@ -4307,7 +4314,17 @@ message GetBmcCredentialsRequest {
 }
 
 message GetSwitchNvosCredentialsRequest {
-  common.SwitchId switch_id = 1;
+  // Callers that hold a Carbide SwitchId use switch_id; callers that only know
+  // the switch's BMC MAC (the key the credential itself is stored under) use
+  // bmc_mac_addr and skip the switch lookup.
+  oneof selector {
+    common.SwitchId switch_id = 1;
+    string bmc_mac_addr = 2;
+  }
+}
+
+message GetSwitchBmcCredentialsRequest {
+  string bmc_mac_addr = 1;
 }
 
 message GetBmcCredentialsResponse {

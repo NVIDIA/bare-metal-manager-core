@@ -266,7 +266,10 @@ impl InternalRBACRules {
         x.perm("DeleteTenantKeyset", vec![SiteAgent]);
         x.perm("ValidateTenantPublicKey", vec![SiteAgent, Ssh, SshRs]);
         x.perm("GetBmcCredentials", vec![Health, BmcProxy]);
-        x.perm("GetSwitchNvosCredentials", vec![Health]);
+        // Flow covers the nsm container, which shares the nico-flow pod's
+        // SPIFFE identity and reads switch credentials it no longer stores.
+        x.perm("GetSwitchNvosCredentials", vec![Health, Flow]);
+        x.perm("GetSwitchBmcCredentials", vec![Flow]);
         x.perm("GetAllManagedHostNetworkStatus", vec![ForgeAdminCLI]);
         x.perm(
             "GetSiteExplorationReport",

@@ -5,6 +5,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 
@@ -13,25 +14,27 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// CredentialManager defines a key-value store for BMC and NVOS credentials keyed by MAC address.
+// ErrNotFound is returned when no credential is stored for a MAC. Callers use
+// it to tell "this switch has no credential yet" apart from "the lookup
+// failed", which matters because the two want different retry behavior.
+var ErrNotFound = errors.New("credential not found")
+
+// CredentialManager reads BMC and NVOS credentials for a switch, keyed by the
+// switch's BMC MAC address.
+//
+// Read-only by design. NICo Core owns the lifecycle of switch credentials: it
+// seeds them from the expected-switch record and rotates them from the switch
+// controller, storing them envelope-encrypted in Postgres. NSM writing here
+// too would race that rotation, so it only ever reads.
 type CredentialManager interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 
-	// BMC credential operations
+	// GetBMC returns the switch BMC's root credential, or ErrNotFound.
 	GetBMC(ctx context.Context, mac net.HardwareAddr) (*credential.Credential, error)
-	PutBMC(ctx context.Context, mac net.HardwareAddr, credentials *credential.Credential) error
-	PatchBMC(ctx context.Context, mac net.HardwareAddr, credentials *credential.Credential) error
-	DeleteBMC(ctx context.Context, mac net.HardwareAddr) error
 
-	// NVOS credential operations
+	// GetNVOS returns the switch's NVOS admin credential, or ErrNotFound.
 	GetNVOS(ctx context.Context, mac net.HardwareAddr) (*credential.Credential, error)
-	PutNVOS(ctx context.Context, mac net.HardwareAddr, credentials *credential.Credential) error
-	PatchNVOS(ctx context.Context, mac net.HardwareAddr, credentials *credential.Credential) error
-	DeleteNVOS(ctx context.Context, mac net.HardwareAddr) error
-
-	// List all registered MACs
-	Keys(ctx context.Context) ([]net.HardwareAddr, error)
 }
 
 // New creates a new Credential Manager based on the given configuration.
@@ -41,9 +44,9 @@ func New(ctx context.Context, config *Config) (CredentialManager, error) {
 	}
 
 	switch config.DataStoreType {
-	case DatastoreTypeVault:
-		log.Printf("Initializing CredentialManager with vault datastore (config: %s)", config.VaultConfig)
-		return config.VaultConfig.NewManager()
+	case DatastoreTypeCore:
+		log.Printf("Initializing CredentialManager with NICo Core datastore (config: %s)", config.CoreConfig)
+		return config.CoreConfig.NewManager()
 	case DatastoreTypeInMemory:
 		log.Printf("Initializing CredentialManager with in-memory datastore")
 		return NewInMemoryCredentialManager(), nil
