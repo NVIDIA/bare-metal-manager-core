@@ -41,10 +41,7 @@ use forge_tls::client_config::ClientCert;
 use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
 use grpc_server::{ControlRequest, run_grpc_server};
 use lru::LruCache;
-use metrics::{
-    DhcpPacketDropped, DhcpReplySent, DhcpTimestampFileInitializationFailed,
-    DhcpTimestampFileWriteFailed, DropReason,
-};
+use metrics::{DhcpPacketDropped, DhcpReplySent, DhcpTimestampFileFailed, DropReason};
 use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use modes::DhcpMode;
 use modes::controller::Controller;
@@ -95,7 +92,7 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
         // and pollute the logs. We could have read() skip NotFound errors, but that
         // could be misleading in other scenarios.  Let's just "init" the file.
         if let Err(e) = d.write() {
-            emit(DhcpTimestampFileInitializationFailed::new(
+            emit(DhcpTimestampFileFailed::initialization(
                 dhcp_timestamps_path_context,
                 e.to_string(),
             ));
@@ -741,7 +738,7 @@ async fn process(
         let mut dhcp_timestamps = dhcp_timestamps.lock().await;
         dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
         if let Err(e) = dhcp_timestamps.write() {
-            emit(DhcpTimestampFileWriteFailed::new(
+            emit(DhcpTimestampFileFailed::write(
                 DhcpTimestampsFilePath::HbnTmp.path_str().to_string(),
                 host_config.host_interface_id.to_string(),
                 e.to_string(),

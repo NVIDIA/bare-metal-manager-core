@@ -35,10 +35,10 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 use crate::machine_identity::{
-    Es256Signer, MachineIdentitySigningKeyDecryptionFailed,
-    MachineIdentityTokenDelegationAuthDecryptionFailed, SignOptions, Signer,
-    decrypt_machine_identity_ciphertext, decrypt_token_delegation_encrypted_blob,
-    token_delegation_credentials, token_exchange_http_client, token_exchange_request,
+    Es256Signer, MachineIdentityStoredSecretDecryptionFailed, SignOptions, Signer,
+    StoredMachineIdentitySecretKind, decrypt_machine_identity_ciphertext,
+    decrypt_token_delegation_encrypted_blob, token_delegation_credentials,
+    token_exchange_http_client, token_exchange_request,
 };
 
 /// Shared gate for APIs that require site `[machine_identity].enabled` (identity admin + discovery).
@@ -194,7 +194,8 @@ pub(crate) async fn sign_machine_identity(
         decrypt_machine_identity_ciphertext(api.credential_manager.as_ref(), enc_key.as_str())
             .await
             .inspect_err(|e| {
-                carbide_instrument::emit(MachineIdentitySigningKeyDecryptionFailed::from_status(
+                carbide_instrument::emit(MachineIdentityStoredSecretDecryptionFailed::from_status(
+                    StoredMachineIdentitySecretKind::SigningKey,
                     identity_row.organization_id.as_str(),
                     e,
                 ));
@@ -243,12 +244,11 @@ pub(crate) async fn sign_machine_identity(
         )
         .await
         .inspect_err(|e| {
-            carbide_instrument::emit(
-                MachineIdentityTokenDelegationAuthDecryptionFailed::from_status(
-                    identity_row.organization_id.as_str(),
-                    e,
-                ),
-            );
+            carbide_instrument::emit(MachineIdentityStoredSecretDecryptionFailed::from_status(
+                StoredMachineIdentitySecretKind::TokenDelegationAuth,
+                identity_row.organization_id.as_str(),
+                e,
+            ));
         })?;
         let delegation_creds =
             token_delegation_credentials(auth_method, delegation_plain.as_deref())?;

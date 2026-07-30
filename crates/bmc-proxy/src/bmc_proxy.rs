@@ -55,8 +55,8 @@ use tower_http::add_extension::AddExtensionLayer;
 
 use crate::config::{AuthConfig, TlsConfig};
 use crate::metrics::{
-    MethodLabel, PrincipalAllowListAuthContextMissing, PrincipalAllowListDenied,
-    RequestAclAuthContextMissing, RequestAclDenied, UpstreamRequestCompleted, UpstreamStatus,
+    AuthContextMissing, MethodLabel, PrincipalAllowListDenied, RequestAclDenied,
+    UpstreamRequestCompleted, UpstreamStatus,
 };
 
 const TLS_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -113,7 +113,7 @@ enum ForwardedHeaderParseError {
 impl BmcProxyState {
     fn allows(&self, request: &Request<Body>) -> bool {
         let Some(auth_context) = request.extensions().get::<AuthContext<()>>() else {
-            emit(RequestAclAuthContextMissing::new(request.method()));
+            emit(AuthContextMissing::request_acl(request.method()));
             return false;
         };
 
@@ -765,7 +765,7 @@ fn authorize_principal_allow_list(
         .extensions()
         .get::<AuthContext<()>>()
         .ok_or_else(|| {
-            emit(PrincipalAllowListAuthContextMissing::new(request.method()));
+            emit(AuthContextMissing::principal_allow_list(request.method()));
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -1829,7 +1829,7 @@ mod tests {
                         result: false,
                         denial_delta: 0.0,
                         error_delta: 1.0,
-                        event_names: vec!["bmc_proxy_request_acl_auth_context_missing".to_string()],
+                        event_names: vec!["bmc_proxy_auth_context_missing".to_string()],
                     },
                 },
             ],
@@ -1887,9 +1887,7 @@ mod tests {
                         result: Err(StatusCode::INTERNAL_SERVER_ERROR),
                         denial_delta: 0.0,
                         error_delta: 1.0,
-                        event_names: vec![
-                            "bmc_proxy_principal_allow_list_auth_context_missing".to_string(),
-                        ],
+                        event_names: vec!["bmc_proxy_auth_context_missing".to_string()],
                     },
                 },
             ],
