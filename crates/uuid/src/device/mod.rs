@@ -265,13 +265,13 @@ impl std::fmt::Display for DeviceId {
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum DeviceIdParseError {
-    #[error("Invalid machine id: {0}")]
+    #[error("invalid machine id: {0}")]
     Machine(#[from] MachineIdParseError),
-    #[error("Invalid switch id: {0}")]
+    #[error("invalid switch id: {0}")]
     Switch(#[from] SwitchIdParseError),
-    #[error("Invalid power shelf id: {0}")]
+    #[error("invalid power shelf id: {0}")]
     PowerShelf(#[from] PowerShelfIdParseError),
-    #[error("Unable to determine device type from id: {0}")]
+    #[error("unable to determine device type from id: {0}")]
     UnknownId(String),
 }
 
