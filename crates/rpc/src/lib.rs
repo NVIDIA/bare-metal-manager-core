@@ -1064,12 +1064,27 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 mod tests {
     use std::time::Duration;
 
+    use carbide_uuid::device::DeviceId;
     use carbide_uuid::machine::MachineId;
+    use carbide_uuid::switch::SwitchId;
 
     use self::forge::instance_operating_system_config::Variant;
     use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
+
+    #[derive(Clone, PartialEq, Message)]
+    struct LegacyBmcCredentialRotationRequest {
+        #[prost(
+            enumeration = "forge::bmc_credential_rotation_request::Mode",
+            tag = "1"
+        )]
+        mode: i32,
+        #[prost(message, optional, tag = "2")]
+        machine_id: Option<MachineId>,
+        #[prost(string, optional, tag = "3")]
+        bmc_mac: Option<String>,
+    }
 
     #[test]
     fn test_serialize_timestamp() {
@@ -1179,5 +1194,56 @@ mod tests {
         assert_eq!(decoded.address_family, Some(2));
         assert_eq!(decoded.message_kind, Some(2));
         assert_eq!(decoded.duid, Some(vec![0, 1, 0, 1, 0xaa, 0xbb]));
+    }
+
+    #[test]
+    fn bmc_rotation_request_preserves_the_legacy_machine_wire_fields() {
+        let machine_id =
+            MachineId::from_str("fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
+                .unwrap();
+        let bmc_mac = "00:11:22:33:44:55".to_string();
+        let mode = forge::bmc_credential_rotation_request::Mode::Set as i32;
+        let legacy = LegacyBmcCredentialRotationRequest {
+            mode,
+            machine_id: Some(machine_id),
+            bmc_mac: Some(bmc_mac.clone()),
+        };
+
+        #[allow(deprecated)]
+        let current = forge::BmcCredentialRotationRequest {
+            mode,
+            machine_id: Some(machine_id),
+            bmc_mac: Some(bmc_mac.clone()),
+            device_id: None,
+        };
+        assert_eq!(current.encode_to_vec(), legacy.encode_to_vec());
+
+        let decoded =
+            forge::BmcCredentialRotationRequest::decode(legacy.encode_to_vec().as_slice()).unwrap();
+        #[allow(deprecated)]
+        {
+            assert_eq!(decoded.machine_id, Some(machine_id));
+        }
+        assert_eq!(decoded.bmc_mac, Some(bmc_mac));
+        assert_eq!(decoded.device_id, None);
+    }
+
+    #[test]
+    fn bmc_rotation_request_round_trips_the_shared_device_id() {
+        let switch_id =
+            SwitchId::from_str("sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg")
+                .unwrap();
+        #[allow(deprecated)]
+        let request = forge::BmcCredentialRotationRequest {
+            mode: forge::bmc_credential_rotation_request::Mode::Clear as i32,
+            machine_id: None,
+            bmc_mac: None,
+            device_id: Some(DeviceId::Switch(switch_id)),
+        };
+
+        let decoded =
+            forge::BmcCredentialRotationRequest::decode(request.encode_to_vec().as_slice())
+                .unwrap();
+        assert_eq!(decoded.device_id, Some(DeviceId::Switch(switch_id)));
     }
 }

@@ -97,6 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".measured_boot.MeasurementJournalId", "::carbide_uuid::measured_boot::MeasurementJournalId")
         .extern_path(".measured_boot.MeasurementApprovedMachineId", "::carbide_uuid::measured_boot::MeasurementApprovedMachineId")
         .extern_path(".measured_boot.MeasurementApprovedProfileId", "::carbide_uuid::measured_boot::MeasurementApprovedProfileId")
+        .extern_path(".common.DeviceId", "::carbide_uuid::device::DeviceId")
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
@@ -193,8 +194,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.DpuExtensionServiceStatusObservation", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceComponent", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceStatus", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .type_attribute("forge.DpuExtensionServiceObservability", "#[derive(serde::Serialize, serde::Deserialize)]")        
-        .type_attribute("forge.DpuExtensionServiceObservabilityConfigPrometheus", "#[derive(serde::Serialize, serde::Deserialize)]") 
+        .type_attribute("forge.DpuExtensionServiceObservability", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.DpuExtensionServiceObservabilityConfigPrometheus", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceObservabilityConfigLogging", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceObservabilityConfig.config", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceObservabilityConfig", "#[derive(serde::Serialize, serde::Deserialize)]")
@@ -1199,6 +1200,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ".measured_boot.MeasurementApprovedProfileId",
                 "::carbide_uuid::measured_boot::MeasurementApprovedProfileId",
             ),
+            (".common.DeviceId", "::carbide_uuid::device::DeviceId"),
         ],
     })?;
 
