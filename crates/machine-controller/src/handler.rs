@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use attestation::{
     handle_spdm_attestation_failed_recovery, handle_spdm_poll_state, handle_spdm_trigger_state,
 };
+use carbide_credential_rotation::{RotationStep, advance};
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
 use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_redfish::libredfish::conv::{
@@ -1037,8 +1038,8 @@ impl MachineStateHandler {
                 // devices (bypassing backoff) and, when site-wide rotation is
                 // enabled, any lagging host or DPU BMC -- handled together.
                 let tick = rotation::rotate_managed_host_bmcs(ctx.services, mh_snapshot).await;
-                match rotation::advance(tick, *retry_count, host_machine_id) {
-                    step @ (rotation::RotationStep::Settled | rotation::RotationStep::GaveUp) => {
+                match advance(tick, *retry_count, host_machine_id) {
+                    step @ (RotationStep::Settled | RotationStep::GaveUp) => {
                         // Both terminal steps return to Ready. Only a settled tick
                         // clears a one-shot force request: the forced attempt
                         // genuinely fired, so a satisfied (or unresolvable) request
@@ -1049,18 +1050,16 @@ impl MachineStateHandler {
                         // the entry guard re-attempt on a later sweep rather than
                         // silently drop the operator's request.
                         let mut txn = None;
-                        if matches!(step, rotation::RotationStep::Settled) {
+                        if matches!(step, RotationStep::Settled) {
                             txn = rotation::clear_forced_bmc_requests(ctx.services, mh_snapshot)
                                 .await?;
                         }
                         Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
                             .with_txn_opt(txn))
                     }
-                    rotation::RotationStep::Retry { retry_count } => {
-                        Ok(StateHandlerOutcome::transition(
-                            ManagedHostState::RotatingBmc { retry_count },
-                        ))
-                    }
+                    RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingBmc { retry_count },
+                    )),
                 }
             }
 

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use ::rpc::forge::bmc_credential_rotation_request::{DeviceId, Mode};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
@@ -45,15 +46,13 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     api: &Api,
     request: Request<rpc::BmcCredentialRotationRequest>,
 ) -> Result<Response<()>, Status> {
-    use ::rpc::forge::bmc_credential_rotation_request::Mode;
-
     log_request_data(&request);
     let req = request.into_inner();
     let mode = req.mode();
 
     let mut txn = api.txn_begin().await?;
 
-    let target = resolve_target(&mut txn, req.machine_id, req.switch_id, req.bmc_mac).await?;
+    let target = resolve_target(&mut txn, req.device_id, req.bmc_mac).await?;
 
     match mode {
         Mode::Set => match target {
@@ -86,26 +85,18 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     Ok(Response::new(()))
 }
 
-/// Resolve the device that owns the target BMC from an operator request that may
-/// carry a machine id, a switch id, a BMC MAC, or a combination. A device has
-/// exactly one BMC, so any single identifier uniquely names it. `machine_id` and
-/// `switch_id` are mutually exclusive (a BMC belongs to one device kind). When a
-/// MAC is supplied alongside an id they must agree, which lets an operator
+/// Resolve the device that owns the target BMC from an operator request that
+/// carries a `device_id` (machine or switch), a BMC MAC, or both. A device has
+/// exactly one BMC, so any single identifier uniquely names it. The `device_id`
+/// oneof already makes the machine/switch ids mutually exclusive. When a MAC is
+/// supplied alongside a `device_id` they must agree, which lets an operator
 /// double-check that a MAC pulled from an alert really is the BMC of the device
 /// they mean.
 async fn resolve_target(
     txn: &mut PgConnection,
-    machine_id: Option<MachineId>,
-    switch_id: Option<SwitchId>,
+    device_id: Option<DeviceId>,
     bmc_mac: Option<String>,
 ) -> Result<RotationTarget, CarbideError> {
-    if machine_id.is_some() && switch_id.is_some() {
-        return Err(CarbideError::InvalidArgument(
-            "machine_id and switch_id are mutually exclusive; a BMC belongs to one device kind"
-                .to_string(),
-        ));
-    }
-
     let bmc_mac = bmc_mac
         .map(|mac| {
             mac.parse::<MacAddress>().map_err(|_| {
@@ -120,10 +111,10 @@ async fn resolve_target(
         None => None,
     };
 
-    let target = match (machine_id, switch_id, mac_target) {
+    let target = match (device_id, mac_target) {
         // Explicit machine id, optionally cross-checked against the MAC's owner.
-        (Some(machine_id), None, None) => RotationTarget::Machine(machine_id),
-        (Some(machine_id), None, Some(RotationTarget::Machine(mac_machine_id))) => {
+        (Some(DeviceId::MachineId(machine_id)), None) => RotationTarget::Machine(machine_id),
+        (Some(DeviceId::MachineId(machine_id)), Some(RotationTarget::Machine(mac_machine_id))) => {
             if machine_id != mac_machine_id {
                 return Err(CarbideError::InvalidArgument(format!(
                     "bmc {} belongs to machine {mac_machine_id}, not the requested machine {machine_id}",
@@ -132,15 +123,15 @@ async fn resolve_target(
             }
             RotationTarget::Machine(machine_id)
         }
-        (Some(machine_id), None, Some(RotationTarget::Switch(switch_id))) => {
+        (Some(DeviceId::MachineId(machine_id)), Some(RotationTarget::Switch(switch_id))) => {
             return Err(CarbideError::InvalidArgument(format!(
                 "bmc {} belongs to switch {switch_id}, not the requested machine {machine_id}",
                 bmc_mac.expect("a mac target implies a parsed mac")
             )));
         }
         // Explicit switch id, optionally cross-checked against the MAC's owner.
-        (None, Some(switch_id), None) => RotationTarget::Switch(switch_id),
-        (None, Some(switch_id), Some(RotationTarget::Switch(mac_switch_id))) => {
+        (Some(DeviceId::SwitchId(switch_id)), None) => RotationTarget::Switch(switch_id),
+        (Some(DeviceId::SwitchId(switch_id)), Some(RotationTarget::Switch(mac_switch_id))) => {
             if switch_id != mac_switch_id {
                 return Err(CarbideError::InvalidArgument(format!(
                     "bmc {} belongs to switch {mac_switch_id}, not the requested switch {switch_id}",
@@ -149,21 +140,19 @@ async fn resolve_target(
             }
             RotationTarget::Switch(switch_id)
         }
-        (None, Some(switch_id), Some(RotationTarget::Machine(machine_id))) => {
+        (Some(DeviceId::SwitchId(switch_id)), Some(RotationTarget::Machine(machine_id))) => {
             return Err(CarbideError::InvalidArgument(format!(
                 "bmc {} belongs to machine {machine_id}, not the requested switch {switch_id}",
                 bmc_mac.expect("a mac target implies a parsed mac")
             )));
         }
         // MAC only: the owner the MAC resolved to.
-        (None, None, Some(target)) => target,
-        (None, None, None) => {
+        (None, Some(target)) => target,
+        (None, None) => {
             return Err(CarbideError::InvalidArgument(
                 "one of machine_id, switch_id, or bmc_mac must be provided".to_string(),
             ));
         }
-        // machine_id + switch_id together is rejected above.
-        (Some(_), Some(_), _) => unreachable!("mutually-exclusive ids rejected above"),
     };
 
     if let RotationTarget::Machine(machine_id) = &target {

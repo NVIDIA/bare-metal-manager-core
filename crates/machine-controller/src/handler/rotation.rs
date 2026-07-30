@@ -35,9 +35,6 @@
 //! under live tenancy (`Assigned/RotatingBmc`).
 
 use carbide_credential_rotation::{BmcEndpoint, BmcRotationTick, RotateOutcome, rotate_bmc};
-// Re-exported so the state dispatch arms in `handler.rs` can name the shared,
-// state-neutral retry seam as `rotation::advance` / `rotation::RotationStep`.
-pub(crate) use carbide_credential_rotation::{RotationStep, advance};
 use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::machine::MachineId;
 use libredfish::model::service_root::RedfishVendor;

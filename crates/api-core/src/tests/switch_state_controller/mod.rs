@@ -42,6 +42,7 @@ use tokio_util::sync::CancellationToken;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{create_test_env, get_config_with_rack_profiles};
 
+mod bmc_rotation;
 mod fixtures;
 mod maintenance;
 mod nvos_password_rotation;

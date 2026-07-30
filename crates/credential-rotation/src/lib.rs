@@ -97,6 +97,7 @@ use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::bmc_info::BmcInfo;
 use model::machine::Machine;
+use model::switch::Switch;
 use sqlx::PgPool;
 
 /// All work in this crate is the `bmc` credential family.
@@ -279,10 +280,10 @@ impl BmcEndpoint {
         Self::from_bmc_info(&machine.status.bmc_info)
     }
 
-    /// The BMC endpoint of a switch given its optional `bmc_info`, or `None`
-    /// when the switch has no BMC info or it is unkeyable / unreachable.
-    pub fn from_switch(bmc_info: Option<&BmcInfo>) -> Option<Self> {
-        Self::from_bmc_info(bmc_info?)
+    /// The BMC endpoint of a switch, or `None` when the switch has no BMC info
+    /// or it is unkeyable / unreachable.
+    pub fn from_switch(switch: &Switch) -> Option<Self> {
+        Self::from_bmc_info(switch.bmc_info.as_ref()?)
     }
 
     /// Pair this endpoint with a caller-resolved dispatch `vendor` to form the
@@ -294,6 +295,53 @@ impl BmcEndpoint {
             port: self.port,
             vendor,
         }
+    }
+}
+
+#[cfg(test)]
+mod bmc_endpoint_tests {
+    use std::net::IpAddr;
+
+    use super::*;
+
+    fn mac(last: u8) -> MacAddress {
+        MacAddress::new([0x02, 0, 0, 0, 0, last])
+    }
+
+    fn ip(last: u8) -> IpAddr {
+        IpAddr::from([10, 0, 0, last])
+    }
+
+    fn bmc_info(mac: Option<MacAddress>, ip: Option<IpAddr>, port: Option<u16>) -> BmcInfo {
+        BmcInfo {
+            machine_interface_id: None,
+            ip,
+            port,
+            mac,
+            version: None,
+            firmware_version: None,
+        }
+    }
+
+    #[test]
+    fn endpoint_resolves_from_bmc_info() {
+        let endpoint = BmcEndpoint::from_bmc_info(&bmc_info(Some(mac(1)), Some(ip(1)), Some(8443)))
+            .expect("a fully addressable BMC yields an endpoint");
+        assert_eq!(endpoint.device_mac, mac(1));
+        assert_eq!(endpoint.host, ip(1).to_string());
+        assert_eq!(endpoint.port, Some(8443));
+    }
+
+    #[test]
+    fn endpoint_is_none_when_mac_missing() {
+        // No MAC means the rotation row / per-device secret cannot be keyed.
+        assert!(BmcEndpoint::from_bmc_info(&bmc_info(None, Some(ip(1)), None)).is_none());
+    }
+
+    #[test]
+    fn endpoint_is_none_when_ip_missing() {
+        // No IP means the BMC cannot be reached.
+        assert!(BmcEndpoint::from_bmc_info(&bmc_info(Some(mac(1)), None, None)).is_none());
     }
 }
 

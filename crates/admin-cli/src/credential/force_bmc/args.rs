@@ -16,11 +16,22 @@
  */
 
 use ::rpc::forge::BmcCredentialRotationRequest;
-use ::rpc::forge::bmc_credential_rotation_request::Mode;
+use ::rpc::forge::bmc_credential_rotation_request::{DeviceId, Mode};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 use mac_address::MacAddress;
+
+/// Build the request's `device_id` oneof from the mutually-exclusive `--id` /
+/// `--switch-id` selectors (clap enforces at most one is present). Returns
+/// `None` when the target is addressed by `--bmc-mac` alone.
+fn device_id(id: Option<MachineId>, switch_id: Option<SwitchId>) -> Option<DeviceId> {
+    match (id, switch_id) {
+        (Some(id), _) => Some(DeviceId::MachineId(id)),
+        (None, Some(switch_id)) => Some(DeviceId::SwitchId(switch_id)),
+        (None, None) => None,
+    }
+}
 
 #[derive(Parser, Debug, Clone)]
 #[command(after_long_help = "\
@@ -90,8 +101,7 @@ pub struct ForceSet {
 impl From<ForceSet> for BmcCredentialRotationRequest {
     fn from(args: ForceSet) -> Self {
         Self {
-            machine_id: args.id,
-            switch_id: args.switch_id,
+            device_id: device_id(args.id, args.switch_id),
             mode: Mode::Set as i32,
             bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
@@ -137,8 +147,7 @@ pub struct ForceClear {
 impl From<ForceClear> for BmcCredentialRotationRequest {
     fn from(args: ForceClear) -> Self {
         Self {
-            machine_id: args.id,
-            switch_id: args.switch_id,
+            device_id: device_id(args.id, args.switch_id),
             mode: Mode::Clear as i32,
             bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }

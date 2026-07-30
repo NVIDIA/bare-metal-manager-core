@@ -38,10 +38,8 @@
 use carbide_credential_rotation::{
     BmcEndpoint, BmcRotationTick, RotateOutcome, RotationStep, advance, rotate_bmc,
 };
-use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use carbide_uuid::switch::SwitchId;
 use libredfish::model::service_root::RedfishVendor;
-use mac_address::MacAddress;
 use model::switch::{Switch, SwitchControllerState};
 use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -66,7 +64,7 @@ pub async fn should_enter_bmc_rotation(
     if !services.bmc_rotation_enabled {
         return Ok(false);
     }
-    let Some(endpoint) = BmcEndpoint::from_switch(switch.bmc_info.as_ref()) else {
+    let Some(endpoint) = BmcEndpoint::from_switch(switch) else {
         return Ok(false);
     };
     services
@@ -92,19 +90,20 @@ pub async fn handle_rotating_bmc(
 ) -> Result<StateHandlerOutcome<SwitchControllerState>, StateHandlerError> {
     let force = switch.bmc_credential_rotation_requested;
 
-    let tick = match BmcEndpoint::from_switch(switch.bmc_info.as_ref()) {
+    let tick = match BmcEndpoint::from_switch(switch) {
         Some(endpoint) => rotate_switch_bmc(ctx.services, endpoint, force).await,
         // A forced request announces a missing BMC so its one-shot flag still
         // clears; a passive sweep silently settles an unaddressable switch (the
         // entry guard never selects it).
-        None if force => {
-            tracing::warn!(
-                %switch_id,
-                "force-converge request on a switch with no addressable BMC; clearing the request without action"
-            );
+        None => {
+            if force {
+                tracing::warn!(
+                    %switch_id,
+                    "force-converge request on a switch with no addressable BMC; clearing the request without action"
+                );
+            }
             BmcRotationTick::Settled
         }
-        None => BmcRotationTick::Settled,
     };
 
     match advance(tick, retry_count, switch_id) {
@@ -137,7 +136,12 @@ async fn rotate_switch_bmc(
     endpoint: BmcEndpoint,
     force: bool,
 ) -> BmcRotationTick {
-    let vendor = resolve_dispatch_vendor(services, &endpoint).await;
+    // Every switch BMC in the fleet is an NVIDIA NVLink (MGX) switch today, so
+    // the dispatch vendor `set_bmc_root_password` branches on is fixed -- no
+    // per-tick probe is needed (unlike the machine path, whose BMC vendors are
+    // heterogeneous). If non-NVIDIA switch BMCs ever appear, resolve the vendor
+    // here (e.g. via `redfish_client_pool.probe_bmc_vendor`) instead.
+    let vendor = RedfishVendor::NvidiaGBSwitch;
     let target = endpoint.into_target(vendor);
     match rotate_bmc(
         &services.db_pool,
@@ -169,113 +173,5 @@ async fn rotate_switch_bmc(
             );
             BmcRotationTick::Retry
         }
-    }
-}
-
-/// Resolve the precise dispatch vendor `set_bmc_root_password` branches on by
-/// probing at rotation time (switch BMC vendors are not persisted). A probe
-/// failure falls back to `RedfishVendor::Unknown`, which the engine surfaces as a
-/// device-level error and quarantines with backoff -- so an unreachable BMC backs
-/// off rather than hot-looping the controller through Ready -> RotatingBmc ->
-/// Ready every sweep.
-async fn resolve_dispatch_vendor(
-    services: &SwitchStateHandlerServices,
-    endpoint: &BmcEndpoint,
-) -> RedfishVendor {
-    let Some(credentials) = per_device_bmc_credentials(services, endpoint.device_mac).await else {
-        return RedfishVendor::Unknown;
-    };
-    match services
-        .redfish_client_pool
-        .probe_bmc_vendor(&endpoint.host, endpoint.port, credentials)
-        .await
-    {
-        Ok(vendor) => vendor,
-        Err(e) => {
-            tracing::warn!(
-                mac = %endpoint.device_mac,
-                error = %e,
-                "switch BMC vendor probe failed; rotation engine will quarantine the device"
-            );
-            RedfishVendor::Unknown
-        }
-    }
-}
-
-/// Read the current per-device BMC root secret, used only to satisfy the vendor
-/// probe's Chassis-fallback authentication. The engine re-reads it under its own
-/// crash-safe path; a missing secret here just yields an `Unknown` vendor.
-async fn per_device_bmc_credentials(
-    services: &SwitchStateHandlerServices,
-    mac: MacAddress,
-) -> Option<Credentials> {
-    let key = CredentialKey::BmcCredentials {
-        credential_type: BmcCredentialType::BmcRoot {
-            bmc_mac_address: mac,
-        },
-    };
-    match services.credential_manager.get_credentials(&key).await {
-        Ok(credentials) => credentials,
-        Err(e) => {
-            tracing::warn!(%mac, error = %e, "failed reading per-device switch BMC secret for vendor probe");
-            None
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::net::IpAddr;
-
-    use model::bmc_info::BmcInfo;
-
-    use super::*;
-
-    fn mac(last: u8) -> MacAddress {
-        MacAddress::new([0x02, 0, 0, 0, 0, last])
-    }
-
-    fn ip(last: u8) -> IpAddr {
-        IpAddr::from([10, 0, 0, last])
-    }
-
-    fn bmc_info(mac: Option<MacAddress>, ip: Option<IpAddr>, port: Option<u16>) -> BmcInfo {
-        BmcInfo {
-            machine_interface_id: None,
-            ip,
-            port,
-            mac,
-            version: None,
-            firmware_version: None,
-        }
-    }
-
-    #[test]
-    fn endpoint_resolves_from_bmc_info() {
-        let info = bmc_info(Some(mac(1)), Some(ip(1)), Some(8443));
-        let endpoint = BmcEndpoint::from_switch(Some(&info))
-            .expect("a fully addressable BMC yields an endpoint");
-        assert_eq!(endpoint.device_mac, mac(1));
-        assert_eq!(endpoint.host, ip(1).to_string());
-        assert_eq!(endpoint.port, Some(8443));
-    }
-
-    #[test]
-    fn endpoint_is_none_without_bmc_info() {
-        assert!(BmcEndpoint::from_switch(None).is_none());
-    }
-
-    #[test]
-    fn endpoint_is_none_when_mac_missing() {
-        // No MAC means the rotation row / per-device secret cannot be keyed.
-        let info = bmc_info(None, Some(ip(1)), None);
-        assert!(BmcEndpoint::from_switch(Some(&info)).is_none());
-    }
-
-    #[test]
-    fn endpoint_is_none_when_ip_missing() {
-        // No IP means the BMC cannot be reached.
-        let info = bmc_info(Some(mac(1)), None, None);
-        assert!(BmcEndpoint::from_switch(Some(&info)).is_none());
     }
 }
