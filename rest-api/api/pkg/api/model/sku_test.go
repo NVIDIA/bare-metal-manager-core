@@ -60,8 +60,8 @@ func TestNewAPISku(t *testing.T) {
 				Description:          description,
 				DeviceType:           &deviceType,
 				AssociatedMachineIds: associatedMachineIds,
-				Created:              createdTime,
-				Updated:              updatedTime,
+				Created:              &createdTime,
+				Updated:              &updatedTime,
 			},
 		},
 		{
@@ -901,7 +901,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 			ID:          "dgx-h100",
 			Description: cutil.GetPtr("DGX H100"),
 			DeviceType:  &deviceType,
-			Components:  testAPISkuMutationComponents(),
+			Components:  testAPICreateOrUpdateSkuComponentsRequest(),
 		}
 
 		require.NoError(t, req.Validate())
@@ -930,7 +930,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 		req := APISkuCreateRequest{
 			SiteID:     uuid.NewString(),
 			ID:         "dgx-h100",
-			Components: testAPISkuMutationComponents(),
+			Components: testAPICreateOrUpdateSkuComponentsRequest(),
 		}
 
 		require.NoError(t, req.Validate())
@@ -945,7 +945,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 	})
 
 	t.Run("rejects inverted storage size range", func(t *testing.T) {
-		components := testAPISkuMutationComponents()
+		components := testAPICreateOrUpdateSkuComponentsRequest()
 		components.Storage[0].MinSizeMiB = cutil.GetPtr(uint32(4_000_000))
 		components.Storage[0].MaxSizeMiB = cutil.GetPtr(uint32(3_800_000))
 		req := APISkuCreateRequest{
@@ -969,7 +969,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 		{name: "accepts only maximum size", max: cutil.GetPtr(uint32(4_000_000))},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			components := testAPISkuMutationComponents()
+			components := testAPICreateOrUpdateSkuComponentsRequest()
 			components.Storage[0].MinSizeMiB = test.min
 			components.Storage[0].MaxSizeMiB = test.max
 			req := APISkuCreateRequest{
@@ -983,15 +983,15 @@ func TestAPISkuCreateRequest(t *testing.T) {
 	}
 }
 
-func TestNewAPISkuMutationResponseFromCreateRequest_OmittedDescription(t *testing.T) {
-	response := NewAPISkuMutationResponseFromCreateRequest(APISkuCreateRequest{}, "dgx-h100", uuid.NewString())
+func TestNewAPISkuFromCreateRequest_OmittedDescription(t *testing.T) {
+	response := NewAPISkuFromCreateRequest(APISkuCreateRequest{}, "dgx-h100", uuid.NewString())
 
 	assert.Empty(t, response.Description)
 }
 
-func TestAPISkuStorageMutation_UnmarshalJSON(t *testing.T) {
+func TestAPICreateOrUpdateSkuStorageRequest_Validate(t *testing.T) {
 	t.Run("accepts schema version 5 fields", func(t *testing.T) {
-		var storage APISkuStorageMutation
+		var storage APICreateOrUpdateSkuStorageRequest
 		err := json.Unmarshal([]byte(`{
 			"model":"informational-model",
 			"count":2,
@@ -1000,6 +1000,7 @@ func TestAPISkuStorageMutation_UnmarshalJSON(t *testing.T) {
 			"pciPatterns":["^/devices/pci.*nvme[0-1]$"]
 		}`), &storage)
 		require.NoError(t, err)
+		require.NoError(t, storage.Validate())
 		assert.Equal(t, "informational-model", storage.Model)
 		assert.Equal(t, uint32(2), storage.Count)
 		assert.Equal(t, cutil.GetPtr(uint32(3_600_000)), storage.MinSizeMiB)
@@ -1007,18 +1008,23 @@ func TestAPISkuStorageMutation_UnmarshalJSON(t *testing.T) {
 		assert.Equal(t, []string{`^/devices/pci.*nvme[0-1]$`}, storage.PciPatterns)
 	})
 
-	for _, field := range []string{"vendor", "capacityMb"} {
-		t.Run("rejects deprecated "+field, func(t *testing.T) {
-			var storage APISkuStorageMutation
-			err := json.Unmarshal([]byte(fmt.Sprintf(`{"model":"legacy","count":1,%q:0}`, field)), &storage)
+	for name, body := range map[string]string{
+		"rejects deprecated vendor":     `{"model":"legacy","count":1,"vendor":""}`,
+		"rejects deprecated capacityMb": `{"model":"legacy","count":1,"capacityMb":0}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var storage APICreateOrUpdateSkuStorageRequest
+			err := json.Unmarshal([]byte(body), &storage)
+			require.NoError(t, err)
+
+			err = storage.Validate()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), field)
 			assert.Contains(t, err.Error(), "deprecated read-only")
 		})
 	}
 }
 
-func TestAPISkuMutationRequests_UnmarshalJSON(t *testing.T) {
+func TestAPISkuRequests_UnmarshalJSON(t *testing.T) {
 	t.Run("create", func(t *testing.T) {
 		var request APISkuCreateRequest
 		err := json.Unmarshal([]byte(`{
@@ -1051,21 +1057,6 @@ func TestAPISkuMutationRequests_UnmarshalJSON(t *testing.T) {
 		require.NotNil(t, request.Components)
 	})
 
-	for name, body := range map[string]string{
-		"rejects valued schemaVersion": `{"schemaVersion":5}`,
-		"rejects null schemaVersion":   `{"schemaVersion":null}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			for _, target := range []json.Unmarshaler{
-				&APISkuCreateRequest{},
-				&APISkuUpdateRequest{},
-			} {
-				err := target.UnmarshalJSON([]byte(body))
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), "schemaVersion is a read-only SKU field")
-			}
-		})
-	}
 }
 
 func TestAPISkuUpdateRequest(t *testing.T) {
@@ -1103,7 +1094,7 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 		req := APISkuUpdateRequest{
 			SkuID:       "dgx-h100",
 			Description: &description,
-			Components:  testAPISkuMutationComponents(),
+			Components:  testAPICreateOrUpdateSkuComponentsRequest(),
 		}
 		existing := &corev1.Sku{
 			Id:                   "dgx-h100",
@@ -1129,7 +1120,7 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 	})
 
 	t.Run("rejects inverted storage size range", func(t *testing.T) {
-		components := testAPISkuMutationComponents()
+		components := testAPICreateOrUpdateSkuComponentsRequest()
 		components.Storage[0].MinSizeMiB = cutil.GetPtr(uint32(4_000_000))
 		components.Storage[0].MaxSizeMiB = cutil.GetPtr(uint32(3_800_000))
 		req := APISkuUpdateRequest{Components: components}
@@ -1162,8 +1153,8 @@ func testAPISkuComponents() *APISkuComponents {
 	}
 }
 
-func testAPISkuMutationComponents() *APISkuMutationComponents {
-	return &APISkuMutationComponents{
+func testAPICreateOrUpdateSkuComponentsRequest() *APICreateOrUpdateSkuComponentsRequest {
+	return &APICreateOrUpdateSkuComponentsRequest{
 		Chassis: &APISkuChassis{
 			Vendor:       "NVIDIA",
 			Model:        "DGX H100",
@@ -1175,7 +1166,7 @@ func testAPISkuMutationComponents() *APISkuMutationComponents {
 			ThreadCount: 112,
 			Count:       2,
 		}},
-		Storage: []APISkuStorageMutation{{
+		Storage: []APICreateOrUpdateSkuStorageRequest{{
 			Model:       "informational-model",
 			Count:       2,
 			MinSizeMiB:  cutil.GetPtr(uint32(3_600_000)),

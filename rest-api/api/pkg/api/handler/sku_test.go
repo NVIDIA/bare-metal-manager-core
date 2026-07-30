@@ -709,11 +709,11 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, uint32(3_900_000), coreReq.Skus[0].Components.Storage[0].GetMaxSizeMb())
 		assert.Equal(t, []string{`^/devices/pci.*nvme[0-1]$`}, coreReq.Skus[0].Components.Storage[0].PciPatterns)
 
-		var response model.APISkuMutationResponse
+		var response model.APISku
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 		assert.Equal(t, req.ID, response.ID)
 		assert.Equal(t, fixture.siteID, response.SiteID)
-		assert.Empty(t, response.AssociatedMachineIDs)
+		assert.Empty(t, response.AssociatedMachineIds)
 
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
 		require.NoError(t, err)
@@ -740,7 +740,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, corev1.Forge_CreateSku_FullMethodName, fixture.requests[0].FullMethod)
 		assert.Equal(t, corev1.Forge_FindSkusByIds_FullMethodName, fixture.requests[1].FullMethod)
 
-		var response model.APISkuMutationResponse
+		var response model.APISku
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 		assert.Equal(t, req.ID, response.ID)
 		assert.Equal(t, fixture.siteID, response.SiteID)
@@ -748,7 +748,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Equal(t, model.CoreSkuSchemaVersion, response.SchemaVersion)
 		assert.Equal(t, req.DeviceType, response.DeviceType)
 		assert.Equal(t, model.NewAPISkuComponents(req.Components.ToProto()), response.Components)
-		assert.Empty(t, response.AssociatedMachineIDs)
+		assert.Empty(t, response.AssociatedMachineIds)
 		assert.Nil(t, response.Created)
 
 		saved, err := cdbm.NewSkuDAO(fixture.createHandler.dbSession).Get(context.Background(), nil, req.ID)
@@ -837,19 +837,6 @@ func TestCreateSkuHandler(t *testing.T) {
 		assert.Empty(t, fixture.requests)
 	})
 
-	t.Run("rejects schema version", func(t *testing.T) {
-		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
-		rec := fixture.request(t, http.MethodPost, "", map[string]any{
-			"siteId":        fixture.siteID,
-			"id":            "sku-1",
-			"schemaVersion": 5,
-			"components":    map[string]any{},
-		}, fixture.createHandler.Handle)
-
-		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-		assert.Empty(t, fixture.requests)
-	})
-
 	t.Run("rejects inverted storage size range", func(t *testing.T) {
 		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
 		req := validSkuCreateRequest(fixture.siteID)
@@ -890,7 +877,7 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Equal(t, "sku-1", coreReq.SkuId)
 		assert.Equal(t, deviceType, coreReq.GetDeviceType())
 
-		var response model.APISkuMutationResponse
+		var response model.APISku
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 		require.NotNil(t, response.DeviceType)
 		assert.Equal(t, deviceType, *response.DeviceType)
@@ -1045,9 +1032,9 @@ func TestUpdateSkuHandler(t *testing.T) {
 		require.Len(t, coreReq.AssociatedMachineIds, 1)
 		assert.Equal(t, "machine-1", coreReq.AssociatedMachineIds[0].GetId())
 
-		var response model.APISkuMutationResponse
+		var response model.APISku
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
-		assert.Equal(t, []string{"machine-1"}, response.AssociatedMachineIDs)
+		assert.Equal(t, []string{"machine-1"}, response.AssociatedMachineIds)
 
 		saved, err := cdbm.NewSkuDAO(fixture.updateHandler.dbSession).Get(context.Background(), nil, "sku-1")
 		require.NoError(t, err)
@@ -1125,17 +1112,6 @@ func TestUpdateSkuHandler(t *testing.T) {
 		assert.Empty(t, fixture.requests)
 	})
 
-	t.Run("rejects schema version", func(t *testing.T) {
-		fixture := newSkuManagementFixture(t, []string{authz.ProviderAdminRole})
-		rec := fixture.request(t, http.MethodPatch, "sku-1", map[string]any{
-			"siteId":        fixture.siteID,
-			"description":   "updated",
-			"schemaVersion": 5,
-		}, fixture.updateHandler.Handle)
-
-		assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-		assert.Empty(t, fixture.requests)
-	})
 }
 
 func TestDeleteSkuHandler(t *testing.T) {
@@ -1385,13 +1361,13 @@ func validSkuCreateRequest(siteID string) model.APISkuCreateRequest {
 		ID:          "sku-1",
 		Description: cutil.GetPtr("test SKU"),
 		DeviceType:  &deviceType,
-		Components: &model.APISkuMutationComponents{
+		Components: &model.APICreateOrUpdateSkuComponentsRequest{
 			Chassis: &model.APISkuChassis{
 				Vendor:       "NVIDIA",
 				Model:        "DGX H100",
 				Architecture: "x86_64",
 			},
-			Storage: []model.APISkuStorageMutation{{
+			Storage: []model.APICreateOrUpdateSkuStorageRequest{{
 				Model:       "informational-model",
 				Count:       2,
 				MinSizeMiB:  cutil.GetPtr(uint32(3_600_000)),

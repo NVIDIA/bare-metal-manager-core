@@ -37,7 +37,7 @@ func (r ApiCreateSkuRequest) SkuCreateRequest(skuCreateRequest SkuCreateRequest)
 	return r
 }
 
-func (r ApiCreateSkuRequest) Execute() (*SkuMutationResponse, *http.Response, error) {
+func (r ApiCreateSkuRequest) Execute() (*Sku, *http.Response, error) {
 	return r.ApiService.CreateSkuExecute(r)
 }
 
@@ -62,13 +62,13 @@ func (a *SKUAPIService) CreateSku(ctx context.Context, org string) ApiCreateSkuR
 
 // Execute executes the request
 //
-//	@return SkuMutationResponse
-func (a *SKUAPIService) CreateSkuExecute(r ApiCreateSkuRequest) (*SkuMutationResponse, *http.Response, error) {
+//	@return Sku
+func (a *SKUAPIService) CreateSkuExecute(r ApiCreateSkuRequest) (*Sku, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPost
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *SkuMutationResponse
+		localVarReturnValue *Sku
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.CreateSku")
@@ -630,7 +630,7 @@ func (r ApiUpdateSkuRequest) SkuUpdateRequest(skuUpdateRequest SkuUpdateRequest)
 	return r
 }
 
-func (r ApiUpdateSkuRequest) Execute() (*SkuMutationResponse, *http.Response, error) {
+func (r ApiUpdateSkuRequest) Execute() (*Sku, *http.Response, error) {
 	return r.ApiService.UpdateSkuExecute(r)
 }
 
@@ -660,13 +660,13 @@ func (a *SKUAPIService) UpdateSku(ctx context.Context, org string, skuId string)
 
 // Execute executes the request
 //
-//	@return SkuMutationResponse
-func (a *SKUAPIService) UpdateSkuExecute(r ApiUpdateSkuRequest) (*SkuMutationResponse, *http.Response, error) {
+//	@return Sku
+func (a *SKUAPIService) UpdateSkuExecute(r ApiUpdateSkuRequest) (*Sku, *http.Response, error) {
 	var (
 		localVarHTTPMethod  = http.MethodPatch
 		localVarPostBody    interface{}
 		formFiles           []formFile
-		localVarReturnValue *SkuMutationResponse
+		localVarReturnValue *Sku
 	)
 
 	localBasePath, err := a.client.cfg.ServerURLWithContext(r.ctx, "SKUAPIService.UpdateSku")

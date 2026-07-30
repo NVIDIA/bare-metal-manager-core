@@ -306,7 +306,7 @@ func NewCreateSkuHandler(dbSession *cdb.Session, scp *sc.ClientPool) CreateSkuHa
 // @Security ApiKeyAuth
 // @Param org path string true "Name of NGC organization"
 // @Param request body model.APISkuCreateRequest true "SKU create request"
-// @Success 201 {object} model.APISkuMutationResponse
+// @Success 201 {object} model.APISku
 // @Router /v2/org/{org}/nico/sku [post]
 func (csh CreateSkuHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("SKU", "Create", c, csh.tracerSpan)
@@ -341,12 +341,6 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 	})
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
-	}
-
-	siteUUID, err := uuid.Parse(siteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("error parsing Site ID")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Site ID", nil)
 	}
 
 	logger.Info().Str("skuID", apiReq.ID).Str("siteID", siteID).Msg("creating SKU via Core proxy")
@@ -388,7 +382,7 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 		err = errors.New("cannot persist an empty Core SKU")
 	} else {
 		projected := &cdbm.SKU{}
-		projected.FromProto(skuToPersist, siteUUID)
+		projected.FromProto(skuToPersist, uuid.MustParse(siteID))
 		skuDAO := cdbm.NewSkuDAO(csh.dbSession)
 		err = cdb.WithTx(ctx, csh.dbSession, func(tx *cdb.Tx) error {
 			err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
@@ -423,9 +417,9 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was created in Core but failed to update REST DB", nil)
 	}
 	if apiErr != nil {
-		return c.JSON(http.StatusCreated, model.NewAPISkuMutationResponseFromCreateRequest(apiReq, ids.Ids[0], siteID))
+		return c.JSON(http.StatusCreated, model.NewAPISkuFromCreateRequest(apiReq, ids.Ids[0], siteID))
 	}
-	return c.JSON(http.StatusCreated, model.NewAPISkuMutationResponse(skuToPersist, siteID))
+	return c.JSON(http.StatusCreated, model.NewAPISkuFromProto(skuToPersist, siteID))
 }
 
 // UpdateSkuHandler partially updates one SKU on a Site's Core service.
@@ -454,7 +448,7 @@ func NewUpdateSkuHandler(dbSession *cdb.Session, scp *sc.ClientPool) UpdateSkuHa
 // @Param org path string true "Name of NGC organization"
 // @Param id path string true "SKU ID"
 // @Param request body model.APISkuUpdateRequest true "SKU update request"
-// @Success 200 {object} model.APISkuMutationResponse
+// @Success 200 {object} model.APISku
 // @Router /v2/org/{org}/nico/sku/{id} [patch]
 func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 	org, dbUser, ctx, logger, handlerSpan := common.SetupHandler("SKU", "Update", c, ush.tracerSpan)
@@ -597,7 +591,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "SKU was updated in Core but failed to update REST DB", nil)
 	}
 
-	return c.JSON(http.StatusOK, model.NewAPISkuMutationResponse(updatedSKU, siteID))
+	return c.JSON(http.StatusOK, model.NewAPISkuFromProto(updatedSKU, siteID))
 }
 
 // DeleteSkuHandler deletes one unused SKU from a Site's Core service.

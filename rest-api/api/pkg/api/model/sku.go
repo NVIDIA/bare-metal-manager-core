@@ -4,7 +4,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,6 +22,8 @@ type APISku struct {
 	SiteID string `json:"siteId"`
 	// Description is the human-readable SKU description
 	Description string `json:"description"`
+	// SchemaVersion is the Core SKU schema version when known.
+	SchemaVersion uint32 `json:"schemaVersion,omitempty"`
 	// DeviceType is the optional device type identifier
 	DeviceType *string `json:"deviceType"`
 	// AssociatedMachineIds is the list of machine IDs associated with this SKU
@@ -30,9 +31,9 @@ type APISku struct {
 	// Components contains the hardware components of this SKU
 	Components *APISkuComponents `json:"components"`
 	// Created is the date and time the entity was created
-	Created time.Time `json:"created"`
+	Created *time.Time `json:"created,omitempty"`
 	// Updated is the date and time the entity was last updated
-	Updated time.Time `json:"updated"`
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // APISkuCreateRequest is the POST /sku request body.
@@ -46,7 +47,7 @@ type APISkuCreateRequest struct {
 	// DeviceType is the optional device type identifier.
 	DeviceType *string `json:"deviceType,omitempty"`
 	// Components is the expected hardware configuration.
-	Components *APISkuMutationComponents `json:"components"`
+	Components *APICreateOrUpdateSkuComponentsRequest `json:"components"`
 }
 
 // APISkuUpdateRequest is the PATCH /sku/:id request body.
@@ -58,82 +59,21 @@ type APISkuUpdateRequest struct {
 	// DeviceType replaces the device type when provided.
 	DeviceType *string `json:"deviceType,omitempty"`
 	// Components replaces the hardware configuration when provided.
-	Components *APISkuMutationComponents `json:"components,omitempty"`
-}
-
-// APISkuMutationResponse is the Core-backed representation returned by SKU
-// create and update operations. Core does not expose an updated timestamp.
-type APISkuMutationResponse struct {
-	// ID is the unique identifier for the SKU.
-	ID string `json:"id"`
-	// SiteID is the ID of the Site this SKU belongs to.
-	SiteID string `json:"siteId"`
-	// Description is the human-readable SKU description.
-	Description string `json:"description"`
-	// SchemaVersion is the Core SKU schema version.
-	SchemaVersion uint32 `json:"schemaVersion"`
-	// DeviceType is the optional device type identifier.
-	DeviceType *string `json:"deviceType,omitempty"`
-	// AssociatedMachineIDs is the list of machine IDs associated with this SKU.
-	AssociatedMachineIDs []string `json:"associatedMachineIds"`
-	// Components contains the hardware components of this SKU.
-	Components *APISkuComponents `json:"components"`
-	// Created is the date and time the entity was created.
-	Created *time.Time `json:"created,omitempty"`
+	Components *APICreateOrUpdateSkuComponentsRequest `json:"components,omitempty"`
 }
 
 // CoreSkuSchemaVersion is the Core wire format emitted by REST SKU mutations.
 const CoreSkuSchemaVersion uint32 = 5
 
-// UnmarshalJSON rejects caller-supplied Core schema versions.
-func (ascr *APISkuCreateRequest) UnmarshalJSON(data []byte) error {
-	type skuCreateRequest APISkuCreateRequest
-	var decoded struct {
-		skuCreateRequest
-		SchemaVersion json.RawMessage `json:"schemaVersion"`
-	}
-	err := json.Unmarshal(data, &decoded)
-	if err != nil {
-		return err
-	}
-	if decoded.SchemaVersion != nil {
-		return fmt.Errorf("schemaVersion is a read-only SKU field")
-	}
-	*ascr = APISkuCreateRequest(decoded.skuCreateRequest)
-	return nil
-}
-
-// UnmarshalJSON rejects caller-supplied Core schema versions.
-func (asur *APISkuUpdateRequest) UnmarshalJSON(data []byte) error {
-	type skuUpdateRequest APISkuUpdateRequest
-	var decoded struct {
-		skuUpdateRequest
-		SchemaVersion json.RawMessage `json:"schemaVersion"`
-	}
-	err := json.Unmarshal(data, &decoded)
-	if err != nil {
-		return err
-	}
-	if decoded.SchemaVersion != nil {
-		return fmt.Errorf("schemaVersion is a read-only SKU field")
-	}
-	*asur = APISkuUpdateRequest(decoded.skuUpdateRequest)
-	return nil
-}
-
 // Validate checks the create request before conversion to Core protobufs.
 func (ascr APISkuCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&ascr,
+	return validation.ValidateStruct(&ascr,
 		validation.Field(&ascr.SiteID,
 			validation.Required.Error(validationErrorValueRequired),
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&ascr.ID, validation.Required.Error(validationErrorValueRequired)),
 		validation.Field(&ascr.Components, validation.Required.Error(validationErrorValueRequired)),
 	)
-	if err != nil {
-		return err
-	}
-	return validateSkuMutationComponents(ascr.Components)
 }
 
 // ToProto converts a validated create request into Core's single-item SkuList.
@@ -152,7 +92,9 @@ func (asur APISkuUpdateRequest) Validate() error {
 	if asur.Description == nil && asur.DeviceType == nil && asur.Components == nil {
 		return validation.Errors{"request": validation.NewError("validation_required", "at least one mutable field is required")}
 	}
-	return validateSkuMutationComponents(asur.Components)
+	return validation.ValidateStruct(&asur,
+		validation.Field(&asur.Components),
+	)
 }
 
 // ToMetadataProto converts a validated metadata-only PATCH request.
@@ -187,24 +129,24 @@ func (asur APISkuUpdateRequest) ToReplacementProto(current *corev1.Sku) *corev1.
 	return updated
 }
 
-// NewAPISkuMutationResponse converts a Core SKU into the REST mutation response.
-func NewAPISkuMutationResponse(sku *corev1.Sku, siteID string) *APISkuMutationResponse {
+// NewAPISkuFromProto converts a Core SKU into the REST API representation.
+func NewAPISkuFromProto(sku *corev1.Sku, siteID string) *APISku {
 	if sku == nil {
 		return nil
 	}
-	response := &APISkuMutationResponse{
+	response := &APISku{
 		ID:                   sku.Id,
 		SiteID:               siteID,
 		Description:          sku.GetDescription(),
 		SchemaVersion:        sku.SchemaVersion,
 		DeviceType:           sku.DeviceType,
-		AssociatedMachineIDs: []string{},
+		AssociatedMachineIds: []string{},
 		Components:           NewAPISkuComponents(sku.Components),
 	}
 	for _, machineID := range sku.AssociatedMachineIds {
 		id := machineID.GetId()
 		if id != "" {
-			response.AssociatedMachineIDs = append(response.AssociatedMachineIDs, id)
+			response.AssociatedMachineIds = append(response.AssociatedMachineIds, id)
 		}
 	}
 	if sku.Created != nil {
@@ -214,20 +156,20 @@ func NewAPISkuMutationResponse(sku *corev1.Sku, siteID string) *APISkuMutationRe
 	return response
 }
 
-// NewAPISkuMutationResponseFromCreateRequest builds the best-known response
+// NewAPISkuFromCreateRequest builds the best-known response
 // after Core accepted a create request but the post-create read failed.
-func NewAPISkuMutationResponseFromCreateRequest(req APISkuCreateRequest, skuID, siteID string) *APISkuMutationResponse {
+func NewAPISkuFromCreateRequest(req APISkuCreateRequest, skuID, siteID string) *APISku {
 	description := ""
 	if req.Description != nil {
 		description = *req.Description
 	}
-	return &APISkuMutationResponse{
+	return &APISku{
 		ID:                   skuID,
 		SiteID:               siteID,
 		Description:          description,
 		SchemaVersion:        CoreSkuSchemaVersion,
 		DeviceType:           req.DeviceType,
-		AssociatedMachineIDs: []string{},
+		AssociatedMachineIds: []string{},
 		Components:           NewAPISkuComponents(req.Components.ToProto()),
 	}
 }
@@ -244,8 +186,8 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 		Description:          dbSku.Description,
 		DeviceType:           dbSku.DeviceType,
 		AssociatedMachineIds: dbSku.AssociatedMachineIds,
-		Created:              dbSku.Created,
-		Updated:              dbSku.Updated,
+		Created:              &dbSku.Created,
+		Updated:              &dbSku.Updated,
 	}
 
 	// Map SKU Components if available
@@ -256,7 +198,7 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 	return apiSku
 }
 
-type skuComponents[Storage any] struct {
+type skuComponents[skuStorage any] struct {
 	// Cpus describes CPU components
 	Cpus []APISkuCpu `json:"cpus"`
 	// Gpus describes GPU components
@@ -264,7 +206,7 @@ type skuComponents[Storage any] struct {
 	// Memory describes memory components
 	Memory []APISkuMemory `json:"memory"`
 	// Storage describes storage components
-	Storage []Storage `json:"storage"`
+	Storage []skuStorage `json:"storage"`
 	// Chassis describes chassis component
 	Chassis *APISkuChassis `json:"chassis"`
 	// EthernetDevices describes ethernet device components
@@ -278,8 +220,31 @@ type skuComponents[Storage any] struct {
 // APISkuComponents is the data structure to capture API representation of SKU Components.
 type APISkuComponents skuComponents[APISkuStorage]
 
-// APISkuMutationComponents is the hardware component shape accepted by SKU mutation endpoints.
-type APISkuMutationComponents skuComponents[APISkuStorageMutation]
+// APICreateOrUpdateSkuComponentsRequest is the hardware component shape
+// accepted by SKU create and update endpoints.
+type APICreateOrUpdateSkuComponentsRequest struct {
+	// Cpus describes CPU components.
+	Cpus []APISkuCpu `json:"cpus"`
+	// Gpus describes GPU components.
+	Gpus []APISkuGpu `json:"gpus"`
+	// Memory describes memory components.
+	Memory []APISkuMemory `json:"memory"`
+	// Storage describes writable storage constraints.
+	Storage []APICreateOrUpdateSkuStorageRequest `json:"storage"`
+	// Chassis describes the chassis component.
+	Chassis *APISkuChassis `json:"chassis"`
+	// EthernetDevices describes Ethernet device components.
+	EthernetDevices []APISkuEthernetDevice `json:"ethernetDevices"`
+	// InfinibandDevices describes InfiniBand device components.
+	InfinibandDevices []APISkuInfinibandDevice `json:"infinibandDevices"`
+	// Tpm describes TPM components.
+	Tpm *APISkuTpm `json:"tpm"`
+}
+
+// Validate checks every writable storage component.
+func (c APICreateOrUpdateSkuComponentsRequest) Validate() error {
+	return validation.Validate(c.Storage, validation.Each())
+}
 
 // APISkuCpu represents a CPU component in the SKU
 type APISkuCpu struct {
@@ -337,10 +302,15 @@ type APISkuStorage struct {
 	PciPatterns []string `json:"pciPatterns,omitempty"`
 }
 
-// APISkuStorageMutation represents writable storage constraints in a SKU.
-type APISkuStorageMutation struct {
+// APICreateOrUpdateSkuStorageRequest represents writable storage constraints
+// in a SKU request.
+type APICreateOrUpdateSkuStorageRequest struct {
+	// Vendor is a deprecated read-only response field.
+	Vendor *string `json:"vendor,omitempty"`
 	// Model is informational starting with the 2.1 release.
 	Model string `json:"model"`
+	// CapacityMb is a deprecated read-only response field.
+	CapacityMb *uint32 `json:"capacityMb,omitempty"`
 	// Count describes the number of storage devices present.
 	Count uint32 `json:"count"`
 	// MinSizeMiB is the inclusive minimum capacity in mebibytes for each storage device.
@@ -351,44 +321,22 @@ type APISkuStorageMutation struct {
 	PciPatterns []string `json:"pciPatterns,omitempty"`
 }
 
-func validateSkuMutationComponents(components *APISkuMutationComponents) error {
-	if components == nil {
+// Validate rejects deprecated response-only fields and invalid size bounds.
+func (s APICreateOrUpdateSkuStorageRequest) Validate() error {
+	errs := validation.Errors{}
+	if s.Vendor != nil {
+		errs["vendor"] = fmt.Errorf("is a deprecated read-only SKU storage field")
+	}
+	if s.CapacityMb != nil {
+		errs["capacityMb"] = fmt.Errorf("is a deprecated read-only SKU storage field")
+	}
+	if s.MinSizeMiB != nil && s.MaxSizeMiB != nil && *s.MinSizeMiB > *s.MaxSizeMiB {
+		errs["minSizeMiB"] = fmt.Errorf("must be less than or equal to maxSizeMiB")
+	}
+	if len(errs) == 0 {
 		return nil
 	}
-	for i, storage := range components.Storage {
-		if storage.MinSizeMiB != nil && storage.MaxSizeMiB != nil && *storage.MinSizeMiB > *storage.MaxSizeMiB {
-			return validation.Errors{"components": validation.Errors{
-				fmt.Sprintf("storage[%d]", i): validation.Errors{
-					"minSizeMiB": fmt.Errorf("must be less than or equal to maxSizeMiB"),
-				},
-			}}
-		}
-	}
-	return nil
-}
-
-// UnmarshalJSON rejects legacy read-only storage fields on mutation requests.
-func (s *APISkuStorageMutation) UnmarshalJSON(data []byte) error {
-	var fields map[string]json.RawMessage
-	err := json.Unmarshal(data, &fields)
-	if err != nil {
-		return err
-	}
-	for _, field := range []string{"vendor", "capacityMb"} {
-		_, found := fields[field]
-		if found {
-			return fmt.Errorf("%s is a deprecated read-only SKU storage field", field)
-		}
-	}
-
-	type storageMutation APISkuStorageMutation
-	var decoded storageMutation
-	err = json.Unmarshal(data, &decoded)
-	if err != nil {
-		return err
-	}
-	*s = APISkuStorageMutation(decoded)
-	return nil
+	return errs
 }
 
 // APISkuChassis represents the chassis component in the SKU
@@ -599,9 +547,22 @@ func (c *APISkuComponents) ToProto() *corev1.SkuComponents {
 	})
 }
 
-// ToProto converts REST SKU mutation components into the Core protobuf shape.
-func (c *APISkuMutationComponents) ToProto() *corev1.SkuComponents {
-	return skuComponentsToProto((*skuComponents[APISkuStorageMutation])(c), func(storage APISkuStorageMutation) *corev1.SkuComponentStorage {
+// ToProto converts validated SKU request components into the Core protobuf shape.
+func (c *APICreateOrUpdateSkuComponentsRequest) ToProto() *corev1.SkuComponents {
+	if c == nil {
+		return nil
+	}
+	components := &skuComponents[APICreateOrUpdateSkuStorageRequest]{
+		Cpus:              c.Cpus,
+		Gpus:              c.Gpus,
+		Memory:            c.Memory,
+		Storage:           c.Storage,
+		Chassis:           c.Chassis,
+		EthernetDevices:   c.EthernetDevices,
+		InfinibandDevices: c.InfinibandDevices,
+		Tpm:               c.Tpm,
+	}
+	return skuComponentsToProto(components, func(storage APICreateOrUpdateSkuStorageRequest) *corev1.SkuComponentStorage {
 		return &corev1.SkuComponentStorage{
 			Model:       storage.Model,
 			Count:       storage.Count,

@@ -5197,7 +5197,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SkuMutationResponse'
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -5321,7 +5321,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SkuMutationResponse'
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -24798,6 +24798,11 @@ components:
           type: string
           description: Human-readable SKU description
           readOnly: true
+        schemaVersion:
+          type: integer
+          format: uint32
+          description: Core SKU schema version when available
+          readOnly: true
         deviceType:
           type:
             - string
@@ -24886,76 +24891,6 @@ components:
           description: Replacement device type identifier
         components:
           $ref: '#/components/schemas/SkuMutationComponents'
-    SkuMutationResponse:
-      title: SkuMutationResponse
-      type: object
-      description: Core-backed SKU returned after a create or update operation.
-      examples:
-        - id: dgx-gb200
-          siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
-          description: DGX GB200 GPU node
-          schemaVersion: 5
-          deviceType: gpu-server
-          associatedMachineIds: []
-          components:
-            chassis:
-              vendor: NVIDIA
-              model: DGX GB200
-              architecture: aarch64
-            cpus:
-              - vendor: ARM
-                model: Neoverse-V2
-                threadCount: 72
-                count: 2
-            gpus:
-              - vendor: NVIDIA
-                model: NVIDIA GB200
-                totalMemory: 189471 MiB
-                count: 4
-            infinibandDevices:
-              - vendor: Mellanox Technologies
-                model: MT2910 Family [ConnectX-7]
-                count: 4
-                inactiveDevices: []
-            memory:
-              - memoryType: LPDDR5
-                capacityMb: 491520
-                count: 2
-          created: '2026-07-20T14:15:22Z'
-      properties:
-        id:
-          type: string
-          description: Unique SKU identifier
-        siteId:
-          type: string
-          format: uuid
-          description: ID of the Site that owns the SKU
-        description:
-          type: string
-          description: Human-readable SKU description
-        schemaVersion:
-          type: integer
-          format: uint32
-          description: Core SKU schema version
-          readOnly: true
-        deviceType:
-          type:
-            - string
-            - 'null'
-          description: Optional device type identifier
-        associatedMachineIds:
-          type: array
-          description: Machine IDs currently associated with the SKU
-          items:
-            type: string
-        components:
-          $ref: '#/components/schemas/SkuComponents'
-        created:
-          type:
-            - string
-            - 'null'
-          format: date-time
-          description: Core creation timestamp when available
     SkuComponents:
       title: SkuComponents
       type: object
@@ -25002,7 +24937,7 @@ components:
     SkuMutationComponents:
       title: SkuMutationComponents
       type: object
-      description: Hardware components accepted and returned by SKU mutation endpoints
+      description: Hardware components accepted by SKU mutation endpoints
       properties:
         cpus:
           type: array
