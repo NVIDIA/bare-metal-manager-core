@@ -529,7 +529,6 @@ impl SiteExplorer {
                 .endpoint_explorations_failures_by_type
                 .values()
                 .sum::<usize>() as i64,
-            endpoint_explorations_skipped: metrics.endpoint_explorations_skipped as i64,
             last_successful_finished_at: result.is_ok().then_some(finished_at),
             last_failed_finished_at: result.is_err().then_some(finished_at),
         }
@@ -649,7 +648,6 @@ impl SiteExplorer {
             identified_managed_hosts = tracing::field::Empty,
             endpoint_explorations = tracing::field::Empty,
             endpoint_explorations_success = tracing::field::Empty,
-            endpoint_explorations_skipped = tracing::field::Empty,
             endpoint_explorations_failures = tracing::field::Empty,
             endpoint_explorations_failures_by_type = tracing::field::Empty,
         );
@@ -667,10 +665,6 @@ impl SiteExplorer {
         explore_site_span.record(
             "endpoint_explorations_success",
             metrics.endpoint_explorations_success,
-        );
-        explore_site_span.record(
-            "endpoint_explorations_skipped",
-            metrics.endpoint_explorations_skipped,
         );
         explore_site_span.record(
             "endpoint_explorations_failures",
@@ -2263,7 +2257,6 @@ impl SiteExplorer {
                 Some(iface) => {
                     if ignored_bmc_macs.contains(&iface.mac_address) {
                         tracing::info!(bmc_ip_address = %address, bmc_mac_address = %iface.mac_address, "Skipping exploration of suppressed BMC");
-                        metrics.endpoint_explorations_skipped += 1;
                         continue;
                     }
 
@@ -2315,7 +2308,6 @@ impl SiteExplorer {
             .into_iter()
             .filter(|(address, iface)| {
                 if ignored_bmc_macs.contains(&iface.mac_address) {
-                    metrics.endpoint_explorations_skipped += 1;
                     tracing::info!(bmc_ip_address = %address, bmc_mac_address = %iface.mac_address, "Skipping exploration of suppressed BMC");
                     return false;
                 }

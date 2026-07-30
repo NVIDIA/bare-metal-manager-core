@@ -147,7 +147,6 @@ impl From<SiteExplorerLastRun> for rpc::site_explorer::SiteExplorerLastRun {
             endpoint_explorations: run.endpoint_explorations,
             endpoint_explorations_success: run.endpoint_explorations_success,
             endpoint_explorations_failed: run.endpoint_explorations_failed,
-            endpoint_explorations_skipped: run.endpoint_explorations_skipped,
             last_successful_finished_at: run
                 .last_successful_finished_at
                 .map(|time| time.to_rfc3339()),

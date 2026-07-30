@@ -106,8 +106,6 @@ pub struct SiteExplorationMetrics {
     pub endpoint_explorations: usize,
     /// Successful endpoint explorations
     pub endpoint_explorations_success: usize,
-    /// Skipped endpoint explorations
-    pub endpoint_explorations_skipped: usize,
     /// Endpoint exploration failures by type
     pub endpoint_explorations_failures_by_type: HashMap<String, usize>,
     /// Total amount of endpoint exploration failures by failure type
@@ -189,7 +187,6 @@ impl SiteExplorationMetrics {
             recording_started_at: Instant::now(),
             endpoint_explorations: 0,
             endpoint_explorations_success: 0,
-            endpoint_explorations_skipped: 0,
             endpoint_explorations_failures_by_type: HashMap::new(),
             endpoint_explorations_failures_overall_count: HashMap::new(),
             endpoint_explorations_preingestions_incomplete_overall_count: HashMap::new(),
@@ -694,19 +691,6 @@ impl SiteExplorerInstruments {
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.endpoint_explorations_success as u64, attrs);
-                    })
-                })
-                .build();
-        }
-
-        {
-            let metrics = shared_metrics.clone();
-            meter
-                .u64_observable_gauge("carbide_endpoint_exploration_skipped_count")
-                .with_description("Number of skipped endpoint explorations")
-                .with_callback(move |observer| {
-                    metrics.if_available(|metrics, attrs| {
-                        observer.observe(metrics.endpoint_explorations_skipped as u64, attrs);
                     })
                 })
                 .build();

@@ -101,7 +101,6 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         endpoint_explorations: 3,
         endpoint_explorations_success: 2,
         endpoint_explorations_failed: 1,
-        endpoint_explorations_skipped: 4,
         last_successful_finished_at: Some(finished_at),
         last_failed_finished_at: Some(finished_at),
     };

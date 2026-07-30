@@ -274,36 +274,18 @@ async fn test_periodic_suppression_skips_every_candidate_class(
                 machine.mac,
                 BmcSuppressionSubsystem::SiteExplorer,
             )
-                .await?
-                .unwrap()
-                .acknowledged_at
-                .is_some()
-        );
-    }
-    let dhcp_only_suppression = db::bmc_suppression::find(
-        txn.as_mut(),
-        machines[3].mac,
-        BmcSuppressionSubsystem::Dhcp,
-    )
-    .await?
-    .unwrap();
-    assert!(dhcp_only_suppression.acknowledged_at.is_none());
-    assert_eq!(
-        db::site_explorer_run_status::fetch(txn.as_mut())
             .await?
             .unwrap()
-            .endpoint_explorations_skipped,
-        3
-    );
+            .acknowledged_at
+            .is_some()
+        );
+    }
+    let dhcp_only_suppression =
+        db::bmc_suppression::find(txn.as_mut(), machines[3].mac, BmcSuppressionSubsystem::Dhcp)
+            .await?
+            .unwrap();
+    assert!(dhcp_only_suppression.acknowledged_at.is_none());
     txn.commit().await?;
-
-    assert_eq!(
-        env.test_harness
-            .test_meter
-            .formatted_metric("carbide_endpoint_exploration_skipped_count")
-            .as_deref(),
-        Some("3")
-    );
 
     Ok(())
 }
@@ -452,10 +434,10 @@ async fn test_suppression_is_acknowledged_before_precondition_failure(
             suppressed_mac,
             BmcSuppressionSubsystem::SiteExplorer,
         )
-            .await?
-            .unwrap()
-            .acknowledged_at
-            .is_some()
+        .await?
+        .unwrap()
+        .acknowledged_at
+        .is_some()
     );
     txn.commit().await?;
 
@@ -481,7 +463,6 @@ async fn test_site_explorer_records_last_run(
         endpoint_explorations: i64,
         endpoint_explorations_success: i64,
         endpoint_explorations_failed: i64,
-        endpoint_explorations_skipped: i64,
         failure_category: Option<&'static str>,
         has_last_successful_finished_at: bool,
         has_last_failed_finished_at: bool,
@@ -505,7 +486,6 @@ async fn test_site_explorer_records_last_run(
                 endpoint_explorations: 1,
                 endpoint_explorations_success: 1,
                 endpoint_explorations_failed: 0,
-                endpoint_explorations_skipped: 0,
                 failure_category: None,
                 has_last_successful_finished_at: true,
                 has_last_failed_finished_at: false,
@@ -520,7 +500,6 @@ async fn test_site_explorer_records_last_run(
                 endpoint_explorations: 0,
                 endpoint_explorations_success: 0,
                 endpoint_explorations_failed: 0,
-                endpoint_explorations_skipped: 0,
                 failure_category: Some(LAST_RUN_MISSING_CREDENTIAL_CATEGORY),
                 has_last_successful_finished_at: true,
                 has_last_failed_finished_at: true,
@@ -581,11 +560,6 @@ async fn test_site_explorer_records_last_run(
         );
         assert_eq!(
             last_run.endpoint_explorations_failed, case.expected.endpoint_explorations_failed,
-            "{}",
-            case.name
-        );
-        assert_eq!(
-            last_run.endpoint_explorations_skipped, case.expected.endpoint_explorations_skipped,
             "{}",
             case.name
         );

@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_redfish::boot_interface::BootInterfaceTarget;
+use mac_address::MacAddress;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
