@@ -52,6 +52,14 @@ const CIRCUIT_MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// deliberately longer than a BMC connect timeout.
 const CIRCUIT_PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// How long a credential generation stays marked as known-bad after a
+/// post-refresh retry was refused with it.
+///
+/// Long enough that a full collection sweep against a misconfigured endpoint
+/// costs one refresh rather than one per resource, short enough that
+/// credentials repaired out of band are picked up within a couple of intervals.
+const KNOWN_BAD_CREDENTIAL_COOLDOWN: Duration = Duration::from_secs(60);
+
 /// Per-endpoint connection circuit breaker state.
 ///
 /// When a BMC stops answering at the network level, every collector sharing the
@@ -86,6 +94,21 @@ pub enum CollectorSweep {
     Probe,
     /// Circuit open within the backoff window — skip entirely.
     Skip,
+}
+
+/// A credential generation that a post-refresh retry already proved wrong.
+///
+/// Auth failures deliberately do not open the connection circuit — the BMC is
+/// answering, it is just refusing us — so nothing else damps them. Without this
+/// record a misconfigured endpoint pays a refresh and a replay on *every* read:
+/// each caller observes a fresh generation, so each one does a real credential
+/// fetch. Remembering the generation that was just refused collapses a sweep to
+/// one refresh, and the cooldown still lets the client notice credentials that
+/// were repaired out of band.
+#[derive(Debug, Clone, Copy)]
+struct KnownBadCredentials {
+    generation: u64,
+    proven_at: Instant,
 }
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -135,6 +158,10 @@ pub struct BmcClient {
     /// means a request that was already racing an open-transition proceeds —
     /// harmless, identical to a request already in flight when the circuit trips.
     circuit_tripped: AtomicBool,
+    /// Set once a refresh-and-replay has been refused; see
+    /// [`KnownBadCredentials`]. Only touched on the auth-failure path, so the
+    /// healthy request path never takes this lock.
+    known_bad_credentials: StdMutex<Option<KnownBadCredentials>>,
 }
 
 impl BmcClient {
@@ -168,6 +195,7 @@ impl BmcClient {
             refresh_lock: Mutex::new(()),
             circuit: StdMutex::new(CircuitState::Closed),
             circuit_tripped: AtomicBool::new(false),
+            known_bad_credentials: StdMutex::new(None),
         })
     }
 
@@ -270,6 +298,13 @@ impl BmcClient {
             return Err(error);
         }
 
+        // Credentials at this generation were already fetched fresh and refused.
+        // Refreshing and replaying again would spend another provider fetch and
+        // another request to be told the same thing.
+        if self.credentials_known_bad(observed_generation) {
+            return Err(error);
+        }
+
         // A no-op refresh (another caller already rotated past
         // `observed_generation`) still counts as success: the credentials in
         // place are newer than the ones the failed attempt used.
@@ -286,6 +321,12 @@ impl BmcClient {
             return Err(error);
         }
 
+        // Capture the generation the replay is about to run against, so the
+        // record names the credentials that were actually refused. A concurrent
+        // refresh can still swap them mid-flight; per-request credential capture
+        // is the only way to close that, and the cost of being wrong is one
+        // extra refresh a cooldown later.
+        let retry_generation = self.credential_generation.load(Ordering::Acquire);
         self.guarded(op())
             .await
             .inspect(|_| {
@@ -296,6 +337,7 @@ impl BmcClient {
                 );
             })
             .inspect_err(|retry_error| {
+                self.note_credentials_refused(retry_generation);
                 // Freshly fetched credentials were refused too, so this is a
                 // real misconfiguration rather than a rotation we raced. The
                 // caller's own warning does not say that we already refreshed
@@ -309,6 +351,45 @@ impl BmcClient {
                     "Retry after BMC credential refresh also failed"
                 );
             })
+    }
+
+    /// Whether `generation` was already proven wrong by a replay that ran with
+    /// freshly fetched credentials and was refused anyway.
+    ///
+    /// Consumes the record once the cooldown elapses, so exactly one caller gets
+    /// through to try a refresh again — credentials repaired out of band are
+    /// picked up without every caller in the meantime paying for the discovery.
+    fn credentials_known_bad(&self, generation: u64) -> bool {
+        let mut known_bad = self
+            .known_bad_credentials
+            .lock()
+            .expect("known-bad credential mutex poisoned");
+        match *known_bad {
+            Some(bad) if bad.generation == generation => {
+                if bad.proven_at.elapsed() < KNOWN_BAD_CREDENTIAL_COOLDOWN {
+                    true
+                } else {
+                    *known_bad = None;
+                    false
+                }
+            }
+            // A different generation means these credentials have not been
+            // tested yet, so a stale record simply stops applying — there is
+            // nothing to clear on the success path.
+            _ => false,
+        }
+    }
+
+    /// Record that a replay running at `generation` was refused, so subsequent
+    /// callers observing the same generation skip the refresh-and-replay.
+    fn note_credentials_refused(&self, generation: u64) {
+        *self
+            .known_bad_credentials
+            .lock()
+            .expect("known-bad credential mutex poisoned") = Some(KnownBadCredentials {
+            generation,
+            proven_at: Instant::now(),
+        });
     }
 
     /// Run a BMC operation through the connection circuit breaker.
@@ -482,6 +563,17 @@ impl BmcClient {
         let tripped = !matches!(state, CircuitState::Closed);
         *self.circuit.lock().expect("circuit mutex poisoned") = state;
         self.circuit_tripped.store(tripped, Ordering::Release);
+    }
+
+    /// Backdate (or clear) the known-bad record, so a test can reach the
+    /// cooldown boundary without sleeping. The cooldown is measured against a
+    /// `std::time::Instant`, which tokio's paused clock does not move.
+    #[cfg(test)]
+    fn set_known_bad_credentials_for_test(&self, record: Option<KnownBadCredentials>) {
+        *self
+            .known_bad_credentials
+            .lock()
+            .expect("known-bad credential mutex poisoned") = record;
     }
 }
 
@@ -1522,6 +1614,116 @@ mod tests {
             "the no-op refresh must not re-fetch"
         );
         assert_eq!(client.credential_generation.load(Ordering::Acquire), 2);
+    }
+
+    #[tokio::test]
+    async fn refused_credentials_suppress_further_refresh_and_replay() {
+        // Auth failures never open the connection circuit, so without this a
+        // misconfigured endpoint pays a refresh and a replay on every read of
+        // every sweep. Reviewer's arithmetic on the PR: 300 reads cost ~600
+        // requests and ~300 provider fetches; suppression takes that to ~301
+        // requests and one fetch.
+        let (provider, provider_calls) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+
+        let (first, first_attempts) = scripted_op(vec![Err(auth_error()), Err(auth_error())]);
+        client
+            .read_with_auth_retry(first)
+            .await
+            .expect_err("credentials are genuinely wrong");
+        assert_eq!(first_attempts.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(
+            provider_calls.load(AtomicOrdering::SeqCst),
+            2,
+            "initial fetch plus the one refresh that proved them wrong"
+        );
+
+        // Every subsequent read observes the generation just proven bad.
+        for read in 0..5 {
+            let (op, attempts) = scripted_op(vec![Err(auth_error())]);
+            client
+                .read_with_auth_retry(op)
+                .await
+                .expect_err("still refused");
+            assert_eq!(
+                attempts.load(AtomicOrdering::SeqCst),
+                1,
+                "read {read} must not be replayed"
+            );
+        }
+        assert_eq!(
+            provider_calls.load(AtomicOrdering::SeqCst),
+            2,
+            "no further credential fetches while the generation is known bad"
+        );
+    }
+
+    #[tokio::test]
+    async fn known_bad_credentials_are_retried_once_the_cooldown_elapses() {
+        // Credentials repaired out of band have to be picked up, so the record
+        // must expire rather than latch.
+        let (provider, provider_calls) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        client.ensure_credentials().await.expect("init ok");
+
+        let generation = client.credential_generation.load(Ordering::Acquire);
+        client.set_known_bad_credentials_for_test(Some(KnownBadCredentials {
+            generation,
+            proven_at: Instant::now() - KNOWN_BAD_CREDENTIAL_COOLDOWN - Duration::from_secs(1),
+        }));
+
+        let (op, attempts) = scripted_op(vec![Err(auth_error()), Ok("body")]);
+        let value = client
+            .read_with_auth_retry(op)
+            .await
+            .expect("the elapsed cooldown must admit a refresh and replay");
+
+        assert_eq!(value, "body");
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(
+            provider_calls.load(AtomicOrdering::SeqCst),
+            2,
+            "init fetch plus the refresh the elapsed cooldown allowed"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_known_bad_record_does_not_suppress_a_newer_generation() {
+        // The record names one generation. Credentials rotated since then are
+        // untested, so they must not inherit its verdict.
+        let (provider, provider_calls) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        client.ensure_credentials().await.expect("init ok");
+
+        let stale_generation = client.credential_generation.load(Ordering::Acquire) - 1;
+        client.set_known_bad_credentials_for_test(Some(KnownBadCredentials {
+            generation: stale_generation,
+            proven_at: Instant::now(),
+        }));
+
+        let (op, attempts) = scripted_op(vec![Err(auth_error()), Ok("body")]);
+        client
+            .read_with_auth_retry(op)
+            .await
+            .expect("a generation with no verdict must still be retried");
+
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 2);
+        assert_eq!(provider_calls.load(AtomicOrdering::SeqCst), 2);
     }
 
     const ENTITY_BODY: &str = r#"{"@odata.id":"/redfish/v1"}"#;
