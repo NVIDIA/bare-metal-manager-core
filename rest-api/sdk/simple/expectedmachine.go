@@ -39,7 +39,9 @@ type ExpectedMachineCreateRequest struct {
 
 // ExpectedMachineUpdateRequest represents a request to update an Expected Machine
 type ExpectedMachineUpdateRequest struct {
-	ID                       string            `json:"id,omitempty"` // Required for batch operations
+	ID string `json:"id,omitempty"` // Required for batch operations
+	// Deprecated: BmcMacAddress may reassert the current BMC MAC but cannot
+	// change it.
 	BmcMacAddress            *string           `json:"bmcMacAddress"`
 	BmcUsername              *string           `json:"bmcUsername"`
 	BmcPassword              *string           `json:"bmcPassword"`

@@ -16,6 +16,11 @@ navigation:
       path: index.md
       icon: home
 
+    - changelog: ../fern/changelog
+      title: Release Notes
+      icon: clock
+      slug: release-notes
+
     - section: Overview
       contents:
         - page: What is NICo?
@@ -285,8 +290,6 @@ navigation:
       contents:
         - page: Hardware Compatibility List
           path: hcl.md
-        - page: Release Notes
-          path: release-notes.md
         - page: Release and QA Process
           path: development/release_and_qa_process.md
         - page: FAQs

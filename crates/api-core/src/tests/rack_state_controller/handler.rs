@@ -66,18 +66,21 @@ fn test_capabilities() -> RackCapabilitiesSet {
             count: 2,
             vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
         switch: RackCapabilitySwitch {
             name: None,
             count: 1,
             vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
         power_shelf: RackCapabilityPowerShelf {
             name: None,
             count: 1,
             vendor: Some("LiteOn".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
     }
 }
@@ -89,18 +92,21 @@ fn simple_capabilities() -> RackCapabilitiesSet {
             count: 2,
             vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
         switch: RackCapabilitySwitch {
             name: None,
             count: 0,
             vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
         power_shelf: RackCapabilityPowerShelf {
             name: None,
             count: 0,
             vendor: Some("LiteOn".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
     }
 }
@@ -112,18 +118,21 @@ fn single_capabilities() -> RackCapabilitiesSet {
             count: 1,
             vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
         switch: RackCapabilitySwitch {
             name: None,
             count: 0,
             vendor: Some("NVIDIA".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
         power_shelf: RackCapabilityPowerShelf {
             name: None,
             count: 0,
             vendor: Some("LiteOn".to_string()),
             slot_ids: None,
+            attributes: Default::default(),
         },
     }
 }
@@ -148,6 +157,7 @@ pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
                     rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_hardware_type: Some(RackHardwareType::any()),
                     rack_hardware_class: Some(RackHardwareClass::Prod),
+                    attributes: Default::default(),
                     rack_capabilities: simple_capabilities(),
                 },
             ),
@@ -158,6 +168,7 @@ pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
                     rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
                     rack_hardware_type: Some(RackHardwareType::any()),
                     rack_hardware_class: Some(RackHardwareClass::Prod),
+                    attributes: Default::default(),
                     rack_capabilities: single_capabilities(),
                 },
             ),
