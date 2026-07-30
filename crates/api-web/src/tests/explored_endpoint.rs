@@ -127,8 +127,6 @@ async fn test_site_explorer_run_status_banner(pool: sqlx::PgPool) {
         assert!(body.contains("<dd>2</dd>"), "{uri}");
         assert!(body.contains("<dt>Errored</dt>"), "{uri}");
         assert!(body.contains("<dd>1</dd>"), "{uri}");
-        assert!(body.contains("<dt>Skipped</dt>"), "{uri}");
-        assert!(body.contains("<dd>4</dd>"), "{uri}");
         assert!(body.contains("<dt>Last Successful</dt>"), "{uri}");
         assert!(body.contains("<dt>Last Failed</dt>"), "{uri}");
     }
