@@ -675,6 +675,30 @@ func getMachineForValidation(ctx context.Context, logger zerolog.Logger, dbSessi
 	return machine, nil
 }
 
+func resolveMachineValidationTarget(ctx context.Context, c echo.Context, logger zerolog.Logger, dbSession *cdb.Session, provider *cdbm.InfrastructureProvider) (string, *cdbm.Site, *cutil.APIError) {
+	machineID := c.Param("id")
+	if machineID != "" {
+		machine, apiError := getMachineForValidation(ctx, logger, dbSession, provider, machineID)
+		if apiError != nil {
+			return machineID, nil, apiError
+		}
+		return machineID, machine.Site, nil
+	}
+
+	machineID = c.Param("machineID")
+	siteID := c.Param("siteID")
+	site, err := common.GetSiteFromIDString(ctx, nil, siteID, dbSession)
+	if err != nil {
+		logger.Warn().Err(err).Str("Site ID", siteID).Msg("error getting site from request")
+		return machineID, nil, cutil.NewAPIError(http.StatusBadRequest, "Error retrieving Site in request", nil)
+	}
+	if site.InfrastructureProviderID != provider.ID {
+		return machineID, nil, cutil.NewAPIError(http.StatusBadRequest, "Site specified in request doesn't belong to current org's Provider", nil)
+	}
+
+	return machineID, site, nil
+}
+
 // GetMachineValidationResultsHandler is the API Handler to get MachineValidationResults
 type GetMachineValidationResultsHandler struct {
 	dbSession  *cdb.Session
@@ -732,10 +756,6 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 
-	// get machine id
-	machineID := c.Param("id")
-	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
-
 	// Check that infrastructureProvider exists in org
 	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, handler.dbSession, org)
 	if err != nil {
@@ -743,11 +763,11 @@ func (handler GetMachineValidationResultsHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
-	machine, apiError := getMachineForValidation(ctx, logger, handler.dbSession, ip, machineID)
+	machineID, site, apiError := resolveMachineValidationTarget(ctx, c, logger, handler.dbSession, ip)
+	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
-	site := machine.Site
 
 	// Get the temporal client for the site we are working with
 	temporalClient, err := handler.scp.GetClientByID(site.ID)
@@ -862,10 +882,6 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have Provider Admin role with org", nil)
 	}
 
-	// get machine id
-	machineID := c.Param("id")
-	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
-
 	// Check that infrastructureProvider exists in org
 	ip, err := common.GetInfrastructureProviderForOrg(ctx, nil, handler.dbSession, org)
 	if err != nil {
@@ -873,11 +889,11 @@ func (handler GetAllMachineValidationRunHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to retrieve Infrastructure Provider for org", nil)
 	}
 
-	machine, apiError := getMachineForValidation(ctx, logger, handler.dbSession, ip, machineID)
+	machineID, site, apiError := resolveMachineValidationTarget(ctx, c, logger, handler.dbSession, ip)
+	handler.tracerSpan.SetAttribute(handlerSpan, attribute.String("machine_id", machineID), logger)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
-	site := machine.Site
 
 	// Get the temporal client for the site we are working with
 	temporalClient, err := handler.scp.GetClientByID(site.ID)

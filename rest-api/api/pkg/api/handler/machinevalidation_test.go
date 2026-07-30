@@ -859,6 +859,8 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 		name           string
 		reqOrgName     string
 		machineID      string
+		siteID         string
+		legacyRoute    bool
 		user           *cdbm.User
 		expectedErr    bool
 		expectedStatus int
@@ -901,6 +903,17 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			scpClient:      scpClient,
 		},
 		{
+			name:           "error when legacy site belongs to another provider",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         otherSite.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+			scpClient:      scpClient,
+		},
+		{
 			name:           "error when workflow times out",
 			reqOrgName:     ipOrg1,
 			machineID:      machine.ID,
@@ -910,9 +923,20 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			scpClient:      scpClientWithTimeout,
 		},
 		{
-			name:           "no error",
+			name:           "no error for machine route",
 			reqOrgName:     ipOrg1,
 			machineID:      machine.ID,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "no error for legacy route without central machine record",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
 			user:           pvu,
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
@@ -931,8 +955,13 @@ func TestGetMachineValidationResultsHandler(t *testing.T) {
 			rec := httptest.NewRecorder()
 
 			ec := e.NewContext(req, rec)
-			ec.SetParamNames("orgName", "id")
-			ec.SetParamValues(tc.reqOrgName, tc.machineID)
+			if tc.legacyRoute {
+				ec.SetParamNames("orgName", "siteID", "machineID")
+				ec.SetParamValues(tc.reqOrgName, tc.siteID, tc.machineID)
+			} else {
+				ec.SetParamNames("orgName", "id")
+				ec.SetParamValues(tc.reqOrgName, tc.machineID)
+			}
 			if tc.user != nil {
 				ec.Set("user", tc.user)
 			}
@@ -1044,6 +1073,8 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 		name           string
 		reqOrgName     string
 		machineID      string
+		siteID         string
+		legacyRoute    bool
 		user           *cdbm.User
 		expectedErr    bool
 		expectedStatus int
@@ -1086,6 +1117,17 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			scpClient:      scpClient,
 		},
 		{
+			name:           "error when legacy site belongs to another provider",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         otherSite.ID.String(),
+			legacyRoute:    true,
+			user:           pvu,
+			expectedErr:    true,
+			expectedStatus: http.StatusBadRequest,
+			scpClient:      scpClient,
+		},
+		{
 			name:           "error when workflow times out",
 			reqOrgName:     ipOrg1,
 			machineID:      machine.ID,
@@ -1095,9 +1137,20 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			scpClient:      scpClientWithTimeout,
 		},
 		{
-			name:           "no error",
+			name:           "no error for machine route",
 			reqOrgName:     ipOrg1,
 			machineID:      machine.ID,
+			user:           pvu,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			scpClient:      scpClient,
+		},
+		{
+			name:           "no error for legacy route without central machine record",
+			reqOrgName:     ipOrg1,
+			machineID:      uuid.NewString(),
+			siteID:         site.ID.String(),
+			legacyRoute:    true,
 			user:           pvu,
 			expectedErr:    false,
 			expectedStatus: http.StatusOK,
@@ -1116,8 +1169,13 @@ func TestGetAllMachineValidationRunHandler(t *testing.T) {
 			rec := httptest.NewRecorder()
 
 			ec := e.NewContext(req, rec)
-			ec.SetParamNames("orgName", "id")
-			ec.SetParamValues(tc.reqOrgName, tc.machineID)
+			if tc.legacyRoute {
+				ec.SetParamNames("orgName", "siteID", "machineID")
+				ec.SetParamValues(tc.reqOrgName, tc.siteID, tc.machineID)
+			} else {
+				ec.SetParamNames("orgName", "id")
+				ec.SetParamValues(tc.reqOrgName, tc.machineID)
+			}
 			if tc.user != nil {
 				ec.Set("user", tc.user)
 			}

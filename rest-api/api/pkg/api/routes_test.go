@@ -70,7 +70,7 @@ func TestNewAPIRoutes(t *testing.T) {
 		"machine-capability":        1,
 		"audit":                     2,
 		"network-security-group":    5,
-		"machine-validation":        9,
+		"machine-validation":        11,
 		"dpu-extension-service":     7,
 		"sku":                       2,
 		"task":                      2,
@@ -143,8 +143,8 @@ func TestNewAPIRoutes(t *testing.T) {
 			assertRouteExists(t, got, http.MethodGet, machineAdminPath+"/validation/result")
 
 			siteMachineValidationPath := "/org/:orgName/" + cfg.GetAPIName() + "/site/:siteID/machine-validation/machine/:machineID"
-			assertRouteNotExists(t, got, http.MethodGet, siteMachineValidationPath+"/runs")
-			assertRouteNotExists(t, got, http.MethodGet, siteMachineValidationPath+"/results")
+			assertRouteExists(t, got, http.MethodGet, siteMachineValidationPath+"/runs")
+			assertRouteExists(t, got, http.MethodGet, siteMachineValidationPath+"/results")
 
 			expectedMachineBatchPath := "/org/:orgName/" + cfg.GetAPIName() + "/expected-machine/batch"
 			assertRouteExists(t, got, http.MethodPost, expectedMachineBatchPath)
@@ -178,17 +178,6 @@ func assertRouteExists(t *testing.T, routes []Route, method, path string) {
 	}
 
 	assert.Failf(t, "route not found", "missing %s %s", method, path)
-}
-
-func assertRouteNotExists(t *testing.T, routes []Route, method, path string) {
-	t.Helper()
-
-	for _, route := range routes {
-		if route.Method == method && route.Path == path {
-			assert.Failf(t, "unexpected route found", "found %s %s", method, path)
-			return
-		}
-	}
 }
 
 func assertRouteBefore(t *testing.T, routes []Route, firstMethod, firstPath, secondMethod, secondPath string) {
