@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 use carbide_utils::none_if_empty::NoneIfEmpty;
+use chrono::{DateTime, Utc};
+use config_version::ConfigVersion;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
@@ -96,6 +98,22 @@ pub enum MachineBootInterfaceTarget {
     Pair(MachineBootInterface),
     /// Only the MAC is known.
     MacOnly(MacAddress),
+}
+
+/// Status for the desired boot-interface generation currently treated as converged.
+///
+/// `assumed` is true only for the rollout baseline used to avoid treating
+/// existing machines as newly drifted when observation tracking is introduced.
+/// Real Redfish verification always records it as false.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BootInterfaceStatusObservation {
+    /// Desired boot-interface configuration version this status applies to.
+    pub config_version: ConfigVersion,
+    /// Time this status was recorded.
+    pub observed_at: DateTime<Utc>,
+    /// Whether this is the one-time rollout baseline rather than a Redfish
+    /// observation.
+    pub assumed: bool,
 }
 
 impl MachineBootInterfaceTarget {

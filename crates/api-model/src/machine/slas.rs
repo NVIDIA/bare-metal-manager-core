@@ -29,6 +29,10 @@ pub const DPUINIT_NOTINIT: Duration = Duration::from_secs(30 * 60);
 // EnableIpmiOverLan WaitingForPlatformConfiguration PollingBiosSetup UefiSetup Discovered Lockdown PollingLockdownStatus MachineValidating
 pub const HOST_INIT: Duration = Duration::from_secs(30 * 60);
 
+// Ready-state boot-interface convergence may include vendor BIOS jobs,
+// controlled reboots, and final observation after lockdown is restored.
+pub const BOOT_CONFIGURING: Duration = Duration::from_secs(90 * 60);
+
 pub const WAITING_FOR_CLEANUP: Duration = Duration::from_secs(30 * 60);
 
 pub const CREATED: Duration = Duration::from_secs(30 * 60);

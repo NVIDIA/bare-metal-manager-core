@@ -30,7 +30,7 @@ use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
-use chrono::Duration;
+use chrono::{Duration, Utc};
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
@@ -60,9 +60,11 @@ use model::machine::{
     BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
     DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
     HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, ValidationState,
+    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, ReadyBootConfigState,
+    ReadyBootConfigTerminalFailure, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
+    SpdmMeasuringState, StateMachineArea, ValidationState,
 };
+use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::machine_validation::MachineValidationState;
 use model::network_segment::NetworkSegmentType;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
@@ -2947,6 +2949,574 @@ async fn host_inband_nic_mac(env: &TestEnv, host_id: MachineId) -> MacAddress {
         .find(|i| i.network_segment_type == Some(NetworkSegmentType::HostInband))
         .expect("zero-DPU host should have a HostInband interface")
         .mac_address
+}
+
+/// Replaces the fixture host's boot target with distinct operator intent.
+///
+/// Site Explorer initializes the durable target during ingestion. Using
+/// `machine_desired_boot_interface::set` with a different MAC exercises the
+/// normal intent path and guarantees a new version without force-reconcile.
+async fn set_pending_boot_interface(
+    env: &TestEnv,
+    mh: &TestManagedHost,
+) -> config_version::Versioned<MachineBootInterfaceTarget> {
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let current = host
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("Site Explorer should initialize a durable boot target");
+    let first_candidate = MacAddress::new([0x02, 0, 0, 0, 0xfe, 0x01]);
+    let second_candidate = MacAddress::new([0x02, 0, 0, 0, 0xfe, 0x02]);
+    let replacement_mac = if current.value.mac_address() == first_candidate {
+        second_candidate
+    } else {
+        first_candidate
+    };
+    let replacement = MachineBootInterfaceTarget::MacOnly(replacement_mac);
+
+    let pending = db::machine_desired_boot_interface::set(txn.as_mut(), &host.id, &replacement)
+        .await
+        .expect("setting distinct boot-interface intent should persist a new version");
+    assert_ne!(
+        pending.version, current.version,
+        "distinct intent must create a pending desired version"
+    );
+    txn.commit().await.unwrap();
+    pending
+}
+
+/// A pending desired version on an unassigned Ready host is fully owned by the
+/// state controller: it persists each convergence phase, repairs Redfish,
+/// restores lockdown, and only then records the exact desired version verified.
+#[crate::sqlx_test]
+async fn test_ready_converges_pending_desired_boot_interface(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let expected_mac = pending.value.mac_address().to_string();
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(false);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+    let checkpoint = env.redfish_sim.timepoint();
+    let reconciliation_started_at = Utc::now();
+
+    env.run_machine_state_controller_iteration().await;
+
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert_eq!(
+            host.current_state(),
+            &ManagedHostState::BootConfiguring {
+                desired_version: pending.version,
+                desired_boot_interface: pending.value.clone(),
+                post_lock_verification_retry_count: 0,
+                boot_config_state: ReadyBootConfigState::Prepare,
+            },
+            "Ready must persist the captured target before Redfish work"
+        );
+        assert_ne!(
+            host.status
+                .boot_interface_status_observation
+                .as_ref()
+                .map(|observation| observation.config_version),
+            Some(pending.version),
+            "entering BootConfiguring is not itself a Redfish verification"
+        );
+    }
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.id,
+        20,
+        ManagedHostState::Ready,
+    )
+    .await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let persisted_desired = host
+        .config
+        .desired_boot_interface
+        .as_ref()
+        .expect("convergence must retain operator intent");
+    assert_eq!(persisted_desired.version, pending.version);
+    assert_eq!(persisted_desired.value, pending.value);
+    let observation = host
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("successful convergence should record a Redfish observation");
+    assert_eq!(
+        observation.config_version, pending.version,
+        "only the exact desired version that was checked may be marked verified"
+    );
+    assert!(
+        observation.observed_at >= reconciliation_started_at,
+        "verification must come from this convergence pass"
+    );
+    assert!(
+        !observation.assumed,
+        "controller verification must replace any migration-assumed baseline"
+    );
+    assert_eq!(
+        host.pending_boot_interface_config_version(),
+        None,
+        "the verified host should no longer have pending boot intent"
+    );
+    drop(txn);
+
+    let history = mh.host().parsed_history(None).await;
+    let prepare_index = history
+        .iter()
+        .position(|state| {
+            matches!(
+                state,
+                ManagedHostState::BootConfiguring {
+                    desired_version,
+                    desired_boot_interface,
+                    boot_config_state: ReadyBootConfigState::Prepare,
+                    ..
+                } if *desired_version == pending.version
+                    && desired_boot_interface == &pending.value
+            )
+        })
+        .expect("Ready should persist BootConfiguring/Prepare");
+    let set_order_index = history
+        .iter()
+        .position(|state| {
+            matches!(
+                state,
+                ManagedHostState::BootConfiguring {
+                    desired_version,
+                    desired_boot_interface,
+                    boot_config_state: ReadyBootConfigState::SetBootOrder { .. },
+                    ..
+                } if *desired_version == pending.version
+                    && desired_boot_interface == &pending.value
+            )
+        })
+        .expect("boot-order drift should persist its remediation substate");
+    let lock_index = history
+        .iter()
+        .position(|state| {
+            matches!(
+                state,
+                ManagedHostState::BootConfiguring {
+                    desired_version,
+                    desired_boot_interface,
+                    boot_config_state: ReadyBootConfigState::LockHost {
+                        terminal_failure: None,
+                    },
+                    ..
+                } if *desired_version == pending.version
+                    && desired_boot_interface == &pending.value
+            )
+        })
+        .expect("successful repair should persist LockHost before verification");
+    assert!(
+        prepare_index < set_order_index && set_order_index < lock_index,
+        "persisted convergence phases should retain their causal order: {history:#?}"
+    );
+
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            RedfishSimAction::SetBootOrderDpuFirst { boot_interface_mac }
+                if boot_interface_mac == &expected_mac
+        )),
+        "the controller should repair the desired target's boot order: {actions:?}"
+    );
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            RedfishSimAction::Power(libredfish::SystemPowerControl::ForceRestart)
+        )),
+        "boot-order remediation should reboot to apply the change: {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .filter(|action| matches!(
+                action,
+                RedfishSimAction::IsBootOrderSetup { boot_interface_mac }
+                    if boot_interface_mac == &expected_mac
+            ))
+            .count()
+            >= 2,
+        "the controller should observe the desired target before repair and again at final verification: {actions:?}"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|state| *state == libredfish::EnabledDisabled::Enabled),
+        "the BMC must be locked before the desired version is published as verified"
+    );
+}
+
+/// A correct ordinary host proves its target before opening lockdown and must
+/// not issue any boot mutation or reboot.
+#[crate::sqlx_test]
+async fn test_ready_boot_config_skips_unlock_when_already_correct(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let expected_mac = pending.value.mac_address().to_string();
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+    let checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.id,
+        5,
+        ManagedHostState::Ready,
+    )
+    .await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let observation = host
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("the already-correct target should be verified");
+    assert_eq!(observation.config_version, pending.version);
+    assert!(!observation.assumed);
+    drop(txn);
+
+    let history = mh.host().parsed_history(None).await;
+    assert!(history.iter().any(|state| matches!(
+        state,
+        ManagedHostState::BootConfiguring {
+            desired_version,
+            boot_config_state: ReadyBootConfigState::LockHost {
+                terminal_failure: None,
+            },
+            ..
+        } if *desired_version == pending.version
+    )));
+    assert!(
+        !history.iter().any(|state| matches!(
+            state,
+            ManagedHostState::BootConfiguring {
+                desired_version,
+                boot_config_state:
+                    ReadyBootConfigState::UnlockHost { .. }
+                    | ReadyBootConfigState::ConfigureBios { .. }
+                    | ReadyBootConfigState::SetBootOrder { .. },
+                ..
+            } if *desired_version == pending.version
+        )),
+        "an already-correct ordinary host should not be opened or mutated: {history:#?}"
+    );
+
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions
+            .iter()
+            .filter(|action| matches!(
+                action,
+                RedfishSimAction::IsBootOrderSetup { boot_interface_mac }
+                    if boot_interface_mac == &expected_mac
+            ))
+            .count()
+            >= 2,
+        "the target should be observed before cleanup and at final verification: {actions:?}"
+    );
+    assert!(
+        !actions.iter().any(|action| matches!(
+            action,
+            RedfishSimAction::MachineSetup { .. }
+                | RedfishSimAction::SetBootOrderDpuFirst { .. }
+                | RedfishSimAction::Power(_)
+        )),
+        "the correct fast path must remain observation-only: {actions:?}"
+    );
+}
+
+/// Hosts whose lifecycle profile intentionally leaves lockdown disabled still
+/// take the already-correct fast path. LockHost has no policy restoration to
+/// perform for them, but it still re-observes the exact target before marking
+/// the desired version verified.
+#[crate::sqlx_test]
+async fn test_ready_boot_config_disable_lockdown_skips_unneeded_cleanup(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mut expected_machine_data = ExpectedMachineData::default();
+    expected_machine_data
+        .host_lifecycle_profile
+        .disable_lockdown = Some(true);
+    let mh = create_managed_host_with_config(
+        &env,
+        ManagedHostConfig::zero_dpu().with_expected_machine_data(expected_machine_data),
+    )
+    .await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Enabled);
+
+    env.run_machine_state_controller_iteration().await;
+    env.run_machine_state_controller_iteration().await;
+    let client_calls_after_preflight = env.redfish_sim.create_client_calls().len();
+
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &mh.id,
+        2,
+        ManagedHostState::Ready,
+    )
+    .await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.status
+            .boot_interface_status_observation
+            .as_ref()
+            .map(|observation| observation.config_version),
+        Some(pending.version),
+    );
+    drop(txn);
+
+    assert_eq!(
+        env.redfish_sim.create_client_calls().len(),
+        client_calls_after_preflight + 1,
+        "LockHost should reconnect only for the final exact-target observation"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|state| *state == libredfish::EnabledDisabled::Enabled),
+        "an already-correct host should not have lockdown changed"
+    );
+    let history = mh.host().parsed_history(None).await;
+    assert!(
+        !history.iter().any(|state| matches!(
+            state,
+            ManagedHostState::BootConfiguring {
+                boot_config_state: ReadyBootConfigState::UnlockHost { .. },
+                ..
+            }
+        )),
+        "an already-correct host must not enter the unlock choreography: {history:#?}"
+    );
+}
+
+/// A machine-level failure is more fundamental than boot convergence. Once it
+/// has been durably captured on a host whose profile has no lockdown cleanup
+/// barrier, it must remain reportable even without Redfish access.
+#[crate::sqlx_test]
+async fn test_ready_boot_config_machine_failure_does_not_wait_for_redfish(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mut expected_machine_data = ExpectedMachineData::default();
+    expected_machine_data
+        .host_lifecycle_profile
+        .disable_lockdown = Some(true);
+    let mh = create_managed_host_with_config(
+        &env,
+        ManagedHostConfig::zero_dpu().with_expected_machine_data(expected_machine_data),
+    )
+    .await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let details = FailureDetails {
+        cause: FailureCause::Discovery {
+            err: "host BMC became unavailable".to_string(),
+        },
+        failed_at: Utc::now(),
+        source: FailureSource::StateMachine,
+    };
+    let locking = ManagedHostState::BootConfiguring {
+        desired_version: pending.version,
+        desired_boot_interface: pending.value,
+        post_lock_verification_retry_count: 0,
+        boot_config_state: ReadyBootConfigState::LockHost {
+            terminal_failure: Some(ReadyBootConfigTerminalFailure::Machine {
+                machine_id: mh.host().id,
+                details: details.clone(),
+            }),
+        },
+    };
+
+    set_host_controller_state_stuck_in(&env, mh.host().id, &locking, 0).await;
+    let client_calls_before_failure = env.redfish_sim.create_client_calls().len();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &ManagedHostState::Failed {
+            details,
+            machine_id: mh.host().id,
+            retry_count: 0,
+        }
+    );
+    assert_eq!(
+        env.redfish_sim.create_client_calls().len(),
+        client_calls_before_failure,
+        "machine failure must transition without opening a Redfish client"
+    );
+}
+
+/// `LockHost` is a durable restart boundary. The resumed invocation must
+/// restore lockdown before directly re-reading the captured target.
+#[crate::sqlx_test]
+async fn test_ready_boot_config_lock_host_is_restart_safe(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let expected_mac = pending.value.mac_address().to_string();
+    let locking = ManagedHostState::BootConfiguring {
+        desired_version: pending.version,
+        desired_boot_interface: pending.value.clone(),
+        post_lock_verification_retry_count: 0,
+        boot_config_state: ReadyBootConfigState::LockHost {
+            terminal_failure: None,
+        },
+    };
+
+    set_host_controller_state_stuck_in(&env, mh.host().id, &locking, 0).await;
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Disabled);
+    let checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(host.current_state(), &ManagedHostState::Ready);
+    let observation = host
+        .status
+        .boot_interface_status_observation
+        .as_ref()
+        .expect("resumed LockHost should publish a direct verification");
+    assert_eq!(observation.config_version, pending.version);
+    assert!(!observation.assumed);
+    drop(txn);
+
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        actions.iter().any(|action| matches!(
+            action,
+            RedfishSimAction::IsBootOrderSetup { boot_interface_mac }
+                if boot_interface_mac == &expected_mac
+        )),
+        "resumed LockHost must directly observe its captured target after lockdown: {actions:?}"
+    );
+    assert!(
+        env.redfish_sim
+            .lockdown_states()
+            .iter()
+            .all(|state| *state == libredfish::EnabledDisabled::Enabled),
+        "resumed LockHost must restore lockdown before verification"
+    );
+}
+
+/// LockHost is a fail-closed cleanup boundary. Losing the BMC interface mapping
+/// must keep the host parked there instead of propagating an error that could
+/// let later failure handling bypass lockdown restoration.
+#[crate::sqlx_test]
+async fn test_ready_boot_config_lock_host_waits_for_redfish_access(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let locking = ManagedHostState::BootConfiguring {
+        desired_version: pending.version,
+        desired_boot_interface: pending.value,
+        post_lock_verification_retry_count: 0,
+        boot_config_state: ReadyBootConfigState::LockHost {
+            terminal_failure: None,
+        },
+    };
+
+    set_host_controller_state_stuck_in(&env, mh.host().id, &locking, 0).await;
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    let bmc_ip = host
+        .bmc_addr()
+        .expect("fixture host has a BMC address")
+        .ip();
+    sqlx::query("DELETE FROM machine_interface_addresses WHERE address = $1::inet")
+        .bind(bmc_ip)
+        .execute(txn.as_mut())
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &locking,
+        "cleanup must wait in LockHost until Redfish access is restored"
+    );
+    assert_eq!(
+        host.pending_boot_interface_config_version(),
+        Some(pending.version),
+        "a connectivity failure must not publish verification"
+    );
+}
+
+/// A successful Redfish write is not sufficient evidence that lockdown was
+/// actually restored. Keep the desired version pending in LockHost until a
+/// direct status read confirms the policy.
+#[crate::sqlx_test]
+async fn test_ready_boot_config_waits_for_observed_lockdown_before_verifying(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+    let locking = ManagedHostState::BootConfiguring {
+        desired_version: pending.version,
+        desired_boot_interface: pending.value.clone(),
+        post_lock_verification_retry_count: 0,
+        boot_config_state: ReadyBootConfigState::LockHost {
+            terminal_failure: None,
+        },
+    };
+
+    set_host_controller_state_stuck_in(&env, mh.host().id, &locking, 0).await;
+    env.redfish_sim.set_is_bios_setup(true);
+    env.redfish_sim.set_is_boot_order_setup(true);
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Disabled);
+    env.redfish_sim.set_lockdown_bmc_applies(false);
+    let checkpoint = env.redfish_sim.timepoint();
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(host.current_state(), &locking);
+    assert_eq!(
+        host.pending_boot_interface_config_version(),
+        Some(pending.version),
+        "an unobserved lockdown write must not publish verification"
+    );
+    drop(txn);
+
+    let actions = env.redfish_sim.actions_since(&checkpoint).all_hosts();
+    assert!(
+        !actions
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::IsBootOrderSetup { .. })),
+        "final boot inspection must wait until lockdown is observed: {actions:?}"
+    );
 }
 
 /// Asserts that, within the recorded boot-order actions, `machine_setup` ran
