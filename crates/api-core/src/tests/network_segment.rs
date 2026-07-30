@@ -560,7 +560,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     let env =
         create_test_env_with_overrides(db_pool.clone(), TestEnvOverrides::no_network_segments())
             .await;
-    let networks = HashMap::from([
+    let mut networks = HashMap::from([
         (
             "admin".to_string(),
             NetworkDefinition {
@@ -612,6 +612,10 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     let admin = db::network_segment::find_by_name(&mut txn, "admin").await?;
     assert_eq!(admin.config.mtu, 9000);
     assert_eq!(admin.config.segment_type, NetworkSegmentType::Admin);
+    let initial_domain_id = admin
+        .config
+        .subdomain_id
+        .expect("config-seeded network should use the forward domain");
 
     let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
     assert_eq!(underlay.config.mtu, 1500);
@@ -624,6 +628,19 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
         NetworkSegmentType::HostInband
     );
     assert_eq!(host_inband.config.vpc_id, None);
+    // These extra domain rows reproduce the state that previously disabled later seeding.
+    for reverse_domain in [
+        "254.254.254.169.in-addr.arpa",
+        "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.ip6.arpa",
+    ] {
+        assert_eq!(
+            db::dns::domain::find_by_name(txn.as_mut(), reverse_domain)
+                .await?
+                .len(),
+            1,
+            "static assignment reverse domain should exist"
+        );
+    }
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
@@ -652,6 +669,28 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
         num_before, num_after,
         "second create_initial_networks should not have created any segments"
     );
+
+    networks.insert(
+        "DEV1-C09-IPMI-02".to_string(),
+        NetworkDefinition {
+            segment_type: NetworkDefinitionSegmentType::Underlay,
+            prefix: "172.99.0.64/27".parse().unwrap(),
+            prefix_v6: None,
+            gateway: "172.99.0.65".parse().unwrap(),
+            dhcpv6_link_address: None,
+            mtu: 1500,
+            reserve_first: 5,
+            allocation_strategy: Default::default(),
+            vpc_name: None,
+        },
+    );
+    crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
+
+    let mut txn = db_pool.begin().await?;
+    let added = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-02").await?;
+    assert_eq!(added.config.subdomain_id, Some(initial_domain_id));
+    txn.commit().await?;
+
     Ok(())
 }
 
