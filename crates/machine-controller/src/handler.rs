@@ -910,31 +910,10 @@ impl MachineStateHandler {
                     ));
                 }
 
-                if let Some(desired_version) = mh_snapshot
-                    .host_snapshot
-                    .pending_boot_interface_config_version()
+                if let Some(next_state) =
+                    pending_ready_boot_config_state(&mh_snapshot.host_snapshot)
                 {
-                    let desired_boot_interface = mh_snapshot
-                        .host_snapshot
-                        .config
-                        .desired_boot_interface
-                        .as_ref()
-                        .ok_or_else(|| {
-                            StateHandlerError::InvalidState(format!(
-                                "host {} has a pending desired boot-interface version without a target",
-                                mh_snapshot.host_snapshot.id
-                            ))
-                        })?
-                        .value
-                        .clone();
-                    return Ok(StateHandlerOutcome::transition(
-                        ManagedHostState::BootConfiguring {
-                            desired_version,
-                            desired_boot_interface,
-                            post_lock_verification_retry_count: 0,
-                            boot_config_state: ReadyBootConfigState::Prepare,
-                        },
-                    ));
+                    return Ok(StateHandlerOutcome::transition(next_state));
                 }
 
                 if let Some(outcome) = handle_bom_validation_requested(
@@ -5691,6 +5670,15 @@ fn ready_boot_configuring(
     }
 }
 
+/// Builds the convergence state for a machine whose desired boot-interface
+/// version has not yet been verified.
+fn pending_ready_boot_config_state(machine: &Machine) -> Option<ManagedHostState> {
+    let desired = machine.config.desired_boot_interface.as_ref()?;
+    machine
+        .pending_boot_interface_config_version()
+        .map(|_| ready_boot_configuring(desired.clone(), 0, ReadyBootConfigState::Prepare))
+}
+
 fn ready_boot_config_locking(
     desired: Versioned<MachineBootInterfaceTarget>,
     post_lock_verification_retry_count: u32,
@@ -7200,27 +7188,21 @@ impl StateHandler for HostMachineStateHandler {
                         }
                         LockdownState::TimeWaitForDPUDown => {
                             if !mh_snapshot.has_managed_dpus() {
-                                // No DPU to wait for going down/up -- skip
-                                // straight to BomValidating. Covers
-                                // `Nic`/`Ignore` hosts and anything else
-                                // with no DPU snapshots; otherwise we'd
-                                // wait `dpu_wait_time` for a DPU that's
-                                // never going to come up.
-                                let next_state = ManagedHostState::BomValidating {
-                                    bom_validating_state: BomValidating::MatchingSku(
-                                        BomValidatingContext {
-                                            machine_validation_context: Some(
-                                                MachineValidationContext::Discovery,
-                                            ),
-                                            reboot_retry_count: None,
+                                // There is no DPU power cycle to observe for
+                                // `Nic`/`Ignore` hosts. Still pass through the
+                                // shared status poll so Disable proceeds to
+                                // platform configuration and Enable completes
+                                // only after the policy is observed.
+                                return Ok(StateHandlerOutcome::transition(
+                                    ManagedHostState::HostInit {
+                                        machine_state: MachineState::WaitingForLockdown {
+                                            lockdown_info: LockdownInfo {
+                                                state: LockdownState::PollingLockdownStatus,
+                                                mode: lockdown_info.mode.clone(),
+                                            },
                                         },
-                                    ),
-                                };
-                                return if lockdown_info.mode == LockdownMode::Enable {
-                                    complete_host_init_lockdown(ctx, mh_snapshot, next_state).await
-                                } else {
-                                    Ok(StateHandlerOutcome::transition(next_state))
-                                };
+                                    },
+                                ));
                             }
                             // Lets wait for some time before checking if DPU is up or not.
                             // Waiting is needed because DPU takes some time to go down. If we check DPU
@@ -7385,7 +7367,10 @@ impl StateHandler for HostMachineStateHandler {
                     // or Measuring state, depending on if machine attestation
                     // is enabled or not.
                     if rebooted(&mh_snapshot.host_snapshot) || *skip_reboot {
-                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready))
+                        let next_state =
+                            pending_ready_boot_config_state(&mh_snapshot.host_snapshot)
+                                .unwrap_or(ManagedHostState::Ready);
+                        Ok(StateHandlerOutcome::transition(next_state))
                     } else {
                         let status = trigger_reboot_if_needed(
                             &mh_snapshot.host_snapshot,

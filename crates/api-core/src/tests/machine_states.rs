@@ -2987,6 +2987,92 @@ async fn set_pending_boot_interface(
     pending
 }
 
+/// A zero-DPU host skips the DPU reachability wait, but it must still poll the
+/// requested lockdown mode so Disable returns to platform configuration.
+#[crate::sqlx_test]
+async fn test_zero_dpu_lockdown_wait_preserves_mode_transition(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let polling = ManagedHostState::HostInit {
+        machine_state: MachineState::WaitingForLockdown {
+            lockdown_info: model::machine::LockdownInfo {
+                state: model::machine::LockdownState::PollingLockdownStatus,
+                mode: LockdownMode::Disable,
+            },
+        },
+    };
+
+    set_host_controller_state_stuck_in(
+        &env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: model::machine::LockdownInfo {
+                    state: model::machine::LockdownState::TimeWaitForDPUDown,
+                    mode: LockdownMode::Disable,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Disabled);
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(host.current_state(), &polling);
+    drop(txn);
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForPlatformConfiguration { retry_count: 0 },
+        },
+    );
+}
+
+/// Discovery completion must not publish a transient Ready state while a
+/// desired boot-interface version still needs controller convergence.
+#[crate::sqlx_test]
+async fn test_discovered_host_with_pending_boot_config_enters_convergence(pool: sqlx::PgPool) {
+    let env = create_zero_dpu_test_env(pool).await;
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::zero_dpu()).await;
+    let pending = set_pending_boot_interface(&env, &mh).await;
+
+    set_host_controller_state_stuck_in(
+        &env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::Discovered {
+                skip_reboot_wait: true,
+            },
+        },
+        0,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &ManagedHostState::BootConfiguring {
+            desired_version: pending.version,
+            desired_boot_interface: pending.value,
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::Prepare,
+        },
+    );
+}
+
 /// A pending desired version on an unassigned Ready host is fully owned by the
 /// state controller: it persists each convergence phase, repairs Redfish,
 /// restores lockdown, and only then records the exact desired version verified.
