@@ -337,7 +337,13 @@ impl BmcClient {
                 );
             })
             .inspect_err(|retry_error| {
-                self.note_credentials_refused(retry_generation);
+                // Only an auth failure condemns the credentials. A 500, a decode
+                // error or a dropped connection says nothing about them, and
+                // recording one would suppress the refresh for a genuine 401
+                // arriving later in the cooldown.
+                if is_auth_error(retry_error) {
+                    self.note_credentials_refused(retry_generation);
+                }
                 // Freshly fetched credentials were refused too, so this is a
                 // real misconfiguration rather than a rotation we raced. The
                 // caller's own warning does not say that we already refreshed
@@ -364,29 +370,44 @@ impl BmcClient {
             .known_bad_credentials
             .lock()
             .expect("known-bad credential mutex poisoned");
-        match *known_bad {
-            Some(bad) if bad.generation == generation => {
-                if bad.proven_at.elapsed() < KNOWN_BAD_CREDENTIAL_COOLDOWN {
-                    true
-                } else {
-                    *known_bad = None;
-                    false
-                }
-            }
-            // A different generation means these credentials have not been
-            // tested yet, so a stale record simply stops applying — there is
-            // nothing to clear on the success path.
-            _ => false,
+        // A different generation means these credentials have not been tested
+        // yet, so a stale record simply stops applying — there is nothing to
+        // clear on the success path.
+        let Some(bad) = known_bad.as_mut() else {
+            return false;
+        };
+        if bad.generation != generation {
+            return false;
         }
+        if bad.proven_at.elapsed() < KNOWN_BAD_CREDENTIAL_COOLDOWN {
+            return true;
+        }
+
+        // Cooldown elapsed: admit one caller to revalidate. Restart the window
+        // rather than clearing the record — clearing would let every caller
+        // blocked behind this mutex during a concurrent sweep through at once,
+        // turning the single revalidation back into the fan-out this exists to
+        // prevent. The admitted caller either refreshes past this generation or
+        // records a fresh verdict.
+        bad.proven_at = Instant::now();
+        false
     }
 
     /// Record that a replay running at `generation` was refused, so subsequent
     /// callers observing the same generation skip the refresh-and-replay.
     fn note_credentials_refused(&self, generation: u64) {
-        *self
+        let mut known_bad = self
             .known_bad_credentials
             .lock()
-            .expect("known-bad credential mutex poisoned") = Some(KnownBadCredentials {
+            .expect("known-bad credential mutex poisoned");
+        // Under the collectors' concurrent fan-out a slow replay can land after
+        // another caller has already refreshed and condemned a later
+        // generation. Its verdict is stale by then, and letting it overwrite
+        // would un-suppress everyone using the current credentials.
+        if known_bad.is_some_and(|bad| bad.generation > generation) {
+            return;
+        }
+        *known_bad = Some(KnownBadCredentials {
             generation,
             proven_at: Instant::now(),
         });
@@ -1724,6 +1745,73 @@ mod tests {
 
         assert_eq!(attempts.load(AtomicOrdering::SeqCst), 2);
         assert_eq!(provider_calls.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_non_auth_replay_failure_does_not_condemn_the_credentials() {
+        // A 500 or a dropped connection on the replay says nothing about the
+        // credentials. Condemning them would suppress the refresh for a genuine
+        // 401 arriving later in the cooldown.
+        let (provider, _) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        let (op, _) = scripted_op(vec![
+            Err(auth_error()),
+            Err(HealthError::HttpError("HTTP 500".to_string())),
+        ]);
+
+        client
+            .read_with_auth_retry(op)
+            .await
+            .expect_err("the 500 surfaces");
+
+        let generation = client.credential_generation.load(Ordering::Acquire);
+        assert!(
+            !client.credentials_known_bad(generation),
+            "a non-auth replay failure must not mark the generation bad"
+        );
+    }
+
+    #[test]
+    fn a_stale_verdict_does_not_displace_a_newer_one() {
+        // A slow replay can land after a concurrent caller already refreshed and
+        // condemned a later generation; the late verdict is stale.
+        let client = test_client();
+        client.note_credentials_refused(7);
+        client.note_credentials_refused(5);
+
+        assert!(
+            client.credentials_known_bad(7),
+            "the newer verdict must survive a late arrival from generation 5"
+        );
+        assert!(
+            !client.credentials_known_bad(5),
+            "the stale generation must not have been recorded"
+        );
+    }
+
+    #[test]
+    fn an_elapsed_cooldown_admits_exactly_one_revalidation() {
+        // Clearing the record on expiry would let every caller queued behind the
+        // mutex during a sweep through at once.
+        let client = test_client();
+        client.set_known_bad_credentials_for_test(Some(KnownBadCredentials {
+            generation: 3,
+            proven_at: Instant::now() - KNOWN_BAD_CREDENTIAL_COOLDOWN - Duration::from_secs(1),
+        }));
+
+        assert!(
+            !client.credentials_known_bad(3),
+            "the first caller after the cooldown revalidates"
+        );
+        assert!(
+            client.credentials_known_bad(3),
+            "the next caller must stay suppressed, not join a fan-out"
+        );
     }
 
     const ENTITY_BODY: &str = r#"{"@odata.id":"/redfish/v1"}"#;
