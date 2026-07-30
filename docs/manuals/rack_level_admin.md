@@ -41,11 +41,11 @@ The end-to-end service path for NICo rack-level administration goes in the follo
 
 - **HW Lifecycle REST API**: NICo provides all rack-level administration operations via a set of HW Lifecycle REST APIs. Besides providing inventory, bringup, validation, power control, and firmware update functionalities for racks and trays (rack components), it supports referencing racks using the DCIM-supplied rack ID (e.g., “A12”) and referencing trays using rack-based tray addressing (e.g. “Rack A12 Tray Slot 19” or “Rack A12 Compute Tray \#3”), in addition to using tray serial numbers or BMC MAC addresses. It also exposes the task sequences running, pending, or completed on racks and trays, and allows cancellation. Non-rack compute machines are also supported.
 
-- **NICo Flow**: The REST APIs are supported via NICo Flow, which is a NICo software component (discrete service) that uses NICo Core APIs to orchestrate hardware operation sequences and automate hardware operations, with user defined customization via dynamic rules and policies, in order to scale both operation of AI-factory hardware and the evolution of AI-factory software stack, by abstracting the topology and details of the mechanics of updates, maintenance, and responding to state changes in the datacenter.
+- **NICo Flow**: The REST APIs are supported via NICo Flow, which is a NICo software component (discrete service) that uses NICo Core APIs to orchestrate hardware operation sequences and automate hardware operations, with user-defined customization via dynamic rules and policies, in order to scale both operation of AI-factory hardware and the evolution of AI-factory software stack, by abstracting the topology and details of the mechanics of updates, maintenance, and responding to state changes in the datacenter.
 
-  NICo Flow contains software-defined states for managing a site, such as those for task and workflow, user customizable operation sequence and automation, as well as user-defined policies such as those for HW gating (preventing risky conditions in HW automation), remediation (dealing with broken or degraded HW or services), and leak handling.
+  NICo Flow contains software-defined states for managing a site, such as those for task and workflow, user-customizable operation sequence and automation, as well as user-defined policies such as those for HW gating (preventing risky conditions in HW automation), remediation (dealing with broken or degraded HW or services), and leak handling.
 
-- **NICo Core**: NICo Flow calls NICo Core service to perform the actual HW management operations. NICo Core is the original main NICo service that provides all the critical features for bare metal management, such as HW inventory and credential management, discovery and ingestion, state machines for power control and firmware update of component HW, managed host and VPC resource, and HW health reports. NICo Core contains all hardware-defined states for component HW and state-based automations.
+- **NICo Core**: NICo Flow calls NICo Core service to perform the actual HW management operations. NICo Core is the original main NICo service that provides all the critical features for bare-metal management, such as HW inventory and credential management, discovery and ingestion, state machines for power control and firmware update of component HW, managed host and VPC resource, and HW health reports. NICo Core contains all hardware-defined states for component HW and state-based automations.
 
 - **Backend**: Previously, NICo Core accessed machines directly via BMC. With rack-scale systems, we now have more types of component HW (compute, switch, and powershelf), as well as more ways to access these components (BMC and NVUE). The complexity of these HW access and management operations are now moved out of NICo Core into the backend for NICo. NICo backend is an extensible interface for different types of hardware to be plugged into and managed by NICo.
 
@@ -59,13 +59,13 @@ role/vendor support matrix.
 
 ## Rack-Level Operations
 
-<Steps title="Rack-Level Operations" toc={true}>
+<Steps toc={true}>
 
 <Step title="Expected Inventory">
 
 NICo needs to be loaded with the expected rack equipment inventory to be managed. In most cases, the information should be available from a DCIM service.
 
-The expected inventory often contain the following information:
+The expected inventory often contains the following information:
 
 - **NVLink Domain**
   - ID/Name

@@ -33,7 +33,7 @@ If the state of an object doesn't advance, there might be multiple reasons for i
 A rule of thumb for locating the source of the problem is:
 
 - If the states that are shown on the site and via the Cloud API are different,
-  reason 1) will apply. This indicates a communication issue in the
+  reason 1 above applies. This indicates a communication issue in the
   paths between the cloud backend, site agent and NICo site controller.
   {/* TODO: Document steps to diagnose and remediate these issues */}
 - If the states match, then the state on the site isn't advanced as required.
@@ -99,17 +99,13 @@ If you are using the web UI, not all API details like `statusHistory`
 are displayed. However we can work around this by getting
 access to the raw cloud API response. A browser's developer tools can be used for this:
 
-- While on the page that shows the status of the object (such as "Virtual
-  Private Clouds"), open the browser developer tools. The F12 key will open
-  it on a lot of browsers.
-- Click the Network Tab
-- Either wait for a request which fetches the state of the object of
-  interest (such as `subnet` or `instance`). Or refresh the page in order
-  to force a request.
+- On the page that shows the status of the object (such as "Virtual Private Clouds"), open the browser developer tools. The F12 key opens it on many browsers.
+- Click the Network Tab.
+- Either wait for a request that fetches the state of the object of interest (such as `subnet` or `instance`), or refresh the page to force a request.
+- Select the relevant request in the Network panel.
 - Click the `Response` tab.
 
-You should now see the raw cloud API response, as shown in the following
-screenshot:
+You should now see the raw cloud API response, as shown in the following screenshot:
 
 ![Raw cloud API response in browser developer tools](../../static/playbooks/stuck_objects/browser_devtools.png)
 
@@ -131,7 +127,7 @@ need to determine the full state. This can be done using multiple approaches:
 
 ### 2.1 Using nico-admin-cli
 
-You can inspect the detailed state of a objects on NICo sites using `nico-admin-cli`. Refer to [nico-admin-cli](../../manuals/nico-admin-cli.md) instructions on how to utilize it.
+You can inspect the detailed state of an object on NICo sites using `nico-admin-cli`. Refer to [nico-admin-cli](../../manuals/nico-admin-cli.md) for instructions on how to use it.
 
 Using nico-admin-cli, you can inspect the state of an object with commands like the following:
 
@@ -152,13 +148,12 @@ $ nico-admin-cli managed-host show --all
 ```bash
 $ nico-admin-cli managed-host show --host fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 
-nico-admin-cli managed-host show --host fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 Hostname    : west-massachusetts
 State       : Assigned/BootingWithDiscoveryImage
 ```
 
 ```bash
-$ /opt/nico/nico-admin-cli -f json machine show --machine  fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
+$ nico-admin-cli -f json machine show --machine  fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0
 
 {
   "id": "fm100htqrs9la1un8bfscefaciq568m2d23mvr75gjdevagedj7q4h3drr0",
@@ -197,7 +192,7 @@ ManagedHost entered a certain state.
 For NetworkSegments, you can use the `network-segment` subcommand:
 
 ```bash
-$ /opt/nico/nico-admin-cli network-segment show --network 5e85002e-54fd-4183-8c4d-0346c3f3e94e
+$ nico-admin-cli network-segment show --network 5e85002e-54fd-4183-8c4d-0346c3f3e94e
 
 ID        : 5e85002e-54fd-4183-8c4d-0346c3f3e94e
 DELETED   : Not Deleted
@@ -357,17 +352,10 @@ been emitted as part of the same RPC request or the same state handler iteration
 
 ### 3.3 Learning more about failures from the NICo Grafana Dashboard
 
-The NICo Grafana Dashboard can also provide a quick overview of why state transitions have failed.
-In case the state handler of a certain object returned an error, the error type
-will also be shown in the diagram which summarizes the amount of objects in a
-certain state for each NICo site.
+The NICo Grafana Dashboard can also provide a quick overview of why state transitions have failed. In case the state handler of a certain object returned an error, the error type will also be shown in the diagram that summarizes the number of objects in a certain state for each NICo site.
 
-For example, for the following example, we can see state handling for 1 ManagedHost in state
-`assigned waitingfornetworkconfig` failing due to a `redfish_client_creation_error`.
-This is equivalent to the information that we found in logs.
+In the following example, we can see state handling for 1 ManagedHost in the state `assigned waitingfornetworkconfig` failing due to a `redfish_client_creation_error`. This is equivalent to the information that we found in logs.
 
 ![Sample State Handling Error graph](../../static/playbooks/stuck_objects/state_handling_error.png)
 
-The benefit of the dashboard is that it allows for a very quick assessment on
-what the root cause of a certain issue is. It also shows whether just 1 object
-might be affected by a certain issue, or whether multiple objects are affected.
+The benefit of the dashboard is that it allows for a very quick assessment on what the root cause of a certain issue is. It also shows whether just 1 object is affected by a certain issue, or whether multiple objects are affected.
