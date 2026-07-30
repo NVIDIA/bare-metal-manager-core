@@ -24,7 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use eyre::{ContextCompat, WrapErr, eyre};
 use opentelemetry::StringValue;
 use opentelemetry::metrics::{Gauge, Meter};
@@ -174,6 +174,7 @@ enum VaultRequestType {
 /// label value; the hand-written `LabelValue` impl is the reviewed escape hatch
 /// for a bounded-but-not-enum value, and reproduces the previous
 /// `code.to_string()`-or-empty rendering byte for byte.
+#[derive(Clone, Copy)]
 struct VaultFailureStatusCode(Option<u16>);
 
 impl LabelValue for VaultFailureStatusCode {
@@ -213,17 +214,27 @@ struct VaultRequestSucceeded {
     request_type: VaultRequestType,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_api_vault_requests_failed_total",
+    kind = counter,
+    component = "nico-api",
+    describe = "Number of failed Vault requests"
+)]
+struct ApiVaultRequestsFailed {
+    request_type: VaultRequestType,
+    http_response_status_code: VaultFailureStatusCode,
+}
+
 /// Counts a failed request when this layer does not own a diagnostic record.
 /// Callers either handle the response as an expected absence or propagate the
 /// error to the layer that owns its log.
 #[derive(Event)]
 #[event(
     event_name = "vault_request_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
-    log = off,
-    metric = counter,
-    describe = "Number of failed Vault requests"
+    metric_family = ApiVaultRequestsFailed,
+    log = off
 )]
 struct VaultRequestFailed {
     #[label]
@@ -243,12 +254,9 @@ struct VaultRequestFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_not_found",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = debug,
-    metric = counter,
-    message = "Credentials not found",
-    describe = "Number of failed Vault requests"
+    message = "Credentials not found"
 )]
 struct VaultCredentialsNotFound {
     #[label]
@@ -264,12 +272,9 @@ struct VaultCredentialsNotFound {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_get_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Error getting credentials",
-    describe = "Number of failed Vault requests"
+    message = "Error getting credentials"
 )]
 struct VaultCredentialsGetFailed {
     #[label]
@@ -285,12 +290,9 @@ struct VaultCredentialsGetFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_set_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Error setting credentials",
-    describe = "Number of failed Vault requests"
+    message = "Error setting credentials"
 )]
 struct VaultCredentialsSetFailed {
     #[label]
@@ -304,12 +306,9 @@ struct VaultCredentialsSetFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_credentials_delete_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Error deleting credentials",
-    describe = "Number of failed Vault requests"
+    message = "Error deleting credentials"
 )]
 struct VaultCredentialsDeleteFailed {
     #[label]
@@ -324,12 +323,9 @@ struct VaultCredentialsDeleteFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_token_validation_retrying",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Vault token renewal check: error reading kv mount location config, waiting for token to be good",
-    describe = "Number of failed Vault requests"
+    message = "Vault token renewal check: error reading kv mount location config, waiting for token to be good"
 )]
 struct VaultTokenValidationRetrying {
     #[label]
@@ -342,12 +338,9 @@ struct VaultTokenValidationRetrying {
 #[derive(Event)]
 #[event(
     event_name = "vault_token_validation_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = error,
-    metric = counter,
-    message = "Vault token renewal check: error reading kv mount location config, giving up after max attempts",
-    describe = "Number of failed Vault requests"
+    message = "Vault token renewal check: error reading kv mount location config, giving up after max attempts"
 )]
 struct VaultTokenValidationFailed {
     #[label]
@@ -360,12 +353,9 @@ struct VaultTokenValidationFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_secret_path_list_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = warn,
-    metric = counter,
-    message = "failed to list vault path",
-    describe = "Number of failed Vault requests"
+    message = "failed to list vault path"
 )]
 struct VaultSecretPathListFailed {
     #[label]
@@ -382,12 +372,9 @@ struct VaultSecretPathListFailed {
 #[derive(Event)]
 #[event(
     event_name = "vault_secret_not_found",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = debug,
-    metric = counter,
-    message = "vault secret not found",
-    describe = "Number of failed Vault requests"
+    message = "vault secret not found"
 )]
 struct VaultSecretNotFound {
     #[label]
@@ -402,12 +389,9 @@ struct VaultSecretNotFound {
 #[derive(Event)]
 #[event(
     event_name = "vault_secret_read_failed",
-    metric_name = "carbide_api_vault_requests_failed_total",
-    component = "nico-api",
+    metric_family = ApiVaultRequestsFailed,
     log = warn,
-    metric = counter,
-    message = "failed to read vault secret",
-    describe = "Number of failed Vault requests"
+    message = "failed to read vault secret"
 )]
 struct VaultSecretReadFailed {
     #[label]

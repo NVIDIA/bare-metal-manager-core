@@ -23,7 +23,7 @@
 //! Timestamp-file failures share a counter by operation while their paths,
 //! host interface, and errors remain log-only diagnostics.
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue};
+use carbide_instrument::{DynamicMessage, Event, LabelValue, MetricFamily};
 use dhcproto::v4::MessageType;
 
 use crate::errors::DhcpError;
@@ -145,15 +145,25 @@ pub(crate) enum SocketSetupNextAction {
     Panic,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dhcp_socket_setup_failures_total",
+    kind = counter,
+    component = "nico-dhcp",
+    describe = "Number of DHCP socket setup failures, by operation and next action."
+)]
+pub(crate) struct DhcpSocketSetupFailures {
+    operation: SocketSetupOperation,
+    next_action: SocketSetupNextAction,
+}
+
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_socket_setup_failed",
-    metric_name = "carbide_dhcp_socket_setup_failures_total",
-    component = "nico-dhcp",
+    metric_family = DhcpSocketSetupFailures,
     log = info,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of DHCP socket setup failures, by operation and next action."
+    message = dynamic
 )]
 pub(crate) struct DhcpSocketSetupFailed {
     #[label]
@@ -198,12 +208,9 @@ impl DynamicMessage for DhcpSocketSetupFailed {
 #[derive(Event)]
 #[event(
     event_name = "dhcp_server_interface_bind_failed",
-    metric_name = "carbide_dhcp_socket_setup_failures_total",
-    component = "nico-dhcp",
+    metric_family = DhcpSocketSetupFailures,
     log = info,
-    metric = counter,
-    message = "Interface not ready, retrying",
-    describe = "Number of DHCP socket setup failures, by operation and next action."
+    message = "Interface not ready, retrying"
 )]
 pub(crate) struct DhcpInterfaceBindFailed {
     #[label]

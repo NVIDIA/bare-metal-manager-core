@@ -17,7 +17,17 @@
 
 use std::time::Duration;
 
-use carbide_instrument::Event;
+use carbide_instrument::{Event, MetricFamily};
+
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_dpa_monitor_operations_latency_milliseconds",
+    kind = histogram,
+    component = "dpa-monitor",
+    describe = "Time consumed for one operation"
+)]
+pub(crate) struct DpaMonitorOperationsLatency {}
 
 // The accepted and failed paths keep separate records because they carry
 // different context. Both feed the same label-free histogram, so a command
@@ -28,12 +38,9 @@ use carbide_instrument::Event;
 #[derive(Event)]
 #[event(
     event_name = "dpa_command_sent",
-    metric_name = "carbide_dpa_monitor_operations_latency_milliseconds",
-    component = "dpa-monitor",
+    metric_family = DpaMonitorOperationsLatency,
     log = info,
-    metric = histogram,
-    message = "sent DPA command",
-    describe = "Time consumed for one operation"
+    message = "sent DPA command"
 )]
 pub(crate) struct DpaCommandSent {
     #[observation]
@@ -50,12 +57,9 @@ pub(crate) struct DpaCommandSent {
 #[derive(Event)]
 #[event(
     event_name = "dpa_command_send_failed",
-    metric_name = "carbide_dpa_monitor_operations_latency_milliseconds",
-    component = "dpa-monitor",
+    metric_family = DpaMonitorOperationsLatency,
     log = error,
-    metric = histogram,
-    message = "failed to send DPA command",
-    describe = "Time consumed for one operation"
+    message = "failed to send DPA command"
 )]
 pub(crate) struct DpaCommandSendFailed {
     #[observation]

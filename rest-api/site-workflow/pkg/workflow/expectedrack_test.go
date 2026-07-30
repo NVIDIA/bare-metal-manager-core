@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
+	temporalworkflow "go.temporal.io/sdk/workflow"
 )
 
 type CreateExpectedRackTestSuite struct {
@@ -41,14 +42,18 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Success() {
 	certs.env.RegisterActivity(expectedRackManager.CreateExpectedRackOnSite)
 	certs.env.OnActivity(expectedRackManager.CreateExpectedRackOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Mock CreateExpectedRackOnFlow activity
-	certs.env.RegisterActivity(expectedRackManager.CreateExpectedRackOnFlow)
-	certs.env.OnActivity(expectedRackManager.CreateExpectedRackOnFlow, mock.Anything, mock.Anything).Return(nil)
+	certs.env.OnGetVersion(
+		removeCreateExpectedRackOnFlowChangeID,
+		temporalworkflow.DefaultVersion,
+		removeCreateExpectedRackOnFlowVersion,
+	).Return(removeCreateExpectedRackOnFlowVersion)
+	certs.env.OnActivity(expectedRackManager.CreateExpectedRackOnFlow, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Execute CreateExpectedRack workflow
 	certs.env.ExecuteWorkflow(CreateExpectedRack, request)
 	certs.True(certs.env.IsWorkflowCompleted())
 	certs.NoError(certs.env.GetWorkflowError())
+	certs.env.AssertActivityNumberOfCalls(certs.T(), "CreateExpectedRackOnFlow", 0)
 }
 
 func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Failure() {
@@ -65,16 +70,13 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_Failure() {
 	certs.env.RegisterActivity(expectedRackManager.CreateExpectedRackOnSite)
 	certs.env.OnActivity(expectedRackManager.CreateExpectedRackOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// Register CreateExpectedRackOnFlow activity (not called when Core fails)
-	certs.env.RegisterActivity(expectedRackManager.CreateExpectedRackOnFlow)
-
 	// Execute CreateExpectedRack workflow
 	certs.env.ExecuteWorkflow(CreateExpectedRack, request)
 	certs.True(certs.env.IsWorkflowCompleted())
 	certs.Error(certs.env.GetWorkflowError())
 }
 
-func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_CoreSuccess_FlowFailure() {
+func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_LegacyVersion_FlowFailure() {
 	var expectedRackManager iActivity.ManageExpectedRack
 
 	request := &corev1.ExpectedRack{
@@ -85,6 +87,12 @@ func (certs *CreateExpectedRackTestSuite) Test_CreateExpectedRack_CoreSuccess_Fl
 	// Mock CreateExpectedRackOnSite activity (success)
 	certs.env.RegisterActivity(expectedRackManager.CreateExpectedRackOnSite)
 	certs.env.OnActivity(expectedRackManager.CreateExpectedRackOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	certs.env.OnGetVersion(
+		removeCreateExpectedRackOnFlowChangeID,
+		temporalworkflow.DefaultVersion,
+		removeCreateExpectedRackOnFlowVersion,
+	).Return(temporalworkflow.DefaultVersion)
 
 	// Mock CreateExpectedRackOnFlow activity (failure - workflow should still succeed)
 	certs.env.RegisterActivity(expectedRackManager.CreateExpectedRackOnFlow)

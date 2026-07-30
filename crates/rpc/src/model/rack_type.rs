@@ -143,6 +143,8 @@ impl TryFrom<rpc::forge::RackHardwareClass> for RackHardwareClass {
     }
 }
 
+// Custom attributes are descriptor inputs and intentionally remain outside
+// rack-profile protobuf responses.
 impl From<&RackCapabilityCompute> for rpc::forge::RackCapabilityCompute {
     fn from(value: &RackCapabilityCompute) -> Self {
         rpc::forge::RackCapabilityCompute {
@@ -402,20 +404,24 @@ mod tests {
                     count: 18,
                     vendor: Some("NVIDIA".to_string()),
                     slot_ids: Some(vec![1, 2, 3]),
+                    attributes: Default::default(),
                 },
                 switch: RackCapabilitySwitch {
                     name: None,
                     count: 9,
                     vendor: None,
                     slot_ids: None,
+                    attributes: Default::default(),
                 },
                 power_shelf: RackCapabilityPowerShelf {
                     name: Some("PSU".to_string()),
                     count: 8,
                     vendor: Some("Delta".to_string()),
                     slot_ids: None,
+                    attributes: Default::default(),
                 },
             },
+            attributes: Default::default(),
         };
 
         let proto: rpc::forge::RackProfile = (&profile).into();

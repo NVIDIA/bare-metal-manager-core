@@ -20,7 +20,9 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use ::carbide_utils::metrics::SharedMetricsHolder;
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, Outcome, emit};
+use carbide_instrument::{
+    DynamicLog, DynamicMessage, Event, LabelValue, LogAt, MetricFamily, Outcome, emit,
+};
 use libredfish::model::task::TaskState;
 use libredfish::{RedfishError, SystemPowerControl};
 use model::firmware::FirmwareComponentType;
@@ -458,6 +460,20 @@ pub(crate) enum PowerControlLog {
     },
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_preingestion_power_control_total",
+    kind = counter,
+    component = "preingestion-manager",
+    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
+    chassis resets), by operation and outcome."
+)]
+pub(crate) struct PreingestionPowerControl {
+    operation: PowerOperation,
+    outcome: Outcome,
+}
+
 /// A preingestion Redfish power operation completed. Every call updates the
 /// existing counter; failures also retain the caller's terminal record. A
 /// successful operation stays silent, while an already-satisfied recovery
@@ -465,13 +481,9 @@ pub(crate) enum PowerControlLog {
 #[derive(Event)]
 #[event(
     event_name = "preingestion_power_control_finished",
-    metric_name = "carbide_preingestion_power_control_total",
-    component = "preingestion-manager",
+    metric_family = PreingestionPowerControl,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
-                chassis resets), by operation and outcome."
+    message = dynamic
 )]
 pub(crate) struct PowerControlFinished {
     #[label]
@@ -534,13 +546,9 @@ impl DynamicMessage for PowerControlFinished {
 #[derive(Event)]
 #[event(
     event_name = "preingestion_initial_bmc_reset_finished",
-    metric_name = "carbide_preingestion_power_control_total",
-    component = "preingestion-manager",
+    metric_family = PreingestionPowerControl,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
-                chassis resets), by operation and outcome."
+    message = dynamic
 )]
 struct InitialBmcResetFinished {
     #[label]
@@ -583,13 +591,9 @@ impl DynamicMessage for InitialBmcResetFinished {
 #[derive(Event)]
 #[event(
     event_name = "preingestion_bfb_platform_power_control_finished",
-    metric_name = "carbide_preingestion_power_control_total",
-    component = "preingestion-manager",
+    metric_family = PreingestionPowerControl,
     log = dynamic,
-    metric = counter,
-    message = dynamic,
-    describe = "Number of preingestion Redfish power operations (host power control, BMC and \
-                chassis resets), by operation and outcome."
+    message = dynamic
 )]
 struct BfbPlatformPowerControlFinished {
     #[label]

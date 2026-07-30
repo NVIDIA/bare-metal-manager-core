@@ -11,14 +11,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"go.temporal.io/sdk/client"
 	tClient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 )
@@ -151,7 +149,7 @@ func (mepsi *ManageExpectedPowerShelfInventory) DiscoverExpectedPowerShelfInvent
 			endIndex = totalCount
 		}
 
-		pagedWorkflowOptions := client.StartWorkflowOptions{
+		pagedWorkflowOptions := tClient.StartWorkflowOptions{
 			ID:        fmt.Sprintf("%v-%v", workflowOptions.ID, cloudPage),
 			TaskQueue: workflowOptions.TaskQueue,
 		}
@@ -243,14 +241,12 @@ func NewManageExpectedPowerShelfInventory(siteID uuid.UUID, coreGrpcAtomicClient
 // ManageExpectedPowerShelf is an activity wrapper for Expected Power Shelf management
 type ManageExpectedPowerShelf struct {
 	coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient
-	flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient
 }
 
 // NewManageExpectedPowerShelf returns a new ManageExpectedPowerShelf client
-func NewManageExpectedPowerShelf(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient, flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient) ManageExpectedPowerShelf {
+func NewManageExpectedPowerShelf(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient) ManageExpectedPowerShelf {
 	return ManageExpectedPowerShelf{
 		coreGrpcAtomicClient: coreGrpcAtomicClient,
-		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
 
@@ -335,97 +331,12 @@ func (meps *ManageExpectedPowerShelf) UpdateExpectedPowerShelfOnSite(ctx context
 	return nil
 }
 
-// CreateExpectedPowerShelfOnFlow creates an Expected Power Shelf as a component in Flow via AddComponent
-func (meps *ManageExpectedPowerShelf) CreateExpectedPowerShelfOnFlow(ctx context.Context, request *corev1.ExpectedPowerShelf) error {
-	logger := log.With().Str("Activity", "CreateExpectedPowerShelfOnFlow").Logger()
-
-	logger.Info().Msg("Starting activity")
-
-	// Validate request
-	if request == nil {
-		return temporal.NewNonRetryableApplicationError("received empty create Expected Power Shelf request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
-	}
-
-	// If Flow client is not configured, skip gracefully
-	if meps.flowGrpcAtomicClient == nil {
-		logger.Warn().Msg("Flow client not configured, skipping Flow component creation")
-		return nil
-	}
-
-	grpcClient := meps.flowGrpcAtomicClient.GetClient()
-	if grpcClient == nil {
-		logger.Warn().Msg("Flow client not connected, skipping Flow component creation")
-		return nil
-	}
-	grpcServiceClient := grpcClient.GrpcServiceClient()
-
-	component := expectedPowerShelfToFlowComponent(request)
-	_, err := grpcServiceClient.AddComponent(ctx, &flowv1.AddComponentRequest{Component: component})
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Power Shelf component on Flow")
-		return swe.WrapErr(err)
-	}
-
-	logger.Info().Msg("Completed activity")
+// CreateExpectedPowerShelfOnFlow is retained as a no-op for compatibility with
+// workflow histories recorded before direct Flow writes were removed.
+// Remove it after the matching `GetVersion` branch is retired and those
+// histories can no longer be replayed.
+func (*ManageExpectedPowerShelf) CreateExpectedPowerShelfOnFlow(context.Context, *corev1.ExpectedPowerShelf) error {
 	return nil
-}
-
-// expectedPowerShelfToFlowComponent converts a NICo ExpectedPowerShelf proto to an Flow Component proto
-func expectedPowerShelfToFlowComponent(eps *corev1.ExpectedPowerShelf) *flowv1.Component {
-	component := &flowv1.Component{
-		Type: flowv1.ComponentType_COMPONENT_TYPE_POWERSHELF,
-		Info: &flowv1.DeviceInfo{
-			Id:           &flowv1.UUID{Id: eps.GetExpectedPowerShelfId().GetValue()},
-			SerialNumber: eps.GetShelfSerialNumber(),
-		},
-		Bmcs: []*flowv1.BMCInfo{
-			{
-				Type:       flowv1.BMCType_BMC_TYPE_HOST,
-				MacAddress: eps.GetBmcMacAddress(),
-			},
-		},
-		ComponentId: eps.GetExpectedPowerShelfId().GetValue(),
-	}
-
-	// DeviceInfo fields
-	if name := eps.GetName(); name != "" {
-		component.Info.Name = name
-	}
-	if manufacturer := eps.GetManufacturer(); manufacturer != "" {
-		component.Info.Manufacturer = manufacturer
-	}
-	if eps.Model != nil {
-		component.Info.Model = eps.Model
-	}
-	if eps.Description != nil {
-		component.Info.Description = eps.Description
-	}
-
-	// Rack position
-	if eps.SlotId != nil || eps.TrayIdx != nil || eps.HostId != nil {
-		pos := &flowv1.RackPosition{}
-		if eps.SlotId != nil {
-			pos.SlotId = *eps.SlotId
-		}
-		if eps.TrayIdx != nil {
-			pos.TrayIdx = *eps.TrayIdx
-		}
-		if eps.HostId != nil {
-			pos.HostId = *eps.HostId
-		}
-		component.Position = pos
-	}
-
-	if eps.GetBmcIpAddress() != "" {
-		ipAddr := eps.GetBmcIpAddress()
-		component.Bmcs[0].IpAddress = &ipAddr
-	}
-
-	if rackID := eps.GetRackId().GetId(); rackID != "" {
-		component.RackId = &flowv1.UUID{Id: rackID}
-	}
-
-	return component
 }
 
 // DeleteExpectedPowerShelfOnSite deletes Expected Power Shelf on NICo

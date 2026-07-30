@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	cClient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -262,7 +261,7 @@ func TestManageExpectedMachine_CreateExpectedMachineOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient, nil)
+			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient)
 			err := mm.CreateExpectedMachineOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -381,7 +380,7 @@ func TestManageExpectedMachine_UpdateExpectedMachineOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient, nil)
+			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient)
 			err := mm.UpdateExpectedMachineOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -467,7 +466,7 @@ func TestManageExpectedMachine_DeleteExpectedMachineOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient, nil)
+			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient)
 			err := mm.DeleteExpectedMachineOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -553,7 +552,7 @@ func TestManageExpectedMachine_CreateExpectedMachinesOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient, nil)
+			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient)
 			response, err := mm.CreateExpectedMachinesOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -650,7 +649,7 @@ func TestManageExpectedMachine_UpdateExpectedMachinesOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient, nil)
+			mm := NewManageExpectedMachine(tt.fields.coreGrpcAtomicClient)
 			response, err := mm.UpdateExpectedMachinesOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -673,121 +672,15 @@ func TestManageExpectedMachine_UpdateExpectedMachinesOnSite(t *testing.T) {
 }
 
 func TestManageExpectedMachine_CreateExpectedMachineOnFlow(t *testing.T) {
-	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
-		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
-		err := mm.CreateExpectedMachineOnFlow(context.Background(), &corev1.ExpectedMachine{
-			Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
-		})
-		assert.NoError(t, err)
-	})
+	manager := NewManageExpectedMachine(nil)
 
-	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
-		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
-		err := mm.CreateExpectedMachineOnFlow(context.Background(), &corev1.ExpectedMachine{
-			Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
-		})
-		assert.NoError(t, err)
-	})
+	assert.NoError(t, manager.CreateExpectedMachineOnFlow(context.Background(), nil))
+	assert.NoError(t, manager.CreateExpectedMachineOnFlow(context.Background(), &corev1.ExpectedMachine{}))
 }
 
 func TestManageExpectedMachine_CreateExpectedMachinesOnFlow(t *testing.T) {
-	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
-		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
-		err := mm.CreateExpectedMachinesOnFlow(context.Background(), &corev1.BatchExpectedMachineOperationRequest{
-			ExpectedMachines: &corev1.ExpectedMachineList{
-				ExpectedMachines: []*corev1.ExpectedMachine{
-					{Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
-				},
-			},
-		})
-		assert.NoError(t, err)
-	})
+	manager := NewManageExpectedMachine(nil)
 
-	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
-		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
-		err := mm.CreateExpectedMachinesOnFlow(context.Background(), &corev1.BatchExpectedMachineOperationRequest{
-			ExpectedMachines: &corev1.ExpectedMachineList{
-				ExpectedMachines: []*corev1.ExpectedMachine{
-					{Id: &corev1.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
-				},
-			},
-		})
-		assert.NoError(t, err)
-	})
-}
-
-func Test_expectedMachineToFlowComponent(t *testing.T) {
-	strPtr := func(s string) *string { return &s }
-	int32Ptr := func(i int32) *int32 { return &i }
-
-	t.Run("maps all fields correctly", func(t *testing.T) {
-		em := &corev1.ExpectedMachine{
-			Id:                  &corev1.UUID{Value: "em-001"},
-			BmcMacAddress:       "AA:BB:CC:DD:EE:FF",
-			ChassisSerialNumber: "CHASSIS-001",
-			RackId:              &corev1.RackId{Id: "rack-001"},
-			Name:                strPtr("compute-node-1"),
-			Manufacturer:        strPtr("NVIDIA"),
-			Model:               strPtr("DGX-H100"),
-			Description:         strPtr("GPU compute node"),
-			SlotId:              int32Ptr(1),
-			TrayIdx:             int32Ptr(2),
-			HostId:              int32Ptr(3),
-		}
-		component := expectedMachineToFlowComponent(em)
-		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_COMPUTE, component.Type)
-		assert.Equal(t, "em-001", component.Info.Id.Id)
-		assert.Equal(t, "CHASSIS-001", component.Info.SerialNumber)
-		assert.Equal(t, "compute-node-1", component.Info.Name)
-		assert.Equal(t, "NVIDIA", component.Info.Manufacturer)
-		assert.Equal(t, "DGX-H100", *component.Info.Model)
-		assert.Equal(t, "GPU compute node", *component.Info.Description)
-		assert.Equal(t, "em-001", component.ComponentId)
-		assert.NotNil(t, component.Position)
-		assert.Equal(t, int32(1), component.Position.SlotId)
-		assert.Equal(t, int32(2), component.Position.TrayIdx)
-		assert.Equal(t, int32(3), component.Position.HostId)
-		if assert.Len(t, component.Bmcs, 1) {
-			assert.Equal(t, flowv1.BMCType_BMC_TYPE_HOST, component.Bmcs[0].Type)
-			assert.Equal(t, "AA:BB:CC:DD:EE:FF", component.Bmcs[0].MacAddress)
-		}
-		assert.NotNil(t, component.RackId)
-		assert.Equal(t, "rack-001", component.RackId.Id)
-	})
-
-	t.Run("handles minimal fields (nil optionals)", func(t *testing.T) {
-		em := &corev1.ExpectedMachine{
-			Id: &corev1.UUID{Value: "em-002"}, BmcMacAddress: "11:22:33:44:55:66", ChassisSerialNumber: "CHASSIS-002",
-		}
-		component := expectedMachineToFlowComponent(em)
-		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_COMPUTE, component.Type)
-		assert.Equal(t, "em-002", component.ComponentId)
-		assert.Empty(t, component.Info.Name)
-		assert.Empty(t, component.Info.Manufacturer)
-		assert.Nil(t, component.Info.Model)
-		assert.Nil(t, component.Info.Description)
-		assert.Nil(t, component.Position)
-		assert.Nil(t, component.RackId)
-	})
-
-	t.Run("ignores empty rack_id wrapper", func(t *testing.T) {
-		em := &corev1.ExpectedMachine{
-			Id: &corev1.UUID{Value: "em-003"}, BmcMacAddress: "22:33:44:55:66:77",
-			ChassisSerialNumber: "CHASSIS-003", RackId: &corev1.RackId{Id: ""},
-		}
-		component := expectedMachineToFlowComponent(em)
-		assert.Nil(t, component.RackId)
-	})
-
-	t.Run("partial position fields", func(t *testing.T) {
-		em := &corev1.ExpectedMachine{
-			Id: &corev1.UUID{Value: "em-004"}, BmcMacAddress: "33:44:55:66:77:88",
-			ChassisSerialNumber: "CHASSIS-004", SlotId: int32Ptr(5),
-		}
-		component := expectedMachineToFlowComponent(em)
-		assert.NotNil(t, component.Position)
-		assert.Equal(t, int32(5), component.Position.SlotId)
-		assert.Equal(t, int32(0), component.Position.TrayIdx)
-		assert.Equal(t, int32(0), component.Position.HostId)
-	})
+	assert.NoError(t, manager.CreateExpectedMachinesOnFlow(context.Background(), nil))
+	assert.NoError(t, manager.CreateExpectedMachinesOnFlow(context.Background(), &corev1.BatchExpectedMachineOperationRequest{}))
 }
