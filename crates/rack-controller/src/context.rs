@@ -20,7 +20,6 @@ use std::sync::Arc;
 use carbide_health_metrics::PerObjectMetricsRegistry;
 use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack_controller::config::RackConfig;
-use carbide_rack_controller::firmware_object::FirmwareObjectFetcher;
 use carbide_rack_controller::metrics::RackMetrics;
 use carbide_secrets::credentials::CredentialManager;
 use component_manager::component_manager::ComponentManager;
@@ -29,6 +28,7 @@ use sqlx::PgPool;
 use state_controller::state_handler::StateHandlerContextObjects;
 
 use crate as carbide_rack_controller;
+use crate::firmware_object::FirmwareObjectFetcher;
 
 pub struct RackStateHandlerContextObjects {}
 

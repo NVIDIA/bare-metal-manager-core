@@ -1510,6 +1510,21 @@ async fn initialize_and_start_controllers<'a>(
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build PowerShelfStateController");
 
+    let default_redirect_policy = reqwest::redirect::Policy::default();
+
+    let firmware_object_fetcher = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+            let initial_origin = attempt.previous().first().map(reqwest::Url::origin);
+
+            if initial_origin == Some(attempt.url().origin()) {
+                default_redirect_policy.redirect(attempt)
+            } else {
+                attempt.error("firmware-object redirect changed the configured origin")
+            }
+        }))
+        .build()
+        .wrap_err("failed to build the firmware-object HTTP client")?;
+
     StateController::<RackStateControllerIO>::builder()
         .database(db_pool.clone(), work_lock_manager_handle.clone())
         .meter("carbide_racks", meter.clone())
@@ -1530,7 +1545,7 @@ async fn initialize_and_start_controllers<'a>(
                 nmx_cluster_switch_mtls_services: carbide_config
                     .rack_state_controller
                     .effective_nmx_cluster_switch_mtls_services_as_i32(),
-                firmware_object_fetcher: Arc::new(reqwest::Client::new()),
+                firmware_object_fetcher: Arc::new(firmware_object_fetcher),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
             }
             .into(),
@@ -1730,7 +1745,7 @@ mod tests {
 
     use carbide_network::virtualization::VpcVirtualizationType;
     use carbide_test_support::Outcome::{FailsWith, Yields};
-    use carbide_test_support::{Case, check_cases, scenarios};
+    use carbide_test_support::{Case, check_cases, scenarios, value_scenarios};
     use figment::Figment;
     use figment::providers::{Format, Toml};
     use model::expected_machine::HostDpuPolicy;
@@ -1741,6 +1756,42 @@ mod tests {
     use super::*;
     use crate::cfg::file::{CarbideConfig, InitialObjectsConfig};
     use crate::cfg::load::{merged_carbide_config_figment, parse_carbide_config};
+
+    #[test]
+    fn firmware_object_redirects_require_same_origin() {
+        value_scenarios!(run = |(initial, redirect)| {
+            let initial = reqwest::Url::parse(initial).expect("initial test URL must parse");
+            let redirect = reqwest::Url::parse(redirect).expect("redirect test URL must parse");
+
+            initial.origin() == redirect.origin()
+        };
+            "same-origin redirects are allowed" {
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://firmware.example.test/releases/object.json",
+                ) => true,
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://firmware.example.test:443/object.json",
+                ) => true,
+            }
+
+            "origin changes are rejected" {
+                (
+                    "https://firmware.example.test/object.json",
+                    "http://firmware.example.test/object.json",
+                ) => false,
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://mirror.example.test/object.json",
+                ) => false,
+                (
+                    "https://firmware.example.test/object.json",
+                    "https://firmware.example.test:8443/object.json",
+                ) => false,
+            }
+        );
+    }
 
     #[derive(Clone, Copy)]
     struct PolicyLayers {

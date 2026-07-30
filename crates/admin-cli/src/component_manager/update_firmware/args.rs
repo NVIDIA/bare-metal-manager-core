@@ -488,7 +488,12 @@ mod tests {
         else {
             panic!("switch command should build a switch target");
         };
-        assert_eq!(target.switch_ids.expect("switch IDs").ids.len(), 1);
+
+        let switch_ids = target.switch_ids.expect("switch IDs");
+
+        assert_eq!(switch_ids.ids.len(), 1);
+        assert_eq!(switch_ids.ids[0].to_string(), SWITCH_ID);
+
         assert_eq!(
             target.components,
             [
@@ -523,10 +528,12 @@ mod tests {
         else {
             panic!("compute-tray command should build a compute-tray target");
         };
-        assert_eq!(
-            target.machine_ids.expect("machine IDs").machine_ids.len(),
-            1
-        );
+
+        let machine_ids = target.machine_ids.expect("machine IDs");
+
+        assert_eq!(machine_ids.machine_ids.len(), 1);
+        assert_eq!(machine_ids.machine_ids[0].to_string(), MACHINE_ID);
+
         assert_eq!(
             target.components,
             [
@@ -561,10 +568,12 @@ mod tests {
         else {
             panic!("power-shelf command should build a power-shelf target");
         };
-        assert_eq!(
-            target.power_shelf_ids.expect("power shelf IDs").ids.len(),
-            1
-        );
+
+        let power_shelf_ids = target.power_shelf_ids.expect("power shelf IDs");
+
+        assert_eq!(power_shelf_ids.ids.len(), 1);
+        assert_eq!(power_shelf_ids.ids[0].to_string(), POWER_SHELF_ID);
+
         assert_eq!(
             target.components,
             [
@@ -598,7 +607,11 @@ mod tests {
         else {
             panic!("rack command should build a rack target");
         };
-        assert_eq!(target.rack_ids.expect("rack IDs").rack_ids.len(), 1);
+
+        let rack_ids = target.rack_ids.expect("rack IDs");
+
+        assert_eq!(rack_ids.rack_ids.len(), 1);
+        assert_eq!(rack_ids.rack_ids[0].to_string(), RACK_ID);
 
         let _ = std::fs::remove_file(sot_json);
     }

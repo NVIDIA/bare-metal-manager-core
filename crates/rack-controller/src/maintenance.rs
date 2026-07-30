@@ -588,13 +588,6 @@ fn requested_nvos_config_json(scope: &MaintenanceScope) -> Option<String> {
     })
 }
 
-fn explicit_firmware_upgrade_requested(scope: &MaintenanceScope) -> bool {
-    scope
-        .activities
-        .iter()
-        .any(|activity| matches!(activity, MaintenanceActivity::FirmwareUpgrade { .. }))
-}
-
 fn profile_hardware_type_or_any(profile: Option<&RackProfile>) -> String {
     profile
         .map(profile_hardware_type_wire_value)
@@ -2260,16 +2253,6 @@ pub async fn handle_maintenance(
                 let (config_json, components, force_update) = match requested_source {
                     Some(requested_source) => requested_source,
                     None => {
-                        if explicit_firmware_upgrade_requested(scope) {
-                            return transition_to_rack_error(
-                                id,
-                                state,
-                                "firmware-upgrade rack maintenance requires SOT JSON and access token",
-                                ctx,
-                            )
-                            .await;
-                        }
-
                         let config_json =
                             configured_ingestion_firmware_object_json(id, rack_profile_id, ctx)
                                 .await
@@ -2277,28 +2260,28 @@ pub async fn handle_maintenance(
                                     StateHandlerError::GenericError(eyre::eyre!(error))
                                 })?;
 
-                        let Some(config_json) = config_json else {
-                            return Ok(skip_firmware_upgrade_outcome(
-                                id,
-                                "firmware object JSON source is not configured for rack maintenance; skipping firmware update",
-                                scope,
-                            ));
-                        };
-
-                        (Some(config_json), Vec::new(), false)
+                        (config_json, Vec::new(), false)
                     }
                 };
 
                 // Defensive: older persisted maintenance state may predate API-side JSON
                 // validation.
                 let Some(config_json) = config_json.filter(|json| !json.trim().is_empty()) else {
-                    return transition_to_rack_error(
+                    if uses_stored_token {
+                        return transition_to_rack_error(
+                            id,
+                            state,
+                            "firmware-upgrade rack maintenance requires SOT JSON and access token",
+                            ctx,
+                        )
+                        .await;
+                    }
+
+                    return Ok(skip_firmware_upgrade_outcome(
                         id,
-                        state,
-                        "firmware object JSON source is configured but target firmware version does not contain SOT JSON",
-                        ctx,
-                    )
-                    .await;
+                        "firmware object JSON source is not configured for rack maintenance; skipping firmware update",
+                        scope,
+                    ));
                 };
 
                 let nvos_json_pending = requested_nvos_config_json(scope).is_some();

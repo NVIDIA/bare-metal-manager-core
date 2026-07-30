@@ -24,6 +24,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
+/// Firmware objects contain metadata, not firmware binaries. This generous
+/// limit bounds state-controller memory if the configured endpoint is wrong or
+/// compromised.
+const MAX_FIRMWARE_OBJECT_BYTES: usize = 16 * 1024 * 1024;
+
 /// Loads a SOT firmware-object document for rack ingestion.
 #[async_trait]
 pub trait FirmwareObjectFetcher: std::fmt::Debug + Send + Sync {
@@ -42,7 +47,7 @@ pub trait FirmwareObjectFetcher: std::fmt::Debug + Send + Sync {
 #[async_trait]
 impl FirmwareObjectFetcher for reqwest::Client {
     async fn fetch(&self, url: &str, timeout: Duration) -> Result<String, String> {
-        let response = self
+        let mut response = self
             .get(url)
             .timeout(timeout)
             .send()
@@ -61,11 +66,34 @@ impl FirmwareObjectFetcher for reqwest::Client {
                 )
             })?;
 
-        response.text().await.map_err(|error| {
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_FIRMWARE_OBJECT_BYTES as u64)
+        {
+            return Err(format!(
+                "configured SOT firmware object exceeds the {MAX_FIRMWARE_OBJECT_BYTES}-byte size limit"
+            ));
+        }
+
+        let mut body = Vec::new();
+
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
             format!(
                 "failed to read configured SOT firmware object: {}",
                 error.without_url()
             )
+        })? {
+            if body.len().saturating_add(chunk.len()) > MAX_FIRMWARE_OBJECT_BYTES {
+                return Err(format!(
+                    "configured SOT firmware object exceeds the {MAX_FIRMWARE_OBJECT_BYTES}-byte size limit"
+                ));
+            }
+
+            body.extend_from_slice(&chunk);
+        }
+
+        String::from_utf8(body).map_err(|error| {
+            format!("configured SOT firmware object body is not valid UTF-8: {error}")
         })
     }
 }
