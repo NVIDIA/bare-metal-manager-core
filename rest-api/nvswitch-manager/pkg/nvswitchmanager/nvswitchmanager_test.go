@@ -213,3 +213,49 @@ func TestNVSwitchManager_Get_NilNVOS(t *testing.T) {
 	assert.Nil(t, got)
 	assert.Contains(t, err.Error(), "no NVOS subsystem")
 }
+
+// Delete must drop credentials this manager seeded itself, so a switch
+// re-registered on the same MAC does not silently inherit the old ones.
+// Core-owned credentials are a different matter and are never touched here.
+func TestNVSwitchManager_Delete_ForgetsSeededCredentials(t *testing.T) {
+	nm := newTestManager()
+	ctx := context.Background()
+
+	tray := newTestTray(t)
+	bmcCred := credential.New("admin", "pass")
+	tray.BMC.Credential = &bmcCred
+	nvosCred := credential.New("nvos_admin", "nvos_pass")
+	tray.NVOS.Credential = &nvosCred
+
+	id, _, err := nm.Register(ctx, tray)
+	require.NoError(t, err)
+
+	// Seeded by Register, so readable before the delete.
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	require.NoError(t, err)
+
+	require.NoError(t, nm.Delete(ctx, id))
+
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+	_, err = nm.CredentialManager.GetNVOS(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+}
+
+// A failed registration must not leave credentials behind for a switch that
+// does not exist, which is why Register seeds only after the registry accepts.
+func TestNVSwitchManager_Register_NoSeedWhenRegistryRejects(t *testing.T) {
+	nm := newTestManager()
+	ctx := context.Background()
+
+	tray := newTestTray(t)
+	bmcCred := credential.New("admin", "pass")
+	tray.BMC.Credential = &bmcCred
+	tray.NVOS = nil // rejected before the registry is reached
+
+	_, _, err := nm.Register(ctx, tray)
+	require.Error(t, err)
+
+	_, err = nm.CredentialManager.GetBMC(ctx, tray.BMC.MAC)
+	assert.ErrorIs(t, err, credentials.ErrNotFound)
+}

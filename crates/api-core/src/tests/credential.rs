@@ -20,7 +20,6 @@ use carbide_secrets::credentials::{
     CredentialWriter, Credentials,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::get_switch_nvos_credentials_request::Selector as NvosSelector;
 use rpc::forge::{
     CredentialCreationRequest, CredentialDeletionRequest, CredentialType as RpcCredentialType,
     GetBmcCredentialsRequest,
@@ -295,7 +294,8 @@ async fn test_get_switch_nvos_credentials(pool: sqlx::PgPool) -> eyre::Result<()
         .api
         .get_switch_nvos_credentials(tonic::Request::new(
             rpc::forge::GetSwitchNvosCredentialsRequest {
-                selector: Some(NvosSelector::SwitchId(switch_id)),
+                switch_id: Some(switch_id),
+                bmc_mac_addr: None,
             },
         ))
         .await?
@@ -311,7 +311,8 @@ async fn test_get_switch_nvos_credentials(pool: sqlx::PgPool) -> eyre::Result<()
         .api
         .get_switch_nvos_credentials(tonic::Request::new(
             rpc::forge::GetSwitchNvosCredentialsRequest {
-                selector: Some(NvosSelector::BmcMacAddr(bmc_mac_address.to_string())),
+                switch_id: None,
+                bmc_mac_addr: Some(bmc_mac_address.to_string()),
             },
         ))
         .await?
@@ -328,22 +329,41 @@ async fn test_get_switch_nvos_credentials(pool: sqlx::PgPool) -> eyre::Result<()
 async fn test_get_switch_nvos_credentials_rejects_bad_selector(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
 
-    // No selector at all: the proto3 zero value must not silently resolve to
-    // some default switch.
+    // Neither field set: an empty request must not silently resolve to some
+    // default switch.
     let status = env
         .api
         .get_switch_nvos_credentials(tonic::Request::new(
-            rpc::forge::GetSwitchNvosCredentialsRequest { selector: None },
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: None,
+                bmc_mac_addr: None,
+            },
         ))
         .await
         .expect_err("missing selector must be rejected");
+    assert_eq!(status.code(), Code::InvalidArgument);
+
+    // Both set: rejected rather than silently preferring one, which would
+    // ignore half of what the caller asked for. Exclusivity is enforced by the
+    // handler because the fields are not a oneof.
+    let status = env
+        .api
+        .get_switch_nvos_credentials(tonic::Request::new(
+            rpc::forge::GetSwitchNvosCredentialsRequest {
+                switch_id: Some(carbide_uuid::switch::SwitchId::from(uuid::Uuid::new_v4())),
+                bmc_mac_addr: Some("00:11:22:33:44:55".to_string()),
+            },
+        ))
+        .await
+        .expect_err("setting both selectors must be rejected");
     assert_eq!(status.code(), Code::InvalidArgument);
 
     let status = env
         .api
         .get_switch_nvos_credentials(tonic::Request::new(
             rpc::forge::GetSwitchNvosCredentialsRequest {
-                selector: Some(NvosSelector::BmcMacAddr("not-a-mac".to_string())),
+                switch_id: None,
+                bmc_mac_addr: Some("not-a-mac".to_string()),
             },
         ))
         .await
@@ -356,7 +376,8 @@ async fn test_get_switch_nvos_credentials_rejects_bad_selector(pool: sqlx::PgPoo
         .api
         .get_switch_nvos_credentials(tonic::Request::new(
             rpc::forge::GetSwitchNvosCredentialsRequest {
-                selector: Some(NvosSelector::BmcMacAddr("00:11:22:33:44:55".to_string())),
+                switch_id: None,
+                bmc_mac_addr: Some("00:11:22:33:44:55".to_string()),
             },
         ))
         .await

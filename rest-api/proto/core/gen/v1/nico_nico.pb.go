@@ -24186,15 +24186,16 @@ func (x *GetBmcCredentialsRequest) GetMacAddr() string {
 
 type GetSwitchNvosCredentialsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Callers that hold a NICo SwitchId use switch_id; callers that only know
-	// the switch's BMC MAC (the key the credential itself is stored under) use
-	// bmc_mac_addr and skip the switch lookup.
+	// Exactly one of these identifies the switch. Callers holding a NICo
+	// SwitchId use switch_id; callers that only know the switch's BMC MAC (the
+	// key the credential itself is stored under) use bmc_mac_addr and skip the
+	// switch lookup. The server rejects a request setting both or neither.
 	//
-	// Types that are valid to be assigned to Selector:
-	//
-	//	*GetSwitchNvosCredentialsRequest_SwitchId
-	//	*GetSwitchNvosCredentialsRequest_BmcMacAddr
-	Selector      isGetSwitchNvosCredentialsRequest_Selector `protobuf_oneof:"selector"`
+	// Deliberately not a oneof, which would carry that exclusivity in the type
+	// system: moving switch_id into one trips `buf breaking`
+	// (FIELD_SAME_ONEOF), even though the wire encoding is identical.
+	SwitchId      *SwitchId `protobuf:"bytes,1,opt,name=switch_id,json=switchId,proto3" json:"switch_id,omitempty"`
+	BmcMacAddr    *string   `protobuf:"bytes,2,opt,name=bmc_mac_addr,json=bmcMacAddr,proto3,oneof" json:"bmc_mac_addr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -24229,46 +24230,19 @@ func (*GetSwitchNvosCredentialsRequest) Descriptor() ([]byte, []int) {
 	return file_nico_nico_proto_rawDescGZIP(), []int{276}
 }
 
-func (x *GetSwitchNvosCredentialsRequest) GetSelector() isGetSwitchNvosCredentialsRequest_Selector {
-	if x != nil {
-		return x.Selector
-	}
-	return nil
-}
-
 func (x *GetSwitchNvosCredentialsRequest) GetSwitchId() *SwitchId {
 	if x != nil {
-		if x, ok := x.Selector.(*GetSwitchNvosCredentialsRequest_SwitchId); ok {
-			return x.SwitchId
-		}
+		return x.SwitchId
 	}
 	return nil
 }
 
 func (x *GetSwitchNvosCredentialsRequest) GetBmcMacAddr() string {
-	if x != nil {
-		if x, ok := x.Selector.(*GetSwitchNvosCredentialsRequest_BmcMacAddr); ok {
-			return x.BmcMacAddr
-		}
+	if x != nil && x.BmcMacAddr != nil {
+		return *x.BmcMacAddr
 	}
 	return ""
 }
-
-type isGetSwitchNvosCredentialsRequest_Selector interface {
-	isGetSwitchNvosCredentialsRequest_Selector()
-}
-
-type GetSwitchNvosCredentialsRequest_SwitchId struct {
-	SwitchId *SwitchId `protobuf:"bytes,1,opt,name=switch_id,json=switchId,proto3,oneof"`
-}
-
-type GetSwitchNvosCredentialsRequest_BmcMacAddr struct {
-	BmcMacAddr string `protobuf:"bytes,2,opt,name=bmc_mac_addr,json=bmcMacAddr,proto3,oneof"`
-}
-
-func (*GetSwitchNvosCredentialsRequest_SwitchId) isGetSwitchNvosCredentialsRequest_Selector() {}
-
-func (*GetSwitchNvosCredentialsRequest_BmcMacAddr) isGetSwitchNvosCredentialsRequest_Selector() {}
 
 type GetSwitchBmcCredentialsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -64185,13 +64159,12 @@ const file_nico_nico_proto_rawDesc = "" +
 	"\x10is_authenticated\x18\x01 \x01(\bR\x0fisAuthenticated\x12$\n" +
 	"\x04role\x18\x02 \x01(\x0e2\x10.forge.UserRolesR\x04role\"5\n" +
 	"\x18GetBmcCredentialsRequest\x12\x19\n" +
-	"\bmac_addr\x18\x01 \x01(\tR\amacAddr\"\x82\x01\n" +
-	"\x1fGetSwitchNvosCredentialsRequest\x12/\n" +
-	"\tswitch_id\x18\x01 \x01(\v2\x10.common.SwitchIdH\x00R\bswitchId\x12\"\n" +
+	"\bmac_addr\x18\x01 \x01(\tR\amacAddr\"\x88\x01\n" +
+	"\x1fGetSwitchNvosCredentialsRequest\x12-\n" +
+	"\tswitch_id\x18\x01 \x01(\v2\x10.common.SwitchIdR\bswitchId\x12%\n" +
 	"\fbmc_mac_addr\x18\x02 \x01(\tH\x00R\n" +
-	"bmcMacAddrB\n" +
-	"\n" +
-	"\bselector\"B\n" +
+	"bmcMacAddr\x88\x01\x01B\x0f\n" +
+	"\r_bmc_mac_addr\"B\n" +
 	"\x1eGetSwitchBmcCredentialsRequest\x12 \n" +
 	"\fbmc_mac_addr\x18\x01 \x01(\tR\n" +
 	"bmcMacAddr\"T\n" +
@@ -71992,10 +71965,7 @@ func file_nico_nico_proto_init() {
 	file_nico_nico_proto_msgTypes[268].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[269].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[271].OneofWrappers = []any{}
-	file_nico_nico_proto_msgTypes[276].OneofWrappers = []any{
-		(*GetSwitchNvosCredentialsRequest_SwitchId)(nil),
-		(*GetSwitchNvosCredentialsRequest_BmcMacAddr)(nil),
-	}
+	file_nico_nico_proto_msgTypes[276].OneofWrappers = []any{}
 	file_nico_nico_proto_msgTypes[279].OneofWrappers = []any{
 		(*BmcCredentials_UsernamePassword)(nil),
 		(*BmcCredentials_SessionToken)(nil),

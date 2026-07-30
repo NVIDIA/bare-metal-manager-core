@@ -535,19 +535,30 @@ pub(crate) async fn get_switch_nvos_credentials(
     crate::api::log_request_data(&request);
 
     let req = request.into_inner();
-    let selector = req.selector.ok_or_else(|| {
-        CarbideError::InvalidArgument("switch_id or bmc_mac_addr is required".to_string())
-    })?;
 
     // `subject` is the caller's own spelling of the switch, used verbatim in
     // NotFound errors so the operator sees back what they asked for.
-    let (bmc_mac_address, subject) = match selector {
-        rpc::get_switch_nvos_credentials_request::Selector::SwitchId(switch_id) => {
+    //
+    // Exclusivity is enforced here rather than by a oneof; see the message
+    // definition in forge.proto for why. Setting both is rejected instead of
+    // picking a winner, which would silently ignore half the request.
+    let (bmc_mac_address, subject) = match (req.switch_id, req.bmc_mac_addr) {
+        (Some(_), Some(_)) => {
+            return Err(CarbideError::InvalidArgument(
+                "set exactly one of switch_id or bmc_mac_addr, not both".to_string(),
+            )
+            .into());
+        }
+        (Some(switch_id), None) => {
             let mac = resolve_switch_bmc_mac(api, &switch_id).await?;
             (mac, switch_id.to_string())
         }
-        rpc::get_switch_nvos_credentials_request::Selector::BmcMacAddr(mac_addr) => {
-            (parse_bmc_mac(&mac_addr)?, mac_addr)
+        (None, Some(mac_addr)) => (parse_bmc_mac(&mac_addr)?, mac_addr),
+        (None, None) => {
+            return Err(CarbideError::InvalidArgument(
+                "switch_id or bmc_mac_addr is required".to_string(),
+            )
+            .into());
         }
     };
 

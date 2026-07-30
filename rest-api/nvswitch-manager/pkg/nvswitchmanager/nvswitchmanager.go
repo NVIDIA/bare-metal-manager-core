@@ -82,6 +82,13 @@ func (nm *NVSwitchManager) Register(ctx context.Context, tray *nvswitch.NVSwitch
 		return uuid.Nil, false, fmt.Errorf("tray NVOS subsystem is required")
 	}
 
+	// Register first, then seed. Seeding beforehand would leave credentials
+	// behind for a switch that never registered.
+	id, created, err := nm.Registry.Register(ctx, tray)
+	if err != nil {
+		return id, created, err
+	}
+
 	if seeder, ok := nm.CredentialManager.(*credentials.InMemoryCredentialManager); ok {
 		if tray.BMC.Credential != nil {
 			if err := seeder.PutBMC(ctx, tray.BMC.MAC, tray.BMC.Credential); err != nil {
@@ -95,8 +102,7 @@ func (nm *NVSwitchManager) Register(ctx context.Context, tray *nvswitch.NVSwitch
 		}
 	}
 
-	// Register in registry
-	return nm.Registry.Register(ctx, tray)
+	return id, created, nil
 }
 
 // Get retrieves an NV-Switch by UUID and attaches credentials.
@@ -135,8 +141,18 @@ func (nm *NVSwitchManager) List(ctx context.Context) ([]*nvswitch.NVSwitchTray, 
 
 // Delete removes an NV-Switch from the registry.
 //
-// The switch's credentials are left alone: Core owns their lifecycle, and a
+// Core-owned credentials are left alone: Core owns their lifecycle, and a
 // switch deregistered here may still be a live, credentialed switch there.
+// Credentials this manager seeded into its own in-memory store are dropped
+// with the switch, so a later re-registration does not silently inherit them.
 func (nm *NVSwitchManager) Delete(ctx context.Context, id uuid.UUID) error {
+	if seeder, ok := nm.CredentialManager.(*credentials.InMemoryCredentialManager); ok {
+		// Best effort: the registry delete below is what the caller asked for,
+		// and a switch that cannot be loaded has no MAC to forget anyway.
+		if tray, err := nm.Registry.Get(ctx, id); err == nil && tray.BMC != nil {
+			seeder.Forget(ctx, tray.BMC.MAC)
+		}
+	}
+
 	return nm.Registry.Delete(ctx, id)
 }

@@ -29,6 +29,9 @@ COPY sdk/standard/go.mod ./sdk/standard/
 RUN go mod download
 
 COPY common/ ./common/
+# NSM reads switch credentials from NICo Core, so it needs the generated Core
+# gRPC client.
+COPY proto/ ./proto/
 COPY nvswitch-manager/ ./nvswitch-manager/
 
 WORKDIR /workspace/nvswitch-manager

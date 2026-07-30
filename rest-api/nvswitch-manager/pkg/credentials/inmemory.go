@@ -110,3 +110,13 @@ func (m *InMemoryCredentialManager) GetNVOS(ctx context.Context, mac net.Hardwar
 func (m *InMemoryCredentialManager) PutNVOS(ctx context.Context, mac net.HardwareAddr, cred *credential.Credential) error {
 	return m.put("NVOS", m.nvosKey(mac), mac, cred)
 }
+
+// Forget drops both seeded credentials for mac. No-op if absent, so callers
+// can use it to clean up without first checking what was seeded.
+func (m *InMemoryCredentialManager) Forget(ctx context.Context, mac net.HardwareAddr) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.store, m.bmcKey(mac))
+	delete(m.store, m.nvosKey(mac))
+}

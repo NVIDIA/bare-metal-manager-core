@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/codes"
 	grpccreds "google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // defaultGRPCTimeout bounds a single credential lookup. Credentials are read
@@ -120,8 +121,10 @@ func (m *CoreCredentialManager) GetNVOS(ctx context.Context, mac net.HardwareAdd
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
+	// switch_id is left unset: NSM keys switches by BMC MAC and holds no
+	// Carbide SwitchId. Core rejects a request carrying both.
 	resp, err := m.client.GetSwitchNvosCredentials(ctx, &corev1.GetSwitchNvosCredentialsRequest{
-		Selector: &corev1.GetSwitchNvosCredentialsRequest_BmcMacAddr{BmcMacAddr: mac.String()},
+		BmcMacAddr: proto.String(mac.String()),
 	})
 	return credentialFromResponse("NVOS", mac, resp, err)
 }
