@@ -798,6 +798,54 @@ func (rs *FlowServerImpl) IngestRack(
 	}, nil
 }
 
+// DecommissionRack initiates a rack-scale decommission operation. The workflow
+// enforces strict component ordering: Compute first, then NVSwitch, then
+// PowerShelf — each stage must complete before the next begins.
+func (rs *FlowServerImpl) DecommissionRack(
+	ctx context.Context,
+	req *pb.DecommissionRackRequest,
+) (*pb.SubmitTaskResponse, error) {
+	if rs.taskManager == nil {
+		return nil, errors.New(
+			"task manager is not available",
+		)
+	}
+
+	targetSpec := req.GetTargetSpec()
+	if targetSpec == nil {
+		return nil, errors.New(
+			"target_spec is required",
+		)
+	}
+
+	info := &operations.DecommissionTaskInfo{
+		RuleID: protobuf.UUIDStringFrom(req.GetRuleId()),
+	}
+	opReq, err := rs.convertTargetSpecToOperationRequest(
+		targetSpec, req.GetDescription(), info,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	opReq.RuleID = protobuf.OptionalUUIDFrom(req.GetRuleId())
+
+	taskIDs, err := rs.taskManager.SubmitTask(ctx, opReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(taskIDs) == 0 {
+		return nil, errors.New(
+			"failed to create any tasks",
+		)
+	}
+
+	return &pb.SubmitTaskResponse{
+		TaskIds: protobuf.UUIDsTo(taskIDs),
+	}, nil
+}
+
 func (rs *FlowServerImpl) handlePowerControlTask(
 	ctx context.Context,
 	targetSpec *pb.OperationTargetSpec,

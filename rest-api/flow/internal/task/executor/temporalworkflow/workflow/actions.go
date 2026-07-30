@@ -43,6 +43,8 @@ var actionExecutorRegistry = map[string]actionExecutor{
 	operationrules.ActionWaitBringUp:               executeWaitBringUpAction,
 	operationrules.ActionInjectExpectation:         executeInjectExpectationAction,
 	operationrules.ActionVerifyFirmwareConsistency: executeVerifyFirmwareConsistencyAction,
+	operationrules.ActionDecommissionControl:       executeDecommissionControlAction,
+	operationrules.ActionWaitDecommissioned:        executeWaitDecommissionedAction,
 }
 
 // executeActionList executes a list of actions sequentially
@@ -619,6 +621,92 @@ func executeVerifyFirmwareConsistencyAction(actx actionExecutionContext) error {
 		activity.NameVerifyFirmwareConsistency,
 		actx.target,
 	).Get(actx.workflowContext, nil)
+}
+
+// executeDecommissionControlAction initiates decommissioning of the target
+// components via the DecommissionControl activity.
+func executeDecommissionControlAction(actx actionExecutionContext) error {
+	var info operations.DecommissionTaskInfo
+	if parent, ok := actx.operationInfo.(*operations.DecommissionTaskInfo); ok && parent != nil {
+		info = *parent
+	}
+	return workflow.ExecuteActivity(
+		actx.workflowContext, activity.NameDecommissionControl, actx.target, info,
+	).Get(actx.workflowContext, nil)
+}
+
+// executeWaitDecommissionedAction polls GetDecommissionStatus until all
+// components reach the "Decommissioned" terminal state. States that begin
+// with "Decommissioning/" are in-progress; any other non-terminal state is
+// treated as an error. Uses config.Timeout and config.PollInterval.
+func executeWaitDecommissionedAction(actx actionExecutionContext) error {
+	ctx := actx.workflowContext
+	target := actx.target
+
+	timeout := actx.config.Timeout
+	if timeout == 0 {
+		timeout = 4 * time.Hour
+	}
+	pollInterval := actx.config.PollInterval
+	if pollInterval == 0 {
+		pollInterval = 30 * time.Second
+	}
+
+	log.Debug().
+		Dur("timeout", timeout).
+		Dur("poll_interval", pollInterval).
+		Str("target", target.String()).
+		Msg("Waiting for decommission to complete")
+
+	deadline := workflow.Now(ctx).Add(timeout)
+
+	for {
+		if workflow.Now(ctx).After(deadline) {
+			return fmt.Errorf(
+				"timed out waiting for decommission to complete (timeout %v)", timeout,
+			)
+		}
+
+		if err := workflow.Sleep(ctx, pollInterval); err != nil {
+			return fmt.Errorf("workflow sleep interrupted: %w", err)
+		}
+
+		var result activity.GetDecommissionStatusResult
+		err := workflow.ExecuteActivity(
+			ctx, activity.NameGetDecommissionStatus, target,
+		).Get(ctx, &result)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to get decommission status, will retry")
+			continue
+		}
+
+		allDecommissioned := true
+		for componentID, state := range result.States {
+			if state == "Decommissioned" {
+				continue
+			}
+			if strings.HasPrefix(state, "Decommissioning/") {
+				allDecommissioned = false
+				log.Debug().
+					Str("component_id", componentID).
+					Str("state", state).
+					Msg("Component still decommissioning")
+				continue
+			}
+			// Any other state is unexpected/terminal-error
+			return fmt.Errorf(
+				"decommission failed for component %s: unexpected state %q",
+				componentID, state,
+			)
+		}
+
+		if allDecommissioned {
+			log.Info().
+				Int("count", len(result.States)).
+				Msg("All components decommissioned")
+			return nil
+		}
+	}
 }
 
 // extractOverrideReadinessCheck reads the OverrideReadinessCheck flag from

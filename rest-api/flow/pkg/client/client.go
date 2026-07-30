@@ -1307,3 +1307,35 @@ func (c *Client) IngestRackByRackNames(
 		TaskIDs: uuidsFromProto(rsp.GetTaskIds()),
 	}, nil
 }
+
+// DecommissionRack submits a decommission task for the given rack IDs.
+// The decommission workflow enforces strict component ordering:
+// Compute (stage 1) → NVSwitch (stage 2) → PowerShelf (stage 3).
+func (c *Client) DecommissionRack(
+	ctx context.Context,
+	rackIDs []uuid.UUID,
+	description string,
+) (*DecommissionRackResult, error) {
+	rackTargets := make([]*pb.RackTarget, 0, len(rackIDs))
+	for _, id := range rackIDs {
+		rackTargets = append(rackTargets, &pb.RackTarget{
+			Identifier: &pb.RackTarget_Id{Id: uuidToProto(id)},
+		})
+	}
+
+	rsp, err := c.client.DecommissionRack(ctx, &pb.DecommissionRackRequest{
+		TargetSpec: &pb.OperationTargetSpec{
+			Targets: &pb.OperationTargetSpec_Racks{
+				Racks: &pb.RackTargets{Targets: rackTargets},
+			},
+		},
+		Description: description,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &DecommissionRackResult{
+		TaskIDs: uuidsFromProto(rsp.GetTaskIds()),
+	}, nil
+}

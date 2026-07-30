@@ -118,6 +118,7 @@ type FlowClient interface {
 	UpgradeFirmware(ctx context.Context, in *UpgradeFirmwareRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	BringUpRack(ctx context.Context, in *BringUpRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	IngestRack(ctx context.Context, in *IngestRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
+	DecommissionRack(ctx context.Context, in *DecommissionRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	PowerOnRack(ctx context.Context, in *PowerOnRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	PowerOffRack(ctx context.Context, in *PowerOffRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
 	PowerResetRack(ctx context.Context, in *PowerResetRackRequest, opts ...grpc.CallOption) (*SubmitTaskResponse, error)
@@ -813,6 +814,7 @@ type FlowServer interface {
 	UpgradeFirmware(context.Context, *UpgradeFirmwareRequest) (*SubmitTaskResponse, error)
 	BringUpRack(context.Context, *BringUpRackRequest) (*SubmitTaskResponse, error)
 	IngestRack(context.Context, *IngestRackRequest) (*SubmitTaskResponse, error)
+	DecommissionRack(context.Context, *DecommissionRackRequest) (*SubmitTaskResponse, error)
 	PowerOnRack(context.Context, *PowerOnRackRequest) (*SubmitTaskResponse, error)
 	PowerOffRack(context.Context, *PowerOffRackRequest) (*SubmitTaskResponse, error)
 	PowerResetRack(context.Context, *PowerResetRackRequest) (*SubmitTaskResponse, error)
@@ -2270,6 +2272,10 @@ var Flow_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IngestRack",
 			Handler:    _Flow_IngestRack_Handler,
+		},
+		{
+			MethodName: "DecommissionRack",
+			Handler:    _Flow_DecommissionRack_Handler,
 		},
 		{
 			MethodName: "PowerOnRack",
