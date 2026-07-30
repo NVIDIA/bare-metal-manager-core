@@ -145,8 +145,9 @@ nico-bmc-proxy traces each proxied Redfish request through the BMC credential pr
 - **Egress to nico-api (gRPC).** Credential lookup uses the shared `ForgeApiClient`, which already
   wraps the transport with `TraceInjectService`.
 - **Resource / tracer:** `service.name = carbide-bmc-proxy`, tracer name `carbide-bmc-proxy`.
-- **Span fields:** HTTP method and route, upstream HTTP status, and BMC target IP (span attribute,
-  not a Prometheus label).
+- **Span fields:** HTTP method and request path, the status the proxy answered its caller with (not
+  the BMC's — a request the proxy rejects never reaches one), and BMC target IP (span attribute, not
+  a Prometheus label). Only a 5xx sets the span status to error; a 4xx is the caller's error.
 
 Example config:
 

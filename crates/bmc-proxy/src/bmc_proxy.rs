@@ -581,6 +581,7 @@ async fn proxy_request(
         Ok(response) | Err(response) => response.status(),
     };
     request_span.record("http.response.status_code", status.as_u16());
+    request_span.record("otel.status_code", span_status(status));
     result
 }
 
@@ -591,11 +592,24 @@ fn bmc_proxy_request_span<B>(request: &Request<B>) -> tracing::Span {
         http.request.method = %request.method(),
         url.path = %request.uri().path(),
         http.response.status_code = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
         bmc.ip_address = tracing::field::Empty,
         logfmt.suppress = true,
     );
     set_span_parent_from_headers(&request_span, request.headers());
     request_span
+}
+
+/// The OpenTelemetry status for a proxied request that answered with `status`.
+///
+/// Only a 5xx marks the span failed: a rejected or malformed request is the caller's error, and
+/// counting it against the proxy would bury the hops that actually broke.
+fn span_status(status: StatusCode) -> &'static str {
+    if status.is_server_error() {
+        "error"
+    } else {
+        "ok"
+    }
 }
 
 async fn proxy_request_inner(
@@ -1189,7 +1203,7 @@ mod tests {
         authorize_principal_allow_list, bmc_proxy_request_span, build_authority, build_response,
         copy_request_headers, create_client, evict_cached_credentials, forwarded_header_value,
         get_http_client, ip_for_forwarded_target, is_hop_by_hop_header, method_supports_body,
-        parse_forwarded_host_value, request_principal_ids,
+        parse_forwarded_host_value, request_principal_ids, span_status,
     };
     use crate::metrics::MethodLabel;
 
@@ -1862,6 +1876,36 @@ mod tests {
             TraceId::from(inbound_trace)
         );
         assert_eq!(request.parent_span_id, SpanId::from(inbound_span));
+    }
+
+    #[test]
+    fn proxy_request_span_reports_only_server_errors_as_failed() {
+        value_scenarios!(
+            run = span_status;
+            "success" {
+                StatusCode::OK => "ok",
+            }
+
+            "redirect" {
+                StatusCode::TEMPORARY_REDIRECT => "ok",
+            }
+
+            "rejected by the allow list" {
+                StatusCode::FORBIDDEN => "ok",
+            }
+
+            "malformed request" {
+                StatusCode::BAD_REQUEST => "ok",
+            }
+
+            "upstream unreachable" {
+                StatusCode::BAD_GATEWAY => "error",
+            }
+
+            "proxy failure" {
+                StatusCode::INTERNAL_SERVER_ERROR => "error",
+            }
+        );
     }
 
     #[test]
