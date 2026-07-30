@@ -1066,6 +1066,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 				assert.Equal(t, len(um1.Labels), 3)
 
+				expectedCaps := machineInfo1.Machine.GetStatus().GetCapabilities()
 				for _, mc := range mc1s {
 					if mc.Type == cdbm.MachineCapabilityTypeCPU {
 						// 9 Core CPU
@@ -1099,15 +1100,15 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						if strings.Contains(mc.Name, "NVIDIA GB200") {
 							assert.Equal(t, cdbm.MachineCapabilityDeviceTypeNVLink, *mc.DeviceType)
 							assert.Equal(t, 4, *mc.Count)
-							assert.Equal(t, machineInfo1.Machine.GetStatus().GetCapabilities().Gpu[1].Name, mc.Name)
-							assert.Equal(t, *machineInfo1.Machine.GetStatus().GetCapabilities().Gpu[1].Capacity, *mc.Capacity)
+							assert.Equal(t, expectedCaps.Gpu[1].Name, mc.Name)
+							assert.Equal(t, *expectedCaps.Gpu[1].Capacity, *mc.Capacity)
 						}
 
 						if strings.Contains(mc.Name, "NVIDIA H100 PCIe") {
 							assert.Equal(t, 1, *mc.Count)
-							assert.Equal(t, machineInfo1.Machine.GetStatus().GetCapabilities().Gpu[0].Name, mc.Name)
-							assert.Equal(t, *machineInfo1.Machine.GetStatus().GetCapabilities().Gpu[0].Frequency, *mc.Frequency)
-							assert.Equal(t, *machineInfo1.Machine.GetStatus().GetCapabilities().Gpu[0].Capacity, *mc.Capacity)
+							assert.Equal(t, expectedCaps.Gpu[0].Name, mc.Name)
+							assert.Equal(t, *expectedCaps.Gpu[0].Frequency, *mc.Frequency)
+							assert.Equal(t, *expectedCaps.Gpu[0].Capacity, *mc.Capacity)
 						}
 					} else if mc.Type == cdbm.MachineCapabilityTypeMemory {
 						// 1 Memory
@@ -1115,8 +1116,8 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						if mc.Name != "UNKNOWN" {
 							assert.Equal(t, 8, *mc.Count)
 
-							assert.Equal(t, machineInfo1.Machine.GetStatus().GetCapabilities().Memory[0].Name, mc.Name)
-							assert.Equal(t, *machineInfo1.Machine.GetStatus().GetCapabilities().Memory[0].Capacity, *mc.Capacity)
+							assert.Equal(t, expectedCaps.Memory[0].Name, mc.Name)
+							assert.Equal(t, *expectedCaps.Memory[0].Capacity, *mc.Capacity)
 
 							// Check that we are not deleting/recreating memory capabilities
 							// We created the DDR4 capability in advance, and only the count should have changed.
@@ -1125,7 +1126,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						} else {
 							assert.Equal(t, 7, *mc.Count)
 
-							assert.Equal(t, machineInfo1.Machine.GetStatus().GetCapabilities().Memory[1].Name, mc.Name)
+							assert.Equal(t, expectedCaps.Memory[1].Name, mc.Name)
 							assert.Nil(t, mc.Capacity)
 						}
 
@@ -1133,11 +1134,11 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 						// 2 InfiniBand interfaces
 						assert.Equal(t, 2, *mc.Count)
 
-						assert.Equal(t, machineInfo1.Machine.GetStatus().GetCapabilities().Infiniband[0].Name, mc.Name)
+						assert.Equal(t, expectedCaps.Infiniband[0].Name, mc.Name)
 
-						if assert.Equal(t, len(machineInfo1.Machine.GetStatus().GetCapabilities().Infiniband[0].InactiveDevices), len(mc.InactiveDevices)) {
-							for i := range machineInfo1.Machine.GetStatus().GetCapabilities().Infiniband[0].InactiveDevices {
-								assert.Equal(t, int(machineInfo1.Machine.GetStatus().GetCapabilities().Infiniband[0].InactiveDevices[i]), mc.InactiveDevices[i])
+						if assert.Equal(t, len(expectedCaps.Infiniband[0].InactiveDevices), len(mc.InactiveDevices)) {
+							for i := range expectedCaps.Infiniband[0].InactiveDevices {
+								assert.Equal(t, int(expectedCaps.Infiniband[0].InactiveDevices[i]), mc.InactiveDevices[i])
 							}
 						}
 

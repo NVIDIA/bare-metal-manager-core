@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
@@ -116,6 +117,10 @@ func TestAPIDpuMachine_FromProto(t *testing.T) {
 	assert.Equal(t, "test-board-version", *dpuMachine.DMIData.BoardVersion)
 	assert.Equal(t, "test-product-name", *dpuMachine.DMIData.ProductName)
 	assert.Equal(t, "test-sys-vendor", *dpuMachine.DMIData.SysVendor)
+	require.Len(t, dpuMachine.Interfaces, 1)
+	assert.Equal(t, "test-interface-id", dpuMachine.Interfaces[0].ID)
+	require.NotNil(t, dpuMachine.Health)
+	assert.Equal(t, "test-health-source", dpuMachine.Health.Source)
 }
 
 // TestAPIDpuMachine_FromProto_NilMachine guards against a panic when a

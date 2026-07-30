@@ -289,8 +289,9 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 
 		// Extract Machine Hostname
 		var hostname *string
-		if len(controllerMachineStatus.GetInterfaces()) > 0 {
-			hostname = cwutil.GetPtr(controllerMachineStatus.GetInterfaces()[0].Hostname)
+		controllerMachineInterfaces := controllerMachineStatus.GetInterfaces()
+		if len(controllerMachineInterfaces) > 0 {
+			hostname = cwutil.GetPtr(controllerMachineInterfaces[0].Hostname)
 		}
 
 		var controllerInstanceTypeID *uuid.UUID
@@ -763,13 +764,15 @@ func processMachineCapabilities(ctx context.Context, logger zerolog.Logger, dbSe
 		return err
 	}
 
-	controllerCapsCpu := controllerMachine.GetStatus().GetCapabilities().GetCpu()
-	controllerCapsGpu := controllerMachine.GetStatus().GetCapabilities().GetGpu()
-	controllerCapsDpu := controllerMachine.GetStatus().GetCapabilities().GetDpu()
-	controllerCapsMemory := controllerMachine.GetStatus().GetCapabilities().GetMemory()
-	controllerCapsInfiniband := controllerMachine.GetStatus().GetCapabilities().GetInfiniband()
-	controllerCapsNetwork := controllerMachine.GetStatus().GetCapabilities().GetNetwork()
-	controllerCapsStorage := controllerMachine.GetStatus().GetCapabilities().GetStorage()
+	controllerCaps := controllerMachine.GetStatus().GetCapabilities()
+
+	controllerCapsCpu := controllerCaps.GetCpu()
+	controllerCapsGpu := controllerCaps.GetGpu()
+	controllerCapsDpu := controllerCaps.GetDpu()
+	controllerCapsMemory := controllerCaps.GetMemory()
+	controllerCapsInfiniband := controllerCaps.GetInfiniband()
+	controllerCapsNetwork := controllerCaps.GetNetwork()
+	controllerCapsStorage := controllerCaps.GetStorage()
 
 	siteCapMap := make(map[string]*cdbm.MachineCapability)
 
@@ -1023,24 +1026,22 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 	hasMaintenanceDegraded := false
 	hasDPUFirmwareUpdateInProgress := false
 
-	if controllerMachineStatus.GetHealth() != nil && controllerMachineStatus.GetHealth().Alerts != nil {
-		for _, alert := range controllerMachineStatus.GetHealth().Alerts {
-			// Check for Prevent alerts
-			for _, clf := range alert.Classifications {
-				if clf == MachinePreventAllocations {
-					hasPreventAlerts = true
-					break
-				}
+	for _, alert := range controllerMachineStatus.GetHealth().GetAlerts() {
+		// Check for Prevent alerts
+		for _, clf := range alert.Classifications {
+			if clf == MachinePreventAllocations {
+				hasPreventAlerts = true
+				break
 			}
-			// Check for Maintenance+Degraded alert
-			if alert.Id == "Maintenance" && alert.Target != nil && *alert.Target == "Degraded" {
-				hasMaintenanceDegraded = true
-			}
-			if alert.Id == MachineDPUFirmwareUpdateAlertID &&
-				alert.Target != nil &&
-				*alert.Target == MachineDPUFirmwareUpdateAlertTarget {
-				hasDPUFirmwareUpdateInProgress = true
-			}
+		}
+		// Check for Maintenance+Degraded alert
+		if alert.Id == "Maintenance" && alert.Target != nil && *alert.Target == "Degraded" {
+			hasMaintenanceDegraded = true
+		}
+		if alert.Id == MachineDPUFirmwareUpdateAlertID &&
+			alert.Target != nil &&
+			*alert.Target == MachineDPUFirmwareUpdateAlertTarget {
+			hasDPUFirmwareUpdateInProgress = true
 		}
 	}
 
@@ -1052,8 +1053,9 @@ func getNICoMachineStatus(controllerMachine *corev1.Machine, logger zerolog.Logg
 	if controllerMachineConfig.GetMaintenanceStartTime() != nil {
 		machineStatus = cdbm.MachineStatusMaintenance
 		statusMessage = "Machine is in maintenance mode"
-		if controllerMachineConfig != nil && controllerMachineConfig.MaintenanceReference != nil {
-			statusMessage = fmt.Sprintf("%s: %s", statusMessage, *controllerMachineConfig.MaintenanceReference)
+		maintenanceReference := controllerMachineConfig.MaintenanceReference
+		if maintenanceReference != nil {
+			statusMessage = fmt.Sprintf("%s: %s", statusMessage, *maintenanceReference)
 		}
 	} else if hasDPUFirmwareUpdateInProgress {
 		machineStatus = cdbm.MachineStatusInitializing
