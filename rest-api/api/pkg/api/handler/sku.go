@@ -4,7 +4,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -282,117 +281,6 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 	return c.JSON(http.StatusOK, apiSku)
 }
 
-func retryOnceOnUniqueConstraint(operation func() error) error {
-	err := operation()
-	errorChecker := cdb.PostgresErrorChecker{}
-	if !errorChecker.IsUniqueConstraintError(err) {
-		return err
-	}
-
-	return operation()
-}
-
-func createSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uuid.UUID, coreSKU *corev1.Sku) error {
-	if coreSKU == nil || coreSKU.Id == "" {
-		return errors.New("cannot persist an empty Core SKU")
-	}
-
-	projected := &cdbm.SKU{}
-	projected.FromProto(coreSKU, siteID)
-	skuDAO := cdbm.NewSkuDAO(dbSession)
-
-	return cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
-		err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
-		if err != nil {
-			return err
-		}
-
-		_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
-			SkuID:                projected.ID,
-			SiteID:               projected.SiteID,
-			Description:          projected.Description,
-			Components:           projected.Components,
-			DeviceType:           projected.DeviceType,
-			AssociatedMachineIds: projected.AssociatedMachineIds,
-		})
-		return err
-	})
-}
-
-// upsertSkuProjection writes the Core SKU state into the REST database for an
-// update, creating a missing projection or reconciling an existing one.
-func upsertSkuProjection(ctx context.Context, dbSession *cdb.Session, siteID uuid.UUID, coreSKU *corev1.Sku) error {
-	if coreSKU == nil || coreSKU.Id == "" {
-		return errors.New("cannot persist an empty Core SKU")
-	}
-
-	projected := &cdbm.SKU{}
-	projected.FromProto(coreSKU, siteID)
-	skuDAO := cdbm.NewSkuDAO(dbSession)
-
-	persist := func() error {
-		return cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
-			err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
-			if err != nil {
-				return err
-			}
-
-			existing, err := skuDAO.Get(ctx, tx, projected.ID)
-			if errors.Is(err, cdb.ErrDoesNotExist) {
-				_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
-					SkuID:                projected.ID,
-					SiteID:               projected.SiteID,
-					Description:          projected.Description,
-					Components:           projected.Components,
-					DeviceType:           projected.DeviceType,
-					AssociatedMachineIds: projected.AssociatedMachineIds,
-				})
-				return err
-			}
-			if err != nil {
-				return err
-			}
-			if existing.SiteID != projected.SiteID {
-				return fmt.Errorf("SKU %q already exists for Site %q", projected.ID, existing.SiteID)
-			}
-
-			components := projected.Components
-			if existing.Components != nil && components == nil {
-				// Match inventory-sync semantics: DAO update uses nil to mean "not
-				// supplied", so use an empty value to clear stale components.
-				components = &cdbm.SkuComponents{SkuComponents: &corev1.SkuComponents{}}
-			}
-			associatedMachineIDs := projected.AssociatedMachineIds
-			if associatedMachineIDs == nil {
-				// DAO update uses nil to mean "not supplied"; Core nil means there
-				// are no associations in the authoritative projection.
-				associatedMachineIDs = []string{}
-			}
-			if existing.Description == projected.Description &&
-				existing.Components.Equal(components) &&
-				reflect.DeepEqual(existing.DeviceType, projected.DeviceType) &&
-				reflect.DeepEqual(existing.AssociatedMachineIds, associatedMachineIDs) {
-				return nil
-			}
-			_, err = skuDAO.Update(ctx, tx, cdbm.SkuUpdateInput{
-				SkuID:                projected.ID,
-				Description:          &projected.Description,
-				Components:           components,
-				DeviceType:           projected.DeviceType,
-				AssociatedMachineIds: associatedMachineIDs,
-			})
-			return err
-		})
-	}
-
-	// Inventory sync does not take the per-SKU advisory lock, so there is the possibility
-	// of a race condition during SKU creation. If inventory sync inserts a row
-	// after this transaction observes no row, PostgreSQL aborts this transaction
-	// with a unique violation. Retry the whole transaction so it can reconcile
-	// the now-committed inventory row through the update path.
-	return retryOnceOnUniqueConstraint(persist)
-}
-
 // CreateSkuHandler creates one SKU on a Site's Core service.
 type CreateSkuHandler struct {
 	dbSession  *cdb.Session
@@ -496,7 +384,29 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 		skuToPersist = response.Skus[0]
 	}
 
-	err = createSkuProjection(ctx, csh.dbSession, siteUUID, skuToPersist)
+	if skuToPersist == nil || skuToPersist.Id == "" {
+		err = errors.New("cannot persist an empty Core SKU")
+	} else {
+		projected := &cdbm.SKU{}
+		projected.FromProto(skuToPersist, siteUUID)
+		skuDAO := cdbm.NewSkuDAO(csh.dbSession)
+		err = cdb.WithTx(ctx, csh.dbSession, func(tx *cdb.Tx) error {
+			err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
+			if err != nil {
+				return err
+			}
+
+			_, err = skuDAO.Create(ctx, tx, cdbm.SkuCreateInput{
+				SkuID:                projected.ID,
+				SiteID:               projected.SiteID,
+				Description:          projected.Description,
+				Components:           projected.Components,
+				DeviceType:           projected.DeviceType,
+				AssociatedMachineIds: projected.AssociatedMachineIds,
+			})
+			return err
+		})
+	}
 	if err != nil {
 		errorChecker := cdb.PostgresErrorChecker{}
 		if errorChecker.IsUniqueConstraintError(err) {
@@ -632,7 +542,55 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	err = upsertSkuProjection(ctx, ush.dbSession, savedSKU.SiteID, updatedSKU)
+	if updatedSKU == nil || updatedSKU.Id == "" {
+		err = errors.New("cannot persist an empty Core SKU")
+	} else {
+		projected := &cdbm.SKU{}
+		projected.FromProto(updatedSKU, savedSKU.SiteID)
+
+		err = cdb.WithTx(ctx, ush.dbSession, func(tx *cdb.Tx) error {
+			err := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(projected.ID), nil)
+			if err != nil {
+				return err
+			}
+
+			existing, err := skuDAO.Get(ctx, tx, projected.ID)
+			if err != nil {
+				return err
+			}
+			if existing.SiteID != projected.SiteID {
+				return fmt.Errorf("SKU %q already exists for Site %q", projected.ID, existing.SiteID)
+			}
+
+			components := projected.Components
+			if existing.Components != nil && components == nil {
+				// DAO update uses nil to mean "not supplied", so use an empty value
+				// to clear stale components when Core reports none.
+				components = &cdbm.SkuComponents{SkuComponents: &corev1.SkuComponents{}}
+			}
+			associatedMachineIDs := projected.AssociatedMachineIds
+			if associatedMachineIDs == nil {
+				// DAO update uses nil to mean "not supplied"; Core nil means there
+				// are no associations in the authoritative projection.
+				associatedMachineIDs = []string{}
+			}
+			if existing.Description == projected.Description &&
+				existing.Components.Equal(components) &&
+				reflect.DeepEqual(existing.DeviceType, projected.DeviceType) &&
+				reflect.DeepEqual(existing.AssociatedMachineIds, associatedMachineIDs) {
+				return nil
+			}
+
+			_, err = skuDAO.Update(ctx, tx, cdbm.SkuUpdateInput{
+				SkuID:                projected.ID,
+				Description:          &projected.Description,
+				Components:           components,
+				DeviceType:           projected.DeviceType,
+				AssociatedMachineIds: associatedMachineIDs,
+			})
+			return err
+		})
+	}
 	if err != nil {
 		logger.Error().Err(err).Str("skuID", skuID).Str("siteID", siteID).
 			Msg("SKU updated in Core but failed to update REST DB")
