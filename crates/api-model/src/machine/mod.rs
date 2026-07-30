@@ -471,6 +471,7 @@ impl ManagedHostStateSnapshot {
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
+    /// - the desired boot-interface generation to have a matching observation
     pub fn is_usable_as_instance(&self, allow_unhealthy: bool) -> Result<(), NotAllocatableReason> {
         // TODO: allow other states than Ready when allow_unhealthy=true. Will require changes to state machine (see Matthias).
         if !matches!(self.managed_state, ManagedHostState::Ready) {
