@@ -9,7 +9,7 @@ NV-Switch Manager is a gRPC service for managing NVIDIA DGX GB200 NVLink Switch 
 3. Redfish access: pkg/redfish (thin wrapper around gofish)
 4. Firmware management: pkg/firmwaremanager (worker pool, upgrade strategies, update tracking)
 5. Registry: pkg/nvswitchregistry (Postgres or InMemory), pkg/db (Bun ORM + pgx)
-6. Credentials: pkg/credentials (read-only; NICo Core or InMemory)
+6. Credentials: pkg/credentials (NICo Core, read-only; or InMemory, seeded locally)
 
 ## Architecture Overview
 The service is layered with clear separation of responsibilities:
@@ -33,10 +33,13 @@ The service is layered with clear separation of responsibilities:
     2. Implementations: Postgres (prod), InMemory (dev/tests).
     3. Authoritative source of device inventory for the service.
 6. Secrets: Credential Manager — pkg/credentials
-    1. Retrieves per-device credentials keyed by BMC MAC address. Read-only:
-       NICo Core owns switch credential storage and rotation, keeping them
-       envelope-encrypted in Postgres, so NSM never writes them.
+    1. Retrieves per-device credentials keyed by BMC MAC address. Against NICo
+       Core it is strictly read-only: Core owns switch credential storage and
+       rotation, keeping them envelope-encrypted in Postgres, so NSM never
+       writes them.
     2. Implementations: NICo Core over mTLS gRPC (prod), InMemory (dev/tests).
+       The in-memory store has no Core to read from, so registration seeds it
+       from the credentials on the request; those are ignored in Core mode.
     3. Explicitly separated from the device registry to isolate secret material.
 
 This architecture emphasizes stateless orchestration at the service layer (driven by gRPC), separation of concerns for identity (device registry) and secrets (credential manager), firmware lifecycle management with background workers and upgrade strategies, and a clean boundary to device access through Redfish and SSH client wrappers. The design favors idempotency where possible, supports both in-memory and persistent backends, and treats firmware as a first-class workflow with update tracking and well-defined error semantics.
@@ -104,7 +107,11 @@ environment variables. Every flag below has an environment fallback, and
 examples: arguments are visible in the process list and shell history.
 
 ```
-export DB_USER=... DB_PASSWORD=...
+# Prompt for the password rather than typing it as a command argument or an
+# `export` that lands in shell history.
+read -r  DB_USER
+read -rs DB_PASSWORD
+export DB_USER DB_PASSWORD
 
 # minimal (reads DB_* and NICO_CORE_API_URL from the environment)
 ./nvswitch-manager serve -d Persistent
