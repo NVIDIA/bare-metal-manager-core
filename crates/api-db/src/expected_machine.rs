@@ -88,15 +88,17 @@ pub async fn find_many_by_bmc_mac_address(
         .collect()
 }
 
-// the expected machines table needs host mac addresses to control dhcp vending of ip's
-// since the carbide dhcp server in some cases is not authoritative on a large network.
-// search in the host_nics field before vending an ip.
-pub async fn find_by_host_mac_address(
+/// Find the ExpectedMachine that declares an interface MAC.
+///
+/// DHCP uses this lookup when NICo is not authoritative for every address on
+/// the surrounding network. The SQL keeps the physical `host_nics` column so
+/// existing databases need no migration for the model rename.
+pub async fn find_by_interface_mac_address(
     txn: &mut PgConnection,
-    host_mac_address: MacAddress,
+    interface_mac_address: MacAddress,
 ) -> DatabaseResult<Option<ExpectedMachine>> {
     let query = "SELECT * FROM expected_machines WHERE host_nics @> $1::jsonb";
-    let mac_address = serde_json::json!([{ "mac_address": host_mac_address.to_string() }]);
+    let mac_address = serde_json::json!([{ "mac_address": interface_mac_address.to_string() }]);
     sqlx::query_as(query)
         .bind(sqlx::types::Json(mac_address))
         .fetch_optional(txn)
@@ -299,7 +301,7 @@ pub async fn create(
         .bind(&machine.data.metadata.description)
         .bind(sqlx::types::Json(&machine.data.metadata.labels))
         .bind(&machine.data.sku_id)
-        .bind(sqlx::types::Json(&machine.data.host_nics))
+        .bind(sqlx::types::Json(&machine.data.interfaces))
         .bind(&machine.data.rack_id)
         .bind(
             machine
@@ -499,7 +501,7 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(&machine.data.metadata.description)
         .bind(sqlx::types::Json(&machine.data.metadata.labels))
         .bind(&machine.data.sku_id)
-        .bind(sqlx::types::Json(&machine.data.host_nics))
+        .bind(sqlx::types::Json(&machine.data.interfaces))
         .bind(&machine.data.rack_id)
         .bind(machine.data.default_pause_ingestion_and_poweron)
         .bind(machine.data.dpf_enabled)

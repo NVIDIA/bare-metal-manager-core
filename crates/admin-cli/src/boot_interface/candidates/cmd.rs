@@ -370,7 +370,7 @@ fn render_candidates(report: &CandidatesReport) -> String {
                     out,
                     "Predicted pick:          none -- multiple predictions and none declared \
                      primary, so the system refuses to guess (declare one via the expected \
-                     machine's host_nics `primary`)"
+                     machine's `interfaces[].primary`)"
                 );
             }
         }

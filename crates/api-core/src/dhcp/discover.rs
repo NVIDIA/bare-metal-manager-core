@@ -23,7 +23,7 @@ use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::dpa_interface::DpaInterface;
-use model::expected_machine::ExpectedHostNic;
+use model::expected_machine::ExpectedInterface;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine_interface::InterfaceType;
 use model::network_segment::{
@@ -480,7 +480,7 @@ pub async fn discover_dhcp(
     )?;
     let is_v6_observation = address_family == IpAddressFamily::Ipv6
         && message_kind == Some(DhcpMessageKind::V6InfoRequest);
-    let mut expected_interface: Option<ExpectedHostNic> = None;
+    let mut expected_interface: Option<ExpectedInterface> = None;
     // `host_primary_declaration` is intentionally Host-only. A DPU OS
     // interface is always primary, while DPU and Host BMC interfaces are never
     // primary; api-db derives those values from the matched interface role.
@@ -568,13 +568,13 @@ pub async fn discover_dhcp(
                         }
                         expected_interface = Some(interface);
                     } else if let Some(m) =
-                        expected_machine::find_by_host_mac_address(&mut txn, parsed_mac)
+                        expected_machine::find_by_interface_mac_address(&mut txn, parsed_mac)
                             .await
                             .map_err(CarbideError::from)?
                     {
                         expected_interface = m
                             .data
-                            .host_nics
+                            .interfaces
                             .iter()
                             .find(|interface| interface.mac_address == parsed_mac)
                             .cloned();
@@ -608,7 +608,7 @@ pub async fn discover_dhcp(
                         && nvos_ip.is_address_family(address_family)
                     {
                         // The parsed MAC matches the single wired NVOS port of an expected
-                        // switch with a configured static IP. Mirrors the ExpectedHostNic
+                        // switch with a configured static IP. Mirrors the ExpectedInterface
                         // fixed_ip path: ensure the (mac, nvos_ip) row exists so the static
                         // reservation gets served by the find_or_create_machine_interface
                         // step below. Data variant (NVOS is a data interface, not a BMC).
@@ -746,7 +746,7 @@ pub async fn discover_dhcp(
             parsed_mac,
             std::slice::from_ref(&parsed_relay),
             machine_interface::FindOrCreateMachineInterfaceOptions {
-                host_nic: expected_interface,
+                expected_interface,
                 is_primary: host_primary_declaration,
                 retained_window: api.runtime_config.retained_boot_interface_window,
             },

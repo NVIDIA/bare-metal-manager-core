@@ -171,7 +171,7 @@ impl From<ExpectedInterfaceIpAllocation> for BmcIpAllocationType {
 ///
 /// The outer `Option` on `ip_address` distinguishes an omitted field from an
 /// explicit clear. This is request state only. Nested Host BMC declarations
-/// store their effective settings in both `host_nics` and the compatibility
+/// store their effective settings in both `interfaces` and the compatibility
 /// columns, while legacy-only declarations remain legacy-shaped for older
 /// clients and are resolved in memory.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -180,12 +180,12 @@ pub struct LegacyHostBmcOverrides {
     pub ip_address: Option<Option<IpAddr>>,
     /// Compatibility policy when the request explicitly supplied it.
     pub ip_allocation: Option<BmcIpAllocationType>,
-    /// Whether the incoming `host_nics` list is a complete replacement.
+    /// Whether the incoming `interfaces` list is a complete replacement.
     ///
     /// Older protobuf writers cannot distinguish an omitted repeated field
     /// from an empty one. They leave this false so an unknown nested Host BMC
     /// survives a read-modify-write.
-    pub replace_host_nics: bool,
+    pub replace_interfaces: bool,
 }
 
 /// A request to identify an ExpectedMachine by either ID or MAC address.
@@ -274,9 +274,9 @@ impl ExpectedInterfaceRole {
 
 /// Controls how an expected interface receives and retains its IP address.
 ///
-/// When the policy is omitted, [`ExpectedHostNic::resolved_ip_allocation`]
+/// When the policy is omitted, [`ExpectedInterface::resolved_ip_allocation`]
 /// preserves the legacy configuration contracts. An interface with
-/// [`ExpectedHostNic::fixed_ip`] is fixed. Without one, Host BMC is retained
+/// [`ExpectedInterface::fixed_ip`] is fixed. Without one, Host BMC is retained
 /// and every other role is dynamic. Explicit `Dynamic` differs from omission
 /// because it rejects a simultaneous `fixed_ip` instead of inferring `Fixed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -285,7 +285,7 @@ pub enum ExpectedInterfaceIpAllocation {
     /// Allocate a normal DHCP lease that may expire and change. A configured
     /// segment-type guard must match the segment selected by the DHCP relay.
     Dynamic,
-    /// Reserve the operator-specified [`ExpectedHostNic::fixed_ip`]. An
+    /// Reserve the operator-specified [`ExpectedInterface::fixed_ip`]. An
     /// explicit Fixed policy, either DPU role, or HostBmc with a segment guard
     /// requires a configured managed prefix to contain the address. That
     /// prefix selects the segment, and a configured segment-type guard must
@@ -326,7 +326,7 @@ impl ExpectedInterfaceIpAllocation {
 /// Every role uses the same allocation and optional segment-guard fields. The
 /// role only supplies endpoint-specific interface type and primary behavior.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
-pub struct ExpectedHostNic {
+pub struct ExpectedInterface {
     /// MAC address used to match DHCP and discovered interface traffic to this
     /// declaration.
     pub mac_address: MacAddress,
@@ -374,7 +374,11 @@ pub struct ExpectedHostNic {
     pub primary: Option<bool>,
 }
 
-impl ExpectedHostNic {
+/// Compatibility name for callers that still use the original host-only
+/// interface vocabulary.
+pub type ExpectedHostNic = ExpectedInterface;
+
+impl ExpectedInterface {
     /// Return the configured allocation policy or infer the legacy policy from
     /// the role and whether this interface has a fixed IP.
     ///
@@ -521,7 +525,7 @@ impl ExpectedMachine {
     /// An omitted nested policy is intentional here. It preserves the legacy
     /// external-address fallback for Fixed and resolves an addressless BMC to
     /// Retained.
-    fn compatibility_host_bmc(&self) -> ExpectedHostNic {
+    fn compatibility_host_bmc(&self) -> ExpectedInterface {
         let resolved = self
             .data
             .bmc_ip_allocation
@@ -537,7 +541,7 @@ impl ExpectedMachine {
             BmcIpAllocationType::Retained => Some(ExpectedInterfaceIpAllocation::Retained),
         };
 
-        ExpectedHostNic {
+        ExpectedInterface {
             mac_address: self.bmc_mac_address,
             role: ExpectedInterfaceRole::HostBmc,
             ip_allocation,
@@ -552,11 +556,11 @@ impl ExpectedMachine {
     /// sync. Older writers may update only the columns, so they win when the
     /// two representations disagree. Nested-only fields such as
     /// `network_segment_type` remain in place.
-    pub fn effective_host_bmc(&self) -> ExpectedHostNic {
+    pub fn effective_host_bmc(&self) -> ExpectedInterface {
         let compatibility = self.compatibility_host_bmc();
         let mut host_bmc = self
             .data
-            .host_nics
+            .interfaces
             .iter()
             .find(|interface| interface.role.is_host_bmc())
             .cloned()
@@ -608,7 +612,7 @@ impl ExpectedMachine {
     ) -> Result<(), &'static str> {
         let mut host_bmc_indexes = self
             .data
-            .host_nics
+            .interfaces
             .iter()
             .enumerate()
             .filter(|(_, interface)| interface.role.is_host_bmc())
@@ -618,13 +622,13 @@ impl ExpectedMachine {
             return Err("at most one role=host_bmc interface may be configured");
         }
 
-        let incoming_host_bmc = host_bmc_index.map(|index| self.data.host_nics[index].clone());
+        let incoming_host_bmc = host_bmc_index.map(|index| self.data.interfaces[index].clone());
         let store_host_bmc = incoming_host_bmc.is_some()
-            || (!overrides.replace_host_nics
+            || (!overrides.replace_interfaces
                 && previous.is_some_and(|machine| {
                     machine
                         .data
-                        .host_nics
+                        .interfaces
                         .iter()
                         .any(|interface| interface.role.is_host_bmc())
                 }));
@@ -635,7 +639,7 @@ impl ExpectedMachine {
             .clone()
             .or_else(|| {
                 previous.map(|machine| {
-                    if overrides.replace_host_nics {
+                    if overrides.replace_interfaces {
                         machine.compatibility_host_bmc()
                     } else {
                         machine.effective_host_bmc()
@@ -749,9 +753,9 @@ impl ExpectedMachine {
         self.data.bmc_ip_address = host_bmc.fixed_ip;
 
         if let Some(index) = host_bmc_index {
-            self.data.host_nics[index] = host_bmc;
+            self.data.interfaces[index] = host_bmc;
         } else if store_host_bmc {
-            self.data.host_nics.push(host_bmc);
+            self.data.interfaces.push(host_bmc);
         }
 
         Ok(())
@@ -769,8 +773,12 @@ pub struct ExpectedMachineData {
     pub sku_id: Option<String>,
     #[serde(default)]
     pub metadata: Metadata,
-    #[serde(default)]
-    pub host_nics: Vec<ExpectedHostNic>,
+    /// Interfaces NICo may encounter while ingesting this machine.
+    ///
+    /// `host_nics` remains accepted so existing configuration files continue
+    /// to load without changes.
+    #[serde(default, alias = "host_nics")]
+    pub interfaces: Vec<ExpectedInterface>,
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: Option<bool>,
@@ -809,17 +817,17 @@ pub struct ExpectedMachineData {
 
 impl ExpectedMachineData {
     /// The MAC the operator declared as this host's boot interface via
-    /// `ExpectedHostNic.primary`. This is the single source of declared boot
+    /// `ExpectedInterface.primary`. This is the single source of declared boot
     /// intent the writers consult -- site-explorer ingestion, DHCP, and
     /// prediction promotion -- so they all agree on which NIC wins. The API
     /// enforces at most one `primary` host NIC, so the first match is the
     /// declaration. `None` leaves the boot interface to today's automation
     /// (DPU takeover during ingestion, else the `pick_boot_interface` fallback).
     pub fn declared_primary_mac(&self) -> Option<MacAddress> {
-        self.host_nics
+        self.interfaces
             .iter()
-            .find(|nic| nic.role.is_host() && nic.primary == Some(true))
-            .map(|nic| nic.mac_address)
+            .find(|interface| interface.role.is_host() && interface.primary == Some(true))
+            .map(|interface| interface.mac_address)
     }
 }
 
@@ -853,8 +861,8 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
             labels: labels.0,
         };
 
-        let json: sqlx::types::Json<Vec<ExpectedHostNic>> = row.try_get("host_nics")?;
-        let host_nics: Vec<ExpectedHostNic> = json.0;
+        let json: sqlx::types::Json<Vec<ExpectedInterface>> = row.try_get("host_nics")?;
+        let interfaces: Vec<ExpectedInterface> = json.0;
 
         Ok(ExpectedMachine {
             id: row.try_get("id")?,
@@ -867,7 +875,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 metadata,
                 sku_id: row.try_get("sku_id")?,
                 rack_id: row.try_get("rack_id")?,
-                host_nics,
+                interfaces,
                 default_pause_ingestion_and_poweron: row
                     .try_get("default_pause_ingestion_and_poweron")?,
                 dpf_enabled: row.try_get("dpf_enabled")?,
@@ -1202,6 +1210,94 @@ mod tests {
         );
     }
 
+    #[test]
+    fn expected_machine_deserializes_new_and_legacy_interface_fields() {
+        let expected = || {
+            vec![ExpectedInterface {
+                mac_address: "02:00:00:00:20:01".parse().unwrap(),
+                fixed_ip: Some("192.0.2.10".parse().unwrap()),
+                ..Default::default()
+            }]
+        };
+
+        scenarios!(
+            run = |interfaces_json| {
+                let json = format!(
+                    r#"{{
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "serial_number": "SN-1"
+                        {interfaces_json}
+                    }}"#,
+                );
+                serde_json::from_str::<ExpectedMachine>(&json)
+                    .map(|machine| machine.data.interfaces)
+                    .map_err(drop)
+            };
+            "interfaces omitted" {
+                "" => Yields(Vec::new()),
+            }
+
+            "canonical interfaces field" {
+                r#", "interfaces": [{
+                    "mac_address": "02:00:00:00:20:01",
+                    "fixed_ip": "192.0.2.10"
+                }]"# => Yields(expected()),
+            }
+
+            "legacy host_nics field" {
+                r#", "host_nics": [{
+                    "mac_address": "02:00:00:00:20:01",
+                    "fixed_ip": "192.0.2.10"
+                }]"# => Yields(expected()),
+            }
+
+            "both spellings in one machine are ambiguous" {
+                r#", "interfaces": [], "host_nics": []"# => Fails,
+            }
+        );
+    }
+
+    /// One `expected_machines.json` file may migrate entries independently.
+    #[test]
+    fn expected_machine_list_accepts_mixed_interface_field_names() {
+        let machines = serde_json::from_str::<Vec<ExpectedMachine>>(
+            r#"[
+                {
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:01",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-1",
+                    "interfaces": [{
+                        "mac_address": "02:00:00:00:20:01"
+                    }]
+                },
+                {
+                    "bmc_mac_address": "AA:BB:CC:DD:EE:02",
+                    "bmc_username": "root",
+                    "bmc_password": "pass",
+                    "serial_number": "SN-2",
+                    "host_nics": [{
+                        "mac_address": "02:00:00:00:20:02"
+                    }]
+                }
+            ]"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            machines
+                .iter()
+                .map(|machine| machine.data.interfaces[0].mac_address)
+                .collect::<Vec<_>>(),
+            vec![
+                "02:00:00:00:20:01".parse().unwrap(),
+                "02:00:00:00:20:02".parse().unwrap(),
+            ],
+        );
+    }
+
     /// JSON deserialization of `ExpectedMachine`, projecting to the
     /// `host_lifecycle_profile.disable_lockdown` field under test. A missing
     /// `host_lifecycle_profile` defaults to `None` (equivalent to
@@ -1237,25 +1333,35 @@ mod tests {
     }
 
     #[test]
-    fn expected_host_nic_deserializes_valid_fixed_gateway() {
+    fn expected_interface_deserializes_valid_fixed_gateway() {
         let json = r#"{
             "mac_address": "AA:BB:CC:DD:EE:FF",
             "fixed_gateway": "2001:db8::1"
         }"#;
-        let nic: ExpectedHostNic = serde_json::from_str(json).unwrap();
+        let nic: ExpectedInterface = serde_json::from_str(json).unwrap();
 
         assert_eq!(nic.fixed_gateway, Some("2001:db8::1".parse().unwrap()));
     }
 
     #[test]
-    fn expected_host_nic_drops_invalid_fixed_gateway_on_deserialize() {
+    fn expected_interface_drops_invalid_fixed_gateway_on_deserialize() {
         let json = r#"{
             "mac_address": "AA:BB:CC:DD:EE:FF",
             "fixed_gateway": "not-an-ip"
         }"#;
-        let nic: ExpectedHostNic = serde_json::from_str(json).unwrap();
+        let nic: ExpectedInterface = serde_json::from_str(json).unwrap();
 
         assert_eq!(nic.fixed_gateway, None);
+    }
+
+    #[test]
+    fn expected_host_nic_alias_remains_source_compatible() {
+        let legacy: ExpectedHostNic = ExpectedInterface {
+            mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+            ..Default::default()
+        };
+
+        assert_eq!(legacy.mac_address.to_string(), "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
@@ -1264,7 +1370,7 @@ mod tests {
             "mac_address": "AA:BB:CC:DD:EE:FF",
             "nic_type": "dpu"
         }"#;
-        let interface: ExpectedHostNic = serde_json::from_str(legacy).unwrap();
+        let interface: ExpectedInterface = serde_json::from_str(legacy).unwrap();
 
         assert_eq!(interface.role, ExpectedInterfaceRole::Host);
         assert_eq!(interface.ip_allocation, None);
@@ -1299,7 +1405,7 @@ mod tests {
                 },
             ],
             |role| {
-                let serialized = serde_json::to_value(ExpectedHostNic {
+                let serialized = serde_json::to_value(ExpectedInterface {
                     role,
                     ..Default::default()
                 })
@@ -1452,7 +1558,7 @@ mod tests {
                 },
             ],
             |declaration| {
-                let interface = ExpectedHostNic {
+                let interface = ExpectedInterface {
                     mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
                     ip_allocation: declaration.policy,
                     fixed_ip: declaration.fixed_ip,
@@ -1465,7 +1571,7 @@ mod tests {
             },
         );
 
-        let host_bmc = ExpectedHostNic {
+        let host_bmc = ExpectedInterface {
             role: ExpectedInterfaceRole::HostBmc,
             ..Default::default()
         };
@@ -1508,7 +1614,7 @@ mod tests {
                 },
             ],
             |(ip_allocation, fixed_ip)| {
-                ExpectedHostNic {
+                ExpectedInterface {
                     ip_allocation,
                     fixed_ip,
                     ..Default::default()
@@ -1801,10 +1907,10 @@ mod tests {
                 expected_compatibility_output: None,
             },
         ] {
-            let host_nics = case
+            let interfaces = case
                 .nested_policy
                 .map(|ip_allocation| {
-                    vec![ExpectedHostNic {
+                    vec![ExpectedInterface {
                         mac_address: bmc_mac_address,
                         role: ExpectedInterfaceRole::HostBmc,
                         ip_allocation,
@@ -1818,7 +1924,7 @@ mod tests {
                 id: None,
                 bmc_mac_address,
                 data: ExpectedMachineData {
-                    host_nics,
+                    interfaces,
                     bmc_ip_address: case.compatibility_ip,
                     bmc_ip_allocation: case.compatibility_policy,
                     ..Default::default()
@@ -2021,7 +2127,7 @@ mod tests {
         ] {
             let expected_stored_count =
                 usize::from(case.nested_policy.is_some() || case.previous_policy.is_some());
-            let nested = case.nested_policy.map(|ip_allocation| ExpectedHostNic {
+            let nested = case.nested_policy.map(|ip_allocation| ExpectedInterface {
                 mac_address: bmc_mac_address,
                 role: ExpectedInterfaceRole::HostBmc,
                 ip_allocation,
@@ -2032,7 +2138,7 @@ mod tests {
                 id: None,
                 bmc_mac_address,
                 data: ExpectedMachineData {
-                    host_nics: vec![ExpectedHostNic {
+                    interfaces: vec![ExpectedInterface {
                         mac_address: bmc_mac_address,
                         role: ExpectedInterfaceRole::HostBmc,
                         ip_allocation: Some(ip_allocation),
@@ -2048,7 +2154,7 @@ mod tests {
                 id: None,
                 bmc_mac_address,
                 data: ExpectedMachineData {
-                    host_nics: nested.into_iter().collect(),
+                    interfaces: nested.into_iter().collect(),
                     ..Default::default()
                 },
             };
@@ -2058,7 +2164,7 @@ mod tests {
                 .unwrap();
             let stored = machine
                 .data
-                .host_nics
+                .interfaces
                 .iter()
                 .filter(|interface| interface.role.is_host_bmc())
                 .collect::<Vec<_>>();
@@ -2092,7 +2198,7 @@ mod tests {
             id: None,
             bmc_mac_address,
             data: ExpectedMachineData {
-                host_nics: vec![ExpectedHostNic {
+                interfaces: vec![ExpectedInterface {
                     mac_address: bmc_mac_address,
                     role: ExpectedInterfaceRole::HostBmc,
                     ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
@@ -2133,7 +2239,7 @@ mod tests {
             id: None,
             bmc_mac_address,
             data: ExpectedMachineData {
-                host_nics: vec![ExpectedHostNic {
+                interfaces: vec![ExpectedInterface {
                     mac_address: bmc_mac_address,
                     role: ExpectedInterfaceRole::HostBmc,
                     fixed_ip: Some(fixed_ip),
@@ -2171,7 +2277,7 @@ mod tests {
             id: None,
             bmc_mac_address,
             data: ExpectedMachineData {
-                host_nics: vec![ExpectedHostNic {
+                interfaces: vec![ExpectedInterface {
                     mac_address: bmc_mac_address,
                     role: ExpectedInterfaceRole::HostBmc,
                     fixed_ip: Some(fixed_ip),
@@ -2195,7 +2301,7 @@ mod tests {
             .normalize_host_bmc(
                 Some(&previous),
                 LegacyHostBmcOverrides {
-                    replace_host_nics: true,
+                    replace_interfaces: true,
                     ..Default::default()
                 },
             )
@@ -2204,7 +2310,7 @@ mod tests {
         assert!(
             replacement
                 .data
-                .host_nics
+                .interfaces
                 .iter()
                 .all(|interface| !interface.role.is_host_bmc()),
         );
@@ -2224,8 +2330,8 @@ mod tests {
         let nic = |mac: MacAddress,
                    role: ExpectedInterfaceRole,
                    primary: Option<bool>|
-         -> ExpectedHostNic {
-            ExpectedHostNic {
+         -> ExpectedInterface {
+            ExpectedInterface {
                 mac_address: mac,
                 role,
                 primary,
@@ -2237,7 +2343,7 @@ mod tests {
         assert_eq!(ExpectedMachineData::default().declared_primary_mac(), None);
         assert_eq!(
             ExpectedMachineData {
-                host_nics: vec![
+                interfaces: vec![
                     nic(mac_a, ExpectedInterfaceRole::Host, None),
                     nic(mac_b, ExpectedInterfaceRole::Host, Some(false)),
                 ],
@@ -2250,7 +2356,7 @@ mod tests {
         // The declared NIC wins.
         assert_eq!(
             ExpectedMachineData {
-                host_nics: vec![
+                interfaces: vec![
                     nic(mac_a, ExpectedInterfaceRole::Host, Some(false)),
                     nic(mac_b, ExpectedInterfaceRole::Host, Some(true)),
                 ],
@@ -2262,7 +2368,7 @@ mod tests {
 
         assert_eq!(
             ExpectedMachineData {
-                host_nics: vec![nic(mac_a, ExpectedInterfaceRole::DpuBmc, Some(true))],
+                interfaces: vec![nic(mac_a, ExpectedInterfaceRole::DpuBmc, Some(true))],
                 ..Default::default()
             }
             .declared_primary_mac(),
@@ -2346,7 +2452,7 @@ mod tests {
         ];
 
         for case in cases {
-            let nic = ExpectedHostNic {
+            let nic = ExpectedInterface {
                 mac_address: "AA:BB:CC:00:00:01".parse().unwrap(),
                 network_segment_type: case.network_segment_type,
                 nic_type: case.nic_type.map(String::from),
@@ -2458,7 +2564,7 @@ mod tests {
                 uses_legacy_host_allocation: false,
             },
         ] {
-            let interface = ExpectedHostNic {
+            let interface = ExpectedInterface {
                 role: case.role,
                 ip_allocation: case.ip_allocation,
                 fixed_ip: case.fixed_ip,
@@ -2544,7 +2650,7 @@ mod tests {
                 expected: false,
             },
         ] {
-            let interface = ExpectedHostNic {
+            let interface = ExpectedInterface {
                 role: case.role,
                 ip_allocation: case.ip_allocation,
                 fixed_ip: Some("192.0.2.10".parse().unwrap()),

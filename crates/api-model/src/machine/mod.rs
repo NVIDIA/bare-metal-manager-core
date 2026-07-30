@@ -259,7 +259,7 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 ///
 /// Ordering:
 /// 1. Any interface with `primary_interface == true` wins. This is the
-///    path operators can drive explicitly via `ExpectedHostNic.primary`,
+///    path operators can drive explicitly via `ExpectedInterface.primary`,
 ///    in the case of zero DPU hosts, and is also how hosts with DPU(s)
 ///    end up with a boot MAC automatically during site-explorer ingestion.
 /// 2. If there's no primary interface, the interface outside the management
@@ -320,7 +320,7 @@ fn pick_boot_interface_pair(
 /// `pick_boot_interface`'s precedence, one step down -- predictions, not rows:
 ///
 /// 1. A prediction flagged `primary_interface` wins -- the declared
-///    `ExpectedHostNic.primary`, recorded onto the prediction at minting.
+///    `ExpectedInterface.primary`, recorded onto the prediction at minting.
 /// 2. Otherwise the sole non-underlay prediction. With several and none
 ///    declared primary the boot NIC is unknowable (e.g. a host whose report
 ///    lists SuperNICs alongside the boot NIC), so this returns `None` rather
@@ -4186,7 +4186,7 @@ mod tests {
     // Whichever interface is flagged `primary_interface` wins, regardless
     // of MAC ordering or segment type of the other interfaces. This covers
     // both paths that can set the flag, whether it be site-explorer w/ DPU
-    // ingestion, or operator-driven `ExpectedHostNic.primary` for zero-DPU
+    // ingestion, or operator-driven `ExpectedInterface.primary` for zero-DPU
     // hosts.
     #[test]
     fn pick_boot_interface_mac_returns_primary_interface_when_set() {

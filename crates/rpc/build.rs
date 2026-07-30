@@ -631,6 +631,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
+        // `ExpectedMachine` is serialize-only here. If it gains `Deserialize`,
+        // this rename also needs `alias = "host_nics"` for older payloads.
+        .field_attribute(
+            "ExpectedMachine.host_nics",
+            "#[serde(rename = \"interfaces\")]",
+        )
         .field_attribute(
             "ExpectedMachine.replace_host_nics",
             "#[serde(skip_serializing)]",
