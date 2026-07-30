@@ -73,7 +73,7 @@ func (h GetAllIpxeTemplateHandler) Handle(c echo.Context) error {
 	}
 
 	// Validate role (Provider Admin/Viewer or Tenant Admin) and org membership
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, false)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
@@ -267,7 +267,7 @@ func (h GetIpxeTemplateHandler) Handle(c echo.Context) error {
 
 	// Validate role (Provider Admin/Viewer or Tenant Admin) — this also validates
 	// org membership, so no separate membership check is needed here.
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, false)
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, h.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}

@@ -51,11 +51,14 @@ vault:
   nicoCliClientRole:
     enabled: true                # create the admin-cli PKI client role at install
     name: "nico-cli-client"
-    ## SubjectOU stamped on issued CLI client certs = the ExternalUser "group" nico-api
-    ## authorizes. Must match the group the build's ForgeAdminCLI principal expects.
-    ## Empty = use `name`. (Current builds hardcode "Invalid" — set ou: "Invalid" until the
-    ## code fix lands; pair with nico-api auth.additionalIssuerCns: ["site-root"].)
-    ou: "Invalid"                # BUILD-SPECIFIC (not site): match this build's hardcoded ForgeAdminCLI group
+    ## SubjectOU stamped on issued CLI client certs. nico-api maps it to the
+    ## ExternalUser "group" (authz identifier "external-role/<ou>"), but the
+    ## admin-CLI RBAC rules accept any ExternalUser regardless of group — what
+    ## actually gates authorization is the ISSUER: the site CA's CN must be
+    ## listed in nico-api auth.additionalIssuerCns (e.g. ["site-root"]).
+    ## Empty = use `name`. Do NOT set "Invalid": it was a placeholder copied
+    ## from a never-compared constant in the authz code (see issue #3662).
+    ou: ""                       # empty = `name` (nico-cli-client)
     organization: ""
   ## Kubernetes auth role for nico-api to read and manage Vault KV
   ## credentials used by SiteExplorer and related credential flows.

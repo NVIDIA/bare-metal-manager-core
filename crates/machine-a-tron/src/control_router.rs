@@ -172,8 +172,8 @@ mod tests {
     use uuid::Uuid;
 
     use super::{ControlState, append};
+    use crate::DeviceHandle;
     use crate::dpu_machine::DpuMachineHandle;
-    use crate::host_machine::DeviceHandle;
     use crate::simulator_registry::SimulatorRegistry;
     use crate::status::DeviceStatusConfig;
 

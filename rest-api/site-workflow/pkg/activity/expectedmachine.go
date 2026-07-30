@@ -11,14 +11,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"go.temporal.io/sdk/client"
 	tClient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
-	flowv1 "github.com/NVIDIA/infra-controller/rest-api/proto/flow/gen/v1"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	cclient "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/grpc/client"
 )
@@ -151,7 +149,7 @@ func (memi *ManageExpectedMachineInventory) DiscoverExpectedMachineInventory(ctx
 			endIndex = totalCount
 		}
 
-		pagedWorkflowOptions := client.StartWorkflowOptions{
+		pagedWorkflowOptions := tClient.StartWorkflowOptions{
 			ID:        fmt.Sprintf("%v-%v", workflowOptions.ID, cloudPage),
 			TaskQueue: workflowOptions.TaskQueue,
 		}
@@ -243,14 +241,12 @@ func NewManageExpectedMachineInventory(siteID uuid.UUID, coreGrpcAtomicClient *c
 // ManageExpectedMachine is an activity wrapper for Expected Machine management
 type ManageExpectedMachine struct {
 	coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient
-	flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient
 }
 
 // NewManageExpectedMachine returns a new ManageExpectedMachine client
-func NewManageExpectedMachine(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient, flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient) ManageExpectedMachine {
+func NewManageExpectedMachine(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient) ManageExpectedMachine {
 	return ManageExpectedMachine{
 		coreGrpcAtomicClient: coreGrpcAtomicClient,
-		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
 
@@ -429,135 +425,20 @@ func (mem *ManageExpectedMachine) CreateExpectedMachinesOnSite(ctx context.Conte
 	return response, nil
 }
 
-// CreateExpectedMachineOnFlow creates an Expected Machine as a component in Flow via AddComponent
-func (mem *ManageExpectedMachine) CreateExpectedMachineOnFlow(ctx context.Context, request *corev1.ExpectedMachine) error {
-	logger := log.With().Str("Activity", "CreateExpectedMachineOnFlow").Logger()
-
-	logger.Info().Msg("Starting activity")
-
-	// Validate request
-	if request == nil {
-		return temporal.NewNonRetryableApplicationError("received empty create Expected Machine request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
-	}
-
-	// If Flow client is not configured, skip gracefully
-	if mem.flowGrpcAtomicClient == nil {
-		logger.Warn().Msg("Flow client not configured, skipping Flow component creation")
-		return nil
-	}
-
-	flowClient := mem.flowGrpcAtomicClient.GetClient()
-	if flowClient == nil {
-		logger.Warn().Msg("Flow client not connected, skipping Flow component creation")
-		return nil
-	}
-
-	component := expectedMachineToFlowComponent(request)
-	_, err := flowClient.GrpcServiceClient().AddComponent(ctx, &flowv1.AddComponentRequest{Component: component})
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Machine component on Flow")
-		return swe.WrapErr(err)
-	}
-
-	logger.Info().Msg("Completed activity")
+// CreateExpectedMachineOnFlow is retained as a no-op for compatibility with
+// workflow histories recorded before direct Flow writes were removed.
+// Remove it after the matching `GetVersion` branch is retired and those
+// histories can no longer be replayed.
+func (*ManageExpectedMachine) CreateExpectedMachineOnFlow(context.Context, *corev1.ExpectedMachine) error {
 	return nil
 }
 
-// CreateExpectedMachinesOnFlow creates multiple Expected Machines as components in Flow via AddComponent
-func (mem *ManageExpectedMachine) CreateExpectedMachinesOnFlow(ctx context.Context, request *corev1.BatchExpectedMachineOperationRequest) error {
-	logger := log.With().Str("Activity", "CreateExpectedMachinesOnFlow").Logger()
-
-	logger.Info().Msg("Starting activity")
-
-	// If Flow client is not configured, skip gracefully
-	if mem.flowGrpcAtomicClient == nil {
-		logger.Warn().Msg("Flow client not configured, skipping Flow component creation")
-		return nil
-	}
-
-	flowClient := mem.flowGrpcAtomicClient.GetClient()
-	if flowClient == nil {
-		logger.Warn().Msg("Flow client not connected, skipping Flow component creation")
-		return nil
-	}
-
-	grpcServiceClient := flowClient.GrpcServiceClient()
-	machines := request.GetExpectedMachines().GetExpectedMachines()
-	successes := 0
-	failures := 0
-
-	// TODO(chet): Work with Flow team to add batch support so we don't have to loop here.
-	for _, machine := range machines {
-		component := expectedMachineToFlowComponent(machine)
-		_, err := grpcServiceClient.AddComponent(ctx, &flowv1.AddComponentRequest{Component: component})
-		if err != nil {
-			logger.Warn().Err(err).Str("ID", machine.GetId().GetValue()).Msg("Failed to create Expected Machine component on Flow")
-			failures++
-		} else {
-			successes++
-		}
-	}
-
-	logger.Info().
-		Int("Total", len(machines)).
-		Int("Succeeded", successes).
-		Int("Failed", failures).
-		Msg("Completed activity")
-
+// CreateExpectedMachinesOnFlow is retained as a no-op for compatibility with
+// workflow histories recorded before direct Flow writes were removed.
+// Remove it after the matching `GetVersion` branch is retired and those
+// histories can no longer be replayed.
+func (*ManageExpectedMachine) CreateExpectedMachinesOnFlow(context.Context, *corev1.BatchExpectedMachineOperationRequest) error {
 	return nil
-}
-
-// expectedMachineToFlowComponent converts a NICo ExpectedMachine proto to an Flow Component proto
-func expectedMachineToFlowComponent(em *corev1.ExpectedMachine) *flowv1.Component {
-	component := &flowv1.Component{
-		Type: flowv1.ComponentType_COMPONENT_TYPE_COMPUTE,
-		Info: &flowv1.DeviceInfo{
-			Id:           &flowv1.UUID{Id: em.GetId().GetValue()},
-			SerialNumber: em.GetChassisSerialNumber(),
-		},
-		Bmcs: []*flowv1.BMCInfo{
-			{
-				Type:       flowv1.BMCType_BMC_TYPE_HOST,
-				MacAddress: em.GetBmcMacAddress(),
-			},
-		},
-		ComponentId: em.GetId().GetValue(),
-	}
-
-	// DeviceInfo fields
-	if name := em.GetName(); name != "" {
-		component.Info.Name = name
-	}
-	if manufacturer := em.GetManufacturer(); manufacturer != "" {
-		component.Info.Manufacturer = manufacturer
-	}
-	if em.Model != nil {
-		component.Info.Model = em.Model
-	}
-	if em.Description != nil {
-		component.Info.Description = em.Description
-	}
-
-	// Rack position
-	if em.SlotId != nil || em.TrayIdx != nil || em.HostId != nil {
-		pos := &flowv1.RackPosition{}
-		if em.SlotId != nil {
-			pos.SlotId = *em.SlotId
-		}
-		if em.TrayIdx != nil {
-			pos.TrayIdx = *em.TrayIdx
-		}
-		if em.HostId != nil {
-			pos.HostId = *em.HostId
-		}
-		component.Position = pos
-	}
-
-	if rackID := em.GetRackId().GetId(); rackID != "" {
-		component.RackId = &flowv1.UUID{Id: rackID}
-	}
-
-	return component
 }
 
 // UpdateExpectedMachinesOnSite updates multiple Expected Machines on NICo using the batch endpoint

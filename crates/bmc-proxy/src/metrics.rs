@@ -23,7 +23,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use carbide_instrument::{Event, LabelValue, MetricFamily};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, MetricFamily};
 use http::Method;
 use metrics_endpoint::{MetricsEndpointConfig, MetricsSetup};
 use tokio::task::JoinSet;
@@ -188,60 +188,65 @@ impl PrincipalAllowListDenied {
     }
 }
 
-/// The per-principal ACL could not run because authentication middleware did
+/// An authorization layer could not run because authentication middleware did
 /// not attach an `AuthContext`. This is a wiring error, not a policy denial,
-/// so it has a separate metric and keeps the existing ERROR diagnostic.
+/// so it is counted separately from a normal 403. `authorization_layer` names
+/// the layer that could not evaluate, and picks the level and diagnostic each
+/// one already had: the request ACL treats it as a bug and logs `ERROR`, while
+/// the outer allow-list keeps its `WARN`. Either way the request is a 500.
 #[derive(Event)]
 #[event(
-    event_name = "bmc_proxy_request_acl_auth_context_missing",
+    event_name = "bmc_proxy_auth_context_missing",
     metric_name = "carbide_bmc_proxy_authorization_errors_total",
     component = "nico-bmc-proxy",
-    log = error,
+    log = dynamic,
     metric = counter,
-    message = "BUG: No AuthContext middleware found, all requests will be denied",
+    message = dynamic,
     describe = "Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method"
 )]
-pub(crate) struct RequestAclAuthContextMissing {
+pub(crate) struct AuthContextMissing {
     #[label]
     authorization_layer: AuthorizationLayer,
     #[label(name = "method")]
     method_label: MethodLabel,
 }
 
-impl RequestAclAuthContextMissing {
-    pub(crate) fn new(method: &Method) -> Self {
+impl AuthContextMissing {
+    /// The per-principal ACL could not evaluate the request.
+    pub(crate) fn request_acl(method: &Method) -> Self {
         Self {
             authorization_layer: AuthorizationLayer::RequestAcl,
             method_label: method.into(),
         }
     }
-}
 
-/// The outer allow-list could not run because authentication middleware did
-/// not attach an `AuthContext`. The request remains a 500 and the diagnostic
-/// remains WARN, but the error is counted separately from a normal 403.
-#[derive(Event)]
-#[event(
-    event_name = "bmc_proxy_principal_allow_list_auth_context_missing",
-    metric_name = "carbide_bmc_proxy_authorization_errors_total",
-    component = "nico-bmc-proxy",
-    log = warn,
-    metric = counter,
-    message = "authorize_proxy_request found a request with no AuthContext in its extensions",
-    describe = "Number of BMC proxy authorization errors caused by missing authentication context, by authorization layer and HTTP method"
-)]
-pub(crate) struct PrincipalAllowListAuthContextMissing {
-    #[label]
-    authorization_layer: AuthorizationLayer,
-    #[label(name = "method")]
-    method_label: MethodLabel,
-}
-
-impl PrincipalAllowListAuthContextMissing {
-    pub(crate) fn new(method: &Method) -> Self {
+    /// The outer principal allow-list could not evaluate the request.
+    pub(crate) fn principal_allow_list(method: &Method) -> Self {
         Self {
             authorization_layer: AuthorizationLayer::PrincipalAllowList,
             method_label: method.into(),
+        }
+    }
+}
+
+impl DynamicLog for AuthContextMissing {
+    fn log_at(&self) -> LogAt {
+        match self.authorization_layer {
+            AuthorizationLayer::RequestAcl => LogAt::Level(tracing::Level::ERROR),
+            AuthorizationLayer::PrincipalAllowList => LogAt::Level(tracing::Level::WARN),
+        }
+    }
+}
+
+impl DynamicMessage for AuthContextMissing {
+    fn message(&self) -> &'static str {
+        match self.authorization_layer {
+            AuthorizationLayer::RequestAcl => {
+                "BUG: No AuthContext middleware found, all requests will be denied"
+            }
+            AuthorizationLayer::PrincipalAllowList => {
+                "authorize_proxy_request found a request with no AuthContext in its extensions"
+            }
         }
     }
 }
@@ -370,11 +375,11 @@ mod tests {
     }
 
     fn emit_request_acl_auth_context_missing() {
-        emit(RequestAclAuthContextMissing::new(&Method::DELETE));
+        emit(AuthContextMissing::request_acl(&Method::DELETE));
     }
 
     fn emit_principal_allow_list_auth_context_missing() {
-        emit(PrincipalAllowListAuthContextMissing::new(&Method::OPTIONS));
+        emit(AuthContextMissing::principal_allow_list(&Method::OPTIONS));
     }
 
     fn observe_authorization_event(
@@ -693,7 +698,7 @@ mod tests {
                     },
                     expect: expected_authorization_event(
                         tracing::Level::ERROR,
-                        "bmc_proxy_request_acl_auth_context_missing",
+                        "bmc_proxy_auth_context_missing",
                         AUTHORIZATION_ERROR_METRIC,
                         "BUG: No AuthContext middleware found, all requests will be denied",
                         "request_acl",
@@ -709,7 +714,7 @@ mod tests {
                     },
                     expect: expected_authorization_event(
                         tracing::Level::WARN,
-                        "bmc_proxy_principal_allow_list_auth_context_missing",
+                        "bmc_proxy_auth_context_missing",
                         AUTHORIZATION_ERROR_METRIC,
                         "authorize_proxy_request found a request with no AuthContext in its extensions",
                         "principal_allow_list",

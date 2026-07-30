@@ -22,14 +22,31 @@ use carbide_redfish::boot_interface::BootInterfaceTarget;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use model::machine::LoadSnapshotOptions;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine_boot_interface::MachineBootInterface;
+use model::machine_boot_interface::{MachineBootInterface, canonical_redfish_boot_interface_id};
 use model::network_segment::NetworkSegmentType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
+use crate::handlers::bmc_endpoint_explorer::persist_desired_boot_interface_target;
 use crate::handlers::utils::convert_and_log_machine_id;
+
+fn boot_target_for_interface(
+    mac_address: mac_address::MacAddress,
+    interface_id: Option<String>,
+) -> BootInterfaceTarget {
+    match interface_id
+        .as_deref()
+        .and_then(canonical_redfish_boot_interface_id)
+    {
+        Some(interface_id) => BootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address,
+            interface_id: interface_id.to_string(),
+        }),
+        None => BootInterfaceTarget::MacOnly(mac_address),
+    }
+}
 
 pub(crate) async fn set_primary_dpu(
     api: &Api,
@@ -258,13 +275,7 @@ async fn set_primary_interface_core(
     // The new primary row already stores `boot_interface_id`, so give
     // `libredfish` both identifiers as one target. Rows without an ID still
     // target the MAC alone.
-    let boot_target = match boot_interface_id {
-        Some(interface_id) => BootInterfaceTarget::Pair(MachineBootInterface {
-            mac_address: primary_interface_mac_address,
-            interface_id,
-        }),
-        None => BootInterfaceTarget::MacOnly(primary_interface_mac_address),
-    };
+    let boot_target = boot_target_for_interface(primary_interface_mac_address, boot_interface_id);
     api.endpoint_explorer
         .set_boot_order_dpu_first(bmc_socket_addr, &bmc_interface, &boot_target)
         .await
@@ -329,6 +340,9 @@ async fn set_primary_interface_core(
         )
         .await?;
     }
+
+    persist_desired_boot_interface_target(&mut txn, Some(host_machine_id), Some(&boot_target))
+        .await?;
 
     txn.commit().await?;
 
@@ -456,4 +470,44 @@ pub(crate) async fn set_maintenance(
     };
 
     Ok(Response::new(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::value_scenarios;
+
+    use super::*;
+
+    #[test]
+    fn boot_target_normalizes_interface_ids() {
+        let mac_address = "00:00:5e:00:53:02".parse().unwrap();
+
+        value_scenarios!(run = |interface_id| {
+            boot_target_for_interface(mac_address, interface_id)
+        };
+            "complete id" {
+                Some("NIC.Slot.7-1-1".to_string()) =>
+                    BootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    }),
+            }
+
+            "padded id" {
+                Some(" \tNIC.Slot.7-1-1\n ".to_string()) =>
+                    BootInterfaceTarget::Pair(MachineBootInterface {
+                        mac_address,
+                        interface_id: "NIC.Slot.7-1-1".to_string(),
+                    }),
+            }
+
+            "blank id" {
+                Some("\t\n".to_string()) => BootInterfaceTarget::MacOnly(mac_address),
+            }
+
+            "missing id" {
+                None => BootInterfaceTarget::MacOnly(mac_address),
+            }
+        );
+    }
 }

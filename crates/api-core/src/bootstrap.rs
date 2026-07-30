@@ -23,6 +23,7 @@
 
 use std::sync::Arc;
 
+use carbide_rack::rms_node_type::warn_rms_node_descriptor_attribute_overrides;
 use carbide_secrets::certificates::CertificateProvider;
 use carbide_secrets::credentials::CredentialManager;
 use sqlx::PgPool;
@@ -45,7 +46,11 @@ pub struct RuntimePrelude {
     dynamic_settings: DynamicSettings,
 }
 
-/// Start the core runtime work that must precede external resource initialization.
+/// Starts the core runtime work that follows logging initialization and precedes
+/// external resource initialization.
+///
+/// Rack-profile attribute override collisions are logged once here so the
+/// configured tracing subscriber receives the diagnostics.
 #[doc(hidden)]
 pub fn start_runtime_prelude(
     carbide_config: &CarbideConfig,
@@ -53,6 +58,9 @@ pub fn start_runtime_prelude(
     join_set: &mut JoinSet<()>,
     cancel_token: &CancellationToken,
 ) -> RuntimePrelude {
+    // These diagnostics require the tracing subscriber installed by the caller.
+    warn_rms_node_descriptor_attribute_overrides(&carbide_config.rack_profiles);
+
     // Redact credentials before printing the config
     let print_config = carbide_config.redacted();
 

@@ -236,21 +236,6 @@ func testInstanceBuildTenant(t *testing.T, dbSession *cdb.Session, name string, 
 
 	return tn
 }
-func testInstanceUpdateTenantCapability(t *testing.T, dbSession *cdb.Session, tn *cdbm.Tenant) *cdbm.Tenant {
-	tncfg := cdbm.TenantConfig{
-		TargetedInstanceCreation: true,
-	}
-
-	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
-		TenantID: tn.ID,
-		Config:   &tncfg,
-	})
-	assert.Nil(t, err)
-
-	return tn
-}
-
 func testInstanceBuildUser(t *testing.T, dbSession *cdb.Session, starfleetID string, org string, roles []string) *cdbm.User {
 	uDAO := cdbm.NewUserDAO(dbSession)
 
@@ -792,7 +777,9 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	// Tenant 1
 	tnu1 := testInstanceBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn1 := testInstanceBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu1)
-	tn1 = testInstanceUpdateTenantCapability(t, dbSession, tn1)
+	// Privilege is resolved site-scoped. TenantSite associations without an
+	// explicit override inherit tn1's Ready TenantAccount default.
+	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn1.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu1)
 
 	ts1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn1.ID, st1.ID, tnu1.ID)
 	assert.NotNil(t, ts1)

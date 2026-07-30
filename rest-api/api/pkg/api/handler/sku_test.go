@@ -182,9 +182,6 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant",
 		Org:  tenantOrg,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithCapability).Exec(ctx)
 	assert.Nil(t, err)
@@ -196,7 +193,8 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		TenantID:                 &tenantWithCapability.ID,
 		TenantOrg:                tenantOrg,
 		InfrastructureProviderID: infraProv.ID,
-		Status:                   "active",
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)
@@ -207,22 +205,30 @@ func TestGetAllSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant-no-capability",
 		Org:  tenantOrgNoCapability,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: false,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutCapability).Exec(ctx)
 	assert.Nil(t, err)
 
-	// Create tenant with capability but NO tenant account
+	// Give this tenant a Ready account whose capability is explicitly disabled,
+	// isolating the no-capability authorization path.
+	tenantAccountWithoutCapability := &cdbm.TenantAccount{
+		ID:                       uuid.New(),
+		AccountNumber:            "test-account-no-capability-123",
+		TenantID:                 &tenantWithoutCapability.ID,
+		TenantOrg:                tenantOrgNoCapability,
+		InfrastructureProviderID: infraProv.ID,
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantAccountWithoutCapability).Exec(ctx)
+	assert.Nil(t, err)
+
+	// Create a tenant without a TenantAccount, isolating the missing-account path.
 	tenantOrgNoAccount := "test-tenant-org-no-account"
 	tenantWithoutAccount := &cdbm.Tenant{
 		ID:   uuid.New(),
 		Name: "test-tenant-no-account",
 		Org:  tenantOrgNoAccount,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutAccount).Exec(ctx)
 	assert.Nil(t, err)
@@ -465,9 +471,6 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant",
 		Org:  tenantOrg,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithCapability).Exec(ctx)
 	assert.Nil(t, err)
@@ -479,7 +482,8 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		TenantID:                 &tenantWithCapability.ID,
 		TenantOrg:                tenantOrg,
 		InfrastructureProviderID: infraProv.ID,
-		Status:                   "active",
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantAccount).Exec(ctx)
 	assert.Nil(t, err)
@@ -490,22 +494,30 @@ func TestGetSkuHandler_Handle(t *testing.T) {
 		ID:   uuid.New(),
 		Name: "test-tenant-no-capability",
 		Org:  tenantOrgNoCapability,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: false,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutCapability).Exec(ctx)
 	assert.Nil(t, err)
 
-	// Create tenant with capability but NO tenant account
+	// Give this tenant a Ready account whose capability is explicitly disabled,
+	// isolating the no-capability authorization path.
+	tenantAccountWithoutCapability := &cdbm.TenantAccount{
+		ID:                       uuid.New(),
+		AccountNumber:            "test-account-no-capability-456",
+		TenantID:                 &tenantWithoutCapability.ID,
+		TenantOrg:                tenantOrgNoCapability,
+		InfrastructureProviderID: infraProv.ID,
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: false},
+	}
+	_, err = dbSession.DB.NewInsert().Model(tenantAccountWithoutCapability).Exec(ctx)
+	assert.Nil(t, err)
+
+	// Create a tenant without a TenantAccount, isolating the missing-account path.
 	tenantOrgNoAccount := "test-tenant-org-no-account"
 	tenantWithoutAccount := &cdbm.Tenant{
 		ID:   uuid.New(),
 		Name: "test-tenant-no-account",
 		Org:  tenantOrgNoAccount,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenantWithoutAccount).Exec(ctx)
 	assert.Nil(t, err)

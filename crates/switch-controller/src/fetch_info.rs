@@ -17,7 +17,7 @@
 
 //! Handler for SwitchControllerState::FetchInfo.
 
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
 use carbide_uuid::switch::SwitchId;
 use model::switch::{Switch, SwitchControllerState, ValidatingState};
 use state_controller::state_handler::{
@@ -38,63 +38,63 @@ enum SwitchSlotTrayEnrichmentFailureStage {
     DatabaseUpdate,
 }
 
-/// `SwitchSlotTrayEndpointResolutionFailed` records the dependency failure
-/// that prevents `FetchInfo` from reaching the component-manager backend.
+/// `FetchInfo` could not enrich a switch with its RMS slot and tray. These
+/// failures stay best-effort -- the controller still moves to `Validating` --
+/// so `failure_stage` is what tells an operator which dependency left the
+/// location data unset, and picks the diagnostic that step already logged.
+/// `backend` is present only for the stages that actually reached one.
 #[derive(Event)]
 #[event(
-    event_name = "switch_slot_tray_endpoint_resolution_failed",
+    event_name = "switch_slot_tray_enrichment_failed",
     metric_name = "carbide_switch_slot_tray_enrichment_failures_total",
     component = "switch-controller",
     log = warn,
     metric = counter,
-    message = "Failed to resolve switch endpoint for slot and tray lookup",
+    message = dynamic,
     describe = "Number of switch slot and tray enrichment failures, by failure stage."
 )]
-struct SwitchSlotTrayEndpointResolutionFailed {
+struct SwitchSlotTrayEnrichmentFailed {
     #[label]
     failure_stage: SwitchSlotTrayEnrichmentFailureStage,
     #[context]
     error: String,
     #[context]
     switch_id: String,
+    #[context]
+    backend: Option<String>,
 }
 
-impl SwitchSlotTrayEndpointResolutionFailed {
-    fn new(error: String, switch_id: &SwitchId) -> Self {
-        Self {
-            failure_stage: SwitchSlotTrayEnrichmentFailureStage::EndpointResolution,
-            error,
-            switch_id: switch_id.to_string(),
+impl DynamicMessage for SwitchSlotTrayEnrichmentFailed {
+    fn message(&self) -> &'static str {
+        match self.failure_stage {
+            SwitchSlotTrayEnrichmentFailureStage::EndpointResolution => {
+                "Failed to resolve switch endpoint for slot and tray lookup"
+            }
+            SwitchSlotTrayEnrichmentFailureStage::BackendRequest
+            | SwitchSlotTrayEnrichmentFailureStage::BackendResponse => {
+                "Failed to get slot and tray from component manager backend"
+            }
+            SwitchSlotTrayEnrichmentFailureStage::DatabaseUpdate => {
+                "Failed to update slot_number and tray_index for switch"
+            }
         }
     }
 }
 
-/// `SwitchSlotTrayBackendLookupFailed` keeps request failures and per-result
-/// errors under one diagnostic while recording which backend step failed.
-#[derive(Event)]
-#[event(
-    event_name = "switch_slot_tray_backend_lookup_failed",
-    metric_name = "carbide_switch_slot_tray_enrichment_failures_total",
-    component = "switch-controller",
-    log = warn,
-    metric = counter,
-    message = "Failed to get slot and tray from component manager backend",
-    describe = "Number of switch slot and tray enrichment failures, by failure stage."
-)]
-struct SwitchSlotTrayBackendLookupFailed {
-    #[label]
-    failure_stage: SwitchSlotTrayEnrichmentFailureStage,
-    #[context]
-    error: String,
-    #[context]
-    switch_id: String,
-    #[context]
-    backend: String,
-}
+impl SwitchSlotTrayEnrichmentFailed {
+    /// The switch endpoint could not be resolved, so the backend was never
+    /// reached.
+    fn endpoint_resolution(error: String, switch_id: &SwitchId) -> Self {
+        Self::without_backend(
+            SwitchSlotTrayEnrichmentFailureStage::EndpointResolution,
+            error,
+            switch_id,
+        )
+    }
 
-impl SwitchSlotTrayBackendLookupFailed {
-    fn request(error: String, switch_id: &SwitchId, backend: &str) -> Self {
-        Self::new(
+    /// The component-manager request itself failed.
+    fn backend_request(error: String, switch_id: &SwitchId, backend: &str) -> Self {
+        Self::with_backend(
             SwitchSlotTrayEnrichmentFailureStage::BackendRequest,
             error,
             switch_id,
@@ -102,8 +102,9 @@ impl SwitchSlotTrayBackendLookupFailed {
         )
     }
 
-    fn response(error: String, switch_id: &SwitchId, backend: &str) -> Self {
-        Self::new(
+    /// The backend answered, but its result could not be used.
+    fn backend_response(error: String, switch_id: &SwitchId, backend: &str) -> Self {
+        Self::with_backend(
             SwitchSlotTrayEnrichmentFailureStage::BackendResponse,
             error,
             switch_id,
@@ -111,7 +112,16 @@ impl SwitchSlotTrayBackendLookupFailed {
         )
     }
 
-    fn new(
+    /// The location data was fetched but could not be written back.
+    fn persistence(error: String, switch_id: &SwitchId) -> Self {
+        Self::without_backend(
+            SwitchSlotTrayEnrichmentFailureStage::DatabaseUpdate,
+            error,
+            switch_id,
+        )
+    }
+
+    fn with_backend(
         failure_stage: SwitchSlotTrayEnrichmentFailureStage,
         error: String,
         switch_id: &SwitchId,
@@ -121,38 +131,20 @@ impl SwitchSlotTrayBackendLookupFailed {
             failure_stage,
             error,
             switch_id: switch_id.to_string(),
-            backend: backend.to_string(),
+            backend: Some(backend.to_string()),
         }
     }
-}
 
-/// `SwitchSlotTrayPersistenceFailed` records the database failure that leaves
-/// RMS location data unapplied before `FetchInfo` moves on.
-#[derive(Event)]
-#[event(
-    event_name = "switch_slot_tray_persistence_failed",
-    metric_name = "carbide_switch_slot_tray_enrichment_failures_total",
-    component = "switch-controller",
-    log = warn,
-    metric = counter,
-    message = "Failed to update slot_number and tray_index for switch",
-    describe = "Number of switch slot and tray enrichment failures, by failure stage."
-)]
-struct SwitchSlotTrayPersistenceFailed {
-    #[label]
-    failure_stage: SwitchSlotTrayEnrichmentFailureStage,
-    #[context]
-    error: String,
-    #[context]
-    switch_id: String,
-}
-
-impl SwitchSlotTrayPersistenceFailed {
-    fn new(error: String, switch_id: &SwitchId) -> Self {
+    fn without_backend(
+        failure_stage: SwitchSlotTrayEnrichmentFailureStage,
+        error: String,
+        switch_id: &SwitchId,
+    ) -> Self {
         Self {
-            failure_stage: SwitchSlotTrayEnrichmentFailureStage::DatabaseUpdate,
+            failure_stage,
             error,
             switch_id: switch_id.to_string(),
+            backend: None,
         }
     }
 }
@@ -181,7 +173,7 @@ pub async fn handle_fetch_info(
                 Ok(results) => {
                     if let Some(result) = results.into_iter().next() {
                         if let Some(error) = result.error.as_deref() {
-                            emit(SwitchSlotTrayBackendLookupFailed::response(
+                            emit(SwitchSlotTrayEnrichmentFailed::backend_response(
                                 error.to_string(),
                                 switch_id,
                                 component_manager.nv_switch.name(),
@@ -196,7 +188,7 @@ pub async fn handle_fetch_info(
                         )
                         .await
                         {
-                            emit(SwitchSlotTrayPersistenceFailed::new(
+                            emit(SwitchSlotTrayEnrichmentFailed::persistence(
                                 e.to_string(),
                                 switch_id,
                             ));
@@ -207,7 +199,7 @@ pub async fn handle_fetch_info(
                     }
                 }
                 Err(error) => {
-                    emit(SwitchSlotTrayBackendLookupFailed::request(
+                    emit(SwitchSlotTrayEnrichmentFailed::backend_request(
                         error.to_string(),
                         switch_id,
                         component_manager.nv_switch.name(),
@@ -215,7 +207,7 @@ pub async fn handle_fetch_info(
                 }
             },
             Err(error) => {
-                emit(SwitchSlotTrayEndpointResolutionFailed::new(
+                emit(SwitchSlotTrayEnrichmentFailed::endpoint_resolution(
                     error.to_string(),
                     switch_id,
                 ));
@@ -281,7 +273,7 @@ mod tests {
                         level: tracing::Level::WARN,
                         message: "Failed to resolve switch endpoint for slot and tray lookup"
                             .to_string(),
-                        event_name: Some("switch_slot_tray_endpoint_resolution_failed".to_string()),
+                        event_name: Some("switch_slot_tray_enrichment_failed".to_string()),
                         metric_name: Some(METRIC.to_string()),
                         failure_stage: Some("endpoint_resolution".to_string()),
                         error: Some(ERROR.to_string()),
@@ -298,7 +290,7 @@ mod tests {
                         level: tracing::Level::WARN,
                         message: "Failed to get slot and tray from component manager backend"
                             .to_string(),
-                        event_name: Some("switch_slot_tray_backend_lookup_failed".to_string()),
+                        event_name: Some("switch_slot_tray_enrichment_failed".to_string()),
                         metric_name: Some(METRIC.to_string()),
                         failure_stage: Some("backend_request".to_string()),
                         error: Some(ERROR.to_string()),
@@ -315,7 +307,7 @@ mod tests {
                         level: tracing::Level::WARN,
                         message: "Failed to get slot and tray from component manager backend"
                             .to_string(),
-                        event_name: Some("switch_slot_tray_backend_lookup_failed".to_string()),
+                        event_name: Some("switch_slot_tray_enrichment_failed".to_string()),
                         metric_name: Some(METRIC.to_string()),
                         failure_stage: Some("backend_response".to_string()),
                         error: Some(ERROR.to_string()),
@@ -332,7 +324,7 @@ mod tests {
                         level: tracing::Level::WARN,
                         message: "Failed to update slot_number and tray_index for switch"
                             .to_string(),
-                        event_name: Some("switch_slot_tray_persistence_failed".to_string()),
+                        event_name: Some("switch_slot_tray_enrichment_failed".to_string()),
                         metric_name: Some(METRIC.to_string()),
                         failure_stage: Some("database_update".to_string()),
                         error: Some(ERROR.to_string()),
@@ -353,27 +345,27 @@ mod tests {
                 let switch_id = SwitchId::from_str(SWITCH_ID).unwrap();
                 let logs = capture_logs(|| match case {
                     FailureCase::EndpointResolution => {
-                        emit(SwitchSlotTrayEndpointResolutionFailed::new(
+                        emit(SwitchSlotTrayEnrichmentFailed::endpoint_resolution(
                             ERROR.to_string(),
                             &switch_id,
                         ));
                     }
                     FailureCase::BackendRequest => {
-                        emit(SwitchSlotTrayBackendLookupFailed::request(
+                        emit(SwitchSlotTrayEnrichmentFailed::backend_request(
                             ERROR.to_string(),
                             &switch_id,
                             "rms",
                         ));
                     }
                     FailureCase::BackendResponse => {
-                        emit(SwitchSlotTrayBackendLookupFailed::response(
+                        emit(SwitchSlotTrayEnrichmentFailed::backend_response(
                             ERROR.to_string(),
                             &switch_id,
                             "rms",
                         ));
                     }
                     FailureCase::DatabaseUpdate => {
-                        emit(SwitchSlotTrayPersistenceFailed::new(
+                        emit(SwitchSlotTrayEnrichmentFailed::persistence(
                             ERROR.to_string(),
                             &switch_id,
                         ));

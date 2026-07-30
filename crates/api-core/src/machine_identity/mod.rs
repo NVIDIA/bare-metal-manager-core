@@ -30,8 +30,8 @@ use std::fmt;
 
 use base64::Engine;
 pub(crate) use crypto::{
-    MachineIdentitySigningKeyDecryptionFailed, MachineIdentityTokenDelegationAuthDecryptionFailed,
-    ReencryptBlobOutcome, StoredMachineIdentitySecretKind, decrypt_machine_identity_ciphertext,
+    MachineIdentityStoredSecretDecryptionFailed, ReencryptBlobOutcome,
+    StoredMachineIdentitySecretKind, decrypt_machine_identity_ciphertext,
     decrypt_token_delegation_encrypted_blob, machine_identity_encryption_secret,
     reencrypt_ciphertext_if_needed, token_delegation_credentials,
 };

@@ -22,7 +22,7 @@
 //! Decrypt uses the `key_id` embedded in each ciphertext envelope. Encrypt uses site
 //! `[machine_identity].current_encryption_key_id`.
 
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
 use carbide_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use carbide_secrets::key_encryption;
 use model::tenant::{
@@ -39,18 +39,20 @@ pub(crate) enum StoredMachineIdentitySecretKind {
     TokenDelegationAuth,
 }
 
-/// A tenant's stored signing key could not be decrypted.
+/// A tenant's stored machine-identity secret could not be decrypted.
+/// `secret_kind` names which one, and picks the wording each path already
+/// logged.
 #[derive(Event)]
 #[event(
-    event_name = "machine_identity_signing_key_decryption_failed",
+    event_name = "machine_identity_stored_secret_decryption_failed",
     metric_name = "carbide_machine_identity_stored_secret_decryption_failures_total",
     component = "nico-api",
     log = error,
     metric = counter,
-    message = "tenant signing key decrypt failed",
+    message = dynamic,
     describe = "Number of stored machine identity secret decryption failures, by secret kind."
 )]
-pub(crate) struct MachineIdentitySigningKeyDecryptionFailed {
+pub(crate) struct MachineIdentityStoredSecretDecryptionFailed {
     #[label]
     secret_kind: StoredMachineIdentitySecretKind,
     #[context]
@@ -59,40 +61,25 @@ pub(crate) struct MachineIdentitySigningKeyDecryptionFailed {
     error: String,
 }
 
-impl MachineIdentitySigningKeyDecryptionFailed {
-    pub(crate) fn from_status(organization_id: &str, error: &Status) -> Self {
-        Self {
-            secret_kind: StoredMachineIdentitySecretKind::SigningKey,
-            organization_id: organization_id.to_string(),
-            error: error.message().to_string(),
+impl DynamicMessage for MachineIdentityStoredSecretDecryptionFailed {
+    fn message(&self) -> &'static str {
+        match self.secret_kind {
+            StoredMachineIdentitySecretKind::SigningKey => "tenant signing key decrypt failed",
+            StoredMachineIdentitySecretKind::TokenDelegationAuth => {
+                "token delegation auth config decrypt failed"
+            }
         }
     }
 }
 
-/// A tenant's stored token-delegation authentication could not be decrypted.
-#[derive(Event)]
-#[event(
-    event_name = "machine_identity_token_delegation_auth_decryption_failed",
-    metric_name = "carbide_machine_identity_stored_secret_decryption_failures_total",
-    component = "nico-api",
-    log = error,
-    metric = counter,
-    message = "token delegation auth config decrypt failed",
-    describe = "Number of stored machine identity secret decryption failures, by secret kind."
-)]
-pub(crate) struct MachineIdentityTokenDelegationAuthDecryptionFailed {
-    #[label]
-    secret_kind: StoredMachineIdentitySecretKind,
-    #[context]
-    organization_id: String,
-    #[context]
-    error: String,
-}
-
-impl MachineIdentityTokenDelegationAuthDecryptionFailed {
-    pub(crate) fn from_status(organization_id: &str, error: &Status) -> Self {
+impl MachineIdentityStoredSecretDecryptionFailed {
+    pub(crate) fn from_status(
+        secret_kind: StoredMachineIdentitySecretKind,
+        organization_id: &str,
+        error: &Status,
+    ) -> Self {
         Self {
-            secret_kind: StoredMachineIdentitySecretKind::TokenDelegationAuth,
+            secret_kind,
             organization_id: organization_id.to_string(),
             error: error.message().to_string(),
         }
@@ -104,14 +91,11 @@ fn emit_stored_secret_decryption_failed(
     organization_id: &str,
     error: &Status,
 ) {
-    match secret_kind {
-        StoredMachineIdentitySecretKind::SigningKey => emit(
-            MachineIdentitySigningKeyDecryptionFailed::from_status(organization_id, error),
-        ),
-        StoredMachineIdentitySecretKind::TokenDelegationAuth => emit(
-            MachineIdentityTokenDelegationAuthDecryptionFailed::from_status(organization_id, error),
-        ),
-    }
+    emit(MachineIdentityStoredSecretDecryptionFailed::from_status(
+        secret_kind,
+        organization_id,
+        error,
+    ));
 }
 
 pub(crate) async fn machine_identity_encryption_secret(
@@ -295,10 +279,11 @@ mod tests {
                         counter_deltas: [1.0, 0.0],
                         log_count: 1,
                         level: tracing::Level::ERROR,
-                        metadata_name: "machine_identity_signing_key_decryption_failed".to_string(),
+                        metadata_name: "machine_identity_stored_secret_decryption_failed"
+                            .to_string(),
                         message: "tenant signing key decrypt failed".to_string(),
                         event_name: Some(
-                            "machine_identity_signing_key_decryption_failed".to_string(),
+                            "machine_identity_stored_secret_decryption_failed".to_string(),
                         ),
                         metric_name: Some(STORED_SECRET_DECRYPTION_FAILURE_METRIC.to_string()),
                         secret_kind: Some("signing_key".to_string()),
@@ -314,11 +299,11 @@ mod tests {
                         counter_deltas: [0.0, 1.0],
                         log_count: 1,
                         level: tracing::Level::ERROR,
-                        metadata_name: "machine_identity_token_delegation_auth_decryption_failed"
+                        metadata_name: "machine_identity_stored_secret_decryption_failed"
                             .to_string(),
                         message: "token delegation auth config decrypt failed".to_string(),
                         event_name: Some(
-                            "machine_identity_token_delegation_auth_decryption_failed".to_string(),
+                            "machine_identity_stored_secret_decryption_failed".to_string(),
                         ),
                         metric_name: Some(STORED_SECRET_DECRYPTION_FAILURE_METRIC.to_string()),
                         secret_kind: Some("token_delegation_auth".to_string()),

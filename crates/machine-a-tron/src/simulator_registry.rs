@@ -21,8 +21,8 @@ use bmc_mock::injection::InjectionStore;
 use carbide_uuid::machine::MachineId;
 use uuid::Uuid;
 
+use crate::DeviceHandle;
 use crate::device_simulator::{DeviceSimulator, SimulatorLifecycle};
-use crate::host_machine::DeviceHandle;
 
 #[derive(Debug, Clone)]
 pub struct SimulatorRegistry {
@@ -37,10 +37,15 @@ struct SimulatorRegistryInner {
 
 impl SimulatorRegistry {
     pub fn try_from_handles(handles: Vec<DeviceHandle>) -> eyre::Result<Self> {
-        let devices = handles
-            .into_iter()
-            .map(DeviceSimulator::from_handle)
-            .collect::<Vec<_>>();
+        Self::try_from_simulators(
+            handles
+                .into_iter()
+                .map(DeviceSimulator::from_handle)
+                .collect(),
+        )
+    }
+
+    pub fn try_from_simulators(devices: Vec<DeviceSimulator>) -> eyre::Result<Self> {
         let mut by_mat_id = HashMap::with_capacity(devices.len());
 
         for (index, device) in devices.iter().enumerate() {

@@ -355,6 +355,27 @@ func TestGetAllExpectedPowerShelfHandler_Handle(t *testing.T) {
 			},
 		}
 	}
+	dualRoleTenant := &cdbm.Tenant{
+		ID:   uuid.New(),
+		Name: "dual-role-tenant",
+		Org:  org,
+	}
+	_, err = dbSession.DB.NewInsert().Model(dualRoleTenant).Exec(ctx)
+	assert.Nil(t, err)
+	createDualRoleUser := func(org string) *cdbm.User {
+		return &cdbm.User{
+			StarfleetID: cutil.GetPtr("dual-role-user"),
+			OrgData: cdbm.OrgData{
+				org: cdbm.Org{
+					ID:          124,
+					Name:        org,
+					DisplayName: org,
+					OrgType:     "ENTERPRISE",
+					Roles:       []string{authz.ProviderViewerRole, authz.TenantAdminRole},
+				},
+			},
+		}
+	}
 
 	tests := []struct {
 		name                 string
@@ -369,6 +390,24 @@ func TestGetAllExpectedPowerShelfHandler_Handle(t *testing.T) {
 			siteId: "",
 			setupContext: func(c echo.Context) {
 				c.Set("user", createMockUser(org))
+				c.SetParamNames("orgName")
+				c.SetParamValues(org)
+			},
+			expectedStatus: http.StatusOK,
+			checkResponseContent: func(t *testing.T, body []byte) {
+				var response []model.APIExpectedPowerShelf
+				err := json.Unmarshal(body, &response)
+				assert.Nil(t, err)
+				for _, eps := range response {
+					assert.NotEqual(t, unmanagedEPS.ID, eps.ID, "Unmanaged power shelf should not be in response")
+				}
+			},
+		},
+		{
+			name:   "dual-role caller without siteId uses provider-wide listing",
+			siteId: "",
+			setupContext: func(c echo.Context) {
+				c.Set("user", createDualRoleUser(org))
 				c.SetParamNames("orgName")
 				c.SetParamValues(org)
 			},

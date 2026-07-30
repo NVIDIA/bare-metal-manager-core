@@ -24,9 +24,9 @@ use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
 use tempfile::TempDir;
 use uuid::Uuid;
 
+use crate::DeviceHandle;
 use crate::api_client::ClientApiError;
 use crate::config::MachineATronContext;
-use crate::host_machine::DeviceHandle;
 use crate::machine_state_machine::AddressConfigError;
 
 lazy_static! {

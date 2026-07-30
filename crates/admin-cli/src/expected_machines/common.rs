@@ -136,8 +136,12 @@ pub struct ExpectedMachineJson {
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
     pub sku_id: Option<String>,
+    /// An omitted field or explicit `null` preserves the stored list for
+    /// file-based updates, while an empty array clears it. `replace-all` has no
+    /// stored row to preserve, so it resolves either form of `None` to an empty
+    /// list.
     #[serde(default)]
-    pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
+    pub host_nics: Option<Vec<rpc::forge::ExpectedHostNic>>,
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: Option<bool>,
@@ -269,6 +273,44 @@ mod tests {
 
             "unknown numeric value" {
                 r#", "dpu_mode": 99"# => Fails,
+            }
+        );
+    }
+
+    /// File updates distinguish an omitted interface list from an explicit
+    /// replacement, including an empty replacement.
+    #[test]
+    fn expected_machine_json_preserves_host_nic_presence() {
+        scenarios!(
+            run = |host_nics_json| {
+                let json = format!(
+                    r#"{{
+                        "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+                        "bmc_username": "root",
+                        "bmc_password": "pass",
+                        "chassis_serial_number": "SN-1"
+                        {host_nics_json}
+                    }}"#,
+                );
+                serde_json::from_str::<ExpectedMachineJson>(&json)
+                    .map(|machine| machine.host_nics.map(|host_nics| host_nics.len()))
+                    .map_err(drop)
+            };
+            "host_nics omitted" {
+                "" => Yields(None),
+            }
+
+            "host_nics explicitly null" {
+                r#", "host_nics": null"# => Yields(None),
+            }
+
+            "host_nics explicitly empty" {
+                r#", "host_nics": []"# => Yields(Some(0)),
+            }
+
+            "host_nics explicitly populated" {
+                r#", "host_nics": [{"mac_address": "00:11:22:33:44:55"}]"# =>
+                    Yields(Some(1)),
             }
         );
     }

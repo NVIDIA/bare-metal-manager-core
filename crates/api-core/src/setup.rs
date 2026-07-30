@@ -1320,6 +1320,7 @@ async fn initialize_and_start_controllers<'a>(
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,
             }
@@ -1552,6 +1553,9 @@ async fn initialize_and_start_controllers<'a>(
                     .switch_state_controller
                     .effective_switch_mtls_services_as_i32(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
+                redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_enabled: carbide_config.bmc_rotation_enabled,
             }
             .into(),
         )
@@ -2126,6 +2130,70 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)] // Figment controls the error representation.
+    fn rack_profile_attributes_merge_per_key_with_provider_precedence() {
+        figment::Jail::expect_with(|jail| {
+            jail.clear_env();
+
+            // Environment input replaces only its duplicate key; unrelated
+            // keys from lower-priority providers remain in the effective map.
+            jail.set_env(
+                "CARBIDE_API_RACK_PROFILES",
+                "{NVL72={attributes={attribute1=environment,additional_attribute4=environment}}}",
+            );
+
+            let global_config = format!(
+                r#"{}
+
+[rack_profiles.NVL72]
+product_family = "gb200"
+attributes = {{ attribute1 = "global", additional_attribute2 = "global" }}
+
+[rack_profiles.NVL72.rack_capabilities.compute]
+count = 18
+
+[rack_profiles.NVL72.rack_capabilities.switch]
+count = 9
+
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
+count = 8
+"#,
+                include_str!("cfg/test_data/min_config.toml"),
+            );
+
+            let site_config = r#"
+[rack_profiles.NVL72]
+attributes = { attribute1 = "site", additional_attribute3 = "site" }
+"#;
+            jail.create_file("global.toml", &global_config)?;
+            jail.create_file("site.toml", site_config)?;
+
+            let config = merged_carbide_config_figment(
+                Path::new("global.toml"),
+                Some(Path::new("site.toml")),
+            )
+            .extract::<CarbideConfig>()?;
+
+            let attributes = &config.rack_profiles.get("NVL72").unwrap().attributes;
+
+            assert_eq!(
+                attributes,
+                &HashMap::from([
+                    ("attribute1".to_string(), "environment".to_string()),
+                    ("additional_attribute2".to_string(), "global".to_string()),
+                    ("additional_attribute3".to_string(), "site".to_string()),
+                    (
+                        "additional_attribute4".to_string(),
+                        "environment".to_string(),
+                    ),
+                ])
+            );
+
+            Ok(())
+        });
     }
 
     #[test]

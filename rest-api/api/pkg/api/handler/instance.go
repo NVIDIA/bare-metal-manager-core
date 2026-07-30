@@ -1092,6 +1092,20 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 	var nvlifcs []cdbm.NVLinkInterface
 	var ssd *cdbm.StatusDetail
 
+	// Validate the targeted instance creation capability before opening the
+	// transaction so no writes or locks happen for an unauthorized request.
+	if apiRequest.MachineID != nil {
+		privilegedAccess, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, cih.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify capability for Site", nil)
+		}
+		if !privilegedAccess {
+			logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
+		}
+	}
+
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
 	// the DB tx unwinds before we make the second remote call. nil means
@@ -1103,11 +1117,6 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 		// Begin validating Machine ID
 		if apiRequest.MachineID != nil {
-			if tenant.Config == nil || !tenant.Config.TargetedInstanceCreation {
-				logger.Warn().Msg("tenant does not have capability to create instances from specific machine")
-				return cutil.NewAPIError(http.StatusForbidden, "Tenant does not have capability to create Instances using specific Machine ID", nil)
-			}
-
 			mDAO := cdbm.NewMachineDAO(cih.dbSession)
 
 			// Acquire a lock on the MachineID
@@ -5189,6 +5198,24 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating Instance deletion request data", verr)
 	}
 
+	// Authorization stays in the handler: setting `IsRepairTenant` requires the
+	// tenant to carry the TargetedInstanceCreation capability. Validate before
+	// opening the transaction so no writes or locks happen for an unauthorized
+	// request. By the time `ToProto` runs the request is safe to trust.
+	if apiRequest.IsRepairTenant != nil && *apiRequest.IsRepairTenant {
+		enabledForSite, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, dih.dbSession, instance.Tenant, &common.TenantPrivilegeScope{
+			SiteID: &instance.SiteID,
+		})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Instance's Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify capability for Instance's Site", nil)
+		}
+		if !enabledForSite {
+			logger.Warn().Msg("tenant does not have capability to set IsRepairTenant for the Instance's Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have capability to set IsRepairTenant", nil)
+		}
+	}
+
 	// timeoutResp lets the closure signal a post-rollback handler — the
 	// TerminateWorkflow call has to run after the closure returns so that
 	// the DB tx unwinds before we make the second remote call. nil means
@@ -5215,17 +5242,6 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 		if derr != nil {
 			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
-		}
-
-		// Authorization stays in the handler: setting `IsRepairTenant`
-		// requires the tenant to carry the TargetedInstanceCreation
-		// capability. By the time `ToProto` runs the request is safe
-		// to trust.
-		if apiRequest.IsRepairTenant != nil && *apiRequest.IsRepairTenant {
-			if instance.Tenant.Config == nil || !instance.Tenant.Config.TargetedInstanceCreation {
-				logger.Warn().Msg("tenant does not have capability to set IsRepairTenant")
-				return cutil.NewAPIError(http.StatusForbidden, "Tenant does not have capability to set IsRepairTenant", nil)
-			}
 		}
 
 		// Prepare the delete/release request workflow object

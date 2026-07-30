@@ -302,20 +302,26 @@ In certain conditions the scraping process will place a health alert on the host
 
 ## Health report overrides
 
-Site administrators are able to update the health state of any NICo managed host via
-the API calls `InsertHealthReportOverride` and `RemoveHealthReportOverride`.
+Site administrators can inspect and update the health state of a NICo-managed host
+through these REST operations:
+
+- `GET /v2/org/{org}/nico/machine/{machineId}/health-report` lists all reports.
+- `PUT /v2/org/{org}/nico/machine/{machineId}/health-report` creates or updates an override.
+- `DELETE /v2/org/{org}/nico/machine/{machineId}/health-report/{source}` removes an override.
 
 The override API offers 2 different modes of operation:
-1. `merge` (default) - In this mode, any health probe alerts indicated in the override
-  will get merged with health probe alerts reported by builtin NICo tools in order
-  to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
-1. `replace` - In this mode, the health probe alerts reported by builtin NICo
-  monitoring tools will be ignored. Only alerts that are passed as part of the
-  override will be taken into account. If the override list is empty, the system
-  will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
 
-The API allows to apply multiple `merge` overrides to a hosts health at the same time by using a different `HealthReport::source` identifier.
-This allows to integrate health information from multiple external systems and users which are not at risk of overriding each others data. E.g. health information from an external fleet health monitoring system and from SREs can be stored independently.
+`Merge` - In this mode, any health probe alerts indicated in the override
+will get merged with health probe alerts reported by built-in NICo tools in order
+to derive the aggregate host health status. **This mode is meant to augment the internal health monitoring mechanism with additional sources of health data**
+
+`Replace` - In this mode, the health probe alerts reported by built-in NICo
+monitoring tools will be ignored. Only alerts that are passed as part of the
+override will be taken into account. If the override list is empty, the system
+will behave as if the Host would be fully healthy. **This mode is meant to bypass the internal health data in case the site operator desires a different behavior**
+
+The API allows multiple `Merge` overrides on a host at the same time by using a different `source` identifier for each report.
+This allows you to integrate health information from multiple external systems and users which are not at risk of overriding each other's data. For example, health information from an external fleet health monitoring system and from SREs can be stored independently.
 
 If a ManagedHost's health is overridden, the remaining behavior is exactly the same
 as if the overridden Health report would have been directly derived from monitoring

@@ -6,6 +6,7 @@ package model
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -347,6 +348,8 @@ type ExpectedMachineDAO interface {
 	GetAll(ctx context.Context, tx *db.Tx, filter ExpectedMachineFilterInput, page paginator.PageInput, includeRelations []string) ([]ExpectedMachine, int, error)
 	// Get returns row for specified ID
 	Get(ctx context.Context, tx *db.Tx, expectedMachineID uuid.UUID, includeRelations []string, forUpdate bool) (*ExpectedMachine, error)
+	// LockForUpdate locks rows in canonical ID order for the transaction
+	LockForUpdate(ctx context.Context, tx *db.Tx, expectedMachineIDs []uuid.UUID) error
 }
 
 // ExpectedMachineSQLDAO is an implementation of the ExpectedMachineDAO interface
@@ -491,6 +494,63 @@ func (emsd ExpectedMachineSQLDAO) Get(ctx context.Context, tx *db.Tx, expectedMa
 	}
 
 	return em, nil
+}
+
+// LockForUpdate locks ExpectedMachine rows in canonical ID order until the
+// transaction completes. Batch writers call this before any row-specific
+// writes so later operations cannot acquire overlapping row sets in a
+// conflicting order.
+func (emsd ExpectedMachineSQLDAO) LockForUpdate(ctx context.Context, tx *db.Tx, expectedMachineIDs []uuid.UUID) error {
+	if tx == nil {
+		return errors.New("transaction is required to lock ExpectedMachine rows")
+	}
+	if len(expectedMachineIDs) == 0 {
+		return nil
+	}
+
+	ctx, expectedMachineDAOSpan := emsd.tracerSpan.CreateChildInCurrentContext(ctx, "ExpectedMachineDAO.LockForUpdate")
+	if expectedMachineDAOSpan != nil {
+		defer expectedMachineDAOSpan.End()
+		emsd.tracerSpan.SetAttribute(expectedMachineDAOSpan, "batch_size", len(expectedMachineIDs))
+	}
+
+	uniqueIDs := make([]uuid.UUID, 0, len(expectedMachineIDs))
+	seenIDs := make(map[uuid.UUID]struct{}, len(expectedMachineIDs))
+	for _, expectedMachineID := range expectedMachineIDs {
+		if _, seen := seenIDs[expectedMachineID]; seen {
+			continue
+		}
+		seenIDs[expectedMachineID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, expectedMachineID)
+	}
+
+	var locked []ExpectedMachine
+	err := db.GetIDB(tx, emsd.dbSession).
+		NewSelect().
+		Model(&locked).
+		Column("id").
+		Where("em.id IN (?)", bun.In(uniqueIDs)).
+		OrderExpr("em.id ASC").
+		For("UPDATE").
+		Scan(ctx)
+	if err != nil {
+		return err
+	}
+	if len(locked) != len(uniqueIDs) {
+		lockedIDs := make(map[uuid.UUID]struct{}, len(locked))
+		for _, expectedMachine := range locked {
+			lockedIDs[expectedMachine.ID] = struct{}{}
+		}
+		missingIDs := make([]uuid.UUID, 0, len(uniqueIDs)-len(locked))
+		for _, expectedMachineID := range uniqueIDs {
+			if _, ok := lockedIDs[expectedMachineID]; !ok {
+				missingIDs = append(missingIDs, expectedMachineID)
+			}
+		}
+		return fmt.Errorf("ExpectedMachine rows %v were not found while locking: %w", missingIDs, db.ErrDoesNotExist)
+	}
+
+	return nil
 }
 
 // setQueryWithFilter populates the lookup query based on specified filter

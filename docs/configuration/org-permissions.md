@@ -53,9 +53,9 @@ Example response for a human user:
 
 Service accounts have empty `email`/`firstName`/`lastName`. Human users have those populated from the IdP.
 
-This endpoint does not return role information directly -- roles are in the token and validated server-side. Confirm which roles you hold by attempting role-gated operations: `nicocli allocation list` requires Provider Admin; `nicocli tenant get-current-tenant` requires Tenant Admin.
+This endpoint does not return role information directly -- roles are in the token and validated server-side. Confirm which roles you hold by attempting role-gated operations: `nicocli allocation list` requires Provider Admin; `nicocli tenant current` requires Tenant Admin.
 
-If your deployment is configured for service-account auth, use `nicocli service-account get` to retrieve the current org's service-account status, including the auto-created provider and tenant IDs.
+If your deployment is configured for service-account auth, use `nicocli service-account current` to retrieve the current org's service-account status, including the auto-created provider and tenant IDs.
 
 ## Listing Tenant Members
 
@@ -77,5 +77,5 @@ Remove the role assignment (or org membership) in the identity provider. The cha
 1. Create the IdP organization (or group) for the tenant.
 2. Invite at least one user with `TENANT_ADMIN` so they can provision the tenant.
 3. Invite additional team members with appropriate roles.
-4. Verify from the tenant side: `nicocli user get` and `nicocli tenant get-current-tenant`.
+4. Verify from the tenant side: `nicocli user get` and `nicocli tenant current`.
 5. On the provider side, ensure at least one user holds `PROVIDER_ADMIN`.

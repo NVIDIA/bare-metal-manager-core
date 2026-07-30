@@ -2550,6 +2550,80 @@ mod tests {
         );
     }
 
+    fn l3_phy_port_config(vlan: u16) -> PortConfig {
+        PortConfig {
+            is_l2_segment: false,
+            svi_ip: None,
+            ..phy_port_config(vlan)
+        }
+    }
+
+    // FNN L3 (is_l2_segment=false): in container mode the FMDS gateway address
+    // must appear on the L3 interface's ip block, not an SVI.
+    #[test]
+    fn test_fmds_gateway_fnn_l3_container_mode_emits_address() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.is_dpu_os = false;
+        conf.fmds_gateway_vlan = Some(274);
+        conf.ct_routing_profile = Some(minimal_fnn_routing_profile());
+        conf.ct_port_configs = vec![l3_phy_port_config(274)];
+        let output = build(conf).expect("build should succeed");
+        assert!(
+            output.contains("169.254.169.253/30"),
+            "expected FMDS gateway address on FNN L3 interface:\n{output}"
+        );
+    }
+
+    // FNN L3 in DPU-OS mode: 169.254.169.253/30 must NOT appear on pf0hpf_if
+    // (the startup template puts it on pf0dpu1_if instead). The naive
+    // `!contains(addr) || contains(pf0dpu1_if)` check is vacuously true because
+    // the FNN template always renders pf0dpu1_if in DPU-OS mode, so we parse the
+    // YAML and assert at the per-interface level.
+    #[test]
+    fn test_fmds_gateway_fnn_l3_dpu_os_mode_suppressed() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.is_dpu_os = true;
+        conf.fmds_gateway_vlan = Some(274);
+        conf.ct_routing_profile = Some(minimal_fnn_routing_profile());
+        conf.ct_port_configs = vec![l3_phy_port_config(274)];
+        let output = build(conf).expect("build should succeed");
+        let docs: serde_yaml::Value =
+            serde_yaml::from_str(&output).expect("output should be valid YAML");
+        let interfaces = &docs.as_sequence().unwrap()[1]["set"]["interface"];
+        // The L3 interface must not carry the FMDS address.
+        assert!(
+            interfaces["pf0hpf_if"]["ip"]["address"]["169.254.169.253/30"].is_null(),
+            "DPU-OS mode must not put 169.254.169.253/30 on pf0hpf_if:\n{output}"
+        );
+        // The startup-template interface (pf0dpu1_if) must carry it instead.
+        assert!(
+            !interfaces["pf0dpu1_if"]["ip"]["address"]["169.254.169.253/30"].is_null(),
+            "DPU-OS mode must put 169.254.169.253/30 on pf0dpu1_if:\n{output}"
+        );
+    }
+
+    // FNN with an L3 Physical port and a mismatched fmds_gateway_vlan should not
+    // emit the FMDS address (and should not panic).
+    #[test]
+    fn test_fmds_gateway_fnn_l3_vlan_mismatch_emits_nothing() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.is_dpu_os = false;
+        conf.fmds_gateway_vlan = Some(999); // no port has vlan 999
+        conf.ct_routing_profile = Some(minimal_fnn_routing_profile());
+        conf.ct_port_configs = vec![l3_phy_port_config(274)];
+        let output = build(conf).expect("build should succeed even with mismatched vlan");
+        assert!(
+            !output.contains("169.254.169.253/30"),
+            "mismatched vlan should not produce FMDS address on FNN L3 interface:\n{output}"
+        );
+    }
+
     #[test]
     fn test_fnn_no_interface_routing_profile_uses_vpc_allowed_anycast_prefixes() {
         // Build an FNN config with a VPC routing profile and no interface override.

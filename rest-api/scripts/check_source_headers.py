@@ -87,8 +87,11 @@ HASH_PROPRIETARY_RE = re.compile(
 
 
 def tracked_files(repo: Path) -> list[Path]:
+    # git ls-files reports index entries, which outlive files the caller has already
+    # deleted; generate-sdk clears stale SDK output before regenerating.
     output = subprocess.check_output(["git", "ls-files"], cwd=repo, text=True)
-    return [Path(line) for line in output.splitlines()]
+    paths = (Path(line) for line in output.splitlines())
+    return [path for path in paths if (repo / path).is_file()]
 
 
 def is_dockerfile(path: Path) -> bool:

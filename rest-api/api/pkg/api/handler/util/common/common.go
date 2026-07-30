@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	mapset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
@@ -52,10 +53,12 @@ const (
 	RECENT_STATUS_DETAIL_COUNT = 20
 	DefaultIpxeScript          = "#ipxe\ndefault"
 
-	// Likely to be moved into cloud-db later, similar
-	// to machine status.
-	MachineHealthStatusHealthy   = "healthy"
+	// MachineHealthStatusHealthy is the health status for a machine that is healthy
+	MachineHealthStatusHealthy = "healthy"
+	// MachineHealthStatusUnhealthy is the health status for a machine that is unhealthy
 	MachineHealthStatusUnhealthy = "unhealthy"
+	// TenantCapabilityTargetedInstanceCreation is the capability key for targeted instance creation
+	TenantCapabilityTargetedInstanceCreation = "targetedInstanceCreation"
 )
 
 var (
@@ -1469,7 +1472,10 @@ func AuthorizeProviderSiteForCore(in AuthorizeProviderSiteForCoreInput) (tclient
 
 // IsTenant ensures that user is authorized to act as a Tenant Admin for the org.
 // if authorized it returns the tenant otherwise a relevant error.
-func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, org string, user *cdbm.User, requirePrivileged bool) (*cdbm.Tenant, *cutil.APIError) {
+// requirePrivilegedScope gates on the TargetedInstanceCreation capability: nil
+// means no privilege is required; a non-nil scope requires the capability to be
+// effective within that scope (see TenantPrivilegeScope).
+func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, org string, user *cdbm.User, requirePrivilegedScope *TenantPrivilegeScope) (*cdbm.Tenant, *cutil.APIError) {
 	// Validate that user belongs to org
 	ok, err := auth.ValidateOrgMembership(user, org)
 	if !ok {
@@ -1499,16 +1505,237 @@ func IsTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session
 		return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve tenant for org, DB error", nil)
 	}
 
-	if requirePrivileged && !tenant.Config.TargetedInstanceCreation {
-		return nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled", nil)
+	if requirePrivilegedScope != nil {
+		privileged, perr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, requirePrivilegedScope)
+		if perr != nil {
+			logger.Error().Err(perr).Msg("error resolving privileged TenantAccount for Tenant")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability, DB error", nil)
+		}
+		if !privileged {
+			return nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled", nil)
+		}
 	}
 
 	return tenant, nil
 }
 
+// TenantPrivilegeScope narrows where a Tenant's TargetedInstanceCreation
+// capability must be effective for a privilege check.
+//
+// The scope pointer's presence is itself the "require privileged" signal for
+// the auth gates (IsTenant / IsProviderOrTenant): a nil *TenantPrivilegeScope
+// means no privilege is required. For TenantHasTargetedInstanceCreation a
+// non-nil scope is required and the fields select how the capability is
+// resolved:
+//
+//   - SiteID set: resolve the effective capability for that exact Site.
+//   - InfrastructureProviderID set: privileged if the Ready TenantAccount for
+//     that Provider has TargetedInstanceCreation enabled globally.
+//
+// SiteID and InfrastructureProviderID must not be set together.
+type TenantPrivilegeScope struct {
+	InfrastructureProviderID *uuid.UUID
+	SiteID                   *uuid.UUID
+}
+
+// TenantHasLegacyTargetedInstanceCreation reports whether the deprecated
+// Tenant.capabilities.targetedInstanceCreation compatibility field may be
+// returned as true. It requires at least one Ready TenantAccount, every Ready
+// TenantAccount default to be enabled, and no explicit TenantSite override to
+// disable the capability.
+//
+// This coarse aggregate is for response compatibility only. Authorization must
+// use TenantHasTargetedInstanceCreation with an explicit Provider or Site scope.
+func TenantHasLegacyTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant) (bool, error) {
+	if tenant == nil {
+		return false, nil
+	}
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		Statuses:  []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		return false, err
+	}
+	if len(tas) == 0 {
+		return false, nil
+	}
+
+	for _, ta := range tas {
+		if !ta.Config.TargetedInstanceCreation {
+			return false, nil
+		}
+	}
+
+	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+	disabledSites, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		ConfigKey: cutil.GetPtr(TenantCapabilityTargetedInstanceCreation),
+		ConfigVal: cutil.GetPtr("false"),
+	}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+	if err != nil {
+		return false, err
+	}
+
+	return len(disabledSites) == 0, nil
+}
+
+// TenantHasTargetedInstanceCreation reports whether the Tenant has the
+// TargetedInstanceCreation capability enabled within the given scope. It is
+// nil-safe so callers don't have to repeat the tenant nil check, and it
+// deliberately does not read the deprecated tenant-level flag
+// (tenant.Config.TargetedInstanceCreation), which is superseded by
+// TenantAccount.config with per-site TenantSite.config overrides. See
+// TenantPrivilegeScope for how scope selects the resolution strategy.
+func TenantHasTargetedInstanceCreation(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant, scope *TenantPrivilegeScope) (bool, error) {
+	if tenant == nil {
+		return false, nil
+	}
+
+	if scope == nil {
+		return false, errors.New("scope must be specified when evaluating Tenant's targeted Instance creation capability")
+	}
+
+	if scope.SiteID != nil && scope.InfrastructureProviderID != nil {
+		return false, errors.New("site ID and infrastructure provider ID cannot be specified together when evaluating Tenant's targeted Instance creation capability")
+	}
+
+	siteID := scope.SiteID
+	providerID := scope.InfrastructureProviderID
+	var siteOverride *bool
+
+	// Site-scoped: resolve the effective capability for the exact Site.
+	if siteID != nil {
+		tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+		ts, err := tsDAO.GetByTenantIDAndSiteID(ctx, tx, tenant.ID, *siteID, []string{cdbm.SiteRelationName})
+		if err != nil {
+			if errors.Is(err, cdb.ErrDoesNotExist) {
+				siteDAO := cdbm.NewSiteDAO(dbSession)
+				site, err := siteDAO.GetByID(ctx, tx, *siteID, nil, false)
+				if err != nil {
+					return false, err
+				}
+
+				// Site-scoped: resolve the effective capability for the exact Site.
+				providerID = &site.InfrastructureProviderID
+			} else {
+				return false, err
+			}
+		} else {
+			if ts.Site != nil {
+				providerID = &ts.Site.InfrastructureProviderID
+			} else {
+				return false, errors.New("failed to retrieve related Site for Tenant/Site association, DB error")
+			}
+			// This will ensure TenantAccount is ready for the Site.
+			siteOverride = ts.Config.TargetedInstanceCreation
+		}
+	}
+
+	if providerID != nil {
+		taDAO := cdbm.NewTenantAccountDAO(dbSession)
+		tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+			InfrastructureProviderID: providerID,
+			TenantIDs:                []uuid.UUID{tenant.ID},
+			Statuses:                 []string{cdbm.TenantAccountStatusReady},
+		}, cdbp.PageInput{Limit: cutil.GetPtr(1)}, nil)
+		if err != nil {
+			return false, err
+		}
+
+		if len(tas) == 0 {
+			return false, nil
+		}
+
+		ta := tas[0]
+		if siteOverride != nil {
+			return *siteOverride, nil
+		}
+
+		return ta.Config.TargetedInstanceCreation, nil
+	}
+
+	return false, nil
+}
+
+// GetPrivilegedAccessSiteIDsForTenant returns Site IDs where the Tenant has
+// effective TargetedInstanceCreation via a Ready TenantAccount and optional
+// TenantSite.config overrides. It is nil-safe and returns an empty slice when
+// the Tenant has no privileged Site access.
+func GetPrivilegedAccessSiteIDsForTenant(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, tenant *cdbm.Tenant) ([]uuid.UUID, error) {
+	if tenant == nil {
+		return nil, nil
+	}
+
+	taDAO := cdbm.NewTenantAccountDAO(dbSession)
+	tas, _, err := taDAO.GetAll(ctx, tx, cdbm.TenantAccountFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+		Statuses:  []string{cdbm.TenantAccountStatusReady},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(tas) == 0 {
+		return nil, nil
+	}
+
+	readyProviderIDs := mapset.NewSet[uuid.UUID]()
+	enabledProviderIDs := mapset.NewSet[uuid.UUID]()
+	for _, ta := range tas {
+		readyProviderIDs.Add(ta.InfrastructureProviderID)
+		if ta.Config.TargetedInstanceCreation {
+			enabledProviderIDs.Add(ta.InfrastructureProviderID)
+		}
+	}
+
+	siteIDs := mapset.NewSet[uuid.UUID]()
+	if !enabledProviderIDs.IsEmpty() {
+		siteDAO := cdbm.NewSiteDAO(dbSession)
+		sites, _, err := siteDAO.GetAll(ctx, tx, cdbm.SiteFilterInput{
+			InfrastructureProviderIDs: enabledProviderIDs.ToSlice(),
+		}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, site := range sites {
+			siteIDs.Add(site.ID)
+		}
+	}
+
+	tsDAO := cdbm.NewTenantSiteDAO(dbSession)
+	tss, _, err := tsDAO.GetAll(ctx, tx, cdbm.TenantSiteFilterInput{
+		TenantIDs: []uuid.UUID{tenant.ID},
+	}, cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}, []string{cdbm.SiteRelationName})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ts := range tss {
+		if ts.Config.TargetedInstanceCreation != nil {
+			if *ts.Config.TargetedInstanceCreation {
+				if ts.Site != nil && readyProviderIDs.Contains(ts.Site.InfrastructureProviderID) {
+					siteIDs.Add(ts.SiteID)
+				}
+			} else {
+				siteIDs.Remove(ts.SiteID)
+			}
+		}
+	}
+
+	return siteIDs.ToSlice(), nil
+}
+
 // IsProviderOrTenant ensures that user is authorized to act as a Provider Admin or/and Tenant Admin for the org.
 // if authorized it returns the tenant otherwise a relevant error.
-func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, org string, user *cdbm.User, allowViewerRole bool, requirePrivilegedTenant bool) (infrastructureProvider *cdbm.InfrastructureProvider, tenant *cdbm.Tenant, apiError *cutil.APIError) {
+//
+// requirePrivilegedScope gates the Tenant on the TargetedInstanceCreation
+// capability: nil means no privilege is required; a non-nil scope requires the
+// capability to be effective within that scope (see TenantPrivilegeScope). It
+// only affects the Tenant path — Provider authorization is unaffected.
+func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, org string, user *cdbm.User, allowViewerRole bool, requirePrivilegedScope *TenantPrivilegeScope) (infrastructureProvider *cdbm.InfrastructureProvider, tenant *cdbm.Tenant, apiError *cutil.APIError) {
 	// Validate that user belongs to org
 	ok, err := auth.ValidateOrgMembership(user, org)
 	if !ok {
@@ -1556,8 +1783,13 @@ func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *c
 			}
 		}
 
-		if tenant != nil && requirePrivilegedTenant {
-			if !tenant.Config.TargetedInstanceCreation {
+		if tenant != nil && requirePrivilegedScope != nil {
+			privileged, perr := TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, requirePrivilegedScope)
+			if perr != nil {
+				logger.Error().Err(perr).Msg("error resolving privileged TenantAccount for Tenant")
+				return nil, nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability, DB error", nil)
+			}
+			if !privileged {
 				if infrastructureProvider == nil {
 					return nil, nil, cutil.NewAPIError(http.StatusForbidden, "Tenant does not have targeted Instance creation capability enabled", nil)
 				}
