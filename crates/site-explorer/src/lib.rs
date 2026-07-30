@@ -148,7 +148,9 @@ pub fn enrich_endpoint_exploration_report(
     fw_config_snapshot: &FirmwareConfigSnapshot,
 ) {
     if !report.is_power_shelf() {
-        if let Err(error) = report.generate_machine_id(false) {
+        if !report.is_switch()
+            && let Err(error) = report.generate_machine_id(false)
+        {
             tracing::error!(%error, "Can not generate MachineId for explored endpoint");
         }
         report.model = report.model();
