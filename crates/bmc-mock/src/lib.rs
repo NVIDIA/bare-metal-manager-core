@@ -30,13 +30,14 @@ mod bmc_state;
 mod combined_server;
 mod combined_service;
 mod http;
-mod hw;
+pub mod hw;
 pub mod injection;
 mod json;
 pub mod mac_address_pool;
 mod machine_info;
 mod middleware_router;
 mod mock_machine_router;
+mod rack_info;
 mod redfish;
 pub mod test_support;
 pub mod tls;
@@ -51,11 +52,26 @@ pub use mock_machine_router::{
     BmcCommand, MachineRouterOptions, SetSystemPowerError, SetSystemPowerResult, machine_router,
     machine_router_with_injection_store,
 };
+pub use rack_info::RackInfo;
 pub use redfish::virtual_media::DeviceConfig as VirtualMediaDeviceConfig;
 
 pub const DUMMY_FACTORY_USERNAME: &str = "root";
 pub const DUMMY_FACTORY_PASSWORD: &str = "factory_password";
 pub const DUMMY_FACTORY_DPU_PASSWORD: &str = "0penBmc";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+pub enum RackType {
+    #[serde(rename = "wiwynn_gb200_nvl72")]
+    WiwynnGb200Nvl72,
+}
+
+impl fmt::Display for RackType {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::WiwynnGb200Nvl72 => formatter.write_str("WIWYNN GB200 NVL72"),
+        }
+    }
+}
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum HardwareType {

@@ -42,6 +42,12 @@ pub mod dell_poweredge_r760_bf4;
 /// Support of Wiwynn GB200 NVL servers.
 pub mod wiwynn_gb200_nvl;
 
+/// Rack hardware layouts.
+pub mod rack;
+
+/// WIWYNN GB200 NVL72 rack.
+pub mod wiwynn_gb200_nvl72_rack;
+
 /// Support of Lenovo GB300 NVL servers.
 pub mod lenovo_gb300_nvl;
 
