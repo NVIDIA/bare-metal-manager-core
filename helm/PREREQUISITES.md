@@ -267,6 +267,43 @@ nico-api:
 
 Adjust pool ranges to match your site's address plan. A fully annotated example with all available options is at [`deploy/files/nico-api/nico-api-site-config.toml`](../deploy/files/nico-api/nico-api-site-config.toml).
 
+### Admin client certificates
+
+To authenticate admin clients whose certificates are issued by an external PKI,
+provide the public CA certificate (or rotation bundle) and classify its issuer
+CN as an external user issuer:
+
+```yaml
+nico-api:
+  auth:
+    additionalIssuerCns:
+      - "admin-user-intermediate"
+  siteConfig:
+    enabled: true
+    adminRootCertPem: |
+      -----BEGIN CERTIFICATE-----
+      <PEM-encoded public CA certificate>
+      -----END CERTIFICATE-----
+```
+
+`adminRootCertPem` is materialized as `admin_root_cert_pem` in the site
+ConfigMap, which is mounted at
+`/etc/forge/carbide-api/site/admin_root_cert_pem` and
+`/etc/nico/nico-api/site/admin_root_cert_pem`. The default
+`nico-api.auth.adminRootCafilePath` already selects the first path. If you
+override it, select one of these two mounted paths.
+
+The value may contain root or intermediate CA certificates, but never private
+keys. Helm validates that the value contains canonical PEM certificate blocks
+only; it cannot validate X.509 DER, CA constraints, validity, or the trust
+chain. Verify those properties with X.509 tooling before deployment.
+
+Setting the CA bundle establishes TLS trust; `additionalIssuerCns` separately
+maps client certificates issued by that CA to `ExternalUser` principals for
+admin authorization. Prefer a dedicated admin-client intermediate and issuance
+profile so unrelated client certificates are not admitted through the same
+trust boundary.
+
 ---
 
 ## 7. Network Requirements

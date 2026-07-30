@@ -256,6 +256,12 @@ configFiles:
 siteConfig:
   enabled: true
   nicoApiSiteConfig: ""  # Must include [pools.lo-ip], [pools.vlan-id], [pools.vni], [pools.vpc-vni]
+  ## Public CA trust bundle used to verify admin client certificates.
+  ## Accepts one or more canonical PEM CERTIFICATE blocks; private keys are
+  ## rejected. Helm validates the PEM envelope only, not X.509 CA semantics.
+  ## Pair with auth.additionalIssuerCns to classify trusted client certificates
+  ## as ExternalUser principals.
+  adminRootCertPem: ""
 
 ## NICo Web UI hostname (always created as ConfigMap)
 hostname: "nico.local"

@@ -1,3 +1,4 @@
+{{- include "nico-api.validateAdminRootCertPem" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -39,6 +40,10 @@ data:
   # Both filenames populated for dual carbide/nico image support.
   carbide-api-site-config.toml: {{ .Values.siteConfig.nicoApiSiteConfig | default "" | quote }}
   nico-api-site-config.toml:    {{ .Values.siteConfig.nicoApiSiteConfig | default "" | quote }}
+{{- with .Values.siteConfig.adminRootCertPem }}
+  admin_root_cert_pem: |
+    {{- . | nindent 4 }}
+{{- end }}
 {{- end }}
 {{- if .Values.vaultClusterInfo }}
 ---
