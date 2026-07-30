@@ -33,7 +33,8 @@ pub mod proto {
 
 use proto::dhcp_server_control_server::{DhcpServerControl, DhcpServerControlServer};
 use proto::{
-    GetDhcpTimestampsRequest, GetDhcpTimestampsResponse, StopServerRequest, StopServerResponse,
+    GetDhcpTimestampsRequest, GetDhcpTimestampsResponse, InvalidateDhcpCacheRequest,
+    InvalidateDhcpCacheResponse, StopServerRequest, StopServerResponse,
     UpdateAndReloadConfigRequest, UpdateAndReloadConfigResponse,
 };
 
@@ -54,6 +55,10 @@ pub enum ControlRequest {
     /// Stop the DHCP server.  The gRPC control server stays up so that a
     /// subsequent UpdateAndReload can restart the DHCP server.
     Stop,
+    /// Force a server restart to clear the LRU DHCP record cache and reload
+    /// the suppressed-MAC set from the Core API.  Used after
+    /// `ignored_bmc_macs.suppress_dhcp` is updated for a BMC.
+    InvalidateCache,
 }
 
 // ── Proto → model conversions ─────────────────────────────────────────────────
@@ -189,6 +194,21 @@ impl DhcpServerControl for DhcpServerControlService {
 
         tracing::debug!("UpdateAndReloadConfig accepted");
         Ok(Response::new(UpdateAndReloadConfigResponse {}))
+    }
+
+    /// Forces a server restart so that the LRU DHCP record cache is cleared
+    /// and the suppressed-MAC set is reloaded from the Core API.
+    async fn invalidate_dhcp_cache(
+        &self,
+        _request: Request<InvalidateDhcpCacheRequest>,
+    ) -> Result<Response<InvalidateDhcpCacheResponse>, Status> {
+        self.ctrl_tx
+            .send(ControlRequest::InvalidateCache)
+            .await
+            .map_err(|_| Status::internal("control channel closed"))?;
+
+        tracing::info!("InvalidateDhcpCache accepted");
+        Ok(Response::new(InvalidateDhcpCacheResponse {}))
     }
 
     /// Stops the DHCP server without terminating the gRPC control server.

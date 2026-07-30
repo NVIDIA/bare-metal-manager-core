@@ -221,6 +221,17 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
   rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
+  // GetSuppressedDhcpMacs returns the MAC addresses of all BMCs whose DHCP
+  // traffic should be suppressed (suppress_dhcp = true in ignored_bmc_macs).
+  // The DHCP server calls this on startup and after an InvalidateDhcpCache
+  // control request to rebuild its in-memory suppression set.
+  rpc GetSuppressedDhcpMacs(GetSuppressedDhcpMacsRequest) returns (GetSuppressedDhcpMacsResponse);
+
+  // RecordDhcpDiscoverSuppressed is called by the DHCP server when it drops a
+  // DHCPDISCOVER from a suppressed MAC, proving the BMC DHCP client has
+  // returned to the INIT state.  Only the DHCP server should call this RPC.
+  rpc RecordDhcpDiscoverSuppressed(RecordDhcpDiscoverSuppressedRequest) returns (RecordDhcpDiscoverSuppressedResponse);
+
   rpc AssignStaticAddress(AssignStaticAddressRequest) returns (AssignStaticAddressResponse);
   rpc RemoveStaticAddress(RemoveStaticAddressRequest) returns (RemoveStaticAddressResponse);
   rpc FindInterfaceAddresses(FindInterfaceAddressesRequest) returns (FindInterfaceAddressesResponse);
@@ -4232,6 +4243,21 @@ enum MessageKind {
   // DHCPv6 Information-request. Requires ADDRESS_FAMILY_V6 and a non-empty duid.
   MESSAGE_KIND_V6_INFO_REQUEST = 4;
 }
+
+message GetSuppressedDhcpMacsRequest {}
+
+message GetSuppressedDhcpMacsResponse {
+  // MAC addresses (formatted as "aa:bb:cc:dd:ee:ff") of BMCs with
+  // suppress_dhcp = true in ignored_bmc_macs.
+  repeated string bmc_mac_addresses = 1;
+}
+
+message RecordDhcpDiscoverSuppressedRequest {
+  // MAC address of the BMC whose DHCPDISCOVER was suppressed.
+  string bmc_mac_address = 1;
+}
+
+message RecordDhcpDiscoverSuppressedResponse {}
 
 message ExpireDhcpLeaseRequest {
   string ip_address = 1;

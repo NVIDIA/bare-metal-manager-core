@@ -90,6 +90,7 @@ pub enum DropReason {
     NotMyPacket,
     VendorClassParseError,
     MultipleInterfaces,
+    SuppressedMac,
 }
 
 impl From<&DhcpError> for DropReason {
@@ -114,6 +115,7 @@ impl From<&DhcpError> for DropReason {
             DhcpError::NotMyPacket(_) => Self::NotMyPacket,
             DhcpError::VendorClassParseError(_) => Self::VendorClassParseError,
             DhcpError::MultipleInterfacesProvidedOneSupported(_) => Self::MultipleInterfaces,
+            DhcpError::SuppressedMacDiscover(_) => Self::SuppressedMac,
         }
     }
 }

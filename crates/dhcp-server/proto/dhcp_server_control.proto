@@ -33,6 +33,12 @@ service DhcpServerControl {
     // The gRPC server remains up to accept future requests.  The DHCP server
     // will be restarted automatically by the next UpdateAndReloadConfig call.
     rpc StopServer(StopServerRequest) returns (StopServerResponse);
+
+    // Invalidate the DHCP record cache and reload the suppressed-MAC set from
+    // the Core API.  This triggers a server restart so that (a) the LRU cache
+    // is cleared and (b) newly suppressed BMC MACs take effect immediately.
+    // Callers should invoke this after updating ignored_bmc_macs.suppress_dhcp.
+    rpc InvalidateDhcpCache(InvalidateDhcpCacheRequest) returns (InvalidateDhcpCacheResponse);
 }
 
 // ── UpdateAndReloadConfig ─────────────────────────────────────────────────────
@@ -107,3 +113,9 @@ message GetDhcpTimestampsResponse {
 message StopServerRequest {}
 
 message StopServerResponse {}
+
+// ── InvalidateDhcpCache ───────────────────────────────────────────────────────
+
+message InvalidateDhcpCacheRequest {}
+
+message InvalidateDhcpCacheResponse {}

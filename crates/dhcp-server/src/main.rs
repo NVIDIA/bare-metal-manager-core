@@ -486,6 +486,13 @@ async fn run_with_grpc_control(
                             tracing::info!("StopServer: DHCP server was not running");
                         }
                     }
+                    ControlRequest::InvalidateCache => {
+                        tracing::info!("InvalidateCache: restarting DHCP server to clear cache and reload suppressed MACs");
+                        let (ct, h) =
+                            handle_reload(&args, cancel_token, dhcp_handle, true).await?;
+                        cancel_token = ct;
+                        dhcp_handle = h;
+                    }
                 }
             }
         }
@@ -569,6 +576,9 @@ pub struct Config {
     host_config: Option<HostConfig>, // Valid only for Dpu mode.
     relay_response_port: u16,
     forge_client_config: ForgeClientConfig,
+    /// BMC MAC addresses (formatted "aa:bb:cc:dd:ee:ff") with suppress_dhcp = true.
+    /// Loaded from the Core API on startup and on InvalidateDhcpCache.
+    suppressed_macs: std::collections::HashSet<String>,
 }
 
 async fn init(args: Args) -> Result<Config, DhcpError> {
@@ -583,11 +593,35 @@ async fn init(args: Args) -> Result<Config, DhcpError> {
         host_config = None;
     };
 
+    // Build a partial Config (without suppressed_macs) so we can pass it to
+    // get_suppressed_dhcp_macs, which needs the forge client config and API URL.
+    let partial_config = Config {
+        dhcp_config: dhcp_config.clone(),
+        host_config: host_config.clone(),
+        relay_response_port: args.relay_response_port,
+        forge_client_config: forge_client_config.clone(),
+        suppressed_macs: std::collections::HashSet::new(),
+    };
+
+    let suppressed_macs = match rpc::client::get_suppressed_dhcp_macs(&partial_config).await {
+        Ok(macs) => {
+            if !macs.is_empty() {
+                tracing::info!(count = macs.len(), "Loaded suppressed BMC MAC addresses");
+            }
+            macs
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to load suppressed MACs; starting with empty set");
+            std::collections::HashSet::new()
+        }
+    };
+
     Ok(Config {
         dhcp_config,
         host_config,
         relay_response_port: args.relay_response_port,
         forge_client_config,
+        suppressed_macs,
     })
 }
 

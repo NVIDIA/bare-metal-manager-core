@@ -866,6 +866,20 @@ impl Forge for Api {
         Ok(crate::dhcp::discover::discover_dhcp(self, request).await?)
     }
 
+    async fn get_suppressed_dhcp_macs(
+        &self,
+        request: Request<rpc::GetSuppressedDhcpMacsRequest>,
+    ) -> Result<Response<rpc::GetSuppressedDhcpMacsResponse>, Status> {
+        crate::dhcp::ignored_macs::get_suppressed_dhcp_macs(self, request).await
+    }
+
+    async fn record_dhcp_discover_suppressed(
+        &self,
+        request: Request<rpc::RecordDhcpDiscoverSuppressedRequest>,
+    ) -> Result<Response<rpc::RecordDhcpDiscoverSuppressedResponse>, Status> {
+        crate::dhcp::ignored_macs::record_dhcp_discover_suppressed(self, request).await
+    }
+
     async fn expire_dhcp_lease(
         &self,
         request: Request<rpc::ExpireDhcpLeaseRequest>,

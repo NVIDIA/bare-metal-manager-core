@@ -17,4 +17,5 @@
 
 pub mod discover;
 pub mod expire;
+pub mod ignored_macs;
 mod v6;

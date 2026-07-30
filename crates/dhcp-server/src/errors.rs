@@ -80,4 +80,7 @@ pub enum DhcpError {
 
     #[error("multiple interfaces are provided, but only 1 is supported: {0}")]
     MultipleInterfacesProvidedOneSupported(usize),
+
+    #[error("DHCPDISCOVER from ignored MAC {0}: no offer sent")]
+    SuppressedMacDiscover(String),
 }

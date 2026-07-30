@@ -279,6 +279,15 @@ pub async fn process_packet(
     decoded_packet.is_this_for_us(config)?;
 
     let msg_type = msg_type?;
+
+    // Check whether the client MAC is in the suppressed set before hitting the
+    // cache or the Core API.  The suppressed set is decommission-agnostic: the
+    // DHCP server only cares that suppress_dhcp is set, not why.
+    let mac_str = util::u8_to_mac(decoded_packet.packet.chaddr());
+    if config.suppressed_macs.contains(&mac_str) {
+        return handle_suppressed_mac(&decoded_packet, &mac_str, msg_type, config);
+    }
+
     let dhcp_response = handler
         .discover_dhcp(
             decoded_packet.get_discovery_request(handler, circuit_id),
@@ -514,6 +523,63 @@ fn create_dhcp_reply_packet(
         .insert(DhcpOption::VendorExtensions(vendor_option));
 
     Ok(msg)
+}
+
+/// Handle a packet from a MAC address whose `suppress_dhcp` flag is set.
+///
+/// - `DHCPDISCOVER`: return no-offer and fire-and-forget a call to record
+///   `dhcp_discover_suppressed_at` in the Core API.
+/// - `DHCPREQUEST`: return a NAK so the BMC client returns to INIT state.
+/// - Any other message type: drop silently.
+fn handle_suppressed_mac(
+    src: &DecodedPacket,
+    mac: &str,
+    msg_type: MessageType,
+    config: &Config,
+) -> Result<Packet, DhcpError> {
+    match msg_type {
+        MessageType::Discover => {
+            tracing::info!(mac, "Suppressed DHCPDISCOVER from ignored MAC: sending no-offer");
+            let mac_owned = mac.to_string();
+            let config_clone = config.clone();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::rpc::client::record_dhcp_discover_suppressed(&mac_owned, &config_clone)
+                        .await
+                {
+                    tracing::warn!(
+                        mac = %mac_owned,
+                        error = %e,
+                        "Failed to record DHCP discover suppression in Core API"
+                    );
+                }
+            });
+            Err(DhcpError::SuppressedMacDiscover(mac.to_string()))
+        }
+        MessageType::Request => {
+            tracing::info!(mac, "Suppressed DHCPREQUEST from ignored MAC: sending NAK");
+            let msg = nak_packet(
+                src,
+                config.dhcp_config.carbide_provisioning_server_ipv4,
+                config.dhcp_config.carbide_dhcp_server,
+            )?;
+            let (dst_address, dst_port) =
+                src.decide_dst_ip(msg_type, config.relay_response_port);
+            let mut encoded_packet = Vec::new();
+            let mut e = Encoder::new(&mut encoded_packet);
+            msg.encode(&mut e)?;
+            Ok(Packet {
+                encoded_packet,
+                dst_address,
+                dst_port,
+                message_type: crate::metrics::MessageTypeLabel::Nak,
+            })
+        }
+        _ => {
+            tracing::debug!(mac, ?msg_type, "Dropping packet from ignored MAC");
+            Err(DhcpError::SuppressedMacDiscover(mac.to_string()))
+        }
+    }
 }
 
 fn nak_packet(
