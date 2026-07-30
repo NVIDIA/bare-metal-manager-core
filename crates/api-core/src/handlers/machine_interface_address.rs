@@ -81,7 +81,7 @@ pub async fn update_preallocated_expected_machine_interface(
             interface_type: expected_interface.role.interface_type(),
             primary_interface: expected_interface.role.primary_interface_override(),
             segment_type_guard: expected_interface.segment_type_guard(),
-            require_managed_prefix: !expected_interface.uses_legacy_host_allocation(),
+            require_managed_prefix: !expected_interface.allows_static_assignments_fallback(),
         }),
         retained_window,
     )
@@ -111,8 +111,8 @@ struct ExpectedInterfaceSettings {
 ///
 /// Existing addressed rows remain unchanged. Addressless rows receive the
 /// fixed address, but ExpectedInterface settings are applied only while the row
-/// is unassociated. Passing no settings preserves the existing Host BMC update
-/// behavior.
+/// is unassociated. Passing no settings preserves the existing generic
+/// reservation update behavior.
 async fn update_preallocated_machine_interface_with_settings(
     txn: &mut sqlx::PgConnection,
     mac_address: MacAddress,

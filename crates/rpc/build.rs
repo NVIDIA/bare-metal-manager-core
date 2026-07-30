@@ -631,6 +631,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
+        .field_attribute(
+            "ExpectedMachine.replace_host_nics",
+            "#[serde(skip_serializing)]",
+        )
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedRack", "#[derive(serde::Serialize)]")

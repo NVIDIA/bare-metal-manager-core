@@ -1347,6 +1347,14 @@ impl Forge for Api {
         crate::handlers::host_reprovisioning::trigger_host_reprovisioning(self, request).await
     }
 
+    async fn trigger_bmc_credential_rotation(
+        &self,
+        request: Request<rpc::BmcCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::bmc_credential_rotation::trigger_bmc_credential_rotation(self, request)
+            .await
+    }
+
     async fn mark_manual_firmware_upgrade_complete(
         &self,
         request: Request<MachineId>,

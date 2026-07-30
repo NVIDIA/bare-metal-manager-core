@@ -1237,22 +1237,12 @@ pub async fn preallocate_expected_machine_interface(
             interface_type: expected_interface.role.interface_type(),
             primary_interface: expected_interface.role.primary_interface_override(),
             segment_type_guard: expected_interface.segment_type_guard(),
-            require_managed_prefix: !expected_interface.uses_legacy_host_allocation(),
+            require_managed_prefix: !expected_interface.allows_static_assignments_fallback(),
             allow_associated_interface_settings_update: false,
         },
         retained_window,
     )
     .await
-}
-
-/// Pin a BMC interface's dynamic (DHCP) address as `Static` so lease expiry can't
-/// reap it. Idempotent no-op if the BMC interface has no DHCP address. Honors a
-/// `Retained` bmc_ip_allocation for BMCs with no operator-specified address.
-pub async fn retain_bmc_address_by_mac(
-    txn: &mut PgConnection,
-    bmc_mac: MacAddress,
-) -> DatabaseResult<()> {
-    retain_address_by_mac_and_type(txn, bmc_mac, InterfaceType::Bmc, None).await
 }
 
 /// Pin DHCP addresses for an expected interface whose allocation policy is
@@ -1372,8 +1362,8 @@ struct PreallocationOptions {
     ///
     /// This does not disable fixed-address reconciliation. ExpectedInterface
     /// callers set this to `false` so expected configuration cannot reclassify
-    /// managed state, while legacy generic and Host BMC callers preserve their
-    /// existing setting-update behavior.
+    /// managed state, while legacy generic callers preserve their existing
+    /// setting-update behavior.
     allow_associated_interface_settings_update: bool,
 }
 

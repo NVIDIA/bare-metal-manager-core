@@ -376,6 +376,15 @@ service Forge {
   rpc TriggerHostReprovisioning(HostReprovisioningRequest) returns (google.protobuf.Empty);
   // List hosts waiting for reprovisioning
   rpc ListHostsWaitingForReprovisioning(HostReprovisioningListRequest) returns (HostReprovisioningListResponse);
+  // Operator "force-converge this BMC now" escape hatch for a single host/DPU
+  // BMC. This is asynchronous: the handler only persists (Set) or removes
+  // (Clear) the machine's `bmc_credential_rotation_requested` flag and returns;
+  // it performs no rotation itself. A later machine-controller sweep observes a
+  // set flag and rotates the BMC, bypassing the passive site-wide gate and the
+  // device's backoff quarantine, then clears the flag once it converges. Clear
+  // only withdraws a not-yet-consumed request -- it does not undo or reset any
+  // BMC credentials that a prior sweep already rotated.
+  rpc TriggerBmcCredentialRotation(BmcCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -5880,6 +5889,24 @@ message HostReprovisioningRequest {
   UpdateInitiator initiator = 3;
 }
 
+message BmcCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  // Address the target BMC by the owning machine's id, by its BMC MAC, or by
+  // both. A machine (host or DPU) has exactly one BMC, so either identifier
+  // alone uniquely names the device; if both are supplied they must agree.
+  // At least one of machine_id / bmc_mac must be set (enforced server-side).
+  optional common.MachineId machine_id = 2;
+  // MAC of the BMC to target.
+  optional string bmc_mac = 3;
+}
+
 message HostReprovisioningListRequest {
 }
 
@@ -6180,8 +6207,8 @@ message ExpectedHostNic {
   // At most one Host interface per `ExpectedMachine` may set it to true; the
   // other Host interfaces then become non-primary. False remains accepted for
   // compatibility but does not replace that machine-wide selection. DPU OS
-  // interfaces are primary data interfaces and DPU BMC interfaces are
-  // non-primary; those roles must omit this field.
+  // interfaces are primary data interfaces, while DPU BMC and Host BMC
+  // interfaces are non-primary.
   optional bool primary = 6;
   // Optional guard for this interface's network segment type. An explicit
   // allocation policy or DPU role applies the guard to DHCP-selected segments
@@ -6191,19 +6218,22 @@ message ExpectedHostNic {
   // On update, omission clears this guard.
   optional NetworkSegmentType network_segment_type = 7;
   // Machine endpoint that owns this interface. The role selects interface type
-  // and primary behavior only; Host, DPU OS, and DPU BMC all accept the same
-  // allocation policies and optional segment guard. On create, missing and
-  // Unspecified mean Host. On update, omission preserves the stored role while
-  // explicit Unspecified resets it to Host.
+  // and primary behavior only; every role accepts the same allocation policies
+  // and optional segment guard. On create, missing and Unspecified mean Host.
+  // On update, omission preserves the stored role while explicit Unspecified
+  // resets it to Host.
   optional ExpectedInterfaceRole role = 8;
-  // Optional allocation policy. On create, missing and Unspecified infer Fixed
-  // from `fixed_ip` and Dynamic otherwise. On update, omission preserves the
-  // stored policy while explicit Unspecified resets to that inference.
+  // Optional allocation policy. On create, omission and explicit Unspecified
+  // infer Fixed from `fixed_ip`. Without one, Host BMC infers Retained and every
+  // other role infers Dynamic. On single and batch update, omission preserves a
+  // matching stored policy while `fixed_ip` presence is unchanged; explicit
+  // Unspecified resets to inference. New interfaces use create behavior.
   // Explicit Dynamic rejects `fixed_ip`. Explicit Fixed, or a DPU role that
   // infers Fixed, requires `fixed_ip` inside a configured managed prefix. A
-  // legacy Host declaration with an omitted policy may instead fall back to
-  // `static-assignments` and does not turn `network_segment_type` into a
-  // fixed-address guard.
+  // legacy Host declaration, or an inferred Host BMC Fixed policy that omits
+  // `network_segment_type`, may instead fall back to `static-assignments`; only
+  // the legacy Host case leaves `network_segment_type` as a first-DHCP
+  // selection hint.
   optional ExpectedInterfaceIpAllocation ip_allocation = 9;
 }
 
@@ -6239,8 +6269,11 @@ enum DpuMode {
 // - BMC_IP_ALLOCATION_TYPE_RETAINED: an auto-allocated address pinned as Static
 //   (never expires).
 //
-// Unset and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` both mean "use the default"
-// (AUTO), which preserves behavior for old clients that don't send the field.
+// On create, omission and `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On
+// single and batch update, omission preserves the effective Host BMC policy,
+// while explicit `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` resets it to AUTO. On
+// replace-all, omission resets a legacy-only row to AUTO but preserves an
+// existing nested HostBmc policy that an older client cannot send.
 enum BmcIpAllocationType {
   BMC_IP_ALLOCATION_TYPE_UNSPECIFIED = 0;
   BMC_IP_ALLOCATION_TYPE_AUTO = 1;
@@ -6269,6 +6302,9 @@ message ExpectedMachine {
   optional string sku_id =  7;
   // Unique identifier for the expected machine. When omitted, server generates one.
   optional common.UUID id = 8;
+  // Expected interfaces. Top-level BMC fields preserve legacy-only storage
+  // and remain overrides for the effective Host BMC; a Host BMC entry appears
+  // here once it is configured through the nested interface model.
   repeated ExpectedHostNic host_nics = 9;
   optional common.RackId rack_id = 10;
   optional bool default_pause_ingestion_and_poweron = 11;
@@ -6276,7 +6312,10 @@ message ExpectedMachine {
   bool dpf_enabled = 12 [deprecated = true];
   optional bool is_dpf_enabled = 13;
   // Static BMC IP (optional). Pre-allocates a machine_interface like expected
-  // switches and power shelves; external IPs use the static-assignments segment.
+  // switches and power shelves; external IPs use the static-assignments
+  // segment. Single and batch update omission preserves the effective Host BMC
+  // setting; an explicit empty string clears it. Replace-all keeps its earlier
+  // replacement semantics for legacy-only rows.
   optional string bmc_ip_address = 14;
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
@@ -6289,8 +6328,18 @@ message ExpectedMachine {
   // existing DB value is preserved via COALESCE.
   optional HostLifecycleProfile host_lifecycle_profile = 17;
   // Per-host control over how this BMC's IP is assigned and retained. See
-  // `BmcIpAllocationType` above. Unset means "use the default" (AUTO).
+  // `BmcIpAllocationType` above. On create, omission and explicit
+  // `BMC_IP_ALLOCATION_TYPE_UNSPECIFIED` mean AUTO. On single and batch update,
+  // omission preserves the effective Host BMC policy, while explicit
+  // Unspecified resets it to AUTO. On replace-all, omission resets a
+  // legacy-only row to AUTO but preserves an existing nested HostBmc policy.
   optional BmcIpAllocationType bmc_ip_allocation = 18;
+  // Marks host_nics as a complete replacement. This is needed because a
+  // repeated protobuf field cannot distinguish an omitted list from an empty
+  // list. New update clients set this when they intentionally supply
+  // host_nics, including `[]`; older clients leave it false so an unknown
+  // nested HostBmc is not removed by a read-modify-write.
+  bool replace_host_nics = 19;
 
   // WARNING: Following fields are not present in Core, but added directly in REST snapshot
   optional string name = 21;
@@ -9173,9 +9222,9 @@ enum OperatingSystemType {
 //
 // On create, missing and `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` mean Host. On
 // update, omission preserves the stored role, while explicit
-// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. Host BMC identity
-// remains on `ExpectedMachine.bmc_mac_address`. NVIDIA/infra-controller#4103
-// tracks adding its network settings to this same interface model.
+// `EXPECTED_INTERFACE_ROLE_UNSPECIFIED` resets it to Host. A Host BMC entry
+// configures network allocation, while its identity remains on
+// `ExpectedMachine.bmc_mac_address`.
 enum ExpectedInterfaceRole {
   // Preserve the legacy Host role when the optional field is absent.
   EXPECTED_INTERFACE_ROLE_UNSPECIFIED = 0;
@@ -9185,21 +9234,29 @@ enum ExpectedInterfaceRole {
   EXPECTED_INTERFACE_ROLE_DPU_OS = 2;
   // DPU Redfish/BMC interface. Never primary.
   EXPECTED_INTERFACE_ROLE_DPU_BMC = 3;
+  // Host Redfish/BMC interface. Never primary.
+  EXPECTED_INTERFACE_ROLE_HOST_BMC = 4;
 }
 
 // Controls how an expected interface receives and retains its IP address.
-// Missing and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` preserve legacy
-// behavior: `fixed_ip` implies `FIXED`, while its absence implies `DYNAMIC`.
+// On create, omission and `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` use
+// legacy inference: `fixed_ip` implies `FIXED`; without one, Host BMC implies
+// `RETAINED` and every other role implies `DYNAMIC`. On single and batch update,
+// omission preserves a matching stored policy while `fixed_ip` presence is
+// unchanged; explicit `EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED` resets to
+// inference. New interfaces use create behavior.
 enum ExpectedInterfaceIpAllocation {
-  // Infer Fixed or Dynamic from whether `fixed_ip` is configured. For a legacy
-  // Host declaration, this does not opt into the fixed-address segment guard.
+  // Infer Fixed from `fixed_ip`. Without one, infer Retained for Host BMC and
+  // Dynamic for every other role. For a legacy Host declaration, this does not
+  // opt into the fixed-address segment guard.
   EXPECTED_INTERFACE_IP_ALLOCATION_UNSPECIFIED = 0;
   // Use an expiring DHCP lease. The segment guard must match the relay's
   // selected segment when configured.
   EXPECTED_INTERFACE_IP_ALLOCATION_DYNAMIC = 1;
-  // Reserve `fixed_ip`. Explicit Fixed, or a DPU role that infers Fixed,
-  // requires a configured managed prefix to contain the address. That prefix
-  // selects the segment, and the segment guard must match when configured.
+  // Reserve `fixed_ip`. Explicit Fixed, a DPU role that infers Fixed, or an
+  // inferred Host BMC policy with a segment guard requires a configured
+  // managed prefix to contain the address. That prefix selects the segment,
+  // and the segment guard must match when configured.
   EXPECTED_INTERFACE_IP_ALLOCATION_FIXED = 2;
   // Allocate through DHCP, then make the address Static for this interface
   // row's lifetime. It is not saved in ExpectedMachine for re-ingestion. The

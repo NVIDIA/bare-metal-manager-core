@@ -123,6 +123,7 @@ mod host_boot_config;
 mod machine_validation;
 mod maintenance;
 mod power;
+mod rotation;
 mod sku;
 #[cfg(test)]
 mod test_machine_setup;
@@ -1017,7 +1018,50 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Lowest precedence: only converge BMC credentials once the host
+                // is otherwise idle in Ready, so rotation never contends with
+                // instance creation, reprovision, validation, or measurements.
+                // The site-flag gate and the operator force-converge override
+                // live in `rotation::should_enter_bmc_rotation`.
+                if rotation::should_enter_bmc_rotation(ctx.services, mh_snapshot).await? {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingBmc { retry_count: 0 },
+                    ));
+                }
+
                 Ok(StateHandlerOutcome::do_nothing())
+            }
+
+            ManagedHostState::RotatingBmc { retry_count } => {
+                // One tick converges every BMC that needs work: force-requested
+                // devices (bypassing backoff) and, when site-wide rotation is
+                // enabled, any lagging host or DPU BMC -- handled together.
+                let tick = rotation::rotate_managed_host_bmcs(ctx.services, mh_snapshot).await;
+                match rotation::advance(tick, *retry_count, host_machine_id) {
+                    step @ (rotation::RotationStep::Settled | rotation::RotationStep::GaveUp) => {
+                        // Both terminal steps return to Ready. Only a settled tick
+                        // clears a one-shot force request: the forced attempt
+                        // genuinely fired, so a satisfied (or unresolvable) request
+                        // must not re-enter (only the machines observed as forced
+                        // are cleared; see `clear_forced_bmc_requests`). GaveUp
+                        // exhausted the transient-retry budget without the forced
+                        // attempt cleanly running, so we leave the flag set and let
+                        // the entry guard re-attempt on a later sweep rather than
+                        // silently drop the operator's request.
+                        let mut txn = None;
+                        if matches!(step, rotation::RotationStep::Settled) {
+                            txn = rotation::clear_forced_bmc_requests(ctx.services, mh_snapshot)
+                                .await?;
+                        }
+                        Ok(StateHandlerOutcome::transition(ManagedHostState::Ready)
+                            .with_txn_opt(txn))
+                    }
+                    rotation::RotationStep::Retry { retry_count } => {
+                        Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::RotatingBmc { retry_count },
+                        ))
+                    }
+                }
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {

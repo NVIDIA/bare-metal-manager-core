@@ -564,11 +564,10 @@ async fn test_preallocate_machine_interface_promotes_interface_type(
     Ok(())
 }
 
-/// `retain_bmc_address_by_mac` promotes a BMC interface's DHCP address to
-/// `Static` so DHCP lease expiry can't reap it, is a no-op on a second call, and
-/// the promoted address then survives the DHCP-scoped expiry delete path.
+/// A retained Host BMC promotes its DHCP address to `Static`, remains
+/// idempotent, and then survives the DHCP-scoped expiry delete path.
 #[crate::sqlx_test]
-async fn test_retain_bmc_address_pins_dhcp_and_survives_expiry(
+async fn test_retained_host_bmc_address_pins_dhcp_and_survives_expiry(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use model::allocation_type::AllocationType;
@@ -599,9 +598,16 @@ async fn test_retain_bmc_address_pins_dhcp_and_survives_expiry(
     .await?;
     txn.commit().await?;
 
+    let expected_interface = ExpectedHostNic {
+        mac_address: mac,
+        role: ExpectedInterfaceRole::HostBmc,
+        ip_allocation: Some(ExpectedInterfaceIpAllocation::Retained),
+        ..Default::default()
+    };
+
     // Retain: the DHCP address is promoted to Static.
     let mut txn = db::Transaction::begin(&pool).await?;
-    retain_bmc_address_by_mac(txn.as_pgconn(), mac).await?;
+    retain_expected_machine_interface_address(txn.as_pgconn(), &expected_interface).await?;
     let addrs =
         crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
     txn.commit().await?;
@@ -614,7 +620,7 @@ async fn test_retain_bmc_address_pins_dhcp_and_survives_expiry(
 
     // Idempotent: a second retain is a no-op (the row is already Static).
     let mut txn = db::Transaction::begin(&pool).await?;
-    retain_bmc_address_by_mac(txn.as_pgconn(), mac).await?;
+    retain_expected_machine_interface_address(txn.as_pgconn(), &expected_interface).await?;
     let addrs =
         crate::machine_interface_address::find_for_interface(txn.as_pgconn(), interface_id).await?;
     txn.commit().await?;
@@ -847,6 +853,22 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         "a legacy Host declaration must not turn its DHCP selector into a fixed-address guard",
     );
 
+    let legacy_host_bmc = ExpectedHostNic {
+        mac_address: "7A:7B:7C:7D:7E:69".parse()?,
+        role: ExpectedInterfaceRole::HostBmc,
+        fixed_ip: Some("203.0.113.69".parse()?),
+        ..Default::default()
+    };
+    preallocate_expected_machine_interface(txn.as_pgconn(), &legacy_host_bmc, None).await?;
+    let legacy_host_bmc_interface =
+        find_by_mac_address(txn.as_pgconn(), legacy_host_bmc.mac_address)
+            .await?
+            .pop()
+            .expect("legacy Host BMC fixed interface should be preallocated");
+    assert_eq!(legacy_host_bmc_interface.segment_id, static_assignments.id);
+    assert_eq!(legacy_host_bmc_interface.interface_type, InterfaceType::Bmc);
+    assert!(!legacy_host_bmc_interface.primary_interface);
+
     // The address alone cannot make an exact row idempotent when an explicit
     // policy resolves it to a different managed segment.
     let misplaced_mac: MacAddress = "7A:7B:7C:7D:7E:68".parse()?;
@@ -889,6 +911,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         suffix: u8,
         role: ExpectedInterfaceRole,
         ip_allocation: Option<ExpectedInterfaceIpAllocation>,
+        network_segment_type: Option<NetworkSegmentType>,
     }
 
     for case in [
@@ -897,18 +920,35 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
             suffix: 0x65,
             role: ExpectedInterfaceRole::Host,
             ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+            network_segment_type: None,
         },
         OutsidePrefixCase {
             name: "DPU OS inferred Fixed policy",
             suffix: 0x66,
             role: ExpectedInterfaceRole::DpuOs,
             ip_allocation: None,
+            network_segment_type: None,
         },
         OutsidePrefixCase {
             name: "DPU BMC inferred Fixed policy",
             suffix: 0x67,
             role: ExpectedInterfaceRole::DpuBmc,
             ip_allocation: None,
+            network_segment_type: None,
+        },
+        OutsidePrefixCase {
+            name: "explicit Host BMC Fixed policy",
+            suffix: 0x6a,
+            role: ExpectedInterfaceRole::HostBmc,
+            ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+            network_segment_type: None,
+        },
+        OutsidePrefixCase {
+            name: "inferred Host BMC Fixed policy with a segment guard",
+            suffix: 0x6b,
+            role: ExpectedInterfaceRole::HostBmc,
+            ip_allocation: None,
+            network_segment_type: Some(NetworkSegmentType::Underlay),
         },
     ] {
         let expected_interface = ExpectedHostNic {
@@ -916,6 +956,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
             role: case.role,
             ip_allocation: case.ip_allocation,
             fixed_ip: Some(format!("203.0.113.{}", case.suffix).parse()?),
+            network_segment_type: case.network_segment_type,
             ..Default::default()
         };
 

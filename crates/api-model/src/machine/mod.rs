@@ -811,6 +811,13 @@ pub struct Machine {
     /// [`ManagedHostState::Maintenance`] to execute the requested operation.
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
 
+    /// Operator "force-converge this BMC now" request (REQ-2). Set on the machine
+    /// that owns the BMC (a host machine for its host BMC, a DPU machine for its
+    /// DPU BMC). When `true`, the machine state controller enters `RotatingBmc`
+    /// and force-converges this machine's single BMC on its next sweep,
+    /// bypassing the passive site-wide gate and the device's backoff quarantine.
+    pub bmc_credential_rotation_requested: bool,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -1200,6 +1207,17 @@ pub enum ManagedHostState {
     /// State used to indicate that host reprovisioning is going on
     HostReprovision {
         reprovision_state: HostReprovisionState,
+        #[serde(default)]
+        retry_count: u32,
+    },
+
+    /// The host and/or its DPUs are converging their BMC root credential to the
+    /// staged site-wide rotation target (REQ-2). A pool-only, top-level state:
+    /// it blocks instance creation (which requires exact `Ready`) for the bounded
+    /// duration of the rotation. Per-device backoff/quarantine is owned by the
+    /// rotation engine's `device_credential_rotation` bookkeeping, so this state
+    /// carries only a retry budget for transient handler failures.
+    RotatingBmc {
         #[serde(default)]
         retry_count: u32,
     },
@@ -2383,6 +2401,7 @@ impl Display for ManagedHostState {
             } => {
                 write!(f, "HostReprovisioning/{reprovision_state}")
             }
+            ManagedHostState::RotatingBmc { .. } => write!(f, "RotatingBmc"),
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2478,6 +2497,7 @@ impl ManagedHostState {
             } => {
                 format!("HostReprovisioning/{reprovision_state}")
             }
+            ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -2677,6 +2697,9 @@ pub fn state_sla(
             // Multiple types of firmware may need to be updated, and in some cases it can take a while.
             // This SHOULD be enough based on current observed behavior, but may need to be extended.
             StateSla::with_sla(slas::HOST_REPROVISION, time_in_state)
+        }
+        ManagedHostState::RotatingBmc { .. } => {
+            StateSla::with_sla(slas::ROTATING_BMC, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon
@@ -4082,6 +4105,66 @@ mod tests {
                 );
                 (state_sla.sla, state_sla.time_in_state_above_sla)
             },
+        );
+    }
+
+    /// The pool BMC-rotation state is wired end to end: `ManagedHostState`
+    /// deserializes (defaulting the transient `retry_count` when the field is
+    /// absent, and round-tripping it when present), renders its stable `Display`
+    /// label, and carries the dedicated rotation SLA rather than falling through
+    /// to a default. A mis-wired serde tag, `Display` arm, or `state_sla` mapping
+    /// for a freshly added state is an easy and silent regression, so pin all
+    /// three. (The tenant-side `Assigned/RotatingBmc` state is deferred to a
+    /// later PR; see the plan.)
+    #[test]
+    fn rotating_bmc_state_serde_display_and_sla() {
+        // The literal wire form pins the `state` tag and the `#[serde(default)]`
+        // retry_count (absent means 0); the `parse -> serialize -> reparse` run
+        // then pins serializer symmetry, so a dropped/renamed retry_count or a
+        // mis-wired tag can't slip through a deserialize-only check. Each row
+        // yields `(parsed, round-tripped, Display)` so the serde tag and the
+        // stable, retry-count-free label are asserted together.
+        scenarios!(
+            run = |s| {
+                let parsed = serde_json::from_str::<ManagedHostState>(s).map_err(drop)?;
+                let serialized = serde_json::to_string(&parsed).map_err(drop)?;
+                let roundtrip =
+                    serde_json::from_str::<ManagedHostState>(&serialized).map_err(drop)?;
+                Ok::<_, ()>((parsed.clone(), roundtrip, parsed.to_string()))
+            };
+            "absent retry_count defaults to 0" {
+                r#"{"state":"rotatingbmc"}"# => Yields((
+                    ManagedHostState::RotatingBmc { retry_count: 0 },
+                    ManagedHostState::RotatingBmc { retry_count: 0 },
+                    "RotatingBmc".to_string(),
+                )),
+            }
+
+            "explicit retry_count round-trips" {
+                r#"{"state":"rotatingbmc","retry_count":4}"# => Yields((
+                    ManagedHostState::RotatingBmc { retry_count: 4 },
+                    ManagedHostState::RotatingBmc { retry_count: 4 },
+                    "RotatingBmc".to_string(),
+                )),
+            }
+        );
+
+        // It carries the dedicated rotation SLA (not a default), and a freshly
+        // entered state is within it.
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let sla = state_sla(
+            &machine_id,
+            &ManagedHostState::RotatingBmc { retry_count: 0 },
+            &ConfigVersion::initial(),
+            &health_report_with_alerts(vec![]),
+            &slas::MachineSlaConfig::default(),
+        );
+        assert_eq!(sla.sla, Some(slas::ROTATING_BMC));
+        assert!(
+            !sla.time_in_state_above_sla,
+            "a freshly entered RotatingBmc state is within its SLA"
         );
     }
 

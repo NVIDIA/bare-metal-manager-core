@@ -38,7 +38,8 @@ use itertools::Itertools;
 use mac_address::MacAddress;
 use model::allocation_type::AllocationType;
 use model::expected_machine::{
-    ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    BmcIpAllocationType, ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    ExpectedMachine, ExpectedMachineData,
 };
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
@@ -672,14 +673,21 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
                     ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
                     ..Default::default()
                 },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: expected_bmc_mac.to_string(),
+                    network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                    role: Some(rpc::forge::ExpectedInterfaceRole::HostBmc as i32),
+                    ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Retained as i32),
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }))
         .await?;
 
-    // The machine-wide primary declaration belongs only to the Host role. DPU
-    // OS and DPU BMC still derive their primary settings from their roles even
-    // when the same ExpectedMachine also declares a primary Host interface.
+    // The machine-wide primary declaration belongs only to the Host role.
+    // DPU OS and BMC interfaces still derive their primary settings from their
+    // roles when the same ExpectedMachine declares a primary Host interface.
     struct Case {
         name: &'static str,
         mac_address: MacAddress,
@@ -717,6 +725,14 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
             name: "DPU BMC retained",
             mac_address: dpu_bmc_mac,
             role: ExpectedInterfaceRole::DpuBmc,
+            policy: ExpectedInterfaceIpAllocation::Retained,
+            interface_type: InterfaceType::Bmc,
+            primary: false,
+        },
+        Case {
+            name: "Host BMC retained",
+            mac_address: expected_bmc_mac,
+            role: ExpectedInterfaceRole::HostBmc,
             policy: ExpectedInterfaceIpAllocation::Retained,
             interface_type: InterfaceType::Bmc,
             primary: false,
@@ -777,6 +793,94 @@ async fn test_expected_interface_roles_and_policies_flow_through_dhcp_and_site_e
             "case: {name}",
         );
     }
+
+    Ok(())
+}
+
+/// The top-level BMC alternate key wins over a stale nested declaration that
+/// happens to reuse the same MAC.
+#[crate::sqlx_test]
+async fn test_host_bmc_identity_wins_expected_interface_mac_lookup(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:35".parse()?;
+
+    // Write the conflicting legacy shape directly. Current API validation
+    // rejects this input, but an existing row may predate the HostBmc role.
+    let mut txn = pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac,
+            data: ExpectedMachineData {
+                bmc_username: "ADMIN".into(),
+                bmc_password: "PASS".into(),
+                serial_number: "EM-HOST-BMC-LOOKUP-001".into(),
+                bmc_ip_allocation: BmcIpAllocationType::Dynamic,
+                host_nics: vec![ExpectedHostNic {
+                    mac_address: bmc_mac,
+                    role: ExpectedInterfaceRole::Host,
+                    ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
+                    network_segment_type: Some(NetworkSegmentType::Underlay),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    // Existing conflicting rows remain updatable so introducing HostBmc does
+    // not turn an unrelated read-modify-write into a breaking change.
+    env.api
+        .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "UPDATED_ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-HOST-BMC-LOOKUP-001".into(),
+            bmc_ip_allocation: Some(rpc::forge::BmcIpAllocationType::Dynamic as i32),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: bmc_mac.to_string(),
+                role: Some(rpc::forge::ExpectedInterfaceRole::Host as i32),
+                ip_allocation: Some(rpc::forge::ExpectedInterfaceIpAllocation::Dynamic as i32),
+                network_segment_type: Some(rpc::forge::NetworkSegmentType::Underlay as i32),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut txn = pool.begin().await?;
+    let stored = db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac)
+        .await?
+        .expect("expected machine should exist");
+    txn.rollback().await?;
+    assert!(
+        stored.data.host_nics.iter().any(|interface| {
+            interface.mac_address == bmc_mac && interface.role == ExpectedInterfaceRole::Host
+        }),
+        "the legacy conflicting Host declaration should survive the update",
+    );
+
+    let response = env
+        .api
+        .discover_dhcp(
+            DhcpDiscovery::builder(bmc_mac, FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.ip())
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+    let interface_id = response
+        .machine_interface_id
+        .expect("DHCP response should identify the Host BMC interface");
+
+    let mut txn = pool.begin().await?;
+    let interface = db::machine_interface::find_one(&mut *txn, interface_id).await?;
+    assert_eq!(interface.interface_type, InterfaceType::Bmc);
+    assert!(!interface.primary_interface);
 
     Ok(())
 }

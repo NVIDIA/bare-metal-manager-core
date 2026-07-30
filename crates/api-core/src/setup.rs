@@ -1320,6 +1320,7 @@ async fn initialize_and_start_controllers<'a>(
                 site_config: carbide_config.machine_state_handler_site_config().into(),
                 component_manager: component_manager.clone().map(Arc::new),
                 credential_manager: credential_manager.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: machine_per_object_info,
             }

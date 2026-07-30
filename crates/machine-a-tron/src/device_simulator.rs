@@ -22,8 +22,11 @@ use uuid::Uuid;
 
 use crate::PersistedDevice;
 use crate::api_client::ApiClient;
-use crate::host_machine::DeviceHandle;
+use crate::device_handle::DeviceHandle;
+use crate::host_machine::MachineHandle;
+use crate::power_shelf_simulator::PowerShelfHandle;
 use crate::status::{DeviceKind, DeviceStatus, DeviceStatusConfig};
+use crate::switch_simulator::SwitchHandle;
 use crate::tui::UiUpdate;
 
 /// The common lifecycle exposed by every simulated physical device.
@@ -52,17 +55,7 @@ pub trait SimulatorLifecycle {
     }
 
     fn status(&self, config: &DeviceStatusConfig) -> DeviceStatus {
-        let status = self.handle().status(config);
-        if self.kind() == DeviceKind::Machine {
-            status
-        } else {
-            DeviceStatus {
-                device_kind: self.kind(),
-                device_id: self.mat_id().to_string(),
-                machine_id: None,
-                ..status
-            }
-        }
+        self.handle().status(config)
     }
 
     fn bmc_injection_store(&self) -> Arc<InjectionStore> {
@@ -74,8 +67,8 @@ pub trait SimulatorLifecycle {
 pub struct MachineSimulator(DeviceHandle);
 
 impl MachineSimulator {
-    fn new(handle: DeviceHandle) -> Self {
-        Self(handle)
+    pub(crate) fn new(handle: MachineHandle) -> Self {
+        Self(DeviceHandle::machine(handle))
     }
 }
 
@@ -93,8 +86,8 @@ impl SimulatorLifecycle for MachineSimulator {
 pub struct SwitchSimulator(DeviceHandle);
 
 impl SwitchSimulator {
-    fn new(handle: DeviceHandle) -> Self {
-        Self(handle)
+    pub(crate) fn new(handle: SwitchHandle) -> Self {
+        Self(DeviceHandle::switch(handle))
     }
 }
 
@@ -112,8 +105,8 @@ impl SimulatorLifecycle for SwitchSimulator {
 pub struct PowerShelfSimulator(DeviceHandle);
 
 impl PowerShelfSimulator {
-    fn new(handle: DeviceHandle) -> Self {
-        Self(handle)
+    pub(crate) fn new(handle: PowerShelfHandle) -> Self {
+        Self(DeviceHandle::power_shelf(handle))
     }
 }
 
@@ -136,11 +129,11 @@ pub enum DeviceSimulator {
 
 impl DeviceSimulator {
     pub(crate) fn from_handle(handle: DeviceHandle) -> Self {
-        match DeviceKind::from(handle.host_info().hw_type) {
-            DeviceKind::Machine => Self::Machine(MachineSimulator::new(handle)),
-            DeviceKind::Switch => Self::Switch(SwitchSimulator::new(handle)),
-            DeviceKind::PowerShelf => Self::PowerShelf(PowerShelfSimulator::new(handle)),
-            DeviceKind::Dpu => unreachable!("a host handle cannot represent a DPU"),
+        match handle.kind() {
+            DeviceKind::Machine => Self::Machine(MachineSimulator(handle)),
+            DeviceKind::Switch => Self::Switch(SwitchSimulator(handle)),
+            DeviceKind::PowerShelf => Self::PowerShelf(PowerShelfSimulator(handle)),
+            DeviceKind::Dpu => unreachable!("a top-level simulator cannot represent a DPU"),
         }
     }
 
@@ -154,7 +147,7 @@ impl DeviceSimulator {
     pub async fn delete_from_api(&self, api_client: ApiClient) -> eyre::Result<()> {
         match self {
             Self::Machine(simulator) => {
-                simulator.handle().clone().delete_from_api(api_client).await
+                simulator.handle().delete_machine_from_api(api_client).await
             }
             Self::Switch(simulator) => {
                 let bmc_mac = simulator.handle().host_info().bmc_mac_address.to_string();

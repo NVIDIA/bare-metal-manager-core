@@ -154,6 +154,7 @@ pub fn get() -> CarbideConfig {
         vpc_peering_policy: Some(VpcPeeringPolicy::Exclusive),
         vpc_peering_policy_on_existing: None,
         attestation_enabled: false,
+        bmc_rotation_enabled: false,
         tpm_required: true,
         ib_config: None,
         ib_fabrics: [(

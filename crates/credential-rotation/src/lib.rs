@@ -388,11 +388,18 @@ impl BmcRotationGate {
 /// `RotateCredential` staged the target into. (The Redfish pool's
 /// `credential_reader` is intentionally not used here; the engine owns
 /// credential resolution.)
+/// `force` is the operator escape hatch: when `true`, a device still inside its
+/// backoff window is attempted anyway rather than short-circuiting as
+/// [`RotateOutcome::Quarantined`]. It does not bypass [`RotateOutcome::NoWork`]
+/// (no rotation row) or [`RotateOutcome::Converged`] (already at target) -- there
+/// is nothing to force in those cases -- and a forced attempt that fails
+/// re-quarantines through the normal backoff bookkeeping.
 pub async fn rotate_bmc(
     db_pool: &PgPool,
     credential_manager: &dyn CredentialManager,
     redfish_pool: &dyn RedfishClientPool,
     bmc: &BmcRotationTarget,
+    force: bool,
 ) -> Result<RotateOutcome, RotationEngineError> {
     let mac = bmc.device_mac;
 
@@ -406,7 +413,7 @@ pub async fn rotate_bmc(
     if status.converged {
         return Ok(RotateOutcome::Converged);
     }
-    if status.quarantined {
+    if status.quarantined && !force {
         return Ok(RotateOutcome::Quarantined {
             until: status.quarantined_until.unwrap_or_else(Utc::now),
         });
@@ -1073,7 +1080,7 @@ mod tests {
         let redfish = bmc_on_password("old");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target())
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
             .await
             .expect("rotation must not raise a transient engine error");
 
@@ -1122,7 +1129,9 @@ mod tests {
         let redfish = bmc_on_password("new");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         assert_eq!(outcome, RotateOutcome::Converged);
         assert_eq!(rotation_result_deltas(&metrics), [0.0, 1.0, 0.0]);
@@ -1157,7 +1166,9 @@ mod tests {
 
         let metrics = MetricsCapture::start();
         let before = Utc::now();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         let until = match outcome {
             RotateOutcome::Quarantined { until } => until,
@@ -1169,9 +1180,9 @@ mod tests {
             "credential material must not become a metric label"
         );
         drop(metrics);
-        // First failure: backoff is the base window (60s) from "now".
-        assert!(until >= before + Duration::seconds(60));
-        assert!(until <= Utc::now() + Duration::seconds(61));
+        // First failure: backoff is the base window (15 minutes) from "now".
+        assert!(until >= before + Duration::minutes(15));
+        assert!(until <= Utc::now() + Duration::minutes(15) + Duration::seconds(1));
 
         let status = status_of(&pool).await;
         assert!(status.quarantined, "device must be in a backoff window");
@@ -1200,7 +1211,9 @@ mod tests {
         let redfish = bmc_on_password("old");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         assert_eq!(outcome, RotateOutcome::Converged);
         assert_eq!(
@@ -1230,7 +1243,9 @@ mod tests {
         let redfish = bmc_on_password("old");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         assert!(matches!(outcome, RotateOutcome::Quarantined { .. }));
         assert_eq!(rotation_result_deltas(&metrics), [0.0, 0.0, 1.0]);
@@ -1256,7 +1271,9 @@ mod tests {
         let redfish = bmc_on_password("old");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         assert_eq!(outcome, RotateOutcome::NoWork);
         assert_eq!(
@@ -1290,7 +1307,9 @@ mod tests {
         let redfish = bmc_on_password("old");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         assert!(matches!(outcome, RotateOutcome::Quarantined { .. }));
         assert_eq!(
@@ -1305,6 +1324,56 @@ mod tests {
         );
         // The marker is untouched (still behind target, not converged).
         assert_eq!(status_of(&pool).await.current_version, Some(0));
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn rotate_bmc_force_attempts_a_quarantined_device(pool: PgPool) {
+        // Same lagging + quarantined device as the skip test, but the operator
+        // force flag makes the engine attempt the change during the backoff
+        // window and converge it, rather than short-circuiting as Quarantined.
+        seed_device_behind_target(&pool, 1).await;
+        let cm = TestCredentialManager::default();
+        cm.set_credentials(&per_device_key(), &creds("root", "old"))
+            .await
+            .unwrap();
+        cm.set_credentials(&rotate_to_key(1), &creds("root", "new"))
+            .await
+            .unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        increment_rotate_attempt(
+            &mut conn,
+            test_mac(),
+            BMC,
+            "earlier failure",
+            Utc::now() + Duration::seconds(3600),
+        )
+        .await
+        .unwrap();
+        drop(conn);
+        let redfish = bmc_on_password("old");
+
+        // Hold the metrics serialization guard across the converging call: it
+        // emits `converged` into the process-global registry, and without the
+        // guard it could run concurrently with a metric-asserting test and leak
+        // that count into its delta window. This test asserts outcome/state, not
+        // metrics, so the guard is dropped before those checks.
+        let metrics = MetricsCapture::start();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), true)
+            .await
+            .expect("a forced rotation must not raise a transient engine error");
+        drop(metrics);
+
+        assert_eq!(
+            outcome,
+            RotateOutcome::Converged,
+            "force must attempt the change despite an active quarantine window"
+        );
+        let status = status_of(&pool).await;
+        assert_eq!(status.current_version, Some(1));
+        assert!(
+            !redfish.create_client_calls().is_empty(),
+            "a forced device must actually touch hardware"
+        );
     }
 
     #[carbide_macros::sqlx_test]
@@ -1328,7 +1397,9 @@ mod tests {
         let redfish = bmc_on_password("old");
 
         let metrics = MetricsCapture::start();
-        let outcome = rotate_bmc(&pool, &cm, &redfish, &target()).await.unwrap();
+        let outcome = rotate_bmc(&pool, &cm, &redfish, &target(), false)
+            .await
+            .unwrap();
 
         assert_eq!(outcome, RotateOutcome::Converged);
         assert_eq!(rotation_result_deltas(&metrics), [1.0, 0.0, 0.0]);

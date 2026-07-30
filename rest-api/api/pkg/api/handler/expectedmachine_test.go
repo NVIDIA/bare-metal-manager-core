@@ -1493,12 +1493,14 @@ func TestUpdateExpectedMachineHandler_BmcIpAddressPatchSemantics(t *testing.T) {
 		},
 	}
 	updatedIP := "192.0.2.31"
+	emptyIP := ""
 	tests := []struct {
-		name       string
-		body       string
-		wantStatus int
-		wantIP     *string
-		requests   int
+		name           string
+		body           string
+		wantStatus     int
+		wantIP         *string
+		wantWorkflowIP *string
+		requests       int
 	}{
 		{
 			name:       "omission preserves address",
@@ -1507,15 +1509,17 @@ func TestUpdateExpectedMachineHandler_BmcIpAddressPatchSemantics(t *testing.T) {
 			wantIP:     &originalIP,
 		},
 		{
-			name:       "address sets value",
-			body:       `{"bmcIpAddress":"192.0.2.31"}`,
-			wantStatus: http.StatusOK,
-			wantIP:     &updatedIP,
+			name:           "address sets value",
+			body:           `{"bmcIpAddress":"192.0.2.31"}`,
+			wantStatus:     http.StatusOK,
+			wantIP:         &updatedIP,
+			wantWorkflowIP: &updatedIP,
 		},
 		{
-			name:       "empty string clears address",
-			body:       `{"bmcIpAddress":""}`,
-			wantStatus: http.StatusOK,
+			name:           "empty string clears address",
+			body:           `{"bmcIpAddress":""}`,
+			wantStatus:     http.StatusOK,
+			wantWorkflowIP: &emptyIP,
 		},
 		{
 			name:       "explicit null preserves address",
@@ -1524,10 +1528,11 @@ func TestUpdateExpectedMachineHandler_BmcIpAddressPatchSemantics(t *testing.T) {
 			wantIP:     &originalIP,
 		},
 		{
-			name:       "repeated empty string remains cleared",
-			body:       `{"bmcIpAddress":""}`,
-			wantStatus: http.StatusOK,
-			requests:   2,
+			name:           "repeated empty string remains cleared",
+			body:           `{"bmcIpAddress":""}`,
+			wantStatus:     http.StatusOK,
+			wantWorkflowIP: &emptyIP,
+			requests:       2,
 		},
 	}
 
@@ -1570,7 +1575,7 @@ func TestUpdateExpectedMachineHandler_BmcIpAddressPatchSemantics(t *testing.T) {
 				assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 				assert.Equal(t, tc.wantIP, response.BmcIpAddress)
 				if assert.Len(t, capturedRequests, workflowCount+1) {
-					assert.Equal(t, tc.wantIP, capturedRequests[workflowCount].BmcIpAddress)
+					assert.Equal(t, tc.wantWorkflowIP, capturedRequests[workflowCount].BmcIpAddress)
 				}
 			}
 		})
@@ -3128,6 +3133,45 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddressPatchSemantics(t *testing.T) 
 	emUpdated := createExpectedMachine("00:11:22:33:44:D3", "BMC-IP-BATCH-003", nil, &updatedName)
 	emPreserved := createExpectedMachine("00:11:22:33:44:D4", "BMC-IP-BATCH-004", &preservedIP, &preservedName)
 	emNullPreserved := createExpectedMachine("00:11:22:33:44:D5", "BMC-IP-BATCH-005", &nullPreservedIP, &nullPreservedName)
+	emptyIP := ""
+	tests := []struct {
+		name           string
+		machine        *cdbm.ExpectedMachine
+		request        map[string]interface{}
+		wantIP         *string
+		wantWorkflowIP *string
+		wantName       *string
+	}{
+		{
+			name:           "empty string clears address",
+			machine:        emCleared,
+			request:        map[string]interface{}{"bmcIpAddress": ""},
+			wantWorkflowIP: &emptyIP,
+			wantName:       &clearedName,
+		},
+		{
+			name:           "address sets value",
+			machine:        emUpdated,
+			request:        map[string]interface{}{"bmcIpAddress": updatedIP},
+			wantIP:         &updatedIP,
+			wantWorkflowIP: &updatedIP,
+			wantName:       &updatedName,
+		},
+		{
+			name:     "omission preserves REST address and omits workflow address",
+			machine:  emPreserved,
+			request:  map[string]interface{}{},
+			wantIP:   &preservedIP,
+			wantName: &preservedName,
+		},
+		{
+			name:     "null preserves REST address and omits workflow address",
+			machine:  emNullPreserved,
+			request:  map[string]interface{}{"bmcIpAddress": nil},
+			wantIP:   &nullPreservedIP,
+			wantName: &nullPreservedName,
+		},
+	}
 
 	var capturedRequest *corev1.BatchExpectedMachineOperationRequest
 	mockTemporalClient := &tmocks.Client{}
@@ -3154,23 +3198,21 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddressPatchSemantics(t *testing.T) 
 		Return(nil)
 	scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
-	body, err := json.Marshal([]map[string]interface{}{
-		{
-			"id":           emCleared.ID.String(),
-			"bmcIpAddress": "",
-		},
-		{
-			"id":           emUpdated.ID.String(),
-			"bmcIpAddress": updatedIP,
-		},
-		{
-			"id": emPreserved.ID.String(),
-		},
-		{
-			"id":           emNullPreserved.ID.String(),
-			"bmcIpAddress": nil,
-		},
-	})
+	requestBody := make([]map[string]interface{}, 0, len(tests))
+	wantByID := make(map[uuid.UUID]*string, len(tests))
+	wantWorkflowIPByID := make(map[uuid.UUID]*string, len(tests))
+	wantNameByID := make(map[uuid.UUID]*string, len(tests))
+	scenarioByID := make(map[uuid.UUID]string, len(tests))
+	for _, test := range tests {
+		test.request["id"] = test.machine.ID.String()
+		requestBody = append(requestBody, test.request)
+		wantByID[test.machine.ID] = test.wantIP
+		wantWorkflowIPByID[test.machine.ID] = test.wantWorkflowIP
+		wantNameByID[test.machine.ID] = test.wantName
+		scenarioByID[test.machine.ID] = test.name
+	}
+
+	body, err := json.Marshal(requestBody)
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPatch, "/v2/org/"+org+"/nico/expected-machine/batch", bytes.NewReader(body))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
@@ -3196,30 +3238,18 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddressPatchSemantics(t *testing.T) 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, rec.Code, "Response: %s", rec.Body.String())
 
-	wantByID := map[uuid.UUID]*string{
-		emCleared.ID:       nil,
-		emUpdated.ID:       &updatedIP,
-		emPreserved.ID:     &preservedIP,
-		emNullPreserved.ID: &nullPreservedIP,
-	}
-	wantNameByID := map[uuid.UUID]*string{
-		emCleared.ID:       &clearedName,
-		emUpdated.ID:       &updatedName,
-		emPreserved.ID:     &preservedName,
-		emNullPreserved.ID: &nullPreservedName,
-	}
 	var response []model.APIExpectedMachine
 	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 	assert.Len(t, response, len(wantByID))
 	for _, machine := range response {
-		assert.Equal(t, wantByID[machine.ID], machine.BmcIpAddress)
-		assert.Equal(t, wantNameByID[machine.ID], machine.Name)
+		assert.Equal(t, wantByID[machine.ID], machine.BmcIpAddress, scenarioByID[machine.ID])
+		assert.Equal(t, wantNameByID[machine.ID], machine.Name, scenarioByID[machine.ID])
 	}
 	for id, wantIP := range wantByID {
 		stored, err := emDAO.Get(ctx, nil, id, nil, false)
-		assert.NoError(t, err)
-		assert.Equal(t, wantIP, stored.BmcIpAddress)
-		assert.Equal(t, wantNameByID[id], stored.Name)
+		assert.NoError(t, err, scenarioByID[id])
+		assert.Equal(t, wantIP, stored.BmcIpAddress, scenarioByID[id])
+		assert.Equal(t, wantNameByID[id], stored.Name, scenarioByID[id])
 	}
 
 	if assert.NotNil(t, capturedRequest) && assert.NotNil(t, capturedRequest.ExpectedMachines) {
@@ -3227,8 +3257,8 @@ func TestUpdateExpectedMachinesHandler_BmcIpAddressPatchSemantics(t *testing.T) 
 		for _, machine := range capturedRequest.ExpectedMachines.ExpectedMachines {
 			id, err := uuid.Parse(machine.Id.Value)
 			assert.NoError(t, err)
-			assert.Equal(t, wantByID[id], machine.BmcIpAddress)
-			assert.Equal(t, wantNameByID[id], machine.Name)
+			assert.Equal(t, wantWorkflowIPByID[id], machine.BmcIpAddress, scenarioByID[id])
+			assert.Equal(t, wantNameByID[id], machine.Name, scenarioByID[id])
 		}
 	}
 }

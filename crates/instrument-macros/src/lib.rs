@@ -436,6 +436,43 @@ fn context_mode(attr: &syn::Attribute) -> syn::Result<ContextMode> {
     }
 }
 
+/// Whether a context field's type is written as `Option<...>`, which is how an
+/// Event says a field does not apply to every case it covers. The check is
+/// syntactic, so a type alias for an option (`type MaybeWorker = Option<Uuid>`)
+/// is not recognized -- that surfaces as a compile error at the generated call,
+/// never as a silently wrong log line.
+fn is_option(ty: &syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else {
+        return false;
+    };
+    if path.qself.is_some() {
+        return false;
+    }
+    let segments: Vec<String> = path
+        .path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect();
+    // `Option<T>`, or the same spelled out in full through `std`/`core`.
+    // Anything else named `Option` -- including a bare `option::Option` from
+    // somebody's own module -- is their type and is left alone.
+    let spelled_as_the_std_option = matches!(
+        segments
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        ["Option"] | ["std" | "core", "option", "Option"]
+    );
+    let takes_one_type_argument = path.path.segments.last().is_some_and(|segment| {
+        matches!(&segment.arguments, syn::PathArguments::AngleBracketed(args)
+            if args.args.len() == 1
+                && matches!(args.args.first(), Some(syn::GenericArgument::Type(_))))
+    });
+    spelled_as_the_std_option && takes_one_type_argument
+}
+
 fn classify_field(field: &Field) -> syn::Result<FieldKind> {
     let mut kinds = Vec::new();
     for attr in &field.attrs {
@@ -709,7 +746,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     };
 
     let mut labels: Vec<(&Ident, String)> = Vec::new();
-    let mut contexts: Vec<(&Ident, ContextMode)> = Vec::new();
+    let mut contexts: Vec<(&Ident, ContextMode, bool)> = Vec::new();
     let mut observations: Vec<&Ident> = Vec::new();
     for field in fields {
         let ident = field.ident.as_ref().expect("named field");
@@ -741,7 +778,19 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
                 }
                 labels.push((ident, metric_name));
             }
-            FieldKind::Context(mode) => contexts.push((ident, mode)),
+            FieldKind::Context(mode) => {
+                // The native-value mode exists for fields whose tracing type is
+                // part of the structured-log contract; nothing needs an
+                // optional one yet, so say that rather than guess at it.
+                if mode == ContextMode::Value && is_option(&field.ty) {
+                    return Err(syn::Error::new_spanned(
+                        field,
+                        "#[context(value)] does not take an Option; use #[context] for a field \
+                         that does not apply to every case",
+                    ));
+                }
+                contexts.push((ident, mode, is_option(&field.ty)));
+            }
             FieldKind::Observation => observations.push(ident),
         }
     }
@@ -779,7 +828,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let label_names: Vec<&str> = labels.iter().map(|(_, name)| name.as_str()).collect();
     let context_names: Vec<String> = contexts
         .iter()
-        .map(|(ident, _)| ident.to_string())
+        .map(|(ident, _, _)| ident.to_string())
         .collect();
 
     // `log = dynamic` keeps the trait's nominal LOG and routes the decision
@@ -944,27 +993,53 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             #ident = ::carbide_instrument::LabelValue::label_value(&self.#ident).as_str()
         }
     }));
-    log_fields.extend(contexts.iter().map(|(ident, mode)| match mode {
-        ContextMode::Display => quote! { #ident = %self.#ident },
-        ContextMode::Value => quote! { #ident = self.#ident },
-    }));
+    log_fields.extend(
+        contexts
+            .iter()
+            .map(|(ident, mode, optional)| match (mode, optional) {
+                // `tracing` records nothing for a `None`, so the key is absent from the
+                // line rather than blank -- which is the whole point of declaring the
+                // field optional.
+                (ContextMode::Display, true) => quote! {
+                    #ident = self.#ident.as_ref().map(
+                        ::carbide_instrument::__private::tracing::field::display,
+                    )
+                },
+                (ContextMode::Display, false) => quote! { #ident = %self.#ident },
+                (ContextMode::Value, _) => quote! { #ident = self.#ident },
+            }),
+    );
 
-    let context_values =
+    let context_pushes =
         contexts
             .iter()
             .zip(&context_names)
-            .map(|((ident, mode), name)| match mode {
-                ContextMode::Display => quote! {
-                    ::carbide_instrument::__private::opentelemetry::KeyValue::new(
-                        #name,
-                        ::std::string::ToString::to_string(&self.#ident),
-                    )
+            .map(|((ident, mode, optional), name)| match (mode, optional) {
+                (ContextMode::Display, true) => quote! {
+                    if let ::std::option::Option::Some(__value) = &self.#ident {
+                        __context.push(
+                            ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                                #name,
+                                ::std::string::ToString::to_string(__value),
+                            ),
+                        );
+                    }
                 },
-                ContextMode::Value => quote! {
-                    ::carbide_instrument::__private::opentelemetry::KeyValue::new(
-                        #name,
-                        ::std::clone::Clone::clone(&self.#ident),
-                    )
+                (ContextMode::Display, false) => quote! {
+                    __context.push(
+                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                            #name,
+                            ::std::string::ToString::to_string(&self.#ident),
+                        ),
+                    );
+                },
+                (ContextMode::Value, _) => quote! {
+                    __context.push(
+                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                            #name,
+                            ::std::clone::Clone::clone(&self.#ident),
+                        ),
+                    );
                 },
             });
     let log_arm = |level: proc_macro2::TokenStream| {
@@ -1027,9 +1102,9 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
             #labels_fn
 
             fn context(&self) -> ::std::vec::Vec<::carbide_instrument::__private::opentelemetry::KeyValue> {
-                ::std::vec![
-                    #(#context_values,)*
-                ]
+                let mut __context = ::std::vec::Vec::new();
+                #(#context_pushes)*
+                __context
             }
 
             #observation_fn
@@ -1967,6 +2042,108 @@ mod tests {
             |DiagnosticInput { source, expected }| {
                 let error = expansion_error(source);
                 (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
+            },
+        );
+    }
+
+    /// The native-value mode has its own types and no optional form, so it says
+    /// that rather than letting the field reach a trait error somewhere else.
+    #[test]
+    fn context_value_rejects_an_optional_field() {
+        let error = expansion_error(
+            r#"#[event(event_name = "demo", component = "demo", message = "demo")] struct Demo { #[context(value)] value: Option<String> }"#,
+        );
+        assert!(
+            error.contains("#[context(value)] does not take an Option"),
+            "expected the targeted rejection, got `{error}`"
+        );
+        assert!(
+            error.contains("use #[context]"),
+            "the rejection points at the mode that does take one, got `{error}`"
+        );
+    }
+
+    /// `Option<T>` is recognized only in the spellings the docs promise, so a
+    /// type of somebody else's that happens to be named `Option` keeps rendering
+    /// through `Display` instead of being treated as an absent-able field.
+    #[test]
+    fn only_the_std_option_counts_as_optional() {
+        struct SpellingCase {
+            ty: &'static str,
+            optional: bool,
+        }
+
+        check_values(
+            [
+                Check {
+                    scenario: "the bare std option",
+                    input: SpellingCase {
+                        ty: "Option<String>",
+                        optional: true,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "spelled out through std",
+                    input: SpellingCase {
+                        ty: "std::option::Option<String>",
+                        optional: true,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "spelled out through core",
+                    input: SpellingCase {
+                        ty: "core::option::Option<String>",
+                        optional: true,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "leading-colon std path",
+                    input: SpellingCase {
+                        ty: "::std::option::Option<String>",
+                        optional: true,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "somebody else's option module",
+                    input: SpellingCase {
+                        ty: "option::Option<String>",
+                        optional: false,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "somebody else's Option type",
+                    input: SpellingCase {
+                        ty: "mine::Option<String>",
+                        optional: false,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "a non-generic type named Option",
+                    input: SpellingCase {
+                        ty: "Option",
+                        optional: false,
+                    },
+                    expect: None,
+                },
+                Check {
+                    scenario: "an option taking more than one argument is not one",
+                    input: SpellingCase {
+                        ty: "Option<String, u8>",
+                        optional: false,
+                    },
+                    expect: None,
+                },
+            ],
+            |SpellingCase { ty, optional }| {
+                let parsed: syn::Type = syn::parse_str(ty).expect("valid type");
+                (super::is_option(&parsed) != optional)
+                    .then(|| format!("`{ty}`: expected optional={optional}"))
             },
         );
     }

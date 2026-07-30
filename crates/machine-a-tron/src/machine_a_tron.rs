@@ -27,11 +27,16 @@ use uuid::Uuid;
 
 use crate::PersistedDevice;
 use crate::config::MachineATronContext;
-use crate::device_simulator::{DeviceSimulator, SimulatorLifecycle};
-use crate::host_machine::{DeviceHandle, HostMachine};
+use crate::device_simulator::{
+    DeviceSimulator, MachineSimulator, PowerShelfSimulator, SimulatorLifecycle, SwitchSimulator,
+};
+use crate::host_machine::HostMachine;
 use crate::machine_utils::get_next_free_machine;
+use crate::power_shelf_simulator::PowerShelfActor;
 use crate::simulator_registry::SimulatorRegistry;
+use crate::status::DeviceKind;
 use crate::subnet::Subnet;
+use crate::switch_simulator::SwitchActor;
 use crate::tui::UiUpdate;
 use crate::vpc::Vpc;
 
@@ -107,7 +112,7 @@ impl MachineATron {
         // If we've persisted the machine info on a previous run, use that.
         // Reserve all persisted MACs before allocating anything new, so recovery
         // is independent of config iteration order.
-        let machines = {
+        let devices = {
             let mut mac_address_pool = self.app_context.mac_address_pool.lock().unwrap();
 
             if let Some(persisted_devices) = persisted_devices.as_ref() {
@@ -145,7 +150,7 @@ impl MachineATron {
                         );
                         persisted_devices
                             .into_iter()
-                            .map(|persisted| -> eyre::Result<DeviceHandle> {
+                            .map(|persisted| -> eyre::Result<DeviceSimulator> {
                                 let hw_mac_address_ranges = persisted
                                     .hw_mac_addr_pool
                                     .as_ref()
@@ -153,15 +158,50 @@ impl MachineATron {
                                         MacAddressPoolConfig::new(pool.base, pool.host_bits)
                                     })
                                     .unwrap_or_else(|| mac_address_pool.allocate_range_config())?;
-                                let host_machine = HostMachine::from_persisted(
-                                    persisted,
-                                    config_name.clone(),
-                                    self.app_context.clone(),
-                                    config.clone(),
-                                    hw_mac_address_ranges,
-                                );
-
-                                Ok(host_machine.start(paused))
+                                let kind = DeviceKind::from(persisted.hw_type);
+                                Ok(match kind {
+                                    DeviceKind::Machine => {
+                                        DeviceSimulator::Machine(MachineSimulator::new(
+                                            HostMachine::from_persisted(
+                                                persisted,
+                                                config_name.clone(),
+                                                self.app_context.clone(),
+                                                config.clone(),
+                                                hw_mac_address_ranges,
+                                            )
+                                            .start(paused),
+                                        ))
+                                    }
+                                    DeviceKind::Switch => {
+                                        DeviceSimulator::Switch(SwitchSimulator::new(
+                                            SwitchActor::from_persisted(
+                                                persisted,
+                                                config_name.clone(),
+                                                self.app_context.clone(),
+                                                config.clone(),
+                                                hw_mac_address_ranges,
+                                            )
+                                            .start(paused),
+                                        ))
+                                    }
+                                    DeviceKind::PowerShelf => {
+                                        DeviceSimulator::PowerShelf(PowerShelfSimulator::new(
+                                            PowerShelfActor::from_persisted(
+                                                persisted,
+                                                config_name.clone(),
+                                                self.app_context.clone(),
+                                                config.clone(),
+                                                hw_mac_address_ranges,
+                                            )
+                                            .start(paused),
+                                        ))
+                                    }
+                                    DeviceKind::Dpu => {
+                                        unreachable!(
+                                            "a configured top-level device cannot be a DPU"
+                                        )
+                                    }
+                                })
                             })
                             .collect::<Vec<_>>()
                     } else {
@@ -172,15 +212,49 @@ impl MachineATron {
                         (0..config.host_count)
                             .map(|_| {
                                 let mac_range = mac_address_pool.allocate_range_config()?;
-                                let host_machine = HostMachine::new(
-                                    self.app_context.clone(),
-                                    config_name.clone(),
-                                    config.clone(),
-                                    &mut mac_address_pool,
-                                    mac_range,
-                                );
-
-                                Ok(host_machine.start(paused))
+                                Ok(match DeviceKind::from(config.hw_type) {
+                                    DeviceKind::Machine => {
+                                        DeviceSimulator::Machine(MachineSimulator::new(
+                                            HostMachine::new(
+                                                self.app_context.clone(),
+                                                config_name.clone(),
+                                                config.clone(),
+                                                &mut mac_address_pool,
+                                                mac_range,
+                                            )
+                                            .start(paused),
+                                        ))
+                                    }
+                                    DeviceKind::Switch => {
+                                        DeviceSimulator::Switch(SwitchSimulator::new(
+                                            SwitchActor::new(
+                                                self.app_context.clone(),
+                                                config_name.clone(),
+                                                config.clone(),
+                                                &mut mac_address_pool,
+                                                mac_range,
+                                            )
+                                            .start(paused),
+                                        ))
+                                    }
+                                    DeviceKind::PowerShelf => {
+                                        DeviceSimulator::PowerShelf(PowerShelfSimulator::new(
+                                            PowerShelfActor::new(
+                                                self.app_context.clone(),
+                                                config_name.clone(),
+                                                config.clone(),
+                                                &mut mac_address_pool,
+                                                mac_range,
+                                            )
+                                            .start(paused),
+                                        ))
+                                    }
+                                    DeviceKind::Dpu => {
+                                        unreachable!(
+                                            "a configured top-level device cannot be a DPU"
+                                        )
+                                    }
+                                })
                             })
                             .collect::<Vec<_>>()
                     }
@@ -188,7 +262,7 @@ impl MachineATron {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let simulators = SimulatorRegistry::try_from_handles(machines)?;
+        let simulators = SimulatorRegistry::try_from_simulators(devices)?;
 
         if self.app_context.app_config.register_expected_machines {
             for (rack_id, rack) in &self.app_context.app_config.racks {

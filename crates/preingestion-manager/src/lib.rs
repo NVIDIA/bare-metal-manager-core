@@ -3347,8 +3347,6 @@ impl PreingestionManagerStatic {
                 }
                 Err(RedfishError::NotSupported(err)) => {
                     emit(MultipartFirmwareUploadUnsupported {
-                        method: FirmwareUploadMethod::Multipart,
-                        outcome: Outcome::Error,
                         bmc_ip_address: endpoint_clone.address,
                         error: err,
                     });

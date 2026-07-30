@@ -764,6 +764,10 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			Username: apiRequest.DefaultBmcUsername,
 			Password: apiRequest.DefaultBmcPassword,
 		})
+		// REST storage keeps its current value when this PATCH omits the
+		// address. Core needs the request value instead: nil preserves its
+		// current HostBmc configuration, while an empty string clears it.
+		updateExpectedMachineRequest.BmcIpAddress = apiRequest.BmcIpAddress
 
 		logger.Info().Msg("triggering ExpectedMachine update workflow")
 
@@ -1565,8 +1569,9 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	// by the DB record's ID rather than by slice index, so correlation
 	// doesn't depend on the DAO preserving input order.
 	credsByID := make(map[uuid.UUID]cdbm.ExpectedMachineCredentials, len(apiRequests))
+	bmcIPRequestsByID := make(map[uuid.UUID]*string, len(apiRequests))
 	updateInputs := make([]cdbm.ExpectedMachineUpdateInput, 0, len(apiRequests))
-	bmcIPClearIDs := make([]uuid.UUID, 0)
+	bmcIPClearIDs := make(map[uuid.UUID]struct{})
 	for _, machineReq := range apiRequests {
 		// APIExpectedMachineUpdateRequest must allow nil ID for single update use case. If present here, it has already been validated.
 		if machineReq.ID == nil {
@@ -1579,9 +1584,10 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			Username: machineReq.DefaultBmcUsername,
 			Password: machineReq.DefaultBmcPassword,
 		}
+		bmcIPRequestsByID[emID] = machineReq.BmcIpAddress
 		bmcIPAddress := machineReq.BmcIpAddress
 		if bmcIPAddress != nil && *bmcIPAddress == "" {
-			bmcIPClearIDs = append(bmcIPClearIDs, emID)
+			bmcIPClearIDs[emID] = struct{}{}
 			bmcIPAddress = nil
 		}
 		updateInputs = append(updateInputs, cdbm.ExpectedMachineUpdateInput{
@@ -1603,12 +1609,29 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			HostLifecycleProfile:     machineReq.HostLifecycleProfile.ToDBModelPtr(),
 		})
 	}
-
 	// Update provided ExpectedMachines in DB
 	updatedExpectedMachines, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
-		// Clear first so UpdateMultiple's final SELECT and the workflow payload
-		// both see nil. Its scoped BMC IP update cannot restore cleared rows.
-		for _, expectedMachineID := range bmcIPClearIDs {
+		// Lock the full target set before clearing any one row. Clear touches
+		// only a subset, while UpdateMultiple writes every target; without this
+		// canonical lock pass, overlapping batches can each hold a different
+		// cleared row and deadlock during the bulk update.
+		derr := emDAO.LockForUpdate(ctx, tx, slices.Collect(maps.Keys(idMap)))
+		if derr != nil {
+			if errors.Is(derr, cdb.ErrDoesNotExist) {
+				return nil, cutil.NewAPIError(http.StatusConflict, "One or more Expected Machines were removed before the batch update completed", nil)
+			}
+			logger.Error().Err(derr).Msg("error locking ExpectedMachine records for batch update")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
+		}
+
+		// Clear first so UpdateMultiple's final SELECT sees nil. Its scoped
+		// BMC IP update cannot restore cleared rows. Every target row is already
+		// locked above, so the subset clear cannot introduce a second order.
+		for _, input := range updateInputs {
+			expectedMachineID := input.ExpectedMachineID
+			if _, ok := bmcIPClearIDs[expectedMachineID]; !ok {
+				continue
+			}
 			_, derr := emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
 				ExpectedMachineID: expectedMachineID,
 				BmcIpAddress:      true,
@@ -1636,7 +1659,11 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 				logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("UpdateMultiple returned a machine with an unrecognized ID")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to correlate updated Expected Machine to request", nil)
 			}
-			workflowMachines = append(workflowMachines, em.ToProto(creds))
+			workflowMachine := em.ToProto(creds)
+			// Use the PATCH value at the workflow boundary instead of the REST
+			// row, which may contain an address this request did not touch.
+			workflowMachine.BmcIpAddress = bmcIPRequestsByID[em.ID]
+			workflowMachines = append(workflowMachines, workflowMachine)
 		}
 
 		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering Expected Machine update workflow")

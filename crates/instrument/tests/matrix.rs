@@ -944,3 +944,106 @@ fn a_derived_label_is_computed_by_the_family() {
     assert_eq!(logs[0].field("kind"), None);
     assert_eq!(logs[0].field("detail"), Some("upstream refused"));
 }
+
+/// A context field written as `Option<...>` says it does not apply to every
+/// case: `None` leaves the key off the log line entirely rather than writing a
+/// blank or a sentinel, and `Event::context` agrees with the line.
+#[test]
+fn an_absent_optional_context_field_leaves_no_key() {
+    use std::net::IpAddr;
+
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_optional_context",
+        component = "matrix-test",
+        log = warn,
+        message = "optional context"
+    )]
+    struct OptionalContext {
+        #[label]
+        outcome: Outcome,
+        /// A typed field with no blank value: absent is the only honest form.
+        #[context]
+        peer: Option<IpAddr>,
+        #[context]
+        error: Option<String>,
+        #[context]
+        always: String,
+    }
+
+    let logs = capture_logs(|| {
+        emit(OptionalContext {
+            outcome: Outcome::Error,
+            peer: Some(IpAddr::from([10, 0, 0, 5])),
+            error: Some("boom".to_string()),
+            always: "here".to_string(),
+        });
+        emit(OptionalContext {
+            outcome: Outcome::Ok,
+            peer: None,
+            error: None,
+            always: "here".to_string(),
+        });
+    });
+
+    // Present: rendered through Display exactly as a non-optional field is.
+    assert_eq!(logs[0].field("peer"), Some("10.0.0.5"));
+    assert_eq!(logs[0].field("error"), Some("boom"));
+    assert_eq!(logs[0].field("always"), Some("here"));
+
+    // Absent: the key is not on the line at all -- not blank, not a sentinel.
+    assert_eq!(logs[1].field("peer"), None);
+    assert_eq!(logs[1].field("error"), None);
+    assert_eq!(logs[1].field("always"), Some("here"));
+    let keys: Vec<&str> = logs[1].fields.iter().map(|(k, _)| k.as_str()).collect();
+    assert!(
+        !keys.contains(&"peer"),
+        "absent field must not appear: {keys:?}"
+    );
+    assert!(
+        !keys.contains(&"error"),
+        "absent field must not appear: {keys:?}"
+    );
+
+    // Each optional field stands on its own: one being absent says nothing
+    // about the other.
+    let mixed = capture_logs(|| {
+        emit(OptionalContext {
+            outcome: Outcome::Error,
+            peer: Some(IpAddr::from([10, 0, 0, 9])),
+            error: None,
+            always: "here".to_string(),
+        });
+        emit(OptionalContext {
+            outcome: Outcome::Error,
+            peer: None,
+            error: Some("only the error".to_string()),
+            always: "here".to_string(),
+        });
+    });
+    assert_eq!(mixed[0].field("peer"), Some("10.0.0.9"));
+    assert_eq!(mixed[0].field("error"), None);
+    assert_eq!(mixed[1].field("peer"), None);
+    assert_eq!(mixed[1].field("error"), Some("only the error"));
+
+    let peer_only = OptionalContext {
+        outcome: Outcome::Error,
+        peer: Some(IpAddr::from([10, 0, 0, 9])),
+        error: None,
+        always: "here".to_string(),
+    };
+    let peer_only_context = Event::context(&peer_only);
+    let peer_only_keys: Vec<&str> = peer_only_context.iter().map(|kv| kv.key.as_str()).collect();
+    assert_eq!(peer_only_keys, vec!["peer", "always"]);
+
+    // `Event::context` is introspection for tooling, so it agrees with the line.
+    let absent = OptionalContext {
+        outcome: Outcome::Ok,
+        peer: None,
+        error: None,
+        always: "here".to_string(),
+    };
+    let context = Event::context(&absent);
+    let context_keys: Vec<&str> = context.iter().map(|kv| kv.key.as_str()).collect();
+    assert_eq!(context_keys, vec!["always"]);
+}
