@@ -16,6 +16,7 @@
  */
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -116,6 +117,11 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         .route(
             &redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID).odata_id,
             get(get_boot_option),
+        )
+        .route(
+            &bmc_vendor
+                .make_settings_odata_id(&redfish::boot_option::resource(SYSTEM_ID, BOOT_OPTION_ID)),
+            patch(patch_boot_option_settings),
         )
         .route(&bios.odata_id, get(get_bios).patch(patch_bios_settings))
         .route(
@@ -219,6 +225,7 @@ pub struct SingleSystemState {
     // HPE iLO uses OEM structured boot strings here, not the BootOption IDs
     // exposed by the standard ComputerSystem BootOrder property.
     hpe_boot_order_override: Mutex<Option<Vec<String>>>,
+    boot_option_overrides: Mutex<HashMap<String, serde_json::Value>>,
     boot_source_override: Mutex<BootSourceOverride>,
     secure_boot_enabled: Arc<AtomicBool>,
     bios_overrides: Arc<Mutex<serde_json::Value>>,
@@ -305,6 +312,7 @@ impl SingleSystemState {
             virtual_media,
             boot_order_override: Mutex::new(None),
             hpe_boot_order_override: Mutex::new(None),
+            boot_option_overrides: Mutex::new(HashMap::new()),
             boot_source_override: Mutex::new(BootSourceOverride::default()),
             secure_boot_enabled: Arc::new(AtomicBool::new(false)),
             bios_overrides: Arc::new(Mutex::new(serde_json::json!({}))),
@@ -332,6 +340,32 @@ impl SingleSystemState {
             .iter()
             .flatten()
             .find(|v| v.id == option_id)
+    }
+
+    fn boot_option(&self, option_id: &str) -> Option<serde_json::Value> {
+        let option = self.find_boot_option(option_id)?;
+        let overrides = self.boot_option_overrides.lock().expect("mutex poisoned");
+        Some(
+            option.to_json().patch(
+                overrides
+                    .get(option_id)
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ),
+        )
+    }
+
+    fn patch_boot_option(&self, option_id: &str, patch_request: serde_json::Value) -> bool {
+        if self.find_boot_option(option_id).is_none() {
+            return false;
+        }
+
+        let mut overrides = self.boot_option_overrides.lock().expect("mutex poisoned");
+        let current = overrides
+            .entry(option_id.to_string())
+            .or_insert_with(|| json!({}));
+        *current = current.clone().patch(patch_request);
+        true
     }
 
     fn set_boot_order_override(&self, boot_order: Vec<String>) {
@@ -814,9 +848,23 @@ async fn get_boot_option(
     state
         .system_state
         .find(&system_id)
-        .and_then(|system_state| system_state.find_boot_option(&boot_option_id))
-        .map(|boot_option| boot_option.to_json().into_ok_response())
+        .and_then(|system_state| system_state.boot_option(&boot_option_id))
+        .map(JsonExt::into_ok_response)
         .unwrap_or_else(http::not_found)
+}
+
+async fn patch_boot_option_settings(
+    State(state): State<BmcState>,
+    Path((system_id, boot_option_id)): Path<(String, String)>,
+    Json(patch_request): Json<serde_json::Value>,
+) -> Response {
+    let Some(system_state) = state.system_state.find(&system_id) else {
+        return http::not_found();
+    };
+    if !system_state.patch_boot_option(&boot_option_id, patch_request) {
+        return http::not_found();
+    }
+    json!({}).into_ok_response()
 }
 
 /// Return the HPE iLO persistent boot-order resource.
