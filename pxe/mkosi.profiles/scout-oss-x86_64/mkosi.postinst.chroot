@@ -59,6 +59,7 @@ ln -s /etc/systemd/system/check-scout-updates.timer /etc/systemd/system/timers.t
 # MODULE LOADER
 # ============================================================================
 cp /build-output/load_modules.sh /opt/forge/
+cp /build-output/forge-scout-network.sh /opt/forge/
 
 # Ensure key commands are present
 for bin in /opt/forge/forge-scout \

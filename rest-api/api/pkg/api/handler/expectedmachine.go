@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -26,6 +27,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	corev1 "github.com/NVIDIA/infra-controller/rest-api/proto/core/gen/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
+	mapset "github.com/deckarep/golang-set/v2"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -36,45 +38,21 @@ import (
 
 // ValidateProviderOrTenantSiteAccess validates if the provider or tenant has access to the site
 func ValidateProviderOrTenantSiteAccess(ctx context.Context, logger zerolog.Logger, dbSession *cdb.Session, site *cdbm.Site, infrastructureProvider *cdbm.InfrastructureProvider, tenant *cdbm.Tenant) (bool, *cutil.APIError) {
-	hasAccess := false
+	providerHasAccess := infrastructureProvider != nil && site.InfrastructureProviderID == infrastructureProvider.ID
+	tenantHasAccess := false
 
-	// Validate if Provider has access to the Site
-	if infrastructureProvider != nil && site.InfrastructureProviderID == infrastructureProvider.ID {
-		hasAccess = true
-	}
-
-	if !hasAccess && tenant != nil {
-		// Check Tenant Site relationship
-		tsDAO := cdbm.NewTenantSiteDAO(dbSession)
-		_, tsCount, err := tsDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{
-			TenantIDs: []uuid.UUID{tenant.ID},
-			SiteIDs:   []uuid.UUID{site.ID},
-		}, paginator.PageInput{}, []string{})
+	if tenant != nil {
+		// Effective TargetedInstanceCreation for this Site governs tenant access.
+		// A TenantSite association alone must not bypass an explicit false override.
+		var err error
+		tenantHasAccess, err = common.TenantHasTargetedInstanceCreation(ctx, nil, dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
 		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving Tenant Site relationship")
-			return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to check Tenant/Site association due to DB error", nil)
-		}
-
-		hasAccess = tsCount > 0
-
-		// Check if Tenant is privileged
-		if !hasAccess && tenant.Config.TargetedInstanceCreation {
-			// Check if privileged tenant has an account with the Site's Infrastructure Provider
-			taDAO := cdbm.NewTenantAccountDAO(dbSession)
-			_, taCount, err := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-				InfrastructureProviderID: &site.InfrastructureProviderID,
-				TenantIDs:                []uuid.UUID{tenant.ID},
-			}, paginator.PageInput{}, []string{})
-			if err != nil {
-				logger.Error().Err(err).Msg("error retrieving Tenant Account for Site")
-				return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Tenant's Account with Site's Provider due to DB error", nil)
-			}
-
-			hasAccess = taCount > 0
+			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
+			return false, cutil.NewAPIError(http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
 		}
 	}
 
-	return hasAccess, nil
+	return providerHasAccess || tenantHasAccess, nil
 }
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -119,12 +97,6 @@ func (cemh CreateExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cemh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	// Bind request data to API model
 	apiRequest := model.APIExpectedMachineCreateRequest{}
@@ -166,6 +138,12 @@ func (cemh CreateExpectedMachineHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the Site targeted by this request.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cemh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -293,7 +271,7 @@ func NewGetAllExpectedMachineHandler(dbSession *cdb.Session, cfg *config.Config)
 
 // Handle godoc
 // @Summary Get all ExpectedMachines
-// @Description Get all ExpectedMachines
+// @Description Get all ExpectedMachines. Tenant results are restricted to Sites with effective TargetedInstanceCreation; no single-Site privilege scope is required.
 // @Tags ExpectedMachine
 // @Accept json
 // @Produce json
@@ -317,13 +295,18 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaemh.dbSession, org, dbUser, true, true)
+	// ensure our user is a provider or tenant for the org. We do not request the
+	// privileged-tenant pre-gate (requirePrivilegedScope=nil): tenant-only
+	// callers are scoped below to Sites with effective TargetedInstanceCreation,
+	// and receive 403 when none are resolved.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gaemh.dbSession, org, dbUser, true, nil)
 	if apiError != nil {
 		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
-	filterInput := cdbm.ExpectedMachineFilterInput{}
+	// Initialize SiteIDs to a non-nil empty slice so an unscoped caller (e.g. a
+	// non-privileged Tenant) matches no Sites instead of every Site.
+	siteIDs := mapset.NewSet[uuid.UUID]()
 
 	if infrastructureProvider != nil {
 		// Get all Sites for the org's Infrastructure Provider
@@ -338,28 +321,26 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Sites for org due to DB error", nil)
 		}
 
-		siteIDs := make([]uuid.UUID, 0, len(sites))
 		for _, site := range sites {
-			siteIDs = append(siteIDs, site.ID)
+			siteIDs.Add(site.ID)
 		}
-		filterInput.SiteIDs = siteIDs
 	}
 
 	if tenant != nil {
-		// Check if Tenant is privileged
-		if tenant.Config.TargetedInstanceCreation {
-			// Get IDs for all Sites the privileged Tenant has an access with
-			tenantSiteDAO := cdbm.NewTenantSiteDAO(gaemh.dbSession)
-			tenantSites, _, err := tenantSiteDAO.GetAll(ctx, nil, cdbm.TenantSiteFilterInput{TenantIDs: []uuid.UUID{tenant.ID}}, paginator.PageInput{Limit: cutil.GetPtr(math.MaxInt)}, nil)
-			if err != nil {
-				logger.Error().Err(err).Msg("error retrieving Tenant Sites from DB")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Tenant Sites due to DB error", nil)
-			}
-
-			for _, tenantSite := range tenantSites {
-				filterInput.SiteIDs = append(filterInput.SiteIDs, tenantSite.SiteID)
-			}
+		// Scope tenant listing to Sites where the Tenant has effective
+		// TargetedInstanceCreation, honoring per-site TenantSite.config overrides.
+		privilegedSiteIDs, err := common.GetPrivilegedAccessSiteIDsForTenant(ctx, nil, gaemh.dbSession, tenant)
+		if err != nil {
+			logger.Error().Err(err).Msg("error resolving privileged Site access for Tenant")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability due to DB error", nil)
 		}
+		for _, siteID := range privilegedSiteIDs {
+			siteIDs.Add(siteID)
+		}
+	}
+
+	if infrastructureProvider == nil && tenant != nil && siteIDs.Cardinality() == 0 {
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have Targeted Instance Creation capability enabled for any Site", nil)
 	}
 
 	siteIDStr := c.QueryParam("siteId")
@@ -383,12 +364,13 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 		}
 
 		if !isAssociated && tenant != nil {
-			// We've already populated the filter with Providers the Tenant has an account with
-			isAssociated = slices.Contains(filterInput.SiteIDs, site.ID)
+			// filterInput.SiteIDs already holds the Tenant's effective privileged Sites.
+			isAssociated = siteIDs.Contains(site.ID)
 		}
 
 		if isAssociated {
-			filterInput.SiteIDs = []uuid.UUID{site.ID}
+			siteIDs.Clear()
+			siteIDs.Add(site.ID)
 		} else {
 			logger.Error().Msg("Site is not associated with org")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site specified in query", nil)
@@ -423,7 +405,9 @@ func (gaemh GetAllExpectedMachineHandler) Handle(c echo.Context) error {
 	expectedMachines, total, err := emDAO.GetAll(
 		ctx,
 		nil,
-		filterInput,
+		cdbm.ExpectedMachineFilterInput{
+			SiteIDs: siteIDs.ToSlice(),
+		},
 		paginator.PageInput{
 			Offset:  pageRequest.Offset,
 			Limit:   pageRequest.Limit,
@@ -498,12 +482,6 @@ func (gemh GetExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gemh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Machine ID from URL param
 	expectedMachineIDStr := c.Param("id")
 	expectedMachineID, err := uuid.Parse(expectedMachineIDStr)
@@ -545,6 +523,12 @@ func (gemh GetExpectedMachineHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	// Scope tenant privilege to the Expected Machine's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gemh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate ProviderTenantSite relationship and site state
 	hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, gemh.dbSession, site, infrastructureProvider, tenant)
 	if apiError != nil {
@@ -570,6 +554,27 @@ type UpdateExpectedMachineHandler struct {
 	scp        *sc.ClientPool
 	cfg        *config.Config
 	tracerSpan *cutil.TracerSpan
+}
+
+// expectedMachineBmcMacUnchanged accepts an omitted MAC or another spelling of
+// the stored MAC. The BMC MAC identifies the ExpectedMachine in Core, so PATCH
+// may reassert that identity but cannot replace it.
+func expectedMachineBmcMacUnchanged(stored string, submitted *string) bool {
+	if submitted == nil {
+		return true
+	}
+
+	storedMAC, storedErr := net.ParseMAC(stored)
+	submittedMAC, submittedErr := net.ParseMAC(*submitted)
+	return storedErr == nil && submittedErr == nil && slices.Equal(storedMAC, submittedMAC)
+}
+
+// expectedMachineBmcMacImmutableValidationError keeps the single and batch
+// PATCH validation responses aligned.
+func expectedMachineBmcMacImmutableValidationError() validation.Errors {
+	return validation.Errors{
+		"bmcMacAddress": errors.New("BMC MAC address cannot be changed after creation"),
+	}
 }
 
 // NewUpdateExpectedMachineHandler initializes and returns a new handler for updating ExpectedMachine
@@ -604,12 +609,6 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 	if dbUser == nil {
 		logger.Error().Msg("invalid User object found in request context")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
-	}
-
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uemh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Get Expected Machine ID from URL param
@@ -677,6 +676,12 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Machine", nil)
 	}
 
+	// Scope tenant privilege to the Expected Machine's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uemh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate ProviderTenantSite relationship and site state
 	hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, uemh.dbSession, site, infrastructureProvider, tenant)
 	if apiError != nil {
@@ -685,6 +690,11 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 
 	if !hasAccess {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site of the Expected Machine", nil)
+	}
+
+	if !expectedMachineBmcMacUnchanged(expectedMachine.BmcMacAddress, apiRequest.BmcMacAddress) {
+		validationErrors := expectedMachineBmcMacImmutableValidationError()
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Machine update data", validationErrors)
 	}
 
 	bmcIPAddress := apiRequest.BmcIpAddress
@@ -700,7 +710,6 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			tx,
 			cdbm.ExpectedMachineUpdateInput{
 				ExpectedMachineID:        expectedMachine.ID,
-				BmcMacAddress:            apiRequest.BmcMacAddress,
 				BmcIpAddress:             bmcIPAddress,
 				ChassisSerialNumber:      apiRequest.ChassisSerialNumber,
 				SkuID:                    apiRequest.SkuID,
@@ -738,6 +747,10 @@ func (uemh UpdateExpectedMachineHandler) Handle(c echo.Context) error {
 			Username: apiRequest.DefaultBmcUsername,
 			Password: apiRequest.DefaultBmcPassword,
 		})
+		// REST storage keeps its current value when this PATCH omits the
+		// address. Core needs the request value instead: nil preserves its
+		// current HostBmc configuration, while an empty string clears it.
+		updateExpectedMachineRequest.BmcIpAddress = apiRequest.BmcIpAddress
 
 		logger.Info().Msg("triggering ExpectedMachine update workflow")
 
@@ -811,12 +824,6 @@ func (demh DeleteExpectedMachineHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, demh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Expected Machine ID from URL param
 	expectedMachineID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -842,6 +849,12 @@ func (demh DeleteExpectedMachineHandler) Handle(c echo.Context) error {
 	if site == nil {
 		logger.Error().Msg("no Site relation found for Expected Machine")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for Expected Machine", nil)
+	}
+
+	// Scope tenant privilege to the Expected Machine's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, demh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate ProviderTenantSite relationship and site state
@@ -935,12 +948,6 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cemh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	// Bind request data to API model (array payload)
 	apiRequests := []model.APIExpectedMachineCreateRequest{}
@@ -1030,6 +1037,12 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		}
 		logger.Error().Err(err).Msg("error retrieving Site from DB")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data due to DB error", nil)
+	}
+
+	// Scope tenant privilege to the common Site targeted by this batch.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, cemh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
 	}
 
 	// Validate access to Site
@@ -1272,12 +1285,6 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve current user", nil)
 	}
 
-	// Ensure our user is a provider or tenant for the org
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uemh.dbSession, org, dbUser, false, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Validate request
 	// Bind request data to API model (array payload)
 	apiRequests := []model.APIExpectedMachineUpdateRequest{}
@@ -1297,12 +1304,10 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 
 	// Validate each item, also collect requested sku IDs
 	// - ID is required and must be unique
-	// - BMC address is optional but must be unique
 	// - Serial Number is optional but must be unique
 	// Note: this is early partial validation before we try to call the DB.
 	validationErrors := validation.Errors{} //
 	idMap := make(map[uuid.UUID]int)        // Map Expected Machine ID to its index in the request array
-	bmcMacMap := make(map[string]int)
 	serialMap := make(map[string]int)
 	requestedSkuIDs := make(map[string]bool)
 	for i, req := range apiRequests {
@@ -1332,15 +1337,6 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			idMap[mid] = i
 		}
 
-		if req.BmcMacAddress != nil {
-			lowerMac := strings.ToLower(*req.BmcMacAddress)
-			if prev, ok := bmcMacMap[lowerMac]; ok {
-				common.AddToValidationErrors(itemErrors, "bmcMacAddress", fmt.Errorf(
-					"duplicate BMC MAC address '%s' found at indices %d and %d", *req.BmcMacAddress, prev, i))
-			}
-			bmcMacMap[lowerMac] = i
-		}
-
 		if req.ChassisSerialNumber != nil {
 			lowerSerial := strings.ToLower(*req.ChassisSerialNumber)
 			if prev, ok := serialMap[lowerSerial]; ok {
@@ -1368,7 +1364,7 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	// but we also want to retrieve full Expected Machines from Site to check for Serial uniqueness.
 	// We will split into multiple queries:
 	// 1. Retrieve SiteID and Site by loading the requested ExpectedMachine records
-	// 2. Retrieve all Expected Machines for that Site to check for MAC/Serial uniqueness.
+	// 2. Retrieve all Expected Machines for that Site to check for Serial uniqueness.
 	// 3. Retrieve all SKUs for that Site to validate SKU IDs in the request.
 	// All of these are pure validation reads and stay outside the WithTxResult call below.
 	// TODO: now that we have a unique index on (mac,siteID) we should reconsider adding unique indices on (serial,siteID).
@@ -1441,6 +1437,12 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "No Site found for Expected Machines", nil)
 	}
 
+	// Scope tenant privilege to the common Site targeted by this batch.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, uemh.dbSession, org, dbUser, false, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate ProviderTenantSite relationship and state
 	hasAccess, apiError := ValidateProviderOrTenantSiteAccess(ctx, logger, uemh.dbSession, site, infrastructureProvider, tenant)
 	if apiError != nil {
@@ -1448,6 +1450,21 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	}
 	if !hasAccess {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site", nil)
+	}
+
+	// Validate the stored identity only after the caller's Site access is known.
+	// Otherwise the error would reveal whether a submitted MAC matched a machine
+	// the caller cannot access.
+	validationErrors = validation.Errors{}
+	for i, req := range apiRequests {
+		mid, _ := uuid.Parse(*req.ID)
+		em := requestedEmMap[mid]
+		if !expectedMachineBmcMacUnchanged(em.BmcMacAddress, req.BmcMacAddress) {
+			validationErrors[strconv.Itoa(i)] = expectedMachineBmcMacImmutableValidationError()
+		}
+	}
+	if len(validationErrors) > 0 {
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate Expected Machine update data", validationErrors)
 	}
 
 	// Retrieve all ExpectedMachines on Site from DB to allow unicity checks at
@@ -1484,42 +1501,32 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		uniqueSkuIDsOnSite[sku.ID] = true
 	}
 
-	// Verify unicity of BMC MAC Addresses and Serial Numbers with existing records on Site
-	expectedMachineMacAddressChecker := common.NewUniqueChecker[uuid.UUID]()
+	// Verify Serial Number uniqueness with existing records on Site
 	expectedMachineSerialNumberChecker := common.NewUniqueChecker[uuid.UUID]()
 
 	// Load DB data into checkers
 	for i := range expectedMachinesOnSite { // iterate on ALL Expected Machine on Site
 		em := &expectedMachinesOnSite[i]
-		expectedMachineMacAddressChecker.Update(em.ID, em.BmcMacAddress)
 		if em.ChassisSerialNumber != "" {
 			expectedMachineSerialNumberChecker.Update(em.ID, em.ChassisSerialNumber)
 		}
 	}
 
-	// Apply changes to MAC and Serial to checkers
+	// Apply Serial changes to the checker
 	for _, req := range apiRequests {
 		mid, _ := uuid.Parse(*req.ID)
-		if req.BmcMacAddress != nil {
-			expectedMachineMacAddressChecker.Update(mid, *req.BmcMacAddress)
-		}
 		if req.ChassisSerialNumber != nil {
 			expectedMachineSerialNumberChecker.Update(mid, *req.ChassisSerialNumber)
 		}
 	}
 
-	// Final checks: unicity of MAC, Serial, and existence of SKUs
+	// Final checks: Serial uniqueness and existence of SKUs
 	validationErrors = validation.Errors{}
 	for i, req := range apiRequests {
 		itemErrors := validation.Errors{}
 		strIndex := strconv.Itoa(i) // index/key as string for validation errors map
 		mid, _ := uuid.Parse(*req.ID)
 
-		// Check MAC unicity
-		if req.BmcMacAddress != nil && expectedMachineMacAddressChecker.DoesIDHaveConflict(mid) {
-			common.AddToValidationErrors(itemErrors, "bmcMacAddress", fmt.Errorf(
-				"Expected Machine with BMC MAC Address: %s already exist", *req.BmcMacAddress))
-		}
 		// Check Serial unicity
 		if req.ChassisSerialNumber != nil && expectedMachineSerialNumberChecker.DoesIDHaveConflict(mid) {
 			common.AddToValidationErrors(itemErrors, "chassisSerialNumber", fmt.Errorf(
@@ -1545,8 +1552,9 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	// by the DB record's ID rather than by slice index, so correlation
 	// doesn't depend on the DAO preserving input order.
 	credsByID := make(map[uuid.UUID]cdbm.ExpectedMachineCredentials, len(apiRequests))
+	bmcIPRequestsByID := make(map[uuid.UUID]*string, len(apiRequests))
 	updateInputs := make([]cdbm.ExpectedMachineUpdateInput, 0, len(apiRequests))
-	bmcIPClearIDs := make([]uuid.UUID, 0)
+	bmcIPClearIDs := make(map[uuid.UUID]struct{})
 	for _, machineReq := range apiRequests {
 		// APIExpectedMachineUpdateRequest must allow nil ID for single update use case. If present here, it has already been validated.
 		if machineReq.ID == nil {
@@ -1559,14 +1567,14 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			Username: machineReq.DefaultBmcUsername,
 			Password: machineReq.DefaultBmcPassword,
 		}
+		bmcIPRequestsByID[emID] = machineReq.BmcIpAddress
 		bmcIPAddress := machineReq.BmcIpAddress
 		if bmcIPAddress != nil && *bmcIPAddress == "" {
-			bmcIPClearIDs = append(bmcIPClearIDs, emID)
+			bmcIPClearIDs[emID] = struct{}{}
 			bmcIPAddress = nil
 		}
 		updateInputs = append(updateInputs, cdbm.ExpectedMachineUpdateInput{
 			ExpectedMachineID:        emID,
-			BmcMacAddress:            machineReq.BmcMacAddress,
 			BmcIpAddress:             bmcIPAddress,
 			ChassisSerialNumber:      machineReq.ChassisSerialNumber,
 			SkuID:                    machineReq.SkuID,
@@ -1584,12 +1592,29 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 			HostLifecycleProfile:     machineReq.HostLifecycleProfile.ToDBModelPtr(),
 		})
 	}
-
 	// Update provided ExpectedMachines in DB
 	updatedExpectedMachines, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
-		// Clear first so UpdateMultiple's final SELECT and the workflow payload
-		// both see nil. Its scoped BMC IP update cannot restore cleared rows.
-		for _, expectedMachineID := range bmcIPClearIDs {
+		// Lock the full target set before clearing any one row. Clear touches
+		// only a subset, while UpdateMultiple writes every target; without this
+		// canonical lock pass, overlapping batches can each hold a different
+		// cleared row and deadlock during the bulk update.
+		derr := emDAO.LockForUpdate(ctx, tx, slices.Collect(maps.Keys(idMap)))
+		if derr != nil {
+			if errors.Is(derr, cdb.ErrDoesNotExist) {
+				return nil, cutil.NewAPIError(http.StatusConflict, "One or more Expected Machines were removed before the batch update completed", nil)
+			}
+			logger.Error().Err(derr).Msg("error locking ExpectedMachine records for batch update")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
+		}
+
+		// Clear first so UpdateMultiple's final SELECT sees nil. Its scoped
+		// BMC IP update cannot restore cleared rows. Every target row is already
+		// locked above, so the subset clear cannot introduce a second order.
+		for _, input := range updateInputs {
+			expectedMachineID := input.ExpectedMachineID
+			if _, ok := bmcIPClearIDs[expectedMachineID]; !ok {
+				continue
+			}
 			_, derr := emDAO.Clear(ctx, tx, cdbm.ExpectedMachineClearInput{
 				ExpectedMachineID: expectedMachineID,
 				BmcIpAddress:      true,
@@ -1617,7 +1642,11 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 				logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("UpdateMultiple returned a machine with an unrecognized ID")
 				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to correlate updated Expected Machine to request", nil)
 			}
-			workflowMachines = append(workflowMachines, em.ToProto(creds))
+			workflowMachine := em.ToProto(creds)
+			// Use the PATCH value at the workflow boundary instead of the REST
+			// row, which may contain an address this request did not touch.
+			workflowMachine.BmcIpAddress = bmcIPRequestsByID[em.ID]
+			workflowMachines = append(workflowMachines, workflowMachine)
 		}
 
 		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering Expected Machine update workflow")

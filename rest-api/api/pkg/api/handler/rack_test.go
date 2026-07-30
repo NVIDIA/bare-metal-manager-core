@@ -86,11 +86,8 @@ func testRackSetupTestData(t *testing.T, dbSession *cdb.Session, org string) (*c
 
 	// Create tenant with TargetedInstanceCreation enabled (privileged tenant)
 	tenant := &cdbm.Tenant{
-		ID:  uuid.New(),
-		Org: org,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
+		ID:        uuid.New(),
+		Org:       org,
 		CreatedBy: uuid.New(),
 	}
 	_, err = dbSession.DB.NewInsert().Model(tenant).Exec(ctx)
@@ -101,6 +98,8 @@ func testRackSetupTestData(t *testing.T, dbSession *cdb.Session, org string) (*c
 		ID:                       uuid.New(),
 		TenantID:                 &tenant.ID,
 		InfrastructureProviderID: ip.ID,
+		Status:                   cdbm.TenantAccountStatusReady,
+		Config:                   cdbm.TenantAccountConfig{TargetedInstanceCreation: true},
 	}
 	_, err = dbSession.DB.NewInsert().Model(ta).Exec(ctx)
 	assert.Nil(t, err)

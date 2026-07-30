@@ -21,7 +21,9 @@ use bmc_mock::{DUMMY_FACTORY_PASSWORD, DUMMY_FACTORY_USERNAME, MachineInfo};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::machine_validation::MachineValidationId;
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::switch::SwitchId;
 use mac_address::MacAddress;
 use model::expected_machine::HostDpuPolicy;
 use rpc::forge::instance_operating_system_config::Variant;
@@ -57,6 +59,8 @@ pub struct MockDiscoveryData {
 
 static SUBNET_COUNTER: AtomicU32 = AtomicU32::new(0);
 static VPC_COUNTER: AtomicU32 = AtomicU32::new(0);
+const DUMMY_NVOS_USERNAME: &str = "admin";
+const DUMMY_NVOS_PASSWORD: &str = "factory_password";
 
 #[derive(Debug, Clone)]
 pub struct ApiClient(pub ForgeApiClient);
@@ -330,6 +334,68 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)
     }
 
+    pub async fn force_delete_switch_by_bmc(
+        &self,
+        bmc_mac: String,
+    ) -> ClientApiResult<Option<SwitchId>> {
+        let mut ids = self
+            .0
+            .find_switch_ids(rpc::forge::SwitchSearchFilter {
+                bmc_mac: Some(bmc_mac.clone()),
+                ..Default::default()
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)?
+            .ids;
+        if ids.len() > 1 {
+            return Err(ClientApiError::ConfigError(format!(
+                "multiple switches found for BMC MAC address {bmc_mac}"
+            )));
+        }
+        let Some(switch_id) = ids.pop() else {
+            return Ok(None);
+        };
+        self.0
+            .admin_force_delete_switch(rpc::forge::AdminForceDeleteSwitchRequest {
+                switch_id: Some(switch_id),
+                delete_interfaces: true,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+        Ok(Some(switch_id))
+    }
+
+    pub async fn force_delete_power_shelf_by_bmc(
+        &self,
+        bmc_mac: String,
+    ) -> ClientApiResult<Option<PowerShelfId>> {
+        let mut ids = self
+            .0
+            .find_power_shelf_ids(rpc::forge::PowerShelfSearchFilter {
+                bmc_mac: Some(bmc_mac.clone()),
+                ..Default::default()
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)?
+            .ids;
+        if ids.len() > 1 {
+            return Err(ClientApiError::ConfigError(format!(
+                "multiple power shelves found for BMC MAC address {bmc_mac}"
+            )));
+        }
+        let Some(power_shelf_id) = ids.pop() else {
+            return Ok(None);
+        };
+        self.0
+            .admin_force_delete_power_shelf(rpc::forge::AdminForceDeletePowerShelfRequest {
+                power_shelf_id: Some(power_shelf_id),
+                delete_interfaces: true,
+            })
+            .await
+            .map_err(ClientApiError::InvocationError)?;
+        Ok(Some(power_shelf_id))
+    }
+
     pub async fn create_network_segment(
         &self,
         vpc_name: &String,
@@ -515,6 +581,7 @@ impl ApiClient {
                 sku_id: None,
                 id: None,
                 host_nics,
+                replace_host_nics: false,
                 rack_id,
                 default_pause_ingestion_and_poweron: None,
                 #[allow(deprecated)]
@@ -569,8 +636,8 @@ impl ApiClient {
                 bmc_username: DUMMY_FACTORY_USERNAME.to_string(),
                 bmc_password: DUMMY_FACTORY_PASSWORD.to_string(),
                 switch_serial_number,
-                nvos_username: None,
-                nvos_password: None,
+                nvos_username: Some(DUMMY_NVOS_USERNAME.to_string()),
+                nvos_password: Some(DUMMY_NVOS_PASSWORD.to_string()),
                 bmc_ip_address: String::new(),
                 nvos_ip_address: None,
                 metadata: None,

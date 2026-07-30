@@ -233,7 +233,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// 2. Request Validation
 	//    - Bind and validate batch request data (count, namePrefix, topology flag)
 	//    - Validate tenant, instance type, VPC, site
-	//    - Load and validate Interfaces (Subnets, VPC Prefixes) - shared across all instances
+	//    - Load and validate Interfaces (Subnets, VPC Prefixes, or VPC selection; shared across all instances)
 	//    - Load and validate DPU Extension Service Deployments - shared across all instances
 	//    - Load and validate Network Security Groups - shared across all instances
 	//    - Load and validate SSH Key Groups - shared across all instances
@@ -513,10 +513,18 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		}
 	}
 
+	// Load VPCs only for interfaces using Core-managed prefix selection.
+	interfaceVpcIDMap, interfaceVpcErr := loadInstanceInterfaceVpcs(ctx, &logger, bcih.dbSession, apiRequest.Interfaces, tenant.ID, site.ID)
+	if interfaceVpcErr != nil {
+		logger.Warn().Err(interfaceVpcErr).Msg("failed to validate VPCs specified by batch Instance interfaces")
+		return cutil.NewAPIErrorResponse(c, interfaceVpcErr.Code, interfaceVpcErr.Message, interfaceVpcErr.Data)
+	}
+
 	// Validate each Interface against fetched data and build dbInterfaces
 	dbInterfaces := []cdbm.Interface{}
 	isDeviceInfoPresent := false
 	pfWithinVPC := []uuid.UUID{}
+	primaryPhysicalInterfaceUsesVpcSelection := false
 	allFoundVpcIds := goset.NewSet[uuid.UUID]()
 
 	// Prepare the unique set of all VPC IDs for this batch request.
@@ -632,8 +640,10 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				// is by definition not the primary.
 				if !isDeviceInfoPresent {
 					pfWithinVPC = append(pfWithinVPC, vpcPrefix.VpcID)
+					primaryPhysicalInterfaceUsesVpcSelection = false
 				} else if ifc.DeviceInstance != nil && *ifc.DeviceInstance == 0 {
 					pfWithinVPC = []uuid.UUID{vpcPrefix.VpcID}
+					primaryPhysicalInterfaceUsesVpcSelection = false
 				}
 			}
 
@@ -641,6 +651,46 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				VpcPrefixID:          &vpcPrefixUUID,
 				VpcPrefix:            vpcPrefix,
 				RequestedIpAddress:   nil, // Explicit IPs are not supported for batch create.
+				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
+				Device:               ifc.Device,
+				DeviceInstance:       ifc.DeviceInstance,
+				VirtualFunctionID:    ifc.VirtualFunctionID,
+				IsPhysical:           ifc.IsPhysical,
+				Status:               cdbm.InterfaceStatusPending,
+			})
+		}
+
+		if ifc.VpcID != nil {
+			interfaceVpcID := uuid.MustParse(*ifc.VpcID)
+			interfaceVpc := interfaceVpcIDMap[interfaceVpcID]
+			if vpc.NetworkVirtualizationType == nil || *vpc.NetworkVirtualizationType != cdbm.VpcFNN {
+				logger.Warn().Msg(fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC based interfaces", vpc.ID))
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("VPC: %v specified in request must have FNN network virtualization type in order to create VPC based interfaces", vpc.ID), nil)
+			}
+
+			if !allRequestedVpcIds.Contains(interfaceVpcID) {
+				logger.Error().Msgf("One or more Interfaces specify VPC: %s which is not specified in 'vpcId' or 'secondaryVpcIds'", interfaceVpcID)
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("One or more Interfaces specify VPC: %s which is not specified in 'vpcId' or 'secondaryVpcIds'", interfaceVpcID), nil)
+			}
+
+			allFoundVpcIds.Add(interfaceVpcID)
+			if ifc.Device != nil && ifc.DeviceInstance != nil {
+				isDeviceInfoPresent = true
+			}
+			if ifc.IsPhysical {
+				if !isDeviceInfoPresent {
+					pfWithinVPC = append(pfWithinVPC, interfaceVpcID)
+					primaryPhysicalInterfaceUsesVpcSelection = true
+				} else if ifc.DeviceInstance != nil && *ifc.DeviceInstance == 0 {
+					pfWithinVPC = []uuid.UUID{interfaceVpcID}
+					primaryPhysicalInterfaceUsesVpcSelection = true
+				}
+			}
+
+			dbInterfaces = append(dbInterfaces, cdbm.Interface{
+				VpcID:                &interfaceVpcID,
+				Vpc:                  interfaceVpc,
+				VpcIPFamilyMode:      cutil.GetPtr(cdbm.InterfaceVpcIPFamilyModeIPv4Only),
 				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
 				Device:               ifc.Device,
 				DeviceInstance:       ifc.DeviceInstance,
@@ -659,6 +709,17 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		// Throw an error if there are somehow no PFs, or if the VPC of the first
 		// PF doesn't match the primary VPC of the batch request.
 		if len(pfWithinVPC) == 0 || pfWithinVPC[0] != vpc.ID {
+			// Use the VPC-selection response when the primary physical Interface selects a VPC
+			// by ID. If no primary physical Interface was found, any Interface selecting a VPC
+			// by ID is enough to prefer this response over the legacy VPC Prefix response.
+			if primaryPhysicalInterfaceUsesVpcSelection || (len(pfWithinVPC) == 0 && len(interfaceVpcIDMap) > 0) {
+				logger.Error().Msg("the primary physical interface must use the Instance VPC")
+				if !isDeviceInfoPresent {
+					return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The primary physical Interface must use the VPC specified in `vpcId`", nil)
+				}
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "The primary physical Interface for deviceInstance: 0 must use the VPC specified in `vpcId`", nil)
+			}
+
 			logger.Error().Msg("the primary physical interface must use a VPC prefix that matches with Instance VPC")
 
 			if !isDeviceInfoPresent {
@@ -671,6 +732,12 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		// Reject the request if the requested VPC associations don't match
 		// the VPC associations actually found based on interface definitions.
 		if allRequestedVpcIds.Cardinality() != allFoundVpcIds.Cardinality() {
+			// If any Interface selects a VPC by ID, use the generalized error because
+			// either VPC IDs or VPC Prefixes can account for a mismatch with `vpcId` or `secondaryVpcIds`.
+			if len(interfaceVpcIDMap) > 0 {
+				logger.Error().Msg("one or more VPCs specified in `vpcId` or `secondaryVpcIds` are not used by Interfaces in request data")
+				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "One or more VPCs specified in `vpcId` or `secondaryVpcIds` are not used by Interfaces in request data", nil)
+			}
 			logger.Error().Msg("one or more Interfaces in request data specify VPC Prefixes that do not belong to VPCs specified in `vpcId` or `secondaryVpcIds`")
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "One or more Interfaces in request data specify VPC Prefixes that do not belong to VPCs specified in `vpcId` or `secondaryVpcIds`", nil)
 		}
@@ -1346,6 +1413,8 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				ifcInputs = append(ifcInputs, cdbm.InterfaceCreateInput{
 					InstanceID:           inst.ID,
 					SubnetID:             dbifc.SubnetID,
+					VpcID:                dbifc.VpcID,
+					VpcIPFamilyMode:      dbifc.VpcIPFamilyMode,
 					VpcPrefixID:          dbifc.VpcPrefixID,
 					Device:               dbifc.Device,
 					DeviceInstance:       dbifc.DeviceInstance,
@@ -1511,10 +1580,12 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		// Distribute Interfaces and build workflow configs
 		for _, ifc := range createdIfcsAll {
 			idx := instanceIDToIdx[ifc.InstanceID]
+			if ifc.VpcID != nil {
+				ifc.Vpc = interfaceVpcIDMap[*ifc.VpcID]
+			}
 
-			// NewAPIInstance derives SecondaryVpcIDs from prefix-backed interface relations.
-			// Reattach the already-validated VpcPrefix relation here because CreateMultiple
-			// returns interfaces with IDs populated but without related objects preloaded.
+			// NewAPIInstance derives SecondaryVpcIDs from VPC intent or explicit-prefix
+			// relations. Reattach validated relations because CreateMultiple does not preload them.
 			if ifc.VpcPrefixID != nil {
 				ifc.VpcPrefix = vpcPrefixIDMap[*ifc.VpcPrefixID]
 			}
@@ -1535,7 +1606,14 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 					},
 				}
 			}
-			if ifc.VpcPrefixID != nil {
+			vpcSelection, ierr := instanceInterfaceVpcSelection(&ifc)
+			if ierr != nil {
+				logger.Error().Err(ierr).Msg("failed to build VPC selection for batch Instance Interface")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to build VPC selection for batch Instance Interface", nil)
+			}
+			if vpcSelection != nil {
+				interfaceConfig.NetworkDetails = &corev1.InstanceInterfaceConfig_Vpc{Vpc: vpcSelection}
+			} else if ifc.VpcPrefixID != nil {
 				interfaceConfig.NetworkDetails = &corev1.InstanceInterfaceConfig_VpcPrefixId{
 					VpcPrefixId: &corev1.VpcPrefixId{Value: ifc.VpcPrefixID.String()},
 				}

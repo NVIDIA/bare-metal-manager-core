@@ -28,18 +28,22 @@ products:
   - display-name: NVIDIA Infra Controller
     slug: /
     path: ../docs/index.yml
-    versions:
-      - display-name: v0.8
-        path: ../docs/index.yml
+    # versions:
+    #   - display-name: v2.0
+    #     path: ../docs/index.yml
 
 redirects:
   - source: "/infra-controller/index.html"
     destination: "/infra-controller/"
   - source: "/infra-controller/dev/index.html"
     destination: "/infra-controller/dev/"
-  - source: "/infra-controller/documentation/introduction"
-    destination: "/infra-controller/documentation/overview/what-is-nico"
-  - source: "/infra-controller/documentation/getting-started/site-setup"
-    destination: "/infra-controller/documentation/getting-started/quick-start-guide"
+  - source: "/infra-controller/documentation/architecture/state-machines/rack-state-machine"
+    destination: "/infra-controller/documentation/architecture/state-machines/on-demand-rack-maintenance"
   - source: "/infra-controller/documentation/getting-started/building-ni-co-containers"
     destination: "/infra-controller/documentation/getting-started/building-nico-containers"
+  - source: "/infra-controller/documentation/getting-started/site-setup"
+    destination: "/infra-controller/documentation/getting-started/quick-start-guide"
+  - source: "/infra-controller/documentation/introduction"
+    destination: "/infra-controller/documentation/overview/what-is-nico"
+  - source: "/infra-controller/documentation/reference/release-notes"
+    destination: "/infra-controller/documentation/release-notes"

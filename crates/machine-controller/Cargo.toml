@@ -34,6 +34,7 @@ test-support = ["dep:mockall"]
 bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-credential-rotation = { path = "../credential-rotation", default-features = false }
 carbide-dpf = { path = "../dpf", default-features = false }
 carbide-health-report = { path = "../health-report", default-features = false }
 carbide-health-metrics = { path = "../health-metrics" }
@@ -77,6 +78,7 @@ uuid = { workspace = true, features = ["v4", "serde"] }
 version-compare = { workspace = true }
 
 [dev-dependencies]
+carbide-api-model = { path = "../api-model", default-features = false, features = ["test-support"] }
 carbide-instrument = { path = "../instrument", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
 carbide-secrets = { path = "../secrets", features = ["test-support"] }

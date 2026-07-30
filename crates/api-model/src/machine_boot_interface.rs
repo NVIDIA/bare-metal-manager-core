@@ -18,6 +18,19 @@ use carbide_utils::none_if_empty::NoneIfEmpty;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
+/// Returns the canonical form of a Redfish boot-interface id.
+///
+/// Redfish ids may arrive padded by transport or vendor formatting. Only
+/// boundary ASCII whitespace is removed so Rust and the database apply the
+/// same rule without changing any non-ASCII identifier characters. An empty
+/// canonical value is not a usable id.
+pub fn canonical_redfish_boot_interface_id(interface_id: &str) -> Option<&str> {
+    let interface_id = interface_id.trim_matches(|character: char| {
+        matches!(character, ' ' | '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r')
+    });
+    (!interface_id.is_empty()).then_some(interface_id)
+}
+
 /// A host's boot interface, identified by *both* its MAC address and its
 /// vendor-native Redfish `EthernetInterface.Id`.
 ///
@@ -66,12 +79,12 @@ impl MachineBootInterface {
     }
 }
 
-/// The logical boot-interface target NICo asked a Redfish backend to assess for
-/// a machine-setup observation.
+/// A host boot-interface target used for both desired configuration and
+/// Redfish observations.
 ///
-/// Newer endpoint records retain the complete [`MachineBootInterface`] pair.
-/// Older records may only have the MAC, which remains a valid selector but
-/// must stay distinguishable from a pair. A backend may match with only the
+/// NICo retains the complete [`MachineBootInterface`] pair whenever both
+/// identifiers are known. Older records and newly discovered targets may only
+/// have the MAC, which remains a valid selector. A backend may match with only the
 /// identifiers its read path supports -- NvRedfish currently uses the MAC --
 /// while this value keeps the `Pair` identity NICo requested. The state
 /// controller can therefore compare the logical target with its current target
@@ -104,6 +117,22 @@ impl MachineBootInterfaceTarget {
             None => Self::MacOnly(mac_address),
         })
     }
+
+    /// Returns the MAC address used to identify this target.
+    pub fn mac_address(&self) -> MacAddress {
+        match self {
+            Self::Pair(interface) => interface.mac_address,
+            Self::MacOnly(mac_address) => *mac_address,
+        }
+    }
+
+    /// Returns the vendor-native Redfish interface id when it is known.
+    pub fn interface_id(&self) -> Option<&str> {
+        match self {
+            Self::Pair(interface) => Some(&interface.interface_id),
+            Self::MacOnly(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -111,6 +140,31 @@ mod tests {
     use carbide_test_support::value_scenarios;
 
     use super::*;
+
+    #[test]
+    fn redfish_boot_interface_ids_use_ascii_boundary_whitespace() {
+        value_scenarios!(run = |interface_id| {
+            canonical_redfish_boot_interface_id(interface_id)
+        };
+            "canonical" {
+                "NIC.Slot.7-1-1" => Some("NIC.Slot.7-1-1"),
+            }
+
+            "padded valid id" {
+                " \t\n\u{000b}\u{000c}\rNIC.Slot.7-1-1 \t\n\u{000b}\u{000c}\r" =>
+                    Some("NIC.Slot.7-1-1"),
+            }
+
+            "ASCII whitespace only" {
+                "\t\n" => None,
+            }
+
+            "non-ASCII boundary whitespace is retained" {
+                "\u{00a0}NIC.Slot.7-1-1\u{00a0}" =>
+                    Some("\u{00a0}NIC.Slot.7-1-1\u{00a0}"),
+            }
+        );
+    }
 
     #[test]
     fn from_parts_requires_both() {
@@ -171,6 +225,35 @@ mod tests {
 
             "no target parts" {
                 (None, None) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn target_accessors_return_the_available_identifiers() {
+        let mac = MacAddress::new([1, 2, 3, 4, 5, 6]);
+
+        value_scenarios!(run = |target: MachineBootInterfaceTarget| {
+            (
+                target.mac_address(),
+                target.interface_id().map(ToOwned::to_owned),
+            )
+        };
+            "complete pair" {
+                MachineBootInterfaceTarget::Pair(MachineBootInterface {
+                    mac_address: mac,
+                    interface_id: "NIC.Slot.7-1-1".to_string(),
+                }) => (
+                    mac,
+                    Some("NIC.Slot.7-1-1".to_string()),
+                ),
+            }
+
+            "MAC only" {
+                MachineBootInterfaceTarget::MacOnly(mac) => (
+                    mac,
+                    None,
+                ),
             }
         );
     }

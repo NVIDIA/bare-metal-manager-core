@@ -34,8 +34,8 @@ use crate::handler::host_boot_config::{
     initial_set_boot_order_info, inspect_host_boot_config, run_host_boot_config_stage,
 };
 use crate::handler::{
-    RequiredBootInterface, handler_host_power_control, host_power_control, load_boot_predictions,
-    rebooted, redfish_error, require_boot_interface, trigger_reboot_if_needed, wait,
+    RequiredBootInterface, handler_host_power_control, host_power_control, rebooted, redfish_error,
+    require_boot_interface, resolve_boot_interface_for_step, trigger_reboot_if_needed, wait,
 };
 
 /// The validation flavor of the managed-host state, so the repair arms can
@@ -70,6 +70,7 @@ async fn handle_validation_boot_config_stage(
         &host_handler_params.reachability_params,
         redfish_client.as_ref(),
         mh_snapshot,
+        None,
         stage,
     )
     .await?
@@ -245,10 +246,11 @@ pub(crate) async fn handle_machine_validation_state(
                 // during the reboot's POST -- the host can't boot into the
                 // validation environment, and further reboots can't restore a
                 // setting that is gone. Correct it instead of pacing forever.
-                let predictions = load_boot_predictions(ctx, &mh_snapshot.host_snapshot.id).await?;
+                let boot_interface_resolution =
+                    resolve_boot_interface_for_step(ctx, mh_snapshot, None).await?;
                 if let RequiredBootInterface::Ready(boot_interface) = require_boot_interface(
-                    mh_snapshot,
-                    &predictions,
+                    &mh_snapshot.host_snapshot.id,
+                    boot_interface_resolution,
                     "verifying the boot config during validation",
                     |message| message,
                 )? {
@@ -481,6 +483,7 @@ pub(crate) async fn handle_machine_validation_state(
                 mh_snapshot,
                 &host_handler_params.reachability_params,
                 HostBootConfigDpuFreshness::CurrentHostState,
+                None,
                 ctx,
             )
             .await?

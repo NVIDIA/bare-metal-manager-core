@@ -59,6 +59,8 @@ type APIClient struct {
 
 	BMCResetAPI *BMCResetAPIService
 
+	CredentialRotationAPI *CredentialRotationAPIService
+
 	DPUExtensionServiceAPI *DPUExtensionServiceAPIService
 
 	DPUReprovisionAPI *DPUReprovisionAPIService
@@ -89,6 +91,10 @@ type APIClient struct {
 
 	MachineAPI *MachineAPIService
 
+	MeasuredBootTrustedMachineAPI *MeasuredBootTrustedMachineAPIService
+
+	MeasuredBootTrustedProfileAPI *MeasuredBootTrustedProfileAPIService
+
 	MetadataAPI *MetadataAPIService
 
 	NVLinkLogicalPartitionAPI *NVLinkLogicalPartitionAPIService
@@ -116,6 +122,8 @@ type APIClient struct {
 	SubnetAPI *SubnetAPIService
 
 	TaskAPI *TaskAPIService
+
+	TaskRunAPI *TaskRunAPIService
 
 	TenantAPI *TenantAPIService
 
@@ -156,6 +164,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.AuditAPI = (*AuditAPIService)(&c.common)
 	c.BMCCredentialAPI = (*BMCCredentialAPIService)(&c.common)
 	c.BMCResetAPI = (*BMCResetAPIService)(&c.common)
+	c.CredentialRotationAPI = (*CredentialRotationAPIService)(&c.common)
 	c.DPUExtensionServiceAPI = (*DPUExtensionServiceAPIService)(&c.common)
 	c.DPUReprovisionAPI = (*DPUReprovisionAPIService)(&c.common)
 	c.ExpectedMachineAPI = (*ExpectedMachineAPIService)(&c.common)
@@ -171,6 +180,8 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.InstanceAPI = (*InstanceAPIService)(&c.common)
 	c.InstanceTypeAPI = (*InstanceTypeAPIService)(&c.common)
 	c.MachineAPI = (*MachineAPIService)(&c.common)
+	c.MeasuredBootTrustedMachineAPI = (*MeasuredBootTrustedMachineAPIService)(&c.common)
+	c.MeasuredBootTrustedProfileAPI = (*MeasuredBootTrustedProfileAPIService)(&c.common)
 	c.MetadataAPI = (*MetadataAPIService)(&c.common)
 	c.NVLinkLogicalPartitionAPI = (*NVLinkLogicalPartitionAPIService)(&c.common)
 	c.NetworkSecurityGroupAPI = (*NetworkSecurityGroupAPIService)(&c.common)
@@ -185,6 +196,7 @@ func NewAPIClient(cfg *Configuration) *APIClient {
 	c.SiteExplorerAPI = (*SiteExplorerAPIService)(&c.common)
 	c.SubnetAPI = (*SubnetAPIService)(&c.common)
 	c.TaskAPI = (*TaskAPIService)(&c.common)
+	c.TaskRunAPI = (*TaskRunAPIService)(&c.common)
 	c.TenantAPI = (*TenantAPIService)(&c.common)
 	c.TenantAccountAPI = (*TenantAccountAPIService)(&c.common)
 	c.TenantIdentityAPI = (*TenantIdentityAPIService)(&c.common)

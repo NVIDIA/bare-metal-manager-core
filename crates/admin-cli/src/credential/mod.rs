@@ -27,6 +27,7 @@ mod common;
 mod delete_bmc;
 mod delete_nmxm;
 mod delete_ufm;
+mod force_bmc;
 mod generate_ufm_cert;
 mod registry;
 mod rotate;
@@ -77,4 +78,9 @@ pub enum Cmd {
     Rotate(rotate::Args),
     #[clap(about = "Show convergence status of a site-wide credential rotation")]
     RotationStatus(rotation_status::Args),
+    #[clap(
+        about = "Force-converge a single BMC's credentials now (operator escape hatch)",
+        subcommand
+    )]
+    ForceBmc(force_bmc::Args),
 }

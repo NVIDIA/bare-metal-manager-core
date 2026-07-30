@@ -12,6 +12,7 @@ use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use db::{ObjectColumnFilter, WithTransaction};
 use librms::RmsApi;
+use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
 use model::machine::MachineMaintenanceOperation;
 use model::rack::{MaintenanceActivity, MaintenanceScope, RackState};
 use model::rack_type::RackProfileConfig;
@@ -462,6 +463,44 @@ impl ComponentManager {
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
         self.nv_switch
             .get_configure_switch_certificate_job_status(job_id)
+            .await
+    }
+
+    /// Routes ScaleUp Fabric Manager V2 configuration through the switch backend.
+    pub async fn configure_scale_up_fabric_manager_v2(
+        &self,
+        request: rms_v2::ConfigureScaleUpFabricManagerRequest,
+    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
+        self.nv_switch
+            .configure_scale_up_fabric_manager_v2(request)
+            .await
+    }
+
+    /// Routes V2 configuration job observation through the switch backend.
+    pub async fn get_scale_up_fabric_manager_job_status(
+        &self,
+        request: rms::GetJobStatusRequest,
+    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
+        self.nv_switch
+            .get_scale_up_fabric_manager_job_status(request)
+            .await
+    }
+
+    /// Routes observed ScaleUp Fabric status reads through the switch backend.
+    pub async fn get_scale_up_fabric_status(
+        &self,
+        request: rms::GetScaleUpFabricStatusRequest,
+    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
+        self.nv_switch.get_scale_up_fabric_status(request).await
+    }
+
+    /// Routes per-switch Fabric Manager status reads through the switch backend.
+    pub async fn batch_get_scale_up_fabric_service_status(
+        &self,
+        request: rms::BatchGetScaleUpFabricServiceStatusRequest,
+    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+        self.nv_switch
+            .batch_get_scale_up_fabric_service_status(request)
             .await
     }
 

@@ -1538,6 +1538,14 @@ pub async fn batch_allocate_instances(
                 NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
             });
         }
+
+        if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
+            && !request.config.extension_services.service_configs.is_empty()
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "DPU extension services are not supported on DPF-managed host {machine_id}"
+            )));
+        }
     }
 
     // ==== Phase 5: Validate shared resources ====

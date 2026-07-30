@@ -76,6 +76,15 @@ Retain the BMC's auto-allocated DHCP address as a static one (never expires):
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
     --bmc-ip-allocation retained
 
+Replace the interface list for a matching stored interface that already has a
+fixed IP. The omitted role and allocation policy keep their stored values:
+    $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --host_nics '[{\"mac_address\":\"02:00:00:00:20:01\",\"fixed_ip\":\"192.0.2.10\"}]'
+
+Reset that role to Host and infer Fixed allocation from fixed_ip:
+    $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
+    --host_nics '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"unspecified\",\"ip_allocation\":\"unspecified\",\"fixed_ip\":\"192.0.2.10\"}]'
+
 ")]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
@@ -208,7 +217,7 @@ pub struct Args {
         long = "host_nics",
         value_name = "HOST_NICS",
         group = "group",
-        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc|unspecified and ip_allocation=dynamic|fixed|retained|unspecified. Replaces the machine's full host NIC list. For a matching stored MAC, omitting role preserves the stored role; role=unspecified resets it to host. Omitting ip_allocation preserves the stored policy when the presence of fixed_ip is unchanged; ip_allocation=unspecified resets it to fixed_ip inference."
+        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc|host_bmc|unspecified and ip_allocation=dynamic|fixed|retained|unspecified. Replaces the machine's full host NIC list. For a matching stored MAC, omitting role preserves the stored role; role=unspecified resets it to host. Omitting ip_allocation preserves the stored policy when the presence of fixed_ip is unchanged; ip_allocation=unspecified resets it to fixed_ip inference."
     )]
     pub host_nics: Option<String>,
 

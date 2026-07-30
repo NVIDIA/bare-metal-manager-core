@@ -23,7 +23,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use carbide_instrument::{Event, LabelValue};
+use carbide_instrument::{Event, LabelValue, MetricFamily};
 use http::Method;
 use metrics_endpoint::{MetricsEndpointConfig, MetricsSetup};
 use tokio::task::JoinSet;
@@ -99,23 +99,34 @@ enum AuthorizationLayer {
     RequestAcl,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_bmc_proxy_authorization_denied_total",
+    kind = counter,
+    component = "nico-bmc-proxy",
+    describe = "Number of BMC proxy requests denied by authorization layer and HTTP method"
+)]
+pub(crate) struct BmcProxyAuthorizationDenied {
+    authorization_layer: AuthorizationLayer,
+    #[label(name = "method")]
+    method_label: MethodLabel,
+}
+
 /// The request reached the per-principal ACL, but no configured rule allowed
 /// its method and path. `method_label` bounds the metric while `method` keeps
 /// the existing uppercase log field operators already search.
 #[derive(Event)]
 #[event(
     event_name = "bmc_proxy_request_acl_denied",
-    metric_name = "carbide_bmc_proxy_authorization_denied_total",
-    component = "nico-bmc-proxy",
+    metric_family = BmcProxyAuthorizationDenied,
     log = info,
-    metric = counter,
-    message = "Request denied by BMC proxy ACLs",
-    describe = "Number of BMC proxy requests denied by authorization layer and HTTP method"
+    message = "Request denied by BMC proxy ACLs"
 )]
 pub(crate) struct RequestAclDenied {
     #[label]
     authorization_layer: AuthorizationLayer,
-    #[label(name = "method")]
+    #[label]
     method_label: MethodLabel,
     #[context]
     principals: String,
@@ -143,17 +154,14 @@ impl RequestAclDenied {
 #[derive(Event)]
 #[event(
     event_name = "bmc_proxy_principal_allow_list_denied",
-    metric_name = "carbide_bmc_proxy_authorization_denied_total",
-    component = "nico-bmc-proxy",
+    metric_family = BmcProxyAuthorizationDenied,
     log = info,
-    metric = counter,
-    message = "Request denied by BMC proxy principal allow-list",
-    describe = "Number of BMC proxy requests denied by authorization layer and HTTP method"
+    message = "Request denied by BMC proxy principal allow-list"
 )]
 pub(crate) struct PrincipalAllowListDenied {
     #[label]
     authorization_layer: AuthorizationLayer,
-    #[label(name = "method")]
+    #[label]
     method_label: MethodLabel,
     #[context]
     allowed_principals: String,

@@ -16,6 +16,11 @@ navigation:
       path: index.md
       icon: home
 
+    - changelog: ../fern/changelog
+      title: Release Notes
+      icon: clock
+      slug: release-notes
+
     - section: Overview
       contents:
         - page: What is NICo?
@@ -230,8 +235,12 @@ navigation:
               path: manuals/repair/repair_integration.md
         - section: Observability
           contents:
-            - page: Core Metrics
+            - page: Alerts
+              path: observability/alerts.md
+            - page: Core Metrics List
               path: observability/core_metrics.md
+            - page: Metrics and Dashboards
+              path: observability/metrics.md
             - page: Logging
               path: observability/logging.md
             - page: Machines and DPU Logging
@@ -285,8 +294,6 @@ navigation:
       contents:
         - page: Hardware Compatibility List
           path: hcl.md
-        - page: Release Notes
-          path: release-notes.md
         - page: Release and QA Process
           path: development/release_and_qa_process.md
         - page: FAQs

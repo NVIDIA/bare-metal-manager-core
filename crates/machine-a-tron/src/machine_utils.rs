@@ -24,9 +24,9 @@ use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
 use tempfile::TempDir;
 use uuid::Uuid;
 
+use crate::DeviceHandle;
 use crate::api_client::ClientApiError;
 use crate::config::MachineATronContext;
-use crate::host_machine::HostMachineHandle;
 use crate::machine_state_machine::AddressConfigError;
 
 lazy_static! {
@@ -136,10 +136,10 @@ pub async fn send_pxe_boot_request(
 }
 
 pub async fn get_next_free_machine(
-    machine_handles: &Vec<HostMachineHandle>,
+    provisionable_handles: &Vec<DeviceHandle>,
     assigned_mat_ids: &HashSet<Uuid>,
-) -> Option<HostMachineHandle> {
-    for machine in machine_handles {
+) -> Option<DeviceHandle> {
+    for machine in provisionable_handles {
         if assigned_mat_ids.contains(&machine.mat_id()) {
             continue;
         }

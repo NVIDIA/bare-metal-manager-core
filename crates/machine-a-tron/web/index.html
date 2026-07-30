@@ -309,8 +309,8 @@
           <tbody>
             ${rows.map(({ machine, depth }) => `
               <tr class="${depth > 0 ? "dpu" : ""}">
-                <td class="machine"><code>${html(machine.machine_id || machine.mat_id)}</code></td>
-                <td>${depth > 0 ? "DPU" : html(machine.hardware_type)}</td>
+                <td class="machine"><code>${html(machine.device_id || machine.machine_id || machine.mat_id)}</code></td>
+                <td>${html(machine.device_kind || (depth > 0 ? "dpu" : machine.hardware_type))}</td>
                 <td><span class="state ${stateClass(machine.mat_state)}">${html(machine.mat_state)}</span></td>
                 <td><span class="state ${stateClass(machine.api_state)}">${html(machine.api_state)}</span></td>
                 <td><span class="state ${stateClass(machine.power_state)}">${html(machine.power_state)}</span></td>

@@ -237,8 +237,13 @@ func (cvh CreateVPCHandler) Handle(c echo.Context) error {
 	var routingProfile *string
 	if apiRequest.RoutingProfile != nil {
 		// For now, we gate on TargetedInstanceCreation permission,
-		// Which implies a "privileged tenant"
-		if tenant.Config == nil || !tenant.Config.TargetedInstanceCreation {
+		// which must be effective for the VPC's Site.
+		enabledForSite, derr := common.TenantHasTargetedInstanceCreation(ctx, nil, cvh.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error checking effective targeted instance creation for Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to verify privileges for Site", nil)
+		}
+		if !enabledForSite {
 			logger.Warn().Msg("tenant does not have sufficient privileges to set `routingProfile`")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant does not have sufficient privileges to set `routingProfile`", nil)
 		}

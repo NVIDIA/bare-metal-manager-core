@@ -163,6 +163,12 @@ impl EnvBuilder {
             component_manager,
             credential_manager: credential_manager
                 .unwrap_or_else(|| api.credential_manager().clone()),
+            // Zero TTL: every guard re-queries the aggregate so tests observe a
+            // freshly staged rotation on the next iteration without waiting out
+            // the cache window.
+            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::with_ttl(
+                std::time::Duration::ZERO,
+            ),
             per_object_metrics_registry,
             per_object_info: None,
         };

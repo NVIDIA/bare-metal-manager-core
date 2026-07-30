@@ -99,7 +99,7 @@ func TestManageTenant_UpdateTenantsInDB(t *testing.T) {
 	pagedInvIds := []string{}
 
 	for i := 0; i < 38; i++ {
-		tn := cwu.TestBuildTenant(t, dbSession, fmt.Sprintf("test-tenant-org-%v", i), fmt.Sprintf("Test Tenant %v", i), nil, ipu)
+		tn := cwu.TestBuildTenant(t, dbSession, fmt.Sprintf("Test Tenant %v", i), fmt.Sprintf("test-tenant-org-%v", i), nil, ipu)
 		cwu.TestBuildTenantSiteAssociation(t, dbSession, tn.Org, tn.ID, st.ID, ipu.ID)
 		cwu.TestBuildTenantSiteAssociation(t, dbSession, tn.Org, tn.ID, st3.ID, ipu.ID)
 

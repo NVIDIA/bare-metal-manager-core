@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use eyre::eyre;
 use forge_dpu_agent_utils::utils::create_forge_client;
 use rpc::forge::InstancePhoneHomeLastContactRequest;
@@ -37,6 +37,18 @@ enum PhoneHomeOutcome {
     Error,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_fmds_phone_home_total",
+    kind = counter,
+    component = "fmds",
+    describe = "Number of FMDS tenant phone-home operations, by outcome"
+)]
+struct FmdsPhoneHome {
+    outcome: PhoneHomeOutcome,
+}
+
 /// `PhoneHomeSucceeded` writes the existing success record with the configured
 /// machine ID and the timestamp returned by Forge. `PhoneHomeCompleted` below
 /// retains the existing Event identity for failures, and both increment the
@@ -44,12 +56,9 @@ enum PhoneHomeOutcome {
 #[derive(Event)]
 #[event(
     event_name = "fmds_phone_home_succeeded",
-    metric_name = "carbide_fmds_phone_home_total",
-    component = "fmds",
+    metric_family = FmdsPhoneHome,
     log = info,
-    metric = counter,
-    message = "Successfully phoned home",
-    describe = "Number of FMDS tenant phone-home operations, by outcome"
+    message = "Successfully phoned home"
 )]
 struct PhoneHomeSucceeded {
     #[label]
@@ -66,12 +75,9 @@ struct PhoneHomeSucceeded {
 #[derive(Event)]
 #[event(
     event_name = "fmds_phone_home_completed",
-    metric_name = "carbide_fmds_phone_home_total",
-    component = "fmds",
+    metric_family = FmdsPhoneHome,
     log = warn,
-    metric = counter,
-    message = "Phone home failed",
-    describe = "Number of FMDS tenant phone-home operations, by outcome"
+    message = "Phone home failed"
 )]
 struct PhoneHomeCompleted {
     #[label]

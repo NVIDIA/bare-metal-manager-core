@@ -17,7 +17,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,12 +74,6 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role, only Provider Admins/Viewers or Tenant Admins with TargetedInstanceCreation capability are allowed to retrieve SKUs
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get Site ID from query param - REQUIRED
 	siteIDStr := c.QueryParam("siteId")
 	if siteIDStr == "" {
@@ -96,6 +89,12 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site specified in request data, DB error", nil)
 	}
 
+	// Scope tenant privilege to the Site whose SKUs are requested.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gash.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate based on whether user is provider or tenant
 	if infrastructureProvider != nil {
 		// Validate that site belongs to the organization's infrastructure provider
@@ -104,26 +103,14 @@ func (gash GetAllSkuHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in request data is does not belong to current org", nil)
 		}
 	} else if tenant != nil {
-		// Check if Tenant is privileged
-		if !tenant.Config.TargetedInstanceCreation {
-			logger.Warn().Msg("Tenant doesn't have targeted Instance creation capability, access denied")
+		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gash.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
+		if err != nil {
+			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
+		}
+		if !enabled {
+			logger.Warn().Msg("Tenant doesn't have targeted Instance creation capability for Site, access denied")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant must have targeted Instance creation capability in order to retrieve SKUs", nil)
-		}
-
-		// Check if privileged Tenant has an account with Infrastructure Provider
-		taDAO := cdbm.NewTenantAccountDAO(gash.dbSession)
-		_, taCount, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-			InfrastructureProviderID: &site.InfrastructureProviderID,
-			TenantIDs:                []uuid.UUID{tenant.ID},
-		}, cdbp.PageInput{}, []string{})
-		if serr != nil {
-			logger.Error().Err(serr).Msg("error retrieving Tenant Account for Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Account for Site", nil)
-		}
-
-		if taCount == 0 {
-			logger.Error().Msg("privileged Tenant doesn't have an account with Infrastructure Provider")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Privileged Tenant must have an account with Provider of Site specified in query", nil)
 		}
 	}
 
@@ -233,12 +220,6 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Failed to validate membership for org: %s", org), nil)
 	}
 
-	// Validate role, only Provider Admins/Viewers or Tenant Admins with TargetedInstanceCreation capability are allowed to retrieve SKUs
-	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, true)
-	if apiError != nil {
-		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
-	}
-
 	// Get SKU ID from URL param
 	skuID := c.Param("id")
 
@@ -265,6 +246,12 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site details for SKU, DB error", nil)
 	}
 
+	// Scope tenant privilege to the SKU's Site.
+	infrastructureProvider, tenant, apiError := common.IsProviderOrTenant(ctx, logger, gsh.dbSession, org, dbUser, true, &common.TenantPrivilegeScope{SiteID: &site.ID})
+	if apiError != nil {
+		return cutil.NewAPIErrorResponse(c, apiError.Code, apiError.Message, apiError.Data)
+	}
+
 	// Validate based on whether user is provider or tenant
 	if infrastructureProvider != nil {
 		// Validate that site belongs to the organization's infrastructure provider
@@ -273,26 +260,14 @@ func (gsh GetSkuHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "SKU does not belong to a Site owned by current org", nil)
 		}
 	} else if tenant != nil {
-		// Check if Tenant is privileged
-		if !tenant.Config.TargetedInstanceCreation {
-			logger.Warn().Msg("Tenant doesn't have targeted Instance creation capability, access denied")
+		enabled, err := common.TenantHasTargetedInstanceCreation(ctx, nil, gsh.dbSession, tenant, &common.TenantPrivilegeScope{SiteID: &site.ID})
+		if err != nil {
+			logger.Error().Err(err).Msg("error resolving TargetedInstanceCreation for Tenant/Site")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to resolve Tenant capability for Site due to DB error", nil)
+		}
+		if !enabled {
+			logger.Warn().Msg("Tenant doesn't have targeted Instance creation capability for Site, access denied")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant must have targeted Instance creation capability in order to retrieve SKU", nil)
-		}
-
-		// Check if privileged Tenant has an account with Infrastructure Provider
-		taDAO := cdbm.NewTenantAccountDAO(gsh.dbSession)
-		_, taCount, serr := taDAO.GetAll(ctx, nil, cdbm.TenantAccountFilterInput{
-			InfrastructureProviderID: &site.InfrastructureProviderID,
-			TenantIDs:                []uuid.UUID{tenant.ID},
-		}, cdbp.PageInput{}, []string{})
-		if serr != nil {
-			logger.Error().Err(serr).Msg("error retrieving Tenant Account for Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error retrieving Tenant Account for Site", nil)
-		}
-
-		if taCount == 0 {
-			logger.Error().Msg("privileged Tenant doesn't have an account with Infrastructure Provider")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Privileged Tenant must have an account with Provider of SKU's Site", nil)
 		}
 	}
 

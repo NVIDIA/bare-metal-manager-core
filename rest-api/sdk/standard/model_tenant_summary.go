@@ -26,8 +26,10 @@ type TenantSummary struct {
 	Org *string `json:"org,omitempty"`
 	// Display name of the org the Tenant belongs to
 	OrgDisplayName NullableString `json:"orgDisplayName,omitempty"`
-	// Features that are enabled/disabled for Tenant
+	// Deprecated compatibility object. The targetedInstanceCreation property is omitted; use Tenant Account siteCapabilities for the authoritative configuration.
 	Capabilities *TenantCapabilities `json:"capabilities,omitempty"`
+	// Deprecation notices for Tenant fields
+	Deprecations []Deprecation `json:"deprecations,omitempty"`
 }
 
 // NewTenantSummary instantiates a new TenantSummary object
@@ -154,6 +156,38 @@ func (o *TenantSummary) SetCapabilities(v TenantCapabilities) {
 	o.Capabilities = &v
 }
 
+// GetDeprecations returns the Deprecations field value if set, zero value otherwise.
+func (o *TenantSummary) GetDeprecations() []Deprecation {
+	if o == nil || IsNil(o.Deprecations) {
+		var ret []Deprecation
+		return ret
+	}
+	return o.Deprecations
+}
+
+// GetDeprecationsOk returns a tuple with the Deprecations field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *TenantSummary) GetDeprecationsOk() ([]Deprecation, bool) {
+	if o == nil || IsNil(o.Deprecations) {
+		return nil, false
+	}
+	return o.Deprecations, true
+}
+
+// HasDeprecations returns a boolean if a field has been set.
+func (o *TenantSummary) HasDeprecations() bool {
+	if o != nil && !IsNil(o.Deprecations) {
+		return true
+	}
+
+	return false
+}
+
+// SetDeprecations gets a reference to the given []Deprecation and assigns it to the Deprecations field.
+func (o *TenantSummary) SetDeprecations(v []Deprecation) {
+	o.Deprecations = v
+}
+
 func (o TenantSummary) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -172,6 +206,9 @@ func (o TenantSummary) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Capabilities) {
 		toSerialize["capabilities"] = o.Capabilities
+	}
+	if !IsNil(o.Deprecations) {
+		toSerialize["deprecations"] = o.Deprecations
 	}
 	return toSerialize, nil
 }

@@ -319,9 +319,9 @@ func (r ApiGetAllMachineRequest) Execute() ([]Machine, *http.Response, error) {
 /*
 GetAllMachine Retrieve all Machines
 
-Get all Machines for Infrastructure Provider.
+Get all Machines visible to the caller.
 
-Org must have an Infrastructure Provider entity. User must have authorization role with `PROVIDER_ADMIN` suffix.
+Infrastructure Provider callers receive Machines owned by their Provider. Tenant Admin callers receive Machines only from Sites where `TargetedInstanceCreation` is effective. The siteId query parameter is optional and further restricts either result set.
 
 	@param ctx context.Context - for authentication, logging, cancellation, deadlines, tracing, etc. Passed from http.Request or context.Background().
 	@param org Name of the Org

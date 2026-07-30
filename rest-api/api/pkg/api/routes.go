@@ -51,6 +51,51 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Method:  http.MethodPost,
 			Handler: apiHandler.NewCreateUEFICredentialHandler(dbSession, scp),
 		},
+		// Measured-boot machine and profile trust approvals (Provider Admin).
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-machine",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMeasuredBootTrustedMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-machine",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMeasuredBootTrustedMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-machine/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteMeasuredBootTrustedMachineHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-profile",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateMeasuredBootTrustedProfileHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-profile",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllMeasuredBootTrustedProfileHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/measured-boot/trusted-profile/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteMeasuredBootTrustedProfileHandler(dbSession, scp),
+		},
+		// Site-wide credential rotation (Provider Admin); equivalent to the admin
+		// CLI `credential rotate` / `credential rotation-status` commands. POST
+		// stages a rotation and returns the new target version; GET reports
+		// convergence for the site or a single device by MAC.
+		{
+			Path:    apiPathPrefix + "/credential/rotation",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewRotateCredentialHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/credential/rotation",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetCredentialRotationStatusHandler(dbSession, scp),
+		},
 		// User endpoint
 		{
 			Path:    apiPathPrefix + "/user/current",
@@ -993,6 +1038,48 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/task/rule/:id",
 			Method:  http.MethodDelete,
 			Handler: apiHandler.NewDeleteTaskRuleHandler(dbSession, tc, scp, cfg),
+		},
+		// Run endpoints (Flow). A run is a phased, policy-gated execution of
+		// one operation across many racks; Flow calls it an operation run.
+		{
+			Path:    apiPathPrefix + "/task/run",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/target",
+			Method:  http.MethodGet,
+			Handler: apiHandler.NewGetAllTaskRunTargetHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/pause",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewPauseTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/resume",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewResumeTaskRunHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/advance",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewAdvanceTaskRunPhaseHandler(dbSession, tc, scp, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/task/run/:id/cancel",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCancelTaskRunHandler(dbSession, tc, scp, cfg),
 		},
 		{
 			Path:    apiPathPrefix + "/rack",

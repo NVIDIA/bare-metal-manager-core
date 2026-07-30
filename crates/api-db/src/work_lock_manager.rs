@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_instrument::{Event, LabelValue, emit};
 use sqlx::pool::PoolConnection;
 use sqlx::{PgConnection, PgPool, Postgres};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio::time::MissedTickBehavior;
 use tracing::Instrument;
@@ -88,7 +89,7 @@ impl WorkLockReleaseFailed {
     component = "nico-api",
     log = error,
     metric = counter,
-    message = "Could not release work lock: WorkLockManager queue is full; database is likely overloaded",
+    message = "Could not release work lock: the WorkLockManager has shut down",
     describe = "Number of work-lock lifecycle failures, by operation and failure kind."
 )]
 struct WorkLockReleaseDispatchFailed {
@@ -191,8 +192,8 @@ impl WorkLockKeepaliveFailed {
     }
 }
 
-/// A WorkLockManager buffers this many messages sent to it: This would only be exceeded if something
-/// goes very wrong with the database.
+/// A WorkLockManager buffers this many acquisition and keepalive commands: This would only be
+/// exceeded if something goes very wrong with the database.
 static COMMAND_BUFFER_SIZE: usize = 100;
 
 /// A clone-able handle to a (singleton, global) [`crate::work_lock_manager`] work loop.
@@ -210,7 +211,8 @@ static COMMAND_BUFFER_SIZE: usize = 100;
 #[derive(Clone)]
 pub struct WorkLockManagerHandle {
     keepalive_interval: Duration,
-    cmd_tx: mpsc::Sender<WorkLockManagerCommand>,
+    cmd_tx: mpsc::UnboundedSender<QueuedWorkLockManagerCommand>,
+    command_slots: Arc<Semaphore>,
 }
 
 #[derive(Clone, Copy)]
@@ -240,9 +242,10 @@ impl Default for KeepaliveConfig {
 ///
 /// 1) So that we can eagerly acquire a database connection at process startup, and not contend with
 ///    the connection pool being exhausted and being unable to keep locks up to date
-/// 2) To avoid race conditions, so that locks can be released effecvely "immediately" in
-///    [`WorkLock`]'s Drop impl (by placing the release command on the queue), such that the next
-///    call to [`WorkLockManagerHandle::try_acquire_lock`] is guaranteed to be processed after the lock is
+/// 2) To avoid race conditions, so that locks can be released effectively "immediately" in
+///    [`WorkLock`]'s Drop impl (by placing the release command on the shared FIFO without consuming
+///    a bounded command slot), such that the next call to
+///    [`WorkLockManagerHandle::try_acquire_lock`] is guaranteed to be processed after the lock is
 ///    released.
 pub async fn start(
     join_set: &mut JoinSet<()>,
@@ -259,7 +262,11 @@ pub async fn start(
         timeout: keepalive_timeout,
     } = keepalive_config;
 
-    let (cmd_tx, cmd_rx) = mpsc::channel(COMMAND_BUFFER_SIZE);
+    // All operations share one FIFO so a release stays ordered before the caller's next acquire.
+    // The channel is unbounded because `WorkLock::drop` cannot wait for capacity. A semaphore
+    // retains bounded backpressure for acquisition and keepalive commands.
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    let command_slots = Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE));
     join_set
         .build_task()
         .name("WorkLockManager")
@@ -273,6 +280,7 @@ pub async fn start(
 
     Ok(WorkLockManagerHandle {
         cmd_tx,
+        command_slots,
         keepalive_interval,
     })
 }
@@ -284,12 +292,18 @@ pub async fn start(
 async fn run_loop(
     pool: PgPool,
     db: PoolConnection<Postgres>,
-    mut cmd_rx: mpsc::Receiver<WorkLockManagerCommand>,
+    mut cmd_rx: mpsc::UnboundedReceiver<QueuedWorkLockManagerCommand>,
     keepalive_timeout: Duration,
 ) {
     let mut reserved_connection = ReservedConnection(Some(db));
 
-    while let Some(command) = cmd_rx.recv().await {
+    while let Some(QueuedWorkLockManagerCommand {
+        command,
+        command_slot,
+    }) = cmd_rx.recv().await
+    {
+        // Match bounded-channel behavior by returning capacity as soon as a command is dequeued.
+        drop(command_slot);
         let db = match reserved_connection.get_if_healthy().await {
             Some(db) => db,
             None => {
@@ -330,10 +344,10 @@ async fn run_loop(
                 }
             }
 
-            WorkLockManagerCommand::ReleaseLock {
+            WorkLockManagerCommand::ReleaseLock(WorkLockReleaseCommand {
                 work_key,
                 worker_id,
-            } => {
+            }) => {
                 release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
@@ -427,9 +441,7 @@ impl ReservedConnection {
 }
 
 /// A lock representing exclusive ownership of a logical, named unit of work. Upon drop, the lock
-/// will be released (assuming the global [`crate::work_lock_manager`] is healthy.) If the work manager's
-/// buffer is full, the lock will fail to release, and work cannot be locked again until the lock
-/// duration has expired.
+/// will be released (assuming the global [`crate::work_lock_manager`] is healthy.)
 pub struct WorkLock {
     // When this is dropped, the keepalive loop will exit.
     keepalive_stop_tx: Option<oneshot::Sender<()>>,
@@ -453,8 +465,7 @@ impl Drop for WorkLock {
 
         // Release the lock now
         self.manager
-            .cmd_tx
-            .try_send(WorkLockManagerCommand::ReleaseLock {
+            .send_release_command(WorkLockReleaseCommand {
                 work_key: self.work_key.clone(),
                 worker_id: self.worker_id,
             })
@@ -487,15 +498,26 @@ impl WorkLock {
                 let fut = async move {
                     loop {
                         tokio::select! {
+                            biased;
+                            _ = &mut keepalive_stop_rx => {
+                                break;
+                            }
                             _ = keepalive_timer.tick() => {
                                 match manager.keep_lock_alive(work_key.clone(), worker_id).await {
                                     Ok(_) => {}
                                     Err(KeepAliveError::LockLost(msg)) => {
-                                        emit(WorkLockLost::new(
-                                            work_key,
-                                            worker_id,
-                                            msg,
-                                        ));
+                                        // A late lock-loss response is no longer actionable once
+                                        // the owning `WorkLock` is being dropped.
+                                        if matches!(
+                                            keepalive_stop_rx.try_recv(),
+                                            Err(oneshot::error::TryRecvError::Empty)
+                                        ) {
+                                            emit(WorkLockLost::new(
+                                                work_key,
+                                                worker_id,
+                                                msg,
+                                            ));
+                                        }
                                         return;
                                     }
                                     Err(e) => {
@@ -507,9 +529,6 @@ impl WorkLock {
                                         ));
                                     }
                                 }
-                            }
-                            _ = &mut keepalive_stop_rx => {
-                                break;
                             }
                         }
                     }
@@ -629,14 +648,42 @@ UPDATE work_locks SET last_keepalive = now() WHERE work_key = $1 AND worker_id =
 }
 
 impl WorkLockManagerHandle {
+    fn try_send_bounded_command(
+        &self,
+        command: WorkLockManagerCommand,
+    ) -> Result<(), CommandDispatchError> {
+        let command_slot = self
+            .command_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| CommandDispatchError::NoCapacity)?;
+        self.cmd_tx
+            .send(QueuedWorkLockManagerCommand {
+                command,
+                command_slot: Some(command_slot),
+            })
+            .map_err(|_| CommandDispatchError::ManagerShutdown)
+    }
+
+    fn send_release_command(
+        &self,
+        command: WorkLockReleaseCommand,
+    ) -> Result<(), CommandDispatchError> {
+        self.cmd_tx
+            .send(QueuedWorkLockManagerCommand {
+                command: WorkLockManagerCommand::ReleaseLock(command),
+                command_slot: None,
+            })
+            .map_err(|_| CommandDispatchError::ManagerShutdown)
+    }
+
     pub async fn try_acquire_lock(&self, work_key: WorkKey) -> Result<WorkLock, AcquireLockError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.cmd_tx
-            .try_send(WorkLockManagerCommand::AcquireLock {
-                work_key: work_key.clone(),
-                reply_tx,
-            })
-            .map_err(|e| AcquireLockError::WorkLockManagerSend(e.to_string()))?;
+        self.try_send_bounded_command(WorkLockManagerCommand::AcquireLock {
+            work_key: work_key.clone(),
+            reply_tx,
+        })
+        .map_err(|e| AcquireLockError::WorkLockManagerSend(e.to_string()))?;
 
         let worker_id = reply_rx.await??;
 
@@ -654,13 +701,12 @@ impl WorkLockManagerHandle {
         worker_id: WorkerId,
     ) -> Result<(), KeepAliveError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.cmd_tx
-            .try_send(WorkLockManagerCommand::KeepLockAlive {
-                work_key,
-                worker_id,
-                reply_tx,
-            })
-            .map_err(|e| KeepAliveError::WorkLockManagerSend(e.to_string()))?;
+        self.try_send_bounded_command(WorkLockManagerCommand::KeepLockAlive {
+            work_key,
+            worker_id,
+            reply_tx,
+        })
+        .map_err(|e| KeepAliveError::WorkLockManagerSend(e.to_string()))?;
 
         reply_rx.await??;
 
@@ -678,10 +724,26 @@ enum WorkLockManagerCommand {
         worker_id: WorkerId,
         reply_tx: oneshot::Sender<Result<(), KeepAliveError>>,
     },
-    ReleaseLock {
-        work_key: WorkKey,
-        worker_id: WorkerId,
-    },
+    ReleaseLock(WorkLockReleaseCommand),
+}
+
+struct QueuedWorkLockManagerCommand {
+    command: WorkLockManagerCommand,
+    command_slot: Option<OwnedSemaphorePermit>,
+}
+
+/// A command sent without a capacity slot so dropping a `WorkLock` cannot fail under load.
+struct WorkLockReleaseCommand {
+    work_key: WorkKey,
+    worker_id: WorkerId,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum CommandDispatchError {
+    #[error("no available capacity; database is likely overloaded")]
+    NoCapacity,
+    #[error("the WorkLockManager has shut down")]
+    ManagerShutdown,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -690,14 +752,12 @@ pub enum AcquireLockError {
     WorkAlreadyLocked(WorkKey),
     #[error(transparent)]
     Database(#[from] DatabaseError),
-    /// This happens when the channel buffer is full, meaning more than COMMAND_BUFFER_SIZE commands
-    /// are queued up waiting for the WorkLockManager to process them. Since a WorkLockManager owns
-    /// a long-running connection to the database (and doesn't have to contend with the pool having
-    /// no connections available), this should only  happen if the database is completely down, or
-    /// is going so slow that simple updates to the table are blocked.
-    #[error(
-        "error sending AcquireLock command to WorkLockManager, database is likely overloaded: {0}"
-    )]
+    /// This happens when the bounded command capacity is exhausted or the WorkLockManager has shut
+    /// down before the command can be delivered. Exhausting capacity means COMMAND_BUFFER_SIZE
+    /// acquisition and keepalive commands are waiting for the WorkLockManager to process them.
+    /// Since the manager owns a long-running database connection, that generally means the database
+    /// is unavailable or simple updates to the table are blocked.
+    #[error("error sending AcquireLock command to WorkLockManager: {0}")]
     WorkLockManagerSend(String),
     #[error(
         "BUG: error receiving AcquireLock reply from WorkLockManager, database connections are likely failing: {0}"
@@ -714,9 +774,7 @@ pub enum KeepAliveError {
     #[error(transparent)]
     Database(#[from] DatabaseError),
     /// See notes in AcquireLockError::WorkLockManagerSend
-    #[error(
-        "error sending KeepAlive command to WorkLockManager, database is likely overloaded: {0}"
-    )]
+    #[error("error sending KeepAlive command to WorkLockManager: {0}")]
     WorkLockManagerSend(String),
     #[error(
         "BUG: error receiving KeepAlive reply from WorkLockManager, database connections are likely failing: {0}"
@@ -819,14 +877,15 @@ mod tests {
                     expect: FailureRecord {
                         metadata_name: "work_lock_release_dispatch_failed".to_string(),
                         level: tracing::Level::ERROR,
-                        message: "Could not release work lock: WorkLockManager queue is full; database is likely overloaded".to_string(),
+                        message: "Could not release work lock: the WorkLockManager has shut down"
+                            .to_string(),
                         event_name: Some("work_lock_release_dispatch_failed".to_string()),
                         metric_name: Some(WORK_LOCK_FAILURES_METRIC.to_string()),
                         operation: Some("release".to_string()),
                         failure: Some("command_dispatch".to_string()),
                         work_key: Some("work-key".to_string()),
                         worker_id: Some(worker_id.to_string()),
-                        error: Some("no available capacity".to_string()),
+                        error: Some("the WorkLockManager has shut down".to_string()),
                         counter_delta: 1.0,
                     },
                 },
@@ -909,10 +968,7 @@ mod tests {
                             message: "database unavailable".to_string(),
                         };
                         let logs = capture_logs(|| {
-                            emit(WorkLockReleaseFailed::new(
-                                "work-key".to_string(),
-                                &error,
-                            ));
+                            emit(WorkLockReleaseFailed::new("work-key".to_string(), &error));
                         });
                         (operation, failure, logs)
                     }
@@ -932,7 +988,7 @@ mod tests {
                             emit(WorkLockReleaseDispatchFailed::new(
                                 "work-key".to_string(),
                                 worker_id,
-                                "no available capacity".to_string(),
+                                "the WorkLockManager has shut down".to_string(),
                             ));
                         });
                         (operation, failure, logs)
@@ -1055,6 +1111,104 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn command_dispatch_errors_distinguish_capacity_and_shutdown() {
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let manager = WorkLockManagerHandle {
+            keepalive_interval: Duration::from_secs(60),
+            cmd_tx,
+            command_slots: Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE)),
+        };
+        let command = || {
+            let (reply_tx, _reply_rx) = oneshot::channel();
+            WorkLockManagerCommand::AcquireLock {
+                work_key: "dispatch".to_string(),
+                reply_tx,
+            }
+        };
+
+        let command_slots = manager
+            .command_slots
+            .clone()
+            .acquire_many_owned(COMMAND_BUFFER_SIZE as u32)
+            .await
+            .unwrap();
+        assert_eq!(
+            manager
+                .try_send_bounded_command(command())
+                .unwrap_err()
+                .to_string(),
+            "no available capacity; database is likely overloaded"
+        );
+
+        drop(command_slots);
+        drop(cmd_rx);
+        assert_eq!(
+            manager
+                .try_send_bounded_command(command())
+                .unwrap_err()
+                .to_string(),
+            "the WorkLockManager has shut down"
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_work_lock_suppresses_in_flight_lock_lost() {
+        let metrics = MetricsCapture::start();
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
+        let manager = WorkLockManagerHandle {
+            keepalive_interval: Duration::from_secs(60),
+            cmd_tx,
+            command_slots: Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE)),
+        };
+        let worker_id = WorkerId::nil();
+        let lock = WorkLock::new(
+            manager,
+            "teardown".to_string(),
+            worker_id,
+            Duration::from_secs(60),
+        );
+
+        let QueuedWorkLockManagerCommand {
+            command,
+            command_slot,
+        } = tokio::time::timeout(Duration::from_secs(3), cmd_rx.recv())
+            .await
+            .expect("keepalive command was not sent")
+            .expect("keepalive command channel closed");
+        drop(command_slot);
+        let WorkLockManagerCommand::KeepLockAlive { reply_tx, .. } = command else {
+            panic!("first command was not a keepalive");
+        };
+
+        drop(lock);
+        let release = tokio::time::timeout(Duration::from_secs(3), cmd_rx.recv())
+            .await
+            .expect("release command was not sent")
+            .expect("release command channel closed");
+        assert!(matches!(
+            release.command,
+            WorkLockManagerCommand::ReleaseLock(_)
+        ));
+
+        reply_tx
+            .send(Err(KeepAliveError::LockLost("lock expired".to_string())))
+            .expect("keepalive task stopped before receiving its reply");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), cmd_rx.recv())
+                .await
+                .expect("keepalive task did not stop")
+                .is_none()
+        );
+        assert_eq!(
+            metrics.counter_delta(
+                WORK_LOCK_FAILURES_METRIC,
+                &[("operation", "keep_alive"), ("failure", "lock_lost")],
+            ),
+            0.0
+        );
+    }
+
     #[crate::sqlx_test]
     async fn test_exclusivity(pool: PgPool) {
         let mut join_set = JoinSet::new();
@@ -1097,6 +1251,100 @@ mod tests {
                 panic!("WorkLockManager did not shut down in a timely manner")
             }
         }
+    }
+
+    #[crate::sqlx_test]
+    async fn commands_and_releases_keep_fifo_order(pool: PgPool) {
+        let keepalive_config = KeepaliveConfig::default();
+        let mut db = pool.acquire().await.unwrap();
+        let work_key = "ordered".to_string();
+        let worker_id = try_acquire_lock(&mut db, &work_key, keepalive_config.timeout)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let manager = WorkLockManagerHandle {
+            keepalive_interval: keepalive_config.interval,
+            cmd_tx,
+            command_slots: Arc::new(Semaphore::new(COMMAND_BUFFER_SIZE)),
+        };
+
+        let (keepalive_reply_tx, keepalive_reply_rx) = oneshot::channel();
+        manager
+            .try_send_bounded_command(WorkLockManagerCommand::KeepLockAlive {
+                work_key: work_key.clone(),
+                worker_id,
+                reply_tx: keepalive_reply_tx,
+            })
+            .unwrap();
+        manager
+            .send_release_command(WorkLockReleaseCommand {
+                work_key: work_key.clone(),
+                worker_id,
+            })
+            .unwrap();
+        let (acquire_reply_tx, acquire_reply_rx) = oneshot::channel();
+        manager
+            .try_send_bounded_command(WorkLockManagerCommand::AcquireLock {
+                work_key: work_key.clone(),
+                reply_tx: acquire_reply_tx,
+            })
+            .unwrap();
+
+        let mut join_set = JoinSet::new();
+        join_set.spawn(run_loop(pool, db, cmd_rx, keepalive_config.timeout));
+
+        keepalive_reply_rx
+            .await
+            .unwrap()
+            .expect("a keepalive queued before a release must run first");
+        let replacement_worker_id = acquire_reply_rx
+            .await
+            .unwrap()
+            .expect("a release queued before an acquire must run first");
+
+        manager
+            .send_release_command(WorkLockReleaseCommand {
+                work_key,
+                worker_id: replacement_worker_id,
+            })
+            .unwrap();
+        drop(manager);
+        tokio::time::timeout(Duration::from_secs(3), join_set.join_all())
+            .await
+            .expect("WorkLockManager did not shut down in a timely manner");
+    }
+
+    #[crate::sqlx_test]
+    async fn release_is_not_dropped_when_command_queue_is_full(pool: PgPool) {
+        // Dropping the lock with every command slot reserved can race a keepalive dispatch
+        // failure, so isolate process-global metric deltas through teardown.
+        let _metrics_guard = MetricsCapture::start();
+        let mut join_set = JoinSet::new();
+        let manager = start(&mut join_set, pool, Default::default())
+            .await
+            .unwrap();
+        let lock = manager
+            .try_acquire_lock("contended".to_string())
+            .await
+            .unwrap();
+
+        // Reserve every bounded-command slot without sending a command.
+        let command_slots = manager
+            .command_slots
+            .clone()
+            .acquire_many_owned(COMMAND_BUFFER_SIZE as u32)
+            .await
+            .unwrap();
+
+        drop(lock);
+        drop(command_slots);
+
+        let _lock = manager
+            .try_acquire_lock("contended".to_string())
+            .await
+            .expect("work key stayed locked: the release was dropped by a full command queue");
     }
 
     #[crate::sqlx_test]

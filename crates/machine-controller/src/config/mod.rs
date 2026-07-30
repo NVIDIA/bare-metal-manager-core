@@ -47,6 +47,11 @@ pub struct MachineStateHandlerSiteConfig {
     pub dpf_enabled: bool,
     pub spdm_enabled: bool,
 
+    /// Site-wide kill-switch for the passive BMC credential rotation guard. When
+    /// `false`, a Ready host never enters `RotatingBmc` on its own; the operator
+    /// force-converge escape hatch still works regardless.
+    pub bmc_rotation_enabled: bool,
+
     pub dpu_enable_secure_boot: bool,
     pub restart_ovs_on_use_admin_network_change: bool,
 }
@@ -65,6 +70,7 @@ impl MachineStateHandlerSiteConfig {
             dpa_enabled: true,
             dpf_enabled: false,
             spdm_enabled: false,
+            bmc_rotation_enabled: false,
             dpu_enable_secure_boot: true,
             restart_ovs_on_use_admin_network_change: false,
         }

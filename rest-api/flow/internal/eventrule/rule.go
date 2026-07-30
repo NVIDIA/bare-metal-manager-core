@@ -43,6 +43,50 @@ type Rule struct {
 	UpdatedAt time.Time
 }
 
+// RuleMetadata contains the independently mutable descriptive fields of a rule.
+type RuleMetadata struct {
+	Name        string
+	Description string
+}
+
+// RuleCreate contains the caller-provided fields for a persisted rule.
+type RuleCreate struct {
+	Metadata  RuleMetadata
+	EventType Type
+	Policy    Policy
+}
+
+// Validate checks fields supplied when creating a persisted rule.
+func (c RuleCreate) Validate() error {
+	if err := c.Metadata.Validate(); err != nil {
+		return err
+	}
+
+	if err := c.EventType.Validate(); err != nil {
+		return err
+	}
+
+	return c.Policy.Validate()
+}
+
+// Validate checks mutable rule metadata.
+func (m RuleMetadata) Validate() error {
+	if err := validateRequiredString("event rule name", m.Name); err != nil {
+		return err
+	}
+	if len(m.Name) > maxRuleNameLength {
+		return fmt.Errorf("event rule name exceeds %d characters", maxRuleNameLength)
+	}
+	return validateOptionalString("event rule description", m.Description)
+}
+
+// Clone returns an independent copy of the rule and its mutable policy data.
+func (r Rule) Clone() Rule {
+	cloned := r
+	cloned.Policy = r.Policy.Clone()
+	return cloned
+}
+
 // Validate checks rule metadata and policy.
 func (r *Rule) Validate() error {
 	if r == nil {
@@ -57,13 +101,7 @@ func (r *Rule) Validate() error {
 	if r.Origin == RuleOriginBuiltIn && !r.Enabled {
 		return fmt.Errorf("built-in event rule must be enabled")
 	}
-	if err := validateRequiredString("event rule name", r.Name); err != nil {
-		return err
-	}
-	if len(r.Name) > maxRuleNameLength {
-		return fmt.Errorf("event rule name exceeds %d characters", maxRuleNameLength)
-	}
-	if err := validateOptionalString("event rule description", r.Description); err != nil {
+	if err := (RuleMetadata{Name: r.Name, Description: r.Description}).Validate(); err != nil {
 		return err
 	}
 	if err := r.EventType.Validate(); err != nil {

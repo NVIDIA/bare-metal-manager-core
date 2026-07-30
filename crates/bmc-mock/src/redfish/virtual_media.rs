@@ -258,7 +258,7 @@ mod tests {
     use super::*;
     use crate::test_support::host_info;
     use crate::{
-        Callbacks, HostHardwareType, MachineRouterOptions, MockPowerState, SetSystemPowerError,
+        Callbacks, HardwareType, MachineRouterOptions, MockPowerState, SetSystemPowerError,
         SystemPowerControl, machine_router,
     };
 
@@ -285,10 +285,10 @@ mod tests {
     }
 
     fn test_router() -> (Router, Arc<RecordingCallbacks>) {
-        test_router_for(HostHardwareType::DellPowerEdgeR750)
+        test_router_for(HardwareType::DellPowerEdgeR750)
     }
 
-    fn test_router_for(hardware_type: HostHardwareType) -> (Router, Arc<RecordingCallbacks>) {
+    fn test_router_for(hardware_type: HardwareType) -> (Router, Arc<RecordingCallbacks>) {
         let callbacks = Arc::new(RecordingCallbacks::default());
         let router = machine_router(
             &host_info(hardware_type),
@@ -316,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn attaches_virtual_media_to_the_controlled_system_not_the_first_member() {
-        let (router, _) = test_router_for(HostHardwareType::NvidiaDgxGb300);
+        let (router, _) = test_router_for(HardwareType::NvidiaDgxGb300);
         let hgx = "/redfish/v1/Systems/HGX_Baseboard_0";
         let host = "/redfish/v1/Systems/System_0";
 

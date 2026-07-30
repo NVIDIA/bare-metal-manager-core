@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
 
-use bmc_mock::{HostHardwareType, MockPowerState};
+use bmc_mock::{HardwareType, MockPowerState};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
@@ -93,7 +93,7 @@ impl SubnetDetails {
 pub struct HostDetails {
     pub mat_id: Uuid,
     pub machine_id: Option<String>,
-    pub hw_type: Option<HostHardwareType>,
+    pub hw_type: Option<HardwareType>,
     pub power_state: MockPowerState,
     pub mat_state: Option<&'static str>,
     pub api_state: String,

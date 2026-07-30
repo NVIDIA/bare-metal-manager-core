@@ -129,6 +129,7 @@ struct RedfishSimHostState {
     power: PowerState,
     lockdown: libredfish::EnabledDisabled,
     actions: Vec<RedfishSimAction>,
+    boot_interface_targets: Vec<Option<RedfishSimBootInterfaceRef>>,
     /// Whether this host's `HttpDev1` UEFI HTTP-boot device is enabled in BIOS.
     /// Defaults to `true` (the steady state after `machine_setup`): the boot
     /// device is present, so `set_boot_order_dpu_first` can promote it and
@@ -153,6 +154,7 @@ impl Default for RedfishSimHostState {
             power: PowerState::default(),
             lockdown: libredfish::EnabledDisabled::Disabled,
             actions: Vec::default(),
+            boot_interface_targets: Vec::default(),
             // Enabled by default so existing tests, which never model a
             // de-enumeration, see the boot order configure normally.
             http_dev1_enabled: true,
@@ -199,6 +201,19 @@ impl RedfishSim {
                 })
                 .collect(),
         }
+    }
+
+    /// Return every logical boot-interface selector supplied to
+    /// `machine_setup`, `is_bios_setup`, `is_boot_order_setup`, or
+    /// `set_boot_order_dpu_first` on one endpoint.
+    pub fn boot_interface_targets(&self, host: &str) -> Vec<Option<RedfishSimBootInterfaceRef>> {
+        self.state
+            .lock()
+            .unwrap()
+            .hosts
+            .get(host)
+            .map(|state| state.boot_interface_targets.clone())
+            .unwrap_or_default()
     }
 
     /// Return the simulated lockdown state for each Redfish client target.
@@ -618,6 +633,9 @@ impl Redfish for RedfishSimClient {
             // `set_boot_order_dpu_first` can then promote the device and the
             // boot order sticks. Per-host, so it recovers only this host.
             host_state.http_dev1_enabled = true;
+            host_state
+                .boot_interface_targets
+                .push(boot_interface.map(RedfishSimBootInterfaceRef::from));
             host_state.actions.push(RedfishSimAction::MachineSetup {
                 oem_manager_profiles: oem_manager_profiles.clone(),
                 boot_interface_mac: boot_interface.map(boot_interface_ref_to_string),
@@ -1586,6 +1604,9 @@ impl Redfish for RedfishSimClient {
             // exactly when this host's HTTP boot device is currently enabled.
             host_state.is_boot_order_setup = Some(host_state.http_dev1_enabled);
             host_state
+                .boot_interface_targets
+                .push(Some(RedfishSimBootInterfaceRef::from(boot_interface)));
+            host_state
                 .actions
                 .push(RedfishSimAction::SetBootOrderDpuFirst {
                     boot_interface_mac: boot_interface_ref_to_string(boot_interface),
@@ -1777,6 +1798,9 @@ impl Redfish for RedfishSimClient {
             // updated only by this host's own `set_boot_order_dpu_first` /
             // `set_is_boot_order_setup`, so other hosts can't flip it.
             let is_boot_order_setup = host_state.is_boot_order_setup.unwrap_or(true);
+            host_state
+                .boot_interface_targets
+                .push(Some(RedfishSimBootInterfaceRef::from(boot_interface)));
             host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
                 boot_interface_mac: boot_interface_ref_to_string(boot_interface),
             });
@@ -1786,10 +1810,16 @@ impl Redfish for RedfishSimClient {
 
     fn is_bios_setup<'a>(
         &'a self,
-        _boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
+        boot_interface: Option<libredfish::BootInterfaceRef<'a>>,
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
+            state
+                .hosts
+                .get_mut(&self._host)
+                .unwrap()
+                .boot_interface_targets
+                .push(boot_interface.map(RedfishSimBootInterfaceRef::from));
             state
                 .platform_actions
                 .push(RedfishSimPlatformAction::IsBiosSetup {
@@ -2242,11 +2272,8 @@ impl RedfishClientPool for RedfishSim {
                 .hosts
                 .entry(host.to_string())
                 .or_insert(RedfishSimHostState {
-                    power: PowerState::On,
                     lockdown: default_lockdown,
-                    actions: Default::default(),
-                    http_dev1_enabled: true,
-                    is_boot_order_setup: None,
+                    ..Default::default()
                 });
             if state.fw_version.is_empty() {
                 state.fw_version = Arc::new("24.10-17".to_string());
