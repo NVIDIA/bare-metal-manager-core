@@ -2,13 +2,13 @@
 
 Operator reference for `nicocli`, the CLI for the NICo REST API. Covers installation, configuration, authentication, command mechanics, output formatting, debugging, and TUI mode. Targeted at operators who have completed the [Quick Start Guide](../getting-started/quick-start.md) and want to drive NICo from scripts or one-off interactive sessions.
 
-The [Day One Operations](day_one_operations.md) guide uses this reference for all CLI mechanics. Read this page first if you plan to script anything beyond the Quick Start happy path.
+The [Day One Operations](../configuration/network-isolation.md) guide uses this reference for all CLI mechanics. Read this page first if you plan to script anything beyond the Quick Start happy path.
 
 ## Installation
 
 Build and install from the `rest-api/` directory of the `infra-controller` repo:
 
-```
+```bash
 cd rest-api
 make nico-cli                                # installs to $(go env GOPATH)/bin/nicocli
 make nico-cli INSTALL_DIR=/usr/local/bin     # install elsewhere
@@ -16,7 +16,7 @@ make nico-cli INSTALL_DIR=/usr/local/bin     # install elsewhere
 
 Verify:
 
-```
+```bash
 nicocli --version
 ```
 
@@ -42,7 +42,7 @@ The config is written with `0600` permissions (private to the owning user). nico
 
 The TUI auto-discovers any file matching `~/.nico/config*.yaml`. Use one file per environment, naming the file after the environment so the picker is self-documenting:
 
-```
+```text
 ~/.nico/config.yaml             # default
 ~/.nico/config.local.yaml       # local kind dev
 ~/.nico/config.staging.yaml     # shared staging
@@ -61,7 +61,7 @@ For non-interactive commands, pass `--config <path>`. For TUI, start `nicocli tu
 
 `api.name` is the most common source of misconfiguration. If every command returns:
 
-```
+```text
 HTTP/1.1 404 Not Found
 {"message":"The requested path could not be found"}
 ```
@@ -142,7 +142,7 @@ auth:
 
 Or for a one-shot login that also persists `token_command` to the config:
 
-```
+```bash
 nicocli --config ~/.nico/config.staging.yaml \
         --token-command ~/.nico/get-nico-token.sh \
         login
@@ -190,7 +190,7 @@ auth:
 
 Then:
 
-```
+```bash
 nicocli login                                    # password grant; prompts for user/pass
 nicocli login --username alex@example.com        # supply username, prompted for password
 nicocli login --client-secret "$NICO_CLIENT_SECRET"   # client-credentials grant
@@ -198,7 +198,7 @@ nicocli login --client-secret "$NICO_CLIENT_SECRET"   # client-credentials grant
 
 Keycloak shorthand (constructs the token URL automatically as `<keycloak-url>/realms/<realm>/protocol/openid-connect/token`):
 
-```
+```bash
 nicocli --keycloak-url https://keycloak.example.com \
         login --username alex@example.com
 ```
@@ -253,7 +253,7 @@ Every auth flag has a corresponding env var, useful for CI/CD pipelines:
 
 After login, confirm nicocli can reach the API and your identity is correct:
 
-```
+```bash
 nicocli site list                        # any list returns -> auth works
 nicocli user get                         # returns the caller's user record
 nicocli service-account get              # for service-account deployments only
@@ -267,13 +267,13 @@ nicocli service-account get              # for service-account deployments only
 
 nicocli commands are generated from the OpenAPI spec. Each tag becomes a top-level resource; each operation becomes an action under it:
 
-```
+```bash
 nicocli <resource> <action> [flags...] [positional args]
 ```
 
 Examples:
 
-```
+```bash
 nicocli site list
 nicocli allocation get <allocation-id>
 nicocli instance update --trigger-reboot=true <instance-id>
@@ -281,7 +281,7 @@ nicocli instance update --trigger-reboot=true <instance-id>
 
 Some resources have sub-resources -- a third grouping level. Constraints under allocations are a typical case:
 
-```
+```bash
 nicocli allocation constraint update --constraint-value 12 <alloc-id> <constraint-id>
 ```
 
@@ -304,7 +304,7 @@ Use `--help` to confirm the actual action name for any resource if you're unsure
 
 Flags MUST come before positional arguments. nicocli uses urfave/cli, which stops parsing flags at the first positional. Examples:
 
-```
+```bash
 # correct
 nicocli instance update --trigger-reboot=true <instance-id>
 nicocli allocation constraint update --constraint-value 12 <alloc-id> <constraint-id>
@@ -316,7 +316,7 @@ nicocli instance update <instance-id> --trigger-reboot=true
 
 When the ordering is wrong, the CLI prints a clear error:
 
-```
+```text
 Error: flag(s) --data placed after a positional argument; urfave/cli (stdlib flag)
 stops parsing flags at the first positional, so these flags are being ignored.
 Move all flags before positionals, e.g.
@@ -327,7 +327,7 @@ Move all flags before positionals, e.g.
 
 Most create and update operations expose every body field as an individual flag. Prefer the flag form -- it's shorter and gets validated up front. For example:
 
-```
+```bash
 nicocli instance update --trigger-reboot=true <instance-id>
 nicocli instance update --name acme-worker-01-renamed <instance-id>
 nicocli vpc create --name acme-prod --site-id <site-uuid> --routing-profile internal
@@ -357,7 +357,7 @@ List and get commands support `--output <format>`:
 | `yaml` | Structured output, easier to read by hand |
 | `table` | Minimal columns. Some endpoints (notably `audit list`) only show `id` -- use `json` for full detail. |
 
-```
+```bash
 nicocli site list --output table
 nicocli tenant get-current-tenant --output yaml
 nicocli audit list --output json --page-size 50 | jq '.[] | select(.statusCode >= 400)'
@@ -369,20 +369,20 @@ The detail (`get <id>`) view is always richer than the list view -- list endpoin
 
 List commands accept `--page-size`, `--page-number`, and `--all`:
 
-```
+```bash
 nicocli audit list --page-size 50 --page-number 2
 nicocli allocation list --all
 ```
 
 When results span multiple pages, a one-line pagination summary is printed to **stderr** above the data:
 
-```
+```text
 Page 1/18 (5 items, 88 total). Use --all to fetch everything.
 ```
 
 When piping to `jq`, suppress the summary with `2>/dev/null`:
 
-```
+```bash
 nicocli audit list --output json --page-size 50 2>/dev/null \
   | jq '.[] | {id, endpoint, method, statusCode}'
 ```
@@ -401,7 +401,7 @@ The `--query` flag is a **free-text search across `name`, `description`, and `st
 
 The global `--debug` flag logs the full HTTP request and response for the wrapped command. The bearer token is redacted; everything else is visible:
 
-```
+```bash
 $ nicocli --debug tenant get-current-tenant
 time=... msg="API request: GET https://nico.example.com/v2/org/my-org/nico/tenant/current"
 time=... msg="Request headers: {\"Accept\":[\"application/json\"],\"Authorization\":[\"Bearer <redacted>\"]}"
@@ -421,7 +421,7 @@ nicocli substitutes the API name segment in every URL before sending. The OpenAP
 
 ### Version mismatch is normal
 
-```
+```bash
 nicocli --version
 ```
 
@@ -431,7 +431,7 @@ The CLI is generated from the OpenAPI spec at build time; the server reports its
 
 For exploratory work and one-off operations, the TUI is the recommended interface:
 
-```
+```bash
 nicocli tui     # full command
 nicocli i       # alias
 ```
@@ -466,5 +466,5 @@ The TUI's interactive forms for `create` commands prompt for fields in order wit
 ## Related Documentation
 
 - [Quick Start Guide](../getting-started/quick-start.md) -- NICo deployment and Day Zero walkthrough; covers the bundled Keycloak setup.
-- [Day One Operations](day_one_operations.md) -- Operator workflow for tenant management, allocations, VPCs, subnets, and instance provisioning. Uses this reference for all CLI mechanics.
+- [Day One Operations](../configuration/network-isolation.md) -- Operator workflow for tenant management, allocations, VPCs, subnets, and instance provisioning. Uses this reference for all CLI mechanics.
 - [Reference Installation](../getting-started/installation-options/reference-install.md) -- Deployment configuration surface, including the `issuers` block that maps OIDC IdPs to NICo.
