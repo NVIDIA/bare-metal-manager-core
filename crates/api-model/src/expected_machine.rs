@@ -137,6 +137,55 @@ impl BmcIpAllocationType {
             BmcIpAllocationType::Dynamic | BmcIpAllocationType::Fixed => false,
         }
     }
+
+    /// Resolve the compatibility BMC policy to the allocation policy used by
+    /// an expected interface.
+    ///
+    /// `Auto` is the only policy whose meaning depends on the address: a
+    /// configured address is Fixed, while an addressless BMC is Retained.
+    pub fn resolved(self, has_address: bool) -> ExpectedInterfaceIpAllocation {
+        match self {
+            Self::Auto if has_address => ExpectedInterfaceIpAllocation::Fixed,
+            Self::Auto => ExpectedInterfaceIpAllocation::Retained,
+            Self::Dynamic => ExpectedInterfaceIpAllocation::Dynamic,
+            Self::Fixed => ExpectedInterfaceIpAllocation::Fixed,
+            Self::Retained => ExpectedInterfaceIpAllocation::Retained,
+        }
+    }
+}
+
+/// Convert an expected-interface policy to its top-level BMC compatibility
+/// equivalent.
+impl From<ExpectedInterfaceIpAllocation> for BmcIpAllocationType {
+    fn from(policy: ExpectedInterfaceIpAllocation) -> Self {
+        match policy {
+            ExpectedInterfaceIpAllocation::Dynamic => Self::Dynamic,
+            ExpectedInterfaceIpAllocation::Fixed => Self::Fixed,
+            ExpectedInterfaceIpAllocation::Retained => Self::Retained,
+        }
+    }
+}
+
+/// Legacy top-level BMC fields explicitly supplied with an ExpectedMachine
+/// write.
+///
+/// The outer `Option` on `ip_address` distinguishes an omitted field from an
+/// explicit clear. This is request state only. Nested Host BMC declarations
+/// store their effective settings in both `host_nics` and the compatibility
+/// columns, while legacy-only declarations remain legacy-shaped for older
+/// clients and are resolved in memory.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LegacyHostBmcOverrides {
+    /// Omitted, explicitly cleared, or configured compatibility address.
+    pub ip_address: Option<Option<IpAddr>>,
+    /// Compatibility policy when the request explicitly supplied it.
+    pub ip_allocation: Option<BmcIpAllocationType>,
+    /// Whether the incoming `host_nics` list is a complete replacement.
+    ///
+    /// Older protobuf writers cannot distinguish an omitted repeated field
+    /// from an empty one. They leave this false so an unknown nested Host BMC
+    /// survives a read-modify-write.
+    pub replace_host_nics: bool,
 }
 
 /// A request to identify an ExpectedMachine by either ID or MAC address.
@@ -152,9 +201,8 @@ pub struct ExpectedMachineRequest {
 /// interface has a role-defined primary state. It does not choose a network
 /// segment or change the allocation policy available to that interface.
 ///
-/// Host BMC identity remains on [`ExpectedMachine::bmc_mac_address`].
-/// [NVIDIA/infra-controller#4103](https://github.com/NVIDIA/infra-controller/issues/4103)
-/// tracks representing its network settings with the same interface model.
+/// Host BMC identity remains on [`ExpectedMachine::bmc_mac_address`], while a
+/// `HostBmc` entry configures that endpoint's network allocation.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpectedInterfaceRole {
@@ -166,6 +214,8 @@ pub enum ExpectedInterfaceRole {
     DpuOs,
     /// The DPU's Redfish/BMC interface.
     DpuBmc,
+    /// The host's Redfish/BMC interface.
+    HostBmc,
 }
 
 impl std::fmt::Display for ExpectedInterfaceRole {
@@ -175,6 +225,7 @@ impl std::fmt::Display for ExpectedInterfaceRole {
             Self::Host => "host",
             Self::DpuOs => "dpu_os",
             Self::DpuBmc => "dpu_bmc",
+            Self::HostBmc => "host_bmc",
         })
     }
 }
@@ -189,15 +240,20 @@ impl ExpectedInterfaceRole {
         matches!(self, Self::Host)
     }
 
+    /// Return whether this role configures the ExpectedMachine's host BMC.
+    pub fn is_host_bmc(&self) -> bool {
+        matches!(self, Self::HostBmc)
+    }
+
     /// Return the database interface type produced by this endpoint role.
     ///
-    /// Host and DPU OS endpoints both exchange operating-system data. A DPU
-    /// BMC endpoint uses the BMC interface type so the existing BMC-specific
-    /// routing and address behavior still applies.
+    /// Host and DPU OS endpoints both exchange operating-system data. DPU and
+    /// host BMC endpoints use the BMC interface type so the existing
+    /// BMC-specific routing and address behavior still applies.
     pub fn interface_type(self) -> InterfaceType {
         match self {
             Self::Host | Self::DpuOs => InterfaceType::Data,
-            Self::DpuBmc => InterfaceType::Bmc,
+            Self::DpuBmc | Self::HostBmc => InterfaceType::Bmc,
         }
     }
 
@@ -206,12 +262,12 @@ impl ExpectedInterfaceRole {
     /// Host primary selection needs all Host declarations on the
     /// `ExpectedMachine`, so `None` tells the caller to use that machine-wide
     /// result. A DPU OS interface is always its DPU's primary data interface,
-    /// while a DPU BMC interface is never primary.
+    /// while DPU and host BMC interfaces are never primary.
     pub fn primary_interface_override(self) -> Option<bool> {
         match self {
             Self::Host => None,
             Self::DpuOs => Some(true),
-            Self::DpuBmc => Some(false),
+            Self::DpuBmc | Self::HostBmc => Some(false),
         }
     }
 }
@@ -219,10 +275,10 @@ impl ExpectedInterfaceRole {
 /// Controls how an expected interface receives and retains its IP address.
 ///
 /// When the policy is omitted, [`ExpectedHostNic::resolved_ip_allocation`]
-/// preserves the legacy configuration contract: an interface with
-/// [`ExpectedHostNic::fixed_ip`] is fixed, and one without it is dynamic.
-/// Explicit `Dynamic` differs from omission because it rejects a simultaneous
-/// `fixed_ip` instead of inferring `Fixed`.
+/// preserves the legacy configuration contracts. An interface with
+/// [`ExpectedHostNic::fixed_ip`] is fixed. Without one, Host BMC is retained
+/// and every other role is dynamic. Explicit `Dynamic` differs from omission
+/// because it rejects a simultaneous `fixed_ip` instead of inferring `Fixed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExpectedInterfaceIpAllocation {
@@ -230,9 +286,10 @@ pub enum ExpectedInterfaceIpAllocation {
     /// segment-type guard must match the segment selected by the DHCP relay.
     Dynamic,
     /// Reserve the operator-specified [`ExpectedHostNic::fixed_ip`]. An
-    /// explicit Fixed policy or DPU role requires a configured managed prefix
-    /// to contain the address. That prefix selects the segment, and a
-    /// configured segment-type guard must match it.
+    /// explicit Fixed policy, either DPU role, or HostBmc with a segment guard
+    /// requires a configured managed prefix to contain the address. That
+    /// prefix selects the segment, and a configured segment-type guard must
+    /// match it.
     Fixed,
     /// Allocate through DHCP, then change that address row to Static for the
     /// lifetime of this interface row. The address is not saved in
@@ -278,7 +335,8 @@ pub struct ExpectedHostNic {
     #[serde(default, skip_serializing_if = "ExpectedInterfaceRole::is_host")]
     pub role: ExpectedInterfaceRole,
     /// Optional IP allocation policy. Missing declarations infer `Fixed` when
-    /// [`Self::fixed_ip`] is configured and `Dynamic` otherwise.
+    /// [`Self::fixed_ip`] is configured. Without one, Host BMC uses the legacy
+    /// Retained behavior and every other role uses Dynamic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_allocation: Option<ExpectedInterfaceIpAllocation>,
     /// Optional guard for the interface's network segment type.
@@ -291,8 +349,9 @@ pub struct ExpectedHostNic {
     /// behavior where this field only narrows initial DHCP segment selection.
     /// This compatibility rule is exposed by [`Self::segment_type_guard`].
     /// `None` (with no legacy [`Self::nic_type`]) leaves DHCP selection
-    /// unconstrained. Fixed uses the managed prefix containing the address;
-    /// only a legacy Host declaration with an omitted policy may fall back to
+    /// unconstrained. Fixed uses the managed prefix containing the address.
+    /// A legacy Host declaration with an omitted policy, or an inferred Host
+    /// BMC Fixed policy without a segment guard, may fall back to
     /// `static-assignments` when no configured prefix contains it. Updates
     /// retain the existing full-replacement behavior, so omission clears this
     /// field.
@@ -309,7 +368,7 @@ pub struct ExpectedHostNic {
     /// interface. When one Host interface is declared primary, the other Host
     /// interfaces become non-primary. An explicit `false` remains accepted for
     /// compatibility but does not replace that machine-wide selection. DPU OS
-    /// interfaces are primary data interfaces and DPU BMC interfaces are
+    /// interfaces are primary data interfaces and BMC interfaces are
     /// non-primary; those roles must omit this field.
     #[serde(default)]
     pub primary: Option<bool>,
@@ -317,17 +376,20 @@ pub struct ExpectedHostNic {
 
 impl ExpectedHostNic {
     /// Return the configured allocation policy or infer the legacy policy from
-    /// whether this interface has a fixed IP.
+    /// the role and whether this interface has a fixed IP.
     ///
     /// Omission must remain distinguishable from explicit `Dynamic`: old
     /// declarations supplied only `fixed_ip`, while explicit `Dynamic` rejects
-    /// that same combination during validation. Inferring `Fixed` here does not
+    /// that same combination during validation. An addressless Host BMC uses
+    /// the top-level BMC default of Retained. Inferring `Fixed` here does not
     /// opt a legacy Host declaration into the newer segment-type guard; see
     /// [`Self::segment_type_guard`].
     pub fn resolved_ip_allocation(&self) -> ExpectedInterfaceIpAllocation {
         self.ip_allocation.unwrap_or_else(|| {
             if self.fixed_ip.is_some() {
                 ExpectedInterfaceIpAllocation::Fixed
+            } else if self.role.is_host_bmc() {
+                ExpectedInterfaceIpAllocation::Retained
             } else {
                 ExpectedInterfaceIpAllocation::Dynamic
             }
@@ -387,6 +449,18 @@ impl ExpectedHostNic {
         self.role.is_host() && self.ip_allocation.is_none()
     }
 
+    /// Return whether an inferred Fixed policy keeps the legacy
+    /// `static-assignments` fallback.
+    ///
+    /// Host declarations had this behavior before allocation policies existed.
+    /// Host BMC uses the same omission as the compatibility `Auto` policy, but
+    /// a typed segment guard still requires a containing managed prefix.
+    pub fn allows_static_assignments_fallback(&self) -> bool {
+        self.ip_allocation.is_none()
+            && (self.role.is_host()
+                || (self.role.is_host_bmc() && self.network_segment_type.is_none()))
+    }
+
     /// Return the typed segment guard for declarations using the generalized
     /// ExpectedInterface policy contract.
     ///
@@ -438,6 +512,250 @@ pub struct ExpectedMachine {
     pub bmc_mac_address: MacAddress,
     #[serde(flatten)]
     pub data: ExpectedMachineData,
+}
+
+impl ExpectedMachine {
+    /// Build the Host BMC declaration represented by the compatibility
+    /// columns.
+    ///
+    /// An omitted nested policy is intentional here. It preserves the legacy
+    /// external-address fallback for Fixed and resolves an addressless BMC to
+    /// Retained.
+    fn compatibility_host_bmc(&self) -> ExpectedHostNic {
+        let resolved = self
+            .data
+            .bmc_ip_allocation
+            .resolved(self.data.bmc_ip_address.is_some());
+        let fixed_ip = (resolved == ExpectedInterfaceIpAllocation::Fixed)
+            .then_some(self.data.bmc_ip_address)
+            .flatten();
+        let ip_allocation = match self.data.bmc_ip_allocation {
+            BmcIpAllocationType::Auto => None,
+            BmcIpAllocationType::Fixed if fixed_ip.is_some() => None,
+            BmcIpAllocationType::Dynamic => Some(ExpectedInterfaceIpAllocation::Dynamic),
+            BmcIpAllocationType::Fixed => Some(ExpectedInterfaceIpAllocation::Fixed),
+            BmcIpAllocationType::Retained => Some(ExpectedInterfaceIpAllocation::Retained),
+        };
+
+        ExpectedHostNic {
+            mac_address: self.bmc_mac_address,
+            role: ExpectedInterfaceRole::HostBmc,
+            ip_allocation,
+            fixed_ip,
+            ..Default::default()
+        }
+    }
+
+    /// Return the Host BMC configuration used by readers and runtime paths.
+    ///
+    /// New writers keep the nested declaration and compatibility columns in
+    /// sync. Older writers may update only the columns, so they win when the
+    /// two representations disagree. Nested-only fields such as
+    /// `network_segment_type` remain in place.
+    pub fn effective_host_bmc(&self) -> ExpectedHostNic {
+        let compatibility = self.compatibility_host_bmc();
+        let mut host_bmc = self
+            .data
+            .host_nics
+            .iter()
+            .find(|interface| interface.role.is_host_bmc())
+            .cloned()
+            .unwrap_or_else(|| compatibility.clone());
+
+        let allocation_agrees_with_compatibility = match host_bmc.ip_allocation {
+            Some(policy) => self.data.bmc_ip_allocation == policy.into(),
+            None => compatibility.ip_allocation.is_none(),
+        };
+        let agrees_with_compatibility = host_bmc.mac_address == self.bmc_mac_address
+            && allocation_agrees_with_compatibility
+            && host_bmc.resolved_ip_allocation() == compatibility.resolved_ip_allocation()
+            && host_bmc.fixed_ip == compatibility.fixed_ip;
+        if !agrees_with_compatibility {
+            host_bmc.ip_allocation = compatibility.ip_allocation;
+            host_bmc.fixed_ip = compatibility.fixed_ip;
+        }
+
+        host_bmc.mac_address = self.bmc_mac_address;
+        host_bmc.role = ExpectedInterfaceRole::HostBmc;
+        host_bmc.primary = None;
+        host_bmc
+    }
+
+    /// Return the top-level BMC policy that compatibility readers should see.
+    ///
+    /// Inferred policies remain absent/Auto. Explicit nested policies and
+    /// explicit legacy policies retain their concrete wire value.
+    pub fn compatibility_bmc_ip_allocation(&self) -> Option<BmcIpAllocationType> {
+        self.effective_host_bmc()
+            .ip_allocation
+            .map(Into::into)
+            .or_else(|| {
+                (self.data.bmc_ip_allocation != BmcIpAllocationType::Auto)
+                    .then_some(self.data.bmc_ip_allocation)
+            })
+    }
+
+    /// Normalize one Host BMC declaration and its compatibility columns.
+    ///
+    /// An incoming nested declaration is the baseline. Older clients may omit
+    /// it, so updates fall back to the previous effective declaration before
+    /// using the incoming compatibility fields. Explicit legacy fields are
+    /// applied last as overrides.
+    pub fn normalize_host_bmc(
+        &mut self,
+        previous: Option<&ExpectedMachine>,
+        mut overrides: LegacyHostBmcOverrides,
+    ) -> Result<(), &'static str> {
+        let mut host_bmc_indexes = self
+            .data
+            .host_nics
+            .iter()
+            .enumerate()
+            .filter(|(_, interface)| interface.role.is_host_bmc())
+            .map(|(index, _)| index);
+        let host_bmc_index = host_bmc_indexes.next();
+        if host_bmc_indexes.next().is_some() {
+            return Err("at most one role=host_bmc interface may be configured");
+        }
+
+        let incoming_host_bmc = host_bmc_index.map(|index| self.data.host_nics[index].clone());
+        let store_host_bmc = incoming_host_bmc.is_some()
+            || (!overrides.replace_host_nics
+                && previous.is_some_and(|machine| {
+                    machine
+                        .data
+                        .host_nics
+                        .iter()
+                        .any(|interface| interface.role.is_host_bmc())
+                }));
+        let previous_host_bmc = previous.map(ExpectedMachine::effective_host_bmc);
+        let previous_compatibility_allocation =
+            previous.and_then(ExpectedMachine::compatibility_bmc_ip_allocation);
+        let mut host_bmc = incoming_host_bmc
+            .clone()
+            .or_else(|| {
+                previous.map(|machine| {
+                    if overrides.replace_host_nics {
+                        machine.compatibility_host_bmc()
+                    } else {
+                        machine.effective_host_bmc()
+                    }
+                })
+            })
+            .unwrap_or_else(|| self.compatibility_host_bmc());
+
+        if let Some(previous_host_bmc) = previous_host_bmc.as_ref() {
+            // Full-update clients commonly echo the compatibility fields from
+            // a read. Some also drop interface roles they do not understand.
+            // Matching values are projections, not new overrides; ignoring
+            // them preserves details such as an explicit Fixed policy's
+            // managed-prefix requirement.
+            let matching_address_projection = overrides.ip_address
+                == Some(previous_host_bmc.fixed_ip)
+                && (overrides.ip_allocation.is_none()
+                    || overrides.ip_allocation == previous_compatibility_allocation);
+            if matching_address_projection {
+                overrides.ip_address = None;
+            }
+            // A different address makes the compatibility fields a new
+            // override pair, so keep its allocation even when that one value
+            // happens to match the previous policy.
+            let matching_allocation_projection = overrides.ip_address.is_none()
+                && overrides.ip_allocation.is_some()
+                && overrides.ip_allocation == previous_compatibility_allocation;
+            if matching_allocation_projection {
+                overrides.ip_allocation = None;
+            }
+        }
+
+        // Preserve the compatibility representation as well as its resolved
+        // policy. In particular, Auto-with-an-address and explicit legacy
+        // Fixed both resolve to Fixed, but only the latter should remain
+        // present on the compatibility wire field.
+        let mut compatibility_allocation =
+            if let Some(incoming_host_bmc) = incoming_host_bmc.as_ref() {
+                if let Some(ip_allocation) = incoming_host_bmc.ip_allocation {
+                    ip_allocation.into()
+                } else if previous_host_bmc
+                    .as_ref()
+                    .is_some_and(|previous_host_bmc| previous_host_bmc.ip_allocation.is_none())
+                {
+                    // An omitted nested policy preserves its compatibility
+                    // value even when another nested-only field changes.
+                    previous
+                        .map(|machine| machine.data.bmc_ip_allocation)
+                        .unwrap_or(BmcIpAllocationType::Auto)
+                } else if previous_host_bmc.as_ref().is_some_and(|previous_host_bmc| {
+                    let mut normalized_incoming = incoming_host_bmc.clone();
+                    normalized_incoming.mac_address = self.bmc_mac_address;
+                    normalized_incoming.role = ExpectedInterfaceRole::HostBmc;
+                    normalized_incoming.primary = None;
+                    normalized_incoming == *previous_host_bmc
+                }) {
+                    previous
+                        .map(|machine| machine.data.bmc_ip_allocation)
+                        .unwrap_or(BmcIpAllocationType::Auto)
+                } else {
+                    BmcIpAllocationType::Auto
+                }
+            } else if let Some(previous) = previous {
+                previous.data.bmc_ip_allocation
+            } else {
+                self.data.bmc_ip_allocation
+            };
+
+        if let Some(ip_address) = overrides.ip_address {
+            host_bmc.fixed_ip = ip_address;
+            if overrides.ip_allocation.is_none() {
+                host_bmc.ip_allocation = None;
+                compatibility_allocation = BmcIpAllocationType::Auto;
+            }
+        }
+
+        if let Some(ip_allocation) = overrides.ip_allocation {
+            compatibility_allocation = ip_allocation;
+            host_bmc.ip_allocation = match ip_allocation {
+                BmcIpAllocationType::Auto => None,
+                BmcIpAllocationType::Dynamic => {
+                    if !matches!(overrides.ip_address, Some(Some(_))) {
+                        host_bmc.fixed_ip = None;
+                    }
+                    Some(ExpectedInterfaceIpAllocation::Dynamic)
+                }
+                BmcIpAllocationType::Fixed if host_bmc.fixed_ip.is_some() => None,
+                BmcIpAllocationType::Fixed => Some(ExpectedInterfaceIpAllocation::Fixed),
+                BmcIpAllocationType::Retained => {
+                    if !matches!(overrides.ip_address, Some(Some(_))) {
+                        host_bmc.fixed_ip = None;
+                    }
+                    Some(ExpectedInterfaceIpAllocation::Retained)
+                }
+            };
+        }
+
+        host_bmc.mac_address = self.bmc_mac_address;
+        host_bmc.role = ExpectedInterfaceRole::HostBmc;
+        host_bmc.primary = None;
+        if let Err(message) = host_bmc.validate_ip_allocation() {
+            if overrides.ip_address.is_some() || overrides.ip_allocation.is_some() {
+                let legacy_allocation: BmcIpAllocationType =
+                    host_bmc.resolved_ip_allocation().into();
+                return legacy_allocation.validate(host_bmc.fixed_ip.is_some());
+            }
+            return Err(message);
+        }
+
+        self.data.bmc_ip_allocation = compatibility_allocation;
+        self.data.bmc_ip_address = host_bmc.fixed_ip;
+
+        if let Some(index) = host_bmc_index {
+            self.data.host_nics[index] = host_bmc;
+        } else if store_host_bmc {
+            self.data.host_nics.push(host_bmc);
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Default, Deserialize)] // Do not add Debug here, it contains password
@@ -974,6 +1292,11 @@ mod tests {
                     input: ExpectedInterfaceRole::DpuBmc,
                     expect: ("dpu_bmc".to_string(), Some(serde_json::json!("dpu_bmc"))),
                 },
+                Check {
+                    scenario: "Host BMC uses its canonical name",
+                    input: ExpectedInterfaceRole::HostBmc,
+                    expect: ("host_bmc".to_string(), Some(serde_json::json!("host_bmc"))),
+                },
             ],
             |role| {
                 let serialized = serde_json::to_value(ExpectedHostNic {
@@ -1005,6 +1328,11 @@ mod tests {
                     input: ExpectedInterfaceRole::DpuBmc,
                     expect: (false, InterfaceType::Bmc),
                 },
+                Check {
+                    scenario: "Host BMC",
+                    input: ExpectedInterfaceRole::HostBmc,
+                    expect: (false, InterfaceType::Bmc),
+                },
             ],
             |role| (role.is_host(), role.interface_type()),
         );
@@ -1027,6 +1355,11 @@ mod tests {
                 Check {
                     scenario: "DPU BMC is never primary",
                     input: ExpectedInterfaceRole::DpuBmc,
+                    expect: Some(false),
+                },
+                Check {
+                    scenario: "Host BMC is never primary",
+                    input: ExpectedInterfaceRole::HostBmc,
                     expect: Some(false),
                 },
             ],
@@ -1130,6 +1463,15 @@ mod tests {
                     interface.validate_ip_allocation().err(),
                 )
             },
+        );
+
+        let host_bmc = ExpectedHostNic {
+            role: ExpectedInterfaceRole::HostBmc,
+            ..Default::default()
+        };
+        assert_eq!(
+            host_bmc.resolved_ip_allocation(),
+            ExpectedInterfaceIpAllocation::Retained,
         );
     }
 
@@ -1370,6 +1712,507 @@ mod tests {
         assert_eq!(BmcIpAllocationType::default(), BmcIpAllocationType::Auto);
     }
 
+    /// Compatibility columns remain the read authority without removing a
+    /// nested-only segment guard.
+    #[test]
+    fn effective_host_bmc_uses_compatibility_columns_without_losing_nested_guards() {
+        /// One stored nested/compatibility combination and its effective
+        /// Host BMC settings.
+        struct Case {
+            name: &'static str,
+            nested_policy: Option<Option<ExpectedInterfaceIpAllocation>>,
+            nested_ip: Option<IpAddr>,
+            compatibility_policy: BmcIpAllocationType,
+            compatibility_ip: Option<IpAddr>,
+            expected_policy: Option<ExpectedInterfaceIpAllocation>,
+            expected_resolved: ExpectedInterfaceIpAllocation,
+            expected_ip: Option<IpAddr>,
+            expected_compatibility_output: Option<BmcIpAllocationType>,
+        }
+
+        let bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        let first_ip = "192.0.2.10".parse().unwrap();
+        let second_ip = "192.0.2.20".parse().unwrap();
+        for case in [
+            Case {
+                name: "legacy Auto without an address is Retained",
+                nested_policy: None,
+                nested_ip: None,
+                compatibility_policy: BmcIpAllocationType::Auto,
+                compatibility_ip: None,
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Retained,
+                expected_ip: None,
+                expected_compatibility_output: None,
+            },
+            Case {
+                name: "legacy Auto with an address is Fixed",
+                nested_policy: None,
+                nested_ip: None,
+                compatibility_policy: BmcIpAllocationType::Auto,
+                compatibility_ip: Some(first_ip),
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(first_ip),
+                expected_compatibility_output: None,
+            },
+            Case {
+                name: "matching explicit Fixed remains strict",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Fixed)),
+                nested_ip: Some(first_ip),
+                compatibility_policy: BmcIpAllocationType::Fixed,
+                compatibility_ip: Some(first_ip),
+                expected_policy: Some(ExpectedInterfaceIpAllocation::Fixed),
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(first_ip),
+                expected_compatibility_output: Some(BmcIpAllocationType::Fixed),
+            },
+            Case {
+                name: "compatibility columns override a stale nested address",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Fixed)),
+                nested_ip: Some(first_ip),
+                compatibility_policy: BmcIpAllocationType::Dynamic,
+                compatibility_ip: Some(second_ip),
+                expected_policy: Some(ExpectedInterfaceIpAllocation::Dynamic),
+                expected_resolved: ExpectedInterfaceIpAllocation::Dynamic,
+                expected_ip: None,
+                expected_compatibility_output: Some(BmcIpAllocationType::Dynamic),
+            },
+            Case {
+                name: "compatibility Auto overrides explicit Fixed at the same address",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Fixed)),
+                nested_ip: Some(first_ip),
+                compatibility_policy: BmcIpAllocationType::Auto,
+                compatibility_ip: Some(first_ip),
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(first_ip),
+                expected_compatibility_output: None,
+            },
+            Case {
+                name: "compatibility Auto overrides explicit Retained",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Retained)),
+                nested_ip: None,
+                compatibility_policy: BmcIpAllocationType::Auto,
+                compatibility_ip: None,
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Retained,
+                expected_ip: None,
+                expected_compatibility_output: None,
+            },
+        ] {
+            let host_nics = case
+                .nested_policy
+                .map(|ip_allocation| {
+                    vec![ExpectedHostNic {
+                        mac_address: bmc_mac_address,
+                        role: ExpectedInterfaceRole::HostBmc,
+                        ip_allocation,
+                        fixed_ip: case.nested_ip,
+                        network_segment_type: Some(NetworkSegmentType::Underlay),
+                        ..Default::default()
+                    }]
+                })
+                .unwrap_or_default();
+            let machine = ExpectedMachine {
+                id: None,
+                bmc_mac_address,
+                data: ExpectedMachineData {
+                    host_nics,
+                    bmc_ip_address: case.compatibility_ip,
+                    bmc_ip_allocation: case.compatibility_policy,
+                    ..Default::default()
+                },
+            };
+
+            let effective = machine.effective_host_bmc();
+            assert_eq!(
+                effective.role,
+                ExpectedInterfaceRole::HostBmc,
+                "{}",
+                case.name
+            );
+            assert_eq!(effective.mac_address, bmc_mac_address, "{}", case.name);
+            assert_eq!(effective.primary, None, "{}", case.name);
+            assert_eq!(
+                effective.ip_allocation, case.expected_policy,
+                "{}",
+                case.name,
+            );
+            assert_eq!(
+                effective.resolved_ip_allocation(),
+                case.expected_resolved,
+                "{}",
+                case.name,
+            );
+            assert_eq!(effective.fixed_ip, case.expected_ip, "{}", case.name);
+            assert_eq!(
+                machine.compatibility_bmc_ip_allocation(),
+                case.expected_compatibility_output,
+                "{}",
+                case.name,
+            );
+            if case.nested_policy.is_some() {
+                assert_eq!(
+                    effective.network_segment_type,
+                    Some(NetworkSegmentType::Underlay),
+                    "{}",
+                    case.name,
+                );
+            }
+        }
+    }
+
+    /// Normalization applies the nested baseline, compatibility overrides, and
+    /// old-client preservation rules in that order. Legacy-only input remains
+    /// legacy-shaped so older clients never receive an unknown HostBmc role.
+    #[test]
+    fn normalize_host_bmc_applies_nested_baseline_then_legacy_overrides() {
+        /// One normalization source combination and its stored settings.
+        struct Case {
+            name: &'static str,
+            nested_policy: Option<Option<ExpectedInterfaceIpAllocation>>,
+            nested_ip: Option<IpAddr>,
+            previous_policy: Option<ExpectedInterfaceIpAllocation>,
+            previous_ip: Option<IpAddr>,
+            overrides: LegacyHostBmcOverrides,
+            expected_policy: Option<ExpectedInterfaceIpAllocation>,
+            expected_resolved: ExpectedInterfaceIpAllocation,
+            expected_ip: Option<IpAddr>,
+            expected_compatibility: BmcIpAllocationType,
+        }
+
+        let bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        let fixed_ip = "192.0.2.20".parse().unwrap();
+        let replacement_ip = "192.0.2.21".parse().unwrap();
+        for case in [
+            Case {
+                name: "nested Dynamic is the baseline",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Dynamic)),
+                nested_ip: None,
+                previous_policy: None,
+                previous_ip: None,
+                overrides: LegacyHostBmcOverrides::default(),
+                expected_policy: Some(ExpectedInterfaceIpAllocation::Dynamic),
+                expected_resolved: ExpectedInterfaceIpAllocation::Dynamic,
+                expected_ip: None,
+                expected_compatibility: BmcIpAllocationType::Dynamic,
+            },
+            Case {
+                name: "same-valued legacy inputs still override on create",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Fixed)),
+                nested_ip: Some(fixed_ip),
+                previous_policy: None,
+                previous_ip: None,
+                overrides: LegacyHostBmcOverrides {
+                    ip_address: Some(Some(fixed_ip)),
+                    ip_allocation: Some(BmcIpAllocationType::Fixed),
+                    ..Default::default()
+                },
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(fixed_ip),
+                expected_compatibility: BmcIpAllocationType::Fixed,
+            },
+            Case {
+                name: "legacy Auto without an address becomes Retained",
+                nested_policy: None,
+                nested_ip: None,
+                previous_policy: None,
+                previous_ip: None,
+                overrides: LegacyHostBmcOverrides::default(),
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Retained,
+                expected_ip: None,
+                expected_compatibility: BmcIpAllocationType::Auto,
+            },
+            Case {
+                name: "legacy address override changes nested Dynamic to Fixed",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Dynamic)),
+                nested_ip: None,
+                previous_policy: None,
+                previous_ip: None,
+                overrides: LegacyHostBmcOverrides {
+                    ip_address: Some(Some(fixed_ip)),
+                    ip_allocation: None,
+                    ..Default::default()
+                },
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(fixed_ip),
+                expected_compatibility: BmcIpAllocationType::Auto,
+            },
+            Case {
+                name: "legacy Dynamic clears a nested fixed address",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Fixed)),
+                nested_ip: Some(fixed_ip),
+                previous_policy: None,
+                previous_ip: None,
+                overrides: LegacyHostBmcOverrides {
+                    ip_address: None,
+                    ip_allocation: Some(BmcIpAllocationType::Dynamic),
+                    ..Default::default()
+                },
+                expected_policy: Some(ExpectedInterfaceIpAllocation::Dynamic),
+                expected_resolved: ExpectedInterfaceIpAllocation::Dynamic,
+                expected_ip: None,
+                expected_compatibility: BmcIpAllocationType::Dynamic,
+            },
+            Case {
+                name: "explicit address clear restores Auto Retained",
+                nested_policy: Some(Some(ExpectedInterfaceIpAllocation::Fixed)),
+                nested_ip: Some(fixed_ip),
+                previous_policy: None,
+                previous_ip: None,
+                overrides: LegacyHostBmcOverrides {
+                    ip_address: Some(None),
+                    ip_allocation: None,
+                    ..Default::default()
+                },
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Retained,
+                expected_ip: None,
+                expected_compatibility: BmcIpAllocationType::Auto,
+            },
+            Case {
+                name: "an old client preserves the previous nested policy",
+                nested_policy: None,
+                nested_ip: None,
+                previous_policy: Some(ExpectedInterfaceIpAllocation::Fixed),
+                previous_ip: Some(fixed_ip),
+                overrides: LegacyHostBmcOverrides::default(),
+                expected_policy: Some(ExpectedInterfaceIpAllocation::Fixed),
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(fixed_ip),
+                expected_compatibility: BmcIpAllocationType::Fixed,
+            },
+            Case {
+                name: "an old client may echo the projected compatibility fields",
+                nested_policy: None,
+                nested_ip: None,
+                previous_policy: Some(ExpectedInterfaceIpAllocation::Fixed),
+                previous_ip: Some(fixed_ip),
+                overrides: LegacyHostBmcOverrides {
+                    ip_address: Some(Some(fixed_ip)),
+                    ip_allocation: Some(BmcIpAllocationType::Fixed),
+                    ..Default::default()
+                },
+                expected_policy: Some(ExpectedInterfaceIpAllocation::Fixed),
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(fixed_ip),
+                expected_compatibility: BmcIpAllocationType::Fixed,
+            },
+            Case {
+                name: "a changed address keeps its explicit compatibility policy",
+                nested_policy: None,
+                nested_ip: None,
+                previous_policy: Some(ExpectedInterfaceIpAllocation::Fixed),
+                previous_ip: Some(fixed_ip),
+                overrides: LegacyHostBmcOverrides {
+                    ip_address: Some(Some(replacement_ip)),
+                    ip_allocation: Some(BmcIpAllocationType::Fixed),
+                    ..Default::default()
+                },
+                expected_policy: None,
+                expected_resolved: ExpectedInterfaceIpAllocation::Fixed,
+                expected_ip: Some(replacement_ip),
+                expected_compatibility: BmcIpAllocationType::Fixed,
+            },
+        ] {
+            let expected_stored_count =
+                usize::from(case.nested_policy.is_some() || case.previous_policy.is_some());
+            let nested = case.nested_policy.map(|ip_allocation| ExpectedHostNic {
+                mac_address: bmc_mac_address,
+                role: ExpectedInterfaceRole::HostBmc,
+                ip_allocation,
+                fixed_ip: case.nested_ip,
+                ..Default::default()
+            });
+            let previous = case.previous_policy.map(|ip_allocation| ExpectedMachine {
+                id: None,
+                bmc_mac_address,
+                data: ExpectedMachineData {
+                    host_nics: vec![ExpectedHostNic {
+                        mac_address: bmc_mac_address,
+                        role: ExpectedInterfaceRole::HostBmc,
+                        ip_allocation: Some(ip_allocation),
+                        fixed_ip: case.previous_ip,
+                        ..Default::default()
+                    }],
+                    bmc_ip_address: case.previous_ip,
+                    bmc_ip_allocation: ip_allocation.into(),
+                    ..Default::default()
+                },
+            });
+            let mut machine = ExpectedMachine {
+                id: None,
+                bmc_mac_address,
+                data: ExpectedMachineData {
+                    host_nics: nested.into_iter().collect(),
+                    ..Default::default()
+                },
+            };
+
+            machine
+                .normalize_host_bmc(previous.as_ref(), case.overrides)
+                .unwrap();
+            let stored = machine
+                .data
+                .host_nics
+                .iter()
+                .filter(|interface| interface.role.is_host_bmc())
+                .collect::<Vec<_>>();
+            assert_eq!(stored.len(), expected_stored_count, "{}", case.name);
+            let effective = machine.effective_host_bmc();
+            assert_eq!(
+                effective.ip_allocation, case.expected_policy,
+                "{}",
+                case.name,
+            );
+            assert_eq!(
+                effective.resolved_ip_allocation(),
+                case.expected_resolved,
+                "{}",
+                case.name,
+            );
+            assert_eq!(effective.fixed_ip, case.expected_ip, "{}", case.name);
+            assert_eq!(
+                machine.data.bmc_ip_address, case.expected_ip,
+                "{}",
+                case.name
+            );
+            assert_eq!(
+                machine.data.bmc_ip_allocation, case.expected_compatibility,
+                "{}",
+                case.name,
+            );
+        }
+
+        let previous_fixed = ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                host_nics: vec![ExpectedHostNic {
+                    mac_address: bmc_mac_address,
+                    role: ExpectedInterfaceRole::HostBmc,
+                    ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+                    fixed_ip: Some(fixed_ip),
+                    ..Default::default()
+                }],
+                bmc_ip_address: Some(fixed_ip),
+                bmc_ip_allocation: BmcIpAllocationType::Fixed,
+                ..Default::default()
+            },
+        };
+        let mut conflicting_update = ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData::default(),
+        };
+        let error = conflicting_update
+            .normalize_host_bmc(
+                Some(&previous_fixed),
+                LegacyHostBmcOverrides {
+                    ip_address: Some(Some(fixed_ip)),
+                    ip_allocation: Some(BmcIpAllocationType::Dynamic),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert_eq!(
+            error,
+            "bmc_ip_allocation=dynamic cannot be combined with bmc_ip_address",
+        );
+
+        let mut legacy_fixed_update = ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData::default(),
+        };
+        let previous_legacy_fixed = ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                host_nics: vec![ExpectedHostNic {
+                    mac_address: bmc_mac_address,
+                    role: ExpectedInterfaceRole::HostBmc,
+                    fixed_ip: Some(fixed_ip),
+                    ..Default::default()
+                }],
+                bmc_ip_address: Some(fixed_ip),
+                bmc_ip_allocation: BmcIpAllocationType::Fixed,
+                ..Default::default()
+            },
+        };
+        legacy_fixed_update
+            .normalize_host_bmc(
+                Some(&previous_legacy_fixed),
+                LegacyHostBmcOverrides {
+                    ip_address: None,
+                    ip_allocation: Some(BmcIpAllocationType::Auto),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            legacy_fixed_update.data.bmc_ip_allocation,
+            BmcIpAllocationType::Auto,
+        );
+        assert_eq!(legacy_fixed_update.compatibility_bmc_ip_allocation(), None,);
+    }
+
+    /// An authoritative interface replacement removes nested-only Host BMC
+    /// settings while keeping the compatibility fields as the legacy baseline.
+    #[test]
+    fn normalize_host_bmc_honors_authoritative_interface_replacement() {
+        let bmc_mac_address = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        let fixed_ip = "192.0.2.20".parse().unwrap();
+        let previous = ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                host_nics: vec![ExpectedHostNic {
+                    mac_address: bmc_mac_address,
+                    role: ExpectedInterfaceRole::HostBmc,
+                    fixed_ip: Some(fixed_ip),
+                    network_segment_type: Some(NetworkSegmentType::Underlay),
+                    ..Default::default()
+                }],
+                bmc_ip_address: Some(fixed_ip),
+                ..Default::default()
+            },
+        };
+        let mut replacement = ExpectedMachine {
+            id: None,
+            bmc_mac_address,
+            data: ExpectedMachineData {
+                bmc_ip_address: Some(fixed_ip),
+                ..Default::default()
+            },
+        };
+
+        replacement
+            .normalize_host_bmc(
+                Some(&previous),
+                LegacyHostBmcOverrides {
+                    replace_host_nics: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert!(
+            replacement
+                .data
+                .host_nics
+                .iter()
+                .all(|interface| !interface.role.is_host_bmc()),
+        );
+        let effective = replacement.effective_host_bmc();
+        assert_eq!(effective.fixed_ip, Some(fixed_ip));
+        assert_eq!(effective.network_segment_type, None);
+    }
+
     /// `declared_primary_mac` returns the MAC of the one NIC flagged
     /// `primary: Some(true)`, and `None` when nothing is declared. `primary:
     /// Some(false)` is an explicit non-primary, not a declaration.
@@ -1597,6 +2440,15 @@ mod tests {
                 uses_legacy_host_allocation: false,
             },
             Case {
+                name: "Host BMC role",
+                role: ExpectedInterfaceRole::HostBmc,
+                ip_allocation: None,
+                fixed_ip: Some("192.0.2.10".parse().unwrap()),
+                network_segment_type: Some(NetworkSegmentType::Underlay),
+                expected_guard: Some(NetworkSegmentType::Underlay),
+                uses_legacy_host_allocation: false,
+            },
+            Case {
                 name: "no typed segment",
                 role: ExpectedInterfaceRole::DpuOs,
                 ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
@@ -1622,6 +2474,86 @@ mod tests {
             assert_eq!(
                 interface.uses_legacy_host_allocation(),
                 case.uses_legacy_host_allocation,
+                "{}",
+                case.name,
+            );
+        }
+    }
+
+    /// Only compatibility declarations without a Host BMC segment guard retain
+    /// the external-address fallback.
+    #[test]
+    fn static_assignments_fallback_is_limited_to_legacy_fixed_policies() {
+        /// One role/policy pair and whether it keeps the fallback.
+        struct Case {
+            name: &'static str,
+            role: ExpectedInterfaceRole,
+            ip_allocation: Option<ExpectedInterfaceIpAllocation>,
+            network_segment_type: Option<NetworkSegmentType>,
+            expected: bool,
+        }
+
+        for case in [
+            Case {
+                name: "inferred Host Fixed",
+                role: ExpectedInterfaceRole::Host,
+                ip_allocation: None,
+                network_segment_type: None,
+                expected: true,
+            },
+            Case {
+                name: "explicit Host Fixed",
+                role: ExpectedInterfaceRole::Host,
+                ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+                network_segment_type: None,
+                expected: false,
+            },
+            Case {
+                name: "inferred Host BMC Fixed",
+                role: ExpectedInterfaceRole::HostBmc,
+                ip_allocation: None,
+                network_segment_type: None,
+                expected: true,
+            },
+            Case {
+                name: "inferred Host BMC Fixed with a segment guard",
+                role: ExpectedInterfaceRole::HostBmc,
+                ip_allocation: None,
+                network_segment_type: Some(NetworkSegmentType::Underlay),
+                expected: false,
+            },
+            Case {
+                name: "explicit Host BMC Fixed",
+                role: ExpectedInterfaceRole::HostBmc,
+                ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
+                network_segment_type: None,
+                expected: false,
+            },
+            Case {
+                name: "inferred DPU OS Fixed",
+                role: ExpectedInterfaceRole::DpuOs,
+                ip_allocation: None,
+                network_segment_type: None,
+                expected: false,
+            },
+            Case {
+                name: "inferred DPU BMC Fixed",
+                role: ExpectedInterfaceRole::DpuBmc,
+                ip_allocation: None,
+                network_segment_type: None,
+                expected: false,
+            },
+        ] {
+            let interface = ExpectedHostNic {
+                role: case.role,
+                ip_allocation: case.ip_allocation,
+                fixed_ip: Some("192.0.2.10".parse().unwrap()),
+                network_segment_type: case.network_segment_type,
+                ..Default::default()
+            };
+            assert_eq!(
+                interface.allows_static_assignments_fallback(),
+                case.expected,
                 "{}",
                 case.name,
             );

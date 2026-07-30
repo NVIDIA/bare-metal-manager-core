@@ -877,8 +877,9 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	err := dbSession.DB.ResetModel(context.Background(), (*model.Tenant)(nil))
 	assert.Nil(t, err)
 
-	// Drop foreign key constraints
-	_, err = dbSession.DB.Exec("ALTER TABLE tenant ALTER COLUMN config DROP NOT NULL")
+	// Tenant.Config is scan-only, so ResetModel does not create its column.
+	// Recreate the historical schema before exercising the migration.
+	_, err = dbSession.DB.Exec("ALTER TABLE tenant ADD COLUMN config jsonb")
 	assert.NoError(t, err)
 
 	// Create initial data
@@ -891,27 +892,75 @@ func Test_tenantConfigUpMigration(t *testing.T) {
 	tnOrg3 := "test-tenant-org-3"
 
 	tenant1 := model.TestBuildTenant(t, dbSession, "test-tenant-1", tnOrg1, ipu)
+	tenant2 := model.TestBuildTenant(t, dbSession, "test-tenant-2", tnOrg2, ipu)
+	tenant3 := model.TestBuildTenant(t, dbSession, "test-tenant-3", tnOrg3, ipu)
 
-	_, err = dbSession.DB.Exec("UPDATE tenant SET config = NULL where id = ?", tenant1.ID)
+	// Simulate legacy rows with NULL configs prior to the migration.
+	_, err = dbSession.DB.Exec("UPDATE tenant SET config = NULL WHERE id IN (?)", bun.In([]uuid.UUID{tenant1.ID, tenant2.ID}))
 	assert.NoError(t, err)
 
-	tenant2 := model.TestBuildTenant(t, dbSession, "test-tenant-2", tnOrg2, ipu)
-	assert.NotNil(t, tenant2.Config)
+	// Seed one tenant with a pre-existing non-NULL config that must survive the migration.
+	existingConfig := map[string]interface{}{
+		"targetedInstanceCreation": true,
+		"enableSshAccess":          false,
+	}
+	_, err = dbSession.DB.NewUpdate().
+		Table("tenant").
+		Set("config = ?", existingConfig).
+		Where("id = ?", tenant3.ID).
+		Exec(ctx)
+	assert.NoError(t, err)
 
 	// Call up migration function
 	err = tenantConfigUpMigration(ctx, dbSession.DB)
 	assert.NoError(t, err)
 
-	// GetAll operating systems and verify
-	tnDAO := model.NewTenantDAO(dbSession)
-	tns, _, err := tnDAO.GetAll(ctx, nil, model.TenantFilterInput{Orgs: []string{tenant1.Org}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, len(tns))
-	assert.Equal(t, tenant1.ID, tns[0].ID)
+	// The migration backfills NULL configs with an empty JSON object and leaves
+	// pre-existing non-NULL values untouched.
+	type tenantConfigRow struct {
+		ID     uuid.UUID              `bun:"id"`
+		Config map[string]interface{} `bun:"config,type:jsonb"`
+	}
 
-	// Check that config is not null
-	assert.NotNil(t, tns[0].Config)
+	var rows []tenantConfigRow
+	err = dbSession.DB.NewSelect().
+		Table("tenant").
+		Column("id", "config").
+		Where("id IN (?)", bun.In([]uuid.UUID{tenant1.ID, tenant2.ID, tenant3.ID})).
+		Scan(ctx, &rows)
+	assert.NoError(t, err)
+	require.Len(t, rows, 3)
 
-	tenant3 := model.TestBuildTenant(t, dbSession, "test-tenant-3", tnOrg3, ipu)
-	assert.NotNil(t, tenant3.Config)
+	configByID := make(map[uuid.UUID]map[string]interface{}, len(rows))
+	for _, row := range rows {
+		configByID[row.ID] = row.Config
+	}
+
+	assert.Equal(t, map[string]interface{}{}, configByID[tenant1.ID])
+	assert.Equal(t, map[string]interface{}{}, configByID[tenant2.ID])
+	assert.Equal(t, existingConfig, configByID[tenant3.ID])
+
+	// The migration also establishes the column's schema contract: it sets the
+	// '{}'::jsonb default and a NOT NULL constraint. Exercise both behaviors so a
+	// regression that drops either is caught.
+
+	// A new row that omits config must receive the '{}'::jsonb default.
+	defaultTenant := model.TestBuildTenant(t, dbSession, "test-tenant-default", "test-tenant-org-default", ipu)
+
+	var defaultRow tenantConfigRow
+	err = dbSession.DB.NewSelect().
+		Table("tenant").
+		Column("id", "config").
+		Where("id = ?", defaultTenant.ID).
+		Scan(ctx, &defaultRow)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]interface{}{}, defaultRow.Config)
+
+	// Explicitly writing NULL must violate the NOT NULL constraint.
+	_, err = dbSession.DB.NewUpdate().
+		Table("tenant").
+		Set("config = NULL").
+		Where("id = ?", defaultTenant.ID).
+		Exec(ctx)
+	assert.Error(t, err)
 }

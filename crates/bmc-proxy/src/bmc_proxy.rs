@@ -32,7 +32,7 @@ use carbide_authn::SpiffeContext;
 use carbide_authn::middleware::{
     AuthContext, Authorization, CertDescriptionMiddleware, ConnectionAttributes, Principal,
 };
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use carbide_utils::HostPortPair;
 use forge_tls::client_config::ClientCert;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
@@ -261,18 +261,27 @@ enum ConnectionFailReason {
     TlsConnectionFailure,
 }
 
+/// The one metric the Events below record.
+#[derive(MetricFamily)]
+#[metric(
+    name = "carbide_bmc_proxy_tls_connection_fail_total",
+    kind = counter,
+    component = "nico-bmc-proxy",
+    describe = "Number of failed inbound connections, by failure reason"
+)]
+struct BmcProxyTlsConnectionFail {
+    reason: ConnectionFailReason,
+}
+
 /// `TcpAcceptFailed` records a listener error before a peer connection exists.
 /// It increments the existing `tcp_connection_failure` series while keeping
 /// the per-attempt error in log-only context.
 #[derive(Event)]
 #[event(
     event_name = "bmc_proxy_tcp_accept_failed",
-    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
-    component = "nico-bmc-proxy",
+    metric_family = BmcProxyTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "Error accepting connection",
-    describe = "Number of failed inbound connections, by failure reason"
+    message = "Error accepting connection"
 )]
 struct TcpAcceptFailed {
     #[label]
@@ -287,12 +296,9 @@ struct TcpAcceptFailed {
 #[derive(Event)]
 #[event(
     event_name = "bmc_proxy_tls_certificate_reload_failed",
-    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
-    component = "nico-bmc-proxy",
+    metric_family = BmcProxyTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "Error reloading TLS certificate, will retry",
-    describe = "Number of failed inbound connections, by failure reason"
+    message = "Error reloading TLS certificate, will retry"
 )]
 struct TlsCertificateReloadFailed {
     #[label]
@@ -307,12 +313,9 @@ struct TlsCertificateReloadFailed {
 #[derive(Event)]
 #[event(
     event_name = "bmc_proxy_tls_connection_failed",
-    metric_name = "carbide_bmc_proxy_tls_connection_fail_total",
-    component = "nico-bmc-proxy",
+    metric_family = BmcProxyTlsConnectionFail,
     log = error,
-    metric = counter,
-    message = "error accepting tls connection",
-    describe = "Number of failed inbound connections, by failure reason"
+    message = "error accepting tls connection"
 )]
 struct TlsConnectionFailed {
     #[label]

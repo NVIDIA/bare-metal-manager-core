@@ -47,6 +47,8 @@ type TenantAccount struct {
 	Created *time.Time `json:"created,omitempty"`
 	// Date/time when the Tenant Account was last updated
 	Updated *time.Time `json:"updated,omitempty"`
+	// Provider-scoped TargetedInstanceCreation settings for this Tenant Account. Replaces the deprecated tenant-level capabilities.targetedInstanceCreation attribute.  When present on a Tenant Account response, the array always includes one entry with omitted `siteIds` derived from TenantAccount.config, followed by zero or more entries with `siteIds` for per-site overrides that differ from the account default.
+	SiteCapabilities []TenantAccountSiteCapability `json:"siteCapabilities,omitempty"`
 }
 
 // NewTenantAccount instantiates a new TenantAccount object
@@ -472,6 +474,38 @@ func (o *TenantAccount) SetUpdated(v time.Time) {
 	o.Updated = &v
 }
 
+// GetSiteCapabilities returns the SiteCapabilities field value if set, zero value otherwise.
+func (o *TenantAccount) GetSiteCapabilities() []TenantAccountSiteCapability {
+	if o == nil || IsNil(o.SiteCapabilities) {
+		var ret []TenantAccountSiteCapability
+		return ret
+	}
+	return o.SiteCapabilities
+}
+
+// GetSiteCapabilitiesOk returns a tuple with the SiteCapabilities field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+func (o *TenantAccount) GetSiteCapabilitiesOk() ([]TenantAccountSiteCapability, bool) {
+	if o == nil || IsNil(o.SiteCapabilities) {
+		return nil, false
+	}
+	return o.SiteCapabilities, true
+}
+
+// HasSiteCapabilities returns a boolean if a field has been set.
+func (o *TenantAccount) HasSiteCapabilities() bool {
+	if o != nil && !IsNil(o.SiteCapabilities) {
+		return true
+	}
+
+	return false
+}
+
+// SetSiteCapabilities gets a reference to the given []TenantAccountSiteCapability and assigns it to the SiteCapabilities field.
+func (o *TenantAccount) SetSiteCapabilities(v []TenantAccountSiteCapability) {
+	o.SiteCapabilities = v
+}
+
 func (o TenantAccount) MarshalJSON() ([]byte, error) {
 	toSerialize, err := o.ToMap()
 	if err != nil {
@@ -517,6 +551,9 @@ func (o TenantAccount) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Updated) {
 		toSerialize["updated"] = o.Updated
+	}
+	if !IsNil(o.SiteCapabilities) {
+		toSerialize["siteCapabilities"] = o.SiteCapabilities
 	}
 	return toSerialize, nil
 }

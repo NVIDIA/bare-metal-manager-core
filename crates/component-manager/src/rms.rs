@@ -28,7 +28,7 @@ use carbide_rack::rms_node_type::{
 };
 use carbide_secrets::credentials::Credentials;
 use carbide_uuid::rack::RackProfileId;
-use librms::protos::rack_manager as rms;
+use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
 use librms::{RackManagerError, RmsApi};
 use mac_address::MacAddress;
 use model::component_manager::{
@@ -1941,6 +1941,67 @@ impl NvSwitchManager for RmsBackend {
         job_id: &str,
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError> {
         rms_get_configure_switch_certificate_job_status(self.client.as_ref(), job_id).await
+    }
+
+    #[instrument(skip(self, request), fields(backend = "rms"))]
+    async fn configure_scale_up_fabric_manager_v2(
+        &self,
+        request: rms_v2::ConfigureScaleUpFabricManagerRequest,
+    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
+        red::instrumented(
+            "rms",
+            "configure_scale_up_fabric_manager_v2",
+            self.client.configure_scale_up_fabric_manager_v2(request),
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    #[instrument(skip(self, request), fields(backend = "rms"))]
+    async fn get_scale_up_fabric_manager_job_status(
+        &self,
+        request: rms::GetJobStatusRequest,
+    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
+        match red::instrumented("rms", "get_job_status", self.client.get_job_status(request)).await
+        {
+            Err(RackManagerError::ApiInvocationError(status))
+                if status.code() == tonic::Code::NotFound =>
+            {
+                Err(ComponentManagerError::NotFound(
+                    "scale-up fabric manager job was not found".to_string(),
+                ))
+            }
+            result => result.map_err(Into::into),
+        }
+    }
+
+    #[instrument(skip(self, request), fields(backend = "rms"))]
+    async fn get_scale_up_fabric_status(
+        &self,
+        request: rms::GetScaleUpFabricStatusRequest,
+    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
+        red::instrumented(
+            "rms",
+            "get_scale_up_fabric_status",
+            self.client.get_scale_up_fabric_status(request),
+        )
+        .await
+        .map_err(Into::into)
+    }
+
+    #[instrument(skip(self, request), fields(backend = "rms"))]
+    async fn batch_get_scale_up_fabric_service_status(
+        &self,
+        request: rms::BatchGetScaleUpFabricServiceStatusRequest,
+    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+        red::instrumented(
+            "rms",
+            "batch_get_scale_up_fabric_service_status",
+            self.client
+                .batch_get_scale_up_fabric_service_status(request),
+        )
+        .await
+        .map_err(Into::into)
     }
 
     #[instrument(skip(self, endpoint, next_password), fields(backend = "rms", bmc_mac = %endpoint.bmc_mac))]

@@ -169,6 +169,13 @@ pub struct Switch {
     /// without re-resolving. `None` when no BMC interface is linked yet.
     pub bmc_info: Option<BmcInfo>,
 
+    /// Operator "force-converge this switch BMC now" request (REQ-2). When
+    /// `true`, the switch state controller enters `RotatingBmc` and
+    /// force-converges the BMC on its next sweep, bypassing the passive
+    /// site-wide gate and the device's backoff quarantine. A switch has exactly
+    /// one BMC, so the flag's presence on the row names the target device.
+    pub bmc_credential_rotation_requested: bool,
+
     pub controller_state: Versioned<SwitchControllerState>,
 
     /// The result of the last attempt to change state
@@ -243,6 +250,9 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             deleted: row.try_get("deleted")?,
             bmc_mac_address: row.try_get("bmc_mac_address").ok().flatten(),
             bmc_info,
+            bmc_credential_rotation_requested: row
+                .try_get("bmc_credential_rotation_requested")
+                .unwrap_or(false),
             controller_state: Versioned {
                 value: controller_state.0,
                 version: row.try_get("controller_state_version")?,
@@ -363,6 +373,18 @@ pub enum SwitchControllerState {
     /// The Switch is ready for use.
     Ready,
 
+    /// The Switch is converging its BMC credentials to the staged site-wide
+    /// rotation target (REQ-2). Entered from `Ready` (lowest precedence) when
+    /// the switch BMC lags the target and site-wide rotation is enabled, or when
+    /// an operator force-converge request is pending; a BMC password change
+    /// never touches the switch data plane, so this is safe in `Ready`. The
+    /// shared engine owns crash-safety and per-device backoff, so this state
+    /// carries only a retry budget for transient handler failures.
+    RotatingBmc {
+        #[serde(default)]
+        retry_count: u32,
+    },
+
     /// The Switch is executing an operator-requested maintenance operation.
     Maintenance {
         operation: SwitchMaintenanceOperation,
@@ -428,6 +450,10 @@ pub fn state_sla(state: &SwitchControllerState, state_version: &ConfigVersion) -
             time_in_state,
         ),
         SwitchControllerState::Ready => StateSla::no_sla(),
+        SwitchControllerState::RotatingBmc { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::ROTATING_BMC),
+            time_in_state,
+        ),
         SwitchControllerState::Maintenance { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::MAINTENANCE),
             time_in_state,
@@ -529,6 +555,12 @@ mod tests {
 
             "ready" {
                 SwitchControllerState::Ready => Yields(r#"{"state":"ready"}"#.to_string()),
+            }
+
+            "rotatingbmc carries its retry count" {
+                SwitchControllerState::RotatingBmc { retry_count: 4 } => Yields(
+                    r#"{"state":"rotatingbmc","retry_count":4}"#.to_string(),
+                ),
             }
 
             "maintenance: power on" {
@@ -653,6 +685,18 @@ mod tests {
 
             "legacy ready with stray ready_state still deserializes to Ready" {
                 r#"{"state":"ready","ready_state":"poweroff"}"# => Yields(SwitchControllerState::Ready),
+            }
+
+            "rotatingbmc round-trips its retry count" {
+                r#"{"state":"rotatingbmc","retry_count":4}"# => Yields(SwitchControllerState::RotatingBmc {
+                    retry_count: 4,
+                }),
+            }
+
+            "rotatingbmc absent retry_count defaults to 0" {
+                r#"{"state":"rotatingbmc"}"# => Yields(SwitchControllerState::RotatingBmc {
+                    retry_count: 0,
+                }),
             }
 
             "maintenance: reset" {

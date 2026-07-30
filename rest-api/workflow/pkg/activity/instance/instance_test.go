@@ -341,10 +341,7 @@ func TestManageInstance_deleteInstanceFromDB(t *testing.T) {
 	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.New().String(), []string{tnOrg}, tnRoles)
-	tncfg := cdbm.TenantConfig{
-		EnableSSHAccess: true,
-	}
-	tenant := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", &tncfg, tnu)
+	tenant := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 
 	site := util.TestBuildSite(t, dbSession, ip, "testSite", cdbm.SiteStatusPending, nil, ipu)
 	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
@@ -473,10 +470,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	tnRoles := []string{"FORGE_TENANT_ADMIN"}
 
 	tnu := util.TestBuildUser(t, dbSession, uuid.New().String(), []string{tnOrg}, tnRoles)
-	tncfg := cdbm.TenantConfig{
-		EnableSSHAccess: true,
-	}
-	tenant := util.TestBuildTenant(t, dbSession, tnOrg, "Test Tenant", &tncfg, tnu)
+	tenant := util.TestBuildTenant(t, dbSession, "Test Tenant", tnOrg, nil, tnu)
 
 	site := util.TestBuildSite(t, dbSession, ip, "testSite", cdbm.SiteStatusPending, nil, ipu)
 	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "testVpc")

@@ -75,7 +75,7 @@ impl DpuMachine {
         let (bmc_control_tx, bmc_control_rx) = mpsc::unbounded_channel();
 
         let dpu_info = DpuMachineInfo {
-            hw_type: persisted_dpu_machine.hw_type.unwrap_or_default(),
+            hw_type: persisted_dpu_machine.hw_type,
             bmc_mac_address: persisted_dpu_machine.bmc_mac_address,
             host_mac_address: persisted_dpu_machine.host_mac_address,
             oob_mac_address: persisted_dpu_machine.oob_mac_address,
@@ -433,9 +433,11 @@ impl DpuMachineHandle {
                 state.to_owned(),
                 tx,
             ))?;
-        tokio::time::timeout(timeout, rx).await?.wrap_err(format!(
-            "timed out waiting for machine up with state {state}"
-        ))
+        tokio::time::timeout(timeout, rx)
+            .await
+            .wrap_err_with(|| format!("timed out waiting for machine up with state {state}"))?
+            .wrap_err_with(|| format!("machine stopped while waiting for state {state}"))?;
+        Ok(())
     }
 
     pub fn host_details(&self) -> HostDetails {
@@ -477,6 +479,7 @@ impl DpuMachineHandle {
             api_state: live_state.api_state.clone(),
             power_state: live_state.power_state.to_string(),
             machine_ip: live_state.machine_ip.map(|ip| ip.to_string()),
+            nvos_ip: None,
             bmc: BmcStatus {
                 ip: live_state.bmc_ip.map(|ip| ip.to_string()),
                 redfish: EndpointStatus::redfish(config),
@@ -501,7 +504,7 @@ impl DpuMachineHandle {
     pub fn persisted(&self) -> PersistedDpuMachine {
         PersistedDpuMachine {
             mat_id: self.0.mat_id,
-            hw_type: Some(self.0.dpu_info.hw_type),
+            hw_type: self.0.dpu_info.hw_type,
             bmc_mac_address: self.0.dpu_info.bmc_mac_address,
             host_mac_address: self.0.dpu_info.host_mac_address,
             oob_mac_address: self.0.dpu_info.oob_mac_address,

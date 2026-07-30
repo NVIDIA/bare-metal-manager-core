@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
+	temporalworkflow "go.temporal.io/sdk/workflow"
 )
 
 type InventoryExpectedPowerShelfTestSuite struct {
@@ -93,11 +94,41 @@ func (cepsts *CreateExpectedPowerShelfTestSuite) Test_CreateExpectedPowerShelf_S
 	cepsts.env.RegisterActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnSite)
 	cepsts.env.OnActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Mock CreateExpectedPowerShelfOnFlow activity
-	cepsts.env.RegisterActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnFlow)
-	cepsts.env.OnActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(nil)
+	cepsts.env.OnGetVersion(
+		removeCreateExpectedPowerShelfOnFlowChangeID,
+		temporalworkflow.DefaultVersion,
+		removeCreateExpectedPowerShelfOnFlowVersion,
+	).Return(removeCreateExpectedPowerShelfOnFlowVersion)
+	cepsts.env.OnActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Execute CreateExpectedPowerShelf workflow
+	cepsts.env.ExecuteWorkflow(CreateExpectedPowerShelf, request)
+	cepsts.True(cepsts.env.IsWorkflowCompleted())
+	cepsts.NoError(cepsts.env.GetWorkflowError())
+	cepsts.env.AssertActivityNumberOfCalls(cepsts.T(), "CreateExpectedPowerShelfOnFlow", 0)
+}
+
+func (cepsts *CreateExpectedPowerShelfTestSuite) Test_CreateExpectedPowerShelf_LegacyVersion_FlowFailure() {
+	var expectedPowerShelfManager iActivity.ManageExpectedPowerShelf
+
+	request := &corev1.ExpectedPowerShelf{
+		ExpectedPowerShelfId: &corev1.UUID{Value: "test-create-workflow-001"},
+		BmcMacAddress:        "00:11:22:33:44:55",
+		ShelfSerialNumber:    "SHELF-001",
+	}
+
+	cepsts.env.RegisterActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnSite)
+	cepsts.env.OnActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	cepsts.env.OnGetVersion(
+		removeCreateExpectedPowerShelfOnFlowChangeID,
+		temporalworkflow.DefaultVersion,
+		removeCreateExpectedPowerShelfOnFlowVersion,
+	).Return(temporalworkflow.DefaultVersion)
+
+	cepsts.env.RegisterActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnFlow)
+	cepsts.env.OnActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow communication error"))
+
 	cepsts.env.ExecuteWorkflow(CreateExpectedPowerShelf, request)
 	cepsts.True(cepsts.env.IsWorkflowCompleted())
 	cepsts.NoError(cepsts.env.GetWorkflowError())
@@ -117,9 +148,6 @@ func (cepsts *CreateExpectedPowerShelfTestSuite) Test_CreateExpectedPowerShelf_F
 	// Mock CreateExpectedPowerShelfOnSite activity
 	cepsts.env.RegisterActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnSite)
 	cepsts.env.OnActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
-
-	// Register CreateExpectedPowerShelfOnFlow activity (not called when Core fails)
-	cepsts.env.RegisterActivity(expectedPowerShelfManager.CreateExpectedPowerShelfOnFlow)
 
 	// execute CreateExpectedPowerShelf workflow
 	cepsts.env.ExecuteWorkflow(CreateExpectedPowerShelf, request)

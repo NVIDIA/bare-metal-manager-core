@@ -362,6 +362,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
 
     MachineSnapshotPgJson {
         machine_maintenance_requested: None,
+        bmc_credential_rotation_requested: false,
         id: machine_id,
         rack_id: Some("rack-bench-01".parse().expect("valid rack id")),
         created: fixture_time(0),
@@ -481,6 +482,9 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
         history: state_history(),
         version: config_version(7).version_string(),
         hw_sku: Some("SKU-8xH100-2xBF3".to_string()),
+        desired_boot_interface_mac: None,
+        desired_boot_interface_id: None,
+        desired_boot_interface_version: None,
         hw_sku_status: None,
         power_options: None,
         hw_sku_device_type: Some("compute".to_string()),

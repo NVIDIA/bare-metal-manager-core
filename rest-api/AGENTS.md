@@ -176,6 +176,11 @@ verification expectations.
 - Use `testify` (assert/require) for test assertions.
 - Tests that need a database use a PostgreSQL container (testcontainers-go
   or the Makefile-managed container).
+- Organize tests by the production function or method under test, not by individual
+  scenarios. Use one top-level test function named `Test<Receiver>_<Method>` or
+  `Test<Function>`—for example `TestIsStrInSlice` for `IsStrInSlice` and `TestGetAllSkuHandler_Handle` for `GetAllSkuHandler.Handle`. Define individual test
+  cases in a table and execute each case as a named `t.Run` subtest. Do not create
+  separate top-level test functions for each test case.
 - Tests run with `-p 1` (serial) and often with `-race`.
 - API handlers live in `api/pkg/api/handler/`, request/response models in
   `api/pkg/api/model/`, and DB models in `db/pkg/db/model/`.
@@ -770,6 +775,8 @@ When writing git commit messages, follow the conventions below:
   otherwise expect to be present.
 - Add TODO comments for features or nuances not important to implement
   right away.
+- In Go, split variable assignment and the condition into separate lines.
+  Do not use initializer clauses such as if err := operation(); err != nil
 
 ## Commit Guidelines
 

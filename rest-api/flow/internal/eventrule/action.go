@@ -18,6 +18,14 @@ type ActionCondition struct {
 	ComponentTypes []flowtypes.ComponentType
 }
 
+// Clone returns an independent copy of the condition.
+func (c ActionCondition) Clone() ActionCondition {
+	cloned := c
+	cloned.Severities = slices.Clone(c.Severities)
+	cloned.ComponentTypes = slices.Clone(c.ComponentTypes)
+	return cloned
+}
+
 func (c ActionCondition) validate() error {
 	if err := validateOptionalSlice("severities", c.Severities); err != nil {
 		return err
@@ -102,6 +110,13 @@ type Action struct {
 	Spec      ActionSpec
 }
 
+// Clone returns an independent copy of the action's mutable data.
+func (a Action) Clone() Action {
+	cloned := a
+	cloned.Condition = a.Condition.Clone()
+	return cloned
+}
+
 // NewAction returns an action containing the supplied typed specification.
 func NewAction(id string, condition ActionCondition, spec ActionSpec) Action {
 	return Action{ID: id, Condition: condition, Spec: spec}
@@ -122,6 +137,41 @@ func (a Action) Validate() error {
 	}
 
 	return a.Spec.validate()
+}
+
+// ValidateActions checks an action collection and its identity constraints.
+func ValidateActions(actions []Action) error {
+	if len(actions) == 0 {
+		return fmt.Errorf("actions are required")
+	}
+
+	actionIDs := make(map[string]struct{}, len(actions))
+	for i, action := range actions {
+		if err := action.Validate(); err != nil {
+			return fmt.Errorf("actions[%d]: %w", i, err)
+		}
+
+		if _, ok := actionIDs[action.ID]; ok {
+			return fmt.Errorf("actions[%d]: duplicate action id %q", i, action.ID)
+		}
+
+		actionIDs[action.ID] = struct{}{}
+	}
+
+	return nil
+}
+
+// CloneActions returns an independent copy of an action collection.
+func CloneActions(actions []Action) []Action {
+	if actions == nil {
+		return nil
+	}
+
+	cloned := make([]Action, len(actions))
+	for i := range actions {
+		cloned[i] = actions[i].Clone()
+	}
+	return cloned
 }
 
 // TargetStrategy identifies how a target-bearing action resolves concrete

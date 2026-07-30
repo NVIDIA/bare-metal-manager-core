@@ -318,6 +318,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::Failed { .. } => ("failed", ""),
             ManagedHostState::DPUReprovision { .. } => ("reprovisioning", ""),
             ManagedHostState::HostReprovision { .. } => ("hostreprovisioning", ""),
+            ManagedHostState::RotatingBmc { .. } => ("rotatingbmc", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }

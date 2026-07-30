@@ -1363,6 +1363,57 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 	}
 }
 
+func TestManageMachine_UpdateMachinesInDB_AddresslessInterface(t *testing.T) {
+	dbSession := testMachineInitDB(t)
+	defer dbSession.Close()
+	testMachineSetupSchema(t, dbSession)
+
+	ip := testMachineBuildInfrastructureProvider(t, dbSession, "test-ip-org", "test-ip")
+	site := testMachineBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered)
+	machineID := uuid.NewString()
+	interfaceID := uuid.New()
+
+	machineInventory := &corev1.MachineInventory{
+		Machines: []*corev1.MachineInfo{
+			{
+				Machine: &corev1.Machine{
+					Id:    &corev1.MachineId{Id: machineID},
+					State: controllerMachineStatePrefixReady,
+					Interfaces: []*corev1.MachineInterface{
+						{
+							Id:               &corev1.MachineInterfaceId{Value: interfaceID.String()},
+							MachineId:        &corev1.MachineId{Id: machineID},
+							SegmentId:        &corev1.NetworkSegmentId{Value: uuid.NewString()},
+							Address:          nil,
+							Hostname:         "addressless.example.com",
+							MacAddress:       "00:00:00:00:00:00",
+							PrimaryInterface: true,
+						},
+					},
+				},
+			},
+		},
+		Timestamp: timestamppb.Now(),
+	}
+
+	mm := NewManageMachine(dbSession, nil)
+	require.NoError(t, mm.UpdateMachinesInDB(context.Background(), site.ID.String(), machineInventory))
+
+	miDAO := cdbm.NewMachineInterfaceDAO(dbSession)
+	machineInterfaces, _, err := miDAO.GetAll(
+		context.Background(),
+		nil,
+		cdbm.MachineInterfaceFilterInput{MachineIDs: []string{machineID}},
+		cdbp.PageInput{},
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, machineInterfaces, 1)
+	assert.Equal(t, interfaceID, *machineInterfaces[0].ControllerInterfaceID)
+	assert.NotNil(t, machineInterfaces[0].IPAddresses)
+	assert.Empty(t, machineInterfaces[0].IPAddresses)
+}
+
 func TestNewManageMachine(t *testing.T) {
 	type args struct {
 		dbSession     *cdb.Session

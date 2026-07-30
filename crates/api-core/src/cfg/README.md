@@ -51,6 +51,7 @@ applicable.
 | `vpc_peering_policy` | `Option<VpcPeeringPolicy>` | — | `networking` | Policy for VPC peering based on network virtualization type at creation time. |
 | `vpc_peering_policy_on_existing` | `Option<VpcPeeringPolicy>` | — | `networking` | Policy for whether existing VPC peerings should be active. |
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
+| `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |
@@ -641,6 +642,7 @@ be propagated there by DPF.
 | `client_cert` | `Option<String>` | — | Path to the client certificate PEM for mTLS. |
 | `client_key` | `Option<String>` | — | Path to the client private key PEM for mTLS. |
 | `enforce_tls` | `bool` | `true` | Enforce TLS when connecting to RMS. |
+| `scale_up_fabric_manager_api_version` | `ScaleUpFabricManagerApiVersion` | `v1` | ScaleUpFabric Manager configuration API: `v1` uses the synchronous call after disabling ScaleUpFabric state; `v2` submits an asynchronous job and polls it to completion. |
 
 ### `SpdmConfig`
 

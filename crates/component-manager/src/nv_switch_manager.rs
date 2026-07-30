@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::net::IpAddr;
 
 use carbide_secrets::credentials::Credentials;
+use librms::protos::{rack_manager as rms, rack_manager_v2 as rms_v2};
 use mac_address::MacAddress;
 use model::component_manager::{
     ConfigureSwitchCertificateState, FirmwareState, NvSwitchComponent, PowerAction,
@@ -189,6 +190,52 @@ pub trait NvSwitchManager: Send + Sync + Debug + 'static {
         &self,
         job_id: &str,
     ) -> Result<ConfigureSwitchCertificateJobStatus, ComponentManagerError>;
+
+    /// Submits rack-level ScaleUp Fabric Manager configuration.
+    ///
+    /// This operation is currently supported only by the RMS switch backend.
+    async fn configure_scale_up_fabric_manager_v2(
+        &self,
+        _request: rms_v2::ConfigureScaleUpFabricManagerRequest,
+    ) -> Result<rms_v2::ConfigureScaleUpFabricManagerResponse, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "scale-up fabric manager V2 configuration is not supported by the {} backend",
+            self.name()
+        )))
+    }
+
+    /// Reads the RMS job created by ScaleUp Fabric Manager V2 configuration.
+    async fn get_scale_up_fabric_manager_job_status(
+        &self,
+        _request: rms::GetJobStatusRequest,
+    ) -> Result<rms::GetJobStatusResponse, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "scale-up fabric manager job status is not supported by the {} backend",
+            self.name()
+        )))
+    }
+
+    /// Reads the primary and enabled state observed for the submitted fabric.
+    async fn get_scale_up_fabric_status(
+        &self,
+        _request: rms::GetScaleUpFabricStatusRequest,
+    ) -> Result<rms::GetScaleUpFabricStatusResponse, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "scale-up fabric status is not supported by the {} backend",
+            self.name()
+        )))
+    }
+
+    /// Reads per-switch Fabric Manager service status for persistence by NICo.
+    async fn batch_get_scale_up_fabric_service_status(
+        &self,
+        _request: rms::BatchGetScaleUpFabricServiceStatusRequest,
+    ) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, ComponentManagerError> {
+        Err(ComponentManagerError::Unsupported(format!(
+            "scale-up fabric manager service status is not supported by the {} backend",
+            self.name()
+        )))
+    }
 
     /// Converges the endpoint from its current NVOS credential to
     /// `next_password`.

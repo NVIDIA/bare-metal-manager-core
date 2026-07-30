@@ -24,7 +24,8 @@ var _ MappedNullable = &ExpectedMachineUpdateRequest{}
 type ExpectedMachineUpdateRequest struct {
 	// ID of the Expected Machine to update.  Optional for individual Expected Machine update (ignored if provided, ID from URL path is used).  Required for batch update operations.
 	Id NullableString `json:"id,omitempty"`
-	// MAC address of the Expected Machine's BMC (Baseboard Management Controller)
+	// The Expected Machine's BMC MAC address is immutable after creation. Omit this field, or provide another case/separator spelling of the current MAC as a compatibility no-op.
+	// Deprecated
 	BmcMacAddress NullableString `json:"bmcMacAddress,omitempty" validate:"regexp=^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"`
 	// Username for accessing the Expected Machine's BMC
 	DefaultBmcUsername NullableString `json:"defaultBmcUsername,omitempty"`
@@ -123,6 +124,7 @@ func (o *ExpectedMachineUpdateRequest) UnsetId() {
 }
 
 // GetBmcMacAddress returns the BmcMacAddress field value if set, zero value otherwise (both if not set or set to explicit null).
+// Deprecated
 func (o *ExpectedMachineUpdateRequest) GetBmcMacAddress() string {
 	if o == nil || IsNil(o.BmcMacAddress.Get()) {
 		var ret string
@@ -134,6 +136,7 @@ func (o *ExpectedMachineUpdateRequest) GetBmcMacAddress() string {
 // GetBmcMacAddressOk returns a tuple with the BmcMacAddress field value if set, nil otherwise
 // and a boolean to check if the value has been set.
 // NOTE: If the value is an explicit nil, `nil, true` will be returned
+// Deprecated
 func (o *ExpectedMachineUpdateRequest) GetBmcMacAddressOk() (*string, bool) {
 	if o == nil {
 		return nil, false
@@ -151,6 +154,7 @@ func (o *ExpectedMachineUpdateRequest) HasBmcMacAddress() bool {
 }
 
 // SetBmcMacAddress gets a reference to the given NullableString and assigns it to the BmcMacAddress field.
+// Deprecated
 func (o *ExpectedMachineUpdateRequest) SetBmcMacAddress(v string) {
 	o.BmcMacAddress.Set(&v)
 }

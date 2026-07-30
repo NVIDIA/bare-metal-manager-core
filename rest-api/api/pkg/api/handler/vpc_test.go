@@ -318,14 +318,10 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 
 	tnu := testVPCBuildUser(t, dbSession, "test-starfleet-id-2", tnOrg, tnOrgRoles)
 	tn := testVPCBuildTenant(t, dbSession, "test-tenant", tnOrg, tnu)
-	tnDAO := cdbm.NewTenantDAO(dbSession)
-	tn, err := tnDAO.Update(context.Background(), nil, cdbm.TenantUpdateInput{
-		TenantID: tn.ID,
-		Config: &cdbm.TenantConfig{
-			TargetedInstanceCreation: true,
-		},
-	})
-	assert.NoError(t, err)
+	// Privilege for `routingProfile` is resolved site-scoped. TenantSite
+	// associations without an explicit override inherit this Ready
+	// TenantAccount default.
+	_ = common.TestBuildTenantAccountWithTargetedInstanceCreation(t, dbSession, ip, &tn.ID, tnOrg, cdbm.TenantAccountStatusReady, tnu)
 
 	tnu2 := testVPCBuildUser(t, dbSession, "test-starfleet-id-3", tnOrg, tnOrgRoles)
 	tn2 := testVPCBuildTenant(t, dbSession, "test-tenant-2", tnOrg, tnu2)
@@ -352,11 +348,11 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	al3 := testVPCSiteBuildAllocation(t, dbSession, st1, tn3, "test-allocation-tenant-3", ipu)
 	assert.NotNil(t, al3)
 
-	// Associate tenant 1 with site 1
+	// Associate tenant 1 with site 1; the unset override inherits the account default.
 	ts1t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st1.ID, tnu.ID)
 	assert.NotNil(t, ts1t1)
 
-	// Associate tenant 1 with site 2
+	// Associate tenant 1 with site 2; the unset override inherits the account default.
 	ts2t1 := testBuildTenantSiteAssociation(t, dbSession, tnOrg, tn.ID, st2.ID, tnu.ID)
 	assert.NotNil(t, ts2t1)
 

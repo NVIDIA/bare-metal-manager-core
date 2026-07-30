@@ -25,8 +25,10 @@ repository.workspace = true
 [dependencies]
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-credential-rotation = { path = "../credential-rotation", default-features = false }
 carbide-health-metrics = { path = "../health-metrics" }
 carbide-instrument = { path = "../instrument" }
+carbide-redfish = { path = "../redfish", default-features = false }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", default-features = false }
 carbide-uuid = { path = "../uuid", default-features = false }
@@ -36,6 +38,7 @@ state-controller = { path = "../state-controller" }
 
 async-trait = { workspace = true }
 eyre = { workspace = true }
+libredfish = { workspace = true }
 mac_address = { workspace = true }
 opentelemetry = { workspace = true }
 sqlx = { workspace = true }

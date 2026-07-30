@@ -26,10 +26,7 @@ use carbide_dpf::types::{
     DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME, DOCA_XPLANE_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
     DTS_SERVICE_NAME, FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
 };
-use carbide_dpf::{
-    ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
-    ServiceInterface, ServiceNAD, ServiceNADResourceType,
-};
+use carbide_dpf::{ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType};
 
 use crate::cfg::file::{
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfExtraService,
@@ -349,13 +346,8 @@ pub fn dts_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     apply_image_pull_secrets(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
-        config_ports: Some(vec![ServiceConfigPort {
-            name: "httpserverport".to_string(),
-            port: 9189,
-            protocol: ServiceConfigPortProtocol::Tcp,
-            node_port: None,
-        }]),
-        config_ports_service_type: Some(ConfigPortsServiceType::ClusterIp),
+        config_ports: None,
+        config_ports_service_type: None,
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,

@@ -17,6 +17,7 @@
 
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use carbide_site_explorer::config::SiteExplorerConfig;
@@ -29,7 +30,7 @@ use mac_address::MacAddress;
 use model::expected_machine::{
     ExpectedHostNic, ExpectedMachine, ExpectedMachineData, HostDpuPolicy,
 };
-use model::machine_boot_interface::MachineBootInterface;
+use model::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use model::test_support::ManagedHostConfig;
 
 struct ZeroDpuEnv {
@@ -37,6 +38,7 @@ struct ZeroDpuEnv {
     test_harness: TestHarness,
     underlay_segment: TestNetworkSegment,
     host_inband_segment: TestNetworkSegment,
+    create_machines: Arc<AtomicBool>,
     site_explorer: TestSiteExplorer,
 }
 
@@ -59,6 +61,7 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
         endpoint_explorer.clone(),
         Arc::new(api.runtime_config.get_firmware_config()),
     ));
+    let create_machines = Arc::new(AtomicBool::new(true));
     let site_explorer = TestSiteExplorer::new(
         SiteExplorer::new(
             api.database_connection.clone(),
@@ -68,7 +71,7 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
                 explorations_per_run: 1,
                 concurrent_explorations: 1,
                 run_interval: Duration::from_secs(1),
-                create_machines: Arc::new(true.into()),
+                create_machines: create_machines.clone(),
                 ..Default::default()
             },
             test_harness.test_meter.meter(),
@@ -87,6 +90,7 @@ async fn init(pool: PgPool) -> ZeroDpuEnv {
         test_harness,
         underlay_segment,
         host_inband_segment,
+        create_machines,
         site_explorer,
     }
 }
@@ -243,6 +247,17 @@ async fn test_predicted_interface_hands_boot_interface_id_to_real_row(
         predicted.boot_interface_id.as_deref(),
         Some("NIC.Embedded.1-1-1"),
         "predicted interface should hold the report-derived boot interface id"
+    );
+    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &predicted.machine_id)
+        .await?
+        .expect("site-explorer should initialize the host's desired boot interface");
+    assert_eq!(
+        desired.value,
+        MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: inband_mac,
+            interface_id: "NIC.Embedded.1-1-1".to_string(),
+        }),
+        "the desired target should be ready before the predicted NIC's first DHCP",
     );
     txn.rollback().await?;
 
@@ -623,10 +638,20 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
         predicted.boot_interface_id.is_none(),
         "an id-less report can't give the prediction a boot interface id"
     );
+    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &predicted.machine_id)
+        .await?
+        .expect("site-explorer should initialize a MAC-only desired target");
+    assert_eq!(
+        desired.value,
+        MachineBootInterfaceTarget::MacOnly(inband_mac),
+        "the missing Redfish id should not prevent target initialization",
+    );
     txn.rollback().await?;
 
-    // Second exploration: the BMC now resolves the id; the pending
-    // prediction picks it up.
+    // Second exploration: machine creation is disabled, but the BMC now
+    // resolves the id. The always-running reconciliation pass still enriches
+    // the existing desired target.
+    env.create_machines.store(false, Ordering::Relaxed);
     env.site_explorer
         .insert_endpoint_result(host_bmc_ip, Ok(mock_host.clone().into()));
     env.site_explorer.run_single_iteration().await?;
@@ -640,7 +665,44 @@ async fn test_exploration_refreshes_pending_predicted_boot_interface_id(
         Some("NIC.Embedded.1-1-1"),
         "the next exploration that resolves the id refreshes the prediction"
     );
+    let desired = db::machine_desired_boot_interface::get(txn.as_mut(), &predicted.machine_id)
+        .await?
+        .expect("the desired target should still exist");
+    assert_eq!(
+        desired.value,
+        MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: inband_mac,
+            interface_id: "NIC.Embedded.1-1-1".to_string(),
+        }),
+        "the existing-object pass should commit same-MAC id enrichment",
+    );
     txn.rollback().await?;
+
+    // An existing host also remains repairable without its ExpectedMachine.
+    // Clear the target to model an older or independently registered row,
+    // restore the creation setting, and verify that reconciliation is not
+    // hidden behind the ExpectedMachine gate.
+    let mut txn = env.pool.begin().await?;
+    sqlx::query("DELETE FROM machine_boot_interfaces WHERE machine_id = $1")
+        .bind(predicted.machine_id)
+        .execute(txn.as_mut())
+        .await?;
+    db::expected_machine::delete_by_mac(txn.as_mut(), mock_host.bmc_mac_address).await?;
+    txn.commit().await?;
+    env.create_machines.store(true, Ordering::Relaxed);
+
+    env.site_explorer.run_single_iteration().await?;
+
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &predicted.machine_id)
+        .await?
+        .expect("the existing host should be reinitialized without an ExpectedMachine");
+    assert_eq!(
+        desired.value,
+        MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address: inband_mac,
+            interface_id: "NIC.Embedded.1-1-1".to_string(),
+        }),
+    );
 
     Ok(())
 }

@@ -13,6 +13,13 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+const (
+	removeCreateExpectedMachineOnFlowChangeID       = "remove-create-expected-machine-on-flow"
+	removeCreateExpectedMachineOnFlowVersion        = workflow.Version(1)
+	removeBatchCreateExpectedMachinesOnFlowChangeID = "remove-batch-create-expected-machines-on-flow"
+	removeBatchCreateExpectedMachinesOnFlowVersion  = workflow.Version(1)
+)
+
 // DiscoverExpectedMachineInventory is a workflow to fetch Expected Machine inventory on Site and publish to Cloud
 func DiscoverExpectedMachineInventory(ctx workflow.Context) error {
 	logger := log.With().Str("Workflow", "DiscoverExpectedMachineInventory").Logger()
@@ -50,8 +57,7 @@ func DiscoverExpectedMachineInventory(ctx workflow.Context) error {
 	return nil
 }
 
-// CreateExpectedMachine is a workflow to create new Expected Machines using the CreateExpectedMachineOnSite activity,
-// then also creates the component in Flow via CreateExpectedMachineOnFlow.
+// CreateExpectedMachine is a workflow to create a new Expected Machine using the CreateExpectedMachineOnSite activity.
 func CreateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Create").Str("ID", request.GetId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ChassisSerialNumber).Logger()
 
@@ -82,10 +88,13 @@ func CreateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine
 		return err
 	}
 
-	// Then write to Flow (best-effort: log warning but don't fail the workflow)
-	err = workflow.ExecuteActivity(ctx, expectedMachineManager.CreateExpectedMachineOnFlow, request).Get(ctx, nil)
-	if err != nil {
-		logger.Warn().Err(err).Str("Activity", "CreateExpectedMachineOnFlow").Msg("Failed to create component on Flow, Core write succeeded")
+	// Preserve the Flow activity command when replaying histories created before
+	// direct Flow writes were removed.
+	if workflow.GetVersion(ctx, removeCreateExpectedMachineOnFlowChangeID, workflow.DefaultVersion, removeCreateExpectedMachineOnFlowVersion) == workflow.DefaultVersion {
+		err = workflow.ExecuteActivity(ctx, expectedMachineManager.CreateExpectedMachineOnFlow, request).Get(ctx, nil)
+		if err != nil {
+			logger.Warn().Err(err).Str("Activity", "CreateExpectedMachineOnFlow").Msg("Failed to create component on Flow, Core write succeeded")
+		}
 	}
 
 	logger.Info().Msg("completing workflow")
@@ -94,7 +103,6 @@ func CreateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine
 }
 
 // UpdateExpectedMachine is a workflow to update Expected Machines using the UpdateExpectedMachineOnSite activity
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
 func UpdateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Update").Str("ID", request.GetId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ChassisSerialNumber).Logger()
 
@@ -129,8 +137,7 @@ func UpdateExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachine
 	return nil
 }
 
-// CreateExpectedMachines is a workflow to create multiple Expected Machines using the CreateExpectedMachinesOnSite activity,
-// then also creates the components in Flow via CreateExpectedMachinesOnFlow.
+// CreateExpectedMachines is a workflow to create multiple Expected Machines using the CreateExpectedMachinesOnSite activity.
 func CreateExpectedMachines(ctx workflow.Context, request *corev1.BatchExpectedMachineOperationRequest) (*corev1.BatchExpectedMachineOperationResponse, error) {
 	logger := log.With().Str("Workflow", "ExpectedMachines").Str("Action", "Create").Int("Count", len(request.GetExpectedMachines().GetExpectedMachines())).Logger()
 
@@ -163,10 +170,13 @@ func CreateExpectedMachines(ctx workflow.Context, request *corev1.BatchExpectedM
 		return nil, err
 	}
 
-	// Then write to Flow (best-effort: log warning but don't fail the workflow)
-	err = workflow.ExecuteActivity(ctx, expectedMachineManager.CreateExpectedMachinesOnFlow, request).Get(ctx, nil)
-	if err != nil {
-		logger.Warn().Err(err).Str("Activity", "CreateExpectedMachinesOnFlow").Msg("Failed to create components on Flow, Core write succeeded")
+	// Preserve the Flow activity command when replaying histories created before
+	// direct Flow writes were removed.
+	if workflow.GetVersion(ctx, removeBatchCreateExpectedMachinesOnFlowChangeID, workflow.DefaultVersion, removeBatchCreateExpectedMachinesOnFlowVersion) == workflow.DefaultVersion {
+		err = workflow.ExecuteActivity(ctx, expectedMachineManager.CreateExpectedMachinesOnFlow, request).Get(ctx, nil)
+		if err != nil {
+			logger.Warn().Err(err).Str("Activity", "CreateExpectedMachinesOnFlow").Msg("Failed to create components on Flow, Core write succeeded")
+		}
 	}
 
 	logger.Info().Msg("completing workflow")
@@ -212,7 +222,6 @@ func UpdateExpectedMachines(ctx workflow.Context, request *corev1.BatchExpectedM
 }
 
 // DeleteExpectedMachine is a workflow to Delete Expected Machines using the DeleteExpectedMachineOnSite activity
-// TODO: Add Flow DeleteComponent dual-write when update/delete Flow support is implemented
 func DeleteExpectedMachine(ctx workflow.Context, request *corev1.ExpectedMachineRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Delete").Str("ID", request.GetId().GetValue()).Str("optional MAC address", request.BmcMacAddress).Logger()
 
