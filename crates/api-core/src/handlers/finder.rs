@@ -512,72 +512,6 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
     Ok(None)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn static_bmc_classification_requires_bmc_interface_type() {
-        let static_assignments = network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME;
-        let cases = [
-            (
-                "static BMC allocation",
-                "underlay",
-                AllocationType::Static,
-                InterfaceType::Bmc,
-                true,
-            ),
-            (
-                "BMC on static assignments",
-                static_assignments,
-                AllocationType::Dhcp,
-                InterfaceType::Bmc,
-                true,
-            ),
-            (
-                "dynamic BMC",
-                "underlay",
-                AllocationType::Dhcp,
-                InterfaceType::Bmc,
-                false,
-            ),
-            (
-                "static Data allocation",
-                "underlay",
-                AllocationType::Static,
-                InterfaceType::Data,
-                false,
-            ),
-            (
-                "Data on static assignments",
-                static_assignments,
-                AllocationType::Dhcp,
-                InterfaceType::Data,
-                false,
-            ),
-            (
-                "dynamic Data",
-                "underlay",
-                AllocationType::Dhcp,
-                InterfaceType::Data,
-                false,
-            ),
-        ];
-
-        for (name, segment_name, allocation_type, interface_type, expected) in cases {
-            assert_eq!(
-                machine_interface_address_is_static_bmc(
-                    segment_name,
-                    allocation_type,
-                    interface_type,
-                ),
-                expected,
-                "{name}",
-            );
-        }
-    }
-}
-
 async fn by_mac(
     api: &Api,
     mac: mac_address::MacAddress,
@@ -646,4 +580,70 @@ async fn by_mac(
     // Any other MAC addresses to search?
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_bmc_classification_requires_bmc_interface_type() {
+        let static_assignments = network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME;
+        let cases = [
+            (
+                "static BMC allocation",
+                "underlay",
+                AllocationType::Static,
+                InterfaceType::Bmc,
+                true,
+            ),
+            (
+                "BMC on static assignments",
+                static_assignments,
+                AllocationType::Dhcp,
+                InterfaceType::Bmc,
+                true,
+            ),
+            (
+                "dynamic BMC",
+                "underlay",
+                AllocationType::Dhcp,
+                InterfaceType::Bmc,
+                false,
+            ),
+            (
+                "static Data allocation",
+                "underlay",
+                AllocationType::Static,
+                InterfaceType::Data,
+                false,
+            ),
+            (
+                "Data on static assignments",
+                static_assignments,
+                AllocationType::Dhcp,
+                InterfaceType::Data,
+                false,
+            ),
+            (
+                "dynamic Data",
+                "underlay",
+                AllocationType::Dhcp,
+                InterfaceType::Data,
+                false,
+            ),
+        ];
+
+        for (name, segment_name, allocation_type, interface_type, expected) in cases {
+            assert_eq!(
+                machine_interface_address_is_static_bmc(
+                    segment_name,
+                    allocation_type,
+                    interface_type,
+                ),
+                expected,
+                "{name}",
+            );
+        }
+    }
 }
