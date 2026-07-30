@@ -312,29 +312,23 @@ async fn search(
                         (rpc::IpType::MachineAddress, "machine address")
                     };
 
-                    let message = match e.machine_id.as_ref() {
-                        Some(machine_id) => format!(
+                    let message = match (e.machine_id.as_ref(), e.switch_id.as_ref()) {
+                        (Some(machine_id), _) => format!(
                             "{ip} is a {type_label} on machine {} (interface {}) on network segment {} of type {}",
                             machine_id, e.id, e.name, e.network_segment_type,
                         ),
-                        None if e.switch_id.is_some() => format!(
+                        (None, Some(switch_id)) => format!(
                             "{ip} is a {type_label} on switch {} (interface {}) on network segment {} of type {}",
-                            e.switch_id.as_ref().expect("switch ID checked above"),
-                            e.id,
-                            e.name,
-                            e.network_segment_type,
+                            switch_id, e.id, e.name, e.network_segment_type,
                         ),
-                        None => format!(
+                        (None, None) => format!(
                             "{ip} is a {type_label} on interface {} on network segment {} of type {}. It is not attached to a machine.",
                             e.id, e.name, e.network_segment_type,
                         ),
                     };
                     Some(rpc::IpAddressMatch {
                         ip_type: ip_type as i32,
-                        owner_id: e
-                            .machine_id
-                            .map(|id| id.to_string())
-                            .or_else(|| e.switch_id.map(|id| id.to_string())),
+                        owner_id: e.machine_id.map(|id| id.to_string()),
                         message,
                     })
                 }

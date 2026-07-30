@@ -570,11 +570,9 @@ async fn test_static_data_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         .into_iter()
         .find(|ip_match| ip_match.ip_type == IpType::MachineAddress as i32)
         .expect("static NVOS Data IP should remain a MachineAddress");
-    let expected_owner_id = switch_id.to_string();
-    assert_eq!(
-        machine_address_match.owner_id.as_deref(),
-        Some(expected_owner_id.as_str()),
-        "static NVOS Data owner should be the associated switch",
+    assert!(
+        machine_address_match.owner_id.is_none(),
+        "static NVOS Data address must not expose a switch ID as a machine owner",
     );
     assert!(
         machine_address_match.message.contains("machine address")
