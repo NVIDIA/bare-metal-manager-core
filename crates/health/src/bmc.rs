@@ -298,10 +298,15 @@ impl BmcClient {
             return Err(error);
         }
 
-        // Credentials at this generation were already fetched fresh and refused.
-        // Refreshing and replaying again would spend another provider fetch and
-        // another request to be told the same thing.
-        if self.credentials_known_bad(observed_generation) {
+        // Suppress on the generation installed *now*, not the one this attempt
+        // observed. Those differ whenever a concurrent caller refreshed while
+        // this request was in flight, and each direction matters: if the
+        // credentials moved on to something untested, this attempt's 401 is
+        // stale and the replay must happen — suppressing it would drop the
+        // resource for the interval, the very failure this branch fixes. If
+        // they moved on to a generation already refused, replaying is pointless
+        // however old this attempt's view is.
+        if self.credentials_known_bad(self.credential_generation.load(Ordering::Acquire)) {
             return Err(error);
         }
 
@@ -1745,6 +1750,89 @@ mod tests {
 
         assert_eq!(attempts.load(AtomicOrdering::SeqCst), 2);
         assert_eq!(provider_calls.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_condemned_view_still_replays_against_untested_credentials() {
+        // The mirror of the case below: this attempt observed a generation that
+        // was condemned, but a concurrent caller has since installed untested
+        // credentials. Suppressing here would drop the resource for the
+        // interval — exactly the failure this branch exists to fix.
+        let (provider, _) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        client.ensure_credentials().await.expect("init ok");
+
+        let observed = client.credential_generation.load(Ordering::Acquire);
+        client.note_credentials_refused(observed);
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = attempts.clone();
+        let value = client
+            .read_with_auth_retry(|| {
+                let attempt = counter.fetch_add(1, AtomicOrdering::SeqCst);
+                if attempt == 0 {
+                    // A concurrent caller installs credentials nobody has tested.
+                    client.credential_generation.fetch_add(1, Ordering::AcqRel);
+                }
+                std::future::ready(if attempt == 0 {
+                    Err(auth_error())
+                } else {
+                    Ok("body")
+                })
+            })
+            .await
+            .expect("untested credentials must still get a replay");
+
+        assert_eq!(value, "body");
+        assert_eq!(attempts.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_caller_holding_a_stale_view_is_suppressed_by_the_current_verdict() {
+        // A concurrent sweep has every read observing generation N. The first
+        // caller refreshes to N+1 and has that refused. The rest still hold N,
+        // but the credentials they would replay against are the condemned N+1,
+        // so replaying is pointless however old their view is.
+        let (provider, provider_calls) = CountingProvider::new(
+            BmcCredentials::SessionToken {
+                token: "t".to_string(),
+            },
+            None,
+        );
+        let client = BmcClient::new(reqwest(), test_addr(), provider, None, 10).expect("ok");
+        client.ensure_credentials().await.expect("init ok");
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counter = attempts.clone();
+        client
+            .read_with_auth_retry(|| {
+                let attempt = counter.fetch_add(1, AtomicOrdering::SeqCst);
+                if attempt == 0 {
+                    // Stand in for the concurrent caller that refreshed while
+                    // this request was in flight and had the result refused.
+                    let refreshed = client.credential_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                    client.note_credentials_refused(refreshed);
+                }
+                std::future::ready(Err::<&str, HealthError>(auth_error()))
+            })
+            .await
+            .expect_err("still refused");
+
+        assert_eq!(
+            attempts.load(AtomicOrdering::SeqCst),
+            1,
+            "a stale view must not buy a replay against condemned credentials"
+        );
+        assert_eq!(
+            provider_calls.load(AtomicOrdering::SeqCst),
+            1,
+            "and must not spend a credential fetch"
+        );
     }
 
     #[tokio::test]
