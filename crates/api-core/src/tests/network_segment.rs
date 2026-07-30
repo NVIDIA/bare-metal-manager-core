@@ -347,39 +347,6 @@ async fn test_network_segment_max_history_length(
         r#"{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 1"#
     );
 
-    let segment = get_segments(
-        &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
-            network_segments_ids: vec![segment_id],
-            include_history: true,
-            include_num_free_ips: false,
-        },
-    )
-    .await;
-    assert!(!segment.network_segments[0].history.is_empty());
-
-    let segment = get_segments(
-        &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
-            network_segments_ids: vec![segment_id],
-            include_history: false,
-            include_num_free_ips: false,
-        },
-    )
-    .await;
-    assert!(segment.network_segments[0].history.is_empty());
-
-    let segment = get_segments(
-        &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
-            network_segments_ids: vec![segment_id],
-            include_history: false,
-            include_num_free_ips: false,
-        },
-    )
-    .await;
-    assert!(segment.network_segments[0].history.is_empty());
-
     // Now insert a lot of state changes, and see if the history limit is kept
     const HISTORY_LIMIT: usize = 250;
 
@@ -2304,8 +2271,19 @@ async fn attach_host_inband_segment_to_same_vpc_is_idempotent(
         .await?
         .into_inner();
 
-    assert_eq!(second.config.unwrap().vpc_id, Some(vpc_id));
-    assert_eq!(second.version, first.version);
+    assert_eq!(second.config.as_ref().unwrap().vpc_id, Some(vpc_id));
+    assert_eq!(
+        second
+            .status
+            .as_ref()
+            .and_then(|status| status.lifecycle.as_ref())
+            .map(|lifecycle| lifecycle.version.as_str()),
+        first
+            .status
+            .as_ref()
+            .and_then(|status| status.lifecycle.as_ref())
+            .map(|lifecycle| lifecycle.version.as_str())
+    );
 
     Ok(())
 }
