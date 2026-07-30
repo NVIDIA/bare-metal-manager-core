@@ -97,6 +97,36 @@
 //! }
 //! ```
 //!
+//! A context field that does not apply to every case an event covers is
+//! written `Option<T>`. `None` leaves the key off the log line entirely, rather
+//! than writing a blank or a stand-in value -- which is the only honest form
+//! for a typed field, since there is no empty `WorkerId`:
+//!
+//! ```
+//! use std::net::IpAddr;
+//!
+//! #[derive(carbide_instrument::Event)]
+//! #[event(
+//!     event_name = "upload_failed",
+//!     component = "demo",
+//!     log = warn,
+//!     message = "upload failed"
+//! )]
+//! struct UploadFailed {
+//!     #[context]
+//!     peer: Option<IpAddr>, // absent when the upload never reached a peer
+//!     #[context]
+//!     error: String,
+//! }
+//! ```
+//!
+//! The check is syntactic: it recognizes `Option<T>` spelled bare or through
+//! `std`/`core`, and leaves any other type named `Option` alone. A type alias
+//! for an option is therefore not recognized as one, which surfaces as a
+//! compile error at the generated call rather than a silently wrong log line.
+//! `#[context(value)]` keeps its own types and rejects `Option<...>`, pointing
+//! at `#[context]` instead.
+//!
 //! `#[label(name = "component")]` exists for a frozen metric key that cannot
 //! also be the Rust field name because Event logs reserve `component`. For a
 //! field such as `publisher: Publisher`, the metric keeps `component` while
