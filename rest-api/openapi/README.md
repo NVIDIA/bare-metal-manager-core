@@ -14,7 +14,7 @@ OpenAPI schema must be updated whenever the API endpoints are added/updated.
 Please ensure that the following tools are installed:
  - Docker
  - npm
- - A JDK, for SDK generation (`brew install openjdk`)
+ - A JDK, for SDK generation (For MacOS use `brew install openjdk`, for Linux use built in package manager or brew)
 
 To lint schema after making changes, run:
 

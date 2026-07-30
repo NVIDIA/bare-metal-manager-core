@@ -137,6 +137,8 @@ jobs:
     name: Check Generated Files
     runs-on: linux-amd64-cpu4
     continue-on-error: false
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .
@@ -173,6 +175,8 @@ jobs:
     name: Check Generated SDK
     runs-on: linux-amd64-cpu4
     continue-on-error: false
+    permissions:
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
