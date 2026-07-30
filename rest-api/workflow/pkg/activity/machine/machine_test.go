@@ -1369,15 +1369,17 @@ func TestManageMachine_UpdateMachinesInDB_AddresslessInterface(t *testing.T) {
 				Machine: &corev1.Machine{
 					Id:    &corev1.MachineId{Id: machineID},
 					State: controllerMachineStatePrefixReady,
-					Interfaces: []*corev1.MachineInterface{
-						{
-							Id:               &corev1.MachineInterfaceId{Value: interfaceID.String()},
-							MachineId:        &corev1.MachineId{Id: machineID},
-							SegmentId:        &corev1.NetworkSegmentId{Value: uuid.NewString()},
-							Address:          nil,
-							Hostname:         "addressless.example.com",
-							MacAddress:       "00:00:00:00:00:00",
-							PrimaryInterface: true,
+					Status: &corev1.MachineStatus{
+						Interfaces: []*corev1.MachineInterface{
+							{
+								Id:               &corev1.MachineInterfaceId{Value: interfaceID.String()},
+								MachineId:        &corev1.MachineId{Id: machineID},
+								SegmentId:        &corev1.NetworkSegmentId{Value: uuid.NewString()},
+								Address:          nil,
+								Hostname:         "addressless.example.com",
+								MacAddress:       "00:00:00:00:00:00",
+								PrimaryInterface: true,
+							},
 						},
 					},
 				},
