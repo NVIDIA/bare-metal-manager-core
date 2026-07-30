@@ -1,4 +1,4 @@
-# machine-a-tron Build & Deployment Guide
+# machine-a-tron Build & Deployment Guide <Badge intent="info">Upcoming</Badge>
 
 machine-a-tron is a bare-metal simulator for NICo testing. It hosts mock DPUs and
 servers via Redfish BMC, allowing end-to-end NICo flows without real hardware. This
