@@ -52,7 +52,7 @@ use tokio_rustls::rustls::{RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, rustls};
 use tokio_util::sync::CancellationToken;
 use tower_http::add_extension::AddExtensionLayer;
-use trace_propagation::set_span_parent_from_headers;
+use trace_propagation::{is_propagated_header, set_span_parent_from_headers};
 use tracing::Instrument;
 
 use crate::config::{AuthConfig, TlsConfig};
@@ -847,7 +847,9 @@ fn build_response(
 fn copy_request_headers(source: &HeaderMap, dest: &mut HeaderMap) {
     for (name, value) in source {
         if is_hop_by_hop_header(name.as_str())
-            || is_trace_context_header(name.as_str())
+            // Trace context describes the caller's hop; the upstream client's tracing middleware
+            // re-injects the proxy's own hop on egress.
+            || is_propagated_header(name.as_str())
             || *name == axum::http::header::HOST
             || *name == axum::http::header::AUTHORIZATION
             || name.as_str().eq_ignore_ascii_case("forwarded")
@@ -876,14 +878,6 @@ fn is_hop_by_hop_header(name: &str) -> bool {
             | "trailer"
             | "transfer-encoding"
             | "upgrade"
-    )
-}
-
-/// W3C trace context belongs to the caller/proxy hop, not the BMC upstream.
-fn is_trace_context_header(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "traceparent" | "tracestate"
     )
 }
 
@@ -1499,6 +1493,14 @@ mod tests {
     }
 
     fn copied_header_names(case: HeaderCopyCase) -> Vec<String> {
+        // Trace-header filtering asks the global propagator which headers are its own, so the
+        // propagator `setup_logging` installs at startup has to be in place for the trace cases to
+        // mean anything. Installing it here rather than relying on another test having run keeps
+        // this independent of test ordering.
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+
         let (name, value) = header_for_copy_case(case);
         let mut source = HeaderMap::new();
         source.insert(name, value);
