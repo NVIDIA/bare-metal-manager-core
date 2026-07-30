@@ -65,8 +65,9 @@ pub struct TracingConfig {
     /// Whether to record and export OTLP spans. Default: false.
     #[serde(default)]
     pub enabled: bool,
-    /// Collector endpoint for OTLP/gRPC traces. Overridden by
-    /// `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` when set.
+    /// Collector endpoint for OTLP/gRPC traces. Overridden by the standard
+    /// `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_ENDPOINT`
+    /// variables when either is set.
     #[serde(default)]
     pub otlp_endpoint: Option<String>,
 }

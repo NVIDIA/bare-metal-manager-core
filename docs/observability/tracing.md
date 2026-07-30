@@ -128,15 +128,20 @@ nico-bmc-proxy traces each proxied Redfish request through the BMC credential pr
 - **Off by default.** Spans are exported only when an OTLP endpoint is configured **and**
   `[tracing] enabled = true` (or the process is started with `--debug`). There is no runtime
   toggle on this binary.
-- **Endpoint.** Set `[tracing] otlp_endpoint` in the proxy TOML, or
-  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, which overrides the TOML value. A malformed endpoint is
-  rejected when the exporter is built; the proxy logs a warning and serves BMC traffic without
-  tracing rather than refusing to start.
+- **Endpoint.** Set the standard `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, or
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to cover every signal at once; the trace-specific variable wins when
+  both are set. `[tracing] otlp_endpoint` in the proxy TOML is the fallback for when neither variable
+  is set. The remaining standard OTLP transport settings (`OTEL_EXPORTER_OTLP_TIMEOUT`,
+  `OTEL_EXPORTER_OTLP_COMPRESSION`, `OTEL_EXPORTER_OTLP_HEADERS`, ...) are read by the exporter
+  itself and apply as well. A malformed endpoint is rejected when the
+  exporter is built; the proxy logs a warning and serves BMC traffic without tracing rather than
+  refusing to start.
 - **Ingress.** Each proxied request opens a `bmc_proxy_request` span and adopts any inbound
   `traceparent`/`tracestate` via `trace_propagation::set_span_parent_from_headers`.
 - **Egress to BMC.** Upstream Redfish calls use a `reqwest-tracing` client so the active proxy
-  span's W3C context is injected on the BMC leg. Inbound trace headers are not forwarded verbatim;
-  the proxy re-stamps context for its hop.
+  span's W3C context is injected on the BMC leg. The inbound headers are dropped before the upstream
+  request is assembled — `trace_propagation::is_propagated_header` asks the configured propagator
+  which headers are its own — so the BMC parents under the proxy's span rather than the caller's.
 - **Egress to nico-api (gRPC).** Credential lookup uses the shared `ForgeApiClient`, which already
   wraps the transport with `TraceInjectService`.
 - **Resource / tracer:** `service.name = carbide-bmc-proxy`, tracer name `carbide-bmc-proxy`.

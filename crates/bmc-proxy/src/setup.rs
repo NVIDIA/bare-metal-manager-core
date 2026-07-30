@@ -89,9 +89,10 @@ pub fn setup_logging(debug: bool, tracing_config: &TracingConfig) -> SetupResult
     })
     .with_max_level_hint(default_log_level);
 
-    let endpoint = std::env::var(opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT)
-        .ok()
-        .or_else(|| tracing_config.otlp_endpoint.clone());
+    let endpoint = otlp_endpoint(
+        |var| std::env::var(var).ok(),
+        tracing_config.otlp_endpoint.as_deref(),
+    );
 
     // Span export is a diagnostic aid, not part of the proxy's contract, so a
     // rejected endpoint degrades to no tracing rather than failing startup and
@@ -140,12 +141,43 @@ pub fn setup_logging(debug: bool, tracing_config: &TracingConfig) -> SetupResult
     Ok(TracingGuard(tracer_provider))
 }
 
+/// The standard OTLP endpoint variables, in the order `TonicExporterBuilder::resolve_endpoint`
+/// itself consults them: signal-specific first, then the one covering every signal.
+const OTLP_ENDPOINT_VARS: [&str; 2] = [
+    opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+    opentelemetry_otlp::OTEL_EXPORTER_OTLP_ENDPOINT,
+];
+
+/// Resolves the collector endpoint, preferring the standard OTLP variables over the config TOML.
+/// `env` is a parameter so the precedence is testable without mutating the process environment.
+///
+/// The variables are read here, mirroring the exporter builder's own order, rather than left to the
+/// builder: absent any configuration it defaults to `http://localhost:4317` and would ship spans at
+/// a collector nobody asked for. Returning `None` is what holds span export off entirely, and that
+/// decision needs the same view of the environment the builder has.
+fn otlp_endpoint(
+    env: impl Fn(&str) -> Option<String>,
+    config_endpoint: Option<&str>,
+) -> Option<String> {
+    // An empty endpoint counts as unset on either path, matching how the builder treats an empty
+    // programmatic value.
+    OTLP_ENDPOINT_VARS
+        .iter()
+        .find_map(|var| env(var).filter(|endpoint| !endpoint.is_empty()))
+        .or_else(|| {
+            config_endpoint
+                .filter(|endpoint| !endpoint.is_empty())
+                .map(str::to_string)
+        })
+}
+
 fn build_span_exporter(
     endpoint: &str,
 ) -> Result<opentelemetry_otlp::SpanExporter, opentelemetry_otlp::ExporterBuildError> {
+    // `with_tonic` already selects OTLP/gRPC. The rest of the transport — timeout, compression,
+    // TLS, headers — is left to the standard `OTEL_EXPORTER_OTLP_*` variables the builder reads.
     opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
-        .with_protocol(opentelemetry_otlp::Protocol::Grpc)
         .with_endpoint(endpoint)
         .build()
 }
@@ -285,6 +317,111 @@ mod tests {
 
             "malformed endpoint is rejected at build time rather than at first export" {
                 "http://otel collector:4317" => false,
+            }
+        );
+    }
+
+    /// The inputs [`otlp_endpoint`] weighs against each other, named so a scenario reads as the
+    /// deployment it stands for.
+    #[derive(Clone, Copy)]
+    struct EndpointInputs {
+        signal_var: Option<&'static str>,
+        generic_var: Option<&'static str>,
+        config: Option<&'static str>,
+    }
+
+    fn resolved_endpoint(inputs: EndpointInputs) -> Option<String> {
+        otlp_endpoint(
+            |var| {
+                if var == opentelemetry_otlp::OTEL_EXPORTER_OTLP_TRACES_ENDPOINT {
+                    inputs.signal_var.map(str::to_string)
+                } else if var == opentelemetry_otlp::OTEL_EXPORTER_OTLP_ENDPOINT {
+                    inputs.generic_var.map(str::to_string)
+                } else {
+                    panic!("unexpected endpoint variable: {var}")
+                }
+            },
+            inputs.config,
+        )
+    }
+
+    #[test]
+    fn otlp_endpoint_prefers_standard_variables_over_config() {
+        // Distinct per source so a failure names the one that wrongly won. Syntactically valid
+        // endpoints, since the exporter builder rejects malformed ones.
+        const SIGNAL_ENDPOINT: &str = "http://signal-collector:4317";
+        const GENERIC_ENDPOINT: &str = "http://generic-collector:4317";
+        const CONFIG_ENDPOINT: &str = "http://config-collector:4317";
+        const NOTHING_SET: EndpointInputs = EndpointInputs {
+            signal_var: None,
+            generic_var: None,
+            config: None,
+        };
+
+        value_scenarios!(
+            run = resolved_endpoint;
+            "nothing configured leaves span export off" {
+                NOTHING_SET => None,
+            }
+
+            "signal-specific variable is used" {
+                EndpointInputs { signal_var: Some(SIGNAL_ENDPOINT), ..NOTHING_SET }
+                    => Some(SIGNAL_ENDPOINT.to_string()),
+            }
+
+            "generic variable is honored too" {
+                EndpointInputs { generic_var: Some(GENERIC_ENDPOINT), ..NOTHING_SET }
+                    => Some(GENERIC_ENDPOINT.to_string()),
+            }
+
+            "signal-specific variable wins over the generic one" {
+                EndpointInputs {
+                    signal_var: Some(SIGNAL_ENDPOINT),
+                    generic_var: Some(GENERIC_ENDPOINT),
+                    ..NOTHING_SET
+                } => Some(SIGNAL_ENDPOINT.to_string()),
+            }
+
+            "signal-specific variable overrides the config file" {
+                EndpointInputs {
+                    signal_var: Some(SIGNAL_ENDPOINT),
+                    config: Some(CONFIG_ENDPOINT),
+                    ..NOTHING_SET
+                } => Some(SIGNAL_ENDPOINT.to_string()),
+            }
+
+            "generic variable overrides the config file" {
+                EndpointInputs {
+                    generic_var: Some(GENERIC_ENDPOINT),
+                    config: Some(CONFIG_ENDPOINT),
+                    ..NOTHING_SET
+                } => Some(GENERIC_ENDPOINT.to_string()),
+            }
+
+            "config file is used when no variable is set" {
+                EndpointInputs { config: Some(CONFIG_ENDPOINT), ..NOTHING_SET }
+                    => Some(CONFIG_ENDPOINT.to_string()),
+            }
+
+            "empty config endpoint counts as unset" {
+                EndpointInputs { config: Some(""), ..NOTHING_SET }
+                    => None,
+            }
+
+            "empty variable does not shadow the generic one" {
+                EndpointInputs {
+                    signal_var: Some(""),
+                    generic_var: Some(GENERIC_ENDPOINT),
+                    ..NOTHING_SET
+                } => Some(GENERIC_ENDPOINT.to_string()),
+            }
+
+            "empty variable falls through to the config file" {
+                EndpointInputs {
+                    signal_var: Some(""),
+                    config: Some(CONFIG_ENDPOINT),
+                    ..NOTHING_SET
+                } => Some(CONFIG_ENDPOINT.to_string()),
             }
         );
     }
