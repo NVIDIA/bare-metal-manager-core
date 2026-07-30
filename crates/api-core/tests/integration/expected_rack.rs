@@ -39,18 +39,21 @@ fn config_with_rack_profiles() -> CarbideConfig {
                             count: 18,
                             vendor: Some("NVIDIA".to_string()),
                             slot_ids: None,
+                            attributes: Default::default(),
                         },
                         switch: RackCapabilitySwitch {
                             name: None,
                             count: 9,
                             vendor: None,
                             slot_ids: None,
+                            attributes: Default::default(),
                         },
                         power_shelf: RackCapabilityPowerShelf {
                             name: None,
                             count: 4,
                             vendor: None,
                             slot_ids: None,
+                            attributes: Default::default(),
                         },
                     },
                     ..Default::default()
@@ -66,18 +69,21 @@ fn config_with_rack_profiles() -> CarbideConfig {
                             count: 9,
                             vendor: None,
                             slot_ids: None,
+                            attributes: Default::default(),
                         },
                         switch: RackCapabilitySwitch {
                             name: None,
                             count: 4,
                             vendor: None,
                             slot_ids: None,
+                            attributes: Default::default(),
                         },
                         power_shelf: RackCapabilityPowerShelf {
                             name: None,
                             count: 2,
                             vendor: None,
                             slot_ids: None,
+                            attributes: Default::default(),
                         },
                     },
                     ..Default::default()
