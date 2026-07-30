@@ -74,11 +74,10 @@ nico-api:
   ## Sites WITH rack management that need non-standard vendors or a test
   ## profile can override individual fields via siteConfig (Figment merges
   ## per-key, so only changed values need to be restated):
-  # nico-api:
-  #   siteConfig:
-  #     nicoApiSiteConfig: |
-  #       [rack_profiles.NVL72.rack_capabilities.compute]
-  #       vendor = "Lenovo"   # override compute vendor only
+  # siteConfig:
+  #   nicoApiSiteConfig: |
+  #     [rack_profiles.NVL72.rack_capabilities.compute]
+  #     vendor = "Lenovo"   # override compute vendor only
 
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
