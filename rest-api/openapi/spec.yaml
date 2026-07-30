@@ -15268,7 +15268,7 @@ components:
       description: |-
         Deprecated tenant-wide capability summary. TargetedInstanceCreation is no longer stored on the Tenant entity; it is configured on Tenant Account `siteCapabilities` (and may be overridden per Site via Tenant Site configuration).
 
-        On GET `/tenant/current`, `targetedInstanceCreation` is `true` when any Ready Tenant Account for the Tenant has the capability enabled. Embedded `TenantSummary.capabilities` in nested resources always reports `targetedInstanceCreation: false`.
+        On GET `/tenant/current`, `targetedInstanceCreation` is present and `true` only when the Tenant has at least one Ready Tenant Account, every Ready Tenant Account has the capability enabled by default, and no Tenant Site explicitly disables it. Otherwise the property is omitted. Embedded `TenantSummary.capabilities` objects in nested resources also omit the property.
       examples:
         - targetedInstanceCreation: true
       properties:
@@ -15276,7 +15276,7 @@ components:
           type: boolean
           deprecated: true
           readOnly: true
-          description: Deprecated in favor of TenantAccount.siteCapabilities. When returned on GET `/tenant/current`, indicates whether any Ready Tenant Account has TargetedInstanceCreation enabled. Always `false` on embedded TenantSummary objects.
+          description: Deprecated in favor of TenantAccount.siteCapabilities. On GET `/tenant/current`, the property is present and true only when every Ready Tenant Account enables TargetedInstanceCreation and no Tenant Site explicitly disables it; otherwise it is omitted. It is also omitted from embedded TenantSummary objects.
     TenantStats:
       title: TenantStats
       type: object

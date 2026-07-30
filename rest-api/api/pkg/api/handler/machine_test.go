@@ -1421,6 +1421,14 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedStatus:   http.StatusBadRequest,
 		},
 		{
+			name:             "failure case when privileged Tenant specifies hasInstance without siteId",
+			reqOrgName:       tnOrg7,
+			user:             tnu7,
+			queryHasInstance: cutil.GetPtr(true),
+			expectedErr:      true,
+			expectedStatus:   http.StatusBadRequest,
+		},
+		{
 			name:             "failure case when hasInstance is false but tenantId is specified",
 			reqOrgName:       ipOrg1,
 			user:             ipu,

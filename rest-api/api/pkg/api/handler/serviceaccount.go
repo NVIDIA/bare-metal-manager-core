@@ -158,16 +158,38 @@ func (gcsah GetCurrentServiceAccountHandler) Handle(c echo.Context) error {
 		if serr != nil {
 			return common.HandleTxError(c, logger, serr, "Failed to create Tenant Account, DB transaction error")
 		}
-	} else if !tas[0].Config.TargetedInstanceCreation {
-		_, serr = taDAO.Update(ctx, nil, cdbm.TenantAccountUpdateInput{
-			TenantAccountID: tas[0].ID,
-			Config: &cdbm.TenantAccountConfig{
-				TargetedInstanceCreation: true,
-			},
+	} else if tas[0].Status != cdbm.TenantAccountStatusReady || !tas[0].Config.TargetedInstanceCreation {
+		statusChanged := tas[0].Status != cdbm.TenantAccountStatusReady
+		sdDAO := cdbm.NewStatusDetailDAO(gcsah.dbSession)
+		serr = cdb.WithTx(ctx, gcsah.dbSession, func(tx *cdb.Tx) error {
+			_, derr := taDAO.Update(ctx, tx, cdbm.TenantAccountUpdateInput{
+				TenantAccountID: tas[0].ID,
+				Status:          cutil.GetPtr(cdbm.TenantAccountStatusReady),
+				Config: &cdbm.TenantAccountConfig{
+					TargetedInstanceCreation: true,
+				},
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating Tenant Account capabilities for org")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Tenant Account capabilities for org, DB error", nil)
+			}
+
+			if statusChanged {
+				_, derr = sdDAO.Create(ctx, tx, cdbm.StatusDetailCreateInput{
+					EntityID: tas[0].ID.String(),
+					Status:   cdbm.TenantAccountStatusReady,
+					Message:  cutil.GetPtr("service account enabled, tenant account ready"),
+				})
+				if derr != nil {
+					logger.Error().Err(derr).Msg("error creating Status Detail for Tenant Account")
+					return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for org's Tenant Account, DB error", nil)
+				}
+			}
+
+			return nil
 		})
 		if serr != nil {
-			logger.Error().Err(serr).Msg("error updating Tenant Account capabilities for org")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Tenant Account capabilities for org, DB error", nil)
+			return common.HandleTxError(c, logger, serr, "Failed to update Tenant Account, DB transaction error")
 		}
 	}
 

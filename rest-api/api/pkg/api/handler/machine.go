@@ -414,7 +414,7 @@ func (gamh GetAllMachineHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid value specified for `hasInstance` in query", nil)
 		}
 
-		if len(filterInput.SiteIDs) == 0 {
+		if qSiteID == "" {
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "`hasInstance` cannot be specified when `siteId` is not specified in query", nil)
 		}
 

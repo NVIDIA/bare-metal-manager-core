@@ -63,6 +63,8 @@ func TestNewAPITenant(t *testing.T) {
 			var response map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(body, &response))
 			assert.JSONEq(t, tt.expectedCapabilitiesJSON, string(response["capabilities"]))
+			require.Len(t, got.Deprecations, 1)
+			assert.Equal(t, time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC), got.Deprecations[0].TakeActionBy)
 		})
 	}
 }

@@ -20,7 +20,7 @@ var (
 	// Time when Tenant.capabilities.targetedInstanceCreation will be removed. The
 	// capabilities object remains in responses for compatibility, so the
 	// deprecation notice retains a future TakeActionBy deadline.
-	tenantTargetedInstanceCreationDeprecationTime, _ = time.Parse(time.RFC1123, "Wed, 30 Sep 2026 00:00:00 UTC")
+	tenantTargetedInstanceCreationDeprecationTime = time.Date(2026, time.October, 1, 0, 0, 0, 0, time.UTC)
 
 	tenantCapabilityDeprecations = []DeprecatedEntity{
 		{
