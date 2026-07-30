@@ -174,6 +174,70 @@ env:
 ## Optional Figment dictionary for CARBIDE_API_DSX_EXCHANGE_EVENT_BUS.
 dsxExchangeEventBusConfig: ""
 
+## =============================================================================
+## Component manager
+## =============================================================================
+## Renders the [component_manager] section into the global application config.
+## Presence of that section is what enables the component manager; site-config
+## can override fields but cannot remove the section once rendered — hence the
+## Helm gate. Independent of rms.enabled below. On by default for the standard
+## rack-management path; set enabled: false on deployments that do not run it.
+##
+## The chart defaults use rms backends + state controllers (recommended path).
+## With rms backends, keep rms.enabled=true (the chart default) or supply an
+## equivalent [rms] block in site-config; otherwise Core leaves the component
+## manager uninitialized and logs a build error.
+componentManager:
+  enabled: true
+  ## Backend per role. computeTray: rms | core | mock. nvSwitch: rms | nsm |
+  ## mock. powerShelf: rms | psm | mock. The binary defaults all three to rms;
+  ## nsm/psm select the standalone managers instead of RMS.
+  computeTrayBackend: "rms"
+  nvSwitchBackend: "rms"
+  powerShelfBackend: "rms"
+  ## Route power control and firmware updates through the state controllers
+  ## rather than dispatching straight to the device. The binary's field default
+  ## is false (legacy direct dispatch); state-controlled dispatch is the
+  ## recommended mode, so the chart turns it on.
+  computeTrayUseStateController: true
+  nvSwitchUseStateController: true
+  powerShelfUseStateController: true
+
+## =============================================================================
+## RMS (Rack Management Service) connectivity
+## =============================================================================
+## RMS deploys as its own Helm chart (rack-manager); Core only needs the
+## connection details for rack-level firmware upgrades, power sequencing, and
+## rms-backed component-manager operations. When disabled, no [rms] section is
+## rendered. Independent of componentManager.enabled. On by default for the
+## standard rack-management path; set enabled: false on deployments that do
+## not run RMS.
+##
+## Qualified NVL72 / NVL72_GB300 rack_profiles always ship in the global toml;
+## override OEM vendors (or add test profiles) via site-config merge.
+##
+## Enabling BEFORE rack-manager is deployed is safe: the client is constructed
+## lazily and every RMS-backed operation guards on it, so Core runs healthy
+## and rack operations report a clean error until RMS comes up at apiUrl.
+rms:
+  enabled: true
+  ## RMS API server URL. The default matches the rack-manager chart's
+  ## api-server Service in its default namespace (port 8801), TLS enabled.
+  apiUrl: "https://rms-api-server.rack-manager.svc.cluster.local:8801"
+  ## Enforce TLS when connecting to RMS. The standard RMS deployment serves
+  ## mTLS (apiServer.tls.enabled + caEnabled) with a certificate minted from
+  ## the same vault-nico-issuer that signs nico-api's SPIFFE cert.
+  enforceTls: true
+  ## Optional mTLS material overrides — paths inside the nico-api container.
+  ## Leave empty: the RMS client (nv-rms-client) auto-discovers nico-api's
+  ## own SPIFFE certificate mount (/var/run/secrets/spiffe.io/{tls.crt,
+  ## tls.key,ca.crt}), which shares a CA with the RMS api-server certificate
+  ## — mTLS both ways with no extra mounts and no configuration. Set these
+  ## only to use different cert material.
+  rootCaPath: ""
+  clientCert: ""
+  clientKey: ""
+
 extraEnv: []
 
 ## Authentication for the /admin WebUI. CARBIDE_WEB_AUTH_TYPE in extraEnv

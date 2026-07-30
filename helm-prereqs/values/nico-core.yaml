@@ -59,6 +59,27 @@ nico-api:
     additionalIssuerCns:
       - "site-root"
 
+  ## Rack management — chart defaults enable both switches (RMS connectivity
+  ## and the component manager with rms backends). Override vendors or add
+  ## test profiles in siteConfig. Chart defaults cover standard mTLS (SPIFFE
+  ## auto-discovery — no extra mounts).
+  ##
+  ## Sites WITHOUT rack management (no RMS deployed, no DPF rack operations)
+  ## must opt out explicitly, otherwise carbide-api initializes the component
+  ## manager and RMS client against an unreachable endpoint:
+  # componentManager:
+  #   enabled: false
+  # rms:
+  #   enabled: false
+  ##
+  ## Sites WITH rack management that need non-standard vendors or a test
+  ## profile can override individual fields via siteConfig (Figment merges
+  ## per-key, so only changed values need to be restated):
+  # siteConfig:
+  #   nicoApiSiteConfig: |
+  #     [rack_profiles.NVL72.rack_capabilities.compute]
+  #     vendor = "Lenovo"   # override compute vendor only
+
   ## MetalLB VIP for the nico-api LoadBalancer service.
   ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
   ## This IP must resolve from your external DNS to the hostname above.
