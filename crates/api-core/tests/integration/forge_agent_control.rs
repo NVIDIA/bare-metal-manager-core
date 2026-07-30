@@ -383,7 +383,7 @@ async fn waiting_for_measurements_returns_measure(pool: PgPool) {
 #[sqlx_test]
 async fn ready_returns_noop(pool: PgPool) {
     let TestContext { env: _env, mh, .. } = init(pool).await;
-    mh.advance_state(ManagedHostState::Ready).await;
+    mh.advance_to_converged_ready().await;
 
     let response = mh.host.forge_agent_control().await;
     assert!(matches!(response.action, Some(Action::Noop(_))));
