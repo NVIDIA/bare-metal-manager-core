@@ -74,6 +74,14 @@ pub struct PowerShelf {
 
     pub bmc_mac_address: Option<MacAddress>,
 
+    /// Operator "force-converge this power shelf PMC now" request (REQ-2). When
+    /// `true`, the power-shelf state controller enters `RotatingBmc` and
+    /// force-converges the PMC on its next sweep, bypassing the passive
+    /// site-wide gate and the device's backoff quarantine. A power shelf has
+    /// exactly one BMC, so the flag's presence on the row names the target
+    /// device.
+    pub bmc_credential_rotation_requested: bool,
+
     /// BMC/PMC endpoint (MAC/IP + machine-interface id) resolved from the `Bmc`
     /// machine_interface linked back to this power shelf. Populated by the
     /// standard power-shelf load query, so every consumer (handlers, state
@@ -144,6 +152,9 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             status: status.map(|s| s.0),
             deleted: row.try_get("deleted")?,
             bmc_mac_address: row.try_get("bmc_mac_address").ok().flatten(),
+            bmc_credential_rotation_requested: row
+                .try_get("bmc_credential_rotation_requested")
+                .unwrap_or(false),
             bmc_info,
             controller_state: Versioned {
                 value: controller_state.0,
@@ -235,6 +246,15 @@ pub enum PowerShelfControllerState {
     /// The PowerShelf is ready for use.
     Ready,
 
+    /// The PowerShelf's BMC (PMC) credential is being converged to the staged
+    /// site-wide rotation target (REQ-2), entered from `Ready` at lowest
+    /// precedence. The shared engine owns crash-safety and per-device backoff,
+    /// so this state carries only a retry budget for transient handler failures.
+    RotatingBmc {
+        #[serde(default)]
+        retry_count: u32,
+    },
+
     Maintenance {
         operation: PowerShelfMaintenanceOperation,
     },
@@ -270,6 +290,10 @@ pub fn state_sla(state: &PowerShelfControllerState, state_version: &ConfigVersio
             time_in_state,
         ),
         PowerShelfControllerState::Ready => StateSla::no_sla(),
+        PowerShelfControllerState::RotatingBmc { .. } => StateSla::with_sla(
+            std::time::Duration::from_secs(slas::ROTATING_BMC),
+            time_in_state,
+        ),
         PowerShelfControllerState::Maintenance { .. } => StateSla::with_sla(
             std::time::Duration::from_secs(slas::MAINTENANCE),
             time_in_state,
@@ -339,6 +363,13 @@ mod tests {
                 PowerShelfControllerState::Ready {} => Yields((
                     "{\"state\":\"ready\"}".to_string(),
                     PowerShelfControllerState::Ready {},
+                )),
+            }
+
+            "rotatingbmc carries its retry count" {
+                PowerShelfControllerState::RotatingBmc { retry_count: 4 } => Yields((
+                    r#"{"state":"rotatingbmc","retry_count":4}"#.to_string(),
+                    PowerShelfControllerState::RotatingBmc { retry_count: 4 },
                 )),
             }
 
@@ -485,6 +516,18 @@ mod tests {
 
             "ready tag" {
                 r#"{"state":"ready"}"# => Yields(PowerShelfControllerState::Ready),
+            }
+
+            "rotatingbmc round-trips its retry count" {
+                r#"{"state":"rotatingbmc","retry_count":4}"# => Yields(PowerShelfControllerState::RotatingBmc {
+                    retry_count: 4,
+                }),
+            }
+
+            "rotatingbmc absent retry_count defaults to 0" {
+                r#"{"state":"rotatingbmc"}"# => Yields(PowerShelfControllerState::RotatingBmc {
+                    retry_count: 0,
+                }),
             }
 
             "deleting tag" {
@@ -745,6 +788,10 @@ mod tests {
                 PowerShelfControllerState::ReProvisioning {
                     reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
                 } => (secs(slas::REPROVISIONING), true),
+            }
+
+            "rotatingbmc has the rotating-bmc SLA" {
+                PowerShelfControllerState::RotatingBmc { retry_count: 0 } => (secs(slas::ROTATING_BMC), true),
             }
 
             "ready carries no SLA" {

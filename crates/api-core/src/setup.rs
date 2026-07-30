@@ -1501,6 +1501,9 @@ async fn initialize_and_start_controllers<'a>(
                 rack_firmware_reprovisioning_enabled: carbide_config
                     .power_shelf_state_controller
                     .rack_firmware_reprovisioning_enabled,
+                redfish_client_pool: shared_redfish_pool.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_enabled: carbide_config.bmc_rotation_enabled,
             }
             .into(),
         )

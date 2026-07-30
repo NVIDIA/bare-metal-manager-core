@@ -1663,6 +1663,9 @@ pub async fn create_test_env_with_overrides(
                 credential_manager: credential_manager.clone(),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 rack_firmware_reprovisioning_enabled: false,
+                redfish_client_pool: redfish_sim.clone(),
+                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_enabled: false,
             }
             .into(),
         )

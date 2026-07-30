@@ -15,8 +15,15 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+<<<<<<< HEAD
 use ::rpc::forge::bmc_credential_rotation_request::Mode;
 use carbide_uuid::device::DeviceId;
+=======
+use ::rpc::forge::bmc_credential_rotation_request::{DeviceId, Mode};
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::switch::SwitchId;
+>>>>>>> eb24acb24 (feat(power-shelf-controller): converge power shelf BMC credentials via RotatingBmc state)
 use mac_address::MacAddress;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -24,6 +31,32 @@ use tonic::{Request, Response, Status};
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 
+<<<<<<< HEAD
+=======
+/// The device whose BMC an operator force-converge request targets. A BMC
+/// belongs to exactly one device kind: a machine (host or DPU BMC), a switch
+/// (switch BMC), or a power shelf (its PMC). The flag is a boolean column on the
+/// owning device's row, so the target both selects the row and names the DAO to
+/// write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RotationTarget {
+    Machine(MachineId),
+    Switch(SwitchId),
+    PowerShelf(PowerShelfId),
+}
+
+impl RotationTarget {
+    /// A "kind id" description used in cross-check error messages.
+    fn describe(&self) -> String {
+        match self {
+            RotationTarget::Machine(id) => format!("machine {id}"),
+            RotationTarget::Switch(id) => format!("switch {id}"),
+            RotationTarget::PowerShelf(id) => format!("power shelf {id}"),
+        }
+    }
+}
+
+>>>>>>> eb24acb24 (feat(power-shelf-controller): converge power shelf BMC credentials via RotatingBmc state)
 /// Operator force-converge escape hatch: record (or clear) a request to
 /// immediately rotate a device's BMC credentials, bypassing the passive
 /// site-wide gate and the device's backoff quarantine. The target BMC is
@@ -53,11 +86,16 @@ pub(crate) async fn trigger_bmc_credential_rotation(
             DeviceId::Switch(id) => {
                 db::switch::set_bmc_credential_rotation_requested(&mut txn, id).await?;
             }
+<<<<<<< HEAD
             DeviceId::PowerShelf(_) => {
                 return Err(CarbideError::InvalidArgument(
                     "power shelf BMC credential rotation is not yet supported".to_string(),
                 )
                 .into());
+=======
+            RotationTarget::PowerShelf(id) => {
+                db::power_shelf::set_bmc_credential_rotation_requested(&mut txn, id).await?;
+>>>>>>> eb24acb24 (feat(power-shelf-controller): converge power shelf BMC credentials via RotatingBmc state)
             }
         },
         Mode::Clear => match target {
@@ -67,11 +105,16 @@ pub(crate) async fn trigger_bmc_credential_rotation(
             DeviceId::Switch(id) => {
                 db::switch::clear_bmc_credential_rotation_requested(&mut txn, id).await?;
             }
+<<<<<<< HEAD
             DeviceId::PowerShelf(_) => {
                 return Err(CarbideError::InvalidArgument(
                     "power shelf BMC credential rotation is not yet supported".to_string(),
                 )
                 .into());
+=======
+            RotationTarget::PowerShelf(id) => {
+                db::power_shelf::clear_bmc_credential_rotation_requested(&mut txn, id).await?;
+>>>>>>> eb24acb24 (feat(power-shelf-controller): converge power shelf BMC credentials via RotatingBmc state)
             }
         },
         // An omitted `mode` decodes as `Unspecified`; reject it rather than let
@@ -104,8 +147,6 @@ fn reject_unsupported_device_id(
 /// BMC, so any single identifier uniquely names it. When a MAC is supplied
 /// alongside a `device_id` they must agree, which lets an operator double-check
 /// that a MAC pulled from an alert really is the BMC of the device they mean.
-/// Power shelf IDs are part of the shared type for forward compatibility but
-/// are rejected until power shelf BMC rotation is implemented.
 async fn resolve_target(
     txn: &mut PgConnection,
     device_id: Option<DeviceId>,
@@ -131,8 +172,10 @@ async fn resolve_target(
         (Some(DeviceId::Machine(machine_id)), Some(DeviceId::Machine(mac_machine_id))) => {
             if machine_id != mac_machine_id {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "bmc {} belongs to machine {mac_machine_id}, not the requested machine {machine_id}",
-                    bmc_mac.expect("a mac target implies a parsed mac")
+                    "bmc {} belongs to {}, not the requested {}",
+                    bmc_mac.expect("a mac target implies a parsed mac"),
+                    mac_target.describe(),
+                    id_target.describe(),
                 )));
             }
             DeviceId::Machine(machine_id)
@@ -160,6 +203,7 @@ async fn resolve_target(
                 bmc_mac.expect("a mac target implies a parsed mac")
             )));
         }
+        (Some(id_target), None) => id_target,
         // MAC only: the owner the MAC resolved to.
         (None, Some(target)) => target,
         (Some(DeviceId::PowerShelf(_)), _) | (_, Some(DeviceId::PowerShelf(_))) => {
@@ -181,8 +225,9 @@ async fn resolve_target(
 }
 
 /// Resolve which device kind owns a BMC MAC. A physical BMC MAC lives on exactly
-/// one interface row, keyed to a machine *or* a switch, so try the machine
-/// resolver first (its `machine_id`-keyed BMC interface) then the switch one.
+/// one interface row, keyed to a machine, a switch, *or* a power shelf, so try
+/// the machine resolver first (its `machine_id`-keyed BMC interface), then the
+/// switch one, then the power shelf one.
 async fn resolve_mac_owner(
     txn: &mut PgConnection,
     mac: MacAddress,
@@ -192,6 +237,9 @@ async fn resolve_mac_owner(
     }
     if let Some(switch_id) = db::switch::find_switch_id_by_bmc_mac(txn, mac).await? {
         return Ok(DeviceId::Switch(switch_id));
+    }
+    if let Some(power_shelf) = db::power_shelf::find_by_bmc_mac_address(txn, mac).await? {
+        return Ok(RotationTarget::PowerShelf(power_shelf.id));
     }
     Err(CarbideError::NotFoundError {
         kind: "BMC",

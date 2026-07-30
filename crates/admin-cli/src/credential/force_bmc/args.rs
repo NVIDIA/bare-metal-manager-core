@@ -16,10 +16,28 @@
  */
 
 use ::rpc::forge::BmcCredentialRotationRequest;
-use ::rpc::forge::bmc_credential_rotation_request::Mode;
-use carbide_uuid::device::DeviceId;
+use ::rpc::forge::bmc_credential_rotation_request::{DeviceId, Mode};
+use carbide_uuid::machine::MachineId;
+use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 use mac_address::MacAddress;
+
+/// Build the request's `device_id` oneof from the mutually-exclusive `--id` /
+/// `--switch-id` / `--power-shelf-id` selectors (clap enforces at most one is
+/// present). Returns `None` when the target is addressed by `--bmc-mac` alone.
+fn device_id(
+    id: Option<MachineId>,
+    switch_id: Option<SwitchId>,
+    power_shelf_id: Option<PowerShelfId>,
+) -> Option<DeviceId> {
+    match (id, switch_id, power_shelf_id) {
+        (Some(id), ..) => Some(DeviceId::MachineId(id)),
+        (None, Some(switch_id), _) => Some(DeviceId::SwitchId(switch_id)),
+        (None, None, Some(power_shelf_id)) => Some(DeviceId::PowerShelfId(power_shelf_id)),
+        (None, None, None) => None,
+    }
+}
 
 #[derive(Parser, Debug, Clone)]
 #[command(after_long_help = "\
@@ -31,7 +49,10 @@ Force an immediate credential rotation by machine ID:
 Force a switch BMC by switch ID:
     $ nico-admin-cli credential force-bmc set --id sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
-Force it by BMC MAC instead (machine or switch):
+Force a power shelf BMC (PMC) by power shelf ID:
+    $ nico-admin-cli credential force-bmc set --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+
+Force it by BMC MAC instead (machine, switch, or power shelf):
     $ nico-admin-cli credential force-bmc set --bmc-mac 00:11:22:33:44:55
 
 Clear a pending force-converge request:
@@ -40,13 +61,11 @@ Clear a pending force-converge request:
 ")]
 pub enum Args {
     #[clap(
-        about = "Request an immediate BMC credential rotation. Machines and switches are \
-                 supported; power shelf IDs are accepted but not yet supported."
+        about = "Request an immediate credential rotation of a device's BMC (machine, switch, or power shelf)."
     )]
     Set(ForceSet),
     #[clap(
-        about = "Clear a pending BMC force-converge request. Machines and switches are supported; \
-                 power shelf IDs are accepted but not yet supported."
+        about = "Clear a pending BMC force-converge request for a device (machine, switch, or power shelf)."
     )]
     Clear(ForceClear),
 }
@@ -61,7 +80,10 @@ Force-converge a machine BMC now by machine ID:
 Force-converge a switch BMC now by switch ID:
     $ nico-admin-cli credential force-bmc set --id sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
-Force-converge a BMC now by BMC MAC (machine or switch):
+Force-converge a power shelf BMC (PMC) now by power shelf ID:
+    $ nico-admin-cli credential force-bmc set --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+
+Force-converge a BMC now by BMC MAC (machine, switch, or power shelf):
     $ nico-admin-cli credential force-bmc set --bmc-mac 00:11:22:33:44:55
 
 ")]
@@ -71,7 +93,6 @@ pub struct ForceSet {
         long,
         required_unless_present_any = ["bmc_mac"],
         help = "ID of the machine, DPU, switch, or power shelf that owns the BMC. \
-                Power shelf IDs are allowed for forward compatibility but are not yet supported. \
                 Provide this or --bmc-mac."
     )]
     pub id: Option<DeviceId>,
@@ -104,6 +125,9 @@ Clear a pending force-converge request by machine ID:
 Clear a pending force-converge request by switch ID:
     $ nico-admin-cli credential force-bmc clear --id sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
+Clear a pending force-converge request by power shelf ID:
+    $ nico-admin-cli credential force-bmc clear --power-shelf-id 12345678-1234-5678-90ab-cdef01234567
+
 Clear a pending force-converge request by BMC MAC:
     $ nico-admin-cli credential force-bmc clear --bmc-mac 00:11:22:33:44:55
 
@@ -114,8 +138,7 @@ pub struct ForceClear {
         long,
         required_unless_present_any = ["bmc_mac"],
         help = "Machine, DPU, switch, or power shelf ID whose pending BMC force-converge request \
-                should be cleared. Power shelf IDs are allowed for forward compatibility but are \
-                not yet supported. Provide this or --bmc-mac."
+                should be cleared. Provide this or --bmc-mac."
     )]
     pub id: Option<DeviceId>,
 
