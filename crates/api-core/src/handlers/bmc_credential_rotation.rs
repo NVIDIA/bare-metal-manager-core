@@ -17,7 +17,6 @@
 use ::rpc::forge as rpc;
 use ::rpc::forge::bmc_credential_rotation_request::Mode;
 use carbide_uuid::device::DeviceId;
-use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -40,9 +39,7 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     log_request_data(&request);
     let req = request.into_inner();
     let mode = req.mode();
-    #[allow(deprecated)]
-    let device_id = merge_device_id(req.device_id, req.machine_id)?;
-    let device_id = reject_unsupported_device_id(device_id)?;
+    let device_id = reject_unsupported_device_id(req.device_id)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -89,25 +86,6 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     txn.commit().await?;
 
     Ok(Response::new(()))
-}
-
-/// Preserve the pre-#4344 machine-id field while clients migrate to the shared
-/// device-id field. If a caller sends both, require them to identify the same
-/// machine rather than silently preferring one.
-fn merge_device_id(
-    device_id: Option<DeviceId>,
-    legacy_machine_id: Option<MachineId>,
-) -> Result<Option<DeviceId>, CarbideError> {
-    match (device_id, legacy_machine_id) {
-        (Some(device_id), Some(machine_id)) if device_id != DeviceId::Machine(machine_id) => {
-            Err(CarbideError::InvalidArgument(format!(
-                "device_id {device_id} does not match deprecated machine_id {machine_id}"
-            )))
-        }
-        (Some(device_id), _) => Ok(Some(device_id)),
-        (None, Some(machine_id)) => Ok(Some(DeviceId::Machine(machine_id))),
-        (None, None) => Ok(None),
-    }
 }
 
 fn reject_unsupported_device_id(
@@ -227,62 +205,15 @@ mod tests {
 
     use carbide_test_support::Outcome::*;
     use carbide_test_support::scenarios;
+    use carbide_uuid::machine::MachineId;
     use carbide_uuid::power_shelf::PowerShelfId;
     use carbide_uuid::switch::SwitchId;
 
     use super::*;
 
     const MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-    const OTHER_MACHINE_ID: &str = "fm100ht138bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
     const SWITCH_ID: &str = "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
     const POWER_SHELF_ID: &str = "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
-
-    struct MergeCase {
-        device_id: Option<DeviceId>,
-        legacy_machine_id: Option<MachineId>,
-    }
-
-    #[test]
-    fn merges_current_and_legacy_device_fields() {
-        let machine_id = MachineId::from_str(MACHINE_ID).unwrap();
-        let other_machine_id = MachineId::from_str(OTHER_MACHINE_ID).unwrap();
-        let switch_id = SwitchId::from_str(SWITCH_ID).unwrap();
-
-        scenarios!(
-            run = |MergeCase { device_id, legacy_machine_id }| {
-                merge_device_id(device_id, legacy_machine_id).map_err(drop)
-            };
-            "one field supplied" {
-                MergeCase {
-                    device_id: Some(DeviceId::Switch(switch_id)),
-                    legacy_machine_id: None,
-                } => Yields(Some(DeviceId::Switch(switch_id))),
-                MergeCase {
-                    device_id: None,
-                    legacy_machine_id: Some(machine_id),
-                } => Yields(Some(DeviceId::Machine(machine_id))),
-            }
-
-            "both or neither supplied" {
-                MergeCase {
-                    device_id: Some(DeviceId::Machine(machine_id)),
-                    legacy_machine_id: Some(machine_id),
-                } => Yields(Some(DeviceId::Machine(machine_id))),
-                MergeCase {
-                    device_id: None,
-                    legacy_machine_id: None,
-                } => Yields(None),
-                MergeCase {
-                    device_id: Some(DeviceId::Machine(other_machine_id)),
-                    legacy_machine_id: Some(machine_id),
-                } => Fails,
-                MergeCase {
-                    device_id: Some(DeviceId::Switch(switch_id)),
-                    legacy_machine_id: Some(machine_id),
-                } => Fails,
-            }
-        );
-    }
 
     #[test]
     fn rejects_only_power_shelf_device_ids() {

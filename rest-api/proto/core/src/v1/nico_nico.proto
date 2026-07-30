@@ -5899,19 +5899,16 @@ message BmcCredentialRotationRequest {
   }
   Mode mode = 1;
 
-  // Deprecated: use device_id.
-  optional common.MachineId machine_id = 2 [deprecated = true];
+  // ID of the device that owns the target BMC. Machine and switch IDs are
+  // supported. Power shelf IDs are valid DeviceIds and are accepted for forward
+  // compatibility, but power shelf BMC rotation is not yet supported.
+  common.DeviceId device_id = 3;
 
   // MAC of the BMC to target, resolved server-side to its owning machine or
   // switch. May be given alone, or alongside a `device_id` as a cross-check
   // (they must identify the same device). At least one of `device_id` /
   // `bmc_mac` must be set (enforced server-side).
-  optional string bmc_mac = 3;
-
-  // ID of the device that owns the target BMC. Machine and switch IDs are
-  // supported. Power shelf IDs are valid DeviceIds and are accepted for forward
-  // compatibility, but power shelf BMC rotation is not yet supported.
-  common.DeviceId device_id = 4;
+  optional string bmc_mac = 4;
 }
 
 message HostReprovisioningListRequest {

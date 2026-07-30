@@ -88,8 +88,6 @@ impl From<ForceSet> for BmcCredentialRotationRequest {
     fn from(args: ForceSet) -> Self {
         Self {
             device_id: args.id,
-            #[allow(deprecated)]
-            machine_id: None,
             mode: Mode::Set as i32,
             bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
@@ -129,8 +127,6 @@ impl From<ForceClear> for BmcCredentialRotationRequest {
     fn from(args: ForceClear) -> Self {
         Self {
             device_id: args.id,
-            #[allow(deprecated)]
-            machine_id: None,
             mode: Mode::Clear as i32,
             bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
