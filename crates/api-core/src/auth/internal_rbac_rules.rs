@@ -103,7 +103,10 @@ impl InternalRBACRules {
             "FindNetworkSegmentStateHistories",
             vec![ForgeAdminCLI, Machineatron, SiteAgent],
         );
-        x.perm("CreateNetworkSegment", vec![Machineatron, SiteAgent]);
+        x.perm(
+            "CreateNetworkSegment",
+            vec![ForgeAdminCLI, Machineatron, SiteAgent],
+        );
         x.perm("AttachNetworkSegmentToVpc", vec![ForgeAdminCLI]);
         x.perm(
             "DeleteNetworkSegment",
@@ -1068,6 +1071,18 @@ mod rbac_rule_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn admin_cli_can_create_network_segments() {
+        assert!(InternalRBACRules::allowed_from_static(
+            "CreateNetworkSegment",
+            &[Principal::ExternalUser(ExternalUserInfo::new(
+                None,
+                "nico-admin-cli".to_string(),
+                None,
+            ))],
+        ));
     }
 
     #[test]
