@@ -3,9 +3,8 @@
 {{- $baseName := include "nico-machine-a-tron.name" . }}
 
 {{/*
-Count active pods and build ordered list for consistent pod indexing
+Build ordered list of pod names for consistent MAC address indexing
 */}}
-{{- $activePods := include "nico-machine-a-tron.activePods" . | int }}
 {{- $podList := list }}
 {{- range $podName, $podConfig := .Values.pods }}
 {{- if and $podConfig.machines (gt (len $podConfig.machines) 0) }}
@@ -56,10 +55,7 @@ Skip pods without machines
 {{- fail (printf "Too many pods: pod index %d exceeds maximum 255 for MAC address generation" $podIndex) }}
 {{- end }}
 
-{{- $name := $baseName }}
-{{- if gt $activePods 1 }}
-{{- $name = printf "%s-%s" $baseName $podName }}
-{{- end }}
+{{- $name := printf "%s-%s" $baseName $podName }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -68,9 +64,7 @@ metadata:
   namespace: {{ $namespace }}
   labels:
     {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
-    {{- if gt $activePods 1 }}
     nvidia-infra-controller/pod-name: {{ $podName | quote }}
-    {{- end }}
 data:
   mat.toml: |
     {{- if and $root.Values.configFiles.matConfigs (index $root.Values.configFiles.matConfigs $podName) }}

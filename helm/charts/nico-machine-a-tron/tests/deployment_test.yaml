@@ -7,7 +7,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.volumes[1].secret.secretName
-          value: nico-machine-a-tron-tls
+          value: nico-machine-a-tron-mat-0-tls
         template: deployment.yaml
 
   - it: should expose named ports used by Services and probes
@@ -68,7 +68,6 @@ tests:
       mat-k8s-controller:
         enabled: true
       pods:
-        default: null
         mat-0:
           machines:
             compute:

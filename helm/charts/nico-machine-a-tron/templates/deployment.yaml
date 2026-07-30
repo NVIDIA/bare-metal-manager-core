@@ -15,10 +15,7 @@ Skip pods without machines (or empty machines)
 {{- continue }}
 {{- end }}
 
-{{- $name := $baseName }}
-{{- if gt $activePods 1 }}
-{{- $name = printf "%s-%s" $baseName $podName }}
-{{- end }}
+{{- $name := printf "%s-%s" $baseName $podName }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -29,23 +26,26 @@ metadata:
     {{- include "nico-machine-a-tron.labels" $root | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 6 }}
-      {{- if gt $activePods 1 }}
       nvidia-infra-controller/pod-name: {{ $podName | quote }}
-      {{- end }}
   template:
     metadata:
       labels:
         {{- include "nico-machine-a-tron.selectorLabels" $root | nindent 8 }}
-        {{- if gt $activePods 1 }}
         nvidia-infra-controller/pod-name: {{ $podName | quote }}
-        {{- end }}
       annotations:
         checksum/config: {{ include (print $root.Template.BasePath "/configmap.yaml") $root | sha256sum }}
     spec:
       serviceAccountName: {{ include "nico-machine-a-tron.name" $root }}
+      automountServiceAccountToken: {{ $root.Values.automountServiceAccountToken }}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: machine-a-tron
           image: {{ include "nico-machine-a-tron.image" $root }}
@@ -82,7 +82,7 @@ spec:
               readOnly: true
             {{- if $root.Values.persistence.enabled }}
             - name: data
-              mountPath: {{ $root.Values.machineATron.persistDirectory }}
+              mountPath: {{ $root.Values.machineATron.persistDir }}
             {{- end }}
       volumes:
         - name: config

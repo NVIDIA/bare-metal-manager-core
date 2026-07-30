@@ -48,7 +48,7 @@ image:
 ## Create namespace when global.namespaceOverride is set
 createNamespace: true
 
-automountServiceAccountToken: true
+automountServiceAccountToken: false
 
 ## Graceful shutdown timeout (seconds)
 terminationGracePeriodSeconds: 60
@@ -237,9 +237,10 @@ hwMacAddressRanges:
 ## All other settings inherit from machineDefaults above.
 ##
 pods:
-  ## Single-pod configuration is used when mat-k8s-controller.enabled=false (by default)
-  ## For multi-pod deployments, add more entries below and enable mat-k8s-controller
-  default:
+  ## Pod names become Kubernetes resource suffixes: nico-machine-a-tron-<podName>
+  ## Use consistent naming: mat-0 for single-pod, mat-0/mat-1/mat-2 for multi-pod
+  ## Names must be valid K8s label values (alphanumeric, -, _, ., max 63 chars)
+  mat-0:
 
     ## Machine groups for this pod
     machines:
