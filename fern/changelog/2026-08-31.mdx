@@ -1,5 +1,5 @@
 ---
-tags: ["next"]
+tags: ["next", "machine-a-tron", "redfish"]
 ---
 
 ## NVIDIA Infra Controller v2.1 <Badge intent="launch">Next</Badge>
@@ -13,3 +13,24 @@ Placeholder text.
 ### Feature 2
 
 Placeholder text.
+
+### Validation & Testing
+
+**machine-a-tron** is a bare-metal simulator that lets you run end-to-end NICo
+provisioning flows — site-explorer, DHCP, PXE, ingestion, and state machines —
+against mock Redfish BMC endpoints, without any physical servers or DPUs. It has
+been validated at 4,500 simulated hosts × 2 DPUs (13,500 endpoints) in a single
+unattended run.
+
+It ships as the `nico-machine-a-tron` Helm subchart (enabled via
+`nico-machine-a-tron.enabled=true`) with an end-to-end setup script at
+`helm-prereqs/setup-machine-a-tron.sh` that handles namespace creation, credential
+seeding, BMC proxy configuration, and verification. See the
+[machine-a-tron deployment guide](../../docs/development/machine-a-tron-deployment.md)
+for full build and deployment instructions.
+
+<Note>
+machine-a-tron is intended for simulation-only clusters and should not be used
+alongside real hardware. It is not included in the `release/v2.0` branch —
+v2.1 is the first release that ships it.
+</Note>
