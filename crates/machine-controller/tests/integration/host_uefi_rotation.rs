@@ -59,7 +59,7 @@ fn uefi_creds(password: &str) -> Credentials {
 
 /// Build a Ready pool host on the shared Redfish sim and return its BMC MAC (the
 /// key for host UEFI rotation bookkeeping).
-async fn ready_host(env: &Env) -> (TestManagedHost, MacAddress) {
+async fn ready_host(env: &Env, pool: &PgPool) -> (TestManagedHost, MacAddress) {
     let domain = env.test_harness.test_domain().await;
     let network_controller = env.test_harness.network_controller();
     let underlay_segment = network_controller.create_underlay_segment(&domain).await;
@@ -72,7 +72,22 @@ async fn ready_host(env: &Env) -> (TestManagedHost, MacAddress) {
         .build()
         .await
         .0;
-    mh.advance_state(ManagedHostState::Ready).await;
+    // Model the converged-Ready invariant the controller establishes before it
+    // returns a host to Ready (boot interface verified); a plain
+    // `advance_state(Ready)` would leave a pending boot-config intent that the
+    // Ready handler converges ahead of the rotation entry guards.
+    mh.advance_to_converged_ready().await;
+
+    // Model a normally-ingested host: NICo stamps `bios_password_set_time` when
+    // it sets the BIOS password during ingestion, and the passive host UEFI
+    // rotation guard requires that stamp (an unforced rotation only runs where
+    // NICo is known to own the password).
+    {
+        let mut conn = pool.acquire().await.expect("acquire connection");
+        db::machine::update_bios_password_set_time(&mh.host.id, &mut conn)
+            .await
+            .expect("stamp bios_password_set_time");
+    }
 
     let host_mac = mh
         .host
@@ -143,7 +158,7 @@ async fn ready_host_converges_uefi_to_site_target(
         .build()
         .await;
 
-    let (mh, host_mac) = ready_host(&env).await;
+    let (mh, host_mac) = ready_host(&env, &pool).await;
     stage_lagging_host_uefi(&env, &pool, host_mac).await?;
 
     // The device lags the staged target before the controller runs.
@@ -207,7 +222,7 @@ async fn feature_flag_off_suppresses_passive_uefi_rotation(
         .build()
         .await;
 
-    let (mh, host_mac) = ready_host(&env).await;
+    let (mh, host_mac) = ready_host(&env, &pool).await;
     stage_lagging_host_uefi(&env, &pool, host_mac).await?;
 
     // A full sweep must leave the lagging host in Ready: the disabled flag keeps
@@ -247,7 +262,7 @@ async fn force_request_converges_quarantined_uefi_when_disabled(
         .build()
         .await;
 
-    let (mh, host_mac) = ready_host(&env).await;
+    let (mh, host_mac) = ready_host(&env, &pool).await;
     let machine_id = mh.host.machine().await.id;
     stage_lagging_host_uefi(&env, &pool, host_mac).await?;
 
@@ -314,7 +329,7 @@ async fn uefi_change_failure_quarantines_and_returns_to_ready(
         .build()
         .await;
 
-    let (mh, host_mac) = ready_host(&env).await;
+    let (mh, host_mac) = ready_host(&env, &pool).await;
     stage_lagging_host_uefi(&env, &pool, host_mac).await?;
 
     // Model a BIOS that rejects the change. The error carries the new password so

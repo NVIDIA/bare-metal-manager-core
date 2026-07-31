@@ -85,15 +85,29 @@ pub(crate) fn host_uefi_rotation_force_requested(mh: &ManagedHostStateSnapshot) 
 ///
 /// An operator force-converge request always wins -- the ops escape hatch is
 /// honored even when the site-wide flag is off. Otherwise the passive gate fires
-/// only when UEFI rotation is enabled site-wide *and* the host lags the staged
-/// target; the flag is checked first so a disabled site never runs the gate
-/// query.
+/// only when the host's initial BIOS password was already set
+/// (`bios_password_set_time.is_some()`; a never-set host is an initial-setup
+/// problem, not a rotation candidate), UEFI rotation is enabled site-wide, *and*
+/// the host lags the staged target; the cheap checks are ordered first so a
+/// disabled site (or a never-set host) never runs the gate query.
 pub(crate) async fn should_enter_host_uefi_rotation(
     services: &MachineStateHandlerServices,
     mh: &ManagedHostStateSnapshot,
 ) -> Result<bool, StateHandlerError> {
     if host_uefi_rotation_force_requested(mh) {
         return Ok(true);
+    }
+    // Passive rotation only touches a host whose initial BIOS password NICo
+    // actually set: `bios_password_set_time` is stamped on that success and
+    // never cleared, so `is_some()` is a durable "we have driven this host's
+    // UEFI password at least once" signal. A host that never got its initial
+    // password set is an initial-setup problem (owned by the ingestion
+    // `UefiSetup` flow, which for the tested Dell/Lenovo vendors intercepts such
+    // a Ready host before this guard is reached), not a rotation candidate --
+    // attempting to rotate it would just fail and land in backoff quarantine.
+    // The operator force-converge escape hatch above still overrides this.
+    if mh.host_snapshot.bios_password_set_time.is_none() {
+        return Ok(false);
     }
     Ok(services.site_config.uefi_rotation_enabled
         && host_uefi_rotation_needed(services, mh).await?)
