@@ -1187,6 +1187,13 @@ cat > "$MERGED_VALUES" <<EOF
 image:
   repository: "${MAT_IMAGE_REPO}"
   tag: "${MAT_IMAGE_TAG}"
+EOF
+# MAT_MULTIPOD=1: the values file defines its own pods map (mat-0..mat-N with
+# per-pod host counts and relay addresses); injecting the single-pod default
+# here would deep-merge a phantom extra pod on top of it. HOST_COUNT/DPU env
+# still drive the sizing math above -- set them to the fleet TOTALS.
+if [[ "${MAT_MULTIPOD:-0}" != "1" ]]; then
+cat >> "$MERGED_VALUES" <<EOF
 pods:
   default:
     machines:
@@ -1196,6 +1203,7 @@ pods:
         oobDhcpRelayAddress: "${OOB_DHCP_RELAY}"
         adminDhcpRelayAddress: "${ADMIN_DHCP_RELAY}"
 EOF
+fi
 if [[ "$MAT_MODE" == "scale" ]]; then
     # Pin every mock BMC's password to the site root ("emulates a BMC already
     # rotated by an operator"). At scale, the rotation dance is fatally racy:
