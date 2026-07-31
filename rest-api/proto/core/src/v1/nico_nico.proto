@@ -5898,33 +5898,16 @@ message BmcCredentialRotationRequest {
     Clear = 2;
   }
   Mode mode = 1;
-<<<<<<< HEAD
 
-  // ID of the device that owns the target BMC. Machine and switch IDs are
-  // supported. Power shelf IDs are valid DeviceIds and are accepted for forward
-  // compatibility, but power shelf BMC rotation is not yet supported.
+  // ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+  // switch (switch BMC), or a power shelf (its PMC). Each such device has
+  // exactly one BMC, so any one id uniquely names the device.
   common.DeviceId device_id = 3;
 
-  // MAC of the BMC to target, resolved server-side to its owning machine or
-  // switch. May be given alone, or alongside a `device_id` as a cross-check
-  // (they must identify the same device). At least one of `device_id` /
-  // `bmc_mac` must be set (enforced server-side).
-=======
-  // Id of the device that owns the target BMC: a machine id (a host or DPU
-  // machine), a switch id, or a power shelf id. A machine, a switch, and a power
-  // shelf each have exactly one BMC, so any one id uniquely names the device;
-  // the three are mutually exclusive (a BMC belongs to one device kind), which
-  // this oneof enforces.
-  oneof device_id {
-    common.MachineId machine_id = 2;
-    common.SwitchId switch_id = 3;
-    common.PowerShelfId power_shelf_id = 5;
-  }
   // MAC of the BMC to target, resolved server-side to its owning machine,
   // switch, or power shelf. May be given alone, or alongside a `device_id` as a
   // cross-check (they must identify the same device). At least one of
   // `device_id` / `bmc_mac` must be set (enforced server-side).
->>>>>>> eb24acb24 (feat(power-shelf-controller): converge power shelf BMC credentials via RotatingBmc state)
   optional string bmc_mac = 4;
 }
 
