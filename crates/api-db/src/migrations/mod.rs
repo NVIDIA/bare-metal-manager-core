@@ -200,6 +200,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migration_versions_are_unique() {
+        let mut versions = HashSet::new();
+
+        for migration in std::iter::once(&MIGRATION_LAYOUT.legacy)
+            .chain(
+                MIGRATION_LAYOUT
+                    .epochs
+                    .iter()
+                    .flat_map(|epoch| [&epoch.squash, &epoch.post_squash]),
+            )
+            .flat_map(|migrator| migrator.iter())
+        {
+            assert!(
+                versions.insert(migration.version),
+                "duplicate migration version {}",
+                migration.version
+            );
+        }
+    }
+
+    #[test]
     fn epochs_are_ordered_and_point_to_their_squash_migration() {
         let mut previous = None;
 
