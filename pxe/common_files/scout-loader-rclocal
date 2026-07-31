@@ -205,6 +205,12 @@ then
 
     DONE=0
     send_msg "LOADER: Downloading ${newrootfsurl}"
+    if [ -x /opt/forge/forge-scout-network.sh ]
+    then
+        send_msg "LOADER: Selecting boot NIC from kernel mac= parameter"
+        /opt/forge/forge-scout-network.sh || send_msg "LOADER: Scout NIC filtering failed; continuing startup"
+    fi
+
     while (( ${DONE} != 1 ))
     do
       # We store the HTTP HEAD info for the script which will check for updates later.
