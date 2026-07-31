@@ -280,7 +280,7 @@ impl From<reqwest::StatusCode> for UpstreamStatus {
 impl UpstreamStatus {
     /// The class of a completed forward: the response's status class, or
     /// `Error` when the request never produced a response.
-    pub(crate) fn from_result(result: &Result<reqwest::Response, reqwest::Error>) -> Self {
+    pub(crate) fn from_result<E>(result: &Result<reqwest::Response, E>) -> Self {
         match result {
             Ok(response) => response.status().into(),
             Err(_) => Self::Error,
@@ -591,14 +591,16 @@ mod tests {
                 .expect("response builds"),
         );
         assert_eq!(
-            UpstreamStatus::from_result(&Ok(response)),
+            UpstreamStatus::from_result::<reqwest_middleware::Error>(&Ok(response)),
             UpstreamStatus::Http5xx
         );
 
-        let error = reqwest::Client::new()
-            .get("http://")
-            .build()
-            .expect_err("an empty host cannot build a request");
+        let error = reqwest_middleware::Error::from(
+            reqwest::Client::new()
+                .get("http://")
+                .build()
+                .expect_err("an empty host cannot build a request"),
+        );
         assert_eq!(
             UpstreamStatus::from_result(&Err(error)),
             UpstreamStatus::Error
