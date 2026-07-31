@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/NVIDIA/infra-controller/rest-api/flow/internal/task/executor/temporalworkflow/activity"
@@ -625,14 +626,25 @@ func executeVerifyFirmwareConsistencyAction(actx actionExecutionContext) error {
 
 // executeDecommissionControlAction initiates decommissioning of the target
 // components via the DecommissionControl activity.
+//
+// A fire-once retry policy (MaximumAttempts: 1) is applied so Temporal does
+// not resend the decommission command on transient failures. Retry logic for
+// the overall decommission sequence is owned by the step's WaitDecommissioned
+// post-operation, which polls until the terminal state is reached.
 func executeDecommissionControlAction(actx actionExecutionContext) error {
 	var info operations.DecommissionTaskInfo
 	if parent, ok := actx.operationInfo.(*operations.DecommissionTaskInfo); ok && parent != nil {
 		info = *parent
 	}
+	ctx := workflow.WithActivityOptions(actx.workflowContext, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 1,
+		},
+	})
 	return workflow.ExecuteActivity(
-		actx.workflowContext, activity.NameDecommissionControl, actx.target, info,
-	).Get(actx.workflowContext, nil)
+		ctx, activity.NameDecommissionControl, actx.target, info,
+	).Get(ctx, nil)
 }
 
 // executeWaitDecommissionedAction polls GetDecommissionStatus until all
