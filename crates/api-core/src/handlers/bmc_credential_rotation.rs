@@ -81,16 +81,6 @@ pub(crate) async fn trigger_bmc_credential_rotation(
     Ok(Response::new(()))
 }
 
-/// A kind-labeled description of a device id, used in cross-check error messages
-/// (`DeviceId`'s own `Display` prints only the bare id, without its kind).
-fn describe(device: &DeviceId) -> String {
-    match device {
-        DeviceId::Machine(id) => format!("machine {id}"),
-        DeviceId::Switch(id) => format!("switch {id}"),
-        DeviceId::PowerShelf(id) => format!("power shelf {id}"),
-    }
-}
-
 /// Resolve the device that owns the target BMC from an operator request that
 /// carries a `device_id` (a machine, switch, or power shelf), a BMC MAC, or
 /// both. A device has exactly one BMC, so any single identifier uniquely names
@@ -110,29 +100,32 @@ async fn resolve_target(
         })
         .transpose()?;
 
-    // A MAC uniquely names one BMC device; resolve which device kind owns it.
-    let mac_target = match bmc_mac {
-        Some(mac) => Some(resolve_mac_owner(txn, mac).await?),
+    // A MAC uniquely names one BMC device; resolve which device kind owns it,
+    // keeping the parsed MAC alongside its owner for cross-check error messages.
+    let mac_address_and_target = match bmc_mac {
+        Some(mac) => Some((mac, resolve_mac_owner(txn, mac).await?)),
         None => None,
     };
 
-    let target = match (device_id, mac_target) {
+    let target = match (device_id, mac_address_and_target) {
         // Both supplied: the explicit id and the MAC's owner must be the same
         // device, so a mismatched cross-check is rejected.
-        (Some(id_target), Some(mac_target)) => {
+        (Some(id_target), Some((mac, mac_target))) => {
             if id_target != mac_target {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "bmc {} belongs to {}, not the requested {}",
-                    bmc_mac.expect("a mac target implies a parsed mac"),
-                    describe(&mac_target),
-                    describe(&id_target),
+                    "bmc {} belongs to {} {}, not the requested {} {}",
+                    mac,
+                    mac_target.kind(),
+                    mac_target,
+                    id_target.kind(),
+                    id_target,
                 )));
             }
             id_target
         }
         (Some(id_target), None) => id_target,
         // MAC only: the owner the MAC resolved to.
-        (None, Some(mac_target)) => mac_target,
+        (None, Some((_mac, mac_target))) => mac_target,
         (None, None) => {
             return Err(CarbideError::InvalidArgument(
                 "one of device_id or bmc_mac must be provided".to_string(),

@@ -233,6 +233,36 @@ impl DeviceId {
         #[allow(deprecated)]
         Self::Machine(MachineId::default())
     }
+
+    /// The kind of device this id names, independent of the id value itself.
+    /// Useful for kind-labeled messages, since [`DeviceId`]'s own [`Display`]
+    /// prints only the bare id without its kind.
+    pub fn kind(&self) -> DeviceKind {
+        match self {
+            DeviceId::Machine(_) => DeviceKind::Machine,
+            DeviceId::Switch(_) => DeviceKind::Switch,
+            DeviceId::PowerShelf(_) => DeviceKind::PowerShelf,
+        }
+    }
+}
+
+/// The kind of a [`DeviceId`], without its id value. Its [`Display`] renders a
+/// human-readable label (e.g. for error messages).
+#[derive(Copy, Clone, Eq, Hash, PartialEq, Ord, PartialOrd, Debug)]
+pub enum DeviceKind {
+    Machine,
+    Switch,
+    PowerShelf,
+}
+
+impl Display for DeviceKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DeviceKind::Machine => write!(f, "machine"),
+            DeviceKind::Switch => write!(f, "switch"),
+            DeviceKind::PowerShelf => write!(f, "power-shelf"),
+        }
+    }
 }
 
 impl From<MachineId> for DeviceId {

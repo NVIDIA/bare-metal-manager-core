@@ -119,13 +119,14 @@ pub async fn handle_rotating_bmc(
             // budget without the forced attempt cleanly running, so leave the
             // flag set and let the entry guard re-attempt on a later sweep rather
             // than silently drop the operator's request.
-            let mut txn = None;
-            if force && matches!(step, RotationStep::Settled) {
+            let txn = if force && matches!(step, RotationStep::Settled) {
                 let mut t = ctx.services.db_pool.begin().await?;
                 db::power_shelf::clear_bmc_credential_rotation_requested(&mut t, *power_shelf_id)
                     .await?;
-                txn = Some(t);
-            }
+                Some(t)
+            } else {
+                None
+            };
             Ok(StateHandlerOutcome::transition(PowerShelfControllerState::Ready).with_txn_opt(txn))
         }
         RotationStep::Retry { retry_count } => Ok(StateHandlerOutcome::transition(
