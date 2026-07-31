@@ -9,6 +9,8 @@ REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
 
 CORE_NAMESPACE="${LOCAL_DEV_NAMESPACE:-nico-system}"
 REST_NAMESPACE="nico-rest"
+MACHINE_A_TRON_DEPLOYMENT="nico-machine-a-tron-mat-0"
+MACHINE_A_TRON_BMC_SERVICE="${MACHINE_A_TRON_DEPLOYMENT}-bmc-mock"
 API_FORWARD_PORT="${LOCAL_DEV_REST_API_FORWARD_PORT:-18388}"
 KEYCLOAK_FORWARD_PORT="${LOCAL_DEV_KEYCLOAK_FORWARD_PORT:-18082}"
 WORK_DIR="${LOCAL_DEV_REST_WORK_DIR:-${HOME}/Developer/_agent-tmp/devspace-rest}"
@@ -42,7 +44,8 @@ require_bin base64
 mkdir -p "${WORK_DIR}"
 
 kubectl rollout status deployment/nico-api -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
-kubectl rollout status deployment/nico-machine-a-tron -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
+kubectl rollout status "deployment/${MACHINE_A_TRON_DEPLOYMENT}" \
+  -n "${CORE_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-api -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-cert-manager -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
 kubectl rollout status deployment/nico-rest-cloud-worker -n "${REST_NAMESPACE}" --timeout=300s >/dev/null
@@ -128,7 +131,7 @@ inventory_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 machine_status="$(kubectl exec deployment/nico-api -n "${CORE_NAMESPACE}" -- \
   curl --fail --insecure --silent --max-time 5 \
-  https://nico-machine-a-tron-bmc-mock:1266/machines/status 2>/dev/null || true)"
+  "https://${MACHINE_A_TRON_BMC_SERVICE}:1266/machines/status" 2>/dev/null || true)"
 expected_host_count="$(jq -r \
   'if (.machines | type) == "array" then .machines | length else 0 end' \
   <<<"${machine_status}" 2>/dev/null || printf '0')"
