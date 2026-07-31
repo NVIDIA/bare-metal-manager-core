@@ -145,6 +145,9 @@ fn services_with_component_manager(
         })),
         per_object_metrics_registry: env.per_object_metrics_registry(),
         rack_firmware_reprovisioning_enabled: false,
+        redfish_client_pool: env.redfish_sim.clone(),
+        bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+        bmc_rotation_enabled: false,
     }
 }
 

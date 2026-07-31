@@ -97,6 +97,7 @@ use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
 use model::bmc_info::BmcInfo;
 use model::machine::Machine;
+use model::power_shelf::PowerShelf;
 use model::switch::Switch;
 use sqlx::PgPool;
 
@@ -227,13 +228,40 @@ pub enum RotateOutcome {
     NoWork,
 }
 
+/// How the engine obtains the dispatch vendor `set_bmc_root_password` branches
+/// on for a rotation target.
+///
+/// The precise Redfish dispatch vendor is not persisted for any device family
+/// (the stored hardware vendor is DMI-derived and too coarse). The distinction
+/// is instead about *who* resolves it: a caller that already holds the exact
+/// vendor hands it over (`Fixed`), while a caller that would otherwise have to
+/// probe an authenticated BMC to learn it defers that probe to the engine
+/// (`Probe`), so the probe runs inside the engine's quarantine-on-failure
+/// envelope.
+#[derive(Debug, Clone)]
+pub enum DispatchVendor {
+    /// The caller already holds the precise vendor: the switch controller (a
+    /// compile-time constant, NVIDIA MGX) and the machine controller (which
+    /// probes it in its own controller layer before calling). Nothing persists
+    /// it -- `Fixed` only means "resolved by the caller, not the engine".
+    Fixed(RedfishVendor),
+    /// Resolve the vendor at rotation time by probing the BMC's Chassis
+    /// manufacturer ([`RedfishClientPool::probe_bmc_vendor`]) -- power-shelf
+    /// PMCs (Lite-On/Delta), which do *not* expose a recognized vendor in their
+    /// Redfish service root. The probe runs *inside* the engine's
+    /// quarantine-on-failure envelope and reuses the same credential candidates
+    /// as the rotation itself, so a failed probe records backoff (lockout-safe)
+    /// rather than looping the entry guard, and a stale per-device secret does
+    /// not deadlock recovery.
+    Probe,
+}
+
 /// Where and how to reach a single device's BMC for rotation.
 ///
 /// `device_mac` is the BMC MAC that keys both the `device_credential_rotation`
-/// row and the per-device Vault secret. `vendor` is resolved by the caller,
-/// which for switch / power-shelf BMCs means probing at rotation time via
-/// [`RedfishClientPool::probe_bmc_vendor`] (the precise dispatch vendor is not
-/// persisted anywhere).
+/// row and the per-device Vault secret. `vendor` is either the caller-known
+/// dispatch vendor or a directive to probe it at rotation time (see
+/// [`DispatchVendor`]).
 #[derive(Debug, Clone)]
 pub struct BmcRotationTarget {
     /// BMC MAC keying the rotation row and the per-device secret.
@@ -242,8 +270,8 @@ pub struct BmcRotationTarget {
     pub host: String,
     /// BMC port, when non-default.
     pub port: Option<u16>,
-    /// Precise dispatch vendor `set_bmc_root_password` branches on.
-    pub vendor: RedfishVendor,
+    /// How to obtain the dispatch vendor `set_bmc_root_password` branches on.
+    pub vendor: DispatchVendor,
 }
 
 /// A reachable, keyable BMC endpoint: the MAC that keys both the
@@ -286,9 +314,25 @@ impl BmcEndpoint {
         Self::from_bmc_info(switch.bmc_info.as_ref()?)
     }
 
-    /// Pair this endpoint with a caller-resolved dispatch `vendor` to form the
-    /// [`BmcRotationTarget`] the engine rotates.
+    /// The BMC (PMC) endpoint of a power shelf, or `None` when the power shelf
+    /// has no BMC info or it is unkeyable / unreachable.
+    pub fn from_power_shelf(power_shelf: &PowerShelf) -> Option<Self> {
+        Self::from_bmc_info(power_shelf.bmc_info.as_ref()?)
+    }
+
+    /// Pair this endpoint with a caller-known dispatch `vendor` to form the
+    /// [`BmcRotationTarget`] the engine rotates (machine + switch controllers).
     pub fn into_target(self, vendor: RedfishVendor) -> BmcRotationTarget {
+        self.into_target_with(DispatchVendor::Fixed(vendor))
+    }
+
+    /// Pair this endpoint with a directive to probe the dispatch vendor at
+    /// rotation time (power-shelf controller: Lite-On/Delta PMCs).
+    pub fn into_target_probing_vendor(self) -> BmcRotationTarget {
+        self.into_target_with(DispatchVendor::Probe)
+    }
+
+    fn into_target_with(self, vendor: DispatchVendor) -> BmcRotationTarget {
         BmcRotationTarget {
             device_mac: self.device_mac,
             host: self.host,
@@ -784,7 +828,15 @@ async fn converge_bmc_password(
         password: new_password.clone(),
     };
 
-    let convergence = change_or_recover(redfish_pool, bmc, rotate_from, rotate_to)
+    // Resolve the dispatch vendor before touching the password. For a probe
+    // target this is an authenticated Chassis read, so it must go through the
+    // same redaction and (via the caller) quarantine-on-failure path as the
+    // rotation itself.
+    let vendor = resolve_dispatch_vendor(redfish_pool, bmc, &rotate_from, &rotate_to)
+        .await
+        .map_err(|e| redact(e, &[&current_password, &new_password]))?;
+
+    let convergence = change_or_recover(redfish_pool, bmc, vendor, rotate_from, rotate_to)
         .await
         .map_err(|e| redact(e, &[&current_password, &new_password]))?
         .redacted(&[&current_password, &new_password]);
@@ -824,6 +876,7 @@ async fn converge_bmc_password(
 async fn change_or_recover(
     redfish_pool: &dyn RedfishClientPool,
     bmc: &BmcRotationTarget,
+    vendor: RedfishVendor,
     rotate_from: Credentials,
     rotate_to: Credentials,
 ) -> Result<CredentialConvergence, String> {
@@ -836,7 +889,7 @@ async fn change_or_recover(
         .set_bmc_root_password(
             &bmc.host,
             bmc.port,
-            bmc.vendor,
+            vendor,
             rotate_from,
             new_password.clone(),
         )
@@ -860,6 +913,45 @@ async fn change_or_recover(
         Err(verify_err) => Err(format!(
             "{change_err}; rotate-to credential probe also failed: {verify_err}"
         )),
+    }
+}
+
+/// Resolve the dispatch vendor `set_bmc_root_password` branches on.
+///
+/// A [`DispatchVendor::Fixed`] target returns immediately. A
+/// [`DispatchVendor::Probe`] target (power-shelf PMCs) probes the BMC's Chassis
+/// manufacturer, trying the per-device secret first and the rotate-TO value
+/// second -- the same two candidates the change path uses. That ordering means
+/// a crash-recovered device (whose per-device secret still lags the hardware)
+/// still resolves its vendor via the rotate-TO value rather than deadlocking,
+/// and it is bounded to at most two logins so it stays clear of BMC lockout. A
+/// probe that never authenticates returns `Err`, which the caller records as a
+/// quarantine with backoff. Returns an already-`to_string`-ed error (still to be
+/// redacted by the caller); never returns a secret-bearing string itself.
+async fn resolve_dispatch_vendor(
+    redfish_pool: &dyn RedfishClientPool,
+    bmc: &BmcRotationTarget,
+    rotate_from: &Credentials,
+    rotate_to: &Credentials,
+) -> Result<RedfishVendor, String> {
+    match &bmc.vendor {
+        DispatchVendor::Fixed(vendor) => Ok(*vendor),
+        DispatchVendor::Probe => {
+            let mut last_err = None;
+            for candidate in [rotate_from, rotate_to] {
+                match redfish_pool
+                    .probe_bmc_vendor(&bmc.host, bmc.port, candidate.clone())
+                    .await
+                {
+                    Ok(vendor) => return Ok(vendor),
+                    Err(e) => last_err = Some(e.to_string()),
+                }
+            }
+            Err(format!(
+                "probe BMC dispatch vendor: {}",
+                last_err.unwrap_or_else(|| "no credential candidates".to_string())
+            ))
+        }
     }
 }
 
@@ -901,7 +993,8 @@ mod tests {
     use super::{
         BMC, BmcCredentialRotationConverged, BmcCredentialRotationQuarantined,
         BmcCredentialRotationRecovered, BmcRotationGate, BmcRotationTarget, CredentialConvergence,
-        RotateOutcome, change_or_recover, needs_rotation, redact, rotate_bmc,
+        DispatchVendor, RotateOutcome, change_or_recover, needs_rotation, redact,
+        resolve_dispatch_vendor, rotate_bmc,
     };
 
     const BMC_ROTATION_RESULTS_METRIC: &str = "carbide_bmc_credential_rotation_results_total";
@@ -924,7 +1017,16 @@ mod tests {
             device_mac: test_mac(),
             host: "127.0.0.1".to_string(),
             port: Some(443),
-            vendor: RedfishVendor::NvidiaGBx00,
+            vendor: DispatchVendor::Fixed(RedfishVendor::NvidiaGBx00),
+        }
+    }
+
+    /// A probe-vendor variant of [`target`] for power-shelf-style PMCs, whose
+    /// dispatch vendor the engine resolves at rotation time.
+    fn probe_target() -> BmcRotationTarget {
+        BmcRotationTarget {
+            vendor: DispatchVendor::Probe,
+            ..target()
         }
     }
 
@@ -1192,10 +1294,15 @@ mod tests {
         // The BMC is on "old"; the change to "new" authenticates and succeeds.
         let sim = bmc_on_password("old");
 
-        let convergence =
-            change_or_recover(&sim, &target(), creds("root", "old"), creds("root", "new"))
-                .await
-                .expect("the change should succeed");
+        let convergence = change_or_recover(
+            &sim,
+            &target(),
+            RedfishVendor::NvidiaGBx00,
+            creds("root", "old"),
+            creds("root", "new"),
+        )
+        .await
+        .expect("the change should succeed");
 
         assert_eq!(
             convergence,
@@ -1217,10 +1324,15 @@ mod tests {
         // re-issuing the change.
         let sim = bmc_on_password("new");
 
-        let convergence =
-            change_or_recover(&sim, &target(), creds("root", "old"), creds("root", "new"))
-                .await
-                .expect("an already-converged BMC must be recovered");
+        let convergence = change_or_recover(
+            &sim,
+            &target(),
+            RedfishVendor::NvidiaGBx00,
+            creds("root", "old"),
+            creds("root", "new"),
+        )
+        .await
+        .expect("an already-converged BMC must be recovered");
 
         assert!(
             matches!(convergence, CredentialConvergence::Recovered { .. }),
@@ -1234,9 +1346,15 @@ mod tests {
         // nor the probe (with "new") authenticates: the change error is surfaced.
         let sim = bmc_on_password("mystery");
 
-        change_or_recover(&sim, &target(), creds("root", "old"), creds("root", "new"))
-            .await
-            .expect_err("neither credential authenticating must surface an error");
+        change_or_recover(
+            &sim,
+            &target(),
+            RedfishVendor::NvidiaGBx00,
+            creds("root", "old"),
+            creds("root", "new"),
+        )
+        .await
+        .expect_err("neither credential authenticating must surface an error");
     }
 
     #[tokio::test]
@@ -1248,14 +1366,61 @@ mod tests {
         sim.set_change_password_error("change boom");
         sim.set_get_accounts_error(true);
 
-        let err = change_or_recover(&sim, &target(), creds("root", "old"), creds("root", "new"))
-            .await
-            .expect_err("a failed change plus a failed probe must surface an error");
+        let err = change_or_recover(
+            &sim,
+            &target(),
+            RedfishVendor::NvidiaGBx00,
+            creds("root", "old"),
+            creds("root", "new"),
+        )
+        .await
+        .expect_err("a failed change plus a failed probe must surface an error");
 
         assert!(
             err.contains("probe also failed"),
             "both the change and probe failures must be surfaced: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn resolve_dispatch_vendor_returns_the_fixed_vendor_without_probing() {
+        // A Fixed target (machine / switch) returns its vendor verbatim; the sim's
+        // service root would resolve to a different vendor, so a returned NvidiaGBx00
+        // proves the fixed value short-circuits the probe.
+        let sim = RedfishSim::default();
+        let vendor = resolve_dispatch_vendor(
+            &sim,
+            &target(),
+            &creds("root", "old"),
+            &creds("root", "new"),
+        )
+        .await
+        .expect("a fixed vendor resolves without touching the BMC");
+        assert_eq!(vendor, RedfishVendor::NvidiaGBx00);
+    }
+
+    #[tokio::test]
+    async fn resolve_dispatch_vendor_probes_the_chassis_manufacturer_for_power_shelves() {
+        // A Probe target with an unrecognized service-root vendor falls back to the
+        // Chassis manufacturer, the standard power-shelf (Lite-On / Delta)
+        // determination.
+        for (manufacturer, expected) in [
+            ("Lite-On Technology Corp.", RedfishVendor::LiteOnPowerShelf),
+            ("Delta Electronics", RedfishVendor::DeltaPowerShelf),
+        ] {
+            let sim = RedfishSim::default();
+            sim.set_service_root_vendor(Some("Contoso".to_string()));
+            sim.set_chassis_manufacturer(Some(manufacturer.to_string()));
+            let vendor = resolve_dispatch_vendor(
+                &sim,
+                &probe_target(),
+                &creds("root", "old"),
+                &creds("root", "new"),
+            )
+            .await
+            .expect("a Lite-On/Delta chassis must resolve a power-shelf vendor");
+            assert_eq!(vendor, expected, "manufacturer {manufacturer:?}");
+        }
     }
 
     #[test]

@@ -33510,14 +33510,14 @@ func (x *HostReprovisioningRequest) GetInitiator() UpdateInitiator {
 type BmcCredentialRotationRequest struct {
 	state protoimpl.MessageState            `protogen:"open.v1"`
 	Mode  BmcCredentialRotationRequest_Mode `protobuf:"varint,1,opt,name=mode,proto3,enum=forge.BmcCredentialRotationRequest_Mode" json:"mode,omitempty"`
-	// ID of the device that owns the target BMC. Machine and switch IDs are
-	// supported. Power shelf IDs are valid DeviceIds and are accepted for forward
-	// compatibility, but power shelf BMC rotation is not yet supported.
+	// ID of the device that owns the target BMC: a machine (host or DPU BMC), a
+	// switch (switch BMC), or a power shelf (its PMC). Each such device has
+	// exactly one BMC, so any one id uniquely names the device.
 	DeviceId *DeviceId `protobuf:"bytes,3,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	// MAC of the BMC to target, resolved server-side to its owning machine or
-	// switch. May be given alone, or alongside a `device_id` as a cross-check
-	// (they must identify the same device). At least one of `device_id` /
-	// `bmc_mac` must be set (enforced server-side).
+	// MAC of the BMC to target, resolved server-side to its owning machine,
+	// switch, or power shelf. May be given alone, or alongside a `device_id` as a
+	// cross-check (they must identify the same device). At least one of
+	// `device_id` / `bmc_mac` must be set (enforced server-side).
 	BmcMac        *string `protobuf:"bytes,4,opt,name=bmc_mac,json=bmcMac,proto3,oneof" json:"bmc_mac,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
