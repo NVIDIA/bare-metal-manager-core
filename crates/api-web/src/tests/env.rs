@@ -21,7 +21,6 @@ use carbide_api_core::test_support::fixture_config::{
 use carbide_test_harness::dns::TestDomain;
 use carbide_test_harness::network::segment::TestNetworkSegment;
 use carbide_test_harness::prelude::*;
-use model::machine::ManagedHostState;
 use model::test_support::ManagedHostConfig;
 
 pub struct TestEnv {
@@ -84,7 +83,7 @@ impl TestEnv {
         host.report_dpu_network_status().await;
         host.insert_empty_host_health_report("test-harness-health")
             .await;
-        host.advance_state(ManagedHostState::Ready).await;
+        host.advance_to_converged_ready().await;
         (host, build_data)
     }
 }

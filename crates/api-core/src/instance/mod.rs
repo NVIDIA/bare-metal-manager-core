@@ -1324,6 +1324,27 @@ pub async fn allocate_instance(
         .ok_or_else(|| CarbideError::internal("instance allocation returned no result".to_string()))
 }
 
+fn not_allocatable_error(machine_id: MachineId, reason: NotAllocatableReason) -> CarbideError {
+    match reason {
+        NotAllocatableReason::InvalidState(state) => CarbideError::InvalidArgument(format!(
+            "could not create instance on machine {machine_id} given machine state {state:?}"
+        )),
+        NotAllocatableReason::PendingInstanceCreation => CarbideError::InvalidArgument(format!(
+            "could not create instance on machine {machine_id}. machine is already used by another instance creation request",
+        )),
+        NotAllocatableReason::PendingBootConfiguration => {
+            CarbideError::FailedPrecondition(format!(
+                "machine {machine_id} has a pending boot configuration; retry after it has been applied"
+            ))
+        }
+        NotAllocatableReason::NoDpuSnapshots => {
+            CarbideError::internal(format!("machine {machine_id} has no DPU. cannot allocate"))
+        }
+        NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
+        NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
+    }
+}
+
 /// Allocates multiple instances in a single transaction.
 /// Rolls back entirely if any allocation fails.
 ///
@@ -1517,26 +1538,20 @@ pub async fn batch_allocate_instances(
             })?;
 
         if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
-            tracing::error!(
-                %machine_id,
-                error = %e,
-                "Host can not be used as instance due to reason",
-            );
-            return Err(match e {
-                NotAllocatableReason::InvalidState(s) => CarbideError::InvalidArgument(format!(
-                    "could not create instance on machine {machine_id} given machine state {s:?}"
-                )),
-                NotAllocatableReason::PendingInstanceCreation => {
-                    CarbideError::InvalidArgument(format!(
-                        "could not create instance on machine {machine_id}. machine is already used by another instance creation request",
-                    ))
-                }
-                NotAllocatableReason::NoDpuSnapshots => CarbideError::internal(format!(
-                    "machine {machine_id} has no DPU. cannot allocate"
-                )),
-                NotAllocatableReason::MaintenanceMode => CarbideError::MaintenanceMode,
-                NotAllocatableReason::HealthAlert(_) => CarbideError::UnhealthyHost,
-            });
+            if matches!(&e, NotAllocatableReason::PendingBootConfiguration) {
+                tracing::info!(
+                    %machine_id,
+                    error = %e,
+                    "Host can not be used as instance due to reason",
+                );
+            } else {
+                tracing::error!(
+                    %machine_id,
+                    error = %e,
+                    "Host can not be used as instance due to reason",
+                );
+            }
+            return Err(not_allocatable_error(machine_id, e));
         }
 
         if mh_snapshot.host_snapshot.config.dpf.used_for_ingestion
@@ -2334,6 +2349,25 @@ mod tests {
                 build_requested_linknet_prefix(ip.parse().unwrap(), prefix_len).map_err(|_| ())
             },
         );
+    }
+
+    #[test]
+    fn pending_boot_configuration_has_a_safe_allocation_error() {
+        let machine_id = "fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30"
+            .parse()
+            .unwrap();
+
+        assert!(matches!(
+            not_allocatable_error(
+                machine_id,
+                NotAllocatableReason::PendingBootConfiguration,
+            ),
+            CarbideError::FailedPrecondition(message)
+                if message
+                    == format!(
+                        "machine {machine_id} has a pending boot configuration; retry after it has been applied"
+                    )
+        ));
     }
 }
 
