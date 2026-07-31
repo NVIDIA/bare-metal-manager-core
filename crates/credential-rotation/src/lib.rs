@@ -998,8 +998,8 @@ mod tests {
 
     use super::{
         BMC, BmcCredentialRotationConverged, BmcCredentialRotationQuarantined,
-        BmcCredentialRotationRecovered, BmcRotationGate, BmcRotationTarget, CredentialConvergence,
-        DispatchVendor, RotateOutcome, change_or_recover, needs_rotation, redact,
+        BmcCredentialRotationRecovered, BmcRotationTarget, CredentialConvergence, DispatchVendor,
+        RotateOutcome, RotationGate, change_or_recover, needs_rotation, redact,
         resolve_dispatch_vendor, rotate_bmc,
     };
 

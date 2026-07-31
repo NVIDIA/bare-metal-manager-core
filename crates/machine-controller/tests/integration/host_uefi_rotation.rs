@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for machine-controller host UEFI credential rotation
-//! (REQ-2, UEFI): a staged site-wide target drives a Ready host through the
+//! End-to-end coverage for machine-controller host UEFI credential rotation:
+//! a staged site-wide target drives a Ready host through the
 //! multi-tick `ManagedHostState::RotatingHostUefi` FSM (set -> job -> power-cycle ->
 //! poll -> record) and back to Ready, converging the device's tracked UEFI
 //! version. Unlike the BMC sibling there is no per-device secret: the site-wide

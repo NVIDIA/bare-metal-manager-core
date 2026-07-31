@@ -25,7 +25,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_credential_rotation::BmcRotationGate;
+use carbide_credential_rotation::RotationGate;
 use carbide_power_shelf_controller::context::PowerShelfStateHandlerServices;
 use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::io::PowerShelfStateControllerIO;
@@ -79,7 +79,7 @@ fn creds(username: &str, password: &str) -> Credentials {
 
 /// Services with the passive BMC-rotation gate toggled by `bmc_rotation_enabled`
 /// and no component manager, so a Ready power shelf idles on power-state polling
-/// and reaches the BMC gate. A fresh [`BmcRotationGate`] refreshes its cached
+/// and reaches the BMC gate. A fresh [`RotationGate`] refreshes its cached
 /// aggregate live on first use each iteration.
 fn power_shelf_services(
     env: &TestEnv,
@@ -93,7 +93,7 @@ fn power_shelf_services(
         per_object_metrics_registry: env.per_object_metrics_registry(),
         rack_firmware_reprovisioning_enabled: false,
         redfish_client_pool: env.redfish_sim.clone(),
-        bmc_rotation_gate: BmcRotationGate::new(),
+        bmc_rotation_gate: RotationGate::new_for_family(CredentialRotationType::Bmc),
         bmc_rotation_enabled,
     }
 }

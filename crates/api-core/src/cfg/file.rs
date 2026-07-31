@@ -350,7 +350,7 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub bmc_rotation_enabled: bool,
 
-    /// Site-wide enable for passive UEFI credential rotation (REQ-2, UEFI). When
+    /// Site-wide enable for passive UEFI credential rotation. When
     /// `false` (the default), a Ready host never enters `RotatingHostUefi` on its
     /// own even if it lags the staged site-wide target. This is the fleet
     /// kill-switch for rolling the feature out site-by-site; the operator

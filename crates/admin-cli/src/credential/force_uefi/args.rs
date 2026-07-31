@@ -26,13 +26,13 @@ use mac_address::MacAddress;
 EXAMPLES:
 
 Force an immediate UEFI credential rotation by machine ID:
-    $ nico-admin-cli credential force-uefi set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-uefi set --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Force it by BMC MAC instead:
     $ nico-admin-cli credential force-uefi set --bmc-mac 00:11:22:33:44:55
 
 Clear a pending force-converge request:
-    $ nico-admin-cli credential force-uefi clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-uefi clear --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 ")]
 pub enum Args {
@@ -47,7 +47,7 @@ pub enum Args {
 EXAMPLES:
 
 Force-converge a machine's UEFI credential now by machine ID:
-    $ nico-admin-cli credential force-uefi set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-uefi set --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Force-converge by BMC MAC:
     $ nico-admin-cli credential force-uefi set --bmc-mac 00:11:22:33:44:55
@@ -86,7 +86,7 @@ impl From<ForceSet> for UefiCredentialRotationRequest {
 EXAMPLES:
 
 Clear a pending force-converge request by machine ID:
-    $ nico-admin-cli credential force-uefi clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-uefi clear --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Clear a pending force-converge request by BMC MAC:
     $ nico-admin-cli credential force-uefi clear --bmc-mac 00:11:22:33:44:55
