@@ -1293,7 +1293,9 @@ ok "cleared exploration lockouts + requested re-exploration"
 
 # machine target = one row per host + per DPU; wait scales with host count
 MACHINE_TARGET=$(( HOST_COUNT * (1 + DPU_PER_HOST) ))
-MACHINE_WAIT=$(( 420 + HOST_COUNT * 3 )); (( MACHINE_WAIT > 5400 )) && MACHINE_WAIT=5400
+# 3s/host with a 4h cap: at 4500 hosts (13.5k machines) init alone can run
+# ~1h before the first machine appears; the old 90-min cap expired mid-run.
+MACHINE_WAIT=$(( 420 + HOST_COUNT * 3 )); (( MACHINE_WAIT > 14400 )) && MACHINE_WAIT=14400
 info "waiting for explore → rotate → preingest → identify → create (target ${MACHINE_TARGET} machines, up to ${MACHINE_WAIT}s)..."
 
 # --- per-phase ingestion rate instrumentation (#3756) -----------------------

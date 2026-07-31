@@ -55,6 +55,32 @@ mat-k8s-controller:
     insecureSkipVerify: true  # For self-signed certs
 
 # Larger resources for scale testing
+
+# At thousands of hosts MAT registers all expected machines BEFORE binding
+# the redfish port, so the chart-default liveness window (30s + 3×30s) kills
+# the pod mid-init and it crash-loops (observed: 30 restarts at 4500 hosts,
+# ~3 min per life, exit 137 from the kubelet). Give init up to 2h; steady-
+# state kill detection matters less in a sim harness than surviving bring-up.
+livenessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  failureThreshold: 240
+  successThreshold: 1
+  timeoutSeconds: 10
+
+readinessProbe:
+  tcpSocket:
+    port: redfish
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  failureThreshold: 240
+  successThreshold: 1
+  timeoutSeconds: 5
+
+# Larger resources: one tokio task per host + per DPU; at thousands of
+# machines the FSM/API chatter is CPU-bound.
 resources:
   limits:
     cpu: "8"

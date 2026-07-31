@@ -71,7 +71,9 @@ install-crds: ## Install ONLY the DPF CRDs the simulator drives (never the opera
 	kubectl apply -f $(CRD_DIR)
 	# apply returns before discovery serves the new types; starting the
 	# manager that early fails its cache/watch init on a fresh cluster.
-	kubectl wait --for condition=established --timeout=60s -f $(CRD_DIR)
+	# 300s: right after a full site reinstall the apiserver can be slow
+	# enough that already-established CRDs miss a 60s wait window.
+	kubectl wait --for condition=established --timeout=300s -f $(CRD_DIR)
 
 .PHONY: deploy
 deploy: install-crds ## One-command deploy: CRDs + RBAC + Deployment (override IMG=, DPF_NAMESPACE=, PULL_SECRET=)
