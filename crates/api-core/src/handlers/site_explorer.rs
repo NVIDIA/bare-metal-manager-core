@@ -19,6 +19,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
+use carbide_site_explorer::EndpointExplorationServiceError;
 use config_version::ConfigVersion;
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use tonic::{Request, Response, Status};
@@ -300,10 +301,10 @@ pub(crate) async fn re_explore_endpoint(
         )
         .await?
     {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "endpoint exploration is suppressed for BMC {} at {bmc_ip}",
-            bmc_interface.mac_address
-        ))
+        return Err(EndpointExplorationServiceError::Suppressed {
+            bmc_ip,
+            bmc_mac_address: bmc_interface.mac_address,
+        }
         .into());
     }
 

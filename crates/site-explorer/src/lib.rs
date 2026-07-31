@@ -927,6 +927,7 @@ impl SiteExplorer {
         &self,
         metrics: &mut SiteExplorationMetrics,
     ) -> SiteExplorerResult<SiteIdentifiedHosts> {
+        self.acknowledge_site_explorer_suppressions().await?;
         self.check_preconditions(metrics).await?;
 
         let update_explored_endpoints_start = Instant::now();
@@ -1993,29 +1994,15 @@ impl SiteExplorer {
             })
     }
 
-    async fn acknowledge_site_explorer_suppressions(
-        txn: &mut Transaction<'_>,
-    ) -> SiteExplorerResult<HashSet<MacAddress>> {
-        let suppressed_bmc_macs = db::bmc_suppression::find_bmc_mac_addresses(
-            txn.as_pgconn(),
+    /// Acknowledges any unacknowledged Site Explorer suppressions.
+    async fn acknowledge_site_explorer_suppressions(&self) -> SiteExplorerResult<()> {
+        let mut txn = self.txn_begin().await?;
+        db::bmc_suppression::acknowledge_unacknowledged(
+            &mut txn,
             BmcSuppressionSubsystem::SiteExplorer,
         )
         .await?;
-        let mut acknowledged_bmc_macs = HashSet::with_capacity(suppressed_bmc_macs.len());
-
-        for bmc_mac_address in suppressed_bmc_macs {
-            if db::bmc_suppression::acknowledge(
-                txn.as_pgconn(),
-                bmc_mac_address,
-                BmcSuppressionSubsystem::SiteExplorer,
-            )
-            .await?
-            {
-                acknowledged_bmc_macs.insert(bmc_mac_address);
-            }
-        }
-
-        Ok(acknowledged_bmc_macs)
+        Ok(txn.commit().await?)
     }
 
     async fn update_explored_endpoints(
@@ -2024,7 +2011,15 @@ impl SiteExplorer {
     ) -> SiteExplorerResult<ExploredEndpointIndex> {
         let load_start = Instant::now();
         let mut txn = self.txn_begin().await?;
-        let ignored_bmc_macs = Self::acknowledge_site_explorer_suppressions(&mut txn).await?;
+        let ignored_bmc_macs = db::bmc_suppression::find_all_by_subsystem(
+            &mut txn,
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?
+        .into_iter()
+        .filter(|suppression| suppression.acknowledged_at.is_some())
+        .map(|suppression| suppression.bmc_mac_address)
+        .collect::<Vec<_>>();
 
         let underlay_segments =
             db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))

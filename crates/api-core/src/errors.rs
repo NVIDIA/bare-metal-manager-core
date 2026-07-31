@@ -355,12 +355,9 @@ impl From<EndpointExplorationServiceError> for CarbideError {
                     "endpoint exploration already in progress for {bmc_ip}"
                 ))
             }
-            EndpointExplorationServiceError::Suppressed {
-                bmc_ip,
-                bmc_mac_address,
-            } => CarbideError::FailedPrecondition(format!(
-                "endpoint exploration is suppressed for BMC {bmc_mac_address} at {bmc_ip}"
-            )),
+            suppressed_error @ EndpointExplorationServiceError::Suppressed { .. } => {
+                CarbideError::FailedPrecondition(suppressed_error.to_string())
+            }
             EndpointExplorationServiceError::ConcurrentModification { kind, version } => {
                 CarbideError::ConcurrentModificationError(kind, version)
             }
