@@ -81,6 +81,6 @@ pub async fn restart_ovs() -> eyre::Result<()> {
         );
     }
 
-    OvsRestart::Succeeded.emit();
+    carbide_instrument::emit(OvsRestart::Succeeded {});
     Ok(())
 }

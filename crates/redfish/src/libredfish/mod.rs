@@ -31,7 +31,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use carbide_utils::HostPortPair;
 use carbide_utils::redfish::BmcAccessInfo;
@@ -46,56 +46,54 @@ enum DpuUefiPasswordSetupSkipReason {
     CurrentUefiPasswordMissing,
 }
 
-/// The DPU BIOS response cannot support replacing its factory UEFI password.
-///
-/// The response and all credentials stay out of both telemetry surfaces; the
-/// bounded reason is enough to identify the incompatible response form.
+/// UEFI password setup was skipped. Each variant is one reason, and picks the
+/// diagnostic that reason already logged.
 #[derive(Event)]
 #[event(
     event_name = "dpu_uefi_password_setup_skipped",
     metric_name = "carbide_dpu_uefi_password_setup_skips_total",
     component = "carbide-redfish",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of DPU UEFI password setup operations skipped, by reason."
+    describe = "Number of DPU UEFI password setup operations skipped, by reason.",
+    labels(reason: DpuUefiPasswordSetupSkipReason),
 )]
-struct DpuUefiPasswordSetupSkipped {
-    #[label]
-    reason: DpuUefiPasswordSetupSkipReason,
-}
+enum DpuUefiPasswordSetupSkipped {
+    #[event(
+        labels(reason = DpuUefiPasswordSetupSkipReason::BiosAttributesMissing),
+        log = warn,
+        message = "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
+    )]
+    BiosAttributesMissing {},
 
-impl DynamicMessage for DpuUefiPasswordSetupSkipped {
-    fn message(&self) -> &'static str {
-        match self.reason {
-            DpuUefiPasswordSetupSkipReason::BiosAttributesMissing => {
-                "BIOS Attributes are missing in the Redfish System BIOS endpoint, skipping UEFI password setting"
-            }
-            DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject => {
-                "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
-            }
-            DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing => {
-                "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
-            }
-        }
-    }
-}
+    #[event(
+        labels(reason = DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject),
+        log = warn,
+        message = "BIOS attributes are not an object in the Redfish System BIOS endpoint, skipping UEFI password setting"
+    )]
+    BiosAttributesNotObject {},
 
+    #[event(
+        labels(reason = DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing),
+        log = warn,
+        message = "BIOS Attributes exist, but is missing CurrentUefiPassword key, skipping UEFI password setting"
+    )]
+    CurrentUefiPasswordMissing {},
+}
 fn emit_dpu_uefi_password_setup_skipped_if_needed(
     bios_attrs: &std::collections::HashMap<String, serde_json::Value>,
 ) -> bool {
-    let reason = match bios_attrs.get("Attributes") {
-        None => DpuUefiPasswordSetupSkipReason::BiosAttributesMissing,
+    let skipped = match bios_attrs.get("Attributes") {
+        None => DpuUefiPasswordSetupSkipped::BiosAttributesMissing {},
         Some(attrs) => match attrs.as_object() {
-            None => DpuUefiPasswordSetupSkipReason::BiosAttributesNotObject,
+            None => DpuUefiPasswordSetupSkipped::BiosAttributesNotObject {},
             Some(attrs) if !attrs.contains_key("CurrentUefiPassword") => {
-                DpuUefiPasswordSetupSkipReason::CurrentUefiPasswordMissing
+                DpuUefiPasswordSetupSkipped::CurrentUefiPasswordMissing {}
             }
             Some(_) => return false,
         },
     };
 
-    emit(DpuUefiPasswordSetupSkipped { reason });
+    emit(skipped);
     true
 }
 

@@ -265,16 +265,16 @@ pub async fn fetch_slot_and_tray(
 
             let slot_number =
                 rms_location_value(node_device_details.slot_number).unwrap_or_else(|value| {
-                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::slot_number(
+                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::SlotNumber {
                         value,
-                    ));
+                    });
                     None
                 });
             let tray_index =
                 rms_location_value(node_device_details.tray_index).unwrap_or_else(|value| {
-                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::tray_index(
+                    carbide_instrument::emit(SiteExplorerMachineSlotTrayValueInvalid::TrayIndex {
                         value,
-                    ));
+                    });
                     None
                 });
 
@@ -575,9 +575,13 @@ impl SiteExplorer {
         metrics: &SiteExplorationMetrics,
         error: Option<&SiteExplorerError>,
     ) {
-        carbide_instrument::emit(SiteExplorerIterationFinished {
-            latency: metrics.recording_started_at.elapsed(),
-            error: error.map(|error| format!("{error:?}")).unwrap_or_default(),
+        let latency = metrics.recording_started_at.elapsed();
+        carbide_instrument::emit(match error {
+            None => SiteExplorerIterationFinished::Succeeded { latency },
+            Some(error) => SiteExplorerIterationFinished::Failed {
+                latency,
+                error: format!("{error:?}"),
+            },
         });
     }
 
@@ -2720,11 +2724,17 @@ impl SiteExplorer {
             Err(err) => (BmcResetStatus::Failed, err.to_string(), false),
         };
 
-        carbide_instrument::emit(BmcResetFinished {
-            method,
-            status,
-            address,
-            error,
+        carbide_instrument::emit(match status {
+            BmcResetStatus::Succeeded => BmcResetFinished::Succeeded {
+                method,
+                address,
+                error,
+            },
+            BmcResetStatus::Failed => BmcResetFinished::Failed {
+                method,
+                address,
+                error,
+            },
         });
         succeeded
     }

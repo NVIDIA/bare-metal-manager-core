@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_instrument::{DynamicLog, DynamicMessage, Event, LogAt, Outcome, emit};
+use carbide_instrument::{Event, Outcome, emit};
 use rpc::fmds::fmds_config_service_server::FmdsConfigService;
 use rpc::fmds::{UpdateConfigRequest, UpdateConfigResponse};
 use tonic::{Request, Response, Status};
@@ -34,46 +34,32 @@ impl FmdsGrpcServer {
     }
 }
 
-/// An agent's config update was accepted or rejected. `outcome` is the metric
-/// label and picks the level and wording each result already had: an accepted
-/// update keeps its `INFO` record with the agent address, while a rejection
-/// keeps its `WARN` with the error. Each field is present only for the result
-/// it belongs to, so neither log gains a field operators did not receive.
+/// An agent's config update was accepted or rejected. Both cases move the same
+/// counter; each variant keeps the level and wording that result already had,
+/// and holds only the field that result has.
 #[derive(Event)]
 #[event(
     event_name = "fmds_config_update_ingested",
     metric_name = "carbide_fmds_config_updates_total",
     component = "fmds",
-    log = dynamic,
     metric = counter,
-    message = dynamic,
-    describe = "Number of FMDS gRPC config-update ingests, by outcome"
+    describe = "Number of FMDS gRPC config-update ingests, by outcome",
+    labels(outcome: Outcome),
 )]
-struct ConfigUpdateIngested {
-    #[label]
-    outcome: Outcome,
-    #[context]
-    agent_address: Option<String>,
-    #[context]
-    error: Option<String>,
-}
+enum ConfigUpdateIngested {
+    /// Applied; the agent address is how operators find who sent it.
+    #[event(labels(outcome = Ok), log = info, message = "Received config update from agent")]
+    Accepted {
+        #[context]
+        agent_address: String,
+    },
 
-impl DynamicLog for ConfigUpdateIngested {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
-            Outcome::Error => LogAt::Level(tracing::Level::WARN),
-        }
-    }
-}
-
-impl DynamicMessage for ConfigUpdateIngested {
-    fn message(&self) -> &'static str {
-        match self.outcome {
-            Outcome::Ok => "Received config update from agent",
-            Outcome::Error => "Failed to ingest config update",
-        }
-    }
+    /// Rejected, and the caller receives the same `Status`.
+    #[event(labels(outcome = Error), log = warn, message = "Failed to ingest config update")]
+    Rejected {
+        #[context]
+        error: String,
+    },
 }
 
 #[derive(Debug)]
@@ -90,18 +76,14 @@ impl FmdsConfigService for FmdsGrpcServer {
     ) -> Result<Response<UpdateConfigResponse>, Status> {
         match self.apply_config_update(request) {
             Ok(applied) => {
-                emit(ConfigUpdateIngested {
-                    outcome: Outcome::Ok,
-                    agent_address: Some(applied.agent_address),
-                    error: None,
+                emit(ConfigUpdateIngested::Accepted {
+                    agent_address: applied.agent_address,
                 });
                 Ok(applied.response)
             }
             Err(status) => {
-                emit(ConfigUpdateIngested {
-                    outcome: Outcome::Error,
-                    agent_address: None,
-                    error: Some(status.to_string()),
+                emit(ConfigUpdateIngested::Rejected {
+                    error: status.to_string(),
                 });
                 Err(status)
             }

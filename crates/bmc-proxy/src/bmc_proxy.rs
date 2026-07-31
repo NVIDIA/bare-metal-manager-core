@@ -113,7 +113,9 @@ enum ForwardedHeaderParseError {
 impl BmcProxyState {
     fn allows(&self, request: &Request<Body>) -> bool {
         let Some(auth_context) = request.extensions().get::<AuthContext<()>>() else {
-            emit(AuthContextMissing::request_acl(request.method()));
+            emit(AuthContextMissing::RequestAcl {
+                method_label: request.method().into(),
+            });
             return false;
         };
 
@@ -765,7 +767,9 @@ fn authorize_principal_allow_list(
         .extensions()
         .get::<AuthContext<()>>()
         .ok_or_else(|| {
-            emit(AuthContextMissing::principal_allow_list(request.method()));
+            emit(AuthContextMissing::PrincipalAllowList {
+                method_label: request.method().into(),
+            });
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 

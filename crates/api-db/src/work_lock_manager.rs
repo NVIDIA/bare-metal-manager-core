@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use sqlx::pool::PoolConnection;
 use sqlx::{PgConnection, PgPool, Postgres};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
@@ -44,103 +44,92 @@ enum WorkLockFailure {
     LockLost,
 }
 
-/// A work lock could not be kept or given back. `operation` says which half of
-/// the lifecycle broke and `failure` says how, and together they pick the
-/// diagnostic that boundary already logged.
+/// A work lock could not be kept or given back. Each variant is one boundary
+/// where that happens, and pins the `(operation, failure)` pair that names it.
 ///
 /// One pairing is worth remembering: `(KeepAlive, LockLost)` belongs to the
 /// keepalive loop's `Err(KeepAliveError::LockLost)` arm, which returns before
-/// the general `Err(e)` arm can see it. That arm ordering is what keeps this a
-/// function -- reorder it and `LockLost` would arrive here from two paths that
-/// want different wording.
+/// the general `Err(e)` arm can see it. That arm ordering is what keeps
+/// `Keepalive` from ever carrying `LockLost` -- reorder it and two boundaries
+/// would land on one label pair with different wording.
 #[derive(Event)]
 #[event(
     event_name = "work_lock_failed",
     metric_name = "carbide_work_lock_failures_total",
     component = "nico-api",
-    log = error,
     metric = counter,
-    message = dynamic,
-    describe = "Number of work-lock lifecycle failures, by operation and failure kind."
+    log = error,
+    describe = "Number of work-lock lifecycle failures, by operation and failure kind.",
+    labels(operation: WorkLockOperation, failure: WorkLockFailure),
 )]
-struct WorkLockFailed {
-    #[label]
-    operation: WorkLockOperation,
-    #[label]
-    failure: WorkLockFailure,
-    #[context]
-    work_key: WorkKey,
-    #[context]
-    worker_id: WorkerId,
-    #[context]
-    error: String,
-}
-
-impl DynamicMessage for WorkLockFailed {
-    fn message(&self) -> &'static str {
-        match (self.operation, self.failure) {
-            (WorkLockOperation::Release, WorkLockFailure::CommandDispatch) => {
-                "Could not release work lock: the WorkLockManager has shut down"
-            }
-            (WorkLockOperation::Release, _) => "Could not release work lock",
-            (WorkLockOperation::KeepAlive, WorkLockFailure::LockLost) => "worker lost lock",
-            (WorkLockOperation::KeepAlive, _) => "Failed to send work-lock keepalive; retrying",
-        }
-    }
-}
-
-impl WorkLockFailed {
-    /// The release write itself failed. A `FailedPrecondition` means the lock
-    /// had already expired; anything else is a database problem.
-    fn release(work_key: WorkKey, worker_id: WorkerId, error: &DatabaseError) -> Self {
-        Self {
-            operation: WorkLockOperation::Release,
-            failure: match error {
-                DatabaseError::FailedPrecondition(_) => WorkLockFailure::LockLost,
-                _ => WorkLockFailure::Database,
-            },
-            work_key,
-            worker_id,
-            error: error.to_string(),
-        }
-    }
+enum WorkLockFailed {
+    /// The release write itself failed. `failure` is data here: a
+    /// `FailedPrecondition` means the lock had already expired, anything else
+    /// is a database problem.
+    #[event(labels(operation = Release), message = "Could not release work lock")]
+    Release {
+        #[label]
+        failure: WorkLockFailure,
+        #[context]
+        work_key: WorkKey,
+        #[context]
+        worker_id: WorkerId,
+        #[context]
+        error: String,
+    },
 
     /// The release command could not be queued because the manager is gone.
-    fn release_dispatch(work_key: WorkKey, worker_id: WorkerId, error: String) -> Self {
-        Self {
-            operation: WorkLockOperation::Release,
-            failure: WorkLockFailure::CommandDispatch,
-            work_key,
-            worker_id,
-            error,
-        }
-    }
+    #[event(
+        labels(operation = Release, failure = CommandDispatch),
+        message = "Could not release work lock: the WorkLockManager has shut down"
+    )]
+    ReleaseDispatch {
+        #[context]
+        work_key: WorkKey,
+        #[context]
+        worker_id: WorkerId,
+        #[context]
+        error: String,
+    },
 
     /// The keepalive loop learned the lock is no longer ours.
-    fn lock_lost(work_key: WorkKey, worker_id: WorkerId, error: String) -> Self {
-        Self {
-            operation: WorkLockOperation::KeepAlive,
-            failure: WorkLockFailure::LockLost,
-            work_key,
-            worker_id,
-            error,
-        }
-    }
+    #[event(
+        labels(operation = KeepAlive, failure = LockLost),
+        message = "worker lost lock"
+    )]
+    LockLost {
+        #[context]
+        work_key: WorkKey,
+        #[context]
+        worker_id: WorkerId,
+        #[context]
+        error: String,
+    },
 
     /// A keepalive attempt failed for a reason that leaves the lock held, so
     /// the loop retries.
-    fn keepalive(
+    #[event(
+        labels(operation = KeepAlive),
+        message = "Failed to send work-lock keepalive; retrying"
+    )]
+    Keepalive {
+        #[label]
         failure: WorkLockFailure,
+        #[context]
         work_key: WorkKey,
+        #[context]
         worker_id: WorkerId,
+        #[context]
         error: String,
-    ) -> Self {
-        Self {
-            operation: WorkLockOperation::KeepAlive,
-            failure,
-            work_key,
-            worker_id,
-            error,
+    },
+}
+
+impl WorkLockFailure {
+    /// How a release write failed, as the metric label.
+    fn from_release_error(error: &DatabaseError) -> Self {
+        match error {
+            DatabaseError::FailedPrecondition(_) => Self::LockLost,
+            _ => Self::Database,
         }
     }
 }
@@ -304,7 +293,12 @@ async fn run_loop(
                 release_lock(db, &work_key, worker_id)
                     .await
                     .inspect_err(|e| {
-                        emit(WorkLockFailed::release(work_key.clone(), worker_id, e));
+                        emit(WorkLockFailed::Release {
+                            work_key: work_key.clone(),
+                            worker_id,
+                            failure: WorkLockFailure::from_release_error(e),
+                            error: e.to_string(),
+                        });
                     })
                     .ok();
                 tracing::debug!(%work_key, "Released work lock");
@@ -423,11 +417,11 @@ impl Drop for WorkLock {
                 worker_id: self.worker_id,
             })
             .inspect_err(|e| {
-                emit(WorkLockFailed::release_dispatch(
-                    self.work_key.clone(),
-                    self.worker_id,
-                    e.to_string(),
-                ));
+                emit(WorkLockFailed::ReleaseDispatch {
+                    work_key: self.work_key.clone(),
+                    worker_id: self.worker_id,
+                    error: e.to_string(),
+                });
             })
             .ok();
     }
@@ -465,21 +459,12 @@ impl WorkLock {
                                             keepalive_stop_rx.try_recv(),
                                             Err(oneshot::error::TryRecvError::Empty)
                                         ) {
-                                            emit(WorkLockFailed::lock_lost(
-                                                work_key,
-                                                worker_id,
-                                                msg,
-                                            ));
+                                            emit(WorkLockFailed::LockLost { work_key, worker_id, error: msg });
                                         }
                                         return;
                                     }
                                     Err(e) => {
-                                        emit(WorkLockFailed::keepalive(
-                                            e.failure(),
-                                            work_key.clone(),
-                                            worker_id,
-                                            e.to_string(),
-                                        ));
+                                        emit(WorkLockFailed::Keepalive { failure: e.failure(), work_key: work_key.clone(), worker_id, error: e.to_string() });
                                     }
                                 }
                             }
@@ -921,11 +906,12 @@ mod tests {
                             message: "database unavailable".to_string(),
                         };
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::release(
-                                "work-key".to_string(),
+                            emit(WorkLockFailed::Release {
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                &error,
-                            ));
+                                failure: WorkLockFailure::from_release_error(&error),
+                                error: error.to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -934,11 +920,12 @@ mod tests {
                         let failure = WorkLockFailure::LockLost;
                         let error = DatabaseError::FailedPrecondition("lock expired".to_string());
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::release(
-                                "work-key".to_string(),
+                            emit(WorkLockFailed::Release {
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                &error,
-                            ));
+                                failure: WorkLockFailure::from_release_error(&error),
+                                error: error.to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -946,11 +933,11 @@ mod tests {
                         let operation = WorkLockOperation::Release;
                         let failure = WorkLockFailure::CommandDispatch;
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::release_dispatch(
-                                "work-key".to_string(),
+                            emit(WorkLockFailed::ReleaseDispatch {
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "the WorkLockManager has shut down".to_string(),
-                            ));
+                                error: "the WorkLockManager has shut down".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -958,11 +945,11 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::LockLost;
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::lock_lost(
-                                "work-key".to_string(),
+                            emit(WorkLockFailed::LockLost {
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "lock expired".to_string(),
-                            ));
+                                error: "lock expired".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -970,12 +957,12 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::Database;
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::keepalive(
+                            emit(WorkLockFailed::Keepalive {
                                 failure,
-                                "work-key".to_string(),
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "database unavailable".to_string(),
-                            ));
+                                error: "database unavailable".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -983,12 +970,12 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::CommandDispatch;
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::keepalive(
+                            emit(WorkLockFailed::Keepalive {
                                 failure,
-                                "work-key".to_string(),
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "no available capacity".to_string(),
-                            ));
+                                error: "no available capacity".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }
@@ -996,12 +983,12 @@ mod tests {
                         let operation = WorkLockOperation::KeepAlive;
                         let failure = WorkLockFailure::CommandReply;
                         let logs = capture_logs(|| {
-                            emit(WorkLockFailed::keepalive(
+                            emit(WorkLockFailed::Keepalive {
                                 failure,
-                                "work-key".to_string(),
+                                work_key: "work-key".to_string(),
                                 worker_id,
-                                "reply channel closed".to_string(),
-                            ));
+                                error: "reply channel closed".to_string(),
+                            });
                         });
                         (operation, failure, logs)
                     }

@@ -22,7 +22,8 @@
 use carbide_observability_schema::{is_event_log_reserved_field, validate_event_name};
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Field, Fields, Ident, LitStr, Meta};
+use syn::parse::{Parse, ParseStream};
+use syn::{Data, DeriveInput, Field, Fields, Ident, LitStr, Meta, Token};
 
 /// Metric-name unit suffixes a histogram may use, with the OpenTelemetry unit
 /// string each one implies.
@@ -278,6 +279,9 @@ struct EventArgs {
     metric_family: Option<syn::Path>,
     metric_name_unchecked: bool,
     describe_unchecked: bool,
+    /// The metric label schema, declared once on an enum Event. Empty for a
+    /// struct Event, whose `#[label]` fields are the schema.
+    labels: Vec<LabelSchemaEntry>,
 }
 
 fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
@@ -293,6 +297,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
         metric_family: None,
         metric_name_unchecked: false,
         describe_unchecked: false,
+        labels: Vec::new(),
     };
     let mut saw_attr = false;
 
@@ -302,7 +307,16 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
         }
         saw_attr = true;
         attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("event_name") {
+            if meta.path.is_ident("labels") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                for entry in content.parse_terminated(LabelSchemaEntry::parse, Token![,])? {
+                    if args.labels.iter().any(|held| held.name == entry.name) {
+                        return Err(meta.error(format!("duplicate label `{}`", entry.name)));
+                    }
+                    args.labels.push(entry);
+                }
+            } else if meta.path.is_ident("event_name") {
                 if args.event_name.is_some() {
                     return Err(meta.error("duplicate `event_name`"));
                 }
@@ -588,6 +602,778 @@ fn validate_event_log_field(log: LogSpec, kind: FieldKind, ident: &Ident) -> syn
     Ok(())
 }
 
+/// One entry of an enum Event's `labels(name: Type, ...)` schema: the metric
+/// label key and the `LabelValue` type every variant supplies it as.
+struct LabelSchemaEntry {
+    name: Ident,
+    ty: syn::Type,
+}
+
+impl Parse for LabelSchemaEntry {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        input.parse::<Token![:]>()?;
+        let ty: syn::Type = input.parse()?;
+        Ok(Self { name, ty })
+    }
+}
+
+/// One entry of a variant's `labels(name = Variant, ...)`: a label this case
+/// fixes to a constant, rather than taking as data.
+struct LabelFixedEntry {
+    name: Ident,
+    /// The label's value. A bare variant (`Release`) is resolved against the
+    /// enum's own `labels(...)` schema; a family-backed enum has no schema
+    /// here, so it names the type in full (`WorkLockOperation::Release`).
+    value: syn::Path,
+}
+
+impl Parse for LabelFixedEntry {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: Ident = input.parse()?;
+        input.parse::<Token![=]>()?;
+        let value: syn::Path = input.parse()?;
+        Ok(Self { name, value })
+    }
+}
+
+/// The per-variant `#[event(...)]` on an enum Event.
+struct VariantArgs {
+    fixed: Vec<LabelFixedEntry>,
+    message: MessageSpec,
+    log: Option<LogSpec>,
+}
+
+fn parse_variant_args(variant: &syn::Variant) -> syn::Result<VariantArgs> {
+    let mut args = VariantArgs {
+        fixed: Vec::new(),
+        message: MessageSpec::None,
+        log: None,
+    };
+    for attr in &variant.attrs {
+        if !attr.path().is_ident("event") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("labels") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                for entry in content.parse_terminated(LabelFixedEntry::parse, Token![,])? {
+                    if args.fixed.iter().any(|held| held.name == entry.name) {
+                        return Err(syn::Error::new_spanned(
+                            &entry.name,
+                            format!("`{}` is fixed twice by this variant", entry.name),
+                        ));
+                    }
+                    args.fixed.push(entry);
+                }
+            } else if meta.path.is_ident("message") {
+                let value = meta.value()?;
+                if value.peek(LitStr) {
+                    args.message = MessageSpec::Static(value.parse()?);
+                } else {
+                    return Err(meta.error("a variant message must be a string literal"));
+                }
+            } else if meta.path.is_ident("log") {
+                let ident: Ident = meta.value()?.parse()?;
+                args.log = Some(match ident.to_string().as_str() {
+                    "off" => LogSpec::Off,
+                    "error" => LogSpec::Error,
+                    "warn" => LogSpec::Warn,
+                    "info" => LogSpec::Info,
+                    "debug" => LogSpec::Debug,
+                    "trace" => LogSpec::Trace,
+                    other => {
+                        return Err(meta.error(format!("unknown log level `{other}`")));
+                    }
+                });
+            } else {
+                return Err(meta.error(
+                    "an enum Event variant takes only `labels(...)`, `message`, and `log`; the \
+                     metric side is declared once on the enum",
+                ));
+            }
+            Ok(())
+        })?;
+    }
+    Ok(args)
+}
+
+/// A fixed label's value. Written bare (`Release`) it names a variant of the
+/// schema's type; written in full (`WorkLockOperation::Release`) it stands on
+/// its own, which is how a family-backed enum spells it since the family owns
+/// the schema.
+fn qualify(value: &syn::Path, schema_ty: Option<&syn::Type>) -> proc_macro2::TokenStream {
+    match (value.segments.len(), schema_ty) {
+        (1, Some(ty)) => {
+            let variant = &value.segments[0].ident;
+            quote! { #ty::#variant }
+        }
+        _ => quote! { #value },
+    }
+}
+
+/// Expands `#[derive(Event)]` on an enum: one metric, one `event_name`, and a
+/// case per variant. The enum declares the metric label schema once; each
+/// variant accounts for every key in it, either by fixing a constant or by
+/// taking one as a `#[label]` field. Message and level live on the variant they
+/// describe, so a variant's log line renders exactly its own fields -- there is
+/// no union struct and so nothing needs to be `Option` to say "not this case".
+fn expand_event_enum(input: &DeriveInput, args: &EventArgs) -> syn::Result<TokenStream> {
+    let enum_ident = &input.ident;
+    let Data::Enum(data) = &input.data else {
+        unreachable!("expand_event_enum is only called for enums");
+    };
+
+    let event_name = args.event_name.as_ref().ok_or_else(|| {
+        syn::Error::new_spanned(enum_ident, "#[event(...)] requires event_name = \"...\"")
+    })?;
+    if let Err(error) = validate_event_name(&event_name.value()) {
+        return Err(syn::Error::new_spanned(event_name, error));
+    }
+    // The message is the one thing an enum Event moves to the variant: a shared
+    // message here would read as the message every case logs, and it is not.
+    if !matches!(args.message, MessageSpec::None) {
+        return Err(syn::Error::new_spanned(
+            enum_ident,
+            "an enum Event declares message = \"...\" on each variant, next to the case it \
+             describes",
+        ));
+    }
+    let family = args.metric_family.as_ref();
+    if family.is_some() && !args.labels.is_empty() {
+        return Err(syn::Error::new_spanned(
+            enum_ident,
+            "the metric family declares the label schema; drop `labels(...)` here and name each \
+             variant's values in full",
+        ));
+    }
+    if family.is_none() && args.metric == MetricSpec::None {
+        return Err(syn::Error::new_spanned(
+            enum_ident,
+            "an enum Event declares metric = counter or metric = histogram",
+        ));
+    }
+    if family.is_some() && args.metric != MetricSpec::None {
+        return Err(syn::Error::new_spanned(
+            enum_ident,
+            "`metric` is declared by the metric family, not by an Event that uses it",
+        ));
+    }
+    // The family owns every metric-side key. Taking one here silently exports
+    // the family's value instead, so the declaration and the metric disagree.
+    if let Some(family) = family {
+        let moved: [(Option<&LitStr>, &str); 4] = [
+            (args.metric_name.as_ref(), "metric_name"),
+            (args.describe.as_ref(), "describe"),
+            (args.unit.as_ref(), "unit"),
+            (args.component.as_ref(), "component"),
+        ];
+        for (value, key) in moved {
+            if let Some(value) = value {
+                return Err(syn::Error::new_spanned(
+                    value,
+                    format!(
+                        "`{key}` is declared by the `{}` metric family, not by an Event that uses \
+                         it; remove it here",
+                        family_name(family)
+                    ),
+                ));
+            }
+        }
+        if args.metric_name_unchecked || args.describe_unchecked {
+            return Err(syn::Error::new_spanned(
+                enum_ident,
+                "the metric_name_unchecked and describe_unchecked escape hatches belong on the \
+                 metric family's #[metric(...)], not on an Event that uses it",
+            ));
+        }
+    }
+    // A family owns the metric side; without one the enum declares it, under
+    // the same name/unit/describe conventions a struct Event follows.
+    let (unit_value, is_histogram) = match (family, args.metric_name.as_ref()) {
+        (Some(_), _) => (String::new(), false),
+        (None, Some(metric_name)) => {
+            let unit = validate_metric(
+                &MetricDeclaration {
+                    metric_name,
+                    counter: args.metric == MetricSpec::Counter,
+                    unit: args.unit.as_ref(),
+                    describe: args.describe.as_ref(),
+                    metric_name_unchecked: args.metric_name_unchecked,
+                    describe_unchecked: args.describe_unchecked,
+                },
+                enum_ident,
+            )?;
+            (unit, args.metric == MetricSpec::Histogram)
+        }
+        (None, None) => {
+            return Err(syn::Error::new_spanned(
+                enum_ident,
+                "an enum Event requires metric_name = \"...\", or a metric_family that declares it",
+            ));
+        }
+    };
+
+    let schema_names: Vec<&Ident> = args.labels.iter().map(|entry| &entry.name).collect();
+    // A schema key every variant fixes never reaches a #[label] field, so this
+    // is the only place it is held to the metric-label grammar. The reserved
+    // log names depend on the level, which a variant can raise, so that check
+    // belongs in the variant loop.
+    for name in &schema_names {
+        validate_metric_label_name(name.to_string(), name.span())?;
+    }
+    let n_labels = schema_names.len();
+    let label_keys: Vec<String> = schema_names.iter().map(|name| name.to_string()).collect();
+
+    let mut label_arms = Vec::new();
+    let mut message_arms = Vec::new();
+    let mut log_at_arms = Vec::new();
+    let mut log_arms = Vec::new();
+    let mut observation_arms = Vec::new();
+    let mut context_arms = Vec::new();
+    // Without a family the enum declares the kind, so whether a variant supplies
+    // an `#[observation]` is settled here. With one the kind is only known at
+    // the type level, so the variants are held to each other and then to the
+    // family in a const assertion below.
+    let declared_observation = family.is_none().then_some(is_histogram);
+    let mut inferred_observation: Option<bool> = None;
+    let observation_unit = match family {
+        Some(family) => quote! {
+            ::carbide_instrument::__private::metric_unit(
+                <#family as ::carbide_instrument::MetricFamily>::METRIC,
+            )
+        },
+        None => quote! { #unit_value },
+    };
+    let metric_name_log = match family {
+        Some(family) => quote! { <#family as ::carbide_instrument::MetricFamily>::METRIC_NAME },
+        None => {
+            let name = args.metric_name.as_ref().expect("checked above");
+            quote! { #name }
+        }
+    };
+
+    for variant in &data.variants {
+        let variant_ident = &variant.ident;
+        let variant_args = parse_variant_args(variant)?;
+        let log = variant_args.log.unwrap_or(args.log);
+        // An enum Event's level is a property of the case, so it is declared on
+        // the variant. `log = dynamic` is the struct-Event escape hatch for a
+        // level that varies per instance, which a variant does not need.
+        if log == LogSpec::Dynamic {
+            return Err(syn::Error::new_spanned(
+                variant,
+                "log = dynamic is not used on an enum Event: declare the level on each variant",
+            ));
+        }
+        // A key this variant fixes reaches its log line, so it is held to the
+        // reserved names at the level this variant actually logs at.
+        for name in &schema_names {
+            validate_event_log_field(log, FieldKind::Label, name)?;
+        }
+        // A variant that logs needs its own message, so the line a reader sees
+        // sits next to the case that produces it. Without this the variant
+        // would log an empty message.
+        if log != LogSpec::Off && matches!(variant_args.message, MessageSpec::None) {
+            return Err(syn::Error::new_spanned(
+                variant,
+                format!("`{variant_ident}` logs, so it declares its own message = \"...\""),
+            ));
+        }
+
+        let fields: Vec<&Field> = match &variant.fields {
+            Fields::Named(named) => named.named.iter().collect(),
+            Fields::Unit => Vec::new(),
+            Fields::Unnamed(_) => {
+                return Err(syn::Error::new_spanned(
+                    variant,
+                    "an enum Event variant uses named fields (or none)",
+                ));
+            }
+        };
+
+        let mut field_labels: Vec<(&Ident, String)> = Vec::new();
+        let mut contexts: Vec<(&Ident, ContextMode, bool)> = Vec::new();
+        let mut observations: Vec<&Ident> = Vec::new();
+        for field in fields {
+            let ident = field.ident.as_ref().expect("named field");
+            let field_kind = classify_field(field)?;
+            validate_event_log_field(log, field_kind, ident)?;
+            match field_kind {
+                FieldKind::Label => {
+                    // Two fields can resolve to one metric key through
+                    // #[label(name = "...")], and only the first would be read.
+                    let key = label_metric_name(field)?;
+                    if field_labels.iter().any(|(_, held)| held == &key) {
+                        return Err(syn::Error::new_spanned(
+                            field,
+                            format!("duplicate metric label name `{key}`"),
+                        ));
+                    }
+                    field_labels.push((ident, key));
+                }
+                FieldKind::Context(mode) => {
+                    if mode == ContextMode::Value && is_option(&field.ty) {
+                        return Err(syn::Error::new_spanned(
+                            field,
+                            "#[context(value)] does not take an Option; a variant that does not \
+                             have this field simply omits it",
+                        ));
+                    }
+                    contexts.push((ident, mode, is_option(&field.ty)));
+                }
+                FieldKind::Observation => observations.push(ident),
+            }
+        }
+
+        let fixed_keys: Vec<&Ident> = variant_args.fixed.iter().map(|f| &f.name).collect();
+        let fixed_vals: Vec<proc_macro2::TokenStream> = variant_args
+            .fixed
+            .iter()
+            .map(|f| qualify(&f.value, None))
+            .collect();
+
+        // Every schema key is accounted for exactly once: fixed by the variant,
+        // or taken as one of its fields.
+        let mut values = Vec::new();
+        for entry in &args.labels {
+            let fixed = variant_args
+                .fixed
+                .iter()
+                .find(|held| held.name == entry.name);
+            let from_field = field_labels
+                .iter()
+                .find(|(_, key)| entry.name == key.as_str());
+            match (fixed, from_field) {
+                (Some(fixed), None) => {
+                    let value = qualify(&fixed.value, Some(&entry.ty));
+                    values.push(quote! { &#value });
+                }
+                (None, Some((ident, _))) => values.push(quote! { #ident }),
+                (Some(fixed), Some(_)) => {
+                    return Err(syn::Error::new_spanned(
+                        &fixed.name,
+                        format!(
+                            "label `{}` is both fixed by `{}` and taken as one of its fields; \
+                             pick one",
+                            entry.name, variant_ident
+                        ),
+                    ));
+                }
+                (None, None) => {
+                    return Err(syn::Error::new_spanned(
+                        variant,
+                        format!(
+                            "`{}` does not supply the `{}` label: fix it with \
+                             #[event(labels({} = ...))] or take it as a #[label] field",
+                            variant_ident, entry.name, entry.name
+                        ),
+                    ));
+                }
+            }
+        }
+        for (ident, key) in &field_labels {
+            // With a family there is no schema here to check against; the
+            // family's struct literal catches an unknown or missing label.
+            if family.is_none() && !schema_names.iter().any(|name| *name == key.as_str()) {
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    format!(
+                        "`{key}` is not in this Event's label schema; add it to \
+                         #[event(labels(...))] on the enum, or make it #[context]"
+                    ),
+                ));
+            }
+        }
+        // The same check for a value the variant fixes: off the schema, nothing
+        // reads it, so it would neither label the metric nor reach the log.
+        if family.is_none() {
+            for fixed in &variant_args.fixed {
+                if !schema_names.iter().any(|name| **name == fixed.name) {
+                    return Err(syn::Error::new_spanned(
+                        &fixed.name,
+                        format!(
+                            "`{}` is not in this Event's label schema; add it to \
+                             #[event(labels(...))] on the enum",
+                            fixed.name
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // A histogram records a value per emit, so every case must supply one;
+        // a counter just increments and must not.
+        if observations.len() > 1 {
+            return Err(syn::Error::new_spanned(
+                variant,
+                format!("`{variant_ident}` has more than one #[observation] field"),
+            ));
+        }
+        let variant_observes = observations.len() == 1;
+        match declared_observation {
+            Some(true) if !variant_observes => {
+                return Err(syn::Error::new_spanned(
+                    variant,
+                    format!(
+                        "`{variant_ident}` records a histogram, so it needs exactly one \
+                         #[observation] field"
+                    ),
+                ));
+            }
+            Some(false) if variant_observes => {
+                return Err(syn::Error::new_spanned(
+                    variant,
+                    format!(
+                        "`{variant_ident}` records a counter, which counts emits rather than \
+                         values; remove the #[observation] field"
+                    ),
+                ));
+            }
+            Some(_) => {}
+            None => match inferred_observation {
+                None => inferred_observation = Some(variant_observes),
+                Some(first) if first != variant_observes => {
+                    return Err(syn::Error::new_spanned(
+                        variant,
+                        format!(
+                            "`{variant_ident}` disagrees with the earlier variants about \
+                             #[observation]: a histogram family needs one on every variant, and a \
+                             counter family needs none"
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            },
+        }
+
+        // Each arm binds exactly what it reads: `labels` reads the label
+        // fields, the log call reads those plus context, and `message`/`log_at`
+        // answer from the variant alone. Binding more would trip
+        // `unused_variables` under `-D warnings`.
+        let label_binds: Vec<&Ident> = field_labels.iter().map(|(ident, _)| *ident).collect();
+        let log_binds: Vec<&Ident> = field_labels
+            .iter()
+            .map(|(ident, _)| *ident)
+            .chain(contexts.iter().map(|(ident, _, _)| *ident))
+            .collect();
+        let label_pattern = quote! { Self::#variant_ident { #(#label_binds,)* .. } };
+        if let Some(obs) = observations.first() {
+            observation_arms.push(quote! {
+                Self::#variant_ident { #obs, .. } => {
+                    ::carbide_instrument::Observation::observe_as(#obs, #observation_unit)
+                }
+            });
+        }
+        let pattern = quote! { Self::#variant_ident { #(#log_binds,)* .. } };
+        let bare_pattern = quote! { Self::#variant_ident { .. } };
+
+        // The same fields the log line renders, for callers that read an
+        // event's context rather than log it.
+        let context_binds: Vec<&Ident> = contexts.iter().map(|(ident, _, _)| *ident).collect();
+        let context_pushes = contexts.iter().map(|(ident, mode, optional)| {
+            let name = ident.to_string();
+            match (mode, optional) {
+                (ContextMode::Display, true) => quote! {
+                    if let ::std::option::Option::Some(__value) = #ident {
+                        __context.push(
+                            ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                                #name,
+                                ::std::string::ToString::to_string(__value),
+                            ),
+                        );
+                    }
+                },
+                (ContextMode::Display, false) => quote! {
+                    __context.push(
+                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                            #name,
+                            ::std::string::ToString::to_string(#ident),
+                        ),
+                    );
+                },
+                (ContextMode::Value, _) => quote! {
+                    __context.push(
+                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                            #name,
+                            ::std::clone::Clone::clone(#ident),
+                        ),
+                    );
+                },
+            }
+        });
+        context_arms.push(quote! {
+            Self::#variant_ident { #(#context_binds,)* .. } => {
+                #(#context_pushes)*
+            }
+        });
+
+        label_arms.push(match family {
+            // The family's struct literal is the check: a variant that misses a
+            // label is E0063, an unknown one E0560, a wrong type E0308 -- all
+            // spanned at the family, exactly as for a struct Event.
+            Some(family) => {
+                let keys: Vec<&Ident> = fixed_keys
+                    .iter()
+                    .copied()
+                    .chain(field_labels.iter().map(|(ident, _)| *ident))
+                    .collect();
+                let vals: Vec<proc_macro2::TokenStream> = fixed_vals
+                    .iter()
+                    .cloned()
+                    .chain(field_labels.iter().map(|(ident, _)| {
+                        quote! {
+                            ::std::clone::Clone::clone(#ident)
+                        }
+                    }))
+                    .collect();
+                quote! {
+                    #label_pattern => ::carbide_instrument::MetricFamily::labels(&#family {
+                        #(#keys: #vals,)*
+                    }),
+                }
+            }
+            None => quote! {
+                #label_pattern => [
+                    #(
+                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
+                            #label_keys,
+                            ::carbide_instrument::LabelValue::label_value(#values),
+                        ),
+                    )*
+                ],
+            },
+        });
+
+        let message = match &variant_args.message {
+            MessageSpec::Static(message) => quote! { #message },
+            MessageSpec::Dynamic | MessageSpec::None => quote! { "" },
+        };
+        message_arms.push(quote! { #bare_pattern => #message, });
+
+        let log_at = match log {
+            LogSpec::Off => quote! { ::carbide_instrument::LogAt::Off },
+            LogSpec::Error => {
+                quote! { ::carbide_instrument::LogAt::Level(::carbide_instrument::__private::tracing::Level::ERROR) }
+            }
+            LogSpec::Warn => {
+                quote! { ::carbide_instrument::LogAt::Level(::carbide_instrument::__private::tracing::Level::WARN) }
+            }
+            LogSpec::Info => {
+                quote! { ::carbide_instrument::LogAt::Level(::carbide_instrument::__private::tracing::Level::INFO) }
+            }
+            LogSpec::Debug => {
+                quote! { ::carbide_instrument::LogAt::Level(::carbide_instrument::__private::tracing::Level::DEBUG) }
+            }
+            LogSpec::Trace => {
+                quote! { ::carbide_instrument::LogAt::Level(::carbide_instrument::__private::tracing::Level::TRACE) }
+            }
+            LogSpec::Dynamic => unreachable!("rejected above"),
+        };
+        log_at_arms.push(quote! { #bare_pattern => #log_at, });
+
+        // Only the variant's declared level gets a `tracing::event!`, so the
+        // generated log path is one site per variant rather than one per level.
+        if log == LogSpec::Off {
+            log_arms.push(quote! { #bare_pattern => {} });
+        } else {
+            let level = match log {
+                LogSpec::Error => quote! { ERROR },
+                LogSpec::Warn => quote! { WARN },
+                LogSpec::Info => quote! { INFO },
+                LogSpec::Debug => quote! { DEBUG },
+                LogSpec::Trace => quote! { TRACE },
+                LogSpec::Off | LogSpec::Dynamic => unreachable!("rejected above"),
+            };
+            let mut log_fields = vec![
+                quote! { event_name = #event_name },
+                quote! { metric_name = #metric_name_log },
+            ];
+            log_fields.extend(field_labels.iter().map(|(ident, _)| {
+                quote! { #ident = ::carbide_instrument::LabelValue::label_value(#ident).as_str() }
+            }));
+            if family.is_some() {
+                for f in &variant_args.fixed {
+                    let name = &f.name;
+                    let value = qualify(&f.value, None);
+                    log_fields.push(quote! {
+                        #name = ::carbide_instrument::LabelValue::label_value(&#value).as_str()
+                    });
+                }
+            }
+            for entry in &args.labels {
+                if let Some(fixed) = variant_args
+                    .fixed
+                    .iter()
+                    .find(|held| held.name == entry.name)
+                {
+                    let name = &entry.name;
+                    let value = qualify(&fixed.value, Some(&entry.ty));
+                    log_fields.push(quote! {
+                        #name = ::carbide_instrument::LabelValue::label_value(&#value).as_str()
+                    });
+                }
+            }
+            log_fields.extend(contexts.iter().map(|(ident, mode, optional)| {
+                match (mode, optional) {
+                    (ContextMode::Display, true) => quote! {
+                        #ident = #ident.as_ref().map(
+                            ::carbide_instrument::__private::tracing::field::display,
+                        )
+                    },
+                    (ContextMode::Display, false) => quote! { #ident = %#ident },
+                    (ContextMode::Value, _) => quote! { #ident = #ident },
+                }
+            }));
+            let message_expr = match &variant_args.message {
+                MessageSpec::Static(message) => quote! { #message },
+                MessageSpec::Dynamic | MessageSpec::None => quote! { "" },
+            };
+            log_arms.push(quote! {
+                #pattern => ::carbide_instrument::__private::tracing::event!(
+                    name: #event_name,
+                    ::carbide_instrument::__private::tracing::Level::#level,
+                    #(#log_fields,)*
+                    "{}",
+                    #message_expr
+                ),
+            });
+        }
+    }
+
+    // Either the family answers for the metric side, or the enum declares it.
+    let (
+        metric_name_const,
+        component_const,
+        describe_const,
+        metric_const,
+        labels_ty,
+        instrument_fn,
+    ) = match family {
+        Some(family) => (
+            quote! {
+                ::std::option::Option::Some(
+                    <#family as ::carbide_instrument::MetricFamily>::METRIC_NAME,
+                )
+            },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::COMPONENT },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::DESCRIBE },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::METRIC },
+            quote! { <#family as ::carbide_instrument::MetricFamily>::Labels },
+            quote! {
+                fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
+                    <#family as ::carbide_instrument::MetricFamily>::__instrument()
+                }
+            },
+        ),
+        None => {
+            let metric_name = args.metric_name.as_ref().expect("checked above");
+            let component = args.component.as_ref().ok_or_else(|| {
+                syn::Error::new_spanned(enum_ident, "#[event(...)] requires component = \"...\"")
+            })?;
+            let describe = args
+                .describe
+                .as_ref()
+                .map(LitStr::value)
+                .unwrap_or_default();
+            let kind = if is_histogram {
+                quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+            } else {
+                quote! { ::carbide_instrument::MetricKind::Counter }
+            };
+            (
+                quote! { ::std::option::Option::Some(#metric_name) },
+                quote! { #component },
+                quote! { #describe },
+                kind,
+                quote! { [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels] },
+                quote! {
+                    fn __instrument(&self) -> &'static ::carbide_instrument::__private::CachedInstrument {
+                        static INSTRUMENT: ::std::sync::OnceLock<
+                            ::carbide_instrument::__private::CachedInstrument,
+                        > = ::std::sync::OnceLock::new();
+                        INSTRUMENT.get_or_init(|| {
+                            ::carbide_instrument::__private::new_instrument(
+                                <Self as ::carbide_instrument::Event>::METRIC_NAME,
+                                <Self as ::carbide_instrument::Event>::METRIC,
+                                <Self as ::carbide_instrument::Event>::DESCRIBE,
+                            )
+                        })
+                    }
+                },
+            )
+        }
+    };
+
+    // A family's kind is only known at the type level from here, so the
+    // histogram/observation agreement becomes a const assertion instead of a
+    // macro-time check.
+    let has_observation = declared_observation
+        .or(inferred_observation)
+        .unwrap_or(false);
+    let observation_agreement = family.map(|family| {
+        quote! {
+            const _: () = {
+                assert!(
+                    ::carbide_instrument::__private::is_histogram(
+                        <#family as ::carbide_instrument::MetricFamily>::METRIC,
+                    ) == #has_observation,
+                    "a histogram metric family needs exactly one #[observation] field on every \
+                     variant of an Event that uses it, and a counter family needs none",
+                );
+            };
+        }
+    });
+    let observation_fn = has_observation.then(|| {
+        quote! {
+            fn observation(&self) -> f64 {
+                match self { #(#observation_arms)* }
+            }
+        }
+    });
+
+    Ok(quote! {
+        #observation_agreement
+
+        impl ::carbide_instrument::Event for #enum_ident {
+            const EVENT_NAME: &'static str = #event_name;
+            const METRIC_NAME: ::std::option::Option<&'static str> = #metric_name_const;
+            const COMPONENT: &'static str = #component_const;
+            const DESCRIBE: &'static str = #describe_const;
+            const METRIC: ::carbide_instrument::MetricKind = #metric_const;
+            type Labels = #labels_ty;
+
+            fn message(&self) -> &'static str {
+                match self { #(#message_arms)* }
+            }
+
+            fn labels(&self) -> Self::Labels {
+                match self { #(#label_arms)* }
+            }
+
+            fn log_at(&self) -> ::carbide_instrument::LogAt {
+                match self { #(#log_at_arms)* }
+            }
+
+            fn context(&self) -> ::std::vec::Vec<::carbide_instrument::__private::opentelemetry::KeyValue> {
+                let mut __context = ::std::vec::Vec::new();
+                match self { #(#context_arms)* }
+                __context
+            }
+
+            #observation_fn
+
+            fn __log(&self, _level: ::carbide_instrument::__private::tracing::Level) {
+                match self { #(#log_arms)* }
+            }
+
+            #instrument_fn
+        }
+    }
+    .into())
+}
+
 fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let struct_ident = &input.ident;
     if !input.generics.params.is_empty() {
@@ -599,6 +1385,19 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     }
 
     let args = parse_event_args(&input)?;
+
+    if matches!(&input.data, Data::Enum(_)) {
+        return expand_event_enum(&input, &args);
+    }
+    // A struct Event's #[label] fields are its schema, so a `labels(...)` list
+    // here would name a schema nothing reads.
+    if let Some(entry) = args.labels.first() {
+        return Err(syn::Error::new_spanned(
+            &entry.name,
+            "`labels(...)` declares an enum Event's label schema; a struct Event's #[label] \
+             fields are its schema",
+        ));
+    }
 
     let event_name = args.event_name.as_ref().ok_or_else(|| {
         syn::Error::new_spanned(&input.ident, "#[event(...)] requires event_name = \"...\"")
@@ -731,7 +1530,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     let Data::Struct(data) = &input.data else {
         return Err(syn::Error::new_spanned(
             &input.ident,
-            "Event can only be derived for structs",
+            "Event can only be derived for structs and enums",
         ));
     };
     let fields: Vec<&Field> = match &data.fields {
@@ -1131,41 +1930,12 @@ fn family_name(path: &syn::Path) -> String {
 /// one label set. Metric names and describe text are validated exactly as they
 /// are for a metric declared inline on an Event, with the same
 /// `metric_name_unchecked` and `describe_unchecked` escape hatches.
-#[proc_macro_derive(MetricFamily, attributes(metric, label, derived))]
+#[proc_macro_derive(MetricFamily, attributes(metric, label))]
 pub fn derive_metric_family(input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as DeriveInput);
     match expand_metric_family(input) {
         Ok(ts) => ts,
         Err(e) => e.to_compile_error().into(),
-    }
-}
-
-/// One `#[derived(label: Type, from = source)]` on a metric family: a label the
-/// family computes from another label rather than taking from the call site.
-/// The family stays the list of labels an Event supplies, so a derived label is
-/// declared here instead of as a field.
-struct DerivedLabel {
-    label: Ident,
-    ty: syn::Type,
-    from: Ident,
-}
-
-impl syn::parse::Parse for DerivedLabel {
-    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
-        let label: Ident = input.parse()?;
-        input.parse::<syn::Token![:]>()?;
-        let ty: syn::Type = input.parse()?;
-        input.parse::<syn::Token![,]>()?;
-        let from_key: Ident = input.parse()?;
-        if from_key != "from" {
-            return Err(syn::Error::new_spanned(
-                from_key,
-                "a derived label reads #[derived(label: Type, from = other_label)]",
-            ));
-        }
-        input.parse::<syn::Token![=]>()?;
-        let from: Ident = input.parse()?;
-        Ok(DerivedLabel { label, ty, from })
     }
 }
 
@@ -1334,49 +2104,10 @@ fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
 
     // Labels the family computes rather than takes: declared on the struct so
     // the family's fields stay exactly what an Event has to supply.
-    let mut derived: Vec<DerivedLabel> = Vec::new();
-    for attr in input.attrs.iter().filter(|a| a.path().is_ident("derived")) {
-        let label: DerivedLabel = attr.parse_args()?;
-        let key = validate_metric_label_name(label.label.to_string(), label.label.span())?;
-        if labels.iter().any(|(_, name)| name == &key)
-            || derived.iter().any(|other| other.label == label.label)
-        {
-            return Err(syn::Error::new_spanned(
-                &label.label,
-                format!("duplicate metric label name `{key}`"),
-            ));
-        }
-        // The source must be a label the call site actually supplies: deriving
-        // from another derived label would make the order of computation part
-        // of the declaration.
-        if derived.iter().any(|other| other.label == label.from) {
-            return Err(syn::Error::new_spanned(
-                &label.from,
-                format!(
-                    "`{}` is itself derived; a derived label reads from a label the Event supplies",
-                    label.from
-                ),
-            ));
-        }
-        if !labels.iter().any(|(ident, _)| **ident == label.from) {
-            return Err(syn::Error::new_spanned(
-                &label.from,
-                format!("`{}` is not a field of this metric family", label.from),
-            ));
-        }
-        derived.push(label);
-    }
 
-    let n_labels = labels.len() + derived.len();
+    let n_labels = labels.len();
     let label_idents: Vec<&Ident> = labels.iter().map(|(ident, _)| *ident).collect();
     let label_names: Vec<&str> = labels.iter().map(|(_, name)| name.as_str()).collect();
-    let derived_keys: Vec<String> = derived
-        .iter()
-        .map(|label| label.label.to_string())
-        .collect();
-    let derived_idents: Vec<&Ident> = derived.iter().map(|label| &label.label).collect();
-    let derived_types: Vec<&syn::Type> = derived.iter().map(|label| &label.ty).collect();
-    let derived_sources: Vec<&Ident> = derived.iter().map(|label| &label.from).collect();
     let describe_value = args
         .describe
         .as_ref()
@@ -1409,24 +2140,11 @@ fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
             type Labels = [::carbide_instrument::__private::opentelemetry::KeyValue; #n_labels];
 
             fn labels(&self) -> Self::Labels {
-                #(
-                    // A derived label is computed here, once, from the label it
-                    // reads -- so no call site can pair the two contradictorily.
-                    let #derived_idents: #derived_types = ::std::convert::Into::into(
-                        ::std::clone::Clone::clone(&self.#derived_sources),
-                    );
-                )*
                 [
                     #(
                         ::carbide_instrument::__private::opentelemetry::KeyValue::new(
                             #label_names,
                             ::carbide_instrument::LabelValue::label_value(&self.#label_idents),
-                        ),
-                    )*
-                    #(
-                        ::carbide_instrument::__private::opentelemetry::KeyValue::new(
-                            #derived_keys,
-                            ::carbide_instrument::LabelValue::label_value(&#derived_idents),
                         ),
                     )*
                 ]
@@ -1563,6 +2281,92 @@ mod tests {
                 scenario: "metric name is declared once",
                 source: r#"#[event(event_name = "demo", metric_name = "carbide_first_total", metric_name = "carbide_second_total", component = "demo", log = off, metric = counter)] struct Demo {}"#,
                 expected: "duplicate `metric_name`",
+            },
+        ] {
+            let error = expansion_error(source);
+            assert!(
+                error.contains(expected),
+                "{scenario}: expected `{expected}` in `{error}`"
+            );
+        }
+    }
+
+    /// The enum form moves the message and the level onto the variant, so the
+    /// declarations that would quietly lose either one are rejected instead.
+    #[test]
+    fn enum_event_diagnostics_are_specific() {
+        struct Case {
+            scenario: &'static str,
+            source: &'static str,
+            expected: &'static str,
+        }
+
+        for Case {
+            scenario,
+            source,
+            expected,
+        } in [
+            Case {
+                scenario: "a shared message would not be the message any case logs",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", message = "shared", labels(outcome: Outcome))] enum Demo { #[event(labels(outcome = Ok), log = info)] Ok {} }"#,
+                expected: "declares message = \"...\" on each variant",
+            },
+            Case {
+                scenario: "a logging variant without a message would log an empty one",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(outcome: Outcome))] enum Demo { #[event(labels(outcome = Ok), log = info)] Ok {} }"#,
+                expected: "`Ok` logs, so it declares its own message",
+            },
+            Case {
+                scenario: "a variant fixes each label once",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(outcome: Outcome))] enum Demo { #[event(labels(outcome = Ok, outcome = Error), log = info, message = "demo")] Ok {} }"#,
+                expected: "`outcome` is fixed twice",
+            },
+            Case {
+                scenario: "a struct Event's #[label] fields are its schema",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", log = off, labels(outcome: Outcome))] struct Demo {}"#,
+                expected: "declares an enum Event's label schema",
+            },
+            Case {
+                scenario: "a schema key follows the metric label grammar",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(café: Outcome))] enum Demo { #[event(labels(café = Ok), log = info, message = "demo")] Ok {} }"#,
+                expected: "metric label names start with an ASCII letter",
+            },
+            Case {
+                scenario: "a schema key does not collide with the log metadata",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(message: Outcome))] enum Demo { #[event(labels(message = Ok), log = info, message = "demo")] Ok {} }"#,
+                expected: "message",
+            },
+            Case {
+                // The enum is silent, so only the variant's own level makes
+                // this key reach a log line.
+                scenario: "a reserved key is caught at the level the variant raises to",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", log = off, labels(level: Outcome))] enum Demo { #[event(labels(level = Ok), log = warn, message = "demo")] Ok {} }"#,
+                expected: "level",
+            },
+            Case {
+                scenario: "a variant fixes only keys the schema declares",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(outcome: Outcome))] enum Demo { #[event(labels(outcome = Ok, stage = Apply), log = info, message = "demo")] Ok {} }"#,
+                expected: "`stage` is not in this Event's label schema",
+            },
+            Case {
+                scenario: "two fields do not resolve to one metric label",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(outcome: Outcome))] enum Demo { #[event(log = info, message = "demo")] Ok { #[label] outcome: Outcome, #[label(name = "outcome")] other: Outcome } }"#,
+                expected: "duplicate metric label name `outcome`",
+            },
+            Case {
+                scenario: "the family owns the metric-side keys",
+                source: r#"#[event(event_name = "demo", metric_family = Shared, metric_name = "carbide_demo_total")] enum Demo { #[event(labels(outcome = Ok), log = info, message = "demo")] Ok {} }"#,
+                expected: "`metric_name` is declared by the `Shared` metric family",
+            },
+            Case {
+                scenario: "a counter variant does not record a value",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", metric = counter, describe = "Number of demo events.", labels(outcome: Outcome))] enum Demo { #[event(labels(outcome = Ok), log = info, message = "demo")] Ok { #[observation] elapsed_seconds: f64 } }"#,
+                expected: "records a counter",
+            },
+            Case {
+                scenario: "a histogram variant records exactly one value",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_seconds", component = "demo", metric = histogram, describe = "Time a demo takes.", labels(outcome: Outcome))] enum Demo { #[event(labels(outcome = Ok), log = info, message = "demo")] Ok {} }"#,
+                expected: "records a histogram, so it needs exactly one",
             },
         ] {
             let error = expansion_error(source);
@@ -1897,67 +2701,6 @@ mod tests {
             ],
             |DiagnosticInput { source, expected }| {
                 let error = family_error(source);
-                (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
-            },
-        );
-    }
-
-    /// A derived label is declared once on the family and computed there, so
-    /// its diagnostics point at the family's declaration.
-    #[test]
-    fn derived_label_diagnostics_are_specific() {
-        struct DiagnosticInput {
-            derived: &'static str,
-            expected: &'static str,
-        }
-
-        fn family_error(source: &str) -> String {
-            let input: DeriveInput = syn::parse_str(source).expect("valid derive input");
-            super::expand_metric_family(input)
-                .expect_err("input should be rejected")
-                .to_string()
-        }
-
-        const METRIC: &str = r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Number of things")]"#;
-
-        check_values(
-            [
-                Check {
-                    scenario: "the source must be a field of the family",
-                    input: DiagnosticInput {
-                        derived: r#"#[derived(kind: Kind, from = nonexistent)]"#,
-                        expected: "`nonexistent` is not a field of this metric family",
-                    },
-                    expect: None,
-                },
-                Check {
-                    scenario: "a derived label cannot read another derived label",
-                    input: DiagnosticInput {
-                        derived: r#"#[derived(kind: Kind, from = stage)] #[derived(other: Kind, from = kind)]"#,
-                        expected: "`kind` is itself derived",
-                    },
-                    expect: None,
-                },
-                Check {
-                    scenario: "a derived label cannot collide with a supplied one",
-                    input: DiagnosticInput {
-                        derived: r#"#[derived(stage: Kind, from = stage)]"#,
-                        expected: "duplicate metric label name `stage`",
-                    },
-                    expect: None,
-                },
-                Check {
-                    scenario: "the grammar names the source with `from`",
-                    input: DiagnosticInput {
-                        derived: r#"#[derived(kind: Kind, using = stage)]"#,
-                        expected: "reads #[derived(label: Type, from = other_label)]",
-                    },
-                    expect: None,
-                },
-            ],
-            |DiagnosticInput { derived, expected }| {
-                let error =
-                    family_error(&format!("{METRIC} {derived} struct F {{ stage: Stage }}"));
                 (!error.contains(expected)).then(|| format!("expected `{expected}` in `{error}`"))
             },
         );
