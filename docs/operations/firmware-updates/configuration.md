@@ -397,4 +397,6 @@ fetch_timeout = "30s"
 ```
 
 The `url` field identifies the document location. The optional `fetch_timeout`
-field defaults to 30 seconds.
+field accepts duration strings such as `30s` and `60s` and defaults to `30s`.
+Use seconds for this request timeout, although the parser accepts other
+duration units such as milliseconds (`ms`), minutes (`m`), and hours (`h`).

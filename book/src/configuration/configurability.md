@@ -992,7 +992,9 @@ images when a machine in the model joins. See
 A rack profile can define a `firmware_object` block for one firmware-object JSON
 document. NICo uses the document as the default firmware input during rack
 ingestion. The block contains a `url` and an optional `fetch_timeout`, which
-defaults to `30s`.
+accepts duration strings such as `30s` and `60s` and defaults to `30s`. Use
+seconds for this request timeout, although the parser accepts other duration
+units such as milliseconds (`ms`), minutes (`m`), and hours (`h`).
 
 ---
 
