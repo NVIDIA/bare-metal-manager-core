@@ -196,6 +196,7 @@ dependencies = [
 dependencies = [
   "mkdir-static",
   { name = "package-scout-aarch64-release-cross", path = "${REPO_ROOT}" },
+  "create-ephemeral-image-arm-host",
   "bfb-aarch64-sa",
   "ipxe-aarch64-sa",
   "setup-apt-repo-arm64",
