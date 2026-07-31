@@ -54,6 +54,8 @@ func TestSKU_ToProto(t *testing.T) {
 		sk := &SKU{
 			ID:                   "sku-1",
 			SiteID:               siteID,
+			Description:          "GPU compute SKU",
+			SchemaVersion:        5,
 			DeviceType:           &deviceType,
 			Components:           &SkuComponents{SkuComponents: &corev1.SkuComponents{}},
 			AssociatedMachineIds: []string{"m-1", "m-2"},
@@ -61,6 +63,8 @@ func TestSKU_ToProto(t *testing.T) {
 		proto := sk.ToProto()
 		require.NotNil(t, proto)
 		assert.Equal(t, "sku-1", proto.Id)
+		assert.Equal(t, "GPU compute SKU", proto.GetDescription())
+		assert.Equal(t, uint32(5), proto.SchemaVersion)
 		assert.Equal(t, &deviceType, proto.DeviceType)
 		require.NotNil(t, proto.Components)
 		require.Len(t, proto.AssociatedMachineIds, 2)
@@ -97,9 +101,11 @@ func TestSKU_FromProto(t *testing.T) {
 	t.Run("populates fields from proto", func(t *testing.T) {
 		sk := &SKU{}
 		sk.FromProto(&corev1.Sku{
-			Id:         "sku-1",
-			DeviceType: &deviceType,
-			Components: &corev1.SkuComponents{},
+			Id:            "sku-1",
+			Description:   cutil.GetPtr("GPU compute SKU"),
+			SchemaVersion: 4,
+			DeviceType:    &deviceType,
+			Components:    &corev1.SkuComponents{},
 			AssociatedMachineIds: []*corev1.MachineId{
 				{Id: "m-1"},
 				{Id: ""}, // skipped
@@ -108,9 +114,17 @@ func TestSKU_FromProto(t *testing.T) {
 		}, siteID)
 		assert.Equal(t, "sku-1", sk.ID)
 		assert.Equal(t, siteID, sk.SiteID)
+		assert.Equal(t, "GPU compute SKU", sk.Description)
+		assert.Equal(t, uint32(4), sk.SchemaVersion)
 		assert.Equal(t, &deviceType, sk.DeviceType)
 		assert.Equal(t, []string{"m-1", "m-2"}, sk.AssociatedMachineIds)
 		require.NotNil(t, sk.Components)
+	})
+
+	t.Run("nil description clears existing description", func(t *testing.T) {
+		sk := &SKU{Description: "stale description"}
+		sk.FromProto(&corev1.Sku{Id: "sku-1"}, siteID)
+		assert.Empty(t, sk.Description)
 	})
 
 	t.Run("nil Components yields nil wrapper", func(t *testing.T) {
@@ -153,7 +167,12 @@ func testSkuCreateSkus(ctx context.Context, t *testing.T, dbSession *db.Session,
 	ids := []string{"sku-1", "sku-2", "sku-3"}
 	for _, id := range ids {
 		protoSku := &corev1.SkuComponents{}
-		sk, err := ssd.Create(ctx, nil, SkuCreateInput{SkuID: id, Components: &SkuComponents{SkuComponents: protoSku}, SiteID: siteId})
+		sk, err := ssd.Create(ctx, nil, SkuCreateInput{
+			SkuID:       id,
+			SiteID:      siteId,
+			Description: id + " description",
+			Components:  &SkuComponents{SkuComponents: protoSku},
+		})
 		require.NoError(t, err)
 		require.NotNil(t, sk)
 		created = append(created, *sk)
@@ -185,13 +204,13 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 	}{
 		{
 			desc:               "create one",
-			inputs:             []SkuCreateInput{{SkuID: "sku-1", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}, SiteID: site.ID}},
+			inputs:             []SkuCreateInput{{SkuID: "sku-1", SiteID: site.ID, Description: "first SKU", SchemaVersion: 5, Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}},
 			expectError:        false,
 			verifyChildSpanner: true,
 		},
 		{
 			desc:        "create multiple",
-			inputs:      []SkuCreateInput{{SkuID: "sku-2", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}, SiteID: site.ID}, {SkuID: "sku-3", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}, SiteID: site.ID}},
+			inputs:      []SkuCreateInput{{SkuID: "sku-2", SiteID: site.ID, Description: "second SKU", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}, {SkuID: "sku-3", SiteID: site.ID, Description: "third SKU", Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}},
 			expectError: false,
 		},
 	}
@@ -203,6 +222,8 @@ func TestSkuSQLDAO_Create(t *testing.T) {
 				if !tc.expectError {
 					assert.NotNil(t, got)
 					assert.Equal(t, input.SkuID, got.ID)
+					assert.Equal(t, input.SchemaVersion, got.SchemaVersion)
+					assert.Equal(t, input.Description, got.Description)
 					if input.Components != nil {
 						assert.NotNil(t, got.Components)
 					}
@@ -333,19 +354,51 @@ func TestSkuSQLDAO_Update(t *testing.T) {
 	_, _, ctx = testCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		desc  string
-		input SkuUpdateInput
-		check bool
+		desc                string
+		input               SkuUpdateInput
+		expectedDescription string
+		expectedVersion     uint32
 	}{
-		{desc: "update sku data", input: SkuUpdateInput{SkuID: created[0].ID, Components: &SkuComponents{SkuComponents: &corev1.SkuComponents{}}}, check: true},
+		{
+			desc: "update sku data",
+			input: SkuUpdateInput{
+				SkuID:         created[0].ID,
+				Description:   cutil.GetPtr("updated description"),
+				SchemaVersion: cutil.GetPtr(uint32(5)),
+				Components:    &SkuComponents{SkuComponents: &corev1.SkuComponents{}},
+			},
+			expectedDescription: "updated description",
+			expectedVersion:     5,
+		},
+		{
+			desc: "nil description preserves stored description",
+			input: SkuUpdateInput{
+				SkuID:       created[1].ID,
+				Description: nil,
+				Components:  &SkuComponents{SkuComponents: &corev1.SkuComponents{}},
+			},
+			expectedDescription: created[1].Description,
+			expectedVersion:     created[1].SchemaVersion,
+		},
+		{
+			desc: "empty description clears stored description",
+			input: SkuUpdateInput{
+				SkuID:       created[2].ID,
+				Description: cutil.GetPtr(""),
+			},
+			expectedDescription: "",
+			expectedVersion:     created[2].SchemaVersion,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			got, err := ssd.Update(ctx, nil, tc.input)
 			require.NoError(t, err)
-			if tc.check {
-				assert.NotNil(t, got)
-				assert.Equal(t, tc.input.SkuID, got.ID)
+			require.NotNil(t, got)
+			assert.Equal(t, tc.input.SkuID, got.ID)
+			assert.Equal(t, tc.expectedDescription, got.Description)
+			assert.Equal(t, tc.expectedVersion, got.SchemaVersion)
+			if tc.input.Components != nil {
 				assert.NotNil(t, got.Components)
 			}
 			// tracer
