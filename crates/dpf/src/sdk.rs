@@ -743,10 +743,15 @@ pub fn build_service_configuration(
     let service_daemon_set = DpuServiceConfigurationServiceConfigurationServiceDaemonSet {
         annotations: svc.service_daemon_set_annotations.clone(),
         labels: None,
-        resources: None,
+        resources: svc.service_daemon_set_resources.clone(),
         update_strategy: Some(
             DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategy {
-                rolling_update: Some(DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate{ max_surge: None, max_unavailable: Some(IntOrString::String("100%".to_string())) }),
+                rolling_update: Some(
+                    DpuServiceConfigurationServiceConfigurationServiceDaemonSetUpdateStrategyRollingUpdate {
+                        max_surge: None,
+                        max_unavailable: Some(IntOrString::String("100%".to_string())),
+                    },
+                ),
                 r#type: Some("RollingUpdate".into()),
             },
         ),

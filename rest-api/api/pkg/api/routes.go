@@ -981,6 +981,11 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 		// SKU endpoints
 		{
 			Path:    apiPathPrefix + "/sku",
+			Method:  http.MethodPost,
+			Handler: apiHandler.NewCreateSkuHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/sku",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetAllSkuHandler(dbSession, tc, cfg),
 		},
@@ -988,6 +993,16 @@ func NewAPIRoutes(dbSession *cdb.Session, tc tClient.Client, tnc tClient.Namespa
 			Path:    apiPathPrefix + "/sku/:id",
 			Method:  http.MethodGet,
 			Handler: apiHandler.NewGetSkuHandler(dbSession, tc, cfg),
+		},
+		{
+			Path:    apiPathPrefix + "/sku/:id",
+			Method:  http.MethodPatch,
+			Handler: apiHandler.NewUpdateSkuHandler(dbSession, scp),
+		},
+		{
+			Path:    apiPathPrefix + "/sku/:id",
+			Method:  http.MethodDelete,
+			Handler: apiHandler.NewDeleteSkuHandler(dbSession, scp),
 		},
 		// Task endpoints (Flow). /rack/task/* and /task/* share get/cancel
 		// handlers; list operations are exposed under /rack/{id}/task and

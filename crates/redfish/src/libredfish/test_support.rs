@@ -58,6 +58,10 @@ struct RedfishSimState {
     machine_setup_bios_job_id: Option<String>,
     is_bios_setup: Option<bool>,
     default_lockdown: Option<EnabledDisabled>,
+    /// Override whether `lockdown_bmc` changes the observed state. `None`
+    /// preserves the normal successful behavior; `Some(false)` models a BMC
+    /// accepting the write without applying the requested policy.
+    lockdown_bmc_applies: Option<bool>,
     job_state_sequence: VecDeque<JobState>,
     /// Offset (in seconds) applied to the BMC `DateTime` returned by
     /// `get_manager`, relative to the controller's `Utc::now()`. Defaults to 0
@@ -307,6 +311,11 @@ impl RedfishSim {
         for host_state in state.hosts.values_mut() {
             host_state.lockdown = lockdown;
         }
+    }
+
+    /// Control whether `lockdown_bmc` updates the observed lockdown state.
+    pub fn set_lockdown_bmc_applies(&self, applies: bool) {
+        self.state.lock().unwrap().lockdown_bmc_applies = Some(applies);
     }
 
     /// Set the offset (in seconds) applied to the BMC `DateTime` returned by
@@ -1667,8 +1676,10 @@ impl Redfish for RedfishSimClient {
     ) -> libredfish::RedfishFuture<'a, Result<(), RedfishError>> {
         Box::pin(async move {
             let mut state = self.state.lock().unwrap();
-            let host_state = state.hosts.get_mut(&self._host).unwrap();
-            host_state.lockdown = target;
+            if state.lockdown_bmc_applies.unwrap_or(true) {
+                let host_state = state.hosts.get_mut(&self._host).unwrap();
+                host_state.lockdown = target;
+            }
             Ok(())
         })
     }

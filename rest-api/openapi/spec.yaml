@@ -185,7 +185,7 @@ tags:
     description: |-
       SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
-      SKUs are automatically derived from machine hardware characteristics and used to group similar machines. SKUs are read-only and managed by the system.
+      SKUs group similar machines by their hardware characteristics. Most SKUs are managed by the system, but Provider Admins can create, update, and delete SKUs for a Site.
   - name: InfiniBand Partition
     x-displayName: InfiniBand Partition
     description: |-
@@ -5155,9 +5155,13 @@ paths:
                             memoryType: DDR5
                             count: 16
                         storage:
-                          - vendor: Samsung
-                            model: PM9A3
-                            capacityMb: 7680000
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
                             count: 4
                         chassis:
                           vendor: Supermicro
@@ -5170,6 +5174,32 @@ paths:
                 type: string
                 example: '{"pageNumber":1,"pageSize":20,"total":30,"orderBy": "CREATED_DESC"}'
               description: Pagination result in JSON format
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+      tags:
+        - SKU
+    post:
+      summary: Create SKU
+      operationId: create-sku
+      description: |-
+        Create a SKU.
+
+        The Org must have an Infrastructure Provider that owns the Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -5232,15 +5262,68 @@ paths:
                           memoryType: DDR5
                           count: 16
                       storage:
-                        - vendor: Samsung
-                          model: PM9A3
-                          capacityMb: 7680000
-                          count: 4
+                          - vendor: ''
+                            model: SAMSUNG MZ1L21T9HCLS-00A07
+                            capacityMb: 0
+                            minSizeMiB: 7680000
+                            maxSizeMiB: 7680000
+                            pciPatterns:
+                               - ^/devices/pci.*nvme0$
+                            count: 4
                       chassis:
                         vendor: Supermicro
                         model: SYS-420GP-TNR
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    delete:
+      summary: Delete SKU
+      operationId: delete-sku
+      description: |-
+        Delete an unused SKU. The Site is determined from the saved SKU record.
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      responses:
+        '204':
+          description: No Content
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+      tags:
+        - SKU
+    patch:
+      summary: Update SKU
+      operationId: update-sku
+      description: |-
+        Update selected mutable fields on a SKU. The Site is determined from the saved SKU record.
+
+        Fields omitted from the request retain their current values. If a user updates the components field,
+        the schema version will be updated to the current version (5).
+
+        The Org must have an Infrastructure Provider that owns the SKU's Site. The user must have an authorization role with the `PROVIDER_ADMIN` suffix.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SkuUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sku'
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -24684,6 +24767,8 @@ components:
       examples:
         - id: lenovo.sr650v2.cpu.1
           siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          description: Lenovo SR650 V2 compute node
+          schemaVersion: 5
           deviceType: gpu
           associatedMachineIds:
             - fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -24722,6 +24807,15 @@ components:
           format: uuid
           description: ID of the Site this SKU belongs to
           readOnly: true
+        description:
+          type: string
+          description: Human-readable SKU description
+          readOnly: true
+        schemaVersion:
+          type: integer
+          format: uint32
+          description: Core SKU schema version when available
+          readOnly: true
         deviceType:
           type:
             - string
@@ -24747,6 +24841,69 @@ components:
           format: date-time
           description: ISO 8601 datetime when the SKU was last updated
           readOnly: true
+    SkuCreateRequest:
+      title: SkuCreateRequest
+      type: object
+      description: Request data to create a SKU on a Site's NICo Core service.
+      examples:
+        - siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
+          id: dgx-h100
+          description: DGX H100 compute node
+          deviceType: gpu-server
+          components:
+            chassis:
+              vendor: NVIDIA
+              model: DGX H100
+              architecture: x86_64
+      properties:
+        siteId:
+          type: string
+          format: uuid
+          description: ID of the Site where the SKU will be created
+        id:
+          type: string
+          minLength: 1
+          description: Unique SKU identifier
+        description:
+          type: string
+          description: Human-readable SKU description
+        deviceType:
+          type:
+            - string
+            - 'null'
+          description: Optional device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
+      required:
+        - siteId
+        - id
+        - components
+    SkuUpdateRequest:
+      title: SkuUpdateRequest
+      type: object
+      description: |-
+        Request data to update a SKU.
+        At least one of description, deviceType, or components must be provided.
+        The service preserves the schema version for metadata-only updates.
+        Component updates replace the SKU using the current schema version,
+        migrating legacy SKU schemas to the current format.
+      examples:
+        - description: DGX H100 compute node with InfiniBand
+          components:
+            infinibandDevices:
+              - vendor: Mellanox Technologies
+                model: MT2910 Family [ConnectX-7]
+                count: 4
+                inactiveDevices: []
+      properties:
+        description:
+          type: string
+          description: Replacement SKU description
+        deviceType:
+          type: string
+          description: Replacement device type identifier
+        components:
+          $ref: '#/components/schemas/SkuComponents'
     SkuComponents:
       title: SkuComponents
       type: object
@@ -24794,6 +24951,11 @@ components:
       title: SkuCpu
       type: object
       description: CPU component in a SKU
+      examples:
+        - vendor: ARM
+          model: Neoverse-V2
+          threadCount: 72
+          count: 2
       properties:
         vendor:
           type: string
@@ -24813,6 +24975,11 @@ components:
       title: SkuGpu
       type: object
       description: GPU component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: NVIDIA GB200
+          totalMemory: 189471 MiB
+          count: 4
       properties:
         vendor:
           type: string
@@ -24831,6 +24998,10 @@ components:
       title: SkuMemory
       type: object
       description: Memory component in a SKU
+      examples:
+        - capacityMb: 491520
+          memoryType: LPDDR5
+          count: 2
       properties:
         capacityMb:
           type: integer
@@ -24847,25 +25018,65 @@ components:
       title: SkuStorage
       type: object
       description: Storage component in a SKU
+      examples:
+        - vendor: ''
+          model: SAMSUNG MZ1L21T9HCLS-00A07
+          capacityMb: 0
+          count: 1
+          minSizeMiB: 1831420
+          maxSizeMiB: 1831420
+          pciPatterns:
+            - ^/devices/pci.*nvme0$
+        - vendor: ''
+          model: SAMSUNG MZTL63T8HFLT-00AW7
+          capacityMb: 0
+          count: 8
+          minSizeMiB: 3662840
+          maxSizeMiB: 3662840
+          pciPatterns:
+            - ^/devices/pci.*nvme[1-8]$
       properties:
         vendor:
           type: string
-          description: Vendor of the storage device
+          readOnly: true
+          description: Storage vendor used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 does not use this field.
         model:
           type: string
-          description: Model of the storage device
+          description: Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
         capacityMb:
           type: integer
           format: uint32
-          description: Capacity in megabytes
+          readOnly: true
+          description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
           description: Number of storage devices present
+        minSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
+        maxSizeMiB:
+          type:
+            - integer
+            - 'null'
+          format: uint32
+          description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
+        pciPatterns:
+          type: array
+          description: Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
+          items:
+            type: string
     SkuChassis:
       title: SkuChassis
       type: object
       description: Chassis component in a SKU
+      examples:
+        - vendor: NVIDIA
+          model: GB200 NVL
+          architecture: aarch64
       properties:
         vendor:
           type: string
@@ -24873,6 +25084,9 @@ components:
         model:
           type: string
           description: Model of the chassis
+        architecture:
+          type: string
+          description: Architecture of the chassis
     SkuEthernetDevice:
       title: SkuEthernetDevice
       type: object
@@ -24888,10 +25102,18 @@ components:
           type: integer
           format: uint32
           description: Number of ethernet devices present
+        isConnected:
+          type: boolean
+          description: Whether the ethernet device is connected
     SkuInfinibandDevice:
       title: SkuInfinibandDevice
       type: object
       description: Infiniband device component in a SKU
+      examples:
+        - vendor: Mellanox Technologies
+          model: MT2910 Family [ConnectX-7]
+          count: 4
+          inactiveDevices: []
       properties:
         vendor:
           type: string
@@ -24903,6 +25125,12 @@ components:
           type: integer
           format: uint32
           description: Number of infiniband devices present
+        inactiveDevices:
+          type: array
+          description: Zero-based indexes of inactive devices
+          items:
+            type: integer
+            format: uint32
     SkuTpm:
       title: SkuTpm
       type: object
