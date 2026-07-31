@@ -243,8 +243,10 @@ async fn test_periodic_suppression_skips_every_candidate_class(
             .explore_endpoint_calls
             .lock()
             .unwrap()
-            .as_slice(),
-        &[dhcp_only_ip]
+            .iter()
+            .map(|call| call.ip_address)
+            .collect::<Vec<_>>(),
+        vec![dhcp_only_ip]
     );
 
     let mut txn = env.pool.begin().await?;
@@ -345,8 +347,10 @@ async fn test_suppressed_unexplored_endpoint_does_not_consume_budget_and_resumes
             .explore_endpoint_calls
             .lock()
             .unwrap()
-            .as_slice(),
-        &[routine_ip]
+            .iter()
+            .map(|call| call.ip_address)
+            .collect::<Vec<_>>(),
+        vec![routine_ip]
     );
     let mut txn = env.pool.begin().await?;
     assert!(
@@ -382,8 +386,10 @@ async fn test_suppressed_unexplored_endpoint_does_not_consume_budget_and_resumes
             .explore_endpoint_calls
             .lock()
             .unwrap()
-            .as_slice(),
-        &[suppressed_ip]
+            .iter()
+            .map(|call| call.ip_address)
+            .collect::<Vec<_>>(),
+        vec![suppressed_ip]
     );
     let mut txn = env.pool.begin().await?;
     assert_eq!(
