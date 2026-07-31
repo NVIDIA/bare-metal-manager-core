@@ -33,6 +33,7 @@ fn profile(
 ) -> RackProfile {
     RackProfile {
         product_family: Some(product_family),
+        firmware_object: None,
         rack_hardware_type: Some(RackHardwareType::from("wiwynn_nvl72")),
         rack_hardware_topology: Some(rack_hardware_topology),
         rack_hardware_class: Some(RackHardwareClass::Prod),

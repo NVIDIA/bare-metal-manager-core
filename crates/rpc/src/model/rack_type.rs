@@ -495,6 +495,7 @@ mod tests {
     fn test_configured_rack_profile_uses_rack_profile_conversion() {
         let profile = RackProfile {
             product_family: Some(RackProductFamily::Gb300),
+            firmware_object: None,
             rack_hardware_type: Some(RackHardwareType::from("wiwynn_gb300_nvl72")),
             rack_hardware_topology: Some(RackHardwareTopology::Gb300Nvl72r1C2g4Topology),
             rack_hardware_class: Some(RackHardwareClass::Prod),
