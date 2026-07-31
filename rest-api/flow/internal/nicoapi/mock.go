@@ -39,10 +39,10 @@ type mockClient struct {
 	expectedPowerShelfDetails map[string]ExpectedPowerShelfDetail // by ExpectedPowerShelfID (UUID)
 
 	// Decommission mock state.
-	machineControllerStates    map[string]string // machine ID → raw state string
-	decommissionMachineErr     error             // returned by DecommissionMachine if set
-	decommissionSwitchErr      error             // returned by DecommissionSwitch if set
-	decommissionPowerShelfErr  error             // returned by DecommissionPowerShelf if set
+	machineControllerStates   map[string]string // machine ID → raw state string
+	decommissionMachineErr    error             // returned by DecommissionMachine if set
+	decommissionSwitchErr     error             // returned by DecommissionSwitch if set
+	decommissionPowerShelfErr error             // returned by DecommissionPowerShelf if set
 
 	// DPU reprovisioning mock state. Populated by tests via the
 	// SetDpu... helpers. The mock keeps the list of pending DPUs by host
