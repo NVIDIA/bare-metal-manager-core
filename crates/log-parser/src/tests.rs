@@ -23,8 +23,8 @@ use regex::Regex;
 use serde_json::json;
 
 use super::{
-    Event, EventConstraints, EventSeverity, EventType, LogFile, MAX_EVENTS, check_constraints,
-    process_events, queue_event, read_event_definition,
+    Configuration, Event, EventConstraints, EventSeverity, EventType, LogFile, MAX_EVENTS,
+    check_constraints, process_events, process_log_file_events, queue_event, read_event_definition,
 };
 
 fn event_type(name: impl Into<String>) -> EventType {
@@ -1011,5 +1011,42 @@ fn event_definition_delimiter_is_exactly_one_byte() {
             },
         ],
         |row| inspect_delimiter(&runtime, &directory, row),
+    );
+}
+
+#[tokio::test]
+async fn log_records_use_the_configured_delimiter() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("events.log");
+    std::fs::write(&path, b"matched|unfinished").unwrap();
+
+    let mut configuration = Configuration {
+        filename: None,
+        pipeline: "test".to_string(),
+        delimiter: Some("|".to_string()),
+        filename_format: ".*".to_string(),
+        filename_regex: None,
+        logs_path: path.to_string_lossy().into_owned(),
+        events: vec![event_type("matched")],
+        events_regex: Some(vec![Regex::new("^matched$").unwrap()]),
+        logs: vec![LogFile {
+            file_path: path.to_string_lossy().into_owned(),
+            ..Default::default()
+        }],
+        logs_hash: HashMap::new(),
+    };
+
+    process_log_file_events(&mut configuration, 0, false)
+        .await
+        .unwrap();
+
+    let log = &configuration.logs[0];
+    assert_eq!(log.offset, b"matched|".len() as u64);
+    assert_eq!(
+        log.events
+            .iter()
+            .map(|event| event.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["matched"]
     );
 }

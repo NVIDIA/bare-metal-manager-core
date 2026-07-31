@@ -327,7 +327,7 @@ async fn process_log_file_events(
             file.read_exact(&mut buffer).await?;
             consumed += buffer_length;
 
-            if buffer.contains(&b'\n') {
+            if buffer.contains(&delimiter) {
                 // find last delimiter and move seek offset to that, truncate buffer to that
                 if let Some(seek_position) = buffer.iter().rev().position(|&c| c == delimiter) {
                     log.offset += buffer_length - seek_position as u64;
@@ -335,7 +335,7 @@ async fn process_log_file_events(
                 } else {
                     log.offset += buffer_length;
                 }
-                let segments = buffer.split(|&c| c == b'\n');
+                let segments = buffer.split(|&c| c == delimiter);
                 for segment in segments {
                     if segment.is_empty() {
                         continue;
