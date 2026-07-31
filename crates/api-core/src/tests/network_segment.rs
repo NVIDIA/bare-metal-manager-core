@@ -95,6 +95,7 @@ async fn create_stretchable_segment_for_svi_test_with_vpc_type(
             },
             network_security_group_id: None,
             routing_profile_type: None,
+            routing_profile_overrides: None,
             vni: None,
         },
         VpcStatus { vni: None },
@@ -712,6 +713,7 @@ pub async fn test_create_initial_vpc_and_attached_network(
             organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
             network_virtualization_type: VpcVirtualizationType::Flat,
             routing_profile_type: None,
+            routing_profile_overrides: None,
             vni: None,
         },
     )]);
@@ -913,6 +915,7 @@ async fn initial_vpc_allocation_failures_preserve_errors_and_emit(
                         organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
                         network_virtualization_type: VpcVirtualizationType::Flat,
                         routing_profile_type: None,
+                        routing_profile_overrides: None,
                         vni: failure.requested_vni(),
                     },
                 )]);

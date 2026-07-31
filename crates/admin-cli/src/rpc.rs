@@ -1238,6 +1238,7 @@ impl ApiClient {
             .create_vpc(VpcCreationRequest {
                 vni: None,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
@@ -1296,6 +1297,7 @@ impl ApiClient {
             .create_vpc(VpcCreationRequest {
                 vni: None,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(VpcVirtualizationType::Flat.into()),

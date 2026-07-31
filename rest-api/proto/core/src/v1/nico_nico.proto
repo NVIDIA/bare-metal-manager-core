@@ -1624,6 +1624,40 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
+// A presence-aware list of prefix-filter entries.
+message PrefixFilterPolicyEntries {
+  repeated PrefixFilterPolicyEntry values = 1;
+}
+
+// Routing-profile properties set directly on a VPC. Present properties
+// override its named routing profile; omitted properties inherit from it.
+// `internal` and `access_tier` are intentionally not exposed because allocation
+// and access controls must always come from the named base profile.
+message VpcRoutingProfileOverrides {
+  optional common.RouteTargets route_target_imports = 1;
+  optional common.RouteTargets route_targets_on_exports = 2;
+  optional bool leak_default_route_from_underlay = 3;
+  optional bool leak_tenant_host_routes_to_underlay = 4;
+  optional bool tenant_leak_communities_accepted = 5;
+  optional PrefixFilterPolicyEntries accepted_leaks_from_underlay = 6;
+  optional PrefixFilterPolicyEntries allowed_anycast_prefixes = 7;
+}
+
+// The fully resolved routing profile currently applied to an FNN VPC.
+// Unlike VpcRoutingProfileOverrides, this includes the protected properties
+// inherited from the named base profile and has no presence-aware fields.
+message VpcEffectiveRoutingProfile {
+  repeated common.RouteTarget route_target_imports = 1;
+  repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay = 3;
+  bool leak_tenant_host_routes_to_underlay = 4;
+  bool tenant_leak_communities_accepted = 5;
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 7;
+  bool internal = 8;
+  uint32 access_tier = 9;
+}
+
 message VpcConfig {
   string tenant_organization_id = 1;
   optional string tenant_keyset_id = 2;
@@ -1633,6 +1667,7 @@ message VpcConfig {
   // Desired VNI for this VPC. Only populated when explicitly requested during creation.
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
 }
 
 message VpcStatus {
@@ -1640,6 +1675,10 @@ message VpcStatus {
   // explicitly requested, we'd expect this to match config.vni.
   // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
+  // Computed from the API server's current named profile and the persisted
+  // VPC overrides. This value is not persisted and may change when the API
+  // server configuration changes.
+  optional VpcEffectiveRoutingProfile effective_routing_profile = 2;
 }
 
 message Vpc {
@@ -1728,6 +1767,10 @@ message VpcCreationRequest {
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
   optional string routing_profile_type = 17;
+
+  // Properties to overlay on the selected named routing profile. Properties
+  // left unset inherit from the base profile.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
 }
 
 enum VpcVirtualizationType {

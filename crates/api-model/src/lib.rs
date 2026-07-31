@@ -116,6 +116,12 @@ pub enum ConfigValidationError {
     #[error("invalid value: {0}")]
     InvalidValue(String),
 
+    #[error(
+        "initial VPC `{name}` cannot define `routing_profile_overrides`; inline routing-profile \
+         overrides are only supported by VPC creation requests"
+    )]
+    InitialVpcRoutingProfileOverridesUnsupported { name: String },
+
     #[error("found unknown segments")]
     UnknownSegments,
 

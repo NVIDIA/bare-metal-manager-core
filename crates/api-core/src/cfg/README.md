@@ -103,7 +103,7 @@ applicable.
 | `compute_allocation_enforcement` | `ComputeAllocationEnforcement` | `WarnOnly` | `machines` | Controls enforcement of compute allocations on new instance requests. |
 | `supernic_firmware_profiles` | nested `HashMap` | `{}` | `machines` | SuperNIC firmware profiles keyed by `part_number` then `PSID`. |
 | `component_manager` | `Option<ComponentManagerConfig>` | — | `hardware` | Component manager for NvLink switches and power shelves. |
-| `vpcs` | `Option<HashMap<String, VpcDefinition>>` | — | `networking` | VPCs to create at startup. Use the `CreateVpc` gRPC to create them later instead. |
+| `vpcs` | `Option<HashMap<String, VpcDefinition>>` | — | `networking` | VPCs to create at startup (see [VpcDefinition](#vpcdefinition)). Use the `CreateVpc` gRPC to create them later instead. |
 | `allow_bmc_basic_auth_fallback` | `bool` | `false` | `security` | When `true`, `GetBmcCredentials` may return `UsernamePassword` credentials for BMCs whose Redfish ServiceRoot does not expose `SessionService`. When `false`, such BMCs surface a `NoSessionService` error and no basic-auth fallback is performed. |
 | `rack_validation_config` | `RackValidationConfig` | *(default)* | `hardware` | Rack-level validation: multi-node partition tests after firmware upgrade and maintenance to verify rack health (see [RackValidationConfig](#rackvalidationconfig)). |
 | `oem_manager_profiles` | `BiosProfileVendor` | `{}` | `machines` | Vendor-specific iDRAC/BMC manager attributes applied during machine setup, before BMC lockdown. Keyed by vendor → model → profile → attribute name; targets the manager OEM attributes endpoint (e.g. Dell `DellAttributes`), as opposed to `bios_profiles` which targets BIOS settings. Model names are normalized to lowercase with underscores (e.g. `"PowerEdge R760"` → `"poweredge_r760"`). |
@@ -516,15 +516,29 @@ client-certificate authentication is not used.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `route_target_imports` | `Vec<RouteTargetConfig>` | `[]` | Route targets imported into DPU VRFs for VPC routes. |
-| `route_targets_on_exports` | `Vec<RouteTargetConfig>` | `[]` | Route targets added to routes exported by the DPU. |
-| `internal` | `bool` | `false` | Whether the profile uses internal VNI allocation. |
-| `leak_default_route_from_underlay` | `bool` | `false` | Leak the default route from the underlay/default VRF into tenant VRFs. |
-| `leak_tenant_host_routes_to_underlay` | `bool` | `false` | Leak tenant host routes into the underlay/default VRF. |
-| `tenant_leak_communities_accepted` | `bool` | `false` | Honor route-leak communities sent by the tenant host OS. |
-| `accepted_leaks_from_underlay` | `Vec<PrefixFilterPolicyEntry>` | `[]` | Specific underlay/default VRF prefixes allowed to leak into tenant VRFs. Routing only; does not affect ACLs. |
-| `allowed_anycast_prefixes` | `Vec<PrefixFilterPolicyEntry>` | `[]` | IPv4 or IPv6 prefixes that tenant hosts are allowed to announce to the DPU as anycast routes. |
-| `access_tier` | `u32` | `0` | Routing profile access tier. Lower values grant broader access. |
+| `route_target_imports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets imported into DPU VRFs for VPC routes. |
+| `route_targets_on_exports` | `Option<Vec<RouteTargetConfig>>` | — (effective `[]`) | Route targets added to routes exported by the DPU. |
+| `internal` | `Option<bool>` | — (effective `false`) | Whether the profile uses internal VNI allocation. This property cannot be overridden on a VPC. |
+| `leak_default_route_from_underlay` | `Option<bool>` | — (effective `false`) | Leak the default route from the underlay/default VRF into tenant VRFs. |
+| `leak_tenant_host_routes_to_underlay` | `Option<bool>` | — (effective `false`) | Leak tenant host routes into the underlay/default VRF. |
+| `tenant_leak_communities_accepted` | `Option<bool>` | — (effective `false`) | Honor route-leak communities sent by the tenant host OS. |
+| `accepted_leaks_from_underlay` | `Option<Vec<PrefixFilterPolicyEntry>>` | — (effective `[]`) | Specific underlay/default VRF prefixes allowed to leak into tenant VRFs. Routing only; does not affect ACLs. |
+| `allowed_anycast_prefixes` | `Option<Vec<PrefixFilterPolicyEntry>>` | — (effective `[]`) | IPv4 or IPv6 prefixes that tenant hosts are allowed to announce to the DPU as anycast routes. |
+| `access_tier` | `Option<u32>` | — (effective `0`) | Routing profile access tier. Lower values grant broader access. This property cannot be overridden on a VPC. |
+
+Unset properties retain presence information so a VPC's inline
+`routing_profile_overrides` can inherit them. After the named profile and VPC
+override are combined, properties still unset use the effective defaults above.
+
+### `VpcDefinition`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `organization_id` | `Option<String>` | — | Tenant organization that owns the seeded VPC. |
+| `network_virtualization_type` | `VpcVirtualizationType` | **required** | Data plane used by the VPC. |
+| `routing_profile_type` | `Option<String>` | — | Named FNN routing profile recorded on the seeded VPC. |
+| `routing_profile_overrides` | `Option<VpcRoutingProfileOverrides>` | — | Unsupported for seeded VPCs. Any configured value causes startup to fail; inline overrides are accepted only by VPC creation requests. |
+| `vni` | `Option<i32>` | — | Desired VNI; when absent, one is allocated. |
 
 ### `PrefixFilterPolicyEntry`
 

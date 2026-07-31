@@ -804,6 +804,8 @@ impl<'a> SeedData<'a> {
             carbide_config,
             false,
         )?;
+        db_init::validate_initial_vpcs(&initial_vpcs)?;
+
         let initial_pools = Self::merge_objects(
             initial_objects.and_then(|io| io.pools.as_ref()),
             carbide_config.pools.as_ref(),
@@ -1873,6 +1875,7 @@ mod tests {
             organization_id: None,
             network_virtualization_type,
             routing_profile_type: None,
+            routing_profile_overrides: None,
             vni: None,
         }
     }
@@ -1984,6 +1987,9 @@ mod tests {
         ConflictingNetwork,
         ConflictingVpc,
         InvalidNetwork,
+        InvalidVpcOverrides {
+            source: SeedSource,
+        },
         NoOptionalObjects,
         MissingPools,
     }
@@ -1999,8 +2005,21 @@ mod tests {
     enum ResolveFailure {
         Conflict(String),
         InvalidNetwork,
+        InvalidVpcOverrides,
         MissingPools,
         Unexpected(String),
+    }
+
+    fn classify_config_validation_error(error: &model::ConfigValidationError) -> ResolveFailure {
+        match error {
+            model::ConfigValidationError::InitialVpcRoutingProfileOverridesUnsupported {
+                ..
+            } => ResolveFailure::InvalidVpcOverrides,
+            // The only other configuration validation performed by
+            // `SeedData::resolve` is `NetworkDefinition::validate`.
+            model::ConfigValidationError::InvalidValue(_) => ResolveFailure::InvalidNetwork,
+            _ => ResolveFailure::Unexpected(error.to_string()),
+        }
     }
 
     fn names(entries: &[&str]) -> BTreeSet<String> {
@@ -2096,6 +2115,29 @@ mod tests {
             ResolveInput::InvalidNetwork => {
                 config.networks = Some(seed_map(&[("test-network", network_definition(9214))]));
             }
+            ResolveInput::InvalidVpcOverrides {
+                source: SeedSource::InitialObjects,
+            } => {
+                initial_objects.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    VpcDefinition {
+                        routing_profile_overrides: Some(Default::default()),
+                        ..vpc_definition(VpcVirtualizationType::Fnn)
+                    },
+                )]));
+                use_initial_objects = true;
+            }
+            ResolveInput::InvalidVpcOverrides {
+                source: SeedSource::LegacyConfig,
+            } => {
+                config.vpcs = Some(seed_map(&[(
+                    "test-vpc",
+                    VpcDefinition {
+                        routing_profile_overrides: Some(Default::default()),
+                        ..vpc_definition(VpcVirtualizationType::Fnn)
+                    },
+                )]));
+            }
             ResolveInput::NoOptionalObjects => {}
             ResolveInput::MissingPools => {
                 config.pools = None;
@@ -2115,11 +2157,8 @@ mod tests {
                 {
                     return Err(ResolveFailure::MissingPools);
                 }
-                if error
-                    .downcast_ref::<model::ConfigValidationError>()
-                    .is_some()
-                {
-                    return Err(ResolveFailure::InvalidNetwork);
+                if let Some(error) = error.downcast_ref::<model::ConfigValidationError>() {
+                    return Err(classify_config_validation_error(error));
                 }
 
                 let message = error.to_string();
@@ -2400,12 +2439,36 @@ attributes = { attribute1 = "site", additional_attribute3 = "site" }
                     expect: FailsWith(ResolveFailure::InvalidNetwork),
                 },
                 Case {
+                    scenario: "initial-objects VPC overrides fail during resolution",
+                    input: ResolveInput::InvalidVpcOverrides {
+                        source: SeedSource::InitialObjects,
+                    },
+                    expect: FailsWith(ResolveFailure::InvalidVpcOverrides),
+                },
+                Case {
+                    scenario: "legacy VPC overrides fail during resolution",
+                    input: ResolveInput::InvalidVpcOverrides {
+                        source: SeedSource::LegacyConfig,
+                    },
+                    expect: FailsWith(ResolveFailure::InvalidVpcOverrides),
+                },
+                Case {
                     scenario: "resource pool definitions remain required",
                     input: ResolveInput::MissingPools,
                     expect: FailsWith(ResolveFailure::MissingPools),
                 },
             ],
             resolve_seed_data,
+        );
+    }
+
+    #[test]
+    fn seed_resolution_preserves_unexpected_config_validation_errors() {
+        let error =
+            model::ConfigValidationError::DuplicateTenantKeysetId("duplicate-keyset".to_string());
+        assert_eq!(
+            classify_config_validation_error(&error),
+            ResolveFailure::Unexpected(error.to_string())
         );
     }
 }

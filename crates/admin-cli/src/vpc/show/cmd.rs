@@ -111,6 +111,7 @@ fn vpc_config(vpc: &forgerpc::Vpc) -> forgerpc::VpcConfig {
             default_nvlink_logical_partition_id: vpc.default_nvlink_logical_partition_id,
             vni: vpc.vni,
             routing_profile_type: vpc.routing_profile_type.clone(),
+            routing_profile_overrides: None,
         }
     }
 }
@@ -184,6 +185,19 @@ pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<Strin
     let width = 25;
     let mut lines = String::new();
     let config = vpc_config(vpc);
+    let routing_profile_overrides = config
+        .routing_profile_overrides
+        .as_ref()
+        .map(serde_json::to_string_pretty)
+        .transpose()?
+        .unwrap_or_else(|| "None".to_string());
+    let effective_routing_profile = vpc
+        .status
+        .as_ref()
+        .and_then(|status| status.effective_routing_profile.as_ref())
+        .map(serde_json::to_string_pretty)
+        .transpose()?
+        .unwrap_or_else(|| "None".to_string());
 
     let vpc_name = vpc
         .metadata
@@ -227,6 +241,18 @@ pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<Strin
                 .as_str_name()
                 .into(),
         ),
+        (
+            "ROUTING PROFILE TYPE",
+            config.routing_profile_type.unwrap_or_default().into(),
+        ),
+        (
+            "ROUTING PROFILE OVERRIDES",
+            routing_profile_overrides.into(),
+        ),
+        (
+            "EFFECTIVE ROUTING PROFILE",
+            effective_routing_profile.into(),
+        ),
     ];
 
     for (key, value) in data {
@@ -234,4 +260,48 @@ pub fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<Strin
     }
 
     Ok(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vpc_details_include_routing_profiles() {
+        let vpc = forgerpc::Vpc {
+            config: Some(forgerpc::VpcConfig {
+                tenant_organization_id: "tenant".to_string(),
+                routing_profile_type: Some("INTERNAL".to_string()),
+                routing_profile_overrides: Some(forgerpc::VpcRoutingProfileOverrides {
+                    leak_default_route_from_underlay: Some(false),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            status: Some(forgerpc::VpcStatus {
+                effective_routing_profile: Some(forgerpc::VpcEffectiveRoutingProfile {
+                    internal: true,
+                    access_tier: 2,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let display = convert_vpc_to_nice_format(&vpc).expect("VPC display");
+        assert!(display.contains("ROUTING PROFILE TYPE"));
+        assert!(display.contains("INTERNAL"));
+        let (_, routing_profiles) = display
+            .split_once("ROUTING PROFILE OVERRIDES")
+            .expect("routing-profile overrides");
+        let (overrides, effective) = routing_profiles
+            .split_once("EFFECTIVE ROUTING PROFILE")
+            .expect("effective routing profile");
+        assert!(overrides.contains("\"leak_default_route_from_underlay\": false"));
+        assert!(!overrides.contains("\"internal\""));
+        assert!(!overrides.contains("\"access_tier\""));
+        assert!(effective.contains("\"internal\": true"));
+        assert!(effective.contains("\"access_tier\": 2"));
+    }
 }
