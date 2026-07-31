@@ -17,16 +17,15 @@
 
 use carbide_kms_provider::{EncryptedDek, KmsBackend};
 use carbide_uuid::secret::SecretId;
+use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
 use sqlx::PgPool;
 
 use super::PgSecretsError;
 use super::routing::SecretRouting;
 
-/// The internal path whose advisory lock makes re-wrap single-flight. Like
-/// the import marker, it starts with a slash so it can never collide with
-/// a credential path -- but unlike the marker, no row is ever written for
-/// it; only its lock is used.
-const RE_WRAP_LOCK_PATH: &str = "/_re_wrap";
+// Replicas only contend when they name the same work, so keep this key stable
+// across releases.
+pub(super) const RE_WRAP_WORK_KEY: &str = "secrets::re_wrap_stale";
 
 /// What a re-wrap pass did, in journal rows.
 pub struct ReWrapStaleResult {
@@ -60,30 +59,26 @@ struct PendingReWrap {
 /// Historical journal entries are re-wrapped too: they must stay
 /// decryptable, and re-wrapping them is what lets an old KEK be retired
 /// completely.
-/// TODO(@chet): Migrate this to using WorkLockManager to do scoped locks of
-/// work without holding open a database connection or transaction.
-#[allow(txn_held_across_await)]
 pub async fn re_wrap_stale(
     pool: &PgPool,
+    work_lock_manager: &WorkLockManagerHandle,
     kms: &dyn KmsBackend,
     routing: &SecretRouting,
     batch_size: i64,
 ) -> Result<ReWrapStaleResult, PgSecretsError> {
-    // One re-wrap at a time: a second concurrent run would double every
-    // KMS round-trip for no benefit. The guard is a session advisory lock
-    // held on a dedicated connection, not a transaction -- the walk awaits
-    // Vault/KMS and opens a transaction per batch, and a lock transaction
-    // held across all of that would trip `txn_held_across_await` and could
-    // starve the pool. Detaching the connection guarantees the lock
-    // releases when it drops, including on an early error return.
-    let mut lock_conn = pool
-        .acquire()
+    // Keep the full walk single-flight without reserving another pool
+    // connection across KMS calls. A crashed owner can leave the key busy
+    // until the manager's lease expires.
+    let _work_lock = match work_lock_manager
+        .try_acquire_lock(RE_WRAP_WORK_KEY.into())
         .await
-        .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?
-        .detach();
-    if !db::secrets::try_lock_path_session(&mut lock_conn, RE_WRAP_LOCK_PATH).await? {
-        return Err(PgSecretsError::ReWrapInProgress);
-    }
+    {
+        Ok(lock) => lock,
+        Err(AcquireLockError::WorkAlreadyLocked(_)) => {
+            return Err(PgSecretsError::ReWrapInProgress);
+        }
+        Err(error) => return Err(error.into()),
+    };
 
     let mut result = ReWrapStaleResult {
         re_wrapped: 0,

@@ -29,7 +29,7 @@ use async_trait::async_trait;
 use axum::http::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use carbide_instrument::{Event, LabelValue, emit};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, emit};
 use forge_dpu_agent_utils::machine_identity::defaults::{
     BURST, REQUESTS_PER_SECOND, SIGN_TIMEOUT_SECS, WAIT_TIMEOUT_SECS,
 };
@@ -58,73 +58,58 @@ enum SignProxyFailureStage {
     UpstreamServer,
 }
 
-/// The sign-proxy request failed before an HTTP response was available.
+/// A machine-identity sign-proxy call did not produce a usable response.
+/// `failure_stage` names where it broke and picks both the level and the
+/// diagnostic that stage already had: the local transport and response stages
+/// keep their `WARN`, while an upstream server error stays log-silent because
+/// the status is already forwarded to the caller unchanged. `error` is absent
+/// for that stage, which has no local error text to report.
 #[derive(Event)]
 #[event(
-    event_name = "machine_identity_sign_proxy_request_failed",
+    event_name = "machine_identity_sign_proxy_failed",
     metric_name = "carbide_machine_identity_sign_proxy_failures_total",
     component = "machine-identity",
-    log = warn,
+    log = dynamic,
     metric = counter,
-    message = "machine identity sign proxy request failed",
+    message = dynamic,
     describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
 )]
-struct MachineIdentitySignProxyRequestFailed {
+struct MachineIdentitySignProxyFailed {
     #[label]
     failure_stage: SignProxyFailureStage,
     #[context]
-    error: String,
+    error: Option<String>,
 }
 
-/// The sign proxy answered, but its response body could not be read.
-#[derive(Event)]
-#[event(
-    event_name = "machine_identity_sign_proxy_response_read_failed",
-    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
-    component = "machine-identity",
-    log = warn,
-    metric = counter,
-    message = "machine identity sign proxy response body read failed",
-    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
-)]
-struct MachineIdentitySignProxyResponseReadFailed {
-    #[label]
-    failure_stage: SignProxyFailureStage,
-    #[context]
-    error: String,
+impl DynamicLog for MachineIdentitySignProxyFailed {
+    fn log_at(&self) -> LogAt {
+        match self.failure_stage {
+            SignProxyFailureStage::RequestTimeout
+            | SignProxyFailureStage::RequestTransport
+            | SignProxyFailureStage::ResponseBody
+            | SignProxyFailureStage::ResponseBuild => LogAt::Level(tracing::Level::WARN),
+            SignProxyFailureStage::UpstreamServer => LogAt::Off,
+        }
+    }
 }
 
-/// The sign-proxy response could not be represented by the local HTTP server.
-#[derive(Event)]
-#[event(
-    event_name = "machine_identity_sign_proxy_response_build_failed",
-    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
-    component = "machine-identity",
-    log = warn,
-    metric = counter,
-    message = "machine identity sign proxy response build failed",
-    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
-)]
-struct MachineIdentitySignProxyResponseBuildFailed {
-    #[label]
-    failure_stage: SignProxyFailureStage,
-    #[context]
-    error: String,
-}
-
-/// The sign proxy returned a server-error response that was forwarded unchanged.
-#[derive(Event)]
-#[event(
-    event_name = "machine_identity_sign_proxy_upstream_server_failed",
-    metric_name = "carbide_machine_identity_sign_proxy_failures_total",
-    component = "machine-identity",
-    log = off,
-    metric = counter,
-    describe = "Number of machine identity sign proxy transport, local response handling, and upstream server failures, by failure stage."
-)]
-struct MachineIdentitySignProxyUpstreamServerFailed {
-    #[label]
-    failure_stage: SignProxyFailureStage,
+impl DynamicMessage for MachineIdentitySignProxyFailed {
+    fn message(&self) -> &'static str {
+        match self.failure_stage {
+            SignProxyFailureStage::RequestTimeout | SignProxyFailureStage::RequestTransport => {
+                "machine identity sign proxy request failed"
+            }
+            SignProxyFailureStage::ResponseBody => {
+                "machine identity sign proxy response body read failed"
+            }
+            SignProxyFailureStage::ResponseBuild => {
+                "machine identity sign proxy response build failed"
+            }
+            SignProxyFailureStage::UpstreamServer => {
+                "machine identity sign proxy upstream returned a server error"
+            }
+        }
+    }
 }
 
 /// Validated, normalized machine-identity limits.
@@ -567,9 +552,9 @@ pub async fn forward_sign_proxy_http(
                 StatusCode::BAD_GATEWAY
             };
             let error_text = sign_proxy_reqwest_error_text(error);
-            emit(MachineIdentitySignProxyRequestFailed {
+            emit(MachineIdentitySignProxyFailed {
                 failure_stage,
-                error: error_text.log_error,
+                error: Some(error_text.log_error),
             });
             return (code, error_text.response_body).into_response();
         }
@@ -587,9 +572,9 @@ pub async fn forward_sign_proxy_http(
         Ok(b) => b,
         Err(error) => {
             let error_text = sign_proxy_reqwest_error_text(error);
-            emit(MachineIdentitySignProxyResponseReadFailed {
+            emit(MachineIdentitySignProxyFailed {
                 failure_stage: SignProxyFailureStage::ResponseBody,
-                error: error_text.log_error,
+                error: Some(error_text.log_error),
             });
             return (StatusCode::BAD_GATEWAY, error_text.response_body).into_response();
         }
@@ -603,9 +588,9 @@ pub async fn forward_sign_proxy_http(
         Ok(response) => response,
         Err(error) => {
             let error = error.to_string();
-            emit(MachineIdentitySignProxyResponseBuildFailed {
+            emit(MachineIdentitySignProxyFailed {
                 failure_stage: SignProxyFailureStage::ResponseBuild,
-                error: error.clone(),
+                error: Some(error.clone()),
             });
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -615,8 +600,9 @@ pub async fn forward_sign_proxy_http(
         }
     };
     if status.is_server_error() {
-        emit(MachineIdentitySignProxyUpstreamServerFailed {
+        emit(MachineIdentitySignProxyFailed {
             failure_stage: SignProxyFailureStage::UpstreamServer,
+            error: None,
         });
     }
     response
@@ -745,19 +731,7 @@ mod tests {
     #[test]
     fn sign_proxy_failures_share_one_bounded_metric() {
         assert_eq!(
-            <MachineIdentitySignProxyRequestFailed as Event>::COMPONENT,
-            "machine-identity"
-        );
-        assert_eq!(
-            <MachineIdentitySignProxyResponseReadFailed as Event>::COMPONENT,
-            "machine-identity"
-        );
-        assert_eq!(
-            <MachineIdentitySignProxyResponseBuildFailed as Event>::COMPONENT,
-            "machine-identity"
-        );
-        assert_eq!(
-            <MachineIdentitySignProxyUpstreamServerFailed as Event>::COMPONENT,
+            <MachineIdentitySignProxyFailed as Event>::COMPONENT,
             "machine-identity"
         );
         check_values(
@@ -769,11 +743,9 @@ mod tests {
                         counter_deltas: [1.0, 0.0, 0.0, 0.0, 0.0],
                         log_count: 1,
                         level: Some(tracing::Level::WARN),
-                        metadata_name: Some(
-                            "machine_identity_sign_proxy_request_failed".to_string(),
-                        ),
+                        metadata_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         message: Some("machine identity sign proxy request failed".to_string()),
-                        event_name: Some("machine_identity_sign_proxy_request_failed".to_string()),
+                        event_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
                         failure_stage: Some("request_timeout".to_string()),
                         error: Some("sanitized proxy error".to_string()),
@@ -787,11 +759,9 @@ mod tests {
                         counter_deltas: [0.0, 1.0, 0.0, 0.0, 0.0],
                         log_count: 1,
                         level: Some(tracing::Level::WARN),
-                        metadata_name: Some(
-                            "machine_identity_sign_proxy_request_failed".to_string(),
-                        ),
+                        metadata_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         message: Some("machine identity sign proxy request failed".to_string()),
-                        event_name: Some("machine_identity_sign_proxy_request_failed".to_string()),
+                        event_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
                         failure_stage: Some("request_transport".to_string()),
                         error: Some("sanitized proxy error".to_string()),
@@ -805,15 +775,11 @@ mod tests {
                         counter_deltas: [0.0, 0.0, 1.0, 0.0, 0.0],
                         log_count: 1,
                         level: Some(tracing::Level::WARN),
-                        metadata_name: Some(
-                            "machine_identity_sign_proxy_response_read_failed".to_string(),
-                        ),
+                        metadata_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         message: Some(
                             "machine identity sign proxy response body read failed".to_string(),
                         ),
-                        event_name: Some(
-                            "machine_identity_sign_proxy_response_read_failed".to_string(),
-                        ),
+                        event_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
                         failure_stage: Some("response_body".to_string()),
                         error: Some("sanitized proxy error".to_string()),
@@ -827,15 +793,11 @@ mod tests {
                         counter_deltas: [0.0, 0.0, 0.0, 1.0, 0.0],
                         log_count: 1,
                         level: Some(tracing::Level::WARN),
-                        metadata_name: Some(
-                            "machine_identity_sign_proxy_response_build_failed".to_string(),
-                        ),
+                        metadata_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         message: Some(
                             "machine identity sign proxy response build failed".to_string(),
                         ),
-                        event_name: Some(
-                            "machine_identity_sign_proxy_response_build_failed".to_string(),
-                        ),
+                        event_name: Some("machine_identity_sign_proxy_failed".to_string()),
                         metric_name: Some(SIGN_PROXY_FAILURE_METRIC.to_string()),
                         failure_stage: Some("response_build".to_string()),
                         error: Some("sanitized proxy error".to_string()),
@@ -861,29 +823,17 @@ mod tests {
             ],
             |failure_stage| {
                 let metrics = MetricsCapture::start();
-                let logs = capture_logs(|| match failure_stage {
-                    SignProxyFailureStage::RequestTimeout
-                    | SignProxyFailureStage::RequestTransport => {
-                        emit(MachineIdentitySignProxyRequestFailed {
-                            failure_stage,
-                            error: "sanitized proxy error".to_string(),
-                        });
-                    }
-                    SignProxyFailureStage::ResponseBody => {
-                        emit(MachineIdentitySignProxyResponseReadFailed {
-                            failure_stage,
-                            error: "sanitized proxy error".to_string(),
-                        });
-                    }
-                    SignProxyFailureStage::ResponseBuild => {
-                        emit(MachineIdentitySignProxyResponseBuildFailed {
-                            failure_stage,
-                            error: "sanitized proxy error".to_string(),
-                        });
-                    }
-                    SignProxyFailureStage::UpstreamServer => {
-                        emit(MachineIdentitySignProxyUpstreamServerFailed { failure_stage });
-                    }
+                let logs = capture_logs(|| {
+                    // The upstream-server stage forwards the status unchanged and
+                    // has no local error text; every other stage sanitizes one.
+                    let error = match failure_stage {
+                        SignProxyFailureStage::UpstreamServer => None,
+                        _ => Some("sanitized proxy error".to_string()),
+                    };
+                    emit(MachineIdentitySignProxyFailed {
+                        failure_stage,
+                        error,
+                    });
                 });
                 let log = logs.first();
 
@@ -1391,7 +1341,7 @@ mod tests {
         );
         assert_redacted_sign_proxy_event(
             &logs,
-            "machine_identity_sign_proxy_request_failed",
+            "machine_identity_sign_proxy_failed",
             "request_transport",
             "error sending request",
             &[
@@ -1501,7 +1451,7 @@ mod tests {
         );
         assert_redacted_sign_proxy_event(
             &logs,
-            "machine_identity_sign_proxy_response_read_failed",
+            "machine_identity_sign_proxy_failed",
             "response_body",
             "error decoding response body",
             &[

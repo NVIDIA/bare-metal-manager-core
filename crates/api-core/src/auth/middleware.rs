@@ -64,20 +64,22 @@ enum Authorizer {
     InternalRbac,
 }
 
-/// `CasbinAuthContextMissing` means the authentication middleware did not run
-/// before Casbin. The request still fails closed with a 500; the Event keeps
-/// the existing warning and makes the wiring error visible as a counter.
+/// `AuthContextMissing` means the authentication middleware did not run before
+/// the authorization handler. The request still fails closed with a 500; the
+/// Event keeps the existing warning and makes the wiring error visible as a
+/// counter. `authorizer` names the layer that found the gap, and picks the
+/// handler-specific wording operators already see.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "casbin_auth_context_missing",
+    event_name = "auth_context_missing",
     metric_name = "carbide_auth_context_missing_total",
     component = "nico-api",
     log = warn,
     metric = counter,
-    message = "CasbinHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.",
+    message = dynamic,
     describe = "Number of Forge authorization requests missing authentication context, by authorizer"
 )]
-struct CasbinAuthContextMissing {
+struct AuthContextMissing {
     #[label]
     authorizer: Authorizer,
     #[context]
@@ -86,26 +88,17 @@ struct CasbinAuthContextMissing {
     client_address: String,
 }
 
-/// `InternalRbacAuthContextMissing` records the same wiring failure at the
-/// static rule layer. It shares the counter with Casbin while retaining the
-/// handler-specific warning operators already see.
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "internal_rbac_auth_context_missing",
-    metric_name = "carbide_auth_context_missing_total",
-    component = "nico-api",
-    log = warn,
-    metric = counter,
-    message = "InternalRBACHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.",
-    describe = "Number of Forge authorization requests missing authentication context, by authorizer"
-)]
-struct InternalRbacAuthContextMissing {
-    #[label]
-    authorizer: Authorizer,
-    #[context]
-    method: String,
-    #[context]
-    client_address: String,
+impl carbide_instrument::DynamicMessage for AuthContextMissing {
+    fn message(&self) -> &'static str {
+        match self.authorizer {
+            Authorizer::Casbin => {
+                "CasbinHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order."
+            }
+            Authorizer::InternalRbac => {
+                "InternalRBACHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order."
+            }
+        }
+    }
 }
 
 /// The peer address of the connection a request arrived on, as recorded by
@@ -165,7 +158,7 @@ where
                         .extensions_mut()
                         .get_mut::<AuthContext>()
                         .ok_or_else(|| {
-                            carbide_instrument::emit(CasbinAuthContextMissing {
+                            carbide_instrument::emit(AuthContextMissing {
                                 authorizer: Authorizer::Casbin,
                                 method: method_name.clone(),
                                 client_address: client_address(peer_address),
@@ -301,7 +294,7 @@ where
                     let request_peer_address = peer_address(&request);
                     let req_auth_context =
                         request.extensions().get::<AuthContext>().ok_or_else(|| {
-                            carbide_instrument::emit(InternalRbacAuthContextMissing {
+                            carbide_instrument::emit(AuthContextMissing {
                                 authorizer: Authorizer::InternalRbac,
                                 method: method_name.clone(),
                                 client_address: client_address(request_peer_address),
@@ -486,7 +479,7 @@ mod tests {
                     expect: MissingAuthContextObservation {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
                         level: tracing::Level::WARN,
-                        metadata_name: "casbin_auth_context_missing".to_string(),
+                        metadata_name: "auth_context_missing".to_string(),
                         message: "CasbinHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.".to_string(),
                         authorizer: "casbin".to_string(),
                         method: "PowerControl".to_string(),
@@ -500,7 +493,7 @@ mod tests {
                     expect: MissingAuthContextObservation {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
                         level: tracing::Level::WARN,
-                        metadata_name: "internal_rbac_auth_context_missing".to_string(),
+                        metadata_name: "auth_context_missing".to_string(),
                         message: "InternalRBACHandler::authorize() found a request with no AuthContext in its extensions. This may mean the authentication middleware didn't run successfully, or the middleware layers are nested in the wrong order.".to_string(),
                         authorizer: "internal_rbac".to_string(),
                         method: "PowerControl".to_string(),

@@ -1468,6 +1468,106 @@ func (x *MachineValidationId) GetValue() string {
 	return ""
 }
 
+// ID of a physical device managed by NICo. Individual RPCs may support only a
+// subset of these device kinds.
+type DeviceId struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Value:
+	//
+	//	*DeviceId_MachineId
+	//	*DeviceId_SwitchId
+	//	*DeviceId_PowerShelfId
+	Value         isDeviceId_Value `protobuf_oneof:"value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeviceId) Reset() {
+	*x = DeviceId{}
+	mi := &file_common_nico_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeviceId) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceId) ProtoMessage() {}
+
+func (x *DeviceId) ProtoReflect() protoreflect.Message {
+	mi := &file_common_nico_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceId.ProtoReflect.Descriptor instead.
+func (*DeviceId) Descriptor() ([]byte, []int) {
+	return file_common_nico_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *DeviceId) GetValue() isDeviceId_Value {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *DeviceId) GetMachineId() *MachineId {
+	if x != nil {
+		if x, ok := x.Value.(*DeviceId_MachineId); ok {
+			return x.MachineId
+		}
+	}
+	return nil
+}
+
+func (x *DeviceId) GetSwitchId() *SwitchId {
+	if x != nil {
+		if x, ok := x.Value.(*DeviceId_SwitchId); ok {
+			return x.SwitchId
+		}
+	}
+	return nil
+}
+
+func (x *DeviceId) GetPowerShelfId() *PowerShelfId {
+	if x != nil {
+		if x, ok := x.Value.(*DeviceId_PowerShelfId); ok {
+			return x.PowerShelfId
+		}
+	}
+	return nil
+}
+
+type isDeviceId_Value interface {
+	isDeviceId_Value()
+}
+
+type DeviceId_MachineId struct {
+	MachineId *MachineId `protobuf:"bytes,1,opt,name=machine_id,json=machineId,proto3,oneof"`
+}
+
+type DeviceId_SwitchId struct {
+	SwitchId *SwitchId `protobuf:"bytes,2,opt,name=switch_id,json=switchId,proto3,oneof"`
+}
+
+type DeviceId_PowerShelfId struct {
+	PowerShelfId *PowerShelfId `protobuf:"bytes,3,opt,name=power_shelf_id,json=powerShelfId,proto3,oneof"`
+}
+
+func (*DeviceId_MachineId) isDeviceId_Value() {}
+
+func (*DeviceId_SwitchId) isDeviceId_Value() {}
+
+func (*DeviceId_PowerShelfId) isDeviceId_Value() {}
+
 var File_common_nico_proto protoreflect.FileDescriptor
 
 const file_common_nico_proto_rawDesc = "" +
@@ -1539,7 +1639,13 @@ const file_common_nico_proto_rawDesc = "" +
 	"\x10RackHardwareType\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\"+\n" +
 	"\x13MachineValidationId\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05value*\x9e\x02\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\"\xb6\x01\n" +
+	"\bDeviceId\x122\n" +
+	"\n" +
+	"machine_id\x18\x01 \x01(\v2\x11.common.MachineIdH\x00R\tmachineId\x12/\n" +
+	"\tswitch_id\x18\x02 \x01(\v2\x10.common.SwitchIdH\x00R\bswitchId\x12<\n" +
+	"\x0epower_shelf_id\x18\x03 \x01(\v2\x14.common.PowerShelfIdH\x00R\fpowerShelfIdB\a\n" +
+	"\x05value*\x9e\x02\n" +
 	"\x12SystemPowerControl\x12 \n" +
 	"\x1cSYSTEM_POWER_CONTROL_UNKNOWN\x10\x00\x12\x1b\n" +
 	"\x17SYSTEM_POWER_CONTROL_ON\x10\x01\x12*\n" +
@@ -1562,7 +1668,7 @@ func file_common_nico_proto_rawDescGZIP() []byte {
 }
 
 var file_common_nico_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_common_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_common_nico_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_common_nico_proto_goTypes = []any{
 	(SystemPowerControl)(0),          // 0: common.SystemPowerControl
 	(*MachineId)(nil),                // 1: common.MachineId
@@ -1596,14 +1702,18 @@ var file_common_nico_proto_goTypes = []any{
 	(*IpxeTemplateId)(nil),           // 29: common.IpxeTemplateId
 	(*RackHardwareType)(nil),         // 30: common.RackHardwareType
 	(*MachineValidationId)(nil),      // 31: common.MachineValidationId
+	(*DeviceId)(nil),                 // 32: common.DeviceId
 }
 var file_common_nico_proto_depIdxs = []int32{
 	1, // 0: common.MachineIdList.machine_ids:type_name -> common.MachineId
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 1: common.DeviceId.machine_id:type_name -> common.MachineId
+	8, // 2: common.DeviceId.switch_id:type_name -> common.SwitchId
+	5, // 3: common.DeviceId.power_shelf_id:type_name -> common.PowerShelfId
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_common_nico_proto_init() }
@@ -1611,13 +1721,18 @@ func file_common_nico_proto_init() {
 	if File_common_nico_proto != nil {
 		return
 	}
+	file_common_nico_proto_msgTypes[31].OneofWrappers = []any{
+		(*DeviceId_MachineId)(nil),
+		(*DeviceId_SwitchId)(nil),
+		(*DeviceId_PowerShelfId)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_nico_proto_rawDesc), len(file_common_nico_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   31,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -26,10 +26,12 @@ use carbide_kms_provider::{IntegratedKmsProvider, KmsBackend};
 use carbide_secrets::credentials::{
     CredentialKey, CredentialReader, CredentialWriter, Credentials,
 };
+use db::work_lock_manager::{self, WorkLockManagerHandle};
+use tokio::task::JoinSet;
 
-use super::PostgresCredentialManager;
-use super::re_wrap::re_wrap_stale;
+use super::re_wrap::{RE_WRAP_WORK_KEY, re_wrap_stale};
 use super::routing::SecretRouting;
+use super::{PgSecretsError, PostgresCredentialManager};
 
 fn test_key(seed: u8) -> [u8; 32] {
     let mut key = [0u8; 32];
@@ -58,6 +60,14 @@ fn manager(
     kms: Arc<dyn KmsBackend>,
 ) -> PostgresCredentialManager {
     PostgresCredentialManager::new(pool.clone(), routing, kms)
+}
+
+async fn start_test_work_lock_manager(pool: &sqlx::PgPool) -> (WorkLockManagerHandle, JoinSet<()>) {
+    let mut tasks = JoinSet::new();
+    let handle = work_lock_manager::start(&mut tasks, pool.clone(), Default::default())
+        .await
+        .expect("start work lock manager");
+    (handle, tasks)
 }
 
 fn ufm_key(fabric: &str) -> CredentialKey {
@@ -280,6 +290,7 @@ async fn ciphertext_copied_to_another_path_does_not_decrypt(pool: sqlx::PgPool) 
 #[crate::sqlx_test]
 async fn re_wrap_stale_moves_rows_and_is_idempotent(pool: sqlx::PgPool) {
     let kms = kms_with_keys(&[("old-key", 1), ("new-key", 2)]);
+    let (work_lock_manager, _work_lock_tasks) = start_test_work_lock_manager(&pool).await;
 
     // Write under old-key: two credentials, one with two journal entries.
     let mgr_old = manager(&pool, catch_all_routing("old-key"), kms.clone());
@@ -298,7 +309,7 @@ async fn re_wrap_stale_moves_rows_and_is_idempotent(pool: sqlx::PgPool) {
 
     // Rotate: routing now assigns new-key to everything.
     let routing = catch_all_routing("new-key");
-    let result = re_wrap_stale(&pool, kms.as_ref(), &routing, 2)
+    let result = re_wrap_stale(&pool, &work_lock_manager, kms.as_ref(), &routing, 2)
         .await
         .expect("re-wrap");
     assert_eq!(result.re_wrapped, 3);
@@ -334,7 +345,7 @@ async fn re_wrap_stale_moves_rows_and_is_idempotent(pool: sqlx::PgPool) {
     );
 
     // A second run reports everything current and changes nothing.
-    let again = re_wrap_stale(&pool, kms.as_ref(), &routing, 2)
+    let again = re_wrap_stale(&pool, &work_lock_manager, kms.as_ref(), &routing, 2)
         .await
         .expect("re-wrap again");
     assert_eq!(again.re_wrapped, 0);
@@ -347,6 +358,7 @@ async fn re_wrap_stale_moves_rows_and_is_idempotent(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn re_wrap_stale_counts_each_row_once_across_routed_keks(pool: sqlx::PgPool) {
     let kms = kms_with_keys(&[("k1", 1), ("k2", 2)]);
+    let (work_lock_manager, _work_lock_tasks) = start_test_work_lock_manager(&pool).await;
 
     // Both paths start under k1.
     let routing_old = catch_all_routing("k1");
@@ -366,16 +378,47 @@ async fn re_wrap_stale_counts_each_row_once_across_routed_keks(pool: sqlx::PgPoo
         ("beta".to_string(), "k2".to_string()),
     ]);
 
-    let result = re_wrap_stale(&pool, kms.as_ref(), &routing_new, 1)
+    let result = re_wrap_stale(&pool, &work_lock_manager, kms.as_ref(), &routing_new, 1)
         .await
         .expect("re-wrap");
     assert_eq!(result.re_wrapped, 1, "only beta/two moved");
     assert_eq!(result.already_current, 1, "alpha/one was already routed");
     assert_eq!(result.stale_remaining, 0);
 
-    let again = re_wrap_stale(&pool, kms.as_ref(), &routing_new, 1)
+    let again = re_wrap_stale(&pool, &work_lock_manager, kms.as_ref(), &routing_new, 1)
         .await
         .expect("re-wrap again");
     assert_eq!(again.re_wrapped, 0);
     assert_eq!(again.already_current, 2);
+}
+
+// A second re-wrap reports contention while the shared work key is held. Once
+// the guard drops, the manager processes its release before this caller's
+// acquire and the next pass can start immediately.
+#[crate::sqlx_test]
+async fn re_wrap_stale_rejects_overlapping_run_and_releases_lock(pool: sqlx::PgPool) {
+    let kms = kms_with_keys(&[("k1", 1)]);
+    let routing = catch_all_routing("k1");
+    let (work_lock_manager, _work_lock_tasks) = start_test_work_lock_manager(&pool).await;
+
+    let lock = work_lock_manager
+        .try_acquire_lock(RE_WRAP_WORK_KEY.into())
+        .await
+        .expect("acquire re-wrap lock");
+    let error = re_wrap_stale(&pool, &work_lock_manager, kms.as_ref(), &routing, 1)
+        .await
+        .err()
+        .expect("an overlapping re-wrap must be rejected");
+    assert!(
+        matches!(&error, PgSecretsError::ReWrapInProgress),
+        "unexpected error: {error}"
+    );
+
+    drop(lock);
+    let result = re_wrap_stale(&pool, &work_lock_manager, kms.as_ref(), &routing, 1)
+        .await
+        .expect("re-wrap after lock release");
+    assert_eq!(result.re_wrapped, 0);
+    assert_eq!(result.already_current, 0);
+    assert_eq!(result.stale_remaining, 0);
 }

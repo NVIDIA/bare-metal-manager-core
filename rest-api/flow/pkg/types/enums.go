@@ -22,6 +22,16 @@ const (
 	ComponentTypeCDU        ComponentType = "CDU"
 )
 
+// ParseComponentType converts a string into a validated ComponentType.
+func ParseComponentType(value string) (ComponentType, error) {
+	componentType := ComponentType(value)
+	if err := componentType.Validate(); err != nil {
+		return ComponentTypeUnknown, err
+	}
+
+	return componentType, nil
+}
+
 // Validate checks that the component type identifies a concrete supported type.
 func (ct ComponentType) Validate() error {
 	switch ct {

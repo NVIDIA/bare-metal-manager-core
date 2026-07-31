@@ -571,13 +571,13 @@ impl MachineCreator {
             .await?;
 
         // Settle this host's single boot interface as we take ownership: the
-        // declared `ExpectedHostNic.primary` (if any) is the host's primary, and
+        // declared `ExpectedInterface.primary` (if any) is the host's primary, and
         // every other NIC is non-primary. Routing both the already-leased rows and
         // the freshly-minted predictions through the same declaration makes the
         // choice authoritative regardless of DHCP arrival order, and keeps exactly
         // one primary per machine -- so adopting several NICs that leased before
         // ingestion never trips the `one_primary_interface_per_machine` index.
-        // The host's primary (boot) interface is a declared `ExpectedHostNic.primary`
+        // The host's primary (boot) interface is a declared `ExpectedInterface.primary`
         // when set, otherwise the boot interface preserved across `--delete-interfaces`
         // in `retained_boot_interfaces`. The retained fallback lets a host with no
         // declared primary -- a DPU flipped to NIC mode is the common case -- re-ingest
@@ -1380,7 +1380,7 @@ fn host_mac_addresses_for_predicted_machine(
         [] => machine_data
             .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
             .map(|data| {
-                data.host_nics
+                data.interfaces
                     .iter()
                     .filter(|interface| interface.role.is_host())
                     .map(|interface| interface.mac_address)
@@ -1391,7 +1391,7 @@ fn host_mac_addresses_for_predicted_machine(
             .inspect(|host_mac_addresses| {
                 tracing::info!(
                     host_nic_count = host_mac_addresses.len(),
-                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
+                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.interfaces for predicted machine interfaces"
                 );
             })
             .unwrap_or_default(),
@@ -1403,7 +1403,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::{Check, check_values};
-    use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceRole};
+    use model::expected_machine::{ExpectedInterface, ExpectedInterfaceRole};
     use model::site_explorer::{Chassis, ComputerSystem, EthernetInterface};
 
     use super::*;
@@ -1417,13 +1417,13 @@ mod tests {
         let dpu_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x03]);
         let host_bmc_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x04]);
         let redfish_mac = MacAddress::new([0x02, 0x00, 0x00, 0x00, 0x00, 0x05]);
-        let interface = |mac_address, role| ExpectedHostNic {
+        let interface = |mac_address, role| ExpectedInterface {
             mac_address,
             role,
             ..Default::default()
         };
-        let machine_data = |host_nics| ExpectedMachineData {
-            host_nics,
+        let machine_data = |interfaces| ExpectedMachineData {
+            interfaces,
             ..Default::default()
         };
         let all_roles = || {

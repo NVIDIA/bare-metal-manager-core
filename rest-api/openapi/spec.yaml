@@ -1238,18 +1238,20 @@ paths:
             schema:
               $ref: '#/components/schemas/BMCCredentialRequest'
       responses:
-        '202':
-          description: Machine power control request was accepted
+        '200':
+          description: BMC credential was created or updated
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/BMCCredential'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
       operationId: create-or-update-bmc-credential
       description: |-
         Create or update a site-wide or per-BMC root credential. Equivalent
-        to `carbide-admin-cli credential add-bmc`.
+        to `nico-admin-cli credential add-bmc`.
 
         User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/credential/uefi':
@@ -9717,7 +9719,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reset-machine-bmc
       description: |-
-        Reset BMC of a specific Machine.
+        Reset the BMC of a specific Machine. When an Instance is attached to the
+        Machine, `acknowledgeAttachedInstance` must be `true`.
+
+        If `useIpmiTool` is `true`, the BMC reset request may be silently
+        ignored while the BMC is in lockdown mode.
         
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9767,7 +9773,11 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: reprovision-machine-dpu
       description: |-
-        Trigger DPU reprovisioning for a Machine. It may be necessary to create a `HostUpdateInProgress` health report for the Machine before DPU reprovisioning can be triggered.
+        Trigger DPU reprovisioning for a Machine. Before calling this operation,
+        create a Machine health report containing an alert whose ID is
+        `HostUpdateInProgress` and whose classifications include
+        `PreventAllocations`. When an Instance is attached to the Machine,
+        `acknowledgeAttachedInstance` must be `true`.
 
         For Infrastructure Providers: Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 
@@ -9919,7 +9929,7 @@ paths:
                   action: ForceRestart
       responses:
         '202':
-          description: Machine power control request was accepted
+          description: Machine power control request was accepted. The message is empty unless Core returns a power-manager warning.
           content:
             application/json:
               schema:
@@ -9927,7 +9937,7 @@ paths:
               examples:
                 example-1:
                   value:
-                    message: Power control accepted
+                    message: ''
         '400':
           $ref: '#/components/responses/ValidationError'
         '403':
@@ -9938,7 +9948,8 @@ paths:
           $ref: '#/components/responses/GenericHttpError'
       operationId: machine-power-control-machine
       description: |-
-        Execute power control actions for a specific Machine.
+        Execute power control actions for a specific Machine. When an Instance is
+        attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
         
         Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
   '/v2/org/{org}/nico/machine/{machineId}/status-history':
@@ -15020,7 +15031,7 @@ components:
         useIpmiTool:
           type: boolean
           default: false
-          description: Reset the BMC via ipmitool instead of Redfish.
+          description: Reset the BMC via ipmitool instead of Redfish. The request may be silently ignored while the BMC is in lockdown mode.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
@@ -15035,7 +15046,7 @@ components:
       properties:
         mode:
           type: string
-          description: DPU reprovisioning mode.
+          description: Use `Set` to start reprovisioning, `Clear` to remove a pending request, or `Restart` to restart DPUs that already have a request. Restart accepts a host Machine ID only.
           enum:
             - Set
             - Clear
@@ -15043,13 +15054,14 @@ components:
         updateFirmware:
           type: boolean
           default: false
-          description: Whether to update firmware during reprovisioning.
+          deprecated: true
+          description: Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
         acknowledgeAttachedInstance:
           type: boolean
           description: Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
       examples:
-        - mode: Restart
-          updateFirmware: true
+        - mode: Set
+          updateFirmware: false
     MachineHealthReportEntry:
       type: object
       title: MachineHealthReportEntry
@@ -15085,15 +15097,15 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           triggeredBy: operator
           observedAt: '2026-06-24T12:00:00Z'
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     MachineHealthReportEntryRequest:
       type: object
       title: MachineHealthReportEntryRequest
@@ -15122,13 +15134,13 @@ components:
             - Merge
             - Replace
       examples:
-        - source: overrides.sre
+        - source: maintenance.dpu-reprovision
           mode: Merge
           alerts:
-            - id: dpu.reprovision.in.progress
+            - id: HostUpdateInProgress
               message: DPU reprovisioning in progress
               classifications:
-                - maintenance
+                - PreventAllocations
     HostFirmwareArtifact:
       type: object
       title: HostFirmwareArtifact
@@ -15430,7 +15442,7 @@ components:
       properties:
         action:
           type: string
-          description: Power control action to apply.
+          description: Redfish power control action to apply to the Machine. ACPowercycle is not supported on Viking systems.
           enum:
             - On
             - GracefulShutdown

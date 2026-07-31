@@ -69,7 +69,7 @@ fn resolve_mac_to_interface_id(
             "no managed interface with MAC {mac} on this machine -- \
              `boot-interface candidates` lists its interfaces. A machine still \
              waiting on its first DHCP lease has predictions only; declare its \
-             boot NIC via the expected machine's host_nics `primary` instead"
+             boot NIC via the expected machine's `interfaces[].primary` instead"
         ))),
         [only] => only.interface_id.ok_or_else(|| {
             CarbideCliError::GenericError(

@@ -29,7 +29,7 @@ use model::expected_machine::HostDpuPolicy;
 use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedHostNic, ExpectedMachine, ExpectedPowerShelf, ExpectedRack,
+    ConfigSetting, ExpectedInterface, ExpectedMachine, ExpectedPowerShelf, ExpectedRack,
     ExpectedRackRequest, ExpectedSwitch, InlineIpxe, InstanceOperatingSystemConfig,
     MachinesByIdsRequest, SetDynamicConfigRequest, VpcVirtualizationType,
 };
@@ -568,7 +568,7 @@ impl ApiClient {
         chassis_serial_number: String,
         rack_id: Option<RackId>,
         dpu_policy: Option<HostDpuPolicy>,
-        host_nics: Vec<ExpectedHostNic>,
+        interfaces: Vec<ExpectedInterface>,
     ) -> ClientApiResult<()> {
         self.0
             .add_expected_machine(ExpectedMachine {
@@ -580,7 +580,7 @@ impl ApiClient {
                 metadata: None,
                 sku_id: None,
                 id: None,
-                host_nics,
+                host_nics: interfaces,
                 replace_host_nics: false,
                 rack_id,
                 default_pause_ingestion_and_poweron: None,

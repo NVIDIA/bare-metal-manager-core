@@ -137,6 +137,8 @@ jobs:
     name: Check Generated Files
     runs-on: linux-amd64-cpu4
     continue-on-error: false
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .
@@ -147,7 +149,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Check OpenAPI generated files are up to date
+      # The SDK is verified by regeneration in check-generated-sdk. Diffing the Redoc
+      # bundle would cost a doc toolchain install, so it stays a path heuristic.
+      - name: Check OpenAPI docs are up to date
         run: |
           BASE="origin/main"
           if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
@@ -158,26 +162,52 @@ jobs:
           CHANGED=$(git diff --name-only "$BASE"...HEAD)
 
           if echo "$CHANGED" | grep -q '^rest-api/openapi/spec.yaml$'; then
-            SDK_UPDATED=false
-            DOCS_UPDATED=false
-            echo "$CHANGED" | grep -q '^rest-api/sdk/standard/' && SDK_UPDATED=true
-            echo "$CHANGED" | grep -q '^rest-api/docs/index.html$' && DOCS_UPDATED=true
-
-            if [ "$SDK_UPDATED" = false ]; then
-              echo "::warning::rest-api/sdk/standard/ was not updated. Please ensure you have run: make generate-sdk"
-            fi
-            if [ "$DOCS_UPDATED" = false ]; then
-              echo "::warning::rest-api/docs/index.html was not updated. Please ensure you have run: make publish-openapi"
-            fi
-
-            if [ "$SDK_UPDATED" = false ] && [ "$DOCS_UPDATED" = false ]; then
-              echo "::error::rest-api/openapi/spec.yaml was modified but neither rest-api/sdk/standard/ nor rest-api/docs/index.html was updated."
+            if ! echo "$CHANGED" | grep -q '^rest-api/docs/index.html$'; then
+              echo "::error::rest-api/openapi/spec.yaml was modified but rest-api/docs/index.html was not updated. Please run: make publish-openapi"
               exit 1
             fi
-            echo "✓ rest-api/openapi/spec.yaml changed and generated files were also updated (sdk=$SDK_UPDATED, docs=$DOCS_UPDATED)."
+            echo "✓ rest-api/openapi/spec.yaml changed and rest-api/docs/index.html was also updated."
           else
-            echo "✓ rest-api/openapi/spec.yaml not changed, skipping generated files check."
+            echo "✓ rest-api/openapi/spec.yaml not changed, skipping docs check."
           fi
+
+  check-generated-sdk:
+    name: Check Generated SDK
+    runs-on: linux-amd64-cpu4
+    continue-on-error: false
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: rest-api/go.sum
+
+      # The generator version itself is pinned in rest-api/Makefile.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # generate-sdk applies source headers with a Python script.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Regenerate SDK
+        run: make generate-sdk
+
+      - name: Check for uncommitted changes
+        run: bash ../scripts/check-repo-clean.sh "REST SDK generation"
 
   check-protobuf-generated:
     name: Check Protobuf Generated Code

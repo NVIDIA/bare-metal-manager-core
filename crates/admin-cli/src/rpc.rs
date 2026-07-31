@@ -91,7 +91,7 @@ fn cap_chunk_size(page_size: usize, cap: usize) -> usize {
 /// `patch_expected_machine` still fetches the current record so it can merge
 /// ordinary patch fields. These two fields need their own rules because the API
 /// uses their presence to distinguish a legacy `--bmc-*` override from the
-/// canonical `HostBmc` entry in `host_nics`.
+/// canonical `HostBmc` entry in `interfaces`.
 #[derive(Clone, Debug, PartialEq)]
 struct LegacyBmcPatchFields {
     bmc_ip_address: Option<String>,
@@ -104,11 +104,11 @@ struct LegacyBmcPatchFields {
 /// and replaying the compatibility fields would overwrite its nested changes.
 fn replacement_has_effective_host_bmc(
     existing: &rpc::ExpectedMachine,
-    replacement_host_nics: &[rpc::ExpectedHostNic],
+    replacement_interfaces: &[rpc::ExpectedInterface],
 ) -> bool {
     let existing_bmc_mac = existing.bmc_mac_address.parse::<MacAddress>().ok();
 
-    replacement_host_nics
+    replacement_interfaces
         .iter()
         .enumerate()
         .any(|(index, replacement)| {
@@ -121,13 +121,13 @@ fn replacement_has_effective_host_bmc(
                 return false;
             };
             let existing_interface = existing
-                .host_nics
+                .interfaces()
                 .get(index)
                 .filter(|candidate| {
                     candidate.mac_address.parse::<MacAddress>().ok() == Some(mac_address)
                 })
                 .or_else(|| {
-                    existing.host_nics.iter().find(|candidate| {
+                    existing.interfaces().iter().find(|candidate| {
                         candidate.mac_address.parse::<MacAddress>().ok() == Some(mac_address)
                     })
                 });
@@ -154,10 +154,10 @@ fn legacy_bmc_patch_fields(
     existing: &rpc::ExpectedMachine,
     bmc_ip_address_override: Option<String>,
     bmc_ip_allocation_override: Option<rpc::BmcIpAllocationType>,
-    replacement_host_nics: Option<&[rpc::ExpectedHostNic]>,
+    replacement_interfaces: Option<&[rpc::ExpectedInterface]>,
 ) -> LegacyBmcPatchFields {
-    let replaces_host_bmc = replacement_host_nics
-        .is_some_and(|host_nics| replacement_has_effective_host_bmc(existing, host_nics));
+    let replaces_host_bmc = replacement_interfaces
+        .is_some_and(|interfaces| replacement_has_effective_host_bmc(existing, interfaces));
 
     let clears_fixed_ip = bmc_ip_allocation_override.is_some_and(|allocation| {
         matches!(
@@ -931,7 +931,7 @@ impl ApiClient {
         dpu_policy: Option<HostDpuPolicy>,
         bmc_ip_allocation: Option<::rpc::forge::BmcIpAllocationType>,
         host_lifecycle_profile: Option<::rpc::forge::HostLifecycleProfile>,
-        host_nics: Option<String>,
+        interfaces: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -956,15 +956,15 @@ impl ApiClient {
         let mac_str = bmc_mac_address
             .map(|m| m.to_string())
             .unwrap_or(expected_machine.bmc_mac_address.clone());
-        let parsed_host_nics = host_nics
-            .map(|s| serde_json::from_str::<Vec<rpc::ExpectedHostNic>>(&s))
+        let parsed_interfaces = interfaces
+            .map(|s| serde_json::from_str::<Vec<rpc::ExpectedInterface>>(&s))
             .transpose()?;
-        let replace_host_nics = parsed_host_nics.is_some();
+        let replace_interfaces = parsed_interfaces.is_some();
         let legacy_bmc_fields = legacy_bmc_patch_fields(
             &expected_machine,
             bmc_ip_address,
             bmc_ip_allocation,
-            parsed_host_nics.as_deref(),
+            parsed_interfaces.as_deref(),
         );
 
         // Merge metadata fields individually
@@ -1013,7 +1013,7 @@ impl ApiClient {
             metadata: merged_metadata,
             sku_id: sku_id.or(expected_machine.sku_id),
             id: expected_machine.id,
-            host_nics: parsed_host_nics.unwrap_or(expected_machine.host_nics),
+            host_nics: parsed_interfaces.unwrap_or(expected_machine.host_nics),
             rack_id: rack_id.or(expected_machine.rack_id),
             default_pause_ingestion_and_poweron: default_pause_ingestion_and_poweron
                 .or(expected_machine.default_pause_ingestion_and_poweron),
@@ -1027,7 +1027,7 @@ impl ApiClient {
                 .map(|policy| ::rpc::forge::DpuMode::from(policy) as i32)
                 .or(expected_machine.dpu_mode),
             bmc_ip_allocation: legacy_bmc_fields.bmc_ip_allocation,
-            replace_host_nics,
+            replace_host_nics: replace_interfaces,
             host_lifecycle_profile: host_lifecycle_profile
                 .or(expected_machine.host_lifecycle_profile),
         };
@@ -1057,7 +1057,7 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: machine.metadata,
                     sku_id: machine.sku_id,
-                    host_nics: machine.host_nics.unwrap_or_default(),
+                    host_nics: machine.interfaces.unwrap_or_default(),
                     rack_id: machine.rack_id,
                     default_pause_ingestion_and_poweron: machine
                         .default_pause_ingestion_and_poweron,
@@ -2812,12 +2812,12 @@ mod tests {
     struct LegacyBmcPatchCase {
         bmc_ip_address_override: Option<String>,
         bmc_ip_allocation_override: Option<rpc::BmcIpAllocationType>,
-        replacement_host_nics: Option<Vec<rpc::ExpectedHostNic>>,
+        replacement_interfaces: Option<Vec<rpc::ExpectedInterface>>,
     }
 
     /// Builds the smallest protobuf interface needed by the patch-field table.
-    fn expected_interface(role: rpc::ExpectedInterfaceRole) -> rpc::ExpectedHostNic {
-        rpc::ExpectedHostNic {
+    fn expected_interface(role: rpc::ExpectedInterfaceRole) -> rpc::ExpectedInterface {
+        rpc::ExpectedInterface {
             mac_address: "00:11:22:33:44:55".to_string(),
             role: Some(role as i32),
             ip_allocation: Some(rpc::ExpectedInterfaceIpAllocation::Dynamic as i32),
@@ -2875,7 +2875,7 @@ mod tests {
             bmc_mac_address: "00:11:22:33:44:55".to_string(),
             bmc_ip_address: Some("192.0.2.20".to_string()),
             bmc_ip_allocation: Some(LegacyAllocation::Fixed as i32),
-            host_nics: vec![rpc::ExpectedHostNic {
+            host_nics: vec![rpc::ExpectedInterface {
                 fixed_ip: Some("192.0.2.20".to_string()),
                 ip_allocation: None,
                 ..expected_interface(Role::HostBmc)
@@ -2894,7 +2894,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: None,
                         bmc_ip_allocation_override: None,
-                        replacement_host_nics: None,
+                        replacement_interfaces: None,
                     },
                     expect: expected_existing.clone(),
                 },
@@ -2903,7 +2903,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: None,
                         bmc_ip_allocation_override: None,
-                        replacement_host_nics: Some(vec![expected_interface(Role::Host)]),
+                        replacement_interfaces: Some(vec![expected_interface(Role::Host)]),
                     },
                     expect: expected_existing,
                 },
@@ -2912,7 +2912,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: None,
                         bmc_ip_allocation_override: None,
-                        replacement_host_nics: Some(vec![expected_interface(Role::HostBmc)]),
+                        replacement_interfaces: Some(vec![expected_interface(Role::HostBmc)]),
                     },
                     expect: LegacyBmcPatchFields {
                         bmc_ip_address: None,
@@ -2924,7 +2924,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: None,
                         bmc_ip_allocation_override: None,
-                        replacement_host_nics: Some(vec![rpc::ExpectedHostNic {
+                        replacement_interfaces: Some(vec![rpc::ExpectedInterface {
                             role: None,
                             fixed_ip: None,
                             ip_allocation: Some(
@@ -2943,7 +2943,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: Some("192.0.2.40".to_string()),
                         bmc_ip_allocation_override: Some(LegacyAllocation::Fixed),
-                        replacement_host_nics: Some(vec![expected_interface(Role::HostBmc)]),
+                        replacement_interfaces: Some(vec![expected_interface(Role::HostBmc)]),
                     },
                     expect: LegacyBmcPatchFields {
                         bmc_ip_address: Some("192.0.2.40".to_string()),
@@ -2955,7 +2955,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: None,
                         bmc_ip_allocation_override: Some(LegacyAllocation::Dynamic),
-                        replacement_host_nics: None,
+                        replacement_interfaces: None,
                     },
                     expect: LegacyBmcPatchFields {
                         bmc_ip_address: Some(String::new()),
@@ -2967,7 +2967,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: None,
                         bmc_ip_allocation_override: Some(LegacyAllocation::Retained),
-                        replacement_host_nics: None,
+                        replacement_interfaces: None,
                     },
                     expect: LegacyBmcPatchFields {
                         bmc_ip_address: Some(String::new()),
@@ -2979,7 +2979,7 @@ mod tests {
                     input: LegacyBmcPatchCase {
                         bmc_ip_address_override: Some("192.0.2.40".to_string()),
                         bmc_ip_allocation_override: None,
-                        replacement_host_nics: None,
+                        replacement_interfaces: None,
                     },
                     expect: LegacyBmcPatchFields {
                         bmc_ip_address: Some("192.0.2.40".to_string()),
@@ -2992,7 +2992,7 @@ mod tests {
                     &existing,
                     case.bmc_ip_address_override,
                     case.bmc_ip_allocation_override,
-                    case.replacement_host_nics.as_deref(),
+                    case.replacement_interfaces.as_deref(),
                 )
             },
         );

@@ -49,7 +49,10 @@ type BuiltInRuleReader interface {
 	GetByEventType(context.Context, Type) (*Rule, error)
 }
 
-// RuleStore manages persisted rule lifecycle operations.
+// RuleStore manages persisted rule lifecycle operations. Callers must validate
+// domain values before passing them to mutation methods. Implementations remain
+// responsible for enforcing aggregate and persistence invariants before writes.
+// Mutations targeting an unknown rule ID must return ErrRuleNotFound.
 type RuleStore interface {
 	RuleReader
 	// Create persists a manager-constructed rule and returns the stored rule,
@@ -67,6 +70,7 @@ type RuleStore interface {
 // BindingStore manages persisted rule bindings and scope lookup.
 type BindingStore interface {
 	Bind(context.Context, Binding) error
+	// Unbind returns ErrRuleNotFound when the binding ID does not exist.
 	Unbind(context.Context, uuid.UUID) error
 	// GetForScope returns the binding for an event type and scope. When no
 	// binding exists, implementations must return (nil, nil).

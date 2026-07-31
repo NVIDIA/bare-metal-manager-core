@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_instrument::{Event, Outcome, emit};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LogAt, Outcome, emit};
 use rpc::fmds::fmds_config_service_server::FmdsConfigService;
 use rpc::fmds::{UpdateConfigRequest, UpdateConfigResponse};
 use tonic::{Request, Response, Status};
@@ -34,44 +34,46 @@ impl FmdsGrpcServer {
     }
 }
 
-/// `ConfigUpdateIngestSucceeded` keeps the agent address on accepted updates.
-/// Rejections use `ConfigUpdateIngested` below, which retains the existing
-/// Event identity and error-only log fields.
-#[derive(Event)]
-#[event(
-    event_name = "fmds_config_update_ingest_succeeded",
-    metric_name = "carbide_fmds_config_updates_total",
-    component = "fmds",
-    log = info,
-    metric = counter,
-    message = "Received config update from agent",
-    describe = "Number of FMDS gRPC config-update ingests, by outcome"
-)]
-struct ConfigUpdateIngestSucceeded {
-    #[label]
-    outcome: Outcome,
-    #[context(value)]
-    agent_address: String,
-}
-
-/// `ConfigUpdateIngested` retains the existing failure Event identity. Both
-/// Events feed the same `outcome` series, while each log keeps only the fields
-/// operators already receive for that result.
+/// An agent's config update was accepted or rejected. `outcome` is the metric
+/// label and picks the level and wording each result already had: an accepted
+/// update keeps its `INFO` record with the agent address, while a rejection
+/// keeps its `WARN` with the error. Each field is present only for the result
+/// it belongs to, so neither log gains a field operators did not receive.
 #[derive(Event)]
 #[event(
     event_name = "fmds_config_update_ingested",
     metric_name = "carbide_fmds_config_updates_total",
     component = "fmds",
-    log = warn,
+    log = dynamic,
     metric = counter,
-    message = "Failed to ingest config update",
+    message = dynamic,
     describe = "Number of FMDS gRPC config-update ingests, by outcome"
 )]
 struct ConfigUpdateIngested {
     #[label]
     outcome: Outcome,
     #[context]
-    error: String,
+    agent_address: Option<String>,
+    #[context]
+    error: Option<String>,
+}
+
+impl DynamicLog for ConfigUpdateIngested {
+    fn log_at(&self) -> LogAt {
+        match self.outcome {
+            Outcome::Ok => LogAt::Level(tracing::Level::INFO),
+            Outcome::Error => LogAt::Level(tracing::Level::WARN),
+        }
+    }
+}
+
+impl DynamicMessage for ConfigUpdateIngested {
+    fn message(&self) -> &'static str {
+        match self.outcome {
+            Outcome::Ok => "Received config update from agent",
+            Outcome::Error => "Failed to ingest config update",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -88,16 +90,18 @@ impl FmdsConfigService for FmdsGrpcServer {
     ) -> Result<Response<UpdateConfigResponse>, Status> {
         match self.apply_config_update(request) {
             Ok(applied) => {
-                emit(ConfigUpdateIngestSucceeded {
+                emit(ConfigUpdateIngested {
                     outcome: Outcome::Ok,
-                    agent_address: applied.agent_address,
+                    agent_address: Some(applied.agent_address),
+                    error: None,
                 });
                 Ok(applied.response)
             }
             Err(status) => {
                 emit(ConfigUpdateIngested {
                     outcome: Outcome::Error,
-                    error: status.to_string(),
+                    agent_address: None,
+                    error: Some(status.to_string()),
                 });
                 Err(status)
             }
@@ -382,7 +386,7 @@ mod tests {
             metric_name: Some("carbide_fmds_config_updates_total".to_string()),
             outcome: Some(outcome.to_string()),
             agent_address: agent_address.map(str::to_string),
-            agent_address_kind: agent_address.map(|_| CapturedFieldKind::String),
+            agent_address_kind: agent_address.map(|_| CapturedFieldKind::Debug),
             error: error.map(str::to_string),
             error_kind: error.map(|_| CapturedFieldKind::Debug),
         }]
@@ -450,7 +454,7 @@ mod tests {
                         status: None,
                         metric_delta: 1.0,
                         logs: expected_log(
-                            "fmds_config_update_ingest_succeeded",
+                            "fmds_config_update_ingested",
                             tracing::Level::INFO,
                             "Received config update from agent",
                             "ok",

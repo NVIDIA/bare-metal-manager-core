@@ -424,6 +424,7 @@ impl TestEnv {
                 ManagedHostState::HostInit { machine_state: mc }
             }
             ManagedHostState::Ready => state.clone(),
+            ManagedHostState::BootConfiguring { .. } => state.clone(),
             ManagedHostState::Maintenance { .. } => state.clone(),
             ManagedHostState::Assigned { .. } => state.clone(),
             ManagedHostState::WaitingForCleanup { .. } => state.clone(),

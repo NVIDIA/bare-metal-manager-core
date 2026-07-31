@@ -16,46 +16,38 @@
  */
 
 use ::rpc::forge::BmcCredentialRotationRequest;
-use ::rpc::forge::bmc_credential_rotation_request::{DeviceId, Mode};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::switch::SwitchId;
+use ::rpc::forge::bmc_credential_rotation_request::Mode;
+use carbide_uuid::device::DeviceId;
 use clap::Parser;
 use mac_address::MacAddress;
-
-/// Build the request's `device_id` oneof from the mutually-exclusive `--id` /
-/// `--switch-id` selectors (clap enforces at most one is present). Returns
-/// `None` when the target is addressed by `--bmc-mac` alone.
-fn device_id(id: Option<MachineId>, switch_id: Option<SwitchId>) -> Option<DeviceId> {
-    match (id, switch_id) {
-        (Some(id), _) => Some(DeviceId::MachineId(id)),
-        (None, Some(switch_id)) => Some(DeviceId::SwitchId(switch_id)),
-        (None, None) => None,
-    }
-}
 
 #[derive(Parser, Debug, Clone)]
 #[command(after_long_help = "\
 EXAMPLES:
 
 Force an immediate credential rotation by machine ID:
-    $ nico-admin-cli credential force-bmc set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc set --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Force a switch BMC by switch ID:
-    $ nico-admin-cli credential force-bmc set --switch-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc set --id sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Force it by BMC MAC instead (machine or switch):
     $ nico-admin-cli credential force-bmc set --bmc-mac 00:11:22:33:44:55
 
 Clear a pending force-converge request:
-    $ nico-admin-cli credential force-bmc clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc clear --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 ")]
 pub enum Args {
     #[clap(
-        about = "Request an immediate credential rotation of a device's BMC (machine or switch)."
+        about = "Request an immediate BMC credential rotation. Machines and switches are \
+                 supported; power shelf IDs are accepted but not yet supported."
     )]
     Set(ForceSet),
-    #[clap(about = "Clear a pending BMC force-converge request for a device (machine or switch).")]
+    #[clap(
+        about = "Clear a pending BMC force-converge request. Machines and switches are supported; \
+                 power shelf IDs are accepted but not yet supported."
+    )]
     Clear(ForceClear),
 }
 
@@ -64,10 +56,10 @@ pub enum Args {
 EXAMPLES:
 
 Force-converge a machine BMC now by machine ID:
-    $ nico-admin-cli credential force-bmc set --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc set --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Force-converge a switch BMC now by switch ID:
-    $ nico-admin-cli credential force-bmc set --switch-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc set --id sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Force-converge a BMC now by BMC MAC (machine or switch):
     $ nico-admin-cli credential force-bmc set --bmc-mac 00:11:22:33:44:55
@@ -77,23 +69,17 @@ pub struct ForceSet {
     #[clap(
         short,
         long,
-        required_unless_present_any = ["bmc_mac", "switch_id"],
-        conflicts_with = "switch_id",
-        help = "Machine ID that owns the BMC (a host machine or a DPU machine). \
-                Provide this, --switch-id, or --bmc-mac."
+        required_unless_present_any = ["bmc_mac"],
+        help = "ID of the machine, DPU, switch, or power shelf that owns the BMC. \
+                Power shelf IDs are allowed for forward compatibility but are not yet supported. \
+                Provide this or --bmc-mac."
     )]
-    pub id: Option<MachineId>,
+    pub id: Option<DeviceId>,
 
     #[clap(
         long,
-        help = "Switch ID that owns the BMC. Provide this, --id, or --bmc-mac."
-    )]
-    pub switch_id: Option<SwitchId>,
-
-    #[clap(
-        long,
-        help = "MAC of the BMC to target (machine or switch). Provide this, --id, \
-                or --switch-id; if an id is also given they must identify the same device."
+        help = "MAC of the BMC to target (machine or switch). Provide this \
+                or --id; if an id is also given they must identify the same device."
     )]
     pub bmc_mac: Option<MacAddress>,
 }
@@ -101,7 +87,7 @@ pub struct ForceSet {
 impl From<ForceSet> for BmcCredentialRotationRequest {
     fn from(args: ForceSet) -> Self {
         Self {
-            device_id: device_id(args.id, args.switch_id),
+            device_id: args.id,
             mode: Mode::Set as i32,
             bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
@@ -113,10 +99,10 @@ impl From<ForceSet> for BmcCredentialRotationRequest {
 EXAMPLES:
 
 Clear a pending force-converge request by machine ID:
-    $ nico-admin-cli credential force-bmc clear --id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc clear --id fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Clear a pending force-converge request by switch ID:
-    $ nico-admin-cli credential force-bmc clear --switch-id 12345678-1234-5678-90ab-cdef01234567
+    $ nico-admin-cli credential force-bmc clear --id sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg
 
 Clear a pending force-converge request by BMC MAC:
     $ nico-admin-cli credential force-bmc clear --bmc-mac 00:11:22:33:44:55
@@ -126,19 +112,12 @@ pub struct ForceClear {
     #[clap(
         short,
         long,
-        required_unless_present_any = ["bmc_mac", "switch_id"],
-        conflicts_with = "switch_id",
-        help = "Machine ID whose pending BMC force-converge request should be cleared. \
-                Provide this, --switch-id, or --bmc-mac."
+        required_unless_present_any = ["bmc_mac"],
+        help = "Machine, DPU, switch, or power shelf ID whose pending BMC force-converge request \
+                should be cleared. Power shelf IDs are allowed for forward compatibility but are \
+                not yet supported. Provide this or --bmc-mac."
     )]
-    pub id: Option<MachineId>,
-
-    #[clap(
-        long,
-        help = "Switch ID whose pending BMC force-converge request should be cleared. \
-                Provide this, --id, or --bmc-mac."
-    )]
-    pub switch_id: Option<SwitchId>,
+    pub id: Option<DeviceId>,
 
     #[clap(long, help = "MAC of the BMC whose pending request should be cleared.")]
     pub bmc_mac: Option<MacAddress>,
@@ -147,9 +126,54 @@ pub struct ForceClear {
 impl From<ForceClear> for BmcCredentialRotationRequest {
     fn from(args: ForceClear) -> Self {
         Self {
-            device_id: device_id(args.id, args.switch_id),
+            device_id: args.id,
             mode: Mode::Clear as i32,
             bmc_mac: args.bmc_mac.map(|mac| mac.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::*;
+    use carbide_test_support::scenarios;
+    use clap::CommandFactory;
+
+    use super::*;
+
+    const MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+    const SWITCH_ID: &str = "sw100nt038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+    const POWER_SHELF_ID: &str = "ps100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+
+    #[test]
+    fn set_accepts_each_device_id_kind() {
+        scenarios!(
+            run = |input| {
+                ForceSet::try_parse_from(["force-bmc", "--id", input])
+                    .map(|args| args.id.unwrap().to_string())
+                    .map_err(drop)
+            };
+            "device ID kinds" {
+                MACHINE_ID => Yields(MACHINE_ID.to_string()),
+                SWITCH_ID => Yields(SWITCH_ID.to_string()),
+                POWER_SHELF_ID => Yields(POWER_SHELF_ID.to_string()),
+            }
+
+            "invalid input" {
+                "not-a-device-id" => Fails,
+            }
+        );
+    }
+
+    #[test]
+    fn set_requires_an_id_or_bmc_mac() {
+        assert!(ForceSet::try_parse_from(["force-bmc"]).is_err());
+    }
+
+    #[test]
+    fn power_shelf_limit_is_documented() {
+        let help = ForceSet::command().render_long_help().to_string();
+        assert!(help.contains("Power shelf IDs are allowed for forward compatibility"));
+        assert!(help.contains("not yet supported"));
     }
 }

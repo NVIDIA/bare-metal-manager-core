@@ -852,10 +852,39 @@ test-temporal-e2e:
 # OpenAPI spec path or URL for SDK generation. Override with: OPENAPI_SPEC=/path/to/spec.yaml make generate-sdk
 OPENAPI_SPEC ?= openapi/spec.yaml
 
-# Generate Go API SDK from OpenAPI spec using openapi-generator
-# Requires: brew install openapi-generator
-generate-sdk:
-	openapi-generator generate \
+# The generated SDK is byte-for-byte dependent on the generator version, so it is
+# pinned here rather than resolved from PATH. Homebrew publishes no versioned
+# formula, so the jar is fetched and checksum-verified directly. Bump the version
+# and checksum together with a regenerated sdk/standard.
+OPENAPI_GENERATOR_VERSION := 7.24.0
+OPENAPI_GENERATOR_SHA256  := 4b83ccc6fd43056c8c631cd0195e5100bd0550912502527bab09ac76152dab0c
+OPENAPI_GENERATOR_JAR     := $(TOOLS_DIR)/openapi-generator-cli-$(OPENAPI_GENERATOR_VERSION).jar
+OPENAPI_GENERATOR_URL     := https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/$(OPENAPI_GENERATOR_VERSION)/openapi-generator-cli-$(OPENAPI_GENERATOR_VERSION).jar
+
+# macOS ships a /usr/bin/java stub that only prints an install prompt, so prefer the
+# keg-only JDK that Homebrew installs as an openapi-generator dependency.
+# Recursively expanded to keep the brew lookup out of unrelated targets.
+BREW_OPENJDK = $(shell brew --prefix openjdk 2>/dev/null)
+JAVA        ?= $(if $(wildcard $(BREW_OPENJDK)/bin/java),$(BREW_OPENJDK)/bin/java,java)
+
+# sha256sum is the Linux default and shasum the macOS one; prefer whichever exists.
+SHA256SUM = $(if $(shell command -v sha256sum 2>/dev/null),sha256sum,shasum -a 256)
+
+# Verified under a temp name so a partial download is never cached as a usable jar.
+$(OPENAPI_GENERATOR_JAR):
+	@mkdir -p $(TOOLS_DIR)
+	curl -fsSL -o $@.tmp $(OPENAPI_GENERATOR_URL)
+	echo "$(OPENAPI_GENERATOR_SHA256)  $@.tmp" | $(SHA256SUM) -c -
+	mv $@.tmp $@
+
+# Generate Go API SDK from OpenAPI spec using openapi-generator.
+#
+# Previous output is cleared first because the generator only ever writes files, so
+# a schema dropped from the spec would otherwise leave its model behind. Generated
+# files use the api_ / model_ prefixes, which hand-written helpers must avoid.
+generate-sdk: $(OPENAPI_GENERATOR_JAR)
+	rm -f sdk/standard/api_*.go sdk/standard/model_*.go
+	$(JAVA) -jar $(OPENAPI_GENERATOR_JAR) generate \
 		-i $(OPENAPI_SPEC) \
 		-g go \
 		-o sdk/standard \

@@ -18,7 +18,7 @@
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
-use model::expected_machine::ExpectedHostNic;
+use model::expected_machine::ExpectedInterface;
 use model::machine_interface::InterfaceType;
 use model::network_segment::NetworkSegmentType;
 use rpc::forge as rpc;
@@ -61,7 +61,7 @@ pub async fn update_preallocated_machine_interface(
 /// but only an unassociated row also receives the role-derived settings.
 pub async fn update_preallocated_expected_machine_interface(
     txn: &mut sqlx::PgConnection,
-    expected_interface: &ExpectedHostNic,
+    expected_interface: &ExpectedInterface,
     retained_window: Option<chrono::Duration>,
 ) -> Result<(), CarbideError> {
     let fixed_ip = expected_interface
