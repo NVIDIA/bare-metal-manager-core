@@ -172,7 +172,10 @@ impl StateControllerIO for MachineStateControllerIO {
                 DpuInitState::WaitingForNetworkConfig => "waitingfornetworkconfig",
                 DpuInitState::WaitingForPlatformConfiguration => "waitingforplatformconfiguration",
                 DpuInitState::PollingBiosSetup => "pollingbiossetup",
-                DpuInitState::WaitingForPlatformPowercycle { .. } => "waitingforplatformpowercycle",
+                // The observed-Off wait remains part of the existing
+                // operator-facing power-cycle metric.
+                DpuInitState::WaitingForPlatformPowercycle { .. }
+                | DpuInitState::WaitingForPlatformPowerOff => "waitingforplatformpowercycle",
                 DpuInitState::DpfStates { .. } => "dpfstates",
             }
         }
