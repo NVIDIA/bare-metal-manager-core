@@ -164,8 +164,12 @@ pub fn add_routes(r: Router<BmcState>, bmc_vendor: redfish::oem::BmcVendor) -> R
         );
     if matches!(bmc_vendor, redfish::oem::BmcVendor::Hpe) {
         let hpe_boot = hpe_boot_resource(SYSTEM_ID);
-        routes.route(&hpe_boot.odata_id, get(get_hpe_boot)).route(
-            &format!("{}settings/", hpe_boot.odata_id),
+        // CombinedServer normalizes requests by removing trailing slashes before
+        // routing them, while the Redfish resource still advertises canonical
+        // trailing-slash OData identifiers.
+        let hpe_boot_path = hpe_boot.odata_id.trim_end_matches('/');
+        routes.route(hpe_boot_path, get(get_hpe_boot)).route(
+            &format!("{hpe_boot_path}/settings"),
             patch(patch_hpe_boot_settings),
         )
     } else {
@@ -1189,6 +1193,7 @@ mod tests {
     use axum::http::header::CONTENT_TYPE;
     use axum::http::{Method, Request, StatusCode};
     use tower::ServiceExt;
+    use tower_http::normalize_path::NormalizePathLayer;
 
     use super::*;
     use crate::test_support::{NoopCallbacks, host_info};
@@ -1216,7 +1221,8 @@ mod tests {
             false,
             MachineRouterOptions::default(),
         )
-        .0;
+        .0
+        .layer(NormalizePathLayer::trim_trailing_slash());
         let boot_path = hpe_boot_resource("1").odata_id;
         let initial = get_json(&router, &boot_path).await;
         assert_eq!(
