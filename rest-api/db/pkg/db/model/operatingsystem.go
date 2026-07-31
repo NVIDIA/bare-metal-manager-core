@@ -548,14 +548,6 @@ type OperatingSystemFilterInput struct {
 	IsActive                 *bool
 	// IncludeDeleted includes soft-deleted records (used by inventory sync to detect deletions).
 	IncludeDeleted bool
-
-	// ProviderOSVisibleAtSiteIDs adds provider-owned OS visibility to a TenantIDs
-	// filter (tenant admin view).
-	// Only provider-owned OSes with at least one site association at one of these
-	// sites are included. If nil, no cross-ownership provider entries are shown
-	// alongside tenant entries (default). If set to an empty slice, no provider
-	// entries match.
-	ProviderOSVisibleAtSiteIDs *[]uuid.UUID
 }
 
 var _ bun.BeforeAppendModelHook = (*OperatingSystem)(nil)
@@ -715,7 +707,6 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 	if filter.OperatingSystemIds != nil && len(filter.OperatingSystemIds) == 0 {
 		return oss, 0, nil
 	}
-
 	query := db.GetIDB(tx, ossd.dbSession).NewSelect().Model(&oss)
 	if filter.Names != nil {
 		query = query.Where("os.name IN (?)", bun.In(filter.Names))
@@ -727,22 +718,8 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 	}
 	hasTenants := len(filter.TenantIDs) > 0
 	hasProvider := filter.InfrastructureProviderID != nil
-	hasSiteScope := filter.ProviderOSVisibleAtSiteIDs != nil
 
 	switch {
-	case hasTenants && hasSiteScope:
-		// Tenant admin view: own tenant entries + provider entries at accessible sites.
-		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
-			q = q.Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs))
-			if len(*filter.ProviderOSVisibleAtSiteIDs) > 0 {
-				q = q.WhereOr(
-					"(os.infrastructure_provider_id IS NOT NULL AND EXISTS (SELECT 1 FROM operating_system_site_association WHERE operating_system_id = os.id AND deleted IS NULL AND site_id IN (?)))",
-					bun.In(*filter.ProviderOSVisibleAtSiteIDs),
-				)
-			}
-			return q
-		})
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_with_provider_at_sites", filter.TenantIDs)
 	case hasTenants && hasProvider:
 		// Dual-role view: own tenant entries + own provider entries, no site restriction.
 		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {

@@ -817,6 +817,7 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 	//   Tenant admin:   sees own entries + provider entries at tenant-accessible sites.
 	//   Dual-role:      visibility is the union of both (own tenant + own provider).
 	filter := cdbm.OperatingSystemFilterInput{}
+	var tenantVisibleProviderSiteIDs []uuid.UUID
 
 	switch {
 	case ip != nil && tenant == nil:
@@ -824,13 +825,12 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 		filter.InfrastructureProviderID = &ip.ID
 	case tenant != nil && ip == nil:
 		// Tenant admin only: own entries + provider entries at tenant-accessible sites.
-		filter.TenantIDs = []uuid.UUID{tenant.ID}
 		tenantSiteIDs, tsErr := getTenantSiteIDs(ctx, gash.dbSession, tenant.ID)
 		if tsErr != nil {
 			logger.Error().Err(tsErr).Msg("error retrieving tenant site IDs for visibility filter")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to determine site access for tenant", nil)
 		}
-		filter.ProviderOSVisibleAtSiteIDs = &tenantSiteIDs
+		tenantVisibleProviderSiteIDs = tenantSiteIDs
 	case tenant != nil && ip != nil:
 		// Dual-role: own tenant + own provider entries, no site restriction.
 		filter.TenantIDs = []uuid.UUID{tenant.ID}
@@ -956,6 +956,53 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 	// Get all Operating System by Tenant
 	osDAO := cdbm.NewOperatingSystemDAO(gash.dbSession)
 	ossaDAO := cdbm.NewOperatingSystemSiteAssociationDAO(gash.dbSession)
+
+	if tenant != nil && ip == nil {
+		mergedOSIDs := make(map[uuid.UUID]struct{})
+		selectionPage := cdbp.PageInput{Limit: cutil.GetPtr(cdbp.TotalLimit)}
+
+		tenantFilter := filter
+		tenantFilter.TenantIDs = []uuid.UUID{tenant.ID}
+		tenantOperatingSystems, _, terr := osDAO.GetAll(ctx, nil, tenantFilter, selectionPage, nil)
+		if terr != nil {
+			logger.Error().Err(terr).Msg("error retrieving tenant-owned Operating Systems from DB")
+			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve tenant-owned Operating Systems", nil)
+		}
+		for _, os := range tenantOperatingSystems {
+			mergedOSIDs[os.ID] = struct{}{}
+		}
+
+		providerSiteIDs := tenantVisibleProviderSiteIDs
+		if filter.SiteIDs != nil {
+			providerSiteIDs = filter.SiteIDs
+		}
+		if len(providerSiteIDs) > 0 {
+			providerAssociations, _, perr := ossaDAO.GetAll(
+				ctx,
+				nil,
+				cdbm.OperatingSystemSiteAssociationFilterInput{SiteIDs: providerSiteIDs},
+				selectionPage,
+				[]string{cdbm.OperatingSystemRelationName},
+			)
+			if perr != nil {
+				logger.Error().Err(perr).Msg("error retrieving Operating System Site associations visible to Tenant from DB")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve provider-owned Operating Systems", nil)
+			}
+			for _, association := range providerAssociations {
+				if association.OperatingSystem != nil && association.OperatingSystem.InfrastructureProviderID != nil {
+					mergedOSIDs[association.OperatingSystemID] = struct{}{}
+				}
+			}
+		}
+
+		mergedIDs := make([]uuid.UUID, 0, len(mergedOSIDs))
+		for id := range mergedOSIDs {
+			mergedIDs = append(mergedIDs, id)
+		}
+		filter.TenantIDs = nil
+		filter.InfrastructureProviderID = nil
+		filter.OperatingSystemIds = mergedIDs
+	}
 
 	// Create response
 	oss, total, err := osDAO.GetAll(

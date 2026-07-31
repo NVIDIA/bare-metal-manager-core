@@ -2133,12 +2133,10 @@ func TestOperatingSystemSQLDAO_Delete(t *testing.T) {
 	}
 }
 
-// TestOperatingSystemSQLDAO_GetAll_ProviderVisibility exercises the ownership
-// visibility switch in GetAll: provider-only, tenant-only, dual-role, and the
-// tenant-admin view that surfaces provider-owned OSes only when they are
-// associated with one of the tenant's accessible sites
-// (ProviderOSVisibleAtSiteIDs).
-func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
+// TestOperatingSystemSQLDAO_GetAll_OwnershipFilters exercises the provider-only,
+// tenant-only, and dual-role ownership filters. Cross-ownership visibility is
+// composed by API handlers rather than by the DAO.
+func TestOperatingSystemSQLDAO_GetAll_OwnershipFilters(t *testing.T) {
 	ctx := context.Background()
 	dbSession := testOperatingSystemInitDB(t)
 	defer dbSession.Close()
@@ -2208,7 +2206,6 @@ func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
 		desc          string
 		providerID    *uuid.UUID
 		tenantIDs     []uuid.UUID
-		visibleSites  *[]uuid.UUID
 		expectedNames []string
 	}{
 		{
@@ -2227,37 +2224,12 @@ func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
 			tenantIDs:     []uuid.UUID{tenant.ID},
 			expectedNames: []string{"prov-at-x", "prov-at-y", "prov-no-site", "tenant-1", "tenant-2"},
 		},
-		{
-			desc:          "tenant-admin view surfaces provider OS at accessible site",
-			tenantIDs:     []uuid.UUID{tenant.ID},
-			visibleSites:  &[]uuid.UUID{siteX.ID},
-			expectedNames: []string{"prov-at-x", "tenant-1", "tenant-2"},
-		},
-		{
-			desc:          "tenant-admin view surfaces OSes from all providers at accessible sites",
-			tenantIDs:     []uuid.UUID{tenant.ID},
-			visibleSites:  &[]uuid.UUID{siteX.ID, siteY.ID, siteZ.ID},
-			expectedNames: []string{"prov-at-x", "prov-at-y", "other-prov-at-z", "tenant-1", "tenant-2"},
-		},
-		{
-			desc:          "tenant-admin view with empty accessible sites hides provider OSes",
-			tenantIDs:     []uuid.UUID{tenant.ID},
-			visibleSites:  &[]uuid.UUID{},
-			expectedNames: []string{"tenant-1", "tenant-2"},
-		},
-		{
-			desc:          "tenant-admin view excludes provider OS not associated with accessible site",
-			tenantIDs:     []uuid.UUID{tenant.ID},
-			visibleSites:  &[]uuid.UUID{siteY.ID},
-			expectedNames: []string{"prov-at-y", "tenant-1", "tenant-2"},
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
 			filter := OperatingSystemFilterInput{
-				InfrastructureProviderID:   tc.providerID,
-				TenantIDs:                  tc.tenantIDs,
-				ProviderOSVisibleAtSiteIDs: tc.visibleSites,
+				InfrastructureProviderID: tc.providerID,
+				TenantIDs:                tc.tenantIDs,
 			}
 			page := paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}
 			got, total, err := ossd.GetAll(ctx, nil, filter, page, nil)
@@ -2270,4 +2242,5 @@ func TestOperatingSystemSQLDAO_GetAll_ProviderVisibility(t *testing.T) {
 			assert.Equal(t, len(tc.expectedNames), total)
 		})
 	}
+
 }

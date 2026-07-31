@@ -2609,6 +2609,7 @@ func TestOperatingSystemHandler_GetAll_Visibility(t *testing.T) {
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provC.ID, siteC.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, tnUser)
 	provD := buildProviderOS(t, ctx, osDAO, servingProviderOrg, ip2.ID, "prov-os-d", tnUser.ID)
 	common.TestBuildOperatingSystemSiteAssociation(t, dbSession, provD.ID, siteD.ID, cutil.GetPtr("test"), cdbm.OperatingSystemSiteAssociationStatusSynced, tnUser)
+	buildProviderOS(t, ctx, osDAO, servingProviderOrg, ip2.ID, "prov-os-without-site", tnUser.ID)
 
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
@@ -2616,6 +2617,7 @@ func TestOperatingSystemHandler_GetAll_Visibility(t *testing.T) {
 		name          string
 		reqOrgName    string
 		user          *cdbm.User
+		target        string
 		expectedNames []string
 	}{
 		{
@@ -2630,11 +2632,22 @@ func TestOperatingSystemHandler_GetAll_Visibility(t *testing.T) {
 			user:          tnUser,
 			expectedNames: []string{"tenant-os-1", "tenant-os-2", "prov-os-c"},
 		},
+		{
+			name:          "tenant visibility union is paginated after merging",
+			reqOrgName:    tenantOrg,
+			user:          tnUser,
+			target:        "/?pageSize=2&orderBy=NAME_ASC",
+			expectedNames: []string{"prov-os-c", "tenant-os-1"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			target := tc.target
+			if target == "" {
+				target = "/"
+			}
+			req := httptest.NewRequest(http.MethodGet, target, nil)
 			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 			rec := httptest.NewRecorder()
 
