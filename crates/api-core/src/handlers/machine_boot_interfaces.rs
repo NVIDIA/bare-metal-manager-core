@@ -21,12 +21,20 @@
 //! `predicted_machine_interfaces`, the `explored_endpoints` default, and the
 //! post-deletion `retained_boot_interfaces` pairs -- alongside the effective
 //! boot interface the system would select via `pick_boot_interface`, and a
-//! divergence flag for when the stores disagree about which NIC boots.
+//! divergence flag for when the stores disagree about which NIC boots. The
+//! same response also reports whether the machine controller has converged the
+//! persisted desired target.
 
 use std::collections::BTreeSet;
 
 use ::rpc::forge as rpc;
+use ::rpc::forge::get_machine_boot_interfaces_response::Reconciliation as BootInterfaceReconciliationStatus;
+use ::rpc::forge::get_machine_boot_interfaces_response::reconciliation::State as BootInterfaceReconciliationState;
+use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::{ManagedHostState, ReadyBootConfigState};
+use model::machine_boot_interface::{BootInterfaceStatusObservation, MachineBootInterfaceTarget};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -37,7 +45,8 @@ use crate::handlers::utils::convert_and_log_machine_id;
 /// All four stores are read within a single read transaction. The effective
 /// boot interface is the same
 /// `pick_boot_interface` selection every other flow acts on, applied to the
-/// owned `machine_interfaces` rows.
+/// owned `machine_interfaces` rows. Reconciliation is derived from the
+/// persisted desired target, its latest observation, and `ManagedHostState`.
 pub(crate) async fn get_machine_boot_interfaces(
     api: &Api,
     request: Request<rpc::GetMachineBootInterfacesRequest>,
@@ -54,6 +63,19 @@ pub(crate) async fn get_machine_boot_interfaces(
         .await?
         .remove(&machine_id)
         .unwrap_or_default();
+
+    // Load the desired target, last observation, and controller state through
+    // one machine snapshot. The reconciliation label only makes sense when
+    // those three persisted values are interpreted together.
+    let machine = db::machine::find_one(
+        &mut txn,
+        &machine_id,
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await?;
 
     // Store 2: predictions -- the boot candidates a host offers before its
     // first DHCP lease creates an owned row.
@@ -196,7 +218,95 @@ pub(crate) async fn get_machine_boot_interfaces(
         divergent,
         default_boot_interface,
         predicted_boot_interface,
+        reconciliation: machine.as_ref().and_then(|machine| {
+            boot_interface_reconciliation_status(
+                machine.config.desired_boot_interface.as_ref(),
+                machine.status.boot_interface_status_observation.as_ref(),
+                machine.current_state(),
+            )
+        }),
     }))
+}
+
+/// `boot_interface_reconciliation_status` builds the operator-facing view of
+/// one desired generation.
+///
+/// Stale observations and superseded `BootConfiguring` work remain visible so
+/// an operator can tell what the controller last verified and what it is
+/// finishing, even though neither can satisfy the current desired version.
+fn boot_interface_reconciliation_status(
+    desired_boot_interface: Option<&Versioned<MachineBootInterfaceTarget>>,
+    observation: Option<&BootInterfaceStatusObservation>,
+    machine_state: &ManagedHostState,
+) -> Option<BootInterfaceReconciliationStatus> {
+    let desired_boot_interface = desired_boot_interface?;
+    let active_reconciliation = match machine_state {
+        ManagedHostState::BootConfiguring {
+            desired_version,
+            boot_config_state,
+            ..
+        } => Some((*desired_version, boot_config_state)),
+        _ => None,
+    };
+    let reconciliation_state = boot_interface_reconciliation_state(
+        desired_boot_interface.version,
+        observation.map(|status| status.config_version),
+        machine_state,
+    );
+    let failure = if reconciliation_state == BootInterfaceReconciliationState::Converged {
+        None
+    } else {
+        active_reconciliation.and_then(|(_, state)| match state {
+            ReadyBootConfigState::Failed { failure } => Some(failure.clone()),
+            _ => None,
+        })
+    };
+
+    Some(BootInterfaceReconciliationStatus {
+        desired_boot_interface: Some(boot_interface_target_message(&desired_boot_interface.value)),
+        desired_version: desired_boot_interface.version.version_string(),
+        verified_version: observation.map(|status| status.config_version.version_string()),
+        observed_at: observation.map(|status| status.observed_at.into()),
+        is_compatibility_baseline: observation.is_some_and(|status| status.assumed),
+        reconciliation_state: reconciliation_state as i32,
+        machine_state: machine_state.to_string(),
+        reconciling_version: active_reconciliation.map(|(version, _)| version.version_string()),
+        failure,
+    })
+}
+
+/// `boot_interface_reconciliation_state` classifies only the current desired
+/// generation. A matching observation wins; active and failed labels apply
+/// only when `BootConfiguring` captured that same version.
+fn boot_interface_reconciliation_state(
+    desired_version: ConfigVersion,
+    verified_version: Option<ConfigVersion>,
+    machine_state: &ManagedHostState,
+) -> BootInterfaceReconciliationState {
+    if verified_version == Some(desired_version) {
+        return BootInterfaceReconciliationState::Converged;
+    }
+
+    match machine_state {
+        ManagedHostState::BootConfiguring {
+            desired_version: reconciling_version,
+            boot_config_state,
+            ..
+        } if *reconciling_version == desired_version => match boot_config_state {
+            ReadyBootConfigState::Failed { .. } => BootInterfaceReconciliationState::Failed,
+            _ => BootInterfaceReconciliationState::Converging,
+        },
+        _ => BootInterfaceReconciliationState::Pending,
+    }
+}
+
+/// `boot_interface_target_message` preserves whichever target identifiers the
+/// desired generation contains.
+fn boot_interface_target_message(target: &MachineBootInterfaceTarget) -> rpc::MachineBootInterface {
+    rpc::MachineBootInterface {
+        mac_address: target.mac_address().to_string(),
+        interface_id: target.interface_id().map(str::to_string),
+    }
 }
 
 /// The wire form of a pick: the complete pair when captured, else the MAC
@@ -212,5 +322,184 @@ fn boot_interface_message(
             interface_id: None,
         }),
         (None, None) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::{Check, check_values};
+    use chrono::{DateTime, Utc};
+
+    use super::*;
+
+    #[test]
+    fn reconciliation_status_is_scoped_to_the_current_desired_generation() {
+        let desired_version = ConfigVersion::new(7);
+        let stale_version = ConfigVersion::new(6);
+        let target = MachineBootInterfaceTarget::MacOnly(
+            "00:00:5e:00:53:01".parse().expect("test MAC is valid"),
+        );
+        let desired = Versioned::new(target.clone(), desired_version);
+        let observed_at = DateTime::<Utc>::UNIX_EPOCH;
+        let boot_configuring =
+            |reconciling_version, boot_config_state| ManagedHostState::BootConfiguring {
+                desired_version: reconciling_version,
+                desired_boot_interface: target.clone(),
+                post_lock_verification_retry_count: 0,
+                boot_config_state,
+            };
+
+        check_values(
+            [
+                Check {
+                    scenario: "no observation or active work is pending",
+                    input: (None, ManagedHostState::Ready),
+                    expect: (BootInterfaceReconciliationState::Pending, None),
+                },
+                Check {
+                    scenario: "a stale observation is pending",
+                    input: (Some(stale_version), ManagedHostState::Ready),
+                    expect: (BootInterfaceReconciliationState::Pending, None),
+                },
+                Check {
+                    scenario: "a matching observation is converged",
+                    input: (Some(desired_version), ManagedHostState::Ready),
+                    expect: (BootInterfaceReconciliationState::Converged, None),
+                },
+                Check {
+                    scenario: "a matching observation wins over leftover failed state",
+                    input: (
+                        Some(desired_version),
+                        boot_configuring(
+                            desired_version,
+                            ReadyBootConfigState::Failed {
+                                failure: "old failure".to_string(),
+                            },
+                        ),
+                    ),
+                    expect: (BootInterfaceReconciliationState::Converged, None),
+                },
+                Check {
+                    scenario: "current active work is converging",
+                    input: (
+                        None,
+                        boot_configuring(desired_version, ReadyBootConfigState::Prepare),
+                    ),
+                    expect: (BootInterfaceReconciliationState::Converging, None),
+                },
+                Check {
+                    scenario: "current terminal failure is failed",
+                    input: (
+                        None,
+                        boot_configuring(
+                            desired_version,
+                            ReadyBootConfigState::Failed {
+                                failure: "BIOS job retries exhausted".to_string(),
+                            },
+                        ),
+                    ),
+                    expect: (
+                        BootInterfaceReconciliationState::Failed,
+                        Some("BIOS job retries exhausted".to_string()),
+                    ),
+                },
+                Check {
+                    scenario: "superseded active work is pending",
+                    input: (
+                        None,
+                        boot_configuring(
+                            stale_version,
+                            ReadyBootConfigState::Failed {
+                                failure: "failure for old generation".to_string(),
+                            },
+                        ),
+                    ),
+                    expect: (
+                        BootInterfaceReconciliationState::Pending,
+                        Some("failure for old generation".to_string()),
+                    ),
+                },
+            ],
+            |(verified_version, machine_state)| {
+                let observation =
+                    verified_version.map(|config_version| BootInterfaceStatusObservation {
+                        config_version,
+                        observed_at,
+                        assumed: false,
+                    });
+                let status = boot_interface_reconciliation_status(
+                    Some(&desired),
+                    observation.as_ref(),
+                    &machine_state,
+                )
+                .expect("the desired target should produce a reconciliation status");
+                (
+                    BootInterfaceReconciliationState::try_from(status.reconciliation_state)
+                        .expect("the reconciliation state should be valid"),
+                    status.failure,
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn reconciliation_status_keeps_stale_observation_and_active_failure_details() {
+        let desired_version = ConfigVersion::new(7);
+        let stale_version = ConfigVersion::new(6);
+        let target = MachineBootInterfaceTarget::MacOnly(
+            "00:00:5e:00:53:01"
+                .parse::<MacAddress>()
+                .expect("test MAC is valid"),
+        );
+        let desired = Versioned::new(target.clone(), desired_version);
+        let observed_at = DateTime::<Utc>::UNIX_EPOCH;
+        let observation = BootInterfaceStatusObservation {
+            config_version: stale_version,
+            observed_at,
+            assumed: true,
+        };
+        let failure = "failure for old generation".to_string();
+        let machine_state = ManagedHostState::BootConfiguring {
+            desired_version: stale_version,
+            desired_boot_interface: target,
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::Failed {
+                failure: failure.clone(),
+            },
+        };
+
+        assert!(
+            boot_interface_reconciliation_status(None, Some(&observation), &machine_state)
+                .is_none(),
+            "a machine without a desired target has no reconciliation view"
+        );
+
+        let status = boot_interface_reconciliation_status(
+            Some(&desired),
+            Some(&observation),
+            &machine_state,
+        )
+        .expect("a desired target has a reconciliation view");
+        assert_eq!(
+            status.desired_boot_interface,
+            Some(boot_interface_target_message(&desired.value))
+        );
+        assert_eq!(status.desired_version, desired_version.version_string());
+        assert_eq!(
+            status.verified_version.as_deref(),
+            Some(stale_version.version_string().as_str())
+        );
+        assert_eq!(status.observed_at, Some(observed_at.into()));
+        assert!(status.is_compatibility_baseline);
+        assert_eq!(
+            status.reconciliation_state,
+            BootInterfaceReconciliationState::Pending as i32
+        );
+        assert_eq!(status.machine_state, "BootConfiguring/Failed");
+        assert_eq!(
+            status.reconciling_version.as_deref(),
+            Some(stale_version.version_string().as_str())
+        );
+        assert_eq!(status.failure.as_deref(), Some(failure.as_str()));
     }
 }

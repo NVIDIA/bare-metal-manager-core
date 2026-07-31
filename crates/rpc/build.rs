@@ -344,6 +344,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute(
+            "forge.GetMachineBootInterfacesResponse.Reconciliation",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.MachineInterfaceBootInterface",
             "#[derive(serde::Serialize)]",
         )

@@ -8502,13 +8502,21 @@ message RemediationApplicationStatus {
 message SetPrimaryDpuRequest {
   common.MachineId host_machine_id = 1;
   common.MachineId dpu_machine_id = 2;
-  bool reboot=3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected DPU is
+  // already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 message SetPrimaryInterfaceRequest {
   common.MachineId host_machine_id = 1;
   common.MachineInterfaceId interface_id = 2;
-  bool reboot = 3;
+  // Deprecated compatibility alias for `force_reconcile`.
+  bool reboot = 3 [deprecated = true];
+  // Request another controller reconciliation even when the selected
+  // interface is already the desired boot interface.
+  bool force_reconcile = 4;
 }
 
 // DPU Extension Service Types and Messages
@@ -9548,6 +9556,51 @@ message RetainedBootInterface {
 }
 
 message GetMachineBootInterfacesResponse {
+  // The desired boot-interface generation, its latest persisted observation,
+  // and any machine-controller work currently reconciling it.
+  message Reconciliation {
+    // Whether the desired generation is waiting for, undergoing, or has
+    // completed machine-controller reconciliation.
+    enum State {
+      // The server did not provide a usable reconciliation state.
+      Unspecified = 0;
+      // The desired generation has no matching observation and is not currently
+      // being reconciled. This includes work deferred while a host is assigned.
+      Pending = 1;
+      // Machine-controller is actively reconciling the desired generation.
+      Converging = 2;
+      // The desired generation has a matching verification or compatibility
+      // baseline.
+      Converged = 3;
+      // Reconciliation of the desired generation reached a terminal failure.
+      Failed = 4;
+    }
+
+    // Boot-interface target for the current desired generation.
+    MachineBootInterface desired_boot_interface = 1;
+    // Opaque configuration version of the current desired generation.
+    string desired_version = 2;
+    // Desired generation covered by the latest persisted observation. It may
+    // differ from `desired_version` after a new operator request.
+    optional string verified_version = 3;
+    // Time the latest persisted observation or compatibility baseline was
+    // recorded. Absent when no generation has been observed.
+    google.protobuf.Timestamp observed_at = 4;
+    // True when the latest observation is a rollout compatibility baseline
+    // rather than a Redfish verification.
+    bool is_compatibility_baseline = 5;
+    // Reconciliation state derived for the current desired generation.
+    State reconciliation_state = 6;
+    // Current managed-host state, including the BootConfiguring phase when
+    // reconciliation is active.
+    string machine_state = 7;
+    // Desired generation captured by an active BootConfiguring pass. This can
+    // differ from `desired_version` while older in-flight work finishes safely.
+    optional string reconciling_version = 8;
+    // Persisted terminal boot-reconciliation failure, when one exists.
+    optional string failure = 9;
+  }
+
   common.MachineId machine_id = 1;
 
   // Boot interfaces from the four stores.
@@ -9582,6 +9635,10 @@ message GetMachineBootInterfacesResponse {
   // non-underlay prediction. Absent when there are no predictions or when the
   // pick refuses to guess among several undeclared NICs.
   MachineBootInterface predicted_boot_interface = 10;
+
+  // Desired-state reconciliation details. Absent before a machine has a
+  // persisted desired boot interface.
+  Reconciliation reconciliation = 11;
 }
 
 message GetContainerRegistryCredentialRequest {

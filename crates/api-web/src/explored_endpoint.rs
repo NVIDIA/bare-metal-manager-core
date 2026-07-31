@@ -1132,7 +1132,7 @@ pub async fn machine_setup(
         Ok(_) => ActionStatus {
             action: action_status::Type::MachineSetup,
             class: action_status::Class::Success,
-            message: "Machine setup completed successfully".into(),
+            message: "Machine setup request accepted".into(),
         }
         .update_redirect_url(&view_url),
         Err(err) => {
@@ -1193,7 +1193,7 @@ pub async fn set_dpu_first_boot_order(
         Ok(_) => ActionStatus {
             action: action_status::Type::SetFirstBootOrder,
             class: action_status::Class::Success,
-            message: "Boot order updated successfully".into(),
+            message: "Boot-interface request accepted".into(),
         }
         .update_redirect_url(&view_url),
         Err(err) => {
@@ -1210,15 +1210,15 @@ pub async fn set_dpu_first_boot_order(
     Redirect::to(&redirect_url).into_response()
 }
 
-/// Re-applies the host's resolved boot interface on demand.
+/// Requests another pass for the host's resolved boot interface.
 ///
 /// This takes no MAC from the operator: it reuses `set_dpu_first_boot_order`
 /// with `boot_interface_mac: None`, which makes the backend resolve the boot
 /// interface the same way every other flow does -- the owning machine's
 /// designated interface (`primary_interface` + its captured Redfish interface
 /// id) once a machine owns this endpoint, or site-explorer's automatic default
-/// for a not-yet-managed endpoint. One click puts the BMC's boot order back in
-/// line with what Carbide would target.
+/// for a not-yet-managed endpoint. Managed hosts persist a fresh generation
+/// for machine-controller; unowned endpoints still apply it directly.
 pub async fn restore_boot_interface(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(endpoint_ip): AxumPath<String>,
@@ -1242,7 +1242,7 @@ pub async fn restore_boot_interface(
         Ok(_) => ActionStatus {
             action: action_status::Type::RestoreBootInterface,
             class: action_status::Class::Success,
-            message: "Boot order re-applied from the resolved boot interface".into(),
+            message: "Boot-interface reconciliation request accepted".into(),
         }
         .update_redirect_url(&view_url),
         Err(err) => {
