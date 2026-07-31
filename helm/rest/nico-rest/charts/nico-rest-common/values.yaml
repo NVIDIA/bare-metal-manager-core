@@ -16,8 +16,9 @@ secrets:
     # -- Keycloak client secret. Replace in production.
     value: "nico-local-secret"
   temporalEncryptionKey:
-    # -- Temporal payload encryption key. Replace in production.
-    value: "local-dev"
+    # -- Temporal payload encryption key. When empty, Helm generates a key from
+    # 32 random bytes on install and reuses the existing Secret on upgrade.
+    value: ""
   imagePullSecret:
     # -- base64-encoded docker config JSON. Default is valid empty auth placeholder ({"auths":{}}).
     # Replace with real credentials for private registries.
