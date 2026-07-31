@@ -17,7 +17,8 @@
 
 use std::collections::HashMap;
 
-use carbide_test_support::{Check, check_values};
+use carbide_test_support::Outcome::{Fails, Yields};
+use carbide_test_support::{Case, Check, check_cases, check_values};
 use regex::Regex;
 use serde_json::json;
 
@@ -937,5 +938,78 @@ fn event_definitions_compile_filename_and_event_regexes() {
             },
         ],
         |row| inspect_definition(&runtime, &directory, row),
+    );
+}
+
+struct DelimiterRow {
+    delimiter: Option<&'static str>,
+}
+
+fn inspect_delimiter(
+    runtime: &tokio::runtime::Runtime,
+    directory: &tempfile::TempDir,
+    row: DelimiterRow,
+) -> Result<(), ()> {
+    let definition = json!({
+        "pipeline": "test",
+        "delimiter": row.delimiter,
+        "filename_format": ".*",
+        "logs_path": "/unused",
+        "events": [],
+    });
+    let path = directory.path().join("delimiter-definition.json");
+    std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
+
+    runtime
+        .block_on(read_event_definition(&path))
+        .map(drop)
+        .map_err(drop)
+}
+
+#[test]
+fn event_definition_delimiter_is_exactly_one_byte() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let directory = tempfile::tempdir().unwrap();
+
+    check_cases(
+        [
+            Case {
+                scenario: "omitted delimiter defaults to newline",
+                input: DelimiterRow { delimiter: None },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "single-byte delimiter",
+                input: DelimiterRow {
+                    delimiter: Some("|"),
+                },
+                expect: Yields(()),
+            },
+            Case {
+                scenario: "empty delimiter",
+                input: DelimiterRow {
+                    delimiter: Some(""),
+                },
+                expect: Fails,
+            },
+            Case {
+                scenario: "multiple-byte ASCII delimiter",
+                input: DelimiterRow {
+                    delimiter: Some("||"),
+                },
+                expect: Fails,
+            },
+            Case {
+                scenario: "multiple-byte UTF-8 delimiter",
+                input: DelimiterRow {
+                    delimiter: Some("→"),
+                },
+                expect: Fails,
+            },
+        ],
+        |row| inspect_delimiter(&runtime, &directory, row),
     );
 }
