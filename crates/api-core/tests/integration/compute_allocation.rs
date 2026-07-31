@@ -28,7 +28,6 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::network::NetworkSegmentId;
 use model::instance_type::InstanceTypeMachineCapabilityFilter;
-use model::machine::ManagedHostState;
 use model::machine::capabilities::MachineCapabilityType;
 use model::metadata::Metadata as DbMetadata;
 use model::test_support::ManagedHostConfig;
@@ -181,7 +180,7 @@ async fn create_managed_host(env: &TestEnv) -> TestManagedHost {
         .await
         .0;
     mh.host.discover_primary_iface(env.admin_segment).await;
-    mh.advance_state(ManagedHostState::Ready).await;
+    mh.advance_to_converged_ready().await;
     TestManagedHost { id: mh.host.id }
 }
 
