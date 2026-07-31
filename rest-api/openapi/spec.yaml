@@ -4765,6 +4765,8 @@ paths:
         Infrastructure Provider must own the Expected Rack.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also update Expected Racks if they have an account with the Site's Infrastructure Provider.
+
+        `rackId` is immutable: an update that changes it is rejected with `400` before any database mutation.
       requestBody:
         content:
           application/json:
@@ -24496,6 +24498,8 @@ components:
 
         For single updates (PATCH /expected-rack/{id}), the `id` field is optional in the body and will be ignored if provided (the `id` from the URL path is used).
 
+        The `rackId` field is immutable on update — omit it or provide the existing value. Renaming an Expected Rack is not supported.
+
         Chassis identity and physical location information are conveyed via well-known label keys in `labels`:
         - `chassis.manufacturer`, `chassis.serial-number`, `chassis.model`
         - `location.region`, `location.datacenter`, `location.room`, `location.position`
@@ -24522,7 +24526,9 @@ components:
             - string
             - 'null'
           minLength: 1
-          description: Optional new operator-supplied rack identifier. If provided, must be non-empty and unique within the Site.
+          deprecated: true
+          description: |-
+            Operator-supplied rack identifier. Immutable on update: omit this field, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
         rackProfileId:
           type:
             - string
