@@ -34,7 +34,7 @@ use sqlx::{PgConnection, PgTransaction};
 use crate::db_read::DbReader;
 use crate::instance_address::UsedOverlayNetworkIpResolver;
 use crate::ip_allocator::{IpAllocator, UsedIpResolver};
-use crate::machine_interface::UsedAdminNetworkIpResolver;
+use crate::machine_interface::UsedMachineInterfaceIpResolver;
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
 };
@@ -739,15 +739,13 @@ where
                     busy_ips,
                 })
             } else {
-                // Note on UsedAdminNetworkIpResolver:
+                // Note on UsedMachineInterfaceIpResolver:
                 // In this case, the IpAllocator isn't being used to iterate to get
                 // the next available prefix_length allocation -- it's actually just
                 // being used to get the number of free IPs left in a given admin
-                // network segment, so just hard-code a /32 prefix_length. Unlike the
-                // tenant segments, the admin segments are always (at least for the
-                // foreseeable future) just going to allocate a /32 for the machine
-                // interface.
-                Box::new(UsedAdminNetworkIpResolver {
+                // network segment. Machine interfaces consume one host address at a
+                // time for either family.
+                Box::new(UsedMachineInterfaceIpResolver {
                     segment_id: record.id,
                     busy_ips,
                 })

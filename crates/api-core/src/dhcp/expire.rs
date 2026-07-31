@@ -60,9 +60,9 @@ pub async fn expire_dhcp_lease(
     // When the caller provides the MAC, scope the delete to the (ip, mac) pair.
     // Otherwise use the address-only variant, which is what an admin-cli call
     // deleting a specific IP allocation would hit. Either way, both variants
-    // return the interfaces whose rows were actually deleted, so we resync those
-    // authoritative owners rather than a separately looked-up interface (which
-    // could differ if ownership changed or multiple rows share the address).
+    // return the interfaces whose rows were actually deleted, so we resync
+    // from those authoritative rows rather than a separate ownership lookup
+    // (which could differ if ownership changed between the lookup and delete).
     let resync_targets = match mac_address {
         Some(mac) => {
             db::machine_interface_address::delete_by_address_and_mac(

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::domain::DomainId;
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
 use model::allocation_type::AllocationType;
@@ -98,8 +99,31 @@ async fn create_managed_segment(
     segment_type: NetworkSegmentType,
     allocation_strategy: AllocationStrategy,
 ) -> Result<NetworkSegmentId, Box<dyn std::error::Error>> {
+    create_managed_segment_with_prefixes(pool, name, &[prefix], segment_type, allocation_strategy)
+        .await
+}
+
+/// Create a managed segment with one or more address-family prefixes.
+async fn create_managed_segment_with_prefixes(
+    pool: &sqlx::PgPool,
+    name: &str,
+    prefixes: &[&str],
+    segment_type: NetworkSegmentType,
+    allocation_strategy: AllocationStrategy,
+) -> Result<NetworkSegmentId, Box<dyn std::error::Error>> {
     let segment_id = NetworkSegmentId::new();
     let mut txn = db::Transaction::begin(pool).await?;
+    let prefixes = prefixes
+        .iter()
+        .map(|prefix| {
+            Ok(NewNetworkPrefix {
+                prefix: prefix.parse()?,
+                gateway: None,
+                dhcpv6_link_address: None,
+                num_reserved: 0,
+            })
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
     db::network_segment::persist(
         NewNetworkSegment {
             id: segment_id,
@@ -107,12 +131,7 @@ async fn create_managed_segment(
             subdomain_id: None,
             vpc_id: None,
             mtu: 1500,
-            prefixes: vec![NewNetworkPrefix {
-                prefix: prefix.parse()?,
-                gateway: None,
-                dhcpv6_link_address: None,
-                num_reserved: 0,
-            }],
+            prefixes,
             vlan_id: None,
             vni: None,
             segment_type,
@@ -126,6 +145,1149 @@ async fn create_managed_segment(
     txn.commit().await?;
 
     Ok(segment_id)
+}
+
+/// Load a test segment after its setup transaction commits.
+async fn load_test_segment(
+    pool: &sqlx::PgPool,
+    name: &str,
+) -> Result<NetworkSegment, Box<dyn std::error::Error>> {
+    let mut txn = db::Transaction::begin(pool).await?;
+    let segment = db::network_segment::find_by_name(txn.as_pgconn(), name).await?;
+    txn.rollback().await?;
+    Ok(segment)
+}
+
+/// Create an addressless interface whose hostname cannot collide with the
+/// IP-derived name used by a competing allocation.
+async fn create_addressless_race_interface(
+    pool: &sqlx::PgPool,
+    segment_id: NetworkSegmentId,
+    mac_address: MacAddress,
+    hostname: &str,
+) -> Result<MachineInterfaceId, Box<dyn std::error::Error>> {
+    let mut txn = db::Transaction::begin(pool).await?;
+    let interface_id = sqlx::query_scalar(
+        "INSERT INTO machine_interfaces
+            (segment_id, mac_address, primary_interface, hostname)
+         VALUES ($1, $2, false, $3)
+         RETURNING id",
+    )
+    .bind(segment_id)
+    .bind(mac_address)
+    .bind(hostname)
+    .fetch_one(txn.as_pgconn())
+    .await?;
+    txn.commit().await?;
+    Ok(interface_id)
+}
+
+/// Wait until `blocked_pid` is actually waiting on `blocker_pid`.
+///
+/// This proves the competing write reached the PostgreSQL uniqueness boundary
+/// under test before the winner commits.
+async fn wait_for_transaction_conflict(
+    pool: &sqlx::PgPool,
+    blocker_pid: i32,
+    blocked_pid: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let blocked: bool = sqlx::query_scalar("SELECT $1 = ANY(pg_blocking_pids($2))")
+                .bind(blocker_pid)
+                .bind(blocked_pid)
+                .fetch_one(pool)
+                .await?;
+            if blocked {
+                return Ok::<(), sqlx::Error>(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| std::io::Error::other("transaction did not reach the expected database wait"))??;
+    Ok(())
+}
+
+/// Run one fixed/fixed race and verify the committed owner wins cleanly.
+///
+/// The losing create commits its outer transaction after handling the typed
+/// conflict. That proves the create path's savepoint removed its partial
+/// interface row without making the caller discard unrelated work.
+#[allow(txn_held_across_await)] // The uncommitted winner is the concurrency boundary under test.
+async fn run_fixed_address_race(
+    pool: &sqlx::PgPool,
+    segment: NetworkSegment,
+    address: IpAddr,
+    owner_mac: MacAddress,
+    contender_mac: MacAddress,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = segment.id;
+    let owner_id = create_addressless_race_interface(
+        pool,
+        segment_id,
+        owner_mac,
+        &format!("fixed-owner-{}", owner_mac.to_string().replace(':', "-")),
+    )
+    .await?;
+
+    let mut owner_txn = db::Transaction::begin(pool).await?;
+    let owner_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(owner_txn.as_pgconn())
+        .await?;
+    crate::machine_interface_address::assign_static(owner_txn.as_pgconn(), owner_id, address)
+        .await?;
+
+    let (contender_pid_tx, contender_pid_rx) = tokio::sync::oneshot::channel();
+    let contender_pool = pool.clone();
+    let mut contender_task = tokio::spawn(async move {
+        let mut txn = db::Transaction::begin(&contender_pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        let contender_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(txn.as_pgconn())
+            .await
+            .map_err(|error| error.to_string())?;
+        contender_pid_tx
+            .send(contender_pid)
+            .map_err(|_| "could not report contender backend PID".to_string())?;
+
+        let result = create(
+            txn.as_pgconn(),
+            std::slice::from_ref(&segment),
+            &contender_mac,
+            false,
+            AddressSelectionStrategy::StaticAddress(address),
+            None,
+        )
+        .await;
+        match result {
+            Ok(snapshot) => {
+                txn.commit().await.map_err(|error| error.to_string())?;
+                Ok::<_, String>(Ok(snapshot))
+            }
+            Err(error @ DatabaseError::AddressAlreadyInUse(_)) => {
+                txn.commit().await.map_err(|error| error.to_string())?;
+                Ok(Err(error))
+            }
+            Err(error) => {
+                txn.rollback().await.map_err(|error| error.to_string())?;
+                Ok(Err(error))
+            }
+        }
+    });
+
+    let contender_pid = contender_pid_rx.await?;
+    if let Err(error) = wait_for_transaction_conflict(pool, owner_pid, contender_pid).await {
+        contender_task.abort();
+        let _ = contender_task.await;
+        owner_txn.rollback().await?;
+        return Err(error);
+    }
+    owner_txn.commit().await?;
+
+    let contender_result =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut contender_task).await {
+            Ok(result) => result
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .map_err(std::io::Error::other)?,
+            Err(_) => {
+                contender_task.abort();
+                let _ = contender_task.await;
+                return Err(std::io::Error::other("fixed-address contender did not finish").into());
+            }
+        };
+
+    match contender_result {
+        Err(DatabaseError::AddressAlreadyInUse(AddressAlreadyInUseError(
+            conflict_address,
+            conflict_mac,
+            conflict_segment_id,
+            conflict_interface_id,
+        ))) => {
+            assert_eq!(conflict_address, address);
+            assert_eq!(conflict_mac, owner_mac);
+            assert_eq!(conflict_segment_id, segment_id);
+            assert_eq!(conflict_interface_id, owner_id);
+        }
+        other => panic!("expected the fixed owner to win, got {other:?}"),
+    }
+
+    let owner_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM machine_interface_addresses WHERE address = $1::inet",
+    )
+    .bind(address)
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(owner_count, 1);
+    let contender_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM machine_interfaces WHERE mac_address = $1")
+            .bind(contender_mac)
+            .fetch_one(pool)
+            .await?;
+    assert_eq!(
+        contender_count, 0,
+        "the failed fixed-address create must roll back its interface row"
+    );
+    Ok(())
+}
+
+/// Run one fixed/first-DHCP race and verify DHCP retries another address.
+#[allow(txn_held_across_await)] // The uncommitted winner is the concurrency boundary under test.
+async fn run_fixed_dynamic_create_race(
+    pool: &sqlx::PgPool,
+    segment: NetworkSegment,
+    owner_segment: NetworkSegment,
+    fixed_address: IpAddr,
+    address_strategy: AddressSelectionStrategy,
+    owner_mac: MacAddress,
+    dhcp_mac: MacAddress,
+) -> Result<MachineInterfaceSnapshot, Box<dyn std::error::Error>> {
+    let mut owner_txn = db::Transaction::begin(pool).await?;
+    let owner_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(owner_txn.as_pgconn())
+        .await?;
+    create(
+        owner_txn.as_pgconn(),
+        std::slice::from_ref(&owner_segment),
+        &owner_mac,
+        false,
+        AddressSelectionStrategy::StaticAddress(fixed_address),
+        None,
+    )
+    .await?;
+
+    let (dhcp_pid_tx, dhcp_pid_rx) = tokio::sync::oneshot::channel();
+    let dhcp_pool = pool.clone();
+    let mut dhcp_task = tokio::spawn(async move {
+        let mut txn = db::Transaction::begin(&dhcp_pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        let dhcp_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(txn.as_pgconn())
+            .await
+            .map_err(|error| error.to_string())?;
+        dhcp_pid_tx
+            .send(dhcp_pid)
+            .map_err(|_| "could not report DHCP backend PID".to_string())?;
+
+        let result = create(
+            txn.as_pgconn(),
+            std::slice::from_ref(&segment),
+            &dhcp_mac,
+            false,
+            address_strategy,
+            None,
+        )
+        .await;
+        match result {
+            Ok(snapshot) => {
+                txn.commit().await.map_err(|error| error.to_string())?;
+                Ok::<_, String>(snapshot)
+            }
+            Err(error) => {
+                txn.rollback()
+                    .await
+                    .map_err(|rollback| rollback.to_string())?;
+                Err(error.to_string())
+            }
+        }
+    });
+
+    let dhcp_pid = dhcp_pid_rx.await?;
+    if let Err(error) = wait_for_transaction_conflict(pool, owner_pid, dhcp_pid).await {
+        dhcp_task.abort();
+        let _ = dhcp_task.await;
+        owner_txn.rollback().await?;
+        return Err(error);
+    }
+    owner_txn.commit().await?;
+
+    let dhcp_interface =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut dhcp_task).await {
+            Ok(result) => result
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .map_err(std::io::Error::other)?,
+            Err(_) => {
+                dhcp_task.abort();
+                let _ = dhcp_task.await;
+                return Err(std::io::Error::other("DHCP allocation did not retry").into());
+            }
+        };
+    assert!(
+        !dhcp_interface.addresses.contains(&fixed_address),
+        "DHCP must retry instead of sharing {fixed_address}",
+    );
+    assert!(
+        dhcp_interface
+            .addresses
+            .iter()
+            .all(|address| address.is_address_family(fixed_address.address_family())),
+    );
+    Ok(dhcp_interface)
+}
+
+/// Run one fixed/DHCP-recovery race and verify family reallocation retries.
+#[allow(txn_held_across_await)] // The uncommitted winner is the concurrency boundary under test.
+async fn run_fixed_dynamic_reallocation_race(
+    pool: &sqlx::PgPool,
+    segment: NetworkSegment,
+    owner_segment_id: NetworkSegmentId,
+    fixed_address: IpAddr,
+    family: IpAddressFamily,
+    owner_mac: MacAddress,
+    dhcp_mac: MacAddress,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let owner_id = create_addressless_race_interface(
+        pool,
+        owner_segment_id,
+        owner_mac,
+        &format!(
+            "reallocation-owner-{}",
+            owner_mac.to_string().replace(':', "-")
+        ),
+    )
+    .await?;
+    let dhcp_interface_id = create_addressless_race_interface(
+        pool,
+        segment.id,
+        dhcp_mac,
+        &format!(
+            "reallocation-contender-{}",
+            dhcp_mac.to_string().replace(':', "-")
+        ),
+    )
+    .await?;
+
+    let mut owner_txn = db::Transaction::begin(pool).await?;
+    let owner_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(owner_txn.as_pgconn())
+        .await?;
+    crate::machine_interface_address::assign_static(owner_txn.as_pgconn(), owner_id, fixed_address)
+        .await?;
+
+    let (dhcp_pid_tx, dhcp_pid_rx) = tokio::sync::oneshot::channel();
+    let dhcp_pool = pool.clone();
+    let mut dhcp_task = tokio::spawn(async move {
+        let mut txn = db::Transaction::begin(&dhcp_pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        let dhcp_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(txn.as_pgconn())
+            .await
+            .map_err(|error| error.to_string())?;
+        dhcp_pid_tx
+            .send(dhcp_pid)
+            .map_err(|_| "could not report DHCP backend PID".to_string())?;
+
+        let result =
+            allocate_address_for_family(txn.as_pgconn(), dhcp_interface_id, &segment, family).await;
+        match result {
+            Ok(addresses) => {
+                txn.commit().await.map_err(|error| error.to_string())?;
+                Ok::<_, String>(addresses)
+            }
+            Err(error) => {
+                txn.rollback()
+                    .await
+                    .map_err(|rollback| rollback.to_string())?;
+                Err(error.to_string())
+            }
+        }
+    });
+
+    let dhcp_pid = dhcp_pid_rx.await?;
+    if let Err(error) = wait_for_transaction_conflict(pool, owner_pid, dhcp_pid).await {
+        dhcp_task.abort();
+        let _ = dhcp_task.await;
+        owner_txn.rollback().await?;
+        return Err(error);
+    }
+    owner_txn.commit().await?;
+
+    let addresses =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut dhcp_task).await {
+            Ok(result) => result
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .map_err(std::io::Error::other)?,
+            Err(_) => {
+                dhcp_task.abort();
+                let _ = dhcp_task.await;
+                return Err(std::io::Error::other("DHCP reallocation did not retry").into());
+            }
+        };
+    assert!(
+        !addresses.is_empty(),
+        "DHCP reallocation must return a {family:?} address",
+    );
+    assert!(!addresses.contains(&fixed_address));
+    assert!(
+        addresses
+            .iter()
+            .all(|address| address.is_address_family(family)),
+    );
+    Ok(())
+}
+
+/// Fixed requests use the same database ownership boundary for managed and
+/// external addresses, in both families.
+#[crate::sqlx_test]
+async fn concurrent_fixed_requests_keep_one_owner(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    create_managed_segment(
+        &pool,
+        "fixed-race-managed-ipv4",
+        "192.0.2.0/29",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    create_managed_segment(
+        &pool,
+        "fixed-race-managed-ipv6",
+        "2001:db8:100::/125",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+
+    let managed_ipv4 = load_test_segment(&pool, "fixed-race-managed-ipv4").await?;
+    let managed_ipv6 = load_test_segment(&pool, "fixed-race-managed-ipv6").await?;
+    let static_assignments =
+        load_test_segment(&pool, db::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME).await?;
+    let cases = [
+        (
+            managed_ipv4,
+            "192.0.2.3".parse::<IpAddr>()?,
+            "02:00:00:10:01:01".parse::<MacAddress>()?,
+            "02:00:00:10:01:02".parse::<MacAddress>()?,
+        ),
+        (
+            managed_ipv6,
+            "2001:db8:100::3".parse::<IpAddr>()?,
+            "02:00:00:10:02:01".parse::<MacAddress>()?,
+            "02:00:00:10:02:02".parse::<MacAddress>()?,
+        ),
+        (
+            static_assignments.clone(),
+            "203.0.113.30".parse::<IpAddr>()?,
+            "02:00:00:10:03:01".parse::<MacAddress>()?,
+            "02:00:00:10:03:02".parse::<MacAddress>()?,
+        ),
+        (
+            static_assignments,
+            "2001:db8:ffff::30".parse::<IpAddr>()?,
+            "02:00:00:10:04:01".parse::<MacAddress>()?,
+            "02:00:00:10:04:02".parse::<MacAddress>()?,
+        ),
+    ];
+
+    for (segment, address, owner_mac, contender_mac) in cases {
+        run_fixed_address_race(&pool, segment, address, owner_mac, contender_mac).await?;
+    }
+
+    Ok(())
+}
+
+/// A first DHCP allocation retries when a fixed writer on another segment
+/// commits the candidate it selected, for IPv4 and IPv6.
+#[crate::sqlx_test]
+async fn initial_dhcp_retries_a_concurrent_fixed_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    create_managed_segment(
+        &pool,
+        "dynamic-race-ipv4",
+        "198.51.100.0/29",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let fixed_owner_segment =
+        load_test_segment(&pool, db::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME).await?;
+    create_managed_segment(
+        &pool,
+        "dynamic-race-ipv6",
+        "2001:db8:200::/125",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+
+    let cases = [
+        (
+            load_test_segment(&pool, "dynamic-race-ipv4").await?,
+            "198.51.100.2".parse::<IpAddr>()?,
+            "02:00:00:20:01:01".parse::<MacAddress>()?,
+            "02:00:00:20:01:02".parse::<MacAddress>()?,
+        ),
+        (
+            load_test_segment(&pool, "dynamic-race-ipv6").await?,
+            "2001:db8:200::1".parse::<IpAddr>()?,
+            "02:00:00:20:02:01".parse::<MacAddress>()?,
+            "02:00:00:20:02:02".parse::<MacAddress>()?,
+        ),
+    ];
+
+    for (segment, fixed_address, owner_mac, dhcp_mac) in cases {
+        run_fixed_dynamic_create_race(
+            &pool,
+            segment,
+            fixed_owner_segment.clone(),
+            fixed_address,
+            AddressSelectionStrategy::NextAvailableIp,
+            owner_mac,
+            dhcp_mac,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Whole-prefix allocation rolls its failed interface row back before trying
+/// the next prefix after a fixed writer wins the first candidate.
+#[crate::sqlx_test]
+async fn prefix_allocation_retries_a_concurrent_fixed_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    create_managed_segment(
+        &pool,
+        "prefix-allocation-race",
+        "192.0.2.0/28",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+
+    let fixed_owner_segment =
+        load_test_segment(&pool, db::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME).await?;
+    let segment = load_test_segment(&pool, "prefix-allocation-race").await?;
+    let interface = run_fixed_dynamic_create_race(
+        &pool,
+        segment,
+        fixed_owner_segment,
+        "192.0.2.4".parse()?,
+        AddressSelectionStrategy::NextAvailablePrefix(30),
+        "02:00:00:20:03:01".parse()?,
+        "02:00:00:20:03:02".parse()?,
+    )
+    .await?;
+
+    assert_eq!(interface.addresses, vec!["192.0.2.8".parse::<IpAddr>()?]);
+    Ok(())
+}
+
+/// New interface creation claims its address before entering the configured
+/// DNS domain. Pause that address insert so an existing interface can claim
+/// both values without the two transactions waiting on each other.
+#[crate::sqlx_test]
+#[allow(txn_held_across_await)] // The gate transaction creates the exact ordering under test.
+async fn new_interface_defers_fqdn_until_its_address_is_owned(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_managed_segment(
+        &pool,
+        "address-fqdn-order",
+        "192.0.2.0/29",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let contender_mac: MacAddress = "02:00:00:20:03:11".parse()?;
+    let owner_mac: MacAddress = "02:00:00:20:03:12".parse()?;
+    let contender_id = create_addressless_race_interface(
+        &pool,
+        segment_id,
+        contender_mac,
+        "address-fqdn-contender",
+    )
+    .await?;
+
+    let mut setup_txn = db::Transaction::begin(&pool).await?;
+    let domain = db::dns::domain::persist(
+        model::dns::NewDomain::new("address-order.example"),
+        setup_txn.as_pgconn(),
+    )
+    .await?;
+    sqlx::query("UPDATE network_segments SET subdomain_id = $1 WHERE id = $2")
+        .bind(domain.id)
+        .bind(segment_id)
+        .execute(setup_txn.as_pgconn())
+        .await?;
+    sqlx::query("UPDATE machine_interfaces SET domain_id = $1 WHERE id = $2")
+        .bind(domain.id)
+        .bind(contender_id)
+        .execute(setup_txn.as_pgconn())
+        .await?;
+    // MacAddress formatting is constrained to a normalized MAC literal, so it
+    // is safe to reuse owner_mac in this test-only trigger definition.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE FUNCTION test_block_fixed_address_insert()
+         RETURNS trigger
+         LANGUAGE plpgsql
+         AS $$
+         BEGIN
+             IF EXISTS (
+                 SELECT 1
+                 FROM machine_interfaces
+                 WHERE id = NEW.interface_id
+                   AND mac_address = '{owner_mac}'::macaddr
+             ) THEN
+                 PERFORM pg_advisory_xact_lock(
+                     hashtextextended(current_database() || ':address-fqdn-order', 0)
+                 );
+             END IF;
+             RETURN NEW;
+         END
+         $$;
+         CREATE TRIGGER test_block_fixed_address_insert
+         BEFORE INSERT ON machine_interface_addresses
+         FOR EACH ROW
+         EXECUTE FUNCTION test_block_fixed_address_insert();"
+    )))
+    .execute(setup_txn.as_pgconn())
+    .await?;
+    setup_txn.commit().await?;
+    let segment = load_test_segment(&pool, "address-fqdn-order").await?;
+    let fixed_address: IpAddr = "192.0.2.2".parse()?;
+
+    let mut gate_txn = db::Transaction::begin(&pool).await?;
+    let gate_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(gate_txn.as_pgconn())
+        .await?;
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(
+             hashtextextended(current_database() || ':address-fqdn-order', 0)
+         )",
+    )
+    .execute(gate_txn.as_pgconn())
+    .await?;
+
+    let (owner_pid_tx, owner_pid_rx) = tokio::sync::oneshot::channel();
+    let owner_pool = pool.clone();
+    let owner_segment = segment.clone();
+    let mut owner_task = tokio::spawn(async move {
+        let mut txn = db::Transaction::begin(&owner_pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        let owner_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(txn.as_pgconn())
+            .await
+            .map_err(|error| error.to_string())?;
+        owner_pid_tx
+            .send(owner_pid)
+            .map_err(|_| "could not report fixed-owner backend PID".to_string())?;
+
+        let result = create(
+            txn.as_pgconn(),
+            std::slice::from_ref(&owner_segment),
+            &owner_mac,
+            false,
+            AddressSelectionStrategy::StaticAddress(fixed_address),
+            None,
+        )
+        .await;
+        match result {
+            Ok(snapshot) => {
+                txn.commit().await.map_err(|error| error.to_string())?;
+                Ok::<_, String>(Ok(snapshot))
+            }
+            Err(error) => {
+                txn.rollback().await.map_err(|error| error.to_string())?;
+                Ok(Err(error))
+            }
+        }
+    });
+
+    let owner_pid = owner_pid_rx.await?;
+    if let Err(error) = wait_for_transaction_conflict(&pool, gate_pid, owner_pid).await {
+        gate_txn.rollback().await?;
+        owner_task.abort();
+        let _ = owner_task.await;
+        return Err(error);
+    }
+
+    let mut contender_txn = db::Transaction::begin(&pool).await?;
+    let allocated = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        allocate_address_for_family(
+            contender_txn.as_pgconn(),
+            contender_id,
+            &segment,
+            IpAddressFamily::Ipv4,
+        ),
+    )
+    .await
+    {
+        Ok(Ok(allocated)) => allocated,
+        Ok(Err(error)) => {
+            contender_txn.rollback().await?;
+            gate_txn.commit().await?;
+            owner_task.abort();
+            let _ = owner_task.await;
+            return Err(error.into());
+        }
+        Err(_) => {
+            contender_txn.rollback().await?;
+            gate_txn.commit().await?;
+            owner_task.abort();
+            let _ = owner_task.await;
+            return Err(std::io::Error::other(
+                "address recovery blocked on the fixed owner's uncommitted FQDN",
+            )
+            .into());
+        }
+    };
+    contender_txn.commit().await?;
+    assert_eq!(allocated, vec![fixed_address]);
+
+    let (contender_hostname, contender_domain): (String, Option<DomainId>) =
+        sqlx::query_as("SELECT hostname, domain_id FROM machine_interfaces WHERE id = $1")
+            .bind(contender_id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(contender_hostname, "192-0-2-2");
+    assert_eq!(contender_domain, Some(domain.id));
+
+    gate_txn.commit().await?;
+    let owner_result =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut owner_task).await {
+            Ok(result) => result
+                .map_err(|error| std::io::Error::other(error.to_string()))?
+                .map_err(std::io::Error::other)?,
+            Err(_) => {
+                owner_task.abort();
+                let _ = owner_task.await;
+                return Err(std::io::Error::other("fixed owner did not finish").into());
+            }
+        };
+    assert!(matches!(
+        owner_result,
+        Err(DatabaseError::AddressAlreadyInUse(AddressAlreadyInUseError(
+            address,
+            mac_address,
+            conflict_segment_id,
+            conflict_interface_id,
+        ))) if address == fixed_address
+            && mac_address == contender_mac
+            && conflict_segment_id == segment_id
+            && conflict_interface_id == contender_id
+    ));
+
+    let owner_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM machine_interfaces WHERE mac_address = $1")
+            .bind(owner_mac)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(owner_rows, 0);
+    Ok(())
+}
+
+/// Reapplying an admin range can permute existing addresses. The stored
+/// procedure stages the complete mapping so the global constraint never sees
+/// a temporary duplicate, updates IP-derived hostnames, and leaves names from
+/// the other host naming strategies alone.
+#[crate::sqlx_test]
+async fn update_admin_network_replaces_overlapping_addresses(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_managed_segment(
+        &pool,
+        "overlapping-admin-update",
+        "198.18.0.0/29",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let mut interface_ids = [
+        create_addressless_race_interface(
+            &pool,
+            segment_id,
+            "02:00:00:20:04:01".parse()?,
+            "overlapping-admin-one",
+        )
+        .await?,
+        create_addressless_race_interface(
+            &pool,
+            segment_id,
+            "02:00:00:20:04:02".parse()?,
+            "overlapping-admin-two",
+        )
+        .await?,
+    ];
+    interface_ids.sort_unstable();
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    let domain = db::dns::domain::persist(
+        model::dns::NewDomain::new("overlapping-admin.example"),
+        txn.as_pgconn(),
+    )
+    .await?;
+    sqlx::query("UPDATE network_segments SET subdomain_id = $1 WHERE id = $2")
+        .bind(domain.id)
+        .bind(segment_id)
+        .execute(txn.as_pgconn())
+        .await?;
+    for (interface_id, hostname) in [
+        (interface_ids[0], "198-18-0-3"),
+        (interface_ids[1], "wholesale-walrus"),
+    ] {
+        sqlx::query(
+            "UPDATE machine_interfaces
+             SET domain_id = $1, hostname = $2
+             WHERE id = $3",
+        )
+        .bind(domain.id)
+        .bind(hostname)
+        .bind(interface_id)
+        .execute(txn.as_pgconn())
+        .await?;
+    }
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        interface_ids[0],
+        "198.18.0.3".parse()?,
+        AllocationType::Static,
+    )
+    .await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        interface_ids[1],
+        "198.18.0.2".parse()?,
+        AllocationType::Static,
+    )
+    .await?;
+    let address_ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT mia.id
+         FROM machine_interfaces mi
+         JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+         WHERE mi.segment_id = $1
+         ORDER BY mi.id",
+    )
+    .bind(segment_id)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+
+    sqlx::query(
+        "CALL update_admin_network(
+            $1,
+            '198.18.0.0/29'::inet,
+            '198.18.0.1'::inet
+         )",
+    )
+    .bind(segment_id)
+    .execute(txn.as_pgconn())
+    .await?;
+
+    let rows: Vec<(
+        uuid::Uuid,
+        MachineInterfaceId,
+        IpAddr,
+        AllocationType,
+        String,
+    )> = sqlx::query_as(
+        "SELECT mia.id, mi.id, mia.address, mia.allocation_type, mi.hostname
+         FROM machine_interfaces mi
+         JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+         WHERE mi.segment_id = $1
+         ORDER BY mi.id",
+    )
+    .bind(segment_id)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+
+    assert_eq!(
+        rows,
+        vec![
+            (
+                address_ids[0],
+                interface_ids[0],
+                "198.18.0.2".parse()?,
+                AllocationType::Static,
+                "198-18-0-2".to_string(),
+            ),
+            (
+                address_ids[1],
+                interface_ids[1],
+                "198.18.0.3".parse()?,
+                AllocationType::Static,
+                "wholesale-walrus".to_string(),
+            ),
+        ]
+    );
+    let preserved_domains: i64 = sqlx::query_scalar(
+        "SELECT count(*)
+         FROM machine_interfaces
+         WHERE segment_id = $1 AND domain_id = $2",
+    )
+    .bind(segment_id)
+    .bind(domain.id)
+    .fetch_one(txn.as_pgconn())
+    .await?;
+    assert_eq!(preserved_domains, 2);
+    Ok(())
+}
+
+/// A single-prefix admin segment keeps the legacy ability to change address
+/// families while the procedure replaces its stored addresses. The first
+/// remap also recognizes and normalizes the older compressed IPv6 hostname.
+#[crate::sqlx_test]
+async fn update_admin_network_replaces_a_single_prefix_with_another_family(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_managed_segment(
+        &pool,
+        "cross-family-admin-update",
+        "2001:db8:400::/125",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let interface_id = create_addressless_race_interface(
+        &pool,
+        segment_id,
+        "02:00:00:20:05:01".parse()?,
+        "2001:db8:400::2",
+    )
+    .await?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    crate::machine_interface_address::insert(
+        txn.as_pgconn(),
+        interface_id,
+        "2001:db8:400::2".parse()?,
+        AllocationType::Static,
+    )
+    .await?;
+    sqlx::query(
+        "CALL update_admin_network(
+            $1,
+            '2001:db8:401::/125'::inet,
+            NULL::inet
+         )",
+    )
+    .bind(segment_id)
+    .execute(txn.as_pgconn())
+    .await?;
+    let (ipv6_address, ipv6_hostname): (IpAddr, String) = sqlx::query_as(
+        "SELECT mia.address, mi.hostname
+         FROM machine_interfaces mi
+         JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+         WHERE mi.id = $1",
+    )
+    .bind(interface_id)
+    .fetch_one(txn.as_pgconn())
+    .await?;
+    assert_eq!(ipv6_address, "2001:db8:401::2".parse::<IpAddr>()?);
+    assert_eq!(ipv6_hostname, "2001-0db8-0401-0000-0000-0000-0000-0002");
+
+    sqlx::query(
+        "CALL update_admin_network(
+            $1,
+            '198.19.0.0/29'::inet,
+            '198.19.0.1'::inet
+         )",
+    )
+    .bind(segment_id)
+    .execute(txn.as_pgconn())
+    .await?;
+
+    let rows: Vec<(IpNetwork, Option<IpAddr>, IpAddr, String)> = sqlx::query_as(
+        "SELECT np.prefix, np.gateway, mia.address, mi.hostname
+         FROM network_prefixes np
+         JOIN machine_interfaces mi ON mi.segment_id = np.segment_id
+         JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
+         WHERE np.segment_id = $1",
+    )
+    .bind(segment_id)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+
+    assert_eq!(
+        rows,
+        vec![(
+            "198.19.0.0/29".parse()?,
+            Some("198.19.0.1".parse()?),
+            "198.19.0.2".parse::<IpAddr>()?,
+            "198-19-0-2".to_string(),
+        )],
+    );
+    Ok(())
+}
+
+/// A dual-stack admin update selects the matching prefix and leaves the other
+/// address family untouched.
+#[crate::sqlx_test]
+async fn update_admin_network_changes_only_the_matching_family(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let segment_id = create_managed_segment_with_prefixes(
+        &pool,
+        "dual-stack-admin-update",
+        &["198.20.0.0/29", "2001:db8:500::/125"],
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let interface_id = create_addressless_race_interface(
+        &pool,
+        segment_id,
+        "02:00:00:20:06:01".parse()?,
+        "198-20-0-2",
+    )
+    .await?;
+
+    let mut txn = db::Transaction::begin(&pool).await?;
+    for address in [
+        "198.20.0.2".parse::<IpAddr>()?,
+        "2001:db8:500::2".parse::<IpAddr>()?,
+    ] {
+        crate::machine_interface_address::insert(
+            txn.as_pgconn(),
+            interface_id,
+            address,
+            AllocationType::Static,
+        )
+        .await?;
+    }
+    sqlx::query(
+        "CALL update_admin_network(
+            $1,
+            '198.20.1.0/29'::inet,
+            '198.20.1.1'::inet
+         )",
+    )
+    .bind(segment_id)
+    .execute(txn.as_pgconn())
+    .await?;
+
+    let prefixes: Vec<IpNetwork> = sqlx::query_scalar(
+        "SELECT prefix
+         FROM network_prefixes
+         WHERE segment_id = $1
+         ORDER BY family(prefix)",
+    )
+    .bind(segment_id)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+    let addresses: Vec<IpAddr> = sqlx::query_scalar(
+        "SELECT address
+         FROM machine_interface_addresses
+         WHERE interface_id = $1
+         ORDER BY family(address)",
+    )
+    .bind(interface_id)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+
+    assert_eq!(
+        prefixes,
+        vec!["198.20.1.0/29".parse()?, "2001:db8:500::/125".parse()?,]
+    );
+    assert_eq!(
+        addresses,
+        vec![
+            "198.20.1.2".parse::<IpAddr>()?,
+            "2001:db8:500::2".parse::<IpAddr>()?,
+        ]
+    );
+
+    sqlx::query(
+        "CALL update_admin_network(
+            $1,
+            '2001:db8:501::/125'::inet,
+            NULL::inet
+         )",
+    )
+    .bind(segment_id)
+    .execute(txn.as_pgconn())
+    .await?;
+    let addresses: Vec<IpAddr> = sqlx::query_scalar(
+        "SELECT address
+         FROM machine_interface_addresses
+         WHERE interface_id = $1
+         ORDER BY family(address)",
+    )
+    .bind(interface_id)
+    .fetch_all(txn.as_pgconn())
+    .await?;
+    let hostname: String =
+        sqlx::query_scalar("SELECT hostname FROM machine_interfaces WHERE id = $1")
+            .bind(interface_id)
+            .fetch_one(txn.as_pgconn())
+            .await?;
+    assert_eq!(
+        addresses,
+        vec![
+            "198.20.1.2".parse::<IpAddr>()?,
+            "2001:db8:501::2".parse::<IpAddr>()?,
+        ]
+    );
+    assert_eq!(hostname, "198-20-1-2");
+    Ok(())
+}
+
+/// DHCP family recovery also sees fixed owners on another segment.
+#[crate::sqlx_test]
+async fn dhcp_family_reallocation_retries_a_concurrent_fixed_address(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    create_static_assignments_segment(&pool).await?;
+    create_managed_segment(
+        &pool,
+        "reallocation-race-ipv4",
+        "203.0.113.0/29",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+    let fixed_owner_segment =
+        load_test_segment(&pool, db::network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME).await?;
+    create_managed_segment(
+        &pool,
+        "reallocation-race-ipv6",
+        "2001:db8:300::/125",
+        NetworkSegmentType::Admin,
+        AllocationStrategy::Dynamic,
+    )
+    .await?;
+
+    let cases = [
+        (
+            load_test_segment(&pool, "reallocation-race-ipv4").await?,
+            "203.0.113.2".parse::<IpAddr>()?,
+            IpAddressFamily::Ipv4,
+            "02:00:00:30:01:01".parse::<MacAddress>()?,
+            "02:00:00:30:01:02".parse::<MacAddress>()?,
+        ),
+        (
+            load_test_segment(&pool, "reallocation-race-ipv6").await?,
+            "2001:db8:300::1".parse::<IpAddr>()?,
+            IpAddressFamily::Ipv6,
+            "02:00:00:30:02:01".parse::<MacAddress>()?,
+            "02:00:00:30:02:02".parse::<MacAddress>()?,
+        ),
+    ];
+
+    for (segment, fixed_address, family, owner_mac, dhcp_mac) in cases {
+        run_fixed_dynamic_reallocation_race(
+            &pool,
+            segment,
+            fixed_owner_segment.id,
+            fixed_address,
+            family,
+            owner_mac,
+            dhcp_mac,
+        )
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// A MAC identifies one physical interface even when stale or transitional

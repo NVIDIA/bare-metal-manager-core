@@ -95,13 +95,15 @@ pub async fn observe_slaac_address(
     if let Some(address) = slaac_gua_from_eui64(prefix, mac) {
         let address = IpAddr::V6(address);
 
-        // TODO: This is a best-effort ownership check, not a complete
-        // concurrency boundary. Static assignment and preallocation do not yet
-        // share a segment lock with SLAAC observation, so they can still race
-        // between this read and insert. A future PR should route DHCP, SLAAC,
-        // and static address writes through one DB helper that locks the owning
-        // segment, checks global address ownership, applies the replacement
-        // policy, and writes the row.
+        // This lookup keeps sequential replays and existing-owner errors
+        // specific to SLAAC. The shared insert below closes an exact-address
+        // race if another interface claims this address after the lookup.
+        //
+        // TODO: A different static or DHCPv6 address can still land on this
+        // interface after the family check above. The existing per-interface
+        // family constraint rejects that race, but the losing request receives
+        // a database error. Same-interface family replacement needs one shared
+        // transaction policy across SLAAC, DHCP, and static writers.
         if let Some(existing) =
             db::machine_interface_address::find_by_address(&mut *txn, address).await?
         {
