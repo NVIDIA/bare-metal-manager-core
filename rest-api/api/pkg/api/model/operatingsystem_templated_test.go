@@ -205,7 +205,7 @@ func TestOperatingSystemRequest_ToProto(t *testing.T) {
 	})
 
 	t.Run("delete request maps id", func(t *testing.T) {
-		req := os.ToCoreDeletionRequestProto()
+		req := os.ToDeletionRequestProto()
 		require.NotNil(t, req)
 		assert.Equal(t, id.String(), req.GetId().GetValue())
 	})

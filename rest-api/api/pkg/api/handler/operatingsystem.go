@@ -847,6 +847,8 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 
 	// now check siteID in query
 	tsDAO := cdbm.NewTenantSiteDAO(gash.dbSession)
+	var tenantSites []cdbm.TenantSite
+	tenantSitesLoaded := false
 
 	qSiteID := qParams["siteId"]
 	if len(qSiteID) > 0 {
@@ -880,7 +882,8 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 
 		tenantSiteIDs := make(map[uuid.UUID]struct{})
 		if tenant != nil {
-			tss, _, terr := tsDAO.GetAll(
+			var terr error
+			tenantSites, _, terr = tsDAO.GetAll(
 				ctx,
 				nil,
 				cdbm.TenantSiteFilterInput{
@@ -894,7 +897,8 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 				logger.Error().Err(terr).Msg("error retrieving Tenant Site associations specified in query")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to determine if Tenant has access to Sites specified in query, DB error", nil)
 			}
-			for _, ts := range tss {
+			tenantSitesLoaded = true
+			for _, ts := range tenantSites {
 				tenantSiteIDs[ts.SiteID] = struct{}{}
 			}
 		}
@@ -1023,25 +1027,27 @@ func (gash GetAllOperatingSystemHandler) Handle(c echo.Context) error {
 	sttsmap := map[uuid.UUID]*cdbm.TenantSite{}
 
 	if tenant != nil {
-		tsDAO = cdbm.NewTenantSiteDAO(gash.dbSession)
-		tss, _, tserr := tsDAO.GetAll(
-			ctx,
-			nil,
-			cdbm.TenantSiteFilterInput{
-				TenantIDs: []uuid.UUID{tenant.ID},
-				SiteIDs:   siteIDs,
-			},
-			cdbp.PageInput{
-				Limit: cutil.GetPtr(cdbp.TotalLimit),
-			},
-			nil,
-		)
-		if tserr != nil {
-			logger.Error().Err(tserr).Msg("db error retrieving TenantSite records for Tenant")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site associations for Tenant, DB error", nil)
+		if !tenantSitesLoaded {
+			var tserr error
+			tenantSites, _, tserr = tsDAO.GetAll(
+				ctx,
+				nil,
+				cdbm.TenantSiteFilterInput{
+					TenantIDs: []uuid.UUID{tenant.ID},
+					SiteIDs:   siteIDs,
+				},
+				cdbp.PageInput{
+					Limit: cutil.GetPtr(cdbp.TotalLimit),
+				},
+				nil,
+			)
+			if tserr != nil {
+				logger.Error().Err(tserr).Msg("db error retrieving TenantSite records for Tenant")
+				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Site associations for Tenant, DB error", nil)
+			}
 		}
 
-		for _, ts := range tss {
+		for _, ts := range tenantSites {
 			curVal := ts
 			sttsmap[ts.SiteID] = &curVal
 		}
@@ -1852,16 +1858,8 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 		ownedByProvider = true
 	}
 	if !ownedByProvider && !ownedByTenant {
-		if ip != nil && tenant == nil {
-			logger.Warn().Msg("provider admin cannot delete tenant-owned operating system")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Provider Admin can only delete provider-owned Operating Systems", nil)
-		}
-		if tenant != nil && ip == nil {
-			logger.Warn().Msg("tenant admin cannot delete provider-owned operating system")
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Tenant Admin can only delete their own Operating Systems", nil)
-		}
 		logger.Warn().Msg("user does not have permission to delete this operating system")
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Operating System does not belong to your tenant or infrastructure provider", nil)
+		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Operating System does not belong to current org's Tenant or Infrastructure Provider", nil)
 	}
 
 	// Verify if tenant associated with Site in case of Image based OS
@@ -1981,7 +1979,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 					}
 
 					// Prepare the delete/release request workflow object
-					deleteOsRequest := os.ToDeletionRequestProto(tenant.Org)
+					deleteOsRequest := os.ToImageDeletionRequestProto(tenant.Org)
 
 					workflowOptions := temporalClient.StartWorkflowOptions{
 						ID:                       "image-os-delete-" + ossa.SiteID.String() + "-" + os.ID.String() + "-" + *ossa.Version,
@@ -2122,7 +2120,7 @@ func (dsh DeleteOperatingSystemHandler) Handle(c echo.Context) error {
 	// OS once every site is cleaned up. A not-found object on a site is treated as
 	// already deleted.
 	if os.Type == cdbm.OperatingSystemTypeTemplatedIPXE && len(ossasToDelete) > 0 {
-		req := os.ToCoreDeletionRequestProto()
+		req := os.ToDeletionRequestProto()
 		remaining := 0
 		for _, ossa := range ossasToDelete {
 			slogger := logger.With().Str("Site ID", ossa.SiteID.String()).Logger()

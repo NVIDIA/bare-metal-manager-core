@@ -400,18 +400,18 @@ func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *corev1.OsIm
 	}
 }
 
-// ToDeletionRequestProto builds the workflow request that asks a Site
+// ToImageDeletionRequestProto builds the workflow request that asks a Site
 // to delete this OS image.
-func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *corev1.DeleteOsImageRequest {
+func (os *OperatingSystem) ToImageDeletionRequestProto(tenantOrg string) *corev1.DeleteOsImageRequest {
 	return &corev1.DeleteOsImageRequest{
 		Id:                   &corev1.UUID{Value: os.GetSiteID().String()},
 		TenantOrganizationId: tenantOrg,
 	}
 }
 
-// ToCoreDeletionRequestProto builds the nico-core request for deleting an iPXE
+// ToDeletionRequestProto builds the nico-core request for deleting an iPXE
 // Operating System. This request has no API body, so it belongs on the entity.
-func (os *OperatingSystem) ToCoreDeletionRequestProto() *corev1.DeleteOperatingSystemRequest {
+func (os *OperatingSystem) ToDeletionRequestProto() *corev1.DeleteOperatingSystemRequest {
 	return &corev1.DeleteOperatingSystemRequest{
 		Id: &corev1.OperatingSystemId{Value: os.ID.String()},
 	}

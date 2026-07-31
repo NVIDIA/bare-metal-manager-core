@@ -77,10 +77,10 @@ func TestOperatingSystem_ToImageAttributesProto(t *testing.T) {
 	assert.Equal(t, &rootFsLabel, got.RootfsLabel)
 }
 
-func TestOperatingSystem_ToDeletionRequestProto(t *testing.T) {
+func TestOperatingSystem_ToImageDeletionRequestProto(t *testing.T) {
 	id := uuid.New()
 	os := &OperatingSystem{ID: id}
-	got := os.ToDeletionRequestProto("org-1")
+	got := os.ToImageDeletionRequestProto("org-1")
 	require.NotNil(t, got)
 	require.NotNil(t, got.Id)
 	assert.Equal(t, id.String(), got.Id.Value)
