@@ -24,8 +24,9 @@ use std::time::Duration;
 use bmc_mock::injection::InjectionStore;
 use bmc_mock::ipmi_sim::IpmiEndpoint;
 use bmc_mock::{
-    BmcCommand, BmcState, BootOptionKind, Callbacks, HostnameQuerying, MachineInfo, MockPowerState,
-    POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcEvent, BmcState, BootOptionKind, Callbacks, HostnameQuerying, MachineInfo,
+    MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    SystemPowerControl,
 };
 use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
@@ -100,17 +101,38 @@ impl DhcpRetryState {
     }
 }
 
-/// Abandon a queued machine DHCP request when the machine powers off or cycles
-/// so that we can actively drain everything behind the Dhcp(_) action barrier.
-/// If any future action needs to run regardless of DHCP status, need to include
-/// that action here.
-fn abandon_machine_dhcp_on_power_change(
+/// Abandon queued work for the current boot when the machine powers off or
+/// cycles. A retrying in-band action would otherwise block the power-change
+/// cleanup and timer queued behind it.
+///
+/// BMC initialization remains valid because the BMC stays powered independently
+/// of the machine. Preserve an existing power-off cleanup in case another power
+/// change arrives before that action runs.
+fn abandon_machine_actions_on_power_change(
     actions: &mut VecDeque<FsmAction>,
     dhcp_retry: &mut DhcpRetryState,
 ) {
-    let is_machine_dhcp = |action: &FsmAction| matches!(action, FsmAction::Dhcp(DhcpType::Machine));
-    if actions.iter().any(is_machine_dhcp) {
-        actions.retain(|action| !is_machine_dhcp(action));
+    let abandoned_machine_dhcp = actions
+        .iter()
+        .any(|action| matches!(action, FsmAction::Dhcp(DhcpType::Machine)));
+
+    actions.retain(|action| match action {
+        FsmAction::SetupBmc | FsmAction::Dhcp(DhcpType::Bmc) | FsmAction::CleanupOnPowerOff => true,
+        FsmAction::SetTimer(
+            Timer::PowerCycle
+            | Timer::MachineOn
+            | Timer::ScoutAgentControlPoll
+            | Timer::DpuAgentControlPoll,
+        )
+        | FsmAction::Dhcp(DhcpType::Machine)
+        | FsmAction::PxeBootRequest
+        | FsmAction::InitialDiscoveryRequest(_)
+        | FsmAction::AgentControlRequest(_)
+        | FsmAction::DpuAgentNetworkObservation
+        | FsmAction::BmcEvent(BmcEvent::PowerOn | BmcEvent::BootCompleted) => false,
+    });
+
+    if abandoned_machine_dhcp {
         dhcp_retry.reset();
     }
 }
@@ -605,8 +627,13 @@ impl MachineStateMachine {
 
     fn fsm_event(&mut self, event: Event) {
         if matches!(event, Event::PowerCycle | Event::PowerOff) {
-            abandon_machine_dhcp_on_power_change(&mut self.actions, &mut self.dhcp_retry);
+            abandon_machine_actions_on_power_change(&mut self.actions, &mut self.dhcp_retry);
+
+            self.machine_on_deadline = None;
+            self.power_cycle_deadline = None;
+            self.agent_polling_deadline = None;
         }
+
         let old_state = self.fsm;
         let (new_state, actions) = self.fsm.event(event);
         tracing::info!(previous_state = ?old_state, ?event, next_state = ?new_state, ?actions, "machine FSM step");
@@ -1522,7 +1549,7 @@ mod tests {
     }
 
     #[test]
-    fn power_change_abandons_a_queued_machine_dhcp() {
+    fn power_change_abandons_queued_machine_actions() {
         let queued = |actions: &[FsmAction]| VecDeque::from(actions.to_vec());
 
         check_values(
@@ -1537,11 +1564,21 @@ mod tests {
                     },
                 },
                 Check {
-                    scenario: "unrelated queued actions are preserved",
+                    scenario: "in-band work from the previous boot is abandoned",
                     input: (
                         queued(&[
                             FsmAction::SetupBmc,
                             FsmAction::Dhcp(DhcpType::Machine),
+                            FsmAction::SetTimer(Timer::PowerCycle),
+                            FsmAction::SetTimer(Timer::MachineOn),
+                            FsmAction::SetTimer(Timer::ScoutAgentControlPoll),
+                            FsmAction::SetTimer(Timer::DpuAgentControlPoll),
+                            FsmAction::PxeBootRequest,
+                            FsmAction::InitialDiscoveryRequest(OsImage::Scout),
+                            FsmAction::AgentControlRequest(OsImage::Scout),
+                            FsmAction::DpuAgentNetworkObservation,
+                            FsmAction::BmcEvent(BmcEvent::PowerOn),
+                            FsmAction::BmcEvent(BmcEvent::BootCompleted),
                             FsmAction::CleanupOnPowerOff,
                         ]),
                         1,
@@ -1565,10 +1602,16 @@ mod tests {
                     },
                 },
                 Check {
-                    scenario: "power change without a queued DHCP changes nothing",
-                    input: (queued(&[FsmAction::PxeBootRequest]), 0),
+                    scenario: "power change without queued in-band work changes nothing",
+                    input: (
+                        queued(&[FsmAction::SetupBmc, FsmAction::CleanupOnPowerOff]),
+                        0,
+                    ),
                     expect: PowerChangeOutcome {
-                        remaining_actions: vec![format!("{:?}", FsmAction::PxeBootRequest)],
+                        remaining_actions: vec![
+                            format!("{:?}", FsmAction::SetupBmc),
+                            format!("{:?}", FsmAction::CleanupOnPowerOff),
+                        ],
                         attempt: 0,
                         backoff_pending: false,
                     },
@@ -1580,7 +1623,8 @@ mod tests {
                 for _ in 0..failures {
                     retry.schedule_next(now, 0);
                 }
-                abandon_machine_dhcp_on_power_change(&mut actions, &mut retry);
+
+                abandon_machine_actions_on_power_change(&mut actions, &mut retry);
                 outcome(&actions, &retry)
             },
         );

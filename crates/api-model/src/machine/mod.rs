@@ -42,7 +42,7 @@ use super::StateSla;
 use super::instance::snapshot::InstanceSnapshot;
 use super::instance::status::extension_service::InstanceExtensionServiceStatusObservation;
 use super::instance::status::network::InstanceNetworkStatusObservation;
-use super::machine_boot_interface::MachineBootInterface;
+use super::machine_boot_interface::{MachineBootInterface, MachineBootInterfaceTarget};
 use super::metadata::Metadata;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
@@ -120,7 +120,14 @@ fn default_true() -> bool {
 }
 
 // This should be updated on each new model introduction
-pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
+pub const CURRENT_STATE_MODEL_VERSION: i16 = 3;
+
+fn pending_boot_interface_config_version(
+    desired_version: Option<ConfigVersion>,
+    verified_version: Option<ConfigVersion>,
+) -> Option<ConfigVersion> {
+    desired_version.filter(|desired_version| Some(*desired_version) != verified_version)
+}
 
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
@@ -228,6 +235,8 @@ pub enum NotAllocatableReason {
         "the machine has a pending instance creation request, that has not yet been processed by the state handler"
     )]
     PendingInstanceCreation,
+    #[error("the machine has a pending boot configuration")]
+    PendingBootConfiguration,
     #[error("there are no dpu_snapshots, but associated_dpu_machine_ids is non-empty")]
     NoDpuSnapshots,
     #[error("the machine is in maintenance mode")]
@@ -462,6 +471,7 @@ impl ManagedHostStateSnapshot {
     /// - the Machine has not yet been target of an instance creation request
     /// - no health alerts which classification `PreventAllocations` to be set
     /// - the machine not to be in Maintenance Mode
+    /// - the desired boot-interface generation to have a matching observation
     pub fn is_usable_as_instance(&self, allow_unhealthy: bool) -> Result<(), NotAllocatableReason> {
         // TODO: allow other states than Ready when allow_unhealthy=true. Will require changes to state machine (see Matthias).
         if !matches!(self.managed_state, ManagedHostState::Ready) {
@@ -475,6 +485,18 @@ impl ManagedHostStateSnapshot {
         // To avoid that race condition, need to check if db has any entry with given machine id.
         if self.instance.is_some() {
             return Err(NotAllocatableReason::PendingInstanceCreation);
+        }
+
+        // A desired boot-interface update and instance allocation can race
+        // before machine-controller has persisted BootConfiguring. Keep the
+        // host unavailable as soon as the desired version lacks a matching
+        // convergence status.
+        if self
+            .host_snapshot
+            .pending_boot_interface_config_version()
+            .is_some()
+        {
+            return Err(NotAllocatableReason::PendingBootConfiguration);
         }
 
         if self.dpu_snapshots.is_empty()
@@ -939,6 +961,25 @@ impl Machine {
         self.state.version
     }
 
+    /// Returns the desired boot-interface version whose persisted convergence
+    /// status is not current, if any.
+    ///
+    /// Comparing versions keeps the Ready-state decision DB-only. Redfish is
+    /// queried only after the controller has persisted
+    /// [`ManagedHostState::BootConfiguring`].
+    pub fn pending_boot_interface_config_version(&self) -> Option<ConfigVersion> {
+        pending_boot_interface_config_version(
+            self.config
+                .desired_boot_interface
+                .as_ref()
+                .map(|desired| desired.version),
+            self.status
+                .boot_interface_status_observation
+                .as_ref()
+                .map(|observation| observation.config_version),
+        )
+    }
+
     /// Latest health report received from forge-dpu-agent.
     pub fn dpu_agent_health_report(&self) -> Option<&HealthReport> {
         self.health_reports
@@ -1166,6 +1207,23 @@ pub enum ManagedHostState {
     /// Host is Ready for instance creation.
     Ready,
 
+    /// An unassigned Ready host is converging its Redfish boot configuration
+    /// to the desired boot interface persisted on the machine.
+    ///
+    /// The desired target and version are captured when the repair starts.
+    /// The controller checks that version before issuing new Redfish writes,
+    /// uses the captured target while work is in flight, and records it
+    /// verified only when the version is still current after final observation.
+    BootConfiguring {
+        desired_version: ConfigVersion,
+        desired_boot_interface: MachineBootInterfaceTarget,
+        /// Number of complete reconciliation passes retried because the final
+        /// Redfish observation drifted after lockdown was restored.
+        #[serde(default)]
+        post_lock_verification_retry_count: u32,
+        boot_config_state: ReadyBootConfigState,
+    },
+
     /// Host is executing an operator-requested maintenance operation.
     Maintenance {
         operation: MachineMaintenanceOperation,
@@ -1309,6 +1367,74 @@ pub enum MachineValidatingState {
         validation_id: MachineValidationId,
     },
 }
+
+/// `ReadyBootConfigTerminalFailure` defers a terminal condition until Ready
+/// boot convergence restores lockdown.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ReadyBootConfigTerminalFailure {
+    /// The boot-config convergence flow could not complete automatically.
+    Convergence { failure: String },
+    /// An independent host or DPU failure appeared while lockdown was open.
+    /// Preserve its original attribution while routing through LockHost.
+    Machine {
+        machine_id: MachineId,
+        details: FailureDetails,
+    },
+}
+
+/// `ReadyBootConfigState` persists progress while an unassigned Ready host
+/// converges its desired Redfish boot configuration.
+///
+/// BIOS and boot-order job details reuse the same model types as HostInit,
+/// assigned platform configuration, and validation so controller restarts
+/// retain vendor job IDs, recovery substates, and retry budgets.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum ReadyBootConfigState {
+    /// Observe the target, then inspect lockdown only when a repair may write.
+    Prepare,
+    /// Disable lockdown, including any vendor-specific reboot and wait.
+    UnlockHost {
+        #[serde(default)]
+        unlock_host_state: UnlockHostState,
+    },
+    /// Observe BIOS and boot order and select the smallest required repair.
+    CheckHostConfig,
+    /// Run `machine_setup` for the desired boot interface.
+    ConfigureBios {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Wait for the vendor BIOS configuration job returned by `machine_setup`.
+    WaitingForBiosJob { bios_config_info: BiosConfigInfo },
+    /// Verify that the BIOS configuration has been applied.
+    PollingBiosSetup {
+        #[serde(default)]
+        retry_count: u32,
+    },
+    /// Set, apply, and verify boot order.
+    SetBootOrder {
+        set_boot_order_info: SetBootOrderInfo,
+    },
+    /// Restore the configured lockdown policy before either conditionally
+    /// marking the desired boot-interface version verified or surfacing a
+    /// terminal convergence failure.
+    LockHost {
+        /// Failure deferred until lockdown has been restored. Absent on the
+        /// successful convergence path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        terminal_failure: Option<ReadyBootConfigTerminalFailure>,
+    },
+    /// Automated convergence could not complete safely after lockdown was
+    /// restored. The host remains unavailable until an operator changes its
+    /// desired boot interface, starting a fresh pass from
+    /// [`ReadyBootConfigState::Prepare`], or successfully completes a
+    /// maintenance operation, which returns the host to
+    /// [`ManagedHostState::Ready`].
+    Failed { failure: String },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "validation_type", rename_all = "lowercase")]
 pub enum ValidationState {
@@ -2335,6 +2461,23 @@ impl Display for SpdmMeasuringState {
     }
 }
 
+impl Display for ReadyBootConfigState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::Prepare => "Prepare",
+            Self::UnlockHost { .. } => "UnlockHost",
+            Self::CheckHostConfig => "CheckHostConfig",
+            Self::ConfigureBios { .. } => "ConfigureBios",
+            Self::WaitingForBiosJob { .. } => "WaitingForBiosJob",
+            Self::PollingBiosSetup { .. } => "PollingBiosSetup",
+            Self::SetBootOrder { .. } => "SetBootOrder",
+            Self::LockHost { .. } => "LockHost",
+            Self::Failed { .. } => "Failed",
+        };
+        f.write_str(name)
+    }
+}
+
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -2363,6 +2506,11 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::BootConfiguring {
+                boot_config_state, ..
+            } => {
+                write!(f, "BootConfiguring/{boot_config_state}")
+            }
             ManagedHostState::Maintenance { operation } => {
                 write!(f, "Maintenance({operation:?})")
             }
@@ -2459,6 +2607,11 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::BootConfiguring {
+                boot_config_state, ..
+            } => {
+                format!("BootConfiguring/{boot_config_state}")
+            }
             ManagedHostState::Maintenance { operation } => {
                 format!("Maintenance({operation:?})")
             }
@@ -2662,6 +2815,13 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::BootConfiguring {
+            boot_config_state: ReadyBootConfigState::Failed { .. },
+            ..
+        } => StateSla::with_sla(std::time::Duration::ZERO, time_in_state),
+        ManagedHostState::BootConfiguring { .. } => {
+            StateSla::with_sla(slas::BOOT_CONFIGURING, time_in_state)
+        }
         ManagedHostState::Maintenance { .. } => {
             StateSla::with_sla(slas::MAINTENANCE, time_in_state)
         }
@@ -3095,7 +3255,7 @@ mod tests {
     use std::str::FromStr;
 
     use carbide_test_support::Outcome::*;
-    use carbide_test_support::{Check, check_values, scenarios};
+    use carbide_test_support::{Check, check_values, scenarios, value_scenarios};
 
     use super::*;
     use crate::test_support::machine_snapshot::{
@@ -3132,6 +3292,151 @@ mod tests {
         firmware_version: Some("BF4-26.04"),
         reprovision_requested: false,
     };
+
+    #[test]
+    fn pending_boot_interface_version_requires_matching_verification() {
+        let desired = ConfigVersion::new(7);
+        let stale = ConfigVersion::new(6);
+
+        value_scenarios!(
+            run = |(desired_version, verified_version)| {
+                pending_boot_interface_config_version(desired_version, verified_version)
+            };
+            "no desired target needs no verification" {
+                (None, None) => None,
+            }
+            "an unobserved desired target needs verification" {
+                (Some(desired), None) => Some(desired),
+            }
+            "a stale observation needs verification" {
+                (Some(desired), Some(stale)) => Some(desired),
+            }
+            "a matching observation is converged" {
+                (Some(desired), Some(desired)) => None,
+            }
+        );
+    }
+
+    #[test]
+    fn ready_boot_config_defaults_survive_persisted_state_loading() {
+        scenarios!(
+            run = |json| serde_json::from_str::<ReadyBootConfigState>(json).map_err(drop);
+            "unlock starts by disabling lockdown" {
+                r#"{"state":"unlockhost"}"# => Yields(ReadyBootConfigState::UnlockHost {
+                    unlock_host_state: UnlockHostState::DisableLockdown,
+                }),
+            }
+
+            "BIOS setup starts with no retries" {
+                r#"{"state":"configurebios"}"# => Yields(ReadyBootConfigState::ConfigureBios {
+                    retry_count: 0,
+                }),
+            }
+
+            "BIOS verification starts with no retries" {
+                r#"{"state":"pollingbiossetup"}"# => Yields(
+                    ReadyBootConfigState::PollingBiosSetup { retry_count: 0 },
+                ),
+            }
+
+            "lockdown restoration defaults to the success path" {
+                r#"{"state":"lockhost"}"# => Yields(ReadyBootConfigState::LockHost {
+                    terminal_failure: None,
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn ready_boot_config_terminal_outcomes_round_trip() {
+        let machine_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+        let failure_details = FailureDetails {
+            cause: FailureCause::BiosSetupFailed {
+                err: "BIOS job retries exhausted".to_string(),
+            },
+            failed_at: DateTime::<Utc>::UNIX_EPOCH,
+            source: FailureSource::StateMachine,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "convergence failure waits for lockdown",
+                    input: ReadyBootConfigState::LockHost {
+                        terminal_failure: Some(ReadyBootConfigTerminalFailure::Convergence {
+                            failure: "BIOS job retries exhausted".to_string(),
+                        }),
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "independent machine failure keeps its attribution",
+                    input: ReadyBootConfigState::LockHost {
+                        terminal_failure: Some(ReadyBootConfigTerminalFailure::Machine {
+                            machine_id,
+                            details: failure_details,
+                        }),
+                    },
+                    expect: true,
+                },
+                Check {
+                    scenario: "terminal convergence failure persists",
+                    input: ReadyBootConfigState::Failed {
+                        failure: "BIOS job retries exhausted".to_string(),
+                    },
+                    expect: true,
+                },
+            ],
+            |state| {
+                serde_json::from_str::<ReadyBootConfigState>(
+                    &serde_json::to_string(&state).unwrap(),
+                )
+                .unwrap()
+                    == state
+            },
+        );
+    }
+
+    #[test]
+    fn ready_host_with_unverified_boot_interface_is_not_allocatable() {
+        let mut snapshot = managed_host_state_snapshot();
+        let desired_version = ConfigVersion::new(7);
+        let desired_boot_interface =
+            MachineBootInterfaceTarget::MacOnly(MacAddress::new([1, 2, 3, 4, 5, 6]));
+        snapshot.host_snapshot.config.desired_boot_interface =
+            Some(Versioned::new(desired_boot_interface, desired_version));
+        snapshot
+            .host_snapshot
+            .status
+            .boot_interface_status_observation = None;
+
+        assert_eq!(
+            snapshot.is_usable_as_instance(false),
+            Err(NotAllocatableReason::PendingBootConfiguration)
+        );
+    }
+
+    #[test]
+    fn boot_configuring_state_has_stable_state_strings() {
+        let state = ManagedHostState::BootConfiguring {
+            desired_version: ConfigVersion::new(7),
+            desired_boot_interface: MachineBootInterfaceTarget::MacOnly(MacAddress::new([
+                1, 2, 3, 4, 5, 6,
+            ])),
+            post_lock_verification_retry_count: 0,
+            boot_config_state: ReadyBootConfigState::Failed {
+                failure: "payload must not enter state labels".to_string(),
+            },
+        };
+        let dpu_id =
+            MachineId::from_str("fm100ds7blqjsadm2uuh3qqbf1h7k8pmf47um6v9uckrg7l03po8mhqgvng")
+                .unwrap();
+
+        assert_eq!(state.to_string(), "BootConfiguring/Failed");
+        assert_eq!(state.dpu_state_string(&dpu_id), "BootConfiguring/Failed");
+    }
 
     #[test]
     fn machine_bmc_vendor_delegates_to_hardware_info() {
@@ -3873,6 +4178,32 @@ mod tests {
                     scenario: "Ready has no SLA",
                     input: stale(ManagedHostState::Ready),
                     expect: (None, false),
+                },
+                Check {
+                    scenario: "active boot configuration uses the convergence SLA",
+                    input: stale(ManagedHostState::BootConfiguring {
+                        desired_version: ConfigVersion::initial(),
+                        desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                            MacAddress::new([1, 2, 3, 4, 5, 6]),
+                        ),
+                        post_lock_verification_retry_count: 0,
+                        boot_config_state: ReadyBootConfigState::Prepare,
+                    }),
+                    expect: (seconds(5_400), true),
+                },
+                Check {
+                    scenario: "terminal boot configuration immediately breaches its SLA",
+                    input: stale(ManagedHostState::BootConfiguring {
+                        desired_version: ConfigVersion::initial(),
+                        desired_boot_interface: MachineBootInterfaceTarget::MacOnly(
+                            MacAddress::new([1, 2, 3, 4, 5, 6]),
+                        ),
+                        post_lock_verification_retry_count: 0,
+                        boot_config_state: ReadyBootConfigState::Failed {
+                            failure: "BIOS job retries exhausted".to_string(),
+                        },
+                    }),
+                    expect: (seconds(0), true),
                 },
                 Check {
                     scenario: "maintenance uses the maintenance SLA",

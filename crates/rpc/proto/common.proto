@@ -122,6 +122,16 @@ message MachineValidationId {
   string value = 1;
 }
 
+// ID of a physical device managed by NICo. Individual RPCs may support only a
+// subset of these device kinds.
+message DeviceId {
+  oneof value {
+    MachineId machine_id = 1;
+    SwitchId switch_id = 2;
+    PowerShelfId power_shelf_id = 3;
+  }
+}
+
 enum SystemPowerControl {
   SYSTEM_POWER_CONTROL_UNKNOWN = 0;
   // Power on a machine

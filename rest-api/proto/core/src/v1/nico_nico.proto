@@ -5898,14 +5898,12 @@ message BmcCredentialRotationRequest {
     Clear = 2;
   }
   Mode mode = 1;
-  // Id of the device that owns the target BMC: a machine id (a host or DPU
-  // machine) or a switch id. A machine and a switch each have exactly one BMC,
-  // so either id uniquely names the device; the two are mutually exclusive (a
-  // BMC belongs to one device kind), which this oneof enforces.
-  oneof device_id {
-    common.MachineId machine_id = 2;
-    common.SwitchId switch_id = 3;
-  }
+
+  // ID of the device that owns the target BMC. Machine and switch IDs are
+  // supported. Power shelf IDs are valid DeviceIds and are accepted for forward
+  // compatibility, but power shelf BMC rotation is not yet supported.
+  common.DeviceId device_id = 3;
+
   // MAC of the BMC to target, resolved server-side to its owning machine or
   // switch. May be given alone, or alongside a `device_id` as a cross-check
   // (they must identify the same device). At least one of `device_id` /

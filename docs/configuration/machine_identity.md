@@ -201,7 +201,7 @@ grpcurl -cacert … -cert … -key … \
   carbide-api.forge:443 forge.Forge/GetTenantIdentityConfiguration
 ```
 
-Client cert setup: [Generating client certificates](../manuals/nico-admin-cli.md#generating-client-certificates).
+Client cert setup: [Generating client certificates](../manuals/nico-api-auth.md#generating-client-certificates).
 
 ---
 
@@ -217,4 +217,4 @@ Client cert setup: [Generating client certificates](../manuals/nico-admin-cli.md
 | DPU agent IMDS limits | [Day 0 — DPU agent section](../getting-started/installation-options/day0-machine-identity.md#3-configure-dpu-agent-machine-identity-optional) |
 | Full API and data model | [SPIFFE JWT-SVID SDD](../design/machine-identity/spiffe-svid-sdd.md) |
 
-REST API details: **Tenant Identity** tag in the [REST API Reference](../openapi/getting_started.md).
+REST API details: **Tenant Identity** tag in the [REST API Reference](/infra-controller/rest-api-reference/api-reference/tenant-identity)

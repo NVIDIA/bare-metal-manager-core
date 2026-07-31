@@ -2,7 +2,7 @@
 
 Operator reference for `nicocli`, the CLI for the NICo REST API. Covers installation, configuration, authentication, command mechanics, output formatting, debugging, and TUI mode. Targeted at operators who have completed the [Quick Start Guide](../getting-started/quick-start.md) and want to drive NICo from scripts or one-off interactive sessions.
 
-The [Day One Operations](day_one_operations.md) guide uses this reference for all CLI mechanics. Read this page first if you plan to script anything beyond the Quick Start happy path.
+The [Tenant Management](../configuration/tenant_management.md) guide uses this reference for all CLI mechanics. Read this page first if you plan to script anything beyond the Quick Start happy path.
 
 ## Installation
 
@@ -541,5 +541,5 @@ The `helm/rest/nico-mcp` chart deploys the same server as a `ClusterIP` service.
 ## Related Documentation
 
 - [Quick Start Guide](../getting-started/quick-start.md) -- NICo deployment and Day Zero walkthrough; covers the bundled Keycloak setup.
-- [Day One Operations](day_one_operations.md) -- Operator workflow for tenant management, allocations, VPCs, subnets, and instance provisioning. Uses this reference for all CLI mechanics.
+- [Tenant Management](../configuration/tenant_management.md) -- Operator workflow for tenant management, allocations, VPCs, subnets, and instance provisioning. Uses this reference for all CLI mechanics.
 - [Reference Installation](../getting-started/installation-options/reference-install.md) -- Deployment configuration surface, including the `issuers` block that maps OIDC IdPs to NICo.
