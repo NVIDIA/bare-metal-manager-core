@@ -108,6 +108,11 @@ var (
 		corev1.OperatingSystemType_OS_TYPE_IPXE:           OperatingSystemTypeIPXE,
 		corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE: OperatingSystemTypeTemplatedIPXE,
 	}
+	// OperatingSystemTypeToProtoMap maps model OS types to nico-core OS types.
+	OperatingSystemTypeToProtoMap = map[string]corev1.OperatingSystemType{
+		OperatingSystemTypeIPXE:          corev1.OperatingSystemType_OS_TYPE_IPXE,
+		OperatingSystemTypeTemplatedIPXE: corev1.OperatingSystemType_OS_TYPE_TEMPLATED_IPXE,
+	}
 
 	// OperatingSystemStatusFromProtoMap maps nico-core tenant states to OperatingSystem status values.
 	OperatingSystemStatusFromProtoMap = map[corev1.TenantState]string{
@@ -116,6 +121,16 @@ var (
 		corev1.TenantState_CONFIGURING:  OperatingSystemStatusSyncing,
 		corev1.TenantState_TERMINATING:  OperatingSystemStatusDeleting,
 		corev1.TenantState_FAILED:       OperatingSystemStatusError,
+		corev1.TenantState_INVALID:      OperatingSystemStatusPending,
+	}
+	// OperatingSystemStatusToProtoMap maps model statuses to nico-core tenant states.
+	OperatingSystemStatusToProtoMap = map[string]corev1.TenantState{
+		OperatingSystemStatusPending:      corev1.TenantState_INVALID,
+		OperatingSystemStatusProvisioning: corev1.TenantState_PROVISIONING,
+		OperatingSystemStatusReady:        corev1.TenantState_READY,
+		OperatingSystemStatusError:        corev1.TenantState_FAILED,
+		OperatingSystemStatusDeleting:     corev1.TenantState_TERMINATING,
+		OperatingSystemStatusSyncing:      corev1.TenantState_CONFIGURING,
 	}
 )
 
@@ -252,13 +267,115 @@ func (os *OperatingSystem) GetSiteID() *uuid.UUID {
 	return &os.ID
 }
 
+// ToProto converts this OperatingSystem into its canonical nico-core proto.
+// Provider-owned records omit tenant_organization_id; tenant-owned records
+// carry their organization. REST-only ownership IDs and image fields have no
+// representation in this proto.
+func (os *OperatingSystem) ToProto() *corev1.OperatingSystem {
+	var tenantOrganizationID *string
+	if os.TenantID != nil && os.Org != "" {
+		tenantOrganizationID = &os.Org
+	}
+
+	params := make([]*corev1.IpxeTemplateParameter, 0, len(os.IpxeTemplateParameters))
+	for i := range os.IpxeTemplateParameters {
+		params = append(params, os.IpxeTemplateParameters[i].ToProto())
+	}
+	artifacts := make([]*corev1.IpxeTemplateArtifact, 0, len(os.IpxeTemplateArtifacts))
+	for i := range os.IpxeTemplateArtifacts {
+		artifacts = append(artifacts, os.IpxeTemplateArtifacts[i].ToProto())
+	}
+	var templateID *corev1.IpxeTemplateId
+	if os.IpxeTemplateId != nil && *os.IpxeTemplateId != "" {
+		templateID = &corev1.IpxeTemplateId{Value: *os.IpxeTemplateId}
+	}
+
+	return &corev1.OperatingSystem{
+		Id:                         &corev1.OperatingSystemId{Value: os.ID.String()},
+		Name:                       os.Name,
+		Description:                os.Description,
+		TenantOrganizationId:       tenantOrganizationID,
+		Type:                       OperatingSystemTypeToProtoMap[os.Type],
+		Status:                     OperatingSystemStatusToProtoMap[os.Status],
+		IsActive:                   os.IsActive,
+		AllowOverride:              os.AllowOverride,
+		PhoneHomeEnabled:           os.PhoneHomeEnabled,
+		UserData:                   os.UserData,
+		Created:                    os.Created.Format(time.RFC3339),
+		Updated:                    os.Updated.Format(time.RFC3339),
+		IpxeScript:                 os.IpxeScript,
+		IpxeTemplateId:             templateID,
+		IpxeTemplateParameters:     params,
+		IpxeTemplateArtifacts:      artifacts,
+		IpxeTemplateDefinitionHash: os.IpxeTemplateDefinitionHash,
+	}
+}
+
+// FromProto populates this OperatingSystem from its canonical nico-core proto.
+// A nil proto is a no-op. REST-only ownership IDs, image fields, and audit
+// fields are not represented by the proto and remain untouched; callers resolve
+// tenant/provider ownership from tenant_organization_id and Site context.
+func (os *OperatingSystem) FromProto(protoOS *corev1.OperatingSystem) {
+	if protoOS == nil {
+		return
+	}
+	if protoOS.Id != nil {
+		if id, err := uuid.Parse(protoOS.Id.Value); err == nil {
+			os.ID = id
+		}
+	}
+
+	os.Name = protoOS.Name
+	os.Description = protoOS.Description
+	if protoOS.TenantOrganizationId != nil {
+		os.Org = protoOS.GetTenantOrganizationId()
+	}
+	os.Type = OperatingSystemTypeFromProtoMap[protoOS.Type]
+	os.Status = OperatingSystemStatusFromProtoMap[protoOS.Status]
+	if os.Status == "" {
+		os.Status = OperatingSystemStatusSyncing
+	}
+	os.IsActive = protoOS.IsActive
+	os.AllowOverride = protoOS.AllowOverride
+	os.PhoneHomeEnabled = protoOS.PhoneHomeEnabled
+	os.UserData = protoOS.UserData
+	os.IpxeScript = protoOS.IpxeScript
+	os.IpxeTemplateDefinitionHash = protoOS.IpxeTemplateDefinitionHash
+
+	os.Created = time.Time{}
+	if created, err := time.Parse(time.RFC3339, protoOS.Created); err == nil {
+		os.Created = created
+	}
+	os.Updated = time.Time{}
+	if updated, err := time.Parse(time.RFC3339, protoOS.Updated); err == nil {
+		os.Updated = updated
+	}
+
+	os.IpxeTemplateId = nil
+	if value := protoOS.GetIpxeTemplateId().GetValue(); value != "" {
+		os.IpxeTemplateId = &value
+	}
+	os.IpxeTemplateParameters = make([]OperatingSystemIpxeParameter, 0, len(protoOS.IpxeTemplateParameters))
+	for _, protoParam := range protoOS.IpxeTemplateParameters {
+		var param OperatingSystemIpxeParameter
+		param.FromProto(protoParam)
+		os.IpxeTemplateParameters = append(os.IpxeTemplateParameters, param)
+	}
+	os.IpxeTemplateArtifacts = make([]OperatingSystemIpxeArtifact, 0, len(protoOS.IpxeTemplateArtifacts))
+	for _, protoArtifact := range protoOS.IpxeTemplateArtifacts {
+		var artifact OperatingSystemIpxeArtifact
+		artifact.FromProto(protoArtifact)
+		os.IpxeTemplateArtifacts = append(os.IpxeTemplateArtifacts, artifact)
+	}
+}
+
 // ToImageAttributesProto builds the OsImageAttributes proto used by
 // both the create and update workflows. tenantOrg is the owning
 // tenant's organization id (not stored on the entity directly).
 //
 // The same proto shape is sent for both create and update flows, so
 // this entity-level method is the canonical entity-to-proto for OS
-// image data; the request-shape ToProto methods on
+// image data; the request-shape ToImageProto methods on
 // APIOperatingSystemCreateRequest and APIOperatingSystemUpdateRequest
 // layer on top of it without altering the wire fields.
 //
@@ -283,12 +400,20 @@ func (os *OperatingSystem) ToImageAttributesProto(tenantOrg string) *corev1.OsIm
 	}
 }
 
-// ToDeletionRequestProto builds the workflow request that asks a Site
+// ToImageDeletionRequestProto builds the workflow request that asks a Site
 // to delete this OS image.
-func (os *OperatingSystem) ToDeletionRequestProto(tenantOrg string) *corev1.DeleteOsImageRequest {
+func (os *OperatingSystem) ToImageDeletionRequestProto(tenantOrg string) *corev1.DeleteOsImageRequest {
 	return &corev1.DeleteOsImageRequest{
 		Id:                   &corev1.UUID{Value: os.GetSiteID().String()},
 		TenantOrganizationId: tenantOrg,
+	}
+}
+
+// ToDeletionRequestProto builds the nico-core request for deleting an iPXE
+// Operating System. This request has no API body, so it belongs on the entity.
+func (os *OperatingSystem) ToDeletionRequestProto() *corev1.DeleteOperatingSystemRequest {
+	return &corev1.DeleteOperatingSystemRequest{
+		Id: &corev1.OperatingSystemId{Value: os.ID.String()},
 	}
 }
 
@@ -326,53 +451,30 @@ type OperatingSystemCreateInput struct {
 	CreatedBy              uuid.UUID
 }
 
-// FromProto fills the proto-derived definition fields of the receiver from a
-// nico-core OperatingSystem proto: OS type, status, scalar flags, iPXE script /
-// template reference, template parameters, artifacts and definition hash.
-//
-// Ownership and sync-context fields (ID, Org, InfrastructureProviderID, TenantID,
-// CreatedBy and the image-* fields) are not carried on this proto and must be set
-// by the caller after calling FromProto. A nil proto is a no-op.
+// FromProto fills this create input through the canonical OperatingSystem
+// entity conversion. Ownership IDs, CreatedBy, and image fields are supplied by
+// the caller from REST/Site context. A nil proto is a no-op.
 func (in *OperatingSystemCreateInput) FromProto(protoOS *corev1.OperatingSystem) {
 	if protoOS == nil {
 		return
 	}
 
-	in.Name = protoOS.Name
-	in.Description = protoOS.Description
-	in.UserData = protoOS.UserData
-	in.IpxeScript = protoOS.IpxeScript
-	in.AllowOverride = protoOS.AllowOverride
-	in.PhoneHomeEnabled = protoOS.PhoneHomeEnabled
-	in.IpxeOSHash = protoOS.IpxeTemplateDefinitionHash
-
-	in.OsType = OperatingSystemTypeFromProtoMap[protoOS.Type]
-
-	status := OperatingSystemStatusFromProtoMap[protoOS.Status]
-	if status == "" {
-		status = OperatingSystemStatusSyncing
-	}
-	in.Status = status
-
-	// Only persist a template reference when non-empty; non-templated OS types
-	// carry no template.
-	if v := protoOS.GetIpxeTemplateId().GetValue(); v != "" {
-		in.IpxeTemplateId = &v
-	}
-
-	in.IpxeTemplateParameters = make([]OperatingSystemIpxeParameter, 0, len(protoOS.IpxeTemplateParameters))
-	for _, p := range protoOS.IpxeTemplateParameters {
-		var param OperatingSystemIpxeParameter
-		param.FromProto(p)
-		in.IpxeTemplateParameters = append(in.IpxeTemplateParameters, param)
-	}
-
-	in.IpxeTemplateArtifacts = make([]OperatingSystemIpxeArtifact, 0, len(protoOS.IpxeTemplateArtifacts))
-	for _, a := range protoOS.IpxeTemplateArtifacts {
-		var artifact OperatingSystemIpxeArtifact
-		artifact.FromProto(a)
-		in.IpxeTemplateArtifacts = append(in.IpxeTemplateArtifacts, artifact)
-	}
+	var os OperatingSystem
+	os.FromProto(protoOS)
+	in.ID = os.ID
+	in.Name = os.Name
+	in.Description = os.Description
+	in.Org = os.Org
+	in.OsType = os.Type
+	in.IpxeScript = os.IpxeScript
+	in.IpxeTemplateId = os.IpxeTemplateId
+	in.IpxeTemplateParameters = os.IpxeTemplateParameters
+	in.IpxeTemplateArtifacts = os.IpxeTemplateArtifacts
+	in.IpxeOSHash = os.IpxeTemplateDefinitionHash
+	in.UserData = os.UserData
+	in.AllowOverride = os.AllowOverride
+	in.PhoneHomeEnabled = os.PhoneHomeEnabled
+	in.Status = os.Status
 }
 
 // OperatingSystemUpdateInput input parameters for Update method
@@ -605,7 +707,6 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 	if filter.OperatingSystemIds != nil && len(filter.OperatingSystemIds) == 0 {
 		return oss, 0, nil
 	}
-
 	query := db.GetIDB(tx, ossd.dbSession).NewSelect().Model(&oss)
 	if filter.Names != nil {
 		query = query.Where("os.name IN (?)", bun.In(filter.Names))
@@ -615,13 +716,25 @@ func (ossd OperatingSystemSQLDAO) GetAll(ctx context.Context, tx *db.Tx, filter 
 		query = query.Where("os.org IN (?)", bun.In(filter.Orgs))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "filter.org", filter.Orgs)
 	}
-	if filter.InfrastructureProviderID != nil {
-		query = query.Where("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
-		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
-	}
-	if filter.TenantIDs != nil {
+	hasTenants := len(filter.TenantIDs) > 0
+	hasProvider := filter.InfrastructureProviderID != nil
+
+	switch {
+	case hasTenants && hasProvider:
+		// Dual-role view: own tenant entries + own provider entries, no site restriction.
+		query = query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.
+				Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs)).
+				WhereOr("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+		})
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_or_provider", filter.TenantIDs)
+	case hasTenants:
 		query = query.Where("os.tenant_id IN (?)", bun.In(filter.TenantIDs))
 		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "tenant_id", filter.TenantIDs)
+	case hasProvider:
+		// Provider-only view: only provider-owned entries.
+		query = query.Where("os.infrastructure_provider_id = ?", *filter.InfrastructureProviderID)
+		ossd.tracerSpan.SetAttribute(operatingSystemSQLDAOSpan, "infrastructure_provider_id", filter.InfrastructureProviderID.String())
 	}
 	if filter.OsTypes != nil {
 		query = query.Where("os.type IN (?)", bun.In(filter.OsTypes))

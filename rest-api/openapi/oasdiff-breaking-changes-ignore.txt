@@ -29,3 +29,4 @@ GET /v2/org/{org}/nico/tenant/current the `capabilities/targetedInstanceCreation
 GET /v2/org/{org}/nico/vpc-peering the `items/tenant/capabilities/targetedInstanceCreation` response's property type/format changed from `boolean`/`uuid` to `boolean`/`` for status `200`
 POST /v2/org/{org}/nico/vpc-peering the `tenant/capabilities/targetedInstanceCreation` response's property type/format changed from `boolean`/`uuid` to `boolean`/`` for status `201`
 GET /v2/org/{org}/nico/vpc-peering/{id} the `tenant/capabilities/targetedInstanceCreation` response's property type/format changed from `boolean`/`uuid` to `boolean`/`` for status `200`
+API POST /v2/org/{org}/nico/operating-system the `siteIds` request property's minItems was increased to `1`
