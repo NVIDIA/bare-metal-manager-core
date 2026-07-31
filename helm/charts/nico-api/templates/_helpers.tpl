@@ -134,21 +134,23 @@ false
 {{- fail "nico-api: siteConfig.adminRootCertPem requires siteConfig.enabled=true" -}}
 {{- end -}}
 {{- if $pem -}}
+{{/* Keep these paths in sync with the site-config-files mounts in deployment.yaml. */}}
 {{- $mountedPaths := list "/etc/forge/carbide-api/site/admin_root_cert_pem" "/etc/nico/nico-api/site/admin_root_cert_pem" -}}
 {{- if not (has .Values.auth.adminRootCafilePath $mountedPaths) -}}
 {{- fail "nico-api: siteConfig.adminRootCertPem requires auth.adminRootCafilePath to reference admin_root_cert_pem in a mounted site config directory" -}}
 {{- end -}}
+{{/* The remainder check also rejects keys; detect them first to return an actionable error. */}}
 {{- if regexMatch `(?i)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----` $pem -}}
 {{- fail "nico-api: siteConfig.adminRootCertPem must contain public CA certificates only; private keys are not allowed" -}}
 {{- end -}}
 {{- $certificatePattern := `(?m)^-----BEGIN CERTIFICATE-----\r?\n([A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?$` -}}
 {{- $certificates := regexFindAll $certificatePattern $pem -1 -}}
 {{- if eq (len $certificates) 0 -}}
-{{- fail "nico-api: siteConfig.adminRootCertPem must contain at least one PEM CERTIFICATE block" -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem must contain at least one canonical PEM CERTIFICATE block" -}}
 {{- end -}}
 {{- $remainder := regexReplaceAll $certificatePattern $pem "" | trim -}}
 {{- if ne $remainder "" -}}
-{{- fail "nico-api: siteConfig.adminRootCertPem must contain only PEM CERTIFICATE blocks and whitespace" -}}
+{{- fail "nico-api: siteConfig.adminRootCertPem must contain only bare PEM CERTIFICATE blocks and whitespace; remove metadata/comments and fix malformed blocks" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
