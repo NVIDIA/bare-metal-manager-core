@@ -910,7 +910,7 @@ async fn all_dhcp_suppressions_acknowledged(
             BmcSuppressionSubsystem::Dhcp,
         )
         .await?;
-        if !suppression.is_some_and(|suppression| suppression.acknowledged_at.is_some()) {
+        if suppression.is_none_or(|suppression| suppression.acknowledged_at.is_none()) {
             return Ok(false);
         }
     }
