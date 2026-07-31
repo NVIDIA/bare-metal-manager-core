@@ -75,6 +75,7 @@ impl From<Args> for forge::VpcCreationRequest {
             default_nvlink_logical_partition_id: None,
             vni: None,
             routing_profile_type: None,
+            routing_profile_overrides: None,
         }
     }
 }

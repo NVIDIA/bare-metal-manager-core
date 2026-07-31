@@ -218,29 +218,17 @@ impl TestEnvOverrides {
                     (
                         "EXTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
-                            access_tier: 2,
-                            internal: false,
-                            route_target_imports: vec![],
-                            route_targets_on_exports: vec![],
-                            leak_default_route_from_underlay: false,
-                            leak_tenant_host_routes_to_underlay: false,
-                            tenant_leak_communities_accepted: false,
-                            accepted_leaks_from_underlay: vec![],
-                            allowed_anycast_prefixes: vec![],
+                            access_tier: Some(2),
+                            internal: Some(false),
+                            ..Default::default()
                         },
                     ),
                     (
                         "INTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
-                            access_tier: 1,
-                            internal: true,
-                            route_target_imports: vec![],
-                            route_targets_on_exports: vec![],
-                            leak_default_route_from_underlay: false,
-                            leak_tenant_host_routes_to_underlay: false,
-                            tenant_leak_communities_accepted: false,
-                            accepted_leaks_from_underlay: vec![],
-                            allowed_anycast_prefixes: vec![],
+                            access_tier: Some(1),
+                            internal: Some(true),
+                            ..Default::default()
                         },
                     ),
                 ]),

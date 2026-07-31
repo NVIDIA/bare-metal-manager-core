@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -62,8 +63,12 @@ use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::tenant::identity_config::SigningAlgorithm;
+use model::vpc::VpcConfig;
+pub use model::vpc::{PrefixFilterPolicyEntry, RouteTargetConfig};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::CarbideError;
 
 pub(crate) const DEFAULT_DPU_NUM_OF_VFS: u32 = 16;
 pub(crate) const MAX_DPU_NUM_OF_VFS: u32 = 126;
@@ -1930,17 +1935,6 @@ pub struct SpdmConfig {
     pub nras_config: Option<nras::Config>,
 }
 
-/// A BGP route target used in FNN VRF import/export policies.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct RouteTargetConfig {
-    /// Autonomous System Number component of the route target.
-    #[serde(default)]
-    pub asn: u32,
-    /// Virtual Network Identifier component of the route target.
-    #[serde(default)]
-    pub vni: u32,
-}
-
 /// Fabric Nearest Neighbor (FNN) configuration for L3 VNI-based overlay networking.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct FnnConfig {
@@ -1970,35 +1964,37 @@ pub struct FnnConfig {
     pub use_vpc_vrf_loopback: bool,
 }
 
+/// A named routing-profile definition whose unset properties use effective
+/// defaults unless a VPC supplies an inline override.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub struct FnnRoutingProfileConfig {
     /// These are used for import policies to import routes
     /// that match these targets.
     #[serde(default)]
-    pub route_target_imports: Vec<RouteTargetConfig>,
+    pub route_target_imports: Option<Vec<RouteTargetConfig>>,
 
     /// These are used for tagging routes exported by the DPU
     #[serde(default)]
-    pub route_targets_on_exports: Vec<RouteTargetConfig>,
+    pub route_targets_on_exports: Option<Vec<RouteTargetConfig>>,
 
     /// Is this an internal or external tenant/VPC profile
     #[serde(default)]
-    pub internal: bool,
+    pub internal: Option<bool>,
 
     /// Should DPUs leak the default route from the
     /// underlay into the tenant VRF?
     #[serde(default)]
-    pub leak_default_route_from_underlay: bool,
+    pub leak_default_route_from_underlay: Option<bool>,
 
     /// Should DPUs leak the routes for the host IPs into
     /// into the underlay?
     #[serde(default)]
-    pub leak_tenant_host_routes_to_underlay: bool,
+    pub leak_tenant_host_routes_to_underlay: Option<bool>,
 
     /// Are route-leak communities sent by the host OS honored by the DPU for allowing
     /// routes advertised by the host OS to be leaked into the underlay?
     #[serde(default)]
-    pub tenant_leak_communities_accepted: bool,
+    pub tenant_leak_communities_accepted: Option<bool>,
 
     /// An explicit/granular list of prefixes that should
     /// be allowed to leak from the default VRF into the tenant
@@ -2007,12 +2003,12 @@ pub struct FnnRoutingProfileConfig {
     /// These are purely for routing purposes and will not have any
     /// impact on ACLs.
     #[serde(default)]
-    pub accepted_leaks_from_underlay: Vec<PrefixFilterPolicyEntry>,
+    pub accepted_leaks_from_underlay: Option<Vec<PrefixFilterPolicyEntry>>,
 
     /// Prefixes that tenant hosts are allowed to announce
     /// to the DPU as anycast routes.
     #[serde(default)]
-    pub allowed_anycast_prefixes: Vec<PrefixFilterPolicyEntry>,
+    pub allowed_anycast_prefixes: Option<Vec<PrefixFilterPolicyEntry>>,
 
     /// Currently controls which profiles a tenant can use
     /// when creating VPCs.  Lower value means broader access.
@@ -2024,17 +2020,83 @@ pub struct FnnRoutingProfileConfig {
     /// - A tenant with ADMIN could create ADMIN VPCs and INTERNAL VPCs.
     /// - A tenant with INTERNAL could only create INTERNAL VPCs.
     #[serde(default)]
-    pub access_tier: u32,
+    pub access_tier: Option<u32>,
+}
+
+impl FnnConfig {
+    /// Resolves the named routing profile and applies properties set on the VPC.
+    pub(crate) fn resolve_vpc_routing_profile(
+        &self,
+        vpc: &VpcConfig,
+    ) -> Result<Cow<'_, FnnRoutingProfileConfig>, CarbideError> {
+        let profile_type =
+            vpc.routing_profile_type
+                .as_ref()
+                .ok_or_else(|| CarbideError::Internal {
+                    message: "tenant routing profile type not found in VPC record".to_string(),
+                })?;
+        let base_profile =
+            self.routing_profiles
+                .get(profile_type)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "routing_profile_type",
+                    id: profile_type.to_string(),
+                })?;
+
+        // Apply properties explicitly set on the VPC over the named base profile.
+        let Some(overrides) = vpc.routing_profile_overrides.as_ref() else {
+            return Ok(Cow::Borrowed(base_profile));
+        };
+
+        Ok(Cow::Owned(FnnRoutingProfileConfig {
+            route_target_imports: overrides
+                .route_target_imports
+                .clone()
+                .or_else(|| base_profile.route_target_imports.clone()),
+            route_targets_on_exports: overrides
+                .route_targets_on_exports
+                .clone()
+                .or_else(|| base_profile.route_targets_on_exports.clone()),
+            // VPCs must inherit the base profile's allocation and access controls.
+            internal: base_profile.internal,
+            leak_default_route_from_underlay: overrides
+                .leak_default_route_from_underlay
+                .or(base_profile.leak_default_route_from_underlay),
+            leak_tenant_host_routes_to_underlay: overrides
+                .leak_tenant_host_routes_to_underlay
+                .or(base_profile.leak_tenant_host_routes_to_underlay),
+            tenant_leak_communities_accepted: overrides
+                .tenant_leak_communities_accepted
+                .or(base_profile.tenant_leak_communities_accepted),
+            accepted_leaks_from_underlay: overrides
+                .accepted_leaks_from_underlay
+                .clone()
+                .or_else(|| base_profile.accepted_leaks_from_underlay.clone()),
+            allowed_anycast_prefixes: overrides
+                .allowed_anycast_prefixes
+                .clone()
+                .or_else(|| base_profile.allowed_anycast_prefixes.clone()),
+            access_tier: base_profile.access_tier,
+        }))
+    }
 }
 
 impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
     fn from(profile: &FnnRoutingProfileConfig) -> Self {
         Self {
-            tenant_leak_communities_accepted: profile.tenant_leak_communities_accepted,
-            leak_default_route_from_underlay: profile.leak_default_route_from_underlay,
-            leak_tenant_host_routes_to_underlay: profile.leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted: profile
+                .tenant_leak_communities_accepted
+                .unwrap_or_default(),
+            leak_default_route_from_underlay: profile
+                .leak_default_route_from_underlay
+                .unwrap_or_default(),
+            leak_tenant_host_routes_to_underlay: profile
+                .leak_tenant_host_routes_to_underlay
+                .unwrap_or_default(),
             accepted_leaks_from_underlay: profile
                 .accepted_leaks_from_underlay
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|entry| rpc::forge::PrefixFilterPolicyEntry {
                     prefix: entry.prefix.to_string(),
@@ -2042,6 +2104,8 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
                 .collect(),
             allowed_anycast_prefixes: profile
                 .allowed_anycast_prefixes
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|entry| rpc::forge::PrefixFilterPolicyEntry {
                     prefix: entry.prefix.to_string(),
@@ -2049,6 +2113,8 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
                 .collect(),
             route_target_imports: profile
                 .route_target_imports
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|route_target| rpc::common::RouteTarget {
                     asn: route_target.asn,
@@ -2057,6 +2123,8 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
                 .collect(),
             route_targets_on_exports: profile
                 .route_targets_on_exports
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .map(|route_target| rpc::common::RouteTarget {
                     asn: route_target.asn,
@@ -2067,13 +2135,22 @@ impl From<&FnnRoutingProfileConfig> for rpc::forge::RoutingProfile {
     }
 }
 
-/// Entries used for prefix-list policies on the DPUS.
-/// Default behavior is max-len lte 32
-/// We can change that with additional fields on this struct
-/// if necessary in the future.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct PrefixFilterPolicyEntry {
-    pub prefix: IpNetwork,
+impl From<&FnnRoutingProfileConfig> for rpc::forge::VpcEffectiveRoutingProfile {
+    fn from(profile: &FnnRoutingProfileConfig) -> Self {
+        let routing_profile = rpc::forge::RoutingProfile::from(profile);
+        Self {
+            route_target_imports: routing_profile.route_target_imports,
+            route_targets_on_exports: routing_profile.route_targets_on_exports,
+            leak_default_route_from_underlay: routing_profile.leak_default_route_from_underlay,
+            leak_tenant_host_routes_to_underlay: routing_profile
+                .leak_tenant_host_routes_to_underlay,
+            tenant_leak_communities_accepted: routing_profile.tenant_leak_communities_accepted,
+            accepted_leaks_from_underlay: routing_profile.accepted_leaks_from_underlay,
+            allowed_anycast_prefixes: routing_profile.allowed_anycast_prefixes,
+            internal: profile.internal.unwrap_or_default(),
+            access_tier: profile.access_tier.unwrap_or_default(),
+        }
+    }
 }
 
 /// FNN configuration specific to the admin network.
@@ -3480,11 +3557,205 @@ mod tests {
     use model::expected_machine::HostDpuPolicy;
     use model::network_segment::NetworkDefinitionSegmentType;
     use model::resource_pool;
+    use model::vpc::VpcRoutingProfileOverrides;
 
     use super::*;
     use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/src/cfg/test_data");
+
+    fn vpc_config(
+        routing_profile_type: Option<&str>,
+        routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+    ) -> VpcConfig {
+        VpcConfig {
+            tenant_organization_id: "test-tenant".to_string(),
+            tenant_keyset_id: None,
+            network_virtualization_type: VpcVirtualizationType::Fnn,
+            network_security_group_id: None,
+            default_nvlink_logical_partition_id: None,
+            vni: None,
+            routing_profile_type: routing_profile_type.map(str::to_string),
+            routing_profile_overrides,
+        }
+    }
+
+    /// Verifies existing routing-profile TOML values deserialize unchanged
+    /// after the fields become presence-aware.
+    #[test]
+    fn fnn_routing_profile_options_accept_existing_toml_syntax() {
+        let profile: FnnRoutingProfileConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    route_target_imports = [{ asn = 64512, vni = 10 }]
+                    route_targets_on_exports = []
+                    internal = true
+                    leak_default_route_from_underlay = false
+                    leak_tenant_host_routes_to_underlay = true
+                    tenant_leak_communities_accepted = false
+                    accepted_leaks_from_underlay = [{ prefix = "10.0.0.0/8" }]
+                    allowed_anycast_prefixes = []
+                    access_tier = 2
+                "#,
+            ))
+            .extract()
+            .expect("existing routing-profile syntax must remain valid");
+
+        assert_eq!(
+            profile,
+            FnnRoutingProfileConfig {
+                route_target_imports: Some(vec![RouteTargetConfig {
+                    asn: 64512,
+                    vni: 10,
+                }]),
+                route_targets_on_exports: Some(vec![]),
+                internal: Some(true),
+                leak_default_route_from_underlay: Some(false),
+                leak_tenant_host_routes_to_underlay: Some(true),
+                tenant_leak_communities_accepted: Some(false),
+                accepted_leaks_from_underlay: Some(vec![PrefixFilterPolicyEntry {
+                    prefix: "10.0.0.0/8".parse().expect("valid test prefix"),
+                }]),
+                allowed_anycast_prefixes: Some(vec![]),
+                access_tier: Some(2),
+            }
+        );
+    }
+
+    /// Verifies seed-time VPC TOML preserves unsupported inline overrides
+    /// so startup validation can reject them instead of silently ignoring them.
+    #[test]
+    fn vpc_definition_preserves_routing_profile_overrides_for_seed_validation() {
+        // Parse a seeded VPC with representative unsupported override values.
+        let config: InitialObjectsConfig = Figment::new()
+            .merge(Toml::string(
+                r#"
+                    [vpcs.inline-profile]
+                    organization_id = "inline-profile-test"
+                    network_virtualization_type = "fnn"
+                    routing_profile_type = "BASE"
+
+                    [vpcs.inline-profile.routing_profile_overrides]
+                    route_target_imports = []
+                    leak_default_route_from_underlay = false
+                    allowed_anycast_prefixes = [{ prefix = "192.0.2.0/24" }]
+                "#,
+            ))
+            .extract()
+            .expect("seed validation must receive configured routing-profile overrides");
+        let definition = config
+            .vpcs
+            .as_ref()
+            .expect("configured VPCs")
+            .get("inline-profile")
+            .expect("inline-profile VPC");
+
+        // Explicit empty and false values remain visible to startup validation.
+        assert_eq!(
+            definition,
+            &VpcDefinition {
+                organization_id: Some("inline-profile-test".to_string()),
+                network_virtualization_type: VpcVirtualizationType::Fnn,
+                routing_profile_type: Some("BASE".to_string()),
+                routing_profile_overrides: Some(VpcRoutingProfileOverrides {
+                    route_target_imports: Some(vec![]),
+                    leak_default_route_from_underlay: Some(false),
+                    allowed_anycast_prefixes: Some(vec![PrefixFilterPolicyEntry {
+                        prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
+                    }]),
+                    ..Default::default()
+                }),
+                vni: None,
+            }
+        );
+    }
+
+    /// Verifies VPC properties override only present fields while `internal`
+    /// and `access_tier` remain owned by the base profile.
+    #[test]
+    fn vpc_routing_profile_overrides_are_presence_aware() {
+        // Build a complete base and an override containing explicit default values.
+        let inherited_export = RouteTargetConfig { asn: 1, vni: 2 };
+        let inherited_anycast = PrefixFilterPolicyEntry {
+            prefix: "192.0.2.0/24".parse().expect("valid test prefix"),
+        };
+        let base = FnnRoutingProfileConfig {
+            route_target_imports: Some(vec![RouteTargetConfig { asn: 3, vni: 4 }]),
+            route_targets_on_exports: Some(vec![inherited_export.clone()]),
+            internal: Some(true),
+            leak_default_route_from_underlay: Some(true),
+            leak_tenant_host_routes_to_underlay: Some(true),
+            tenant_leak_communities_accepted: Some(true),
+            accepted_leaks_from_underlay: Some(vec![PrefixFilterPolicyEntry {
+                prefix: "198.51.100.0/24".parse().expect("valid test prefix"),
+            }]),
+            allowed_anycast_prefixes: Some(vec![inherited_anycast.clone()]),
+            access_tier: Some(2),
+        };
+        let overrides = VpcRoutingProfileOverrides {
+            route_target_imports: Some(vec![]),
+            leak_default_route_from_underlay: Some(false),
+            tenant_leak_communities_accepted: Some(false),
+            accepted_leaks_from_underlay: Some(vec![]),
+            ..Default::default()
+        };
+        let fnn = FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([("BASE".to_string(), base)]),
+            use_vpc_vrf_loopback: false,
+        };
+        let vpc = vpc_config(Some("BASE"), Some(overrides));
+
+        // Explicit empty and false values override; absent values inherit.
+        assert_eq!(
+            fnn.resolve_vpc_routing_profile(&vpc).unwrap().as_ref(),
+            &FnnRoutingProfileConfig {
+                route_target_imports: Some(vec![]),
+                route_targets_on_exports: Some(vec![inherited_export]),
+                internal: Some(true),
+                leak_default_route_from_underlay: Some(false),
+                leak_tenant_host_routes_to_underlay: Some(true),
+                tenant_leak_communities_accepted: Some(false),
+                accepted_leaks_from_underlay: Some(vec![]),
+                allowed_anycast_prefixes: Some(vec![inherited_anycast]),
+                access_tier: Some(2),
+            }
+        );
+    }
+
+    #[test]
+    fn vpc_routing_profile_resolution_reports_consistent_errors() {
+        let fnn = FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::new(),
+            use_vpc_vrf_loopback: false,
+        };
+
+        check_values(
+            [
+                Check {
+                    scenario: "routing profile type absent from VPC",
+                    input: None,
+                    expect: "internal error: tenant routing profile type not found in VPC record"
+                        .to_string(),
+                },
+                Check {
+                    scenario: "named routing profile absent from FNN config",
+                    input: Some("MISSING"),
+                    expect: "routing_profile_type not found: MISSING".to_string(),
+                },
+            ],
+            |profile_type| {
+                fnn.resolve_vpc_routing_profile(&vpc_config(profile_type, None))
+                    .unwrap_err()
+                    .to_string()
+            },
+        );
+    }
 
     #[test]
     fn deny_prefixes_accept_both_address_families() {
@@ -5416,6 +5687,7 @@ firmware_url = "https://firmware.example.com/fw-b.bin"
                 organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
                 network_virtualization_type: VpcVirtualizationType::Flat,
                 routing_profile_type: None,
+                routing_profile_overrides: None,
                 vni: None,
             }
         );
