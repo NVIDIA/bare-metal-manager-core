@@ -52,6 +52,7 @@ applicable.
 | `vpc_peering_policy_on_existing` | `Option<VpcPeeringPolicy>` | — | `networking` | Policy for whether existing VPC peerings should be active. |
 | `attestation_enabled` | `bool` | `false` | `security` | Enables TPM-based machine attestation (adds `Measuring` state before `Ready`). |
 | `bmc_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive BMC credential rotation. When `false` (default), a Ready host never auto-enters `RotatingBmc`; the force-converge escape hatch bypasses it. |
+| `uefi_rotation_enabled` | `bool` | `false` | `security` | Site-wide kill-switch for passive UEFI credential rotation. When `false` (default), a Ready host never auto-enters `RotatingHostUefi`; the force-converge escape hatch bypasses it. |
 | `tpm_required` | `bool` | `true` | `security` | Require TPM module for machine registration. **Testing only** when `false`. |
 | `machine_state_controller` | `MachineStateControllerConfig` | *(see below)* | `machines` | Machine state controller timing (see [MachineStateControllerConfig](#machinestatecontrollerconfig)). |
 | `network_segment_state_controller` | `NetworkSegmentStateControllerConfig` | *(see below)* | `networking` | Network segment state controller timing. |

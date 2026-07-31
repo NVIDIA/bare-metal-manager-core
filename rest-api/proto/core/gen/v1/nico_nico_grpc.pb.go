@@ -192,6 +192,7 @@ const (
 	Forge_TriggerHostReprovisioning_FullMethodName                          = "/forge.Forge/TriggerHostReprovisioning"
 	Forge_ListHostsWaitingForReprovisioning_FullMethodName                  = "/forge.Forge/ListHostsWaitingForReprovisioning"
 	Forge_TriggerBmcCredentialRotation_FullMethodName                       = "/forge.Forge/TriggerBmcCredentialRotation"
+	Forge_TriggerUefiCredentialRotation_FullMethodName                      = "/forge.Forge/TriggerUefiCredentialRotation"
 	Forge_MarkManualFirmwareUpgradeComplete_FullMethodName                  = "/forge.Forge/MarkManualFirmwareUpgradeComplete"
 	Forge_ReportScoutFirmwareUpgradeStatus_FullMethodName                   = "/forge.Forge/ReportScoutFirmwareUpgradeStatus"
 	Forge_GetDpuInfoList_FullMethodName                                     = "/forge.Forge/GetDpuInfoList"
@@ -800,6 +801,16 @@ type ForgeClient interface {
 	// only withdraws a not-yet-consumed request -- it does not undo or reset any
 	// BMC credentials that a prior sweep already rotated.
 	TriggerBmcCredentialRotation(ctx context.Context, in *BmcCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Operator "force-converge this UEFI credential now" escape hatch for a single
+	// host (DPU support follows). This is asynchronous: the handler only persists
+	// (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+	// flag and returns; it performs no rotation itself. A later machine-controller
+	// sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+	// host power-cycle), bypassing the passive site-wide gate and the device's
+	// backoff quarantine, then clears the flag once it converges. Clear only
+	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+	// credential that a prior sweep already rotated.
+	TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(ctx context.Context, in *MachineId, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -3013,6 +3024,16 @@ func (c *forgeClient) TriggerBmcCredentialRotation(ctx context.Context, in *BmcC
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Forge_TriggerBmcCredentialRotation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) TriggerUefiCredentialRotation(ctx context.Context, in *UefiCredentialRotationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Forge_TriggerUefiCredentialRotation_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6319,6 +6340,16 @@ type ForgeServer interface {
 	// only withdraws a not-yet-consumed request -- it does not undo or reset any
 	// BMC credentials that a prior sweep already rotated.
 	TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error)
+	// Operator "force-converge this UEFI credential now" escape hatch for a single
+	// host (DPU support follows). This is asynchronous: the handler only persists
+	// (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+	// flag and returns; it performs no rotation itself. A later machine-controller
+	// sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+	// host power-cycle), bypassing the passive site-wide gate and the device's
+	// backoff quarantine, then clears the flag once it converges. Clear only
+	// withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+	// credential that a prior sweep already rotated.
+	TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error)
 	// TODO: Remove when manual upgrade feature is removed
 	// Mark host as having completed manual firmware upgrade
 	MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error)
@@ -7346,6 +7377,9 @@ func (UnimplementedForgeServer) ListHostsWaitingForReprovisioning(context.Contex
 }
 func (UnimplementedForgeServer) TriggerBmcCredentialRotation(context.Context, *BmcCredentialRotationRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method TriggerBmcCredentialRotation not implemented")
+}
+func (UnimplementedForgeServer) TriggerUefiCredentialRotation(context.Context, *UefiCredentialRotationRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method TriggerUefiCredentialRotation not implemented")
 }
 func (UnimplementedForgeServer) MarkManualFirmwareUpgradeComplete(context.Context, *MachineId) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method MarkManualFirmwareUpgradeComplete not implemented")
@@ -11302,6 +11336,24 @@ func _Forge_TriggerBmcCredentialRotation_Handler(srv interface{}, ctx context.Co
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).TriggerBmcCredentialRotation(ctx, req.(*BmcCredentialRotationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_TriggerUefiCredentialRotation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UefiCredentialRotationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).TriggerUefiCredentialRotation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_TriggerUefiCredentialRotation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).TriggerUefiCredentialRotation(ctx, req.(*UefiCredentialRotationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17359,6 +17411,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TriggerBmcCredentialRotation",
 			Handler:    _Forge_TriggerBmcCredentialRotation_Handler,
+		},
+		{
+			MethodName: "TriggerUefiCredentialRotation",
+			Handler:    _Forge_TriggerUefiCredentialRotation_Handler,
 		},
 		{
 			MethodName: "MarkManualFirmwareUpgradeComplete",

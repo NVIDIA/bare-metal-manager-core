@@ -363,6 +363,7 @@ pub fn machine_snapshot_pg_json(machine_id: MachineId) -> MachineSnapshotPgJson 
     MachineSnapshotPgJson {
         machine_maintenance_requested: None,
         bmc_credential_rotation_requested: false,
+        uefi_credential_rotation_requested: false,
         id: machine_id,
         rack_id: Some("rack-bench-01".parse().expect("valid rack id")),
         created: fixture_time(0),

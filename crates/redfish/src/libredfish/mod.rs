@@ -289,6 +289,53 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             .map_err(RedfishClientCreationError::RedfishError)
     }
 
+    /// Rotate a *host* UEFI (BIOS setup) password to the site-wide target,
+    /// authenticating with the current-version credential.
+    ///
+    /// `current_password_candidates` is an ordered, bounded, non-empty list of
+    /// plausible current passwords (the caller resolves them: the device's
+    /// tracked current site version, then the rotating-to version, then empty
+    /// for a never-set host). The first candidate that authenticates the change
+    /// wins; the returned `Option<String>` is the vendor BIOS job id to poll
+    /// (when the vendor schedules one) or `None`.
+    ///
+    /// Unlike [`Self::uefi_setup`], this never assumes the empty/factory case
+    /// first, so a mid-rotation host at v1 rotating to v2 authenticates with the
+    /// v1 secret rather than failing. This crate still knows nothing about
+    /// credential versions -- it just applies the ordered candidates it is
+    /// handed. All errors are password-redacted before they leave this method.
+    async fn rotate_host_uefi_password(
+        &self,
+        client: &dyn Redfish,
+        current_password_candidates: &[String],
+        new_password: String,
+    ) -> Result<Option<String>, RedfishClientCreationError> {
+        let mut last_err = None;
+        for candidate in current_password_candidates {
+            match client
+                .change_uefi_password(candidate.as_str(), new_password.as_str())
+                .await
+            {
+                Ok(job_id) => return Ok(job_id),
+                Err(e) => {
+                    let redacted =
+                        redact_passwords(e, &[new_password.as_str(), candidate.as_str()]);
+                    tracing::warn!(
+                        error = %redacted,
+                        "host UEFI password change failed for a current-password candidate; trying the next"
+                    );
+                    last_err = Some(redacted);
+                }
+            }
+        }
+        // The caller contract guarantees at least one candidate (empty string
+        // for a never-set host), so `last_err` is populated whenever the loop
+        // fell through without an Ok.
+        Err(RedfishClientCreationError::RedfishError(last_err.expect(
+            "rotate_host_uefi_password requires at least one current-password candidate",
+        )))
+    }
+
     /// Rotate a BMC's root password in place, then apply the vendor-specific
     /// password policy.
     ///

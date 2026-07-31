@@ -1355,6 +1355,14 @@ impl Forge for Api {
             .await
     }
 
+    async fn trigger_uefi_credential_rotation(
+        &self,
+        request: Request<rpc::UefiCredentialRotationRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::uefi_credential_rotation::trigger_uefi_credential_rotation(self, request)
+            .await
+    }
+
     async fn mark_manual_firmware_upgrade_complete(
         &self,
         request: Request<MachineId>,

@@ -326,7 +326,12 @@ impl TestEnv {
             site_config: self.config.machine_state_handler_site_config().into(),
             component_manager: self.test_component_manager.clone(),
             credential_manager: self.test_credential_manager.clone(),
-            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+            bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::Bmc,
+            ),
+            uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                db::credential_rotation::CredentialRotationType::HostUefi,
+            ),
             per_object_metrics_registry: self.per_object_metrics_registry(),
             per_object_info: None,
         }
@@ -438,6 +443,7 @@ impl TestEnv {
             ManagedHostState::StartAssignmentCycle => state.clone(),
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::RotatingBmc { .. } => state.clone(),
+            ManagedHostState::RotatingHostUefi { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
@@ -1542,7 +1548,12 @@ pub async fn create_test_env_with_overrides(
                 site_config: config.machine_state_handler_site_config().into(),
                 component_manager: test_component_manager.clone(),
                 credential_manager: credential_manager.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
+                uefi_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::HostUefi,
+                ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 per_object_info: None,
             }
@@ -1675,7 +1686,9 @@ pub async fn create_test_env_with_overrides(
                 ),
                 per_object_metrics_registry: per_object_metrics_registry.clone(),
                 redfish_client_pool: redfish_sim.clone(),
-                bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::new(),
+                bmc_rotation_gate: carbide_credential_rotation::RotationGate::new_for_family(
+                    db::credential_rotation::CredentialRotationType::Bmc,
+                ),
                 bmc_rotation_enabled: false,
             }
             .into(),

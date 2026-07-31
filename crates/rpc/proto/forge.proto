@@ -380,6 +380,16 @@ service Forge {
   // only withdraws a not-yet-consumed request -- it does not undo or reset any
   // BMC credentials that a prior sweep already rotated.
   rpc TriggerBmcCredentialRotation(BmcCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this UEFI credential now" escape hatch for a single
+  // host (DPU support follows). This is asynchronous: the handler only persists
+  // (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+  // flag and returns; it performs no rotation itself. A later machine-controller
+  // sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+  // host power-cycle), bypassing the passive site-wide gate and the device's
+  // backoff quarantine, then clears the flag once it converges. Clear only
+  // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+  // credential that a prior sweep already rotated.
+  rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -5951,6 +5961,28 @@ message BmcCredentialRotationRequest {
   // cross-check (they must identify the same device). At least one of
   // `device_id` / `bmc_mac` must be set (enforced server-side).
   optional string bmc_mac = 4;
+}
+
+message UefiCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  // The machine (a host; a DPU once DPU UEFI rotation ships) that owns the
+  // target UEFI credential. A machine has exactly one UEFI credential, so its id
+  // uniquely names the target. Unlike a BMC, a UEFI credential only ever belongs
+  // to a machine (never a switch or power shelf), so this is a plain optional
+  // field rather than a device-kind oneof.
+  optional common.MachineId machine_id = 2;
+  // MAC of the machine's BMC (which keys the UEFI rotation bookkeeping),
+  // resolved server-side to its owning machine. May be given alone, or alongside
+  // `machine_id` as a cross-check (they must identify the same machine). At
+  // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
+  optional string bmc_mac = 3;
 }
 
 message HostReprovisioningListRequest {

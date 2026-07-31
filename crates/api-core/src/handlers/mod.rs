@@ -89,6 +89,7 @@ pub mod tenant_identity_config;
 pub mod tenant_keyset;
 pub mod tpm_ca;
 pub mod uefi;
+pub mod uefi_credential_rotation;
 pub mod utils;
 pub mod vpc;
 pub mod vpc_peering;

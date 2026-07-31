@@ -2687,6 +2687,54 @@ pub async fn clear_bmc_credential_rotation_requested(
     Ok(())
 }
 
+/// Record an operator "force-converge this UEFI credential now" request on the
+/// machine that owns the UEFI credential (a host machine for its host UEFI; a
+/// DPU machine for its DPU UEFI). The machine state controller consumes it on
+/// its next sweep. Mirrors [`set_bmc_credential_rotation_requested`].
+pub async fn set_uefi_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET uefi_credential_rotation_requested = true WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("set_uefi_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
+pub async fn clear_uefi_credential_rotation_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE machines SET uefi_credential_rotation_requested = false WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| match e {
+            // `RETURNING id` yields no row for an unknown machine; surface a
+            // clean not-found rather than a generic wrapped error.
+            sqlx::Error::RowNotFound => DatabaseError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            },
+            e => DatabaseError::new("clear_uefi_credential_rotation_requested", e),
+        })?;
+    Ok(())
+}
+
 pub async fn update_dpu_asns(
     db_pool: &Pool<Postgres>,
     common_pools: &CommonPools,

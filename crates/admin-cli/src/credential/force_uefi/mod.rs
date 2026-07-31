@@ -15,11 +15,20 @@
  * limitations under the License.
  */
 
-// Keep the suites in one executable: sqlx-testing's migrated template is process-local.
-mod bmc_rotation;
-mod env;
-mod firmware_upgrade_completion;
-mod host_uefi_rotation;
-mod maintenance;
-mod power_management;
-mod rack_firmware_upgrade;
+pub mod args;
+pub mod cmd;
+
+pub use args::Args;
+
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        match self {
+            Args::Set(data) => cmd::set(data, &ctx.api_client).await,
+            Args::Clear(data) => cmd::clear(data, &ctx.api_client).await,
+        }
+    }
+}
