@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for switch-controller BMC credential rotation (REQ-2):
+//! End-to-end coverage for switch-controller BMC credential rotation:
 //! with the site-wide flag enabled, a staged target drives a Ready switch
 //! through `SwitchControllerState::RotatingBmc` and back to Ready, converging
 //! the device and persisting the rotated per-device secret. Mirrors the

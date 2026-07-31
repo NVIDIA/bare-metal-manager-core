@@ -1602,6 +1602,13 @@ impl Forge for Api {
         crate::handlers::uefi::set_host_uefi_password(self, request).await
     }
 
+    async fn set_dpu_uefi_password(
+        &self,
+        request: Request<rpc::SetDpuUefiPasswordRequest>,
+    ) -> Result<Response<rpc::SetDpuUefiPasswordResponse>, Status> {
+        crate::handlers::uefi::set_dpu_uefi_password(self, request).await
+    }
+
     async fn get_expected_machine(
         &self,
         request: Request<rpc::ExpectedMachineRequest>,

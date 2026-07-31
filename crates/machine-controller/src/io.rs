@@ -345,6 +345,7 @@ impl StateControllerIO for MachineStateControllerIO {
             ManagedHostState::HostReprovision { .. } => ("hostreprovisioning", ""),
             ManagedHostState::RotatingBmc { .. } => ("rotatingbmc", ""),
             ManagedHostState::RotatingHostUefi { .. } => ("rotatinghostuefi", ""),
+            ManagedHostState::RotatingDpuUefi { .. } => ("rotatingdpuuefi", ""),
             ManagedHostState::Measuring { measuring_state } => {
                 ("measuring", measuring_state_name(measuring_state))
             }

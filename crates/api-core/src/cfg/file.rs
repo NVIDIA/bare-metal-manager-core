@@ -342,7 +342,7 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub attestation_enabled: bool,
 
-    /// Site-wide enable for passive BMC credential rotation (REQ-2). When
+    /// Site-wide enable for passive BMC credential rotation. When
     /// `false` (the default), a Ready host never enters `RotatingBmc` on its own
     /// even if a device lags the staged site-wide target. This is the fleet
     /// kill-switch for rolling the feature out site-by-site; the operator

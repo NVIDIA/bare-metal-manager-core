@@ -146,6 +146,42 @@ pub(crate) async fn host_uefi_clear_credential_key(
     Ok(CredentialKey::host_uefi_site_default(version))
 }
 
+/// The current site-wide DPU UEFI target version a device should be driven to,
+/// from `sitewide_credential_rotation.target_version`. Mirrors
+/// [`host_uefi_target_version`] for the `dpu_uefi` family: version 0 is the
+/// legacy unversioned site-default baseline and a *missing* row is an error,
+/// since the backfill migration seeds a `dpu_uefi` row on every site.
+async fn dpu_uefi_target_version(conn: &mut sqlx::PgConnection) -> Result<u32, db::DatabaseError> {
+    let version = db::credential_rotation::current_target_version(
+        conn,
+        db::credential_rotation::CredentialRotationType::DpuUefi,
+    )
+    .await?
+    .ok_or_else(|| db::DatabaseError::Internal {
+        message: "no site-wide dpu_uefi rotation target row exists; the backfill migration \
+                  seeds one for every active credential type, so a missing row indicates a \
+                  broken or unmigrated database"
+            .to_string(),
+    })?;
+    u32::try_from(version).map_err(|e| db::DatabaseError::Internal {
+        message: format!("dpu UEFI target_version {version} is out of range for u32: {e}"),
+    })
+}
+
+/// The `CredentialKey` for the site-wide DPU UEFI password to *set* on a device:
+/// the secret at the current `dpu_uefi` target version (table-driven; v0 = the
+/// legacy unversioned site-default). The DPU analogue of
+/// [`host_uefi_set_credential_key`]; only the database half (reads the version
+/// and returns the key), so no connection is held across the remote reader.
+pub(crate) async fn dpu_uefi_set_credential_key(
+    conn: &mut sqlx::PgConnection,
+) -> Result<CredentialKey, CarbideError> {
+    let version = dpu_uefi_target_version(conn).await.map_err(|e| {
+        CarbideError::internal(format!("failed to read dpu UEFI target version: {e}"))
+    })?;
+    Ok(CredentialKey::dpu_uefi_site_default(version))
+}
+
 pub(crate) async fn clear_host_uefi_password(
     api: &Api,
     request: Request<rpc::ClearHostUefiPasswordRequest>,
@@ -424,4 +460,149 @@ pub(crate) async fn set_host_uefi_password(
     })?;
 
     Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
+}
+
+/// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+/// [`set_host_uefi_password`]): stage the site-wide `dpu_uefi` credential through
+/// the DPU's Redfish BIOS settings and record `dpu_uefi` convergence keyed by the
+/// DPU BMC MAC. Like the host path, this stages the change and returns without
+/// rebooting -- a DPU UEFI change only takes effect after a DPU restart, which
+/// the DPU ingestion flow and the `RotatingDpuUefi` rotation state perform; this
+/// direct path exists for operator testing, mirroring `SetHostUefiPassword`.
+pub(crate) async fn set_dpu_uefi_password(
+    api: &Api,
+    request: Request<rpc::SetDpuUefiPasswordRequest>,
+) -> Result<Response<rpc::SetDpuUefiPasswordResponse>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let request = request.into_inner();
+
+    let machine_id = if let Some(query) = request.machine_query {
+        match db::machine::find_by_query(&mut txn, &query).await? {
+            Some(machine) => {
+                log_machine_id(&machine.id);
+                machine.id
+            }
+            None => {
+                return Err(CarbideError::NotFoundError {
+                    kind: "machine",
+                    id: query,
+                }
+                .into());
+            }
+        }
+    } else {
+        convert_and_log_machine_id(request.dpu_id.as_ref())?
+    };
+
+    if !machine_id.machine_type().is_dpu() {
+        return Err(CarbideError::InvalidArgument(
+            "SetDpuUefiPassword targets a DPU machine; use SetHostUefiPassword for a host".into(),
+        )
+        .into());
+    }
+
+    let snapshot = db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions {
+            include_history: false,
+            include_instance_data: false,
+            host_health_config: api.runtime_config.host_health,
+        },
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
+
+    // The loaded snapshot is keyed by the host machine; the DPU we are targeting
+    // is one of its `dpu_snapshots`. Locate it so we drive the DPU's own BMC.
+    let dpu = snapshot
+        .dpu_snapshots
+        .iter()
+        .find(|d| d.id == machine_id)
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "dpu",
+            id: machine_id.to_string(),
+        })?;
+
+    let addr = dpu.bmc_addr().ok_or_else(|| {
+        CarbideError::InvalidArgument("specified DPU does not have BMC address".into())
+    })?;
+
+    // A known DPU BMC MAC is a hard precondition: it keys the dpu_uefi rotation
+    // bookkeeping recorded below, so reject up front rather than driving the
+    // device and only then discovering we cannot track its convergence.
+    let dpu_bmc_mac = dpu.status.bmc_info.mac.ok_or_else(|| {
+        CarbideError::InvalidArgument("specified DPU does not have a known BMC MAC address".into())
+    })?;
+
+    let bmc_access_info =
+        db::machine_interface::lookup_bmc_access_info(&mut txn, addr.ip(), Some(addr.port()))
+            .await?;
+
+    // Resolve the site-wide DPU UEFI credential key to set (table-driven; v0 =
+    // the legacy unversioned site-default). This is the DB half; do it while the
+    // txn is open.
+    let dpu_uefi_key = dpu_uefi_set_credential_key(&mut txn).await?;
+
+    // Commit before the remote reader (Vault) request and the redfish call so the
+    // connection is not held across them, then read the actual secret.
+    txn.commit().await?;
+    let dpu_uefi_credentials =
+        read_uefi_credentials(api.redfish_pool.credential_reader(), &dpu_uefi_key).await?;
+
+    let redfish_client = api
+        .redfish_pool
+        .client_by_info(&bmc_access_info)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "unable to create redfish client");
+            CarbideError::RedfishClientCreation {
+                inner: e.into(),
+                machine_id,
+            }
+        })?;
+
+    // A DPU stages the UEFI change through Redfish BIOS settings and schedules no
+    // job (it commits on the next DPU restart), so there is no job id to return.
+    api.redfish_pool
+        .uefi_setup(redfish_client.as_ref(), true, dpu_uefi_credentials)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to run uefi_setup call for DPU");
+            CarbideError::internal(format!("failed redfish uefi_setup subtask: {e}"))
+        })?;
+
+    // Mirror the host path's optimistic convergence record: the change is staged
+    // through Redfish BIOS settings and commits on the next DPU restart; record
+    // dpu_uefi convergence (keyed by the DPU BMC MAC, as ingestion and the
+    // backfill do) so the rotation bookkeeping tracks this DPU. If the staged
+    // change ultimately fails to apply, this is inaccurate -- the same
+    // optimism the host set path carries.
+    api.with_txn(|txn| {
+        async move {
+            db::credential_rotation::record_device_converged(
+                txn,
+                dpu_bmc_mac,
+                db::credential_rotation::CredentialRotationType::DpuUefi,
+            )
+            .await?;
+            Ok::<(), db::DatabaseError>(())
+        }
+        .boxed()
+    })
+    .await?
+    .map_err(|e| {
+        tracing::error!(error = %e, "Failed to record dpu_uefi convergence");
+        CarbideError::Internal {
+            message: format!("Failed to record DPU UEFI convergence: {e}"),
+        }
+    })?;
+
+    Ok(Response::new(rpc::SetDpuUefiPasswordResponse {}))
 }
