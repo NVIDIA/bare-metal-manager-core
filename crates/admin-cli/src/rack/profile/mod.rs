@@ -16,6 +16,7 @@
  */
 
 pub mod args;
+mod list;
 mod show;
 
 pub use args::Args;
@@ -27,6 +28,9 @@ use crate::errors::CarbideCliResult;
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         match self {
+            Args::List(args) => {
+                list::cmd::list_profiles(&ctx.api_client, args, &ctx.config).await?;
+            }
             Args::Show(args) => {
                 show::cmd::show_profile(&ctx.api_client, args, &ctx.config).await?;
             }

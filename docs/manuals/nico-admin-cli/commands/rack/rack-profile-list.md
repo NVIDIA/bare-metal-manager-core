@@ -1,19 +1,19 @@
-# `nico-admin-cli rack profile`
+# `nico-admin-cli rack profile list`
 
-_[Hardware commands](../../hardware.md) › [rack](./rack.md) › **profile**_
+_[Hardware commands](../../hardware.md) › [rack](./rack.md) › [profile](./rack-profile.md) › **list**_
 
 ## NAME
 
-nico-admin-cli-rack-profile - Rack profile
+nico-admin-cli-rack-profile-list - List configured rack profiles
 
 ## SYNOPSIS
 
-**nico-admin-cli rack profile** \[**--extended**\] \[**--sort-by**\]
-\[**-h**\|**--help**\] \<*subcommands*\>
+**nico-admin-cli rack profile list** \[**--extended**\]
+\[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
-Rack profile
+List configured rack profiles
 
 ## OPTIONS
 
@@ -37,12 +37,11 @@ Sort output by specified field\
 **-h**, **--help**  
 Print help (see a summary with -h)
 
-## Subcommands
+## Examples
 
-| Subcommand | Description |
-|---|---|
-| [`list`](./rack-profile-list.md) | List configured rack profiles |
-| [`show`](./rack-profile-show.md) | Show rack profile for a given rack |
+```sh
+nico-admin-cli rack profile list
+```
 
 ---
 

@@ -472,6 +472,10 @@ impl ApiClient {
             .await?)
     }
 
+    pub async fn list_rack_profiles(&self) -> CarbideCliResult<rpc::ListRackProfilesResponse> {
+        Ok(self.0.list_rack_profiles().await?)
+    }
+
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
         Ok(self
             .0

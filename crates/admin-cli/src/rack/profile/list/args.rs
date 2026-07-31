@@ -17,12 +17,12 @@
 
 use clap::Parser;
 
-use super::show;
-
 #[derive(Parser, Debug, Clone)]
-pub enum Args {
-    #[clap(about = "List configured rack profiles")]
-    List(super::list::Args),
-    #[clap(about = "Show rack profile for a given rack")]
-    Show(show::Args),
-}
+#[command(after_long_help = "\
+EXAMPLES:
+
+List the rack profiles available for expected racks:
+    $ nico-admin-cli rack profile list
+
+")]
+pub struct Args;

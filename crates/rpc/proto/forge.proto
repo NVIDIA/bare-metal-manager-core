@@ -790,6 +790,9 @@ service Forge {
   // Force deletes a Rack from the database.
   rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
+  // Lists the rack profiles from the effective runtime configuration.
+  // Rack profiles are configuration, not persisted rack resources.
+  rpc ListRackProfiles(google.protobuf.Empty) returns (ListRackProfilesResponse);
 
   //
   // Compute Allocations
@@ -7978,6 +7981,15 @@ message GetRackProfileResponse {
   common.RackId rack_id = 1;
   common.RackProfileId rack_profile_id = 2;
   RackProfile profile = 3;
+}
+
+message ConfiguredRackProfile {
+  common.RackProfileId rack_profile_id = 1;
+  RackProfile profile = 2;
+}
+
+message ListRackProfilesResponse {
+  repeated ConfiguredRackProfile rack_profiles = 1;
 }
 
 // put some sample rack manager commands in for now

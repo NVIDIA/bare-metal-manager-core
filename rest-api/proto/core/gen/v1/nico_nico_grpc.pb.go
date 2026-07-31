@@ -395,6 +395,7 @@ const (
 	Forge_DeleteRack_FullMethodName                                         = "/forge.Forge/DeleteRack"
 	Forge_AdminForceDeleteRack_FullMethodName                               = "/forge.Forge/AdminForceDeleteRack"
 	Forge_GetRackProfile_FullMethodName                                     = "/forge.Forge/GetRackProfile"
+	Forge_ListRackProfiles_FullMethodName                                   = "/forge.Forge/ListRackProfiles"
 	Forge_CreateComputeAllocation_FullMethodName                            = "/forge.Forge/CreateComputeAllocation"
 	Forge_FindComputeAllocationIds_FullMethodName                           = "/forge.Forge/FindComputeAllocationIds"
 	Forge_FindComputeAllocationsByIds_FullMethodName                        = "/forge.Forge/FindComputeAllocationsByIds"
@@ -1134,6 +1135,9 @@ type ForgeClient interface {
 	// Force deletes a Rack from the database.
 	AdminForceDeleteRack(ctx context.Context, in *AdminForceDeleteRackRequest, opts ...grpc.CallOption) (*AdminForceDeleteRackResponse, error)
 	GetRackProfile(ctx context.Context, in *GetRackProfileRequest, opts ...grpc.CallOption) (*GetRackProfileResponse, error)
+	// Lists the rack profiles from the effective runtime configuration.
+	// Rack profiles are configuration, not persisted rack resources.
+	ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error)
 	// Compute Allocations
 	CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(ctx context.Context, in *FindComputeAllocationIdsRequest, opts ...grpc.CallOption) (*FindComputeAllocationIdsResponse, error)
@@ -5060,6 +5064,16 @@ func (c *forgeClient) GetRackProfile(ctx context.Context, in *GetRackProfileRequ
 	return out, nil
 }
 
+func (c *forgeClient) ListRackProfiles(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ListRackProfilesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListRackProfilesResponse)
+	err := c.cc.Invoke(ctx, Forge_ListRackProfiles_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *forgeClient) CreateComputeAllocation(ctx context.Context, in *CreateComputeAllocationRequest, opts ...grpc.CallOption) (*CreateComputeAllocationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateComputeAllocationResponse)
@@ -6673,6 +6687,9 @@ type ForgeServer interface {
 	// Force deletes a Rack from the database.
 	AdminForceDeleteRack(context.Context, *AdminForceDeleteRackRequest) (*AdminForceDeleteRackResponse, error)
 	GetRackProfile(context.Context, *GetRackProfileRequest) (*GetRackProfileResponse, error)
+	// Lists the rack profiles from the effective runtime configuration.
+	// Rack profiles are configuration, not persisted rack resources.
+	ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error)
 	// Compute Allocations
 	CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error)
 	FindComputeAllocationIds(context.Context, *FindComputeAllocationIdsRequest) (*FindComputeAllocationIdsResponse, error)
@@ -7986,6 +8003,9 @@ func (UnimplementedForgeServer) AdminForceDeleteRack(context.Context, *AdminForc
 }
 func (UnimplementedForgeServer) GetRackProfile(context.Context, *GetRackProfileRequest) (*GetRackProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetRackProfile not implemented")
+}
+func (UnimplementedForgeServer) ListRackProfiles(context.Context, *emptypb.Empty) (*ListRackProfilesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListRackProfiles not implemented")
 }
 func (UnimplementedForgeServer) CreateComputeAllocation(context.Context, *CreateComputeAllocationRequest) (*CreateComputeAllocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateComputeAllocation not implemented")
@@ -14994,6 +15014,24 @@ func _Forge_GetRackProfile_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Forge_ListRackProfiles_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).ListRackProfiles(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_ListRackProfiles_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).ListRackProfiles(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Forge_CreateComputeAllocation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateComputeAllocationRequest)
 	if err := dec(in); err != nil {
@@ -18223,6 +18261,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRackProfile",
 			Handler:    _Forge_GetRackProfile_Handler,
+		},
+		{
+			MethodName: "ListRackProfiles",
+			Handler:    _Forge_ListRackProfiles_Handler,
 		},
 		{
 			MethodName: "CreateComputeAllocation",

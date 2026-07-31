@@ -15,14 +15,7 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+pub mod args;
+pub mod cmd;
 
-use super::show;
-
-#[derive(Parser, Debug, Clone)]
-pub enum Args {
-    #[clap(about = "List configured rack profiles")]
-    List(super::list::Args),
-    #[clap(about = "Show rack profile for a given rack")]
-    Show(show::Args),
-}
+pub use args::Args;
