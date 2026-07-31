@@ -73,18 +73,18 @@ use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
 use model::machine::nvlink::nvlink_config_synced;
 use model::machine::{
     AttestationMode, BomValidating, BomValidatingContext, CleanupContext, CleanupState,
-    CreateBossVolumeContext, CreateBossVolumeState, DpuDiscoveringState, DpuInitNextStateResolver,
-    DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
-    HostReprovisionState, InitialResetPhase, InstallDpuOsState, InstanceNextStateResolver,
-    InstanceState, LockdownInfo, LockdownState, MAX_FIRMWARE_UPGRADE_RETRIES, Machine,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineNextStateResolver,
-    MachineState, MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot,
-    MeasuringState, NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation,
-    PowerDrainState, PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure,
-    ReprovisionState, RetryInfo, SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo,
-    SetBootOrderState, SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo,
-    UefiSetupState, UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible,
-    get_display_ids,
+    CreateBossVolumeContext, CreateBossVolumeState, DecommissioningState, DpuDiscoveringState,
+    DpuInitNextStateResolver, DpuInitState, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InitialResetPhase, InstallDpuOsState,
+    InstanceNextStateResolver, InstanceState, LockdownInfo, LockdownState,
+    MAX_FIRMWARE_UPGRADE_RETRIES, Machine, MachineLastRebootRequested,
+    MachineLastRebootRequestedMode, MachineNextStateResolver, MachineState,
+    MachineValidationContext, ManagedHostState, ManagedHostStateSnapshot, MeasuringState,
+    NetworkConfigUpdateState, NextStateBFBSupport, PerformPowerOperation, PowerDrainState,
+    PowerState, ReadyBootConfigState, ReadyBootConfigTerminalFailure, ReprovisionState, RetryInfo,
+    SecureEraseBossContext, SecureEraseBossState, SetBootOrderInfo, SetBootOrderState,
+    SetSecureBootState, SpdmMeasuringState, StateMachineArea, UefiSetupInfo, UefiSetupState,
+    UnlockHostState, ValidationState, dpf_based_dpu_provisioning_possible, get_display_ids,
 };
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::power_manager::PowerHandlingOutcome;
@@ -119,6 +119,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 
 pub mod attestation;
 mod bios_config;
+mod decommissioning;
 mod dpf;
 mod firmware_artifact;
 mod helpers;
@@ -1087,6 +1088,45 @@ impl MachineStateHandler {
 
                 Ok(StateHandlerOutcome::do_nothing())
             }
+
+            ManagedHostState::Decommissioning {
+                decommissioning_state,
+            } => match decommissioning_state {
+                DecommissioningState::Preparing => {
+                    decommissioning::handle_preparing(mh_snapshot, ctx).await
+                }
+                DecommissioningState::DeconfiguringHost {
+                    deconfiguring_state,
+                } => {
+                    decommissioning::handle_deconfiguring_host(
+                        deconfiguring_state,
+                        mh_snapshot,
+                        ctx,
+                    )
+                    .await
+                }
+                DecommissioningState::DeconfiguringDpus { dpu_states } => {
+                    decommissioning::handle_deconfiguring_dpus(dpu_states, mh_snapshot, ctx).await
+                }
+                DecommissioningState::InstallingVanillaBfb { installing_state } => {
+                    decommissioning::handle_installing_vanilla_bfb(
+                        installing_state,
+                        mh_snapshot,
+                        ctx,
+                        self.dpu_handler.dpf_sdk.as_deref(),
+                    )
+                    .await
+                }
+                DecommissioningState::VerifyingDhcpRelease { verifying_state } => {
+                    decommissioning::handle_verifying_dhcp_release(
+                        verifying_state,
+                        mh_snapshot,
+                        ctx,
+                    )
+                    .await
+                }
+                DecommissioningState::Decommissioned => Ok(StateHandlerOutcome::do_nothing()),
+            },
 
             ManagedHostState::BootConfiguring {
                 desired_version,

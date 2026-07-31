@@ -752,6 +752,19 @@ pub async fn update_bios_password_set_time(
     Ok(())
 }
 
+pub async fn clear_bios_password_set_time(
+    machine_id: &MachineId,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = "UPDATE machines SET bios_password_set_time=NULL WHERE id=$1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 pub async fn update_discovery_time(
     machine_id: &MachineId,
     txn: &mut PgConnection,

@@ -26,8 +26,8 @@ use model::dpa_interface::DpaSearchConfig;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::slas::MachineSlaConfig;
 use model::machine::{
-    self, AttestationMode, DpuDiscoveringState, DpuInitState, HostHealthConfig,
-    MachineMaintenanceOperation, MachineValidatingState, ManagedHostState,
+    self, AttestationMode, DecommissioningState, DpuDiscoveringState, DpuInitState,
+    HostHealthConfig, MachineMaintenanceOperation, MachineValidatingState, ManagedHostState,
     ManagedHostStateSnapshot, MeasuringState, ReadyBootConfigState, SpdmMeasuringState,
     ValidationState,
 };
@@ -315,6 +315,24 @@ impl StateControllerIO for MachineStateControllerIO {
                 ("hostnotready", machine_state_name(machine_state))
             }
             ManagedHostState::Ready => ("ready", ""),
+            ManagedHostState::Decommissioning {
+                decommissioning_state,
+            } => match decommissioning_state {
+                DecommissioningState::Preparing => ("decommissioning", "preparing"),
+                DecommissioningState::DeconfiguringHost { .. } => {
+                    ("decommissioning", "deconfiguringhost")
+                }
+                DecommissioningState::DeconfiguringDpus { .. } => {
+                    ("decommissioning", "deconfiguringdpus")
+                }
+                DecommissioningState::InstallingVanillaBfb { .. } => {
+                    ("decommissioning", "installingvanillabfb")
+                }
+                DecommissioningState::VerifyingDhcpRelease { .. } => {
+                    ("decommissioning", "verifyingdhcprelease")
+                }
+                DecommissioningState::Decommissioned => ("decommissioning", "decommissioned"),
+            },
             ManagedHostState::BootConfiguring {
                 boot_config_state, ..
             } => (

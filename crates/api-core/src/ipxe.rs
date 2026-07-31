@@ -469,6 +469,7 @@ exit ||
         let pxe_script = match &machine.current_state() {
             ManagedHostState::Ready
             | ManagedHostState::HostInit { .. }
+            | ManagedHostState::Decommissioning { .. }
             | ManagedHostState::BootConfiguring { .. }
             | ManagedHostState::BomValidating { .. }
             | ManagedHostState::Measuring {

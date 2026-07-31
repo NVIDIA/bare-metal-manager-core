@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
@@ -1207,6 +1207,11 @@ pub enum ManagedHostState {
     /// Host is Ready for instance creation.
     Ready,
 
+    /// Host is being removed from managed service.
+    Decommissioning {
+        decommissioning_state: DecommissioningState,
+    },
+
     /// An unassigned Ready host is converging its Redfish boot configuration
     /// to the desired boot interface persisted on the machine.
     ///
@@ -1304,6 +1309,73 @@ pub enum ManagedHostState {
     BomValidating {
         bom_validating_state: BomValidating,
     },
+}
+
+/// Progress through the managed host decommissioning workflow.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum DecommissioningState {
+    Preparing,
+    DeconfiguringHost {
+        deconfiguring_state: DeconfiguringHostState,
+    },
+    DeconfiguringDpus {
+        dpu_states: HashMap<MachineId, DeconfiguringDpuState>,
+    },
+    InstallingVanillaBfb {
+        installing_state: InstallingVanillaBfbState,
+    },
+    VerifyingDhcpRelease {
+        verifying_state: VerifyingDhcpReleaseState,
+    },
+    Decommissioned,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum InstallingVanillaBfbState {
+    DeletingFromDpf,
+    Installing {
+        dpu_states: HashMap<MachineId, InstallDpuOsState>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum VerifyingDhcpReleaseState {
+    SettingBmcPasswords { completed: HashSet<MachineId> },
+    SuppressingDhcp,
+    ResettingBmcs { completed: HashSet<MachineId> },
+    WaitingForAcknowledgement,
+    FactoryResettingBmcs { completed: HashSet<MachineId> },
+    WaitingForAcknowledgementAfterFactoryReset,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum DeconfiguringHostState {
+    DisableLockdown,
+    RebootAfterLockdown,
+    ClearUefiPassword,
+    WaitForUefiPasswordJobScheduled { job_id: String },
+    RebootAfterUefiPassword { job_id: String },
+    WaitForUefiPasswordJobCompletion { job_id: String },
+    ClearSuperNicLockdown,
+    WaitForSuperNicLockdown,
+    ResetUefiSettings,
+    RebootAfterUefiReset,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "state", rename_all = "lowercase")]
+pub enum DeconfiguringDpuState {
+    ClearUefiPassword,
+    WaitForUefiPasswordJobScheduled { job_id: String },
+    RebootAfterUefiPassword { job_id: String },
+    WaitForUefiPasswordJobCompletion { job_id: String },
+    ResetUefiSettings,
+    RebootAfterUefiReset,
+    Complete,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -2478,6 +2550,25 @@ impl Display for ReadyBootConfigState {
     }
 }
 
+impl Display for DecommissioningState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecommissioningState::Preparing => write!(f, "Preparing"),
+            DecommissioningState::DeconfiguringHost {
+                deconfiguring_state,
+            } => write!(f, "DeconfiguringHost/{deconfiguring_state:?}"),
+            DecommissioningState::DeconfiguringDpus { .. } => write!(f, "DeconfiguringDpus"),
+            DecommissioningState::InstallingVanillaBfb { .. } => {
+                write!(f, "InstallingVanillaBfb")
+            }
+            DecommissioningState::VerifyingDhcpRelease { .. } => {
+                write!(f, "VerifyingDhcpRelease")
+            }
+            DecommissioningState::Decommissioned => write!(f, "Decommissioned"),
+        }
+    }
+}
+
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -2506,6 +2597,9 @@ impl Display for ManagedHostState {
                 write!(f, "HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => write!(f, "Ready"),
+            ManagedHostState::Decommissioning {
+                decommissioning_state,
+            } => write!(f, "Decommissioning/{decommissioning_state}"),
             ManagedHostState::BootConfiguring {
                 boot_config_state, ..
             } => {
@@ -2607,6 +2701,9 @@ impl ManagedHostState {
                 format!("HostInitializing/{machine_state}")
             }
             ManagedHostState::Ready => "Ready".to_string(),
+            ManagedHostState::Decommissioning {
+                decommissioning_state,
+            } => format!("Decommissioning/{decommissioning_state}"),
             ManagedHostState::BootConfiguring {
                 boot_config_state, ..
             } => {
@@ -2815,6 +2912,7 @@ pub fn state_sla(
             _ => StateSla::with_sla(slas::HOST_INIT, time_in_state),
         },
         ManagedHostState::Ready => StateSla::no_sla(),
+        ManagedHostState::Decommissioning { .. } => StateSla::no_sla(),
         ManagedHostState::BootConfiguring {
             boot_config_state: ReadyBootConfigState::Failed { .. },
             ..
