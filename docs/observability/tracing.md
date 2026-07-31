@@ -9,7 +9,7 @@ How NICo component tracing works, what it covers, how to turn it on and off and 
 - **nico-api** (the `carbide-api` binary) is NICo's primary tracing source and the subject of this
   document. **nico-dns** also emits traces, but with a separate simpler always-on setup.
   **nico-bmc-proxy** emits traces for each proxied BMC request when configured (see
-  [1.6](#16-nico-bmc-proxy-tracing)).
+  [nico-bmc-proxy tracing](#16-nico-bmc-proxy-tracing)).
 - **nico-api traces are off by default**; two things must both be true before any spans are emitted:
   - An OTLP endpoint is configured at startup, either in the nico-api config TOML:
 
@@ -36,7 +36,7 @@ How NICo component tracing works, what it covers, how to turn it on and off and 
 - nico-api **propagates W3C trace context** at its network boundaries: it reads `traceparent`/
   `tracestate` from inbound REST and gRPC requests and continues that trace, injecting the same
   headers into its outbound requests. Propagation links traces across services, but does not by itself
-  enable recording (see [1.7](#17-w3c-trace-context-propagation)).
+  enable recording (see [W3C trace-context propagation](#17-w3c-trace-context-propagation)).
 
 ---
 
@@ -44,13 +44,14 @@ How NICo component tracing works, what it covers, how to turn it on and off and 
 
 ### 1.1 Which components emit traces
 
-Three binaries build an OTLP span exporter:
+The following binaries build an OTLP span exporter:
 
 - **nico-api** (`crates/api-core/src/logging/setup.rs`) - the rich, control-plane tracing this
   document is mostly about, off by default behind endpoint plus enabled-flag configuration
 - **nico-dns** (`crates/dns/src/main.rs`) - a separate, much simpler **always-on** setup.
 - **nico-bmc-proxy** (`crates/bmc-proxy/src/setup.rs`) - one span per proxied BMC request, off by
-  default behind endpoint plus `[tracing] enabled` (see [1.6](#16-nico-bmc-proxy-tracing)).
+  default behind endpoint plus `[tracing] enabled` (see
+  [nico-bmc-proxy tracing](#16-nico-bmc-proxy-tracing)).
 
 The other binaries (nico-pxe, nico-dhcp, nico-hardware-health, nico-ssh-console-rs, and
 nico-dsx-exchange-consumer) carry the OpenTelemetry crates in the workspace but do not build a span
@@ -92,7 +93,8 @@ nico-api uses a custom `CarbideSpanSampler`:
 - **In-process child spans inherit the root's decision**, so once a trace is sampled the whole call tree beneath
   it is captured - **except tokio spans, which are always dropped** (they leak and would exhaust memory).
 - For a span parented to a **remote** (ingress-extracted) trace, the decision stays local: an inbound `sampled`
-  flag does not override `tracing_enabled` (see [1.7](#17-w3c-trace-context-propagation)).
+  flag does not override `tracing_enabled` (see
+  [W3C trace-context propagation](#17-w3c-trace-context-propagation)).
 - The exporter resource is `service.name = carbide-api`; the tracer is named `carbide`.
 
 ### 1.4 How traces leave nico-api
@@ -123,7 +125,9 @@ nico-api's:
 
 nico-bmc-proxy traces each proxied Redfish request through the BMC credential proxy
 (`crates/bmc-proxy/src/bmc_proxy.rs`). It follows the same W3C propagation model as nico-api
-(issue #2438) so a call from nico-api or DPS stays one trace across the proxy hop (issue #2355).
+(issue [#2438](https://github.com/NVIDIA/infra-controller/issues/2438)) so a call from nico-api or
+DPS stays one trace across the proxy hop (issue
+[#2355](https://github.com/NVIDIA/infra-controller/issues/2355)).
 
 - **Off by default.** Spans are exported only when an OTLP endpoint is configured **and**
   `[tracing] enabled = true` (or the process is started with `--debug`). There is no runtime
@@ -144,7 +148,7 @@ nico-bmc-proxy traces each proxied Redfish request through the BMC credential pr
   which headers are its own — so the BMC parents under the proxy's span rather than the caller's.
 - **Egress to nico-api (gRPC).** Credential lookup uses the shared `ForgeApiClient`, which already
   wraps the transport with `TraceInjectService`.
-- **Resource / tracer:** `service.name = carbide-bmc-proxy`, tracer name `carbide-bmc-proxy`.
+- **Resource / tracer:** `service.name = nico-bmc-proxy`, tracer name `nico-bmc-proxy`.
 - **Span fields:** HTTP method and request path, the status the proxy answered its caller with (not
   the BMC's — a request the proxy rejects never reaches one), and BMC target IP (span attribute, not
   a Prometheus label). Only a 5xx sets the span status to error; a 4xx is the caller's error.
