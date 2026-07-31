@@ -106,7 +106,7 @@ pub fn setup_logging(debug: bool, tracing_config: &TracingConfig) -> SetupResult
 
     let maybe_otel_tracing_layer = tracer_provider.as_ref().map(|provider| {
         tracing_opentelemetry::layer()
-            .with_tracer(provider.tracer("carbide-bmc-proxy"))
+            .with_tracer(provider.tracer("nico-bmc-proxy"))
             .with_filter(trace_filter)
     });
 
@@ -189,7 +189,7 @@ fn build_tracer_provider(
         .with_batch_exporter(exporter)
         .with_resource(
             Resource::builder()
-                .with_attributes([KeyValue::new("service.name", "carbide-bmc-proxy")])
+                .with_attributes([KeyValue::new("service.name", "nico-bmc-proxy")])
                 .build(),
         )
         .build()

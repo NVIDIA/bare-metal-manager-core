@@ -422,7 +422,7 @@ impl BmcProxy {
                 .expect("could not spawn task to handle HTTP connection");
         }
 
-        tracing::info!("carbide-bmc-proxy shutting down");
+        tracing::info!("nico-bmc-proxy shutting down");
     }
 }
 
@@ -1830,7 +1830,7 @@ mod tests {
             .with_sampler(Sampler::AlwaysOn)
             .with_simple_exporter(exporter.clone())
             .build();
-        let tracer = provider.tracer("carbide-bmc-proxy-test");
+        let tracer = provider.tracer("nico-bmc-proxy-test");
         let subscriber =
             tracing_subscriber::registry().with(tracing_opentelemetry::layer().with_tracer(tracer));
 
