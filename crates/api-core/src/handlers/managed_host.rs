@@ -177,11 +177,42 @@ pub(crate) async fn delete_decommissioned_managed_host(
         }
     }
 
+    let mut txn = api.txn_begin().await?;
+
+    // Secret deletion released the validation transaction's row lock. Reacquire it and refresh
+    // the managed-host membership before beginning destructive database cleanup.
+    let host = db::machine::find_one(
+        &mut txn,
+        &machine_id,
+        MachineSearchConfig {
+            for_update: true,
+            ..Default::default()
+        },
+    )
+    .await?
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "managed host",
+        id: machine_id.to_string(),
+    })?;
+    if !matches!(
+        host.current_state(),
+        ManagedHostState::Decommissioning {
+            decommissioning_state: DecommissioningState::Decommissioned,
+        }
+    ) {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "managed host {machine_id} must be Decommissioned before deletion (current state: {})",
+            host.current_state()
+        ))
+        .into());
+    }
+    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+    let machines = std::iter::once(&host).chain(&dpus).collect::<Vec<_>>();
     let bmc_macs = machines
         .iter()
         .filter_map(|machine| machine.status.bmc_info.mac)
         .collect::<Vec<_>>();
-    let mut txn = api.txn_begin().await?;
+
     db::machine_interface::lock_all_admin_segments(&mut txn).await?;
 
     // Remove BMC interfaces, including those not projected into Machine.status.interfaces.
