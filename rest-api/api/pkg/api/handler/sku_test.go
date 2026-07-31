@@ -719,6 +719,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uuid.MustParse(fixture.siteID), saved.SiteID)
 		assert.Equal(t, response.Description, saved.Description)
+		assert.Equal(t, response.SchemaVersion, saved.SchemaVersion)
 		assert.Equal(t, response.DeviceType, saved.DeviceType)
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
@@ -755,6 +756,7 @@ func TestCreateSkuHandler(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, uuid.MustParse(fixture.siteID), saved.SiteID)
 		assert.Equal(t, *req.Description, saved.Description)
+		assert.Equal(t, model.CoreSkuSchemaVersion, saved.SchemaVersion)
 		assert.Equal(t, req.DeviceType, saved.DeviceType)
 		require.NotNil(t, saved.Components)
 		require.Len(t, saved.Components.Storage, 1)
@@ -887,6 +889,7 @@ func TestUpdateSkuHandler(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, saved.DeviceType)
 		assert.Equal(t, deviceType, *saved.DeviceType)
+		assert.Equal(t, uint32(4), saved.SchemaVersion)
 		require.NotNil(t, saved.Components)
 		require.NotNil(t, saved.Components.Chassis)
 		assert.Equal(t, "existing chassis", saved.Components.Chassis.Model)
@@ -1242,8 +1245,9 @@ func newSkuManagementFixtureWithOptions(t *testing.T, roles []string, options sk
 	if !options.skipPersistedSKU {
 		skuDAO := cdbm.NewSkuDAO(dbSession)
 		_, err = skuDAO.Create(context.Background(), nil, cdbm.SkuCreateInput{
-			SkuID:  "sku-1",
-			SiteID: site.ID,
+			SkuID:         "sku-1",
+			SiteID:        site.ID,
+			SchemaVersion: 4,
 		})
 		require.NoError(t, err)
 	}
@@ -1361,13 +1365,13 @@ func validSkuCreateRequest(siteID string) model.APISkuCreateRequest {
 		ID:          "sku-1",
 		Description: cutil.GetPtr("test SKU"),
 		DeviceType:  &deviceType,
-		Components: &model.APICreateOrUpdateSkuComponentsRequest{
+		Components: &model.APISkuComponents{
 			Chassis: &model.APISkuChassis{
 				Vendor:       "NVIDIA",
 				Model:        "DGX H100",
 				Architecture: "x86_64",
 			},
-			Storage: []model.APICreateOrUpdateSkuStorageRequest{{
+			Storage: []model.APISkuStorage{{
 				Model:       "informational-model",
 				Count:       2,
 				MinSizeMiB:  cutil.GetPtr(uint32(3_600_000)),

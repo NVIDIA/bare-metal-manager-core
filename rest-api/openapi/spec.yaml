@@ -24756,6 +24756,7 @@ components:
         - id: lenovo.sr650v2.cpu.1
           siteId: 60189e9c-7d12-438c-b9ca-6998d9c364b1
           description: Lenovo SR650 V2 compute node
+          schemaVersion: 5
           deviceType: gpu
           associatedMachineIds:
             - fm100ht4v4mce2qstjnl8970nnj3ie6ecek4mtjn27pea4kre5gsa49jg0g
@@ -24860,7 +24861,7 @@ components:
             - 'null'
           description: Optional device type identifier
         components:
-          $ref: '#/components/schemas/SkuMutationComponents'
+          $ref: '#/components/schemas/SkuComponents'
       required:
         - siteId
         - id
@@ -24890,7 +24891,7 @@ components:
           type: string
           description: Replacement device type identifier
         components:
-          $ref: '#/components/schemas/SkuMutationComponents'
+          $ref: '#/components/schemas/SkuComponents'
     SkuComponents:
       title: SkuComponents
       type: object
@@ -24934,47 +24935,6 @@ components:
           description: TPM components
           items:
             $ref: '#/components/schemas/SkuTpm'
-    SkuMutationComponents:
-      title: SkuMutationComponents
-      type: object
-      description: Hardware components accepted by SKU mutation endpoints
-      properties:
-        cpus:
-          type: array
-          description: CPU components
-          items:
-            $ref: '#/components/schemas/SkuCpu'
-        gpus:
-          type: array
-          description: GPU components
-          items:
-            $ref: '#/components/schemas/SkuGpu'
-        memory:
-          type: array
-          description: Memory components
-          items:
-            $ref: '#/components/schemas/SkuMemory'
-        storage:
-          type: array
-          description: Storage components
-          items:
-            $ref: '#/components/schemas/SkuStorageMutation'
-        chassis:
-          $ref: '#/components/schemas/SkuChassis'
-          description: Chassis component
-        ethernetDevices:
-          type: array
-          description: Ethernet device components
-          items:
-            $ref: '#/components/schemas/SkuEthernetDevice'
-        infinibandDevices:
-          type: array
-          description: Infiniband device components
-          items:
-            $ref: '#/components/schemas/SkuInfinibandDevice'
-        tpm:
-          $ref: '#/components/schemas/SkuTpm'
-          description: TPM component
     SkuCpu:
       title: SkuCpu
       type: object
@@ -25066,58 +25026,20 @@ components:
       properties:
         vendor:
           type: string
-          deprecated: true
           readOnly: true
-          description: Deprecated legacy field retained for response compatibility. Core returns an empty string and does not use this field for storage matching.
+          description: Storage vendor used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 does not use this field.
         model:
           type: string
           description: Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
         capacityMb:
           type: integer
           format: uint32
-          deprecated: true
           readOnly: true
-          description: Deprecated legacy field retained for response compatibility. Core returns zero; use minSizeMiB and maxSizeMiB for storage size constraints.
+          description: Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
         count:
           type: integer
           format: uint32
           description: Number of storage devices present
-        minSizeMiB:
-          type:
-            - integer
-            - 'null'
-          format: uint32
-          description: Inclusive minimum size in MiB for each storage device. Null or omission means no lower bound. Used for SKU schema version 5 and later.
-        maxSizeMiB:
-          type:
-            - integer
-            - 'null'
-          format: uint32
-          description: Inclusive maximum size in MiB for each storage device. Null or omission means no upper bound. Used for SKU schema version 5 and later.
-        pciPatterns:
-          type: array
-          description: Regular expressions matched against storage sysfs PCI paths. An empty or omitted list disables PCI location matching. Used for SKU schema version 5 and later.
-          items:
-            type: string
-    SkuStorageMutation:
-      title: SkuStorageMutation
-      type: object
-      description: Writable storage constraints for a SKU. Legacy vendor and capacityMb fields are not accepted.
-      examples:
-        - model: SAMSUNG MZTL63T8HFLT-00AW7
-          count: 8
-          minSizeMiB: 3600000
-          maxSizeMiB: 3900000
-          pciPatterns:
-            - ^/devices/pci.*nvme[1-8]$
-      properties:
-        model:
-          type: string
-          description: Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
-        count:
-          type: integer
-          format: uint32
-          description: Number of storage devices required
         minSizeMiB:
           type:
             - integer

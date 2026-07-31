@@ -31,8 +31,8 @@ type SkuCreateRequest struct {
 	// Human-readable SKU description
 	Description *string `json:"description,omitempty"`
 	// Optional device type identifier
-	DeviceType NullableString        `json:"deviceType,omitempty"`
-	Components SkuMutationComponents `json:"components"`
+	DeviceType NullableString `json:"deviceType,omitempty"`
+	Components SkuComponents  `json:"components"`
 }
 
 type _SkuCreateRequest SkuCreateRequest
@@ -41,7 +41,7 @@ type _SkuCreateRequest SkuCreateRequest
 // This constructor will assign default values to properties that have it defined,
 // and makes sure properties required by API are set, but the set of arguments
 // will change when the set of required properties is changed
-func NewSkuCreateRequest(siteId string, id string, components SkuMutationComponents) *SkuCreateRequest {
+func NewSkuCreateRequest(siteId string, id string, components SkuComponents) *SkuCreateRequest {
 	this := SkuCreateRequest{}
 	this.SiteId = siteId
 	this.Id = id
@@ -181,9 +181,9 @@ func (o *SkuCreateRequest) UnsetDeviceType() {
 }
 
 // GetComponents returns the Components field value
-func (o *SkuCreateRequest) GetComponents() SkuMutationComponents {
+func (o *SkuCreateRequest) GetComponents() SkuComponents {
 	if o == nil {
-		var ret SkuMutationComponents
+		var ret SkuComponents
 		return ret
 	}
 
@@ -192,7 +192,7 @@ func (o *SkuCreateRequest) GetComponents() SkuMutationComponents {
 
 // GetComponentsOk returns a tuple with the Components field value
 // and a boolean to check if the value has been set.
-func (o *SkuCreateRequest) GetComponentsOk() (*SkuMutationComponents, bool) {
+func (o *SkuCreateRequest) GetComponentsOk() (*SkuComponents, bool) {
 	if o == nil {
 		return nil, false
 	}
@@ -200,7 +200,7 @@ func (o *SkuCreateRequest) GetComponentsOk() (*SkuMutationComponents, bool) {
 }
 
 // SetComponents sets field value
-func (o *SkuCreateRequest) SetComponents(v SkuMutationComponents) {
+func (o *SkuCreateRequest) SetComponents(v SkuComponents) {
 	o.Components = v
 }
 

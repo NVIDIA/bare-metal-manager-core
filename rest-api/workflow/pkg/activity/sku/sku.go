@@ -107,6 +107,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 				SkuID:                reported.ID,
 				SiteID:               reported.SiteID,
 				Description:          reported.Description,
+				SchemaVersion:        reported.SchemaVersion,
 				DeviceType:           reported.DeviceType,
 				Components:           reported.Components,
 				AssociatedMachineIds: reported.AssociatedMachineIds,
@@ -119,7 +120,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 		}
 
 		// Update existing SKU data in DB
-		if cur.Description != reported.Description ||
+		if cur.Description != reported.Description || cur.SchemaVersion != reported.SchemaVersion ||
 			!cur.Components.Equal(reported.Components) || cur.DeviceType != reported.DeviceType ||
 			!reflect.DeepEqual(cur.AssociatedMachineIds, reported.AssociatedMachineIds) {
 			// nil AssociatedMachineIds in nico can mean we need to clear out existing AssociatedMachineIds in DB
@@ -138,6 +139,7 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 			sku := cdbm.SkuUpdateInput{
 				SkuID:                reported.ID,
 				Description:          &reported.Description,
+				SchemaVersion:        &reported.SchemaVersion,
 				Components:           components,
 				DeviceType:           reported.DeviceType,
 				AssociatedMachineIds: associated,

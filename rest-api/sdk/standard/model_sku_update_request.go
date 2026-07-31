@@ -25,8 +25,8 @@ type SkuUpdateRequest struct {
 	// Replacement SKU description
 	Description *string `json:"description,omitempty"`
 	// Replacement device type identifier
-	DeviceType *string                `json:"deviceType,omitempty"`
-	Components *SkuMutationComponents `json:"components,omitempty"`
+	DeviceType *string        `json:"deviceType,omitempty"`
+	Components *SkuComponents `json:"components,omitempty"`
 }
 
 // NewSkuUpdateRequest instantiates a new SkuUpdateRequest object
@@ -111,9 +111,9 @@ func (o *SkuUpdateRequest) SetDeviceType(v string) {
 }
 
 // GetComponents returns the Components field value if set, zero value otherwise.
-func (o *SkuUpdateRequest) GetComponents() SkuMutationComponents {
+func (o *SkuUpdateRequest) GetComponents() SkuComponents {
 	if o == nil || IsNil(o.Components) {
-		var ret SkuMutationComponents
+		var ret SkuComponents
 		return ret
 	}
 	return *o.Components
@@ -121,7 +121,7 @@ func (o *SkuUpdateRequest) GetComponents() SkuMutationComponents {
 
 // GetComponentsOk returns a tuple with the Components field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-func (o *SkuUpdateRequest) GetComponentsOk() (*SkuMutationComponents, bool) {
+func (o *SkuUpdateRequest) GetComponentsOk() (*SkuComponents, bool) {
 	if o == nil || IsNil(o.Components) {
 		return nil, false
 	}
@@ -137,8 +137,8 @@ func (o *SkuUpdateRequest) HasComponents() bool {
 	return false
 }
 
-// SetComponents gets a reference to the given SkuMutationComponents and assigns it to the Components field.
-func (o *SkuUpdateRequest) SetComponents(v SkuMutationComponents) {
+// SetComponents gets a reference to the given SkuComponents and assigns it to the Components field.
+func (o *SkuUpdateRequest) SetComponents(v SkuComponents) {
 	o.Components = &v
 }
 

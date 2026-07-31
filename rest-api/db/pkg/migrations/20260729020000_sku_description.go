@@ -26,18 +26,26 @@ func init() {
 			Exec(ctx)
 		handleError(tx, err)
 
+		_, err = tx.NewAddColumn().
+			Model((*model.SKU)(nil)).
+			IfNotExists().
+			ColumnExpr("schema_version INTEGER NOT NULL DEFAULT 0").
+			Exec(ctx)
+		handleError(tx, err)
+
 		terr = tx.Commit()
 		if terr != nil {
 			handlePanic(terr, "failed to commit transaction")
 		}
 
-		fmt.Print(" [up migration] Added 'description' column to 'sku' table successfully. ")
+		fmt.Print(" [up migration] Added 'description' and 'schema_version' columns to 'sku' table successfully. ")
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
-		if _, err := db.ExecContext(ctx, `ALTER TABLE sku DROP COLUMN IF EXISTS description`); err != nil {
+		_, err := db.ExecContext(ctx, `ALTER TABLE sku DROP COLUMN IF EXISTS description, DROP COLUMN IF EXISTS schema_version`)
+		if err != nil {
 			return err
 		}
-		fmt.Print(" [down migration] Dropped 'description' column from 'sku' table successfully. ")
+		fmt.Print(" [down migration] Dropped 'description' and 'schema_version' columns from 'sku' table successfully. ")
 		return nil
 	})
 }

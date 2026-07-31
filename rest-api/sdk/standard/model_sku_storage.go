@@ -22,13 +22,11 @@ var _ MappedNullable = &SkuStorage{}
 
 // SkuStorage Storage component in a SKU
 type SkuStorage struct {
-	// Deprecated legacy field retained for response compatibility. Core returns an empty string and does not use this field for storage matching.
-	// Deprecated
+	// Storage vendor used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 does not use this field.
 	Vendor *string `json:"vendor,omitempty"`
 	// Informational storage model. Starting with the 2.1 release, NICo does not use this field for storage matching or validation.
 	Model *string `json:"model,omitempty"`
-	// Deprecated legacy field retained for response compatibility. Core returns zero; use minSizeMiB and maxSizeMiB for storage size constraints.
-	// Deprecated
+	// Storage capacity in megabytes used for schema version 4 matching. Read-only in REST mutation requests and preserved in responses for legacy SKUs. Schema version 5 uses minSizeMiB and maxSizeMiB instead.
 	CapacityMb *int32 `json:"capacityMb,omitempty"`
 	// Number of storage devices present
 	Count *int32 `json:"count,omitempty"`
@@ -58,7 +56,6 @@ func NewSkuStorageWithDefaults() *SkuStorage {
 }
 
 // GetVendor returns the Vendor field value if set, zero value otherwise.
-// Deprecated
 func (o *SkuStorage) GetVendor() string {
 	if o == nil || IsNil(o.Vendor) {
 		var ret string
@@ -69,7 +66,6 @@ func (o *SkuStorage) GetVendor() string {
 
 // GetVendorOk returns a tuple with the Vendor field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-// Deprecated
 func (o *SkuStorage) GetVendorOk() (*string, bool) {
 	if o == nil || IsNil(o.Vendor) {
 		return nil, false
@@ -87,7 +83,6 @@ func (o *SkuStorage) HasVendor() bool {
 }
 
 // SetVendor gets a reference to the given string and assigns it to the Vendor field.
-// Deprecated
 func (o *SkuStorage) SetVendor(v string) {
 	o.Vendor = &v
 }
@@ -125,7 +120,6 @@ func (o *SkuStorage) SetModel(v string) {
 }
 
 // GetCapacityMb returns the CapacityMb field value if set, zero value otherwise.
-// Deprecated
 func (o *SkuStorage) GetCapacityMb() int32 {
 	if o == nil || IsNil(o.CapacityMb) {
 		var ret int32
@@ -136,7 +130,6 @@ func (o *SkuStorage) GetCapacityMb() int32 {
 
 // GetCapacityMbOk returns a tuple with the CapacityMb field value if set, nil otherwise
 // and a boolean to check if the value has been set.
-// Deprecated
 func (o *SkuStorage) GetCapacityMbOk() (*int32, bool) {
 	if o == nil || IsNil(o.CapacityMb) {
 		return nil, false
@@ -154,7 +147,6 @@ func (o *SkuStorage) HasCapacityMb() bool {
 }
 
 // SetCapacityMb gets a reference to the given int32 and assigns it to the CapacityMb field.
-// Deprecated
 func (o *SkuStorage) SetCapacityMb(v int32) {
 	o.CapacityMb = &v
 }

@@ -23,7 +23,9 @@ type APISku struct {
 	// Description is the human-readable SKU description
 	Description string `json:"description"`
 	// SchemaVersion is the Core SKU schema version when known.
-	SchemaVersion uint32 `json:"schemaVersion,omitempty"`
+	// When creating a new SKU or updating the components of an existing SKU,
+	// the schema version must be the current schema version.
+	SchemaVersion uint32 `json:"schemaVersion"`
 	// DeviceType is the optional device type identifier
 	DeviceType *string `json:"deviceType"`
 	// AssociatedMachineIds is the list of machine IDs associated with this SKU
@@ -31,9 +33,9 @@ type APISku struct {
 	// Components contains the hardware components of this SKU
 	Components *APISkuComponents `json:"components"`
 	// Created is the date and time the entity was created
-	Created *time.Time `json:"created,omitempty"`
+	Created *time.Time `json:"created"`
 	// Updated is the date and time the entity was last updated
-	Updated *time.Time `json:"updated,omitempty"`
+	Updated *time.Time `json:"updated"`
 }
 
 // APISkuCreateRequest is the POST /sku request body.
@@ -47,7 +49,7 @@ type APISkuCreateRequest struct {
 	// DeviceType is the optional device type identifier.
 	DeviceType *string `json:"deviceType,omitempty"`
 	// Components is the expected hardware configuration.
-	Components *APICreateOrUpdateSkuComponentsRequest `json:"components"`
+	Components *APISkuComponents `json:"components"`
 }
 
 // APISkuUpdateRequest is the PATCH /sku/:id request body.
@@ -59,7 +61,7 @@ type APISkuUpdateRequest struct {
 	// DeviceType replaces the device type when provided.
 	DeviceType *string `json:"deviceType,omitempty"`
 	// Components replaces the hardware configuration when provided.
-	Components *APICreateOrUpdateSkuComponentsRequest `json:"components,omitempty"`
+	Components *APISkuComponents `json:"components,omitempty"`
 }
 
 // CoreSkuSchemaVersion is the Core wire format emitted by REST SKU mutations.
@@ -184,6 +186,7 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 		ID:                   dbSku.ID,
 		SiteID:               dbSku.SiteID.String(),
 		Description:          dbSku.Description,
+		SchemaVersion:        dbSku.SchemaVersion,
 		DeviceType:           dbSku.DeviceType,
 		AssociatedMachineIds: dbSku.AssociatedMachineIds,
 		Created:              &dbSku.Created,
@@ -198,7 +201,7 @@ func NewAPISku(dbSku *cdbm.SKU) *APISku {
 	return apiSku
 }
 
-type skuComponents[skuStorage any] struct {
+type APISkuComponents struct {
 	// Cpus describes CPU components
 	Cpus []APISkuCpu `json:"cpus"`
 	// Gpus describes GPU components
@@ -206,7 +209,7 @@ type skuComponents[skuStorage any] struct {
 	// Memory describes memory components
 	Memory []APISkuMemory `json:"memory"`
 	// Storage describes storage components
-	Storage []skuStorage `json:"storage"`
+	Storage []APISkuStorage `json:"storage"`
 	// Chassis describes chassis component
 	Chassis *APISkuChassis `json:"chassis"`
 	// EthernetDevices describes ethernet device components
@@ -217,32 +220,8 @@ type skuComponents[skuStorage any] struct {
 	Tpm *APISkuTpm `json:"tpm"`
 }
 
-// APISkuComponents is the data structure to capture API representation of SKU Components.
-type APISkuComponents skuComponents[APISkuStorage]
-
-// APICreateOrUpdateSkuComponentsRequest is the hardware component shape
-// accepted by SKU create and update endpoints.
-type APICreateOrUpdateSkuComponentsRequest struct {
-	// Cpus describes CPU components.
-	Cpus []APISkuCpu `json:"cpus"`
-	// Gpus describes GPU components.
-	Gpus []APISkuGpu `json:"gpus"`
-	// Memory describes memory components.
-	Memory []APISkuMemory `json:"memory"`
-	// Storage describes writable storage constraints.
-	Storage []APICreateOrUpdateSkuStorageRequest `json:"storage"`
-	// Chassis describes the chassis component.
-	Chassis *APISkuChassis `json:"chassis"`
-	// EthernetDevices describes Ethernet device components.
-	EthernetDevices []APISkuEthernetDevice `json:"ethernetDevices"`
-	// InfinibandDevices describes InfiniBand device components.
-	InfinibandDevices []APISkuInfinibandDevice `json:"infinibandDevices"`
-	// Tpm describes TPM components.
-	Tpm *APISkuTpm `json:"tpm"`
-}
-
-// Validate checks every writable storage component.
-func (c APICreateOrUpdateSkuComponentsRequest) Validate() error {
+// Validate checks every storage component.
+func (c APISkuComponents) Validate() error {
 	return validation.Validate(c.Storage, validation.Each())
 }
 
@@ -282,53 +261,37 @@ type APISkuMemory struct {
 
 // APISkuStorage represents a storage component in the SKU
 type APISkuStorage struct {
-	// Vendor is retained for response compatibility.
-	//
-	// Deprecated: Core returns an empty string and does not use this field for matching.
-	Vendor string `json:"vendor"`
+	// Vendor participates in storage matching for schema version 4 SKUs. It is
+	// read-only in REST mutation requests because component mutations use the
+	// current schema version.
+	Vendor *string `json:"vendor"`
 	// Model is informational starting with the 2.1 release.
 	Model string `json:"model"`
-	// CapacityMb is retained for response compatibility.
-	//
-	// Deprecated: Core returns zero; use MinSizeMiB and MaxSizeMiB for size constraints.
-	CapacityMb uint32 `json:"capacityMb"`
+	// CapacityMb participates in storage matching for schema version 4 SKUs. It
+	// is read-only in REST mutation requests because component mutations use the
+	// current schema version.
+	CapacityMb *uint32 `json:"capacityMb"`
 	// Count describes the number of storage devices present
 	Count uint32 `json:"count"`
 	// MinSizeMiB is the inclusive minimum capacity in mebibytes for each storage device.
-	MinSizeMiB *uint32 `json:"minSizeMiB,omitempty"`
+	// It is only used for matching for SKUs of schema version 5 and onwards.
+	MinSizeMiB *uint32 `json:"minSizeMiB"`
 	// MaxSizeMiB is the inclusive maximum capacity in mebibytes for each storage device.
-	MaxSizeMiB *uint32 `json:"maxSizeMiB,omitempty"`
+	// It is only used for matching for SKUs of schema version 5 and onwards.
+	MaxSizeMiB *uint32 `json:"maxSizeMiB"`
 	// PciPatterns contains regular expressions matched against storage PCI paths.
-	PciPatterns []string `json:"pciPatterns,omitempty"`
+	// It is only used for matching for SKUs of schema version 5 and onwards.
+	PciPatterns []string `json:"pciPatterns"`
 }
 
-// APICreateOrUpdateSkuStorageRequest represents writable storage constraints
-// in a SKU request.
-type APICreateOrUpdateSkuStorageRequest struct {
-	// Vendor is a deprecated read-only response field.
-	Vendor *string `json:"vendor,omitempty"`
-	// Model is informational starting with the 2.1 release.
-	Model string `json:"model"`
-	// CapacityMb is a deprecated read-only response field.
-	CapacityMb *uint32 `json:"capacityMb,omitempty"`
-	// Count describes the number of storage devices present.
-	Count uint32 `json:"count"`
-	// MinSizeMiB is the inclusive minimum capacity in mebibytes for each storage device.
-	MinSizeMiB *uint32 `json:"minSizeMiB,omitempty"`
-	// MaxSizeMiB is the inclusive maximum capacity in mebibytes for each storage device.
-	MaxSizeMiB *uint32 `json:"maxSizeMiB,omitempty"`
-	// PciPatterns contains regular expressions matched against storage PCI paths.
-	PciPatterns []string `json:"pciPatterns,omitempty"`
-}
-
-// Validate rejects deprecated response-only fields and invalid size bounds.
-func (s APICreateOrUpdateSkuStorageRequest) Validate() error {
+// Validate rejects read-only fields and invalid size bounds.
+func (s APISkuStorage) Validate() error {
 	errs := validation.Errors{}
 	if s.Vendor != nil {
-		errs["vendor"] = fmt.Errorf("is a deprecated read-only SKU storage field")
+		errs["vendor"] = fmt.Errorf("is a read-only SKU storage field")
 	}
 	if s.CapacityMb != nil {
-		errs["capacityMb"] = fmt.Errorf("is a deprecated read-only SKU storage field")
+		errs["capacityMb"] = fmt.Errorf("is a read-only SKU storage field")
 	}
 	if s.MinSizeMiB != nil && s.MaxSizeMiB != nil && *s.MinSizeMiB > *s.MaxSizeMiB {
 		errs["minSizeMiB"] = fmt.Errorf("must be less than or equal to maxSizeMiB")
@@ -381,16 +344,13 @@ type APISkuTpm struct {
 	Version string `json:"version"`
 }
 
-// newSkuComponents is a helper function to convert proto SkuComponents to API SKU components of one type or another
-func newSkuComponents[Storage any](
-	protoComponents *corev1.SkuComponents,
-	convertStorage func(*corev1.SkuComponentStorage) Storage,
-) *skuComponents[Storage] {
+// NewAPISkuComponents converts proto SkuComponents to API SkuComponents.
+func NewAPISkuComponents(protoComponents *corev1.SkuComponents) *APISkuComponents {
 	if protoComponents == nil {
 		return nil
 	}
 
-	components := &skuComponents[Storage]{}
+	components := &APISkuComponents{}
 	for _, cpu := range protoComponents.Cpus {
 		components.Cpus = append(components.Cpus, APISkuCpu{
 			Vendor:      cpu.Vendor,
@@ -415,7 +375,17 @@ func newSkuComponents[Storage any](
 		})
 	}
 	for _, storage := range protoComponents.Storage {
-		components.Storage = append(components.Storage, convertStorage(storage))
+		vendor := storage.Vendor
+		capacityMb := storage.CapacityMb
+		components.Storage = append(components.Storage, APISkuStorage{
+			Vendor:      &vendor,
+			Model:       storage.Model,
+			CapacityMb:  &capacityMb,
+			Count:       storage.Count,
+			MinSizeMiB:  storage.MinSizeMb,
+			MaxSizeMiB:  storage.MaxSizeMb,
+			PciPatterns: storage.PciPatterns,
+		})
 	}
 	if protoComponents.Chassis != nil {
 		components.Chassis = &APISkuChassis{
@@ -449,27 +419,8 @@ func newSkuComponents[Storage any](
 	return components
 }
 
-// NewAPISkuComponents converts proto SkuComponents to API SkuComponents.
-func NewAPISkuComponents(protoComponents *corev1.SkuComponents) *APISkuComponents {
-	components := newSkuComponents(protoComponents, func(storage *corev1.SkuComponentStorage) APISkuStorage {
-		return APISkuStorage{
-			Vendor:      storage.Vendor,
-			Model:       storage.Model,
-			CapacityMb:  storage.CapacityMb,
-			Count:       storage.Count,
-			MinSizeMiB:  storage.MinSizeMb,
-			MaxSizeMiB:  storage.MaxSizeMb,
-			PciPatterns: storage.PciPatterns,
-		}
-	})
-	return (*APISkuComponents)(components)
-}
-
-// skuComponentsToProto is a helper function to convert API SKU components of one type or another to proto SkuComponents
-func skuComponentsToProto[Storage any](
-	c *skuComponents[Storage],
-	convertStorage func(Storage) *corev1.SkuComponentStorage,
-) *corev1.SkuComponents {
+// ToProto converts API SKU components into the Core protobuf shape.
+func (c *APISkuComponents) ToProto() *corev1.SkuComponents {
 	if c == nil {
 		return nil
 	}
@@ -505,7 +456,13 @@ func skuComponentsToProto[Storage any](
 		})
 	}
 	for _, storage := range c.Storage {
-		components.Storage = append(components.Storage, convertStorage(storage))
+		components.Storage = append(components.Storage, &corev1.SkuComponentStorage{
+			Model:       storage.Model,
+			Count:       storage.Count,
+			MinSizeMb:   storage.MinSizeMiB,
+			MaxSizeMb:   storage.MaxSizeMiB,
+			PciPatterns: storage.PciPatterns,
+		})
 	}
 	for _, ethernet := range c.EthernetDevices {
 		components.EthernetDevices = append(components.EthernetDevices, &corev1.SkuComponentEthernetDevices{
@@ -530,47 +487,6 @@ func skuComponentsToProto[Storage any](
 		}
 	}
 	return components
-}
-
-// ToProto converts REST SKU components into the Core protobuf shape.
-func (c *APISkuComponents) ToProto() *corev1.SkuComponents {
-	return skuComponentsToProto((*skuComponents[APISkuStorage])(c), func(storage APISkuStorage) *corev1.SkuComponentStorage {
-		return &corev1.SkuComponentStorage{
-			Vendor:      storage.Vendor,
-			Model:       storage.Model,
-			CapacityMb:  storage.CapacityMb,
-			Count:       storage.Count,
-			MinSizeMb:   storage.MinSizeMiB,
-			MaxSizeMb:   storage.MaxSizeMiB,
-			PciPatterns: storage.PciPatterns,
-		}
-	})
-}
-
-// ToProto converts validated SKU request components into the Core protobuf shape.
-func (c *APICreateOrUpdateSkuComponentsRequest) ToProto() *corev1.SkuComponents {
-	if c == nil {
-		return nil
-	}
-	components := &skuComponents[APICreateOrUpdateSkuStorageRequest]{
-		Cpus:              c.Cpus,
-		Gpus:              c.Gpus,
-		Memory:            c.Memory,
-		Storage:           c.Storage,
-		Chassis:           c.Chassis,
-		EthernetDevices:   c.EthernetDevices,
-		InfinibandDevices: c.InfinibandDevices,
-		Tpm:               c.Tpm,
-	}
-	return skuComponentsToProto(components, func(storage APICreateOrUpdateSkuStorageRequest) *corev1.SkuComponentStorage {
-		return &corev1.SkuComponentStorage{
-			Model:       storage.Model,
-			Count:       storage.Count,
-			MinSizeMb:   storage.MinSizeMiB,
-			MaxSizeMb:   storage.MaxSizeMiB,
-			PciPatterns: storage.PciPatterns,
-		}
-	})
 }
 
 // APISkuSummary is the data structure to capture summary of a SKU

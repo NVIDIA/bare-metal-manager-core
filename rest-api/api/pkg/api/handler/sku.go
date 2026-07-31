@@ -394,6 +394,7 @@ func (csh CreateSkuHandler) Handle(c echo.Context) error {
 				SkuID:                projected.ID,
 				SiteID:               projected.SiteID,
 				Description:          projected.Description,
+				SchemaVersion:        projected.SchemaVersion,
 				Components:           projected.Components,
 				DeviceType:           projected.DeviceType,
 				AssociatedMachineIds: projected.AssociatedMachineIds,
@@ -569,6 +570,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 				associatedMachineIDs = []string{}
 			}
 			if existing.Description == projected.Description &&
+				existing.SchemaVersion == projected.SchemaVersion &&
 				existing.Components.Equal(components) &&
 				reflect.DeepEqual(existing.DeviceType, projected.DeviceType) &&
 				reflect.DeepEqual(existing.AssociatedMachineIds, associatedMachineIDs) {
@@ -578,6 +580,7 @@ func (ush UpdateSkuHandler) Handle(c echo.Context) error {
 			_, err = skuDAO.Update(ctx, tx, cdbm.SkuUpdateInput{
 				SkuID:                projected.ID,
 				Description:          &projected.Description,
+				SchemaVersion:        &projected.SchemaVersion,
 				Components:           components,
 				DeviceType:           projected.DeviceType,
 				AssociatedMachineIds: associatedMachineIDs,

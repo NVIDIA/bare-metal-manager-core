@@ -35,6 +35,7 @@ func TestNewAPISku(t *testing.T) {
 		ID:                   "test-sku-id",
 		SiteID:               siteID,
 		Description:          description,
+		SchemaVersion:        5,
 		DeviceType:           &deviceType,
 		AssociatedMachineIds: associatedMachineIds,
 		Created:              createdTime,
@@ -58,6 +59,7 @@ func TestNewAPISku(t *testing.T) {
 				ID:                   dbSku.ID,
 				SiteID:               siteID.String(),
 				Description:          description,
+				SchemaVersion:        5,
 				DeviceType:           &deviceType,
 				AssociatedMachineIds: associatedMachineIds,
 				Created:              &createdTime,
@@ -90,6 +92,7 @@ func TestNewAPISku(t *testing.T) {
 			assert.Equal(t, tt.want.ID, got.ID)
 			assert.Equal(t, tt.want.SiteID, got.SiteID)
 			assert.Equal(t, tt.want.Description, got.Description)
+			assert.Equal(t, tt.want.SchemaVersion, got.SchemaVersion)
 			assert.Equal(t, tt.want.DeviceType, got.DeviceType)
 			assert.Equal(t, tt.want.AssociatedMachineIds, got.AssociatedMachineIds)
 			assert.Equal(t, tt.want.Created, got.Created)
@@ -212,9 +215,9 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 
 		// Validate Storage
 		assert.Len(t, result.Components.Storage, 1)
-		assert.Equal(t, "Samsung", result.Components.Storage[0].Vendor)
+		assert.Equal(t, cutil.GetPtr("Samsung"), result.Components.Storage[0].Vendor)
 		assert.Equal(t, "PM9A3", result.Components.Storage[0].Model)
-		assert.Equal(t, uint32(7680000), result.Components.Storage[0].CapacityMb)
+		assert.Equal(t, cutil.GetPtr(uint32(7680000)), result.Components.Storage[0].CapacityMb)
 		assert.Equal(t, uint32(4), result.Components.Storage[0].Count)
 		assert.Equal(t, &minStorageSizeMb, result.Components.Storage[0].MinSizeMiB)
 		assert.Equal(t, &maxStorageSizeMb, result.Components.Storage[0].MaxSizeMiB)
@@ -344,15 +347,15 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 		assert.Len(t, result.Components.Storage, 2)
 
 		// Validate first storage type
-		assert.Equal(t, "Samsung", result.Components.Storage[0].Vendor)
+		assert.Equal(t, cutil.GetPtr("Samsung"), result.Components.Storage[0].Vendor)
 		assert.Equal(t, "PM1733", result.Components.Storage[0].Model)
-		assert.Equal(t, uint32(15360000), result.Components.Storage[0].CapacityMb)
+		assert.Equal(t, cutil.GetPtr(uint32(15360000)), result.Components.Storage[0].CapacityMb)
 		assert.Equal(t, uint32(24), result.Components.Storage[0].Count)
 
 		// Validate second storage type
-		assert.Equal(t, "Intel", result.Components.Storage[1].Vendor)
+		assert.Equal(t, cutil.GetPtr("Intel"), result.Components.Storage[1].Vendor)
 		assert.Equal(t, "P5520", result.Components.Storage[1].Model)
-		assert.Equal(t, uint32(7680000), result.Components.Storage[1].CapacityMb)
+		assert.Equal(t, cutil.GetPtr(uint32(7680000)), result.Components.Storage[1].CapacityMb)
 		assert.Equal(t, uint32(4), result.Components.Storage[1].Count)
 
 		// Validate memory configuration
@@ -499,7 +502,7 @@ func TestNewAPISkuWithFullComponents(t *testing.T) {
 
 		// Validate compact storage
 		assert.Len(t, result.Components.Storage, 1)
-		assert.Equal(t, uint32(960000), result.Components.Storage[0].CapacityMb)
+		assert.Equal(t, cutil.GetPtr(uint32(960000)), result.Components.Storage[0].CapacityMb)
 	})
 }
 
@@ -839,7 +842,7 @@ func TestAPISkuComponentsWithSpecialValues(t *testing.T) {
 		assert.Equal(t, uint32(32768), result.Components.Memory[0].CapacityMb)
 
 		assert.Len(t, result.Components.Storage, 3)
-		assert.Equal(t, "Samsung", result.Components.Storage[0].Vendor)
+		assert.Equal(t, cutil.GetPtr("Samsung"), result.Components.Storage[0].Vendor)
 
 		assert.NotNil(t, result.Components.Tpm)
 		assert.Equal(t, "Infineon", result.Components.Tpm.Vendor)
@@ -901,7 +904,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 			ID:          "dgx-h100",
 			Description: cutil.GetPtr("DGX H100"),
 			DeviceType:  &deviceType,
-			Components:  testAPICreateOrUpdateSkuComponentsRequest(),
+			Components:  testAPISkuComponents(),
 		}
 
 		require.NoError(t, req.Validate())
@@ -930,7 +933,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 		req := APISkuCreateRequest{
 			SiteID:     uuid.NewString(),
 			ID:         "dgx-h100",
-			Components: testAPICreateOrUpdateSkuComponentsRequest(),
+			Components: testAPISkuComponents(),
 		}
 
 		require.NoError(t, req.Validate())
@@ -945,7 +948,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 	})
 
 	t.Run("rejects inverted storage size range", func(t *testing.T) {
-		components := testAPICreateOrUpdateSkuComponentsRequest()
+		components := testAPISkuComponents()
 		components.Storage[0].MinSizeMiB = cutil.GetPtr(uint32(4_000_000))
 		components.Storage[0].MaxSizeMiB = cutil.GetPtr(uint32(3_800_000))
 		req := APISkuCreateRequest{
@@ -969,7 +972,7 @@ func TestAPISkuCreateRequest(t *testing.T) {
 		{name: "accepts only maximum size", max: cutil.GetPtr(uint32(4_000_000))},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			components := testAPICreateOrUpdateSkuComponentsRequest()
+			components := testAPISkuComponents()
 			components.Storage[0].MinSizeMiB = test.min
 			components.Storage[0].MaxSizeMiB = test.max
 			req := APISkuCreateRequest{
@@ -989,9 +992,48 @@ func TestNewAPISkuFromCreateRequest_OmittedDescription(t *testing.T) {
 	assert.Empty(t, response.Description)
 }
 
-func TestAPICreateOrUpdateSkuStorageRequest_Validate(t *testing.T) {
+func TestAPISku_MarshalJSON(t *testing.T) {
+	response := APISku{
+		Components: &APISkuComponents{
+			Storage: []APISkuStorage{{}},
+		},
+	}
+
+	encoded, err := json.Marshal(response)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"id":"",
+		"siteId":"",
+		"description":"",
+		"schemaVersion":0,
+		"deviceType":null,
+		"associatedMachineIds":null,
+		"components":{
+			"cpus":null,
+			"gpus":null,
+			"memory":null,
+			"storage":[{
+				"vendor":null,
+				"model":"",
+				"capacityMb":null,
+				"count":0,
+				"minSizeMiB":null,
+				"maxSizeMiB":null,
+				"pciPatterns":null
+			}],
+			"chassis":null,
+			"ethernetDevices":null,
+			"infinibandDevices":null,
+			"tpm":null
+		},
+		"created":null,
+		"updated":null
+	}`, string(encoded))
+}
+
+func TestAPISkuStorage_Validate(t *testing.T) {
 	t.Run("accepts schema version 5 fields", func(t *testing.T) {
-		var storage APICreateOrUpdateSkuStorageRequest
+		var storage APISkuStorage
 		err := json.Unmarshal([]byte(`{
 			"model":"informational-model",
 			"count":2,
@@ -1009,17 +1051,17 @@ func TestAPICreateOrUpdateSkuStorageRequest_Validate(t *testing.T) {
 	})
 
 	for name, body := range map[string]string{
-		"rejects deprecated vendor":     `{"model":"legacy","count":1,"vendor":""}`,
-		"rejects deprecated capacityMb": `{"model":"legacy","count":1,"capacityMb":0}`,
+		"rejects read-only vendor":     `{"model":"legacy","count":1,"vendor":""}`,
+		"rejects read-only capacityMb": `{"model":"legacy","count":1,"capacityMb":0}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			var storage APICreateOrUpdateSkuStorageRequest
+			var storage APISkuStorage
 			err := json.Unmarshal([]byte(body), &storage)
 			require.NoError(t, err)
 
 			err = storage.Validate()
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "deprecated read-only")
+			assert.Contains(t, err.Error(), "read-only")
 		})
 	}
 }
@@ -1094,7 +1136,7 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 		req := APISkuUpdateRequest{
 			SkuID:       "dgx-h100",
 			Description: &description,
-			Components:  testAPICreateOrUpdateSkuComponentsRequest(),
+			Components:  testAPISkuComponents(),
 		}
 		existing := &corev1.Sku{
 			Id:                   "dgx-h100",
@@ -1120,7 +1162,7 @@ func TestAPISkuUpdateRequest(t *testing.T) {
 	})
 
 	t.Run("rejects inverted storage size range", func(t *testing.T) {
-		components := testAPICreateOrUpdateSkuComponentsRequest()
+		components := testAPISkuComponents()
 		components.Storage[0].MinSizeMiB = cutil.GetPtr(uint32(4_000_000))
 		components.Storage[0].MaxSizeMiB = cutil.GetPtr(uint32(3_800_000))
 		req := APISkuUpdateRequest{Components: components}
@@ -1144,29 +1186,7 @@ func testAPISkuComponents() *APISkuComponents {
 			ThreadCount: 112,
 			Count:       2,
 		}},
-		InfinibandDevices: []APISkuInfinibandDevice{{
-			Vendor:          "NVIDIA",
-			Model:           "ConnectX-7",
-			Count:           2,
-			InactiveDevices: []uint32{1},
-		}},
-	}
-}
-
-func testAPICreateOrUpdateSkuComponentsRequest() *APICreateOrUpdateSkuComponentsRequest {
-	return &APICreateOrUpdateSkuComponentsRequest{
-		Chassis: &APISkuChassis{
-			Vendor:       "NVIDIA",
-			Model:        "DGX H100",
-			Architecture: "x86_64",
-		},
-		Cpus: []APISkuCpu{{
-			Vendor:      "Intel",
-			Model:       "Xeon",
-			ThreadCount: 112,
-			Count:       2,
-		}},
-		Storage: []APICreateOrUpdateSkuStorageRequest{{
+		Storage: []APISkuStorage{{
 			Model:       "informational-model",
 			Count:       2,
 			MinSizeMiB:  cutil.GetPtr(uint32(3_600_000)),

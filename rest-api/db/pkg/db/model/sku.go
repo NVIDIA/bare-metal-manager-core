@@ -81,6 +81,7 @@ type SKU struct {
 	SiteID               uuid.UUID      `bun:"site_id,type:uuid,notnull"`
 	Site                 *Site          `bun:"rel:belongs-to,join:site_id=id"`
 	Description          string         `bun:"description,notnull,default:''"`
+	SchemaVersion        uint32         `bun:"schema_version,notnull,default:0"`
 	DeviceType           *string        `bun:"device_type"`
 	Components           *SkuComponents `bun:"components,type:jsonb"`
 	AssociatedMachineIds []string       `bun:"associated_machines,type:text[],default:'{}'"`
@@ -90,14 +91,15 @@ type SKU struct {
 
 // ToProto converts the REST database projection into its Core SKU representation.
 //
-// SchemaVersion and the Core-level Created timestamp are omitted because the
-// REST projection does not store them. SiteID is also omitted because it is not
-// carried by the Core SKU message; callers supply it separately to FromProto.
+// The Core-level Created timestamp is omitted because the REST projection does
+// not store it. SiteID is also omitted because it is not carried by the Core SKU
+// message; callers supply it separately to FromProto.
 func (sk *SKU) ToProto() *corev1.Sku {
 	proto := &corev1.Sku{
-		Id:          sk.ID,
-		Description: &sk.Description,
-		DeviceType:  sk.DeviceType,
+		Id:            sk.ID,
+		Description:   &sk.Description,
+		SchemaVersion: sk.SchemaVersion,
+		DeviceType:    sk.DeviceType,
 	}
 	if sk.Components != nil {
 		proto.Components = sk.Components.SkuComponents
@@ -136,6 +138,7 @@ func (sk *SKU) FromProto(proto *corev1.Sku, siteID uuid.UUID) {
 	sk.ID = proto.Id
 	sk.SiteID = siteID
 	sk.Description = proto.GetDescription()
+	sk.SchemaVersion = proto.SchemaVersion
 	sk.DeviceType = proto.DeviceType
 	if proto.Components != nil {
 		sk.Components = &SkuComponents{SkuComponents: proto.Components}
@@ -160,6 +163,7 @@ type SkuCreateInput struct {
 	SkuID                string // Core is authoritative, so the ID must be provided when creating its REST projection.
 	SiteID               uuid.UUID
 	Description          string
+	SchemaVersion        uint32
 	Components           *SkuComponents
 	DeviceType           *string
 	AssociatedMachineIds []string
@@ -169,6 +173,7 @@ type SkuCreateInput struct {
 type SkuUpdateInput struct {
 	SkuID                string
 	Description          *string
+	SchemaVersion        *uint32
 	Components           *SkuComponents
 	DeviceType           *string
 	AssociatedMachineIds []string
@@ -238,6 +243,7 @@ func (ssd SkuSQLDAO) Create(ctx context.Context, tx *db.Tx, input SkuCreateInput
 		ID:                   input.SkuID,
 		SiteID:               input.SiteID,
 		Description:          input.Description,
+		SchemaVersion:        input.SchemaVersion,
 		DeviceType:           input.DeviceType,
 		Components:           input.Components,
 		AssociatedMachineIds: input.AssociatedMachineIds,
@@ -359,6 +365,11 @@ func (ssd SkuSQLDAO) Update(ctx context.Context, tx *db.Tx, input SkuUpdateInput
 	if input.Description != nil {
 		sk.Description = *input.Description
 		updatedFields = append(updatedFields, "description")
+	}
+
+	if input.SchemaVersion != nil {
+		sk.SchemaVersion = *input.SchemaVersion
+		updatedFields = append(updatedFields, "schema_version")
 	}
 
 	if input.Components != nil {
