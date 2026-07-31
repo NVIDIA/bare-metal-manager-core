@@ -188,8 +188,8 @@ NICO_DB="nico_system_nico"
 MAT_MODE="${MAT_MODE:-override}"
 # Network for scale mode — must be within Kubernetes ServiceCIDR and match the
 # scale values file (oobDhcpRelayAddress).
-SCALE_OOB_PREFIX="10.96.64.0/18";  SCALE_OOB_GW="10.96.64.1"
-SCALE_ADMIN_PREFIX="192.168.176.0/20"; SCALE_ADMIN_GW="192.168.176.1"
+SCALE_OOB_PREFIX="${SCALE_OOB_PREFIX:-10.96.64.0/18}";  SCALE_OOB_GW="${SCALE_OOB_GW:-10.96.64.1}"
+SCALE_ADMIN_PREFIX="${SCALE_ADMIN_PREFIX:-192.168.176.0/20}"; SCALE_ADMIN_GW="${SCALE_ADMIN_GW:-192.168.176.1}"
 SCALE_RESERVE=1
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).
@@ -883,7 +883,12 @@ if [[ "${OOB_PREFIX:-}" == */* && "${ADMIN_PREFIX:-}" == */* ]]; then
     FIT_ADMIN=$(( ADMIN_USABLE / (DPU_PER_HOST + 1) ))
     FIT=$(( FIT_OOB < FIT_ADMIN ? FIT_OOB : FIT_ADMIN ))
     info "pool fit: OOB ${OOB_PREFIX} ≈${OOB_USABLE} usable → ≤${FIT_OOB} hosts; admin ${ADMIN_PREFIX} ≈${ADMIN_USABLE} usable → ≤${FIT_ADMIN} hosts"
-    if (( HOST_COUNT > FIT )); then
+    if (( HOST_COUNT > FIT )) && [[ "${MAT_MULTIPOD:-0}" == "1" ]]; then
+        # multipod: FIT is computed from ONE pool, but the fleet spans one
+        # BMC segment per pod — per-pod capacity is validated by the values
+        # file layout, so the single-pool clamp would false-positive here.
+        warn "multipod: skipping single-pool clamp (FIT=${FIT} < ${HOST_COUNT} is expected)"
+    elif (( HOST_COUNT > FIT )); then
         (( FIT < 1 )) && die "pools too small for even 1 host × ${DPU_PER_HOST} DPUs — widen the admin/OOB prefixes or lower DPU_PER_HOST"
         warn "requested ${HOST_COUNT} hosts exceeds pool capacity (${FIT}) — auto-fitting hostCount=${FIT}"
         warn "  (override with HOST_COUNT/DPU_PER_HOST env vars, or widen the site's DHCP prefixes)"
