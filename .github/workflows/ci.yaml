@@ -1362,6 +1362,25 @@ jobs:
       - name: Run Protolint
         run: protolint lint -config_path=.protolint.yaml crates/rpc/proto/
 
+  migration-police:
+    permissions:
+      contents: read
+    needs:
+      - changes
+    if: ${{ contains(github.ref, 'pull-request/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check new migration timestamps
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          bash scripts/check-migration-filenames.sh --base origin/main
+
   proto-breaking-changes:
     name: Proto Breaking Changes Check
     runs-on: ubuntu-latest
@@ -2059,6 +2078,7 @@ jobs:
       - build-release-artifacts-arm-host
       - security-secret-scan
       - lint-police
+      - migration-police
       - check-rest-core-proto-sync
       - build-machine-a-tron
       - build-mat-k8s-controller
