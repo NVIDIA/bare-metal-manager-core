@@ -153,6 +153,11 @@ pub struct CarbideConfig {
     )]
     pub database_pool_max_lifetime: std::time::Duration,
 
+    /// Bounds the number of API requests that may execute or wait for
+    /// execution. The limits are shared by gRPC and admin HTTP traffic.
+    #[serde(default)]
+    pub api_admission_control: ApiAdmissionControlConfig,
+
     /// InfiniBand fabric configuration, used by the IB
     /// fabric manager for partition and UFM management.
     pub ib_config: Option<IBFabricConfig>,
@@ -800,6 +805,69 @@ pub struct CarbideConfig {
     /// store; absent means certs are issued from the credential Vault.
     #[serde(default)]
     pub certificates: CertificatesConfig,
+}
+
+/// Global admission limits for business requests handled by nico-api.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ApiAdmissionControlConfig {
+    /// Whether admission control is active.
+    #[serde(default = "default_to_true")]
+    pub enabled: bool,
+
+    /// Maximum number of requests executing business handlers concurrently.
+    #[serde(default = "default_api_admission_max_work_in_flight")]
+    pub max_work_in_flight: usize,
+
+    /// Maximum number of requests waiting for an execution slot.
+    #[serde(default = "default_api_admission_max_pending")]
+    pub max_pending: usize,
+
+    /// Maximum time a pending request may wait for execution.
+    #[serde(
+        default = "default_api_admission_pending_timeout",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub pending_timeout: std::time::Duration,
+}
+
+impl Default for ApiAdmissionControlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_work_in_flight: default_api_admission_max_work_in_flight(),
+            max_pending: default_api_admission_max_pending(),
+            pending_timeout: default_api_admission_pending_timeout(),
+        }
+    }
+}
+
+impl ApiAdmissionControlConfig {
+    /// Reject invalid bounds before the API listener starts.
+    pub fn validate(&self) -> eyre::Result<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        for (field, value) in [
+            ("max_work_in_flight", self.max_work_in_flight),
+            ("max_pending", self.max_pending),
+        ] {
+            if value == 0 {
+                eyre::bail!("api_admission_control.{field} must be greater than zero");
+            }
+            if value > tokio::sync::Semaphore::MAX_PERMITS {
+                eyre::bail!(
+                    "api_admission_control.{field} must not exceed {}",
+                    tokio::sync::Semaphore::MAX_PERMITS
+                );
+            }
+        }
+        if self.pending_timeout.is_zero() {
+            eyre::bail!("api_admission_control.pending_timeout must be greater than zero");
+        }
+        Ok(())
+    }
 }
 
 /// `[certificates]` config section: selects the backend that vends machine and
@@ -2698,6 +2766,18 @@ pub const fn default_database_pool_max_lifetime() -> std::time::Duration {
     std::time::Duration::from_secs(30 * 60)
 }
 
+const fn default_api_admission_max_work_in_flight() -> usize {
+    64
+}
+
+const fn default_api_admission_max_pending() -> usize {
+    1024
+}
+
+const fn default_api_admission_pending_timeout() -> std::time::Duration {
+    std::time::Duration::from_secs(5)
+}
+
 pub const fn default_bmc_session_lockout_threshold() -> u32 {
     3
 }
@@ -4165,6 +4245,80 @@ mod tests {
     }
 
     #[test]
+    fn api_admission_control_only_validates_bounds_when_enabled() {
+        type ZeroOut = fn(&mut ApiAdmissionControlConfig);
+        let cases: [(&str, ZeroOut); 3] = [
+            ("max_work_in_flight", |config| config.max_work_in_flight = 0),
+            ("max_pending", |config| config.max_pending = 0),
+            ("pending_timeout", |config| {
+                config.pending_timeout = std::time::Duration::ZERO
+            }),
+        ];
+
+        let disabled = ApiAdmissionControlConfig {
+            enabled: false,
+            max_work_in_flight: 0,
+            max_pending: 0,
+            pending_timeout: std::time::Duration::ZERO,
+        };
+        disabled
+            .validate()
+            .expect("disabled admission control ignores its bounds");
+
+        for (field, zero_out) in cases {
+            let mut config = ApiAdmissionControlConfig::default();
+            zero_out(&mut config);
+            let error = config
+                .validate()
+                .expect_err("zero admission values must be rejected");
+            assert!(
+                error.to_string().contains(field),
+                "error must name {field}, got: {error}"
+            );
+        }
+    }
+
+    fn assert_api_admission_semaphore_bound(
+        field: &str,
+        set_value: fn(&mut ApiAdmissionControlConfig, usize),
+    ) {
+        let mut config = ApiAdmissionControlConfig::default();
+        set_value(&mut config, tokio::sync::Semaphore::MAX_PERMITS);
+        config
+            .validate()
+            .expect("Tokio's semaphore maximum must be accepted");
+
+        set_value(&mut config, tokio::sync::Semaphore::MAX_PERMITS + 1);
+        let error = config
+            .validate()
+            .expect_err("values above Tokio's semaphore maximum must be rejected");
+        assert!(
+            error.to_string().contains(field),
+            "error must name {field}, got: {error}"
+        );
+        assert!(
+            error
+                .to_string()
+                .contains(&tokio::sync::Semaphore::MAX_PERMITS.to_string()),
+            "error must name the maximum, got: {error}"
+        );
+    }
+
+    #[test]
+    fn api_admission_control_validates_max_work_in_flight_upper_bound() {
+        assert_api_admission_semaphore_bound("max_work_in_flight", |config, value| {
+            config.max_work_in_flight = value;
+        });
+    }
+
+    #[test]
+    fn api_admission_control_validates_max_pending_upper_bound() {
+        assert_api_admission_semaphore_bound("max_pending", |config, value| {
+            config.max_pending = value;
+        });
+    }
+
+    #[test]
     fn periodic_state_republish_rejects_zero_interval() {
         for enabled in [true, false] {
             let config = PeriodicStateRepublishConfig {
@@ -4289,6 +4443,15 @@ mod tests {
         assert_eq!(
             config.database_pool_max_lifetime,
             std::time::Duration::from_secs(30 * 60)
+        );
+        assert_eq!(
+            config.api_admission_control,
+            ApiAdmissionControlConfig {
+                enabled: true,
+                max_work_in_flight: 64,
+                max_pending: 1024,
+                pending_timeout: std::time::Duration::from_secs(5),
+            }
         );
         assert!(config.dhcp_servers.is_empty());
         assert!(!config.allow_insecure_discovery);

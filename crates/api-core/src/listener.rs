@@ -38,6 +38,7 @@ use tower_http::add_extension::AddExtensionLayer;
 use tower_http::auth::AsyncRequireAuthorizationLayer;
 use tower_http::normalize_path::NormalizePath;
 
+use crate::admission::{AdmissionController, enforce as enforce_admission};
 use crate::api::Api;
 use crate::auth;
 use crate::auth::Authorization;
@@ -375,6 +376,19 @@ pub async fn start(
             router.nest_service("/admin", build_admin_router(api_service.clone())?)
         }
         None => router,
+    };
+
+    let admission_config = &api_service.runtime_config.api_admission_control;
+    admission_config.validate()?;
+    let router = if admission_config.enabled {
+        let controller = AdmissionController::new(admission_config, &meter, cancel_token.clone())?;
+        router.layer(axum::middleware::from_fn_with_state(
+            controller,
+            enforce_admission,
+        ))
+    } else {
+        tracing::info!("API admission control disabled");
+        router
     };
 
     let app = tower::ServiceBuilder::new()

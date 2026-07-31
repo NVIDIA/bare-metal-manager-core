@@ -244,9 +244,12 @@ ctor = { workspace = true }
 data-encoding = { workspace = true }
 figment = { workspace = true, features = ["env", "test", "toml"] }
 mockito = { workspace = true }
+prost = { workspace = true }
+prost-types = { workspace = true }
 rcgen = { workspace = true }
 strum = { workspace = true }
 tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

@@ -1262,6 +1262,8 @@ dependencies = [
  "pkcs1 0.7.5",
  "prometheus",
  "prometheus-text-parser",
+ "prost",
+ "prost-types",
  "rand 0.10.1",
  "rcgen",
  "regex",

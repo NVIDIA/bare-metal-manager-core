@@ -20,6 +20,7 @@ applicable.
 | `database_pool_acquire_timeout` | `Duration` | `30s` | `server` | How long a caller may wait for a connection from the pool before the attempt fails (sqlx's own default); trips on a stalled database or a saturated pool alike. Must be greater than zero (startup rejects `0`). |
 | `database_pool_idle_timeout` | `Duration` | `10m` | `server` | Idle time after which the pool closes a connection, keeping the pool's own reaping well inside the Postgres server's 60-minute idle-session reaper. Must be greater than zero (startup rejects `0`). |
 | `database_pool_max_lifetime` | `Duration` | `30m` | `server` | Maximum age of a pooled connection before it is recycled, so the pool re-balances onto the current primary after a database failover. Must be greater than zero (startup rejects `0`). |
+| `api_admission_control` | `ApiAdmissionControlConfig` | *(see below)* | `server` | Shared execution and pending-request limits for gRPC and admin HTTP business requests. |
 | `ib_config` | `Option<IBFabricConfig>` | — | `hardware` | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
 | `asn` | `u32` | **required** | `networking` | Autonomous System Number, fixed per environment. Used by nico-dpu-agent for `frr.conf` BGP routing. |
 | `dhcp_servers` | `Vec<Ipv4Addr>` | `[]` | `networking` | DHCP server addresses announced to DPUs during network provisioning. |
@@ -255,6 +256,15 @@ available for topology-specific flows.
 ---
 
 ## Sub-Structs
+
+### `ApiAdmissionControlConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `true` | Enable bounded API admission. Set to `false` to restore unrestricted request admission. |
+| `max_work_in_flight` | `usize` | `64` | Maximum business requests executing concurrently. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
+| `max_pending` | `usize` | `1024` | Maximum business requests waiting for execution. When enabled, must be greater than zero and no greater than `tokio::sync::Semaphore::MAX_PERMITS`. |
+| `pending_timeout` | `Duration` | `5s` | Maximum time a pending request may wait for execution. Must be greater than zero when admission control is enabled. |
 
 ### `TlsConfig`
 
