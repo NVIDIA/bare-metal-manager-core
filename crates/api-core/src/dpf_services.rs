@@ -26,7 +26,9 @@ use carbide_dpf::types::{
     DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME, DOCA_XPLANE_SERVICE_NAME, DPU_AGENT_SERVICE_NAME,
     DTS_SERVICE_NAME, FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
 };
-use carbide_dpf::{ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType};
+use carbide_dpf::{
+    IntOrString, ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType,
+};
 
 use crate::cfg::file::{
     DpfBootstrapCaObjectKind, DpfDpuAgentBootstrapCa, DpfExtraService,
@@ -44,6 +46,10 @@ pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
 pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "nvcr.io/0837451325059433/carbide-dev";
+
+/// Astra Service Helm and Image Registries
+pub const DOCA_WEAVE_CHART_REPO_URL: &str = "oci://harbor.mellanox.com/cloud-orchestration-dev/dpf";
+pub const DOCA_WEAVE_IMAGE_REGISTRY: &str = "nvcr.io/nvstaging/doca";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
@@ -78,16 +84,16 @@ pub const OTEL_COLLECTOR_SERVICE_HELM_NAME: &str = "nico-otelcol";
 pub const OTEL_COLLECTOR_SERVICE_IMAGE_NAME: &str = "otelcol-contrib";
 
 /// Weave DHCP agent service definitions.
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "doca-weave-dhcp-agent";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "1.0";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "doca_weave_dhcp_agent";
-pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME: &str = "dpf-weave";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME: &str = "weave-system";
+pub const DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
 
 /// Weave flow (ovs) controller service definitions.
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "doca-weave-flow-controller";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "1.0";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "doca_weave_flow_controller";
-pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME: &str = "dpf-weave";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION: &str = "v26.5.0-1f8f4e1e";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME: &str = "weave-system";
+pub const DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG: &str = "v26.5.0-f2c9f7c4-nightly";
 
 /// Xplane service definitions.
 pub const DOCA_XPLANE_SERVICE_HELM_NAME: &str = "doca-xplane";
@@ -237,11 +243,11 @@ pub(crate) fn default_otelcol_service() -> DpfServiceConfig {
 pub(crate) fn default_doca_weave_dhcp_agent_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: DOCA_WEAVE_DHCP_AGENT_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_repo_url: DOCA_WEAVE_CHART_REPO_URL.to_string(),
         helm_chart: DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_NAME.to_string(),
         helm_version: DOCA_WEAVE_DHCP_AGENT_SERVICE_HELM_VERSION.to_string(),
         docker_repo_url: format!(
-            "{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME}"
+            "{DOCA_WEAVE_IMAGE_REGISTRY}/{DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME}"
         ),
         docker_image_tag: DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
@@ -251,11 +257,11 @@ pub(crate) fn default_doca_weave_dhcp_agent_service() -> DpfServiceConfig {
 pub(crate) fn default_doca_weave_flow_controller_service() -> DpfServiceConfig {
     DpfServiceConfig {
         name: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_NAME.to_string(),
-        helm_repo_url: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+        helm_repo_url: DOCA_WEAVE_CHART_REPO_URL.to_string(),
         helm_chart: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_NAME.to_string(),
         helm_version: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_HELM_VERSION.to_string(),
         docker_repo_url: format!(
-            "{DEFAULT_DOCA_IMAGE_REGISTRY}/{DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME}"
+            "{DOCA_WEAVE_IMAGE_REGISTRY}/{DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME}"
         ),
         docker_image_tag: DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_TAG.to_string(),
         docker_image_pull_secret: None,
@@ -534,14 +540,33 @@ pub fn otelcol_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
 
 pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
-        "image": {
-            "repository": cfg.docker_repo_url,
-            "tag": cfg.docker_image_tag,
+        "weaveDHCPAgent": {
+            "containers": {
+                "weaveDHCPAgent": {
+                    "image": {
+                        "repository": cfg.docker_repo_url,
+                        "tag": cfg.docker_image_tag,
+                    }
+                }
+            }
         }
     });
     apply_image_pull_secrets(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
+        config_values: Some(serde_json::json!({
+            "weaveDHCPAgent": {
+                "enabled": true,
+                "dhcpNetworks": {
+                    "createNADs": true,
+                    "networks": weave_dhcp_agent_networks(),
+                }
+            }
+        })),
+        service_daemon_set_resources: Some(BTreeMap::from([(
+            "nvidia.com/bf_sf".to_string(),
+            IntOrString::Int(WEAVE_DHCP_AGENT_NETWORKS.len() as i32),
+        )])),
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,
@@ -551,16 +576,77 @@ pub fn doca_weave_dhcp_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinitio
     }
 }
 
+const WEAVE_DHCP_AGENT_NETWORKS: &[&str] = &[
+    "r0swpln0", "r1swpln0", "r0swpln1", "r1swpln1", "r2swpln0", "r3swpln0", "r2swpln1", "r3swpln1",
+];
+
+fn weave_dhcp_agent_networks() -> Vec<serde_json::Value> {
+    WEAVE_DHCP_AGENT_NETWORKS
+        .iter()
+        .map(|port| {
+            serde_json::json!({
+                "name": format!("dhcp-{port}"),
+                "bridge": format!("br-dhcp-{port}"),
+                "resourceName": "nvidia.com/bf_sf",
+                "interfaceName": port,
+            })
+        })
+        .collect()
+}
+
+/// PCI address of each BF4 Astra uplink paired with the switch port it carries.
+/// The underlay, overlay, and bridge names are all derived from the port name.
+const WEAVE_FLOW_CONTROLLER_UNDERLAY_PORTS: &[(&str, &str)] = &[
+    ("0005:06:00.0", "r0swpln0"),
+    ("0005:03:00.0", "r1swpln0"),
+    ("0000:06:00.0", "r2swpln0"),
+    ("0000:03:00.0", "r3swpln0"),
+    ("0004:03:00.0", "r0swpln1"),
+    ("0004:06:00.0", "r1swpln1"),
+    ("0001:03:00.0", "r2swpln1"),
+    ("0001:06:00.0", "r3swpln1"),
+];
+
+fn weave_flow_controller_underlay_interfaces() -> Vec<serde_json::Value> {
+    WEAVE_FLOW_CONTROLLER_UNDERLAY_PORTS
+        .iter()
+        .map(|(pci_address, port)| {
+            serde_json::json!({
+                "pciAddress": pci_address,
+                "underlayInterface": format!("brcx-{port}"),
+                "overlayDHCPInterface": port,
+                "dhcpBridgeName": format!("br-dhcp-{port}"),
+                "dropBridgeName": format!("br-drop-{port}"),
+            })
+        })
+        .collect()
+}
+
 pub fn doca_weave_flow_controller_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
     let mut helm_values = serde_json::json!({
-        "image": {
-            "repository": cfg.docker_repo_url,
-            "tag": cfg.docker_image_tag,
+        "weaveFlowController": {
+            "containers": {
+                "weaveFlowController": {
+                    "image": {
+                        "repository": cfg.docker_repo_url,
+                        "tag": cfg.docker_image_tag,
+                    }
+                }
+            }
         }
     });
     apply_image_pull_secrets(&mut helm_values, cfg);
     ServiceDefinition {
         helm_values: Some(helm_values),
+        config_values: Some(serde_json::json!({
+            "weaveFlowController": {
+                "enabled": true,
+                "underlayConfigMapData": {
+                    "nicIDType": "mac",
+                    "interfaces": weave_flow_controller_underlay_interfaces(),
+                }
+            }
+        })),
         ..ServiceDefinition::new(
             &cfg.name,
             &cfg.helm_repo_url,
@@ -620,9 +706,9 @@ pub fn mandatory_services(
 
 #[cfg(test)]
 mod tests {
-    use carbide_dpf::build_service_interface;
     use carbide_dpf::sdk::build_dpu_interfaces_vec;
     use carbide_dpf::types::DpuServiceInterfaceTemplateType;
+    use carbide_dpf::{build_service_configuration, build_service_interface};
     use carbide_test_support::value_scenarios;
     use url::Url;
 
@@ -790,6 +876,88 @@ mod tests {
         assert_eq!(
             agent.helm_values.unwrap()["imagePullSecrets"],
             serde_json::json!([{ "name": "nico-pull-secret" }])
+        );
+    }
+
+    // ---- weave services ----
+
+    #[test]
+    fn weave_dhcp_agent_service_emits_networks_and_sf_resources() {
+        let svc = doca_weave_dhcp_agent_service(&default_doca_weave_dhcp_agent_service());
+        let helm_values = svc.helm_values.as_ref().expect("helm_values must be set");
+        assert_eq!(
+            helm_values["weaveDHCPAgent"]["containers"]["weaveDHCPAgent"]["image"]["repository"],
+            format!("{DOCA_WEAVE_IMAGE_REGISTRY}/{DOCA_WEAVE_DHCP_AGENT_SERVICE_IMAGE_NAME}")
+        );
+        assert!(
+            helm_values.get("image").is_none(),
+            "DHCP-agent image must not use a top-level image key"
+        );
+
+        let configuration =
+            build_service_configuration(&svc, TEST_NS, "bf4astra", &BTreeMap::new());
+        let service_configuration = configuration
+            .spec
+            .service_configuration
+            .expect("serviceConfiguration must be set");
+        let values = service_configuration
+            .helm_chart
+            .expect("helmChart must be set")
+            .values
+            .expect("helmChart values must be set");
+
+        assert_eq!(values["weaveDHCPAgent"]["enabled"], true);
+        assert_eq!(values["weaveDHCPAgent"]["dhcpNetworks"]["createNADs"], true);
+        assert_eq!(
+            values["weaveDHCPAgent"]["dhcpNetworks"]["networks"],
+            serde_json::Value::Array(weave_dhcp_agent_networks())
+        );
+
+        let resources = service_configuration
+            .service_daemon_set
+            .expect("serviceDaemonSet must be set")
+            .resources
+            .expect("serviceDaemonSet resources must be set");
+        assert_eq!(
+            resources.get("nvidia.com/bf_sf"),
+            Some(&IntOrString::Int(8))
+        );
+    }
+
+    #[test]
+    fn weave_flow_controller_service_emits_underlay_config_values() {
+        let svc = doca_weave_flow_controller_service(&default_doca_weave_flow_controller_service());
+        let helm_values = svc.helm_values.expect("helm_values must be set");
+        assert_eq!(
+            helm_values["weaveFlowController"]["containers"]["weaveFlowController"]["image"]["repository"],
+            format!("{DOCA_WEAVE_IMAGE_REGISTRY}/{DOCA_WEAVE_FLOW_CONTROLLER_SERVICE_IMAGE_NAME}")
+        );
+        assert!(
+            helm_values.get("image").is_none(),
+            "flow-controller image must not use a top-level image key"
+        );
+
+        let config = svc.config_values.expect("config_values must be set");
+        assert_eq!(
+            config["weaveFlowController"]["enabled"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            config["weaveFlowController"]["underlayConfigMapData"]["nicIDType"],
+            "mac"
+        );
+
+        let interfaces = config["weaveFlowController"]["underlayConfigMapData"]["interfaces"]
+            .as_array()
+            .expect("interfaces must be an array");
+        assert_eq!(
+            interfaces.len(),
+            WEAVE_FLOW_CONTROLLER_UNDERLAY_PORTS.len(),
+            "every Astra uplink must be present in underlayConfigMapData.interfaces"
+        );
+        assert_eq!(
+            interfaces.as_slice(),
+            weave_flow_controller_underlay_interfaces().as_slice()
         );
     }
 

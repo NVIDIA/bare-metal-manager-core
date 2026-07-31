@@ -70,6 +70,7 @@ mod test;
 
 // Re-exports for convenience
 pub use error::DpfError;
+pub use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 pub use repository::{DpfRepository, KubeRepository};
 pub use sdk::{
     DpfSdk, DpfSdkBuilder, DpuProvisioningSource, NoLabels, ResourceLabeler, build_deployment,
