@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 
 use ::rpc::forge as rpc;
+use carbide_nvlink_manager::nmx_c_endpoint::{ManagedHostGroupType, resolve_nmx_c_endpoint_url};
 use libnmxc::nmxc_model::{
     GetComputeNodeInfoListRequest, GetGpuInfoListRequest, GetPartitionInfoListRequest,
     GetSwitchNodeInfoListRequest, GpuAttr,
@@ -152,9 +153,22 @@ pub(crate) async fn nmxc_browse(
     let request = request.into_inner();
 
     let chassis_serial = request.chassis_serial.trim();
-    if chassis_serial.is_empty() {
-        return Err(CarbideError::MissingArgument("chassis_serial").into());
+    let rack_id = request.rack_id.as_ref();
+
+    if rack_id.is_some() && !chassis_serial.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "chassis_serial and rack_id are mutually exclusive".to_string(),
+        )
+        .into());
     }
+
+    let group_type = if rack_id.is_some() {
+        ManagedHostGroupType::Rack
+    } else if !chassis_serial.is_empty() {
+        ManagedHostGroupType::Chassis
+    } else {
+        return Err(CarbideError::MissingArgument("chassis_serial or rack_id").into());
+    };
 
     let op = rpc::NmxcBrowseOperation::try_from(request.operation)
         .unwrap_or(rpc::NmxcBrowseOperation::Unspecified);
@@ -162,23 +176,34 @@ pub(crate) async fn nmxc_browse(
     if let Some(nvlink_config) = api.runtime_config.nvlink_config.as_ref()
         && nvlink_config.enabled
     {
-        let endpoint_row = db::nvlink_nmxc_endpoints::find_by_chassis_serial(
-            &api.database_connection,
-            chassis_serial,
+        let mut db = api.db_reader();
+        let endpoint_url = resolve_nmx_c_endpoint_url(
+            &mut db,
+            group_type,
+            rack_id,
+            if chassis_serial.is_empty() {
+                None
+            } else {
+                Some(chassis_serial)
+            },
+            nvlink_config,
         )
         .await?;
 
-        let Some(row) = endpoint_row else {
+        let Some(url) = endpoint_url else {
+            let endpoint_id = rack_id
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| chassis_serial.to_string());
             return Err(CarbideError::NotFoundError {
                 kind: "nvlink_nmxc_endpoint",
-                id: chassis_serial.to_string(),
+                id: endpoint_id,
             }
             .into());
         };
 
         let mut nmxc = api
             .nmxc_client_pool
-            .create_client(Endpoint::new(row.endpoint.clone()).map_err(CarbideError::from)?)
+            .create_client(Endpoint::new(url).map_err(CarbideError::from)?)
             .await
             .map_err(CarbideError::from)?;
 
