@@ -251,12 +251,12 @@ mod tests {
         }
 
         assert_eq!(
-            (find_all_by_subsystem(txn.as_mut(), SITE_EXPLORER)
+            find_all_by_subsystem(txn.as_mut(), SITE_EXPLORER)
                 .await
                 .unwrap()
                 .into_iter()
                 .map(|suppression| suppression.bmc_mac_address)
-                .collect::<Vec<_>>()),
+                .collect::<Vec<_>>(),
             vec![mac(1), mac(3)],
         );
         assert_eq!(

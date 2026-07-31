@@ -301,11 +301,13 @@ pub(crate) async fn re_explore_endpoint(
         )
         .await?
     {
-        return Err(EndpointExplorationServiceError::Suppressed {
-            bmc_ip,
-            bmc_mac_address: bmc_interface.mac_address,
-        }
-        .into());
+        return Err(
+            CarbideError::from(EndpointExplorationServiceError::Suppressed {
+                bmc_ip,
+                bmc_mac_address: bmc_interface.mac_address,
+            })
+            .into(),
+        );
     }
 
     for ep in eps.iter() {
