@@ -484,6 +484,42 @@ pub async fn find_by_machine_ids(
     )
 }
 
+/// `find_by_machine_id_for_update` locks one host's non-BMC interface rows in
+/// ID order and returns their current snapshots.
+///
+/// Primary-interface writers call this after taking the network-segment
+/// advisory locks. The stable row order keeps concurrent interface mutations
+/// from acquiring the same set of row locks in different orders.
+pub async fn find_by_machine_id_for_update(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+) -> Result<Vec<MachineInterfaceSnapshot>, DatabaseError> {
+    let query = r#"
+        SELECT id
+        FROM machine_interfaces
+        WHERE machine_id = $1
+          AND interface_type != 'Bmc'
+        ORDER BY id
+        FOR UPDATE
+    "#;
+    let interface_ids: Vec<MachineInterfaceId> = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .fetch_all(&mut *txn)
+        .await
+        .map_err(|error| DatabaseError::query(query, error))?;
+    if interface_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut interfaces = find_by(
+        txn,
+        ObjectColumnFilter::List(IdColumn, interface_ids.as_slice()),
+    )
+    .await?;
+    interfaces.sort_by_key(|interface| interface.id);
+    Ok(interfaces)
+}
+
 /// Counts the machine interfaces bound to a given segment.
 ///
 /// Keep this predicate in sync with

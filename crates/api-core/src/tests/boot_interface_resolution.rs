@@ -15,19 +15,19 @@
  * limitations under the License.
  */
 
-//! Admin boot-interface compatibility: `machine_setup` and
-//! `set_dpu_first_boot_order` prefer a managed host's persisted desired target,
-//! then fall back to its owned or predicted interfaces. After Redfish accepts a
-//! target, the action stores that exact selection for the next operator request
-//! and the later controller-convergence work.
+//! Admin boot-interface routing: `machine_setup` and
+//! `set_dpu_first_boot_order` persist an exact desired target for a managed
+//! host and leave Redfish work to the machine controller. DPU and unowned BMC
+//! endpoints keep the direct Redfish behavior used during discovery.
 //!
-//! The Redfish sim records the MAC each boot-order call targeted, so these
-//! tests assert the *selection* end to end; the pair-vs-MAC-only upgrade
-//! details are unit-tested next to the resolver itself.
+//! These tests keep the routing boundary visible: managed requests change the
+//! desired generation without touching Redfish, while direct requests still
+//! appear in the Redfish simulator.
 
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
 use ipnetwork::IpNetwork;
+use model::machine::{InstanceState, ManagedHostState};
 use model::machine_boot_interface::MachineBootInterfaceTarget;
 use model::network_segment::NetworkSegmentType;
 use model::test_support::ManagedHostConfig;
@@ -89,28 +89,55 @@ async fn host_with_moved_primary(
         .set_primary_interface(tonic::Request::new(forge::SetPrimaryInterfaceRequest {
             host_machine_id: Some(host_id),
             interface_id: Some(promote_id),
-            reboot: false,
+            force_reconcile: false,
+            ..Default::default()
         }))
         .await?;
 
     Ok((host_id, original_target, promote_target))
 }
 
-// An operator-moved primary is the boot interface the admin path must target:
-// after set-primary-interface, a no-MAC set_dpu_first_boot_order resolves the
-// promoted interface from the machine's own rows. (It used to resolve
-// site-explorer's explored default, which still names the original NIC --
-// re-applying the very boot order the operator just moved away from.)
+/// Clears any pending machine-controller wakeup for a test host.
+async fn clear_controller_queue(
+    pool: &sqlx::PgPool,
+    machine_id: &MachineId,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM machine_state_controller_queued_objects WHERE object_id = $1")
+        .bind(machine_id.to_string())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Returns the number of pending machine-controller wakeups for a test host.
+async fn controller_queue_count(
+    pool: &sqlx::PgPool,
+    machine_id: &MachineId,
+) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM machine_state_controller_queued_objects WHERE object_id = $1",
+    )
+    .bind(machine_id.to_string())
+    .fetch_one(pool)
+    .await
+}
+
+// A managed `set_dpu_first_boot_order` request records the exact selected pair
+// and wakes the controller. Redfish is deliberately untouched in the request
+// path, including when the operator explicitly reapplies the current target.
 #[crate::sqlx_test]
-async fn test_set_dpu_first_targets_an_operator_moved_primary(
+async fn test_set_dpu_first_persists_managed_host_intent_without_redfish(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
     let (host_id, original_target, promote_target) = host_with_moved_primary(&env).await?;
+    let before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("moving the primary should persist its target");
+    assert_eq!(before.value, promote_target);
+    clear_controller_queue(&env.pool, &host_id).await?;
 
-    // Only observe the admin RPC below, not the promotion's own boot-order call.
     let timepoint = env.redfish_sim.timepoint();
-
     env.api
         .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
             machine_id: Some(host_id.to_string()),
@@ -120,12 +147,22 @@ async fn test_set_dpu_first_targets_an_operator_moved_primary(
         .await?;
 
     let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
+    assert!(
+        actions.is_empty(),
+        "the machine controller, not the admin request, should perform Redfish work",
+    );
+    let queued = controller_queue_count(&env.pool, &host_id).await?;
     assert_eq!(
-        actions,
-        vec![RedfishSimAction::SetBootOrderDpuFirst {
-            boot_interface_mac: promote_target.mac_address().to_string(),
-        }],
-        "the admin path should target the operator-moved primary, not the explored default",
+        queued, 1,
+        "an unassigned Ready host should be enqueued after commit",
+    );
+    let reapplied = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the explicit reapply should leave a desired target");
+    assert_eq!(reapplied.value, promote_target);
+    assert_ne!(
+        reapplied.version, before.version,
+        "an explicit setup request should force a fresh desired generation",
     );
 
     let timepoint = env.redfish_sim.timepoint();
@@ -137,56 +174,88 @@ async fn test_set_dpu_first_targets_an_operator_moved_primary(
         }))
         .await?;
     let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
-    assert_eq!(
-        actions,
-        vec![RedfishSimAction::SetBootOrderDpuFirst {
-            boot_interface_mac: original_target.mac_address().to_string(),
-        }],
-        "an explicit MAC should target that NIC before it becomes desired",
+    assert!(
+        actions.is_empty(),
+        "changing managed intent should not make request-path Redfish calls",
     );
     let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
         .await?
-        .expect("the successful Redfish action should persist its selected target");
+        .expect("the managed request should persist its selected target");
     assert_eq!(desired.value, original_target);
-
-    let mut txn = env.pool.begin().await?;
-    let machine = db::machine::find_one(txn.as_mut(), &host_id, Default::default())
-        .await?
-        .expect("the host should still exist");
-    let machine_desired = machine
-        .config
-        .desired_boot_interface
-        .expect("machine snapshots should include the desired boot interface");
-    assert_eq!(machine_desired.value, desired.value);
-    assert_eq!(machine_desired.version, desired.version);
-    let managed_host = db::managed_host::load_snapshot(txn.as_mut(), &host_id, Default::default())
-        .await?
-        .expect("the managed host should still exist");
-    let managed_host_desired = managed_host
-        .host_snapshot
-        .config
-        .desired_boot_interface
-        .expect("managed-host snapshots should include the desired boot interface");
-    assert_eq!(managed_host_desired.value, desired.value);
-    assert_eq!(managed_host_desired.version, desired.version);
+    assert_ne!(desired.version, reapplied.version);
 
     Ok(())
 }
 
-// machine_setup shares the resolver with set_dpu_first_boot_order but has its
-// own downstream semantics (BIOS boot-device pinning rather than boot-order
-// promotion) -- assert its resolved target end to end as well: after
-// set-primary-interface, an admin machine_setup configures BIOS for the
-// promoted NIC, not the explored default.
+// Assigned hosts retain operator intent but do not start boot reconciliation
+// under a tenant. The new desired generation stays pending until the machine
+// returns to an eligible unassigned `Ready` state.
 #[crate::sqlx_test]
-async fn test_machine_setup_targets_an_operator_moved_primary(
+async fn test_set_dpu_first_does_not_enqueue_an_assigned_host(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env(pool).await;
-    let (host_id, original_target, promote_target) = host_with_moved_primary(&env).await?;
+    let (host_id, _, target) = host_with_moved_primary(&env).await?;
+    let before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("moving the primary should persist its target");
+
+    sqlx::query("UPDATE machines SET controller_state = $1 WHERE id = $2")
+        .bind(sqlx::types::Json(ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }))
+        .bind(host_id)
+        .execute(&env.pool)
+        .await?;
+    clear_controller_queue(&env.pool, &host_id).await?;
 
     let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await?;
 
+    assert!(
+        env.redfish_sim
+            .actions_since(&timepoint)
+            .all_hosts()
+            .is_empty(),
+        "assigned-host intent should not perform request-path Redfish",
+    );
+    let queued = controller_queue_count(&env.pool, &host_id).await?;
+    assert_eq!(
+        queued, 0,
+        "an assigned host should not be enqueued for boot reconciliation",
+    );
+    let after = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the assigned host should retain its desired target");
+    assert_eq!(after.value, target);
+    assert_ne!(
+        after.version, before.version,
+        "the assigned request should still record a fresh desired generation",
+    );
+
+    Ok(())
+}
+
+// `machine_setup` is also an explicit reapply. Even when resolution selects the
+// target already stored by `set_primary_interface`, it creates a new desired
+// generation for the controller and performs no request-path Redfish.
+#[crate::sqlx_test]
+async fn test_machine_setup_forces_managed_host_reconciliation_without_redfish(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let (host_id, _, promote_target) = host_with_moved_primary(&env).await?;
+    let before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("moving the primary should persist its target");
+
+    let timepoint = env.redfish_sim.timepoint();
     env.api
         .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
             machine_id: Some(host_id.to_string()),
@@ -196,59 +265,27 @@ async fn test_machine_setup_targets_an_operator_moved_primary(
         .await?;
 
     let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
-    let targeted = actions
-        .iter()
-        .find_map(|action| match action {
-            RedfishSimAction::MachineSetup {
-                boot_interface_mac, ..
-            } => Some(boot_interface_mac.clone()),
-            _ => None,
-        })
-        .expect("machine_setup should have been called");
-    assert_eq!(
-        targeted,
-        Some(promote_target.mac_address().to_string()),
-        "machine_setup should configure BIOS for the operator-moved primary",
-    );
-
-    let timepoint = env.redfish_sim.timepoint();
-    env.api
-        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
-            machine_id: Some(host_id.to_string()),
-            bmc_endpoint_request: None,
-            boot_interface_mac: Some(original_target.mac_address().to_string()),
-        }))
-        .await?;
-    let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
-    let targeted = actions
-        .iter()
-        .find_map(|action| match action {
-            RedfishSimAction::MachineSetup {
-                boot_interface_mac, ..
-            } => Some(boot_interface_mac.clone()),
-            _ => None,
-        })
-        .expect("machine_setup should have been called");
-    assert_eq!(
-        targeted,
-        Some(original_target.mac_address().to_string()),
-        "an explicit MAC should target that NIC before it becomes desired",
+    assert!(
+        actions.is_empty(),
+        "the machine controller, not machine_setup, should perform Redfish work",
     );
     let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
         .await?
-        .expect("the successful Redfish action should persist its selected target");
-    assert_eq!(desired.value, original_target);
+        .expect("machine_setup should retain its resolved target");
+    assert_eq!(desired.value, promote_target);
+    assert_ne!(
+        desired.version, before.version,
+        "machine_setup should force a fresh desired generation",
+    );
 
     Ok(())
 }
 
-// A zero-DPU host has no explored default (site-explorer's automatic pick only
-// resolves for DPU-mode hosts), so a no-MAC set_dpu_first_boot_order used to
-// fail with "explore the host first". The machine's own interface rows resolve
-// it now: the HostInband NIC -- the same row the machine-controller boots the
-// host from -- is the target.
+// A zero-DPU host has no explored default, but its `HostInband` row still
+// resolves an exact managed target. The request persists that target and leaves
+// Redfish to the controller just like a DPU-backed host.
 #[crate::sqlx_test]
-async fn test_set_dpu_first_resolves_a_zero_dpu_host_without_an_explored_default(
+async fn test_set_dpu_first_persists_a_zero_dpu_host_target_without_redfish(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Zero-DPU ingestion needs a HostInband segment with a routable relay
@@ -293,16 +330,20 @@ async fn test_set_dpu_first_resolves_a_zero_dpu_host_without_an_explored_default
     let host = api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::zero_dpu()).await?;
     let host_id = host.host_snapshot.id;
 
-    let inband_mac = {
+    let inband_target = {
         let mut txn = env.pool.begin().await?;
-        db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
+        let interface = db::machine_interface::find_by_machine_ids(txn.as_mut(), &[host_id])
             .await?
             .remove(&host_id)
             .expect("zero-DPU host should have interface rows")
             .into_iter()
             .find(|i| i.network_segment_type == Some(NetworkSegmentType::HostInband))
-            .expect("zero-DPU host should have a HostInband interface")
-            .mac_address
+            .expect("zero-DPU host should have a HostInband interface");
+        MachineBootInterfaceTarget::from_parts(
+            Some(interface.mac_address),
+            interface.boot_interface_id,
+        )
+        .expect("the HostInband interface should resolve an exact target")
     };
 
     let timepoint = env.redfish_sim.timepoint();
@@ -316,13 +357,14 @@ async fn test_set_dpu_first_resolves_a_zero_dpu_host_without_an_explored_default
         .await?;
 
     let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
-    assert_eq!(
-        actions,
-        vec![RedfishSimAction::SetBootOrderDpuFirst {
-            boot_interface_mac: inband_mac.to_string(),
-        }],
-        "the zero-DPU host's NIC should resolve from its machine_interfaces row",
+    assert!(
+        actions.is_empty(),
+        "managed zero-DPU hosts should also defer Redfish to the controller",
     );
+    let desired = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the zero-DPU request should persist its resolved target");
+    assert_eq!(desired.value, inband_target);
 
     Ok(())
 }
@@ -408,12 +450,221 @@ async fn test_boot_interface_candidates_skips_dpu_machines(
     Ok(())
 }
 
-// A zero-DPU machine can be ingested before its in-band NIC takes its first
-// DHCP lease. There is no machine_interfaces row or explored default yet, so
-// the machine's predicted interface (MAC + report-derived Redfish id, kept
-// fresh every exploration since #2448) answers.
+// An unowned endpoint is still part of Site Explorer's discovery path. With
+// no actual machine owner, `machine_setup` must keep calling Redfish directly
+// and must not reinterpret a caller-supplied machine id as ownership.
 #[crate::sqlx_test]
-async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
+async fn test_machine_setup_keeps_unowned_endpoint_redfish_direct(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
+            .await?;
+    let host_id = host.host_snapshot.id;
+    let bmc_info = &host.host_snapshot.status.bmc_info;
+    let bmc_ip = bmc_info.ip.expect("host should have a BMC IP");
+    let bmc_interface_id = bmc_info
+        .machine_interface_id
+        .expect("host should have a BMC interface");
+    let before = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("site explorer should initialize the host target");
+
+    sqlx::query(
+        "UPDATE machine_interfaces \
+         SET machine_id = NULL, association_type = 'None'::association_type \
+         WHERE id = $1",
+    )
+    .bind(bmc_interface_id)
+    .execute(&env.pool)
+    .await?;
+
+    let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: Some(forge::BmcEndpointRequest {
+                ip_address: bmc_ip.to_string(),
+                mac_address: None,
+            }),
+            boot_interface_mac: None,
+        }))
+        .await?;
+
+    let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::MachineSetup { .. })),
+        "an unowned endpoint should retain direct machine_setup behavior",
+    );
+    let after = db::machine_desired_boot_interface::get(&env.pool, &host_id)
+        .await?
+        .expect("the former owner's desired target should remain");
+    assert_eq!(after.value, before.value);
+    assert_eq!(after.version, before.version);
+
+    Ok(())
+}
+
+// A BMC interface can outlive the candidate data needed to identify a host's
+// boot NIC. Boot-order changes still require a target, while `machine_setup`
+// preserves its target-less BIOS setup behavior without guessing at Site
+// Explorer's stale explored default.
+#[crate::sqlx_test]
+async fn test_managed_host_without_a_resolvable_target_preserves_action_requirements(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let host =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
+            .await?;
+    let host_id = host.host_snapshot.id;
+
+    let mut txn = env.pool.begin().await?;
+    sqlx::query("DELETE FROM machine_boot_interfaces WHERE machine_id = $1")
+        .bind(host_id)
+        .execute(txn.as_mut())
+        .await?;
+    sqlx::query(
+        "UPDATE machine_interfaces \
+         SET machine_id = NULL, association_type = 'None'::association_type \
+         WHERE machine_id = $1 AND interface_type <> 'Bmc'::interface_type",
+    )
+    .bind(host_id)
+    .execute(txn.as_mut())
+    .await?;
+    sqlx::query("DELETE FROM predicted_machine_interfaces WHERE machine_id = $1")
+        .bind(host_id)
+        .execute(txn.as_mut())
+        .await?;
+    txn.commit().await?;
+
+    let timepoint = env.redfish_sim.timepoint();
+    let error = env
+        .api
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await
+        .expect_err("an owned host without a target should be rejected");
+
+    assert_eq!(error.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        error.message(),
+        "no boot interface available: enter a MAC or explore the host first",
+    );
+    assert!(
+        env.redfish_sim
+            .actions_since(&timepoint)
+            .all_hosts()
+            .is_empty(),
+        "a rejected managed request must not fall through to Redfish",
+    );
+
+    let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
+            machine_id: Some(host_id.to_string()),
+            bmc_endpoint_request: None,
+            boot_interface_mac: None,
+        }))
+        .await?;
+    let boot_interface_mac = env
+        .redfish_sim
+        .actions_since(&timepoint)
+        .all_hosts()
+        .into_iter()
+        .find_map(|action| match action {
+            RedfishSimAction::MachineSetup {
+                boot_interface_mac, ..
+            } => Some(boot_interface_mac),
+            _ => None,
+        })
+        .expect("machine_setup should preserve target-less BIOS setup");
+    assert_eq!(boot_interface_mac, None);
+
+    Ok(())
+}
+
+// An explicit BMC request is authoritative in
+// `validate_and_complete_bmc_endpoint_request`: its database owner wins over a
+// mismatched `machine_id`. Persist and enqueue the actual owner only.
+#[crate::sqlx_test]
+async fn test_machine_setup_uses_the_bmc_endpoints_actual_owner(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+    let actual =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
+            .await?;
+    let caller_supplied =
+        api_fixtures::site_explorer::new_host(&env, ManagedHostConfig::default().with_dpu_count(1))
+            .await?;
+    let actual_id = actual.host_snapshot.id;
+    let caller_supplied_id = caller_supplied.host_snapshot.id;
+    let actual_bmc_ip = actual
+        .host_snapshot
+        .status
+        .bmc_info
+        .ip
+        .expect("host should have a BMC IP");
+    let actual_before = db::machine_desired_boot_interface::get(&env.pool, &actual_id)
+        .await?
+        .expect("site explorer should initialize the actual owner");
+    let caller_supplied_before =
+        db::machine_desired_boot_interface::get(&env.pool, &caller_supplied_id)
+            .await?
+            .expect("site explorer should initialize the caller-supplied host");
+
+    let timepoint = env.redfish_sim.timepoint();
+    env.api
+        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
+            machine_id: Some(caller_supplied_id.to_string()),
+            bmc_endpoint_request: Some(forge::BmcEndpointRequest {
+                ip_address: actual_bmc_ip.to_string(),
+                mac_address: None,
+            }),
+            boot_interface_mac: None,
+        }))
+        .await?;
+
+    assert!(
+        env.redfish_sim
+            .actions_since(&timepoint)
+            .all_hosts()
+            .is_empty(),
+        "the actual managed owner should keep the request declarative",
+    );
+    let actual_after = db::machine_desired_boot_interface::get(&env.pool, &actual_id)
+        .await?
+        .expect("the actual owner should retain desired state");
+    assert_eq!(actual_after.value, actual_before.value);
+    assert_ne!(
+        actual_after.version, actual_before.version,
+        "the actual owner should receive the forced generation",
+    );
+    let caller_supplied_after =
+        db::machine_desired_boot_interface::get(&env.pool, &caller_supplied_id)
+            .await?
+            .expect("the caller-supplied host should retain desired state");
+    assert_eq!(caller_supplied_after.value, caller_supplied_before.value);
+    assert_eq!(
+        caller_supplied_after.version, caller_supplied_before.version,
+        "the mismatched machine id must not receive the forced generation",
+    );
+
+    Ok(())
+}
+
+// A predicted host can be managed before its in-band NIC takes its first DHCP
+// lease. Its predicted MAC plus report-derived Redfish id form the exact
+// desired pair; the request still does no Redfish work.
+#[crate::sqlx_test]
+async fn test_set_dpu_first_persists_predicted_host_intent_without_redfish(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = api_fixtures::create_test_env_with_host_inband(pool.clone()).await;
@@ -461,17 +712,30 @@ async fn test_set_dpu_first_resolves_a_machine_awaiting_its_first_lease(
         .await?;
 
     let actions = env.redfish_sim.actions_since(&timepoint).all_hosts();
-    assert_eq!(
-        actions,
-        vec![RedfishSimAction::SetBootOrderDpuFirst {
-            boot_interface_mac: inband_mac.to_string(),
-        }],
-        "the machine awaiting its first lease should resolve from its predicted interface",
+    assert!(
+        actions.is_empty(),
+        "a predicted host should defer Redfish work to the machine controller",
     );
     let desired = db::machine_desired_boot_interface::get(&env.pool, &machine_id)
         .await?
-        .expect("the predicted host should retain the target Redfish accepted");
+        .expect("the predicted host should retain its resolved target");
     assert_eq!(desired.value, predicted_target);
+    let report = env
+        .api
+        .get_machine_boot_interfaces(tonic::Request::new(
+            forge::GetMachineBootInterfacesRequest {
+                machine_id: Some(machine_id),
+            },
+        ))
+        .await?
+        .into_inner();
+    let reconciliation = report
+        .reconciliation
+        .expect("a predicted host should expose its pending reconciliation");
+    assert_eq!(
+        reconciliation.desired_version,
+        desired.version.version_string(),
+    );
 
     Ok(())
 }

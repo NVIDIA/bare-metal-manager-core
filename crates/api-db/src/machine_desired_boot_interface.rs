@@ -393,18 +393,53 @@ pub async fn set(
     machine_id: &MachineId,
     target: &MachineBootInterfaceTarget,
 ) -> Result<Versioned<MachineBootInterfaceTarget>, DatabaseError> {
+    set_with_mode(txn, machine_id, target, SetMode::IfChanged).await
+}
+
+/// `force_set` stores an operator-selected target as a new pending generation,
+/// even when the value is unchanged.
+///
+/// A same-MAC MAC-only request keeps an existing complete pair, so forcing
+/// convergence cannot discard the Redfish id we already learned.
+pub async fn force_set(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    target: &MachineBootInterfaceTarget,
+) -> Result<Versioned<MachineBootInterfaceTarget>, DatabaseError> {
+    set_with_mode(txn, machine_id, target, SetMode::Force).await
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetMode {
+    IfChanged,
+    Force,
+}
+
+/// Serializes the desired-target write and applies the caller's generation
+/// policy without weakening a complete interface pair.
+async fn set_with_mode(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    target: &MachineBootInterfaceTarget,
+    mode: SetMode,
+) -> Result<Versioned<MachineBootInterfaceTarget>, DatabaseError> {
     validate_machine_id(machine_id)?;
     validate_target(target)?;
 
     let row = load_for_update(txn, machine_id).await?;
     let current_machine_version = row.machine_version;
     let current = row.decode(machine_id)?;
-    if let Some(current) = current.as_ref()
+    if mode == SetMode::IfChanged
+        && let Some(current) = current.as_ref()
         && request_is_satisfied(&current.value, target)
     {
         return Ok(current.clone());
     }
 
+    let target = current
+        .as_ref()
+        .filter(|current| request_is_satisfied(&current.value, target))
+        .map_or(target, |current| &current.value);
     let expected_version = current.as_ref().map(|current| current.version);
     let Some(version) = update(
         txn,
@@ -1047,6 +1082,48 @@ mod tests {
         .await?;
         assert_target(&unchanged, &pair);
         assert_eq!(unchanged.version, paired.version);
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn force_set_creates_a_pending_generation_without_weakening_pairs(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut txn = pool.begin().await?;
+        let machine_id = machine_id(MachineType::Host, 37);
+        seed_machine(txn.as_mut(), &machine_id).await?;
+        let mac_address = MacAddress::new([2, 0, 0, 0, 3, 10]);
+        let pair = MachineBootInterfaceTarget::Pair(MachineBootInterface {
+            mac_address,
+            interface_id: "NIC.Slot.10-1-1".to_string(),
+        });
+        let paired = set(txn.as_mut(), &machine_id, &pair).await?;
+        let observed_at =
+            DateTime::from_timestamp(1_722_000_200, 123_000_000).expect("fixture timestamp");
+        assert!(mark_verified(txn.as_mut(), &machine_id, paired.version, observed_at).await?);
+        let versions_before = versions(txn.as_mut(), &machine_id).await?;
+
+        let forced = force_set(
+            txn.as_mut(),
+            &machine_id,
+            &MachineBootInterfaceTarget::MacOnly(mac_address),
+        )
+        .await?;
+        assert_target(&forced, &pair);
+        assert_eq!(forced.version.version_nr(), paired.version.version_nr() + 1);
+        assert_eq!(
+            status_observation(txn.as_mut(), &machine_id).await?,
+            (Some(paired.version), Some(observed_at), false),
+            "the fresh generation must remain pending",
+        );
+
+        let versions_after = versions(txn.as_mut(), &machine_id).await?;
+        assert_eq!(
+            versions_after.0.version_nr(),
+            versions_before.0.version_nr() + 1
+        );
+        assert_eq!(versions_after.1, Some(forced.version));
 
         Ok(())
     }

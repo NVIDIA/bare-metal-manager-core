@@ -79,6 +79,38 @@ async fn test_ok(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
+async fn machine_detail_shows_boot_interface_reconciliation(pool: sqlx::PgPool) {
+    let env = TestEnv::new(pool).await;
+    let app = make_test_app(&env.test_harness);
+    let host = env.create_ready_managed_host(1).await.0;
+
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri(format!("/admin/machine/{}", host.host.id))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("machine detail body should be readable")
+        .to_bytes();
+    let body = std::str::from_utf8(&body).expect("machine detail should be UTF-8");
+
+    assert!(body.contains("Boot-interface reconciliation"));
+    assert!(body.contains("Converged"));
+    assert!(body.contains("Redfish verified"));
+    assert!(body.contains(&host.host.primary_mac().to_string()));
+    assert!(!body.contains("action_reminder(event)"));
+}
+
+#[crate::sqlx_test]
 async fn test_multi_dpu(pool: sqlx::PgPool) {
     let env = TestEnv::new(pool).await;
     let app = make_test_app(&env.test_harness);

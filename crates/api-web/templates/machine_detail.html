@@ -71,6 +71,28 @@
 	</tr>
 </table>
 
+{% if let Some(reconciliation) = boot_interface_reconciliation %}
+<h3>Boot-interface reconciliation</h3>
+<table class="detailsview">
+	<tr><th>State</th><td>{{ reconciliation.reconciliation_state }}</td></tr>
+	<tr><th>Desired MAC Address</th><td>{{ reconciliation.desired_mac_address }}</td></tr>
+	<tr><th>Desired Redfish Interface ID</th><td>{{ reconciliation.desired_interface_id }}</td></tr>
+	<tr><th>Desired Version</th><td>{{ reconciliation.desired_version }}</td></tr>
+	<tr><th>Verified Version</th><td>{{ reconciliation.verified_version }}</td></tr>
+	<tr><th>Observed At</th><td>{{ reconciliation.observed_at }}</td></tr>
+	<tr><th>Observation</th><td>{{ reconciliation.observation_type }}</td></tr>
+	<tr><th>Machine State</th><td>{{ reconciliation.machine_state }}</td></tr>
+	<tr><th>Reconciling Version</th><td>{{ reconciliation.reconciling_version }}</td></tr>
+	{% if let Some(failure) = reconciliation.failure %}
+	<tr><th>Failure</th><td class="cell-error">{{ failure }}
+		{% if reconciliation.reconciling_version != reconciliation.desired_version %}
+		<br><small>(reported for superseded generation {{ reconciliation.reconciling_version }})</small>
+		{% endif %}
+	</td></tr>
+	{% endif %}
+</table>
+{% endif %}
+
 {% if is_host %}
 <h3>Maintenance and Quarantine</h3>
 <table class="detailsview">
@@ -248,7 +270,7 @@
 		<td class="action-cell">
 			<div></div>
 			<div>
-				<form id="set_dpu_first_boot_order" method="POST" action="/admin/machine/{{ id }}/set-dpu-first-boot-order" onsubmit="action_reminder(event)">
+				<form id="set_dpu_first_boot_order" method="POST" action="/admin/machine/{{ id }}/set-dpu-first-boot-order">
 					<span class="action-spinner"></span>
 					<input type="hidden" name="bmc_ip" value="{{ bmc_info.ip|option_fmt }}">
 					{% for interface in interfaces %}
@@ -256,10 +278,10 @@
 							<input type="hidden" name="boot_interface_mac" value="{{ interface.mac_address }}">
 						{% endif %}
 					{% endfor %}
-					<input type="submit" value="Set DPU first">
+					<input type="submit" value="Request reconciliation">
 				</form>
 			</div>
-			{% include "restart_reminder.html" %}
+			<p>Machine-controller applies the desired boot interface and reboots only when required.</p>
 			{% if let Some(status) = action_status %}
 			{% if status.action == action_status::Type::SetDpuFirstBootOrder %}
 			{{ status.action_result_script()|safe }}
