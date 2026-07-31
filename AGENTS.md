@@ -169,6 +169,11 @@ verification expectations.
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.
 Make sure to review it to ensure changes meet the expected style of the codebase.
 
+Name new Core database migrations with the fully populated
+`YYYYMMDDhhmmss_description.sql` format described in
+[`STYLE_GUIDE.md`](STYLE_GUIDE.md#database-migrations). The `migration-police`
+CI job checks only newly added migrations, so existing filenames remain accepted.
+
 ### Documentation
 
 Give every fenced code block a language identifier. Use `bash` or `sh` for
