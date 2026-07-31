@@ -51,7 +51,7 @@ use crate::expected_machines::common::HostDpuPolicy;
 "dpu_policy",
 "bmc_ip_allocation",
 "dpf_enabled",
-"host_nics",
+"interfaces",
 ])))]
 #[command(after_long_help = "\
 EXAMPLES:
@@ -79,11 +79,11 @@ Retain the BMC's auto-allocated DHCP address as a static one (never expires):
 Replace the interface list for a matching stored interface that already has a
 fixed IP. The omitted role and allocation policy keep their stored values:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
-    --host_nics '[{\"mac_address\":\"02:00:00:00:20:01\",\"fixed_ip\":\"192.0.2.10\"}]'
+    --interfaces '[{\"mac_address\":\"02:00:00:00:20:01\",\"fixed_ip\":\"192.0.2.10\"}]'
 
 Reset that role to Host and infer Fixed allocation from fixed_ip:
     $ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 \
-    --host_nics '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"unspecified\",\"ip_allocation\":\"unspecified\",\"fixed_ip\":\"192.0.2.10\"}]'
+    --interfaces '[{\"mac_address\":\"02:00:00:00:20:01\",\"role\":\"unspecified\",\"ip_allocation\":\"unspecified\",\"fixed_ip\":\"192.0.2.10\"}]'
 
 ")]
 pub struct Args {
@@ -214,12 +214,13 @@ pub struct Args {
     pub bmc_ip_allocation: Option<BmcIpAllocationType>,
 
     #[clap(
-        long = "host_nics",
-        value_name = "HOST_NICS",
+        long = "interfaces",
+        visible_alias = "host_nics",
+        value_name = "INTERFACES",
         group = "group",
-        help = "Host NICs as a JSON array of ExpectedHostNic objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc|host_bmc|unspecified and ip_allocation=dynamic|fixed|retained|unspecified. Replaces the machine's full host NIC list. For a matching stored MAC, omitting role preserves the stored role; role=unspecified resets it to host. Omitting ip_allocation preserves the stored policy when the presence of fixed_ip is unchanged; ip_allocation=unspecified resets it to fixed_ip inference."
+        help = "Interfaces as a JSON array of ExpectedInterface objects (fields: mac_address, role, ip_allocation, network_segment_type, fixed_ip, fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values: role=host|dpu_os|dpu_bmc|host_bmc|unspecified and ip_allocation=dynamic|fixed|retained|unspecified. Replaces the machine's full interface list. For a matching stored MAC, omitting role preserves the stored role; role=unspecified resets it to host. Omitting ip_allocation preserves the stored policy when the presence of fixed_ip is unchanged; ip_allocation=unspecified resets it to fixed_ip inference."
     )]
-    pub host_nics: Option<String>,
+    pub interfaces: Option<String>,
 
     #[clap(
         long = "disable-lockdown",
@@ -254,9 +255,9 @@ impl Args {
             && self.bmc_ip_address.is_none()
             && self.dpu_policy.is_none()
             && self.bmc_ip_allocation.is_none()
-            && self.host_nics.is_none()
+            && self.interfaces.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address or dpu-policy or bmc-ip-allocation or dpf-enabled or host_nics".to_string()));
+            return Err(CarbideCliError::GenericError("one of the following options must be specified: bmc-username and bmc-password or chassis-serial-number or fallback-dpu-serial-number or sku-id or rack-id or bmc-ip-address or dpu-policy or bmc-ip-allocation or dpf-enabled or interfaces".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

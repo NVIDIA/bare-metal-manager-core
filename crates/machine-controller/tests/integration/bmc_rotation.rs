@@ -93,7 +93,7 @@ async fn ready_host_converges_bmc_to_site_target(
         .build()
         .await
         .0;
-    mh.advance_state(ManagedHostState::Ready).await;
+    mh.advance_to_converged_ready().await;
 
     let host_mac = mh
         .host
@@ -236,7 +236,7 @@ async fn feature_flag_off_suppresses_passive_rotation(
         .build()
         .await
         .0;
-    mh.advance_state(ManagedHostState::Ready).await;
+    mh.advance_to_converged_ready().await;
 
     let host_mac = mh
         .host
@@ -297,7 +297,7 @@ async fn force_request_converges_quarantined_bmc_when_disabled(
         .build()
         .await
         .0;
-    mh.advance_state(ManagedHostState::Ready).await;
+    mh.advance_to_converged_ready().await;
 
     let host = mh.host.machine().await;
     let machine_id = host.id;

@@ -142,6 +142,13 @@ make generate-sdk
 make publish-openapi
 ```
 
+`generate-sdk` uses a pinned openapi-generator, downloaded to `.tools/` and
+checksum-verified on first use, because the generated SDK is byte-for-byte
+dependent on the generator version. Do not install the generator separately to
+bypass the pin. Raising `OPENAPI_GENERATOR_VERSION` belongs in its own change
+alongside the regenerated `sdk/standard/`, since a new generator rewrites files
+no spec edit touched.
+
 ### Protobuf Code Generation
 
 ```bash
@@ -220,6 +227,8 @@ verification expectations.
   implementation details.
 - API-layer enum-like request constants exposed through JSON use CapitalCase
   values, for example `SiteWideRoot` and `BMCRoot`.
+- When prose names exact API enum values, format the literals as code, for
+  example `Set`, `Clear`, and `Restart`, so they are distinct from verbs.
 - For disruptive machine operations, decide and encode the attached-Instance
   behavior explicitly. If an operation can power-cycle or otherwise disrupt a
   tenant workload, check `Machine.IsAssigned` (or the equivalent association)

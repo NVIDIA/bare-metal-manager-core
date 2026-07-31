@@ -16,6 +16,7 @@
  */
 
 pub mod compute_allocation;
+pub mod device;
 pub mod domain;
 pub mod dpa_interface;
 pub mod dpu_remediations;

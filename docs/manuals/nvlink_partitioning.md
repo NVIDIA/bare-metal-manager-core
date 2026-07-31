@@ -11,7 +11,9 @@ NVIDIA Infra Controller (NICo) allows you to do the following with NVLink:
 
 NICo extends the concept of an *NVLink Partition* with the *NVLink Logical Partition*, which allows users to manage NVLink Partitions without having to learn the datacenter topology.
 
-> **Note**: NVLink Partitioning is only supported for GB200 compute nodes.
+<Note title="Compatibility note">
+NVLink Partitioning is only supported for GB200 compute nodes.
+</Note>
 
 ## Operations: Who Does What
 
@@ -41,15 +43,17 @@ NICo users can create NVLink Logical Partitions and plan GPU assignments using N
 
 In general, the steps are:
 
-1. The user creates a NVLink Logical Partition using the `POST /v2/org/{org}/nico/nvlink-logical-partition` [REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/nvlink-logical-partition/create-nvlink-logical-partition). NICo creates an entry in the database and returns an NVLink Logical Partition ID. At this point, there is no underlying NVLink Partition associated with the NVLink Logical Partition.
+1. The user creates a NVLink Logical Partition using the `POST /v2/org/{org}/nico/nvlink-logical-partition` [REST API endpoint](api:POST/v2/org/:org/nico/nvlink-logical-partition). NICo creates an entry in the database and returns an NVLink Logical Partition ID. At this point, there is no underlying NVLink Partition associated with the NVLink Logical Partition.
 
-2. When creating an Instance, the user specifies NVLink Interface configuration for each GPU by referencing their preferred NVLink Logical Partition ID in the `POST /v2/org/{org}/nico/instance` [REST API endpoint request](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/instance/create-instance).
+1. When creating an Instance, the user specifies NVLink Interface configuration for each GPU by referencing their preferred NVLink Logical Partition ID in the `POST /v2/org/{org}/nico/instance` [REST API endpoint request](api:POST/v2/org/:org/nico/instance).
 
    a. If this is the first Instance to be added to specified NVLink Logical Partitions, NICo Core will create and assign NVLink Partitions for them and add the Instance GPUs to the NVLink Partitions.
 
-> **Note**: To ensure that machines in the same Rack are assigned to the same NVLink Partition, an Instance Type can be created for the Rack and all Machines in the Rack assigned to the same Instance Type. Alternatively users can use the [Batch Instance creation REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/instance/batch-create-instances) and set `topologyOptimized` to `true`.
+   <Note>
+   To ensure that machines in the same Rack are assigned to the same NVLink Partition, an Instance Type can be created for the Rack and all Machines in the Rack assigned to the same Instance Type. Alternatively users can use the [Batch Instance creation REST API endpoint](api:POST/v2/org/:org/nico/instance/batch) and set `topologyOptimized` to `true`.
+   </Note>
 
-3. If the user does not want to specify NVLink Interfaces for each GPU when creating an Instance, they can:
+1. If the user does not want to specify NVLink Interfaces for each GPU when creating an Instance, they can:
 
    a. Create a new VPC by specifying a value for `nvLinkLogicalPartitionId` or update an existing VPC with no Instances to set the `nvLinkLogicalPartitionId` attribute. We will refer to this as the *default NVLink Logical Partition* for the VPC.
 
@@ -59,11 +63,13 @@ In general, the steps are:
 
    d. If there is no space in the Rack where the NVLink Partition for an NVLink Logical Partition is located, NICo will create a new NVLink Partition in a different Rack for the same NVLink Logical Partition and continue to assign the Instance GPUs to it.
 
-> **Important**: If Instances are in different Racks, they will not be able to share memory with each other despite having the same NVLink Logical Partition.
+<Warning title="Important">
+If Instances are in different Racks, they will not be able to share memory with each other despite having the same NVLink Logical Partition.
+</Warning>
 
 ### Updating an Instance to change NVLink Logical Partition assignment for its GPUs
 
-If a NICo user wants to update an Instance to change NVLink Logical Partition assignment for its GPUs, they can do so by calling the `PATCH /v2/org/{org}/nico/instance/{instance-id}` [REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/instance/update-instance)
+If a NICo user wants to update an Instance to change NVLink Logical Partition assignment for its GPUs, they can do so by calling the `PATCH /v2/org/{org}/nico/instance/{instance-id}` [REST API endpoint](api:PATCH/v2/org/:org/nico/instance/:instanceId).
 
 The user can specify the NVLink Logical Partition ID for each GPU in the Instance by passing the `nvLinkInterfaces` list.
 
@@ -75,11 +81,11 @@ If a user de-provisions an Instance, NICo will remove the Instance GPUs from the
 
 ### Deleting an NVLink Logical Partition
 
-A NICo user can call `DELETE /v2/org/{org}/nico/nvlink-logical-partition/{nvLinkLogicalPartitionId}` to delete an NVLink Logical Partition. This call will only succeed if there are no active Instances associated with the NVLink Logical Partition.
+A NICo user can call [`DELETE /v2/org/{org}/nico/nvlink-logical-partition/{nvLinkLogicalPartitionId}`](api:DELETE/v2/org/:org/nico/nvlink-logical-partition/:nvLinkLogicalPartitionId) to delete an NVLink Logical Partition. This call will only succeed if there are no active Instances associated with the NVLink Logical Partition.
 
 ### Retrieving NVLink Partition Information for an Instance
 
-A NICo user can call `GET /v2/org/{org}/nico/instance/{instance-id}` to retrieve information about an Instance. As part of the `200` response body, NICo will return a `nvLinkInterfaces` list that includes both the `nvLinkLogicalPartitionId` and `nvLinkDomainId` for each GPU in the Instance.
+A NICo user can call [`GET /v2/org/{org}/nico/instance/{instance-id}`](api:GET/v2/org/:org/nico/instance/:instanceId) to retrieve information about an Instance. As part of the `200` response body, NICo will return a `nvLinkInterfaces` list that includes both the `nvLinkLogicalPartitionId` and `nvLinkDomainId` for each GPU in the Instance.
 
 ### Default NVLink Logical Partition for a VPC
 
@@ -99,8 +105,9 @@ We intentionally don't restrict an NVLink Logical Partition to a single VPC. The
 If you want finer control, leave `nvLinkLogicalPartitionId` unset on the VPC and specify `nvLinkInterfaces` directly on Create Instance — each entry binds a specific `deviceInstance` (GPU) to an explicit `nvLinkLogicalPartitionId`, so different GPUs in the same instance (or across Instances in the same VPC) can operate in different NVLink Logical Partitions.
 
 **Summary**
+
 | Configuration | Behavior |
-| --- | --- |
+| ------------- | -------- |
 | VPC has `nvLinkLogicalPartitionId`, Instance creation omits `nvLinkInterfaces` | API auto-populates all GPUs to the VPC's NVLink Logical Partition |
 | VPC has `nvLinkLogicalPartitionId`, Instance specifies `nvLinkInterfaces` | Instance-level values must align with VPC's Partition, rendering the specification redundant |
 | VPC doesn't have `nvLinkLogicalPartitionId` set, Instance specifies `nvLinkInterfaces` | Per-GPU NVLink Logical Partition assignments are used |
@@ -117,12 +124,12 @@ Each reconciliation pass does the following:
 
 1. Loads every NVLink Logical Partition and every NVLink Physical Partition
    from the NICo database.
-2. Resolves the NMX-C endpoint for each chassis and queries its current
+1. Resolves the NMX-C endpoint for each chassis and queries its current
    partition list, compute nodes, and GPU membership.
-3. Compares observed state against desired state.
-4. Issues create / update / remove operations to the fabric-management
+1. Compares observed state against desired state.
+1. Issues create / update / remove operations to the fabric-management
    service to converge it onto desired state.
-5. Updates per-machine GPU status observations in the NICo database. The
+1. Updates per-machine GPU status observations in the NICo database. The
    per-instance `configs_synced.nvlink` field is derived from these
    observations and is what gates the instance's `Ready` state.
 
@@ -134,7 +141,7 @@ The reconciler exposes metrics under the
 `carbide_nvlink_partition_monitor_*` namespace. Useful ones:
 
 | Metric | Use | `health` values |
-|---|---|---|
+| ------ | --- | --------------- |
 | `carbide_nvlink_partition_monitor_iteration_latency_milliseconds` | Time per reconcile pass | |
 | `carbide_nvlink_partition_monitor_nmxc_op_latency_milliseconds` | Per-operation latency against NMX-C | |
 | `carbide_nvlink_partition_monitor_nmxc_changes_applied_total` | Counter of changes issued; nonzero in steady state is an anomaly | |
@@ -150,10 +157,10 @@ The reconciler exposes metrics under the
 When an instance is released (via `ReleaseInstance`):
 
 1. The instance's NVLink configuration is cleared from the database.
-2. The reconciler observes that GPUs previously assigned to the instance
+1. The reconciler observes that GPUs previously assigned to the instance
    are no longer requested in any live partition.
-3. The reconciler removes those GPUs from their NMX-C partitions.
-4. Once all NVLink state is removed, the machine's GPU status observation
+1. The reconciler removes those GPUs from their NMX-C partitions.
+1. Once all NVLink state is removed, the machine's GPU status observation
    reflects an empty domain assignment and the host becomes eligible for
    reuse.
 
@@ -196,7 +203,7 @@ allow_insecure = false
 ```
 
 | Field | Purpose |
-|---|---|
+| ----- | ------- |
 | `nmx_c_tls_ca_cert_path` | Optional PEM containing additional CAs for verifying the NMX-C endpoint's certificate |
 | `nmx_c_tls_client_cert_path` | Optional client certificate for mTLS to NMX-C |
 | `nmx_c_tls_client_key_path` | Optional client key matching the certificate above |
@@ -248,27 +255,27 @@ below should be repeatable as a checklist.
    `carbide_nvlink_partition_monitor_nmxc_connect_error_count` over a time
    window appropriate to the reconcile interval; its historical total alone
    does not indicate a current connection problem.
-2. **Logical-partition count matches expectation.**
+1. **Logical-partition count matches expectation.**
    `carbide_nvlink_partition_monitor_num_logical_partitions` reflects
    the partitions a site planner expects to exist. A sudden change is
    worth correlating with recent tenant API activity.
-3. **Per-instance configuration has converged.** The instance's
+1. **Per-instance configuration has converged.** The instance's
    `InstanceStatus` reports `configs_synced.nvlink = true` and the
    `nvLinkInterfaces` list on the instance shows the expected
    `nvLinkLogicalPartitionId` and `nvLinkDomainId` for each GPU.
-4. **Per-machine GPU placement.**
+1. **Per-machine GPU placement.**
 
-    ```
-    nicocli machine nvlink-info --machine-id <machine-id>
-    ```
+   ```bash
+   nicocli machine nvlink-info --machine-id <machine-id>
+   ```
 
-    Returns the machine's NVLink GPU status observations, including the
-    Domain each GPU is currently assigned to. Use this to confirm that
-    two instances expected to share an NVLink Logical Partition have
-    actually landed in the same NVLink Domain — instances in different
-    Domains cannot share GPU memory regardless of having the same
-    Logical Partition ID.
-5. **Cleanup after release.** After releasing an instance, the same
+   Returns the machine's NVLink GPU status observations, including the
+   Domain each GPU is currently assigned to. Use this to confirm that
+   two instances expected to share an NVLink Logical Partition have
+   actually landed in the same NVLink Domain — instances in different
+   Domains cannot share GPU memory regardless of having the same
+   Logical Partition ID.
+1. **Cleanup after release.** After releasing an instance, the same
    `machine nvlink-info` output should show an empty Domain assignment
    on the affected GPUs within one or two reconcile intervals. Failure
    to clear indicates the reconciler could not remove the GPU from its NMX-C

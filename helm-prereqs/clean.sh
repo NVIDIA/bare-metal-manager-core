@@ -61,6 +61,18 @@ kubectl wait --for=delete ns/nico-rest ns/temporal ns/flow \
     --timeout=120s 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
+# 0b. Observability stack (optional component; harmless no-ops if absent)
+# ---------------------------------------------------------------------------
+echo "=== [0b/8] Uninstalling observability stack (if present) ==="
+helm uninstall obs                    -n monitoring 2>/dev/null || true
+helm uninstall otel-agent             -n otel       2>/dev/null || true
+helm uninstall otel-collector-gateway -n otel       2>/dev/null || true
+helm uninstall tempo                  -n tempo      2>/dev/null || true
+helm uninstall loki                   -n loki       2>/dev/null || true
+kubectl delete ns monitoring otel tempo loki \
+    --wait=false --ignore-not-found 2>/dev/null || true
+
+# ---------------------------------------------------------------------------
 # 1. NICo core (separate helm release, not in helmfile)
 # ---------------------------------------------------------------------------
 echo "=== [1/8] Uninstalling nico core ==="
@@ -233,7 +245,7 @@ echo "=== [6/8] Removing Released PersistentVolumes owned by this stack ==="
 kubectl get pv -o json 2>/dev/null \
     | jq -r '.items[] | select(
         .spec.storageClassName == "local-path-persistent" and
-        (.spec.claimRef.namespace // "" | test("^(nico-system|cert-manager|vault|external-secrets|postgres|metallb-system|nico-rest|temporal)$"))
+        (.spec.claimRef.namespace // "" | test("^(nico-system|cert-manager|vault|external-secrets|postgres|metallb-system|nico-rest|temporal|loki|tempo|monitoring|otel)$"))
       ) | .metadata.name' \
     | xargs -r kubectl delete pv --ignore-not-found 2>/dev/null || true
 

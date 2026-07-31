@@ -87,7 +87,7 @@ use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
 use model::DpuModel;
-use model::expected_machine::{ExpectedHostNic, ExpectedInterfaceIpAllocation, HostDpuPolicy};
+use model::expected_machine::{ExpectedInterface, ExpectedInterfaceIpAllocation, HostDpuPolicy};
 use model::firmware::FirmwareComponentType;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
@@ -115,13 +115,13 @@ use crate::explored_endpoint_index::ExploredEndpointIndex;
 /// Return whether an expected interface is explicitly a non-Redfish DPU OS
 /// endpoint.
 ///
-/// Host is the compatibility default for existing `host_nics` entries, so
+/// Host is the compatibility default for existing interface declarations, so
 /// those entries remain scannable even when they look like data interfaces.
 /// DPU BMC interfaces remain scannable too. A top-level BMC MAC is an
 /// ExpectedMachine identity, so it wins over a historical DPU OS declaration
 /// that reused the same address on any row.
 fn should_skip_expected_interface_redfish_scan(
-    interface: &ExpectedHostNic,
+    interface: &ExpectedInterface,
     expected_host_bmc_macs: &HashSet<MacAddress>,
 ) -> bool {
     !expected_host_bmc_macs.contains(&interface.mac_address)
@@ -1412,7 +1412,7 @@ impl SiteExplorer {
             // emit a bare managed host regardless of what matched).
             let host_dpu_policy = effective_policy(&ep.address);
 
-            // A declared `ExpectedHostNic.primary` (when the matched expected
+            // A declared `ExpectedInterface.primary` (when the matched expected
             // machine sets one) wins over the automatic DPU-PF pick, so the
             // explored default names the same NIC the managed store will.
             let declared_primary = expected_explored_endpoint_index
@@ -2076,7 +2076,7 @@ impl SiteExplorer {
             .await;
             for nic in expected_machine
                 .data
-                .host_nics
+                .interfaces
                 .iter()
                 .filter(|interface| interface.mac_address != expected_machine.bmc_mac_address)
             {
@@ -2155,7 +2155,7 @@ impl SiteExplorer {
             .collect::<HashSet<_>>();
         let expected_non_redfish_interface_macs = expected_machines
             .iter()
-            .flat_map(|machine| &machine.data.host_nics)
+            .flat_map(|machine| &machine.data.interfaces)
             .filter(|interface| {
                 should_skip_expected_interface_redfish_scan(interface, &expected_host_bmc_macs)
             })
@@ -3717,7 +3717,7 @@ pub async fn try_preallocate_one(
 /// stop Site Explorer from processing the remaining expected inventory.
 pub async fn try_apply_expected_interface(
     pool: &PgPool,
-    expected_interface: &ExpectedHostNic,
+    expected_interface: &ExpectedInterface,
     retained_window: Option<chrono::Duration>,
 ) {
     let allocation = expected_interface.resolved_ip_allocation();
@@ -4330,7 +4330,7 @@ mod tests {
             ],
             |(role, mac_address)| {
                 should_skip_expected_interface_redfish_scan(
-                    &ExpectedHostNic {
+                    &ExpectedInterface {
                         mac_address,
                         role,
                         ..Default::default()

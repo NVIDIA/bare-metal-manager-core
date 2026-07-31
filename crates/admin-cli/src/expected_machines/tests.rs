@@ -103,6 +103,41 @@ fn parse_add() {
     }
 }
 
+/// Canonical and legacy interface flags build the same protobuf request.
+#[test]
+fn parse_add_with_new_and_legacy_interface_flags() {
+    let value = r#"[{"mac_address":"00:11:22:33:44:55","primary":true}]"#;
+    let mut parsed_interfaces = Vec::new();
+
+    for flag in ["--interfaces", "--host_nics"] {
+        let cmd = Cmd::try_parse_from([
+            "expected-machine",
+            "add",
+            "--bmc-mac-address",
+            "1a:2b:3c:4d:5e:6f",
+            "--bmc-username",
+            "admin",
+            "--bmc-password",
+            "secret",
+            "--chassis-serial-number",
+            "SN12345",
+            flag,
+            value,
+        ])
+        .unwrap_or_else(|error| panic!("{flag} should parse: {error}"));
+
+        let Cmd::Add(args) = cmd else {
+            panic!("expected Add variant");
+        };
+        let machine = rpc::forge::ExpectedMachine::try_from(args)
+            .unwrap_or_else(|error| panic!("{flag} should build a request: {error}"));
+        parsed_interfaces.push(machine.host_nics);
+    }
+
+    assert_eq!(parsed_interfaces[0], parsed_interfaces[1]);
+    assert_eq!(parsed_interfaces[0][0].mac_address, "00:11:22:33:44:55");
+}
+
 // parse_add_without_password ensures add parses when --bmc-password is omitted.
 #[test]
 fn parse_add_without_password() {
@@ -936,27 +971,33 @@ fn validate_patch_with_bmc_ip_allocation_only() {
     }
 }
 
-// `patch --host_nics '[...]'` alone (no other patchable fields) must satisfy
-// clap's ArgGroup and `Args::validate()`'s "at least one field" check.
+/// Canonical and legacy interface flags both satisfy the patch argument group
+/// and produce the same value.
 #[test]
-fn validate_patch_with_host_nics_only() {
-    let cmd = Cmd::try_parse_from([
-        "expected-machine",
-        "patch",
-        "--bmc-mac-address",
-        "00:00:00:00:00:00",
-        "--host_nics",
-        r#"[{"mac_address":"00:11:22:33:44:55","primary":true}]"#,
-    ])
-    .expect("patch --host_nics alone should parse (ArgGroup)");
+fn validate_patch_with_new_and_legacy_interface_flags() {
+    let value = r#"[{"mac_address":"00:11:22:33:44:55","primary":true}]"#;
+    let mut parsed_values = Vec::new();
 
-    match cmd {
-        Cmd::Patch(args) => {
-            assert!(
-                args.validate().is_ok(),
-                "patch --host_nics alone should validate"
-            );
-        }
-        _ => panic!("expected Patch variant"),
+    for flag in ["--interfaces", "--host_nics"] {
+        let cmd = Cmd::try_parse_from([
+            "expected-machine",
+            "patch",
+            "--bmc-mac-address",
+            "00:00:00:00:00:00",
+            flag,
+            value,
+        ])
+        .unwrap_or_else(|error| panic!("{flag} should parse: {error}"));
+
+        let Cmd::Patch(args) = cmd else {
+            panic!("expected Patch variant");
+        };
+        assert!(args.validate().is_ok(), "{flag} should validate");
+        parsed_values.push(args.interfaces);
     }
+
+    assert_eq!(
+        parsed_values,
+        [Some(value.to_string()), Some(value.to_string())]
+    );
 }

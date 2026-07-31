@@ -67,7 +67,7 @@ impl TestContext {
             .build()
             .await
             .0;
-        mh.advance_state(ManagedHostState::Ready).await;
+        mh.advance_to_converged_ready().await;
         Self { env, mh }
     }
 }

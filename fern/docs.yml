@@ -12,17 +12,16 @@ instances:
 
 title: NVIDIA Infra Controller
 
-metadata:
-  canonical-host: "docs.nvidia.com/infra-controller"
+# metadata:
+#   canonical-host: "docs.nvidia.com/infra-controller"
 
-ai-search:
-  location:
-    - docs
+check:
+  rules:
+    broken-links: error
 
 navbar-links:
-  - type: filled
-    text: GitHub
-    href: https://github.com/NVIDIA/infra-controller
+  - type: github
+    value: https://github.com/NVIDIA/infra-controller
 
 products:
   - display-name: NVIDIA Infra Controller

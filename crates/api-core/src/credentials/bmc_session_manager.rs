@@ -182,95 +182,51 @@ enum BmcSessionCleanupOperation {
     DeleteSessionRows,
 }
 
-/// The prior session was still present on the BMC, but its revoke failed.
+/// A BMC session outlived the work that created it and could not be cleaned
+/// up. `operation` names which cleanup failed and picks the wording operators
+/// already receive. `spiffe_service_id` and `session` are absent on the paths
+/// that never had one -- `flush_mac` works from the MAC alone, and a failed
+/// session listing never reached a specific session.
 #[derive(carbide_instrument::Event)]
 #[event(
-    event_name = "bmc_session_prior_revoke_failed",
+    event_name = "bmc_session_cleanup_failed",
     metric_name = "carbide_bmc_session_cleanup_failures_total",
     component = "nico-api",
     log = warn,
     metric = counter,
-    message = "failed to revoke prior BMC session; continuing with new session creation",
+    message = dynamic,
     describe = "Number of BMC session cleanup failures, by operation."
 )]
-struct BmcSessionPriorRevokeFailed {
+struct BmcSessionCleanupFailed {
     #[label]
     operation: BmcSessionCleanupOperation,
     #[context]
     bmc_mac_address: MacAddress,
-    #[context(value)]
-    spiffe_service_id: String,
     #[context]
-    session: ODataId,
+    spiffe_service_id: Option<String>,
+    #[context]
+    session: Option<ODataId>,
     #[context]
     error: String,
 }
 
-/// The BMC session collection could not be listed before the prior revoke.
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "bmc_session_prior_revoke_list_failed",
-    metric_name = "carbide_bmc_session_cleanup_failures_total",
-    component = "nico-api",
-    log = warn,
-    metric = counter,
-    message = "failed to list BMC sessions for prior-session revoke; continuing",
-    describe = "Number of BMC session cleanup failures, by operation."
-)]
-struct BmcSessionPriorRevokeListFailed {
-    #[label]
-    operation: BmcSessionCleanupOperation,
-    #[context]
-    bmc_mac_address: MacAddress,
-    #[context(value)]
-    spiffe_service_id: String,
-    #[context]
-    error: String,
-}
-
-/// Session metadata could not be stored, and rolling back the new BMC session
-/// failed too.
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "bmc_session_unpersisted_revoke_failed",
-    metric_name = "carbide_bmc_session_cleanup_failures_total",
-    component = "nico-api",
-    log = warn,
-    metric = counter,
-    message = "failed to revoke just-created session after store upsert failed; it will leak until BMC idle timeout",
-    describe = "Number of BMC session cleanup failures, by operation."
-)]
-struct BmcSessionUnpersistedRevokeFailed {
-    #[label]
-    operation: BmcSessionCleanupOperation,
-    #[context]
-    bmc_mac_address: MacAddress,
-    #[context(value)]
-    spiffe_service_id: String,
-    #[context]
-    session: ODataId,
-    #[context]
-    error: String,
-}
-
-/// `flush_mac` could not delete the persisted session rows for a BMC.
-#[derive(carbide_instrument::Event)]
-#[event(
-    event_name = "bmc_session_store_flush_failed",
-    metric_name = "carbide_bmc_session_cleanup_failures_total",
-    component = "nico-api",
-    log = warn,
-    metric = counter,
-    message = "failed to delete BMC session rows during flush_mac; continuing",
-    describe = "Number of BMC session cleanup failures, by operation."
-)]
-struct BmcSessionStoreFlushFailed {
-    #[label]
-    operation: BmcSessionCleanupOperation,
-    #[context]
-    bmc_mac_address: MacAddress,
-    #[context]
-    error: String,
+impl carbide_instrument::DynamicMessage for BmcSessionCleanupFailed {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            BmcSessionCleanupOperation::RevokePriorSession => {
+                "failed to revoke prior BMC session; continuing with new session creation"
+            }
+            BmcSessionCleanupOperation::ListSessionsForRevoke => {
+                "failed to list BMC sessions for prior-session revoke; continuing"
+            }
+            BmcSessionCleanupOperation::RevokeUnpersistedSession => {
+                "failed to revoke just-created session after store upsert failed; it will leak until BMC idle timeout"
+            }
+            BmcSessionCleanupOperation::DeleteSessionRows => {
+                "failed to delete BMC session rows during flush_mac; continuing"
+            }
+        }
+    }
 }
 
 /// The actual lockout-avoidance state change, as the bounded `transition`
@@ -527,11 +483,11 @@ impl BmcSessionManager {
                         .find(|m| m.raw().odata_id() == &prior_id)
                     {
                         if let Err(err) = prior_session.delete().await {
-                            carbide_instrument::emit(BmcSessionPriorRevokeFailed {
+                            carbide_instrument::emit(BmcSessionCleanupFailed {
                                 operation: BmcSessionCleanupOperation::RevokePriorSession,
                                 bmc_mac_address: bmc_mac,
-                                spiffe_service_id: spiffe_service_id.to_owned(),
-                                session: prior_id,
+                                spiffe_service_id: Some(spiffe_service_id.to_owned()),
+                                session: Some(prior_id),
                                 error: format!("{err:?}"),
                             });
                         }
@@ -546,10 +502,11 @@ impl BmcSessionManager {
                     }
                 }
                 Err(err) => {
-                    carbide_instrument::emit(BmcSessionPriorRevokeListFailed {
+                    carbide_instrument::emit(BmcSessionCleanupFailed {
                         operation: BmcSessionCleanupOperation::ListSessionsForRevoke,
                         bmc_mac_address: bmc_mac,
-                        spiffe_service_id: spiffe_service_id.to_owned(),
+                        spiffe_service_id: Some(spiffe_service_id.to_owned()),
+                        session: None,
                         error: format!("{err:?}"),
                     });
                 }
@@ -586,11 +543,11 @@ impl BmcSessionManager {
             .await
         {
             if let Err(revoke_err) = created.delete().await {
-                carbide_instrument::emit(BmcSessionUnpersistedRevokeFailed {
+                carbide_instrument::emit(BmcSessionCleanupFailed {
                     operation: BmcSessionCleanupOperation::RevokeUnpersistedSession,
                     bmc_mac_address: bmc_mac,
-                    spiffe_service_id: spiffe_service_id.to_owned(),
-                    session: location,
+                    spiffe_service_id: Some(spiffe_service_id.to_owned()),
+                    session: Some(location),
                     error: format!("{revoke_err:?}"),
                 });
             }
@@ -662,9 +619,11 @@ impl BmcSessionManager {
     /// Drop all session rows for `bmc_mac` and clear any lockout state.
     pub async fn flush_mac(&self, bmc_mac: MacAddress) {
         if let Err(err) = self.store.delete_by_mac(bmc_mac).await {
-            carbide_instrument::emit(BmcSessionStoreFlushFailed {
+            carbide_instrument::emit(BmcSessionCleanupFailed {
                 operation: BmcSessionCleanupOperation::DeleteSessionRows,
                 bmc_mac_address: bmc_mac,
+                spiffe_service_id: None,
+                session: None,
                 error: err.to_string(),
             });
         }
@@ -812,9 +771,8 @@ mod tests {
     use tokio::sync::Mutex;
 
     use super::{
-        BmcSessionCleanupOperation, BmcSessionError, BmcSessionManager,
-        BmcSessionPriorRevokeFailed, BmcSessionPriorRevokeListFailed, BmcSessionStore,
-        BmcSessionStoreFlushFailed, BmcSessionUnpersistedRevokeFailed, StoredSession,
+        BmcSessionCleanupFailed, BmcSessionCleanupOperation, BmcSessionError, BmcSessionManager,
+        BmcSessionStore, StoredSession,
     };
 
     fn mac(byte: u8) -> MacAddress {
@@ -1018,7 +976,7 @@ mod tests {
         let log = cleanup_logs[0];
         let bmc_mac_address = bmc_mac.to_string();
         assert_eq!(log.level, tracing::Level::WARN);
-        assert_eq!(log.metadata_name, "bmc_session_store_flush_failed");
+        assert_eq!(log.metadata_name, "bmc_session_cleanup_failed");
         assert_eq!(
             log.message,
             "failed to delete BMC session rows during flush_mac; continuing"
@@ -1426,35 +1384,38 @@ mod tests {
         let metrics = MetricsCapture::start();
         let logs = capture_logs(|| match case {
             CleanupFailureCase::RevokePriorSession => {
-                carbide_instrument::emit(BmcSessionPriorRevokeFailed {
+                carbide_instrument::emit(BmcSessionCleanupFailed {
                     operation: BmcSessionCleanupOperation::RevokePriorSession,
                     bmc_mac_address: bmc_mac,
-                    spiffe_service_id: TEST_SPIFFE_SERVICE_ID.to_string(),
-                    session: nv_redfish::core::ODataId::from(TEST_SESSION_ID.to_string()),
+                    spiffe_service_id: Some(TEST_SPIFFE_SERVICE_ID.to_string()),
+                    session: Some(nv_redfish::core::ODataId::from(TEST_SESSION_ID.to_string())),
                     error: "DeleteError { status: 500 }".to_string(),
                 });
             }
             CleanupFailureCase::ListSessionsForRevoke => {
-                carbide_instrument::emit(BmcSessionPriorRevokeListFailed {
+                carbide_instrument::emit(BmcSessionCleanupFailed {
                     operation: BmcSessionCleanupOperation::ListSessionsForRevoke,
                     bmc_mac_address: bmc_mac,
-                    spiffe_service_id: TEST_SPIFFE_SERVICE_ID.to_string(),
+                    spiffe_service_id: Some(TEST_SPIFFE_SERVICE_ID.to_string()),
+                    session: None,
                     error: "ListError { status: 503 }".to_string(),
                 });
             }
             CleanupFailureCase::RevokeUnpersistedSession => {
-                carbide_instrument::emit(BmcSessionUnpersistedRevokeFailed {
+                carbide_instrument::emit(BmcSessionCleanupFailed {
                     operation: BmcSessionCleanupOperation::RevokeUnpersistedSession,
                     bmc_mac_address: bmc_mac,
-                    spiffe_service_id: TEST_SPIFFE_SERVICE_ID.to_string(),
-                    session: nv_redfish::core::ODataId::from(TEST_SESSION_ID.to_string()),
+                    spiffe_service_id: Some(TEST_SPIFFE_SERVICE_ID.to_string()),
+                    session: Some(nv_redfish::core::ODataId::from(TEST_SESSION_ID.to_string())),
                     error: "DeleteError { status: 500 }".to_string(),
                 });
             }
             CleanupFailureCase::DeleteSessionRows => {
-                carbide_instrument::emit(BmcSessionStoreFlushFailed {
+                carbide_instrument::emit(BmcSessionCleanupFailed {
                     operation: BmcSessionCleanupOperation::DeleteSessionRows,
                     bmc_mac_address: bmc_mac,
+                    spiffe_service_id: None,
+                    session: None,
                     error: "BMC session store error: database unavailable".to_string(),
                 });
             }
@@ -1511,7 +1472,7 @@ mod tests {
             spiffe_service_id: spiffe_service_id.map(str::to_string),
             session: session.map(str::to_string),
             error: Some(error.to_string()),
-            spiffe_service_id_kind: spiffe_service_id.map(|_| CapturedFieldKind::String),
+            spiffe_service_id_kind: spiffe_service_id.map(|_| CapturedFieldKind::Debug),
             error_kind: Some(CapturedFieldKind::Debug),
             counter_delta: 1.0,
         }
@@ -1523,7 +1484,7 @@ mod tests {
             run = observe_cleanup_failure;
             "prior session revoke fails" {
                 CleanupFailureCase::RevokePriorSession => expected_cleanup_failure(
-                    "bmc_session_prior_revoke_failed",
+                    "bmc_session_cleanup_failed",
                     "failed to revoke prior BMC session; continuing with new session creation",
                     "revoke_prior_session",
                     Some(TEST_SPIFFE_SERVICE_ID),
@@ -1533,7 +1494,7 @@ mod tests {
             }
             "session listing for prior revoke fails" {
                 CleanupFailureCase::ListSessionsForRevoke => expected_cleanup_failure(
-                    "bmc_session_prior_revoke_list_failed",
+                    "bmc_session_cleanup_failed",
                     "failed to list BMC sessions for prior-session revoke; continuing",
                     "list_sessions_for_revoke",
                     Some(TEST_SPIFFE_SERVICE_ID),
@@ -1543,7 +1504,7 @@ mod tests {
             }
             "unpersisted session rollback revoke fails" {
                 CleanupFailureCase::RevokeUnpersistedSession => expected_cleanup_failure(
-                    "bmc_session_unpersisted_revoke_failed",
+                    "bmc_session_cleanup_failed",
                     "failed to revoke just-created session after store upsert failed; it will leak until BMC idle timeout",
                     "revoke_unpersisted_session",
                     Some(TEST_SPIFFE_SERVICE_ID),
@@ -1553,7 +1514,7 @@ mod tests {
             }
             "flush store deletion fails" {
                 CleanupFailureCase::DeleteSessionRows => expected_cleanup_failure(
-                    "bmc_session_store_flush_failed",
+                    "bmc_session_cleanup_failed",
                     "failed to delete BMC session rows during flush_mac; continuing",
                     "delete_session_rows",
                     None,

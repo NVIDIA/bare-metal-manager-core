@@ -9,7 +9,7 @@ periodically report health network observations.
 
 ## Usage
 
-```
+```text
 target/debug/machine-a-tron -h
 Usage: machine-a-tron [OPTIONS] --relay-address <RELAY_ADDRESS> <NUM_HOSTS> [NICO_API]
 

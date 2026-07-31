@@ -25,6 +25,8 @@ For complete step-by-step deployment instructions, see the **[Quick Start Guide]
 
 For manual phase-by-phase installation (re-running individual phases, debugging failures), see the **[Reference Installation](https://docs.nvidia.com/infra-controller/documentation/getting-started/installation-options/reference-installation)** guide.
 
+For the optional site-local monitoring stack (metrics + logs + traces: Prometheus, Grafana, Loki, Tempo, OTEL), see **[observability/README.md](observability/README.md)**.
+
 ## Directory structure
 
 ```
@@ -44,7 +46,8 @@ helm-prereqs/
 │   └── metallb-config.yaml     # MetalLB IP pools, BGP peers, and advertisements
 ├── templates/                  # nico-prereqs Helm chart templates (PKI, ESO, PostgreSQL)
 ├── operators/                  # Raw manifests and operator values (local-path, MetalLB, cert-manager, Vault, ESO)
-└── keycloak/                   # Dev Keycloak deployment and token helper scripts
+├── keycloak/                   # Dev Keycloak deployment and token helper scripts
+└── observability/              # Optional monitoring stack (Loki, Tempo, OTEL, Prometheus, Grafana)
 ```
 
 ## Pre-setup checklist
@@ -112,8 +115,9 @@ The tables below summarize the keys that must be set per site.
 |-----|---------|-------------|-------------|
 | `siteName` | `"TMP_SITE"` | **Yes** | Site identifier, injected into postgres pods as `TMP_SITE` |
 | `imagePullSecrets.ngcNicoPull` | `""` | No (auto) | Pull secret for NICo Core images. Set automatically by `setup.sh` from `REGISTRY_PULL_SECRET` when provided. |
-| `vault.nicoCliClientRole.enabled` | `false` | No | Create an optional Vault PKI role for short-lived NICo CLI client certificates. This only defines the certificate profile; issuance access must be granted separately. |
-| `vault.nicoCliClientRole.name` | `"nico-cli-client"` | No | Vault role name and certificate `SubjectOU` used to identify NICo CLI client certificates. |
+| `vault.nicoCliClientRole.enabled` | `true` | No | Create the Vault PKI role for short-lived NICo CLI client certificates. This only defines the certificate profile; issuance access must be granted separately. |
+| `vault.nicoCliClientRole.name` | `"nico-cli-client"` | No | Vault role name, and the certificate `SubjectOU` when `ou` is empty. |
+| `vault.nicoCliClientRole.ou` | `""` | No | Certificate `SubjectOU` stamped on issued CLI client certs; empty means use `name`. nico-api maps the OU to the ExternalUser group, but admin-CLI authorization is gated by the issuer CN (`auth.additionalIssuerCns`), not the OU value. Do not set `"Invalid"`. |
 | `vault.nicoCliClientRole.organization` | `""` | No | Optional certificate `SubjectO` value for deployments that want an additional identity marker. |
 | `postgresql.instances` | `3` | No | Number of PostgreSQL replicas |
 | `postgresql.volumeSize` | `"10Gi"` | No | PVC size per PostgreSQL replica |
@@ -187,6 +191,7 @@ It supports these common deployment modes:
 | `--core-values <file>` | Use site-specific Core values instead of `helm-prereqs/values/nico-core.yaml`. |
 | `--metallb-config <path>` | Use a site-specific MetalLB manifest file or kustomize directory. |
 | `--site-overlay <dir>` | Apply a site kustomize overlay after Core deploys. |
+| `--with-observability` | Also install the local monitoring stack (metrics + logs + traces) after Core. Runs in every mode, including `--skip-rest`. Can also be run standalone at any time: `observability/install-observability.sh`. See [observability/README.md](observability/README.md). |
 | `--debug` | Enable bash tracing. This can print secrets, so avoid it in shared logs. |
 
 `REGISTRY_PULL_SECRET` is optional. When it is unset, setup does not create or
@@ -235,6 +240,12 @@ NICo REST                  (../helm/rest/nico-rest)
   └── nico-rest             (API, cert-manager, workflow, site-manager)
 NICo Flow                  (../helm/charts/nico-flow - Flow, PSM, and NSM)
 NICo REST site-agent       (../helm/rest/nico-rest-site-agent - StatefulSet, bootstrap via site-manager)
+Observability (opt-in)     (observability/ - only with --with-observability; also standalone)
+  ├── kube-prometheus-stack (prometheus-community 59.1.0 - Prometheus + Grafana, release `obs`)
+  ├── loki                  (grafana/loki 5.15.0 - site-local log store)
+  ├── tempo                 (grafana-community/tempo 2.2.3 - site-local trace store)
+  ├── otel-agent            (opentelemetry-collector 0.106.0 - pod logs -> Loki, spans -> Tempo)
+  └── otel-collector-gateway (optional, WITH_DPU=true - DPU OTLP/mTLS receiver)
 ```
 
 ## DPU compatibility DNS (`.forge` zone) — REQUIRED for DPU bring-up

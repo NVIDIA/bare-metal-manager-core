@@ -19,7 +19,7 @@ use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::network::NetworkSegmentId;
 use model::allocation_type::AllocationType;
 use model::expected_machine::{
-    ExpectedHostNic, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
+    ExpectedInterface, ExpectedInterfaceIpAllocation, ExpectedInterfaceRole,
 };
 use model::machine_interface::InterfaceType;
 use model::network_prefix::NewNetworkPrefix;
@@ -252,7 +252,7 @@ async fn test_preallocate_machine_interface_is_idempotent_without_static_assignm
     .await?;
 
     preallocate_machine_interface(txn.as_pgconn(), mac, ip, None).await?;
-    let legacy_expected_interface = ExpectedHostNic {
+    let legacy_expected_interface = ExpectedInterface {
         mac_address: mac,
         fixed_ip: Some(ip),
         ..Default::default()
@@ -263,7 +263,7 @@ async fn test_preallocate_machine_interface_is_idempotent_without_static_assignm
     // An explicit policy requires a managed prefix even when the exact
     // external reservation already exists. Resolve it before the idempotent
     // `(MAC, IP)` path can return success.
-    let explicit_expected_interface = ExpectedHostNic {
+    let explicit_expected_interface = ExpectedInterface {
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
         ..legacy_expected_interface
     };
@@ -321,7 +321,7 @@ async fn test_expected_declaration_does_not_reclassify_attached_dpu_interface(
     .await?;
     associate_interface_with_dpu_machine(&interface.id, &dpu_id, txn.as_pgconn()).await?;
 
-    let expected_interface = ExpectedHostNic {
+    let expected_interface = ExpectedInterface {
         mac_address: mac,
         role: ExpectedInterfaceRole::DpuBmc,
         ..Default::default()
@@ -429,9 +429,9 @@ async fn test_expected_interface_settings_do_not_overwrite_concurrent_dpu_associ
 }
 
 /// Pre-allocating a different IP for an existing MAC must error, rather than
-/// silently reassigning. If an `expected_machine.bmc_ip_address` (or a host_nic
-/// fixed_ip) drifts from its `machine_interface` row, operators should see the
-/// conflict instead of an automatic rewrite.
+/// silently reassigning. If an `expected_machine.bmc_ip_address` (or an
+/// `ExpectedInterface.fixed_ip`) drifts from its `machine_interface` row,
+/// operators should see the conflict instead of an automatic rewrite.
 #[crate::sqlx_test]
 async fn test_preallocate_machine_interface_rejects_conflicting_ip(
     pool: sqlx::PgPool,
@@ -598,7 +598,7 @@ async fn test_retained_host_bmc_address_pins_dhcp_and_survives_expiry(
     .await?;
     txn.commit().await?;
 
-    let expected_interface = ExpectedHostNic {
+    let expected_interface = ExpectedInterface {
         mac_address: mac,
         role: ExpectedInterfaceRole::HostBmc,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Retained),
@@ -721,7 +721,7 @@ async fn test_expected_interface_role_controls_fixed_preallocation(
             expected_primary: false,
         },
     ] {
-        let expected_interface = ExpectedHostNic {
+        let expected_interface = ExpectedInterface {
             mac_address: MacAddress::new([0x7a, 0x7b, 0x7c, 0x7d, 0x7e, suffix]),
             role,
             ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
@@ -767,7 +767,7 @@ async fn test_fixed_host_preallocation_does_not_override_machine_wide_primary_se
         AllocationStrategy::Reserved,
     )
     .await?;
-    let expected_interface = ExpectedHostNic {
+    let expected_interface = ExpectedInterface {
         mac_address: "7A:7B:7C:7D:7E:59".parse()?,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
         fixed_ip: Some("192.0.2.59".parse()?),
@@ -810,7 +810,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
     let non_target_segment = create_test_segment(&pool, "fixed-address-non-target").await?;
 
     let mut txn = db::Transaction::begin(&pool).await?;
-    let legacy_hint = ExpectedHostNic {
+    let legacy_hint = ExpectedInterface {
         mac_address: "7A:7B:7C:7D:7E:61".parse()?,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
         nic_type: Some("onboard".to_string()),
@@ -836,7 +836,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         "legacy nic_type must not reject an existing row whose fixed IP selected the segment",
     );
 
-    let legacy_typed_segment = ExpectedHostNic {
+    let legacy_typed_segment = ExpectedInterface {
         mac_address: "7A:7B:7C:7D:7E:64".parse()?,
         network_segment_type: Some(NetworkSegmentType::Underlay),
         fixed_ip: Some("203.0.113.64".parse()?),
@@ -853,7 +853,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         "a legacy Host declaration must not turn its DHCP selector into a fixed-address guard",
     );
 
-    let legacy_host_bmc = ExpectedHostNic {
+    let legacy_host_bmc = ExpectedInterface {
         mac_address: "7A:7B:7C:7D:7E:69".parse()?,
         role: ExpectedInterfaceRole::HostBmc,
         fixed_ip: Some("203.0.113.69".parse()?),
@@ -890,7 +890,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         AllocationType::Static,
     )
     .await?;
-    let misplaced_reservation = ExpectedHostNic {
+    let misplaced_reservation = ExpectedInterface {
         mac_address: misplaced_mac,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
         fixed_ip: Some(misplaced_ip),
@@ -951,7 +951,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
             network_segment_type: Some(NetworkSegmentType::Underlay),
         },
     ] {
-        let expected_interface = ExpectedHostNic {
+        let expected_interface = ExpectedInterface {
             mac_address: MacAddress::new([0x7a, 0x7b, 0x7c, 0x7d, 0x7e, case.suffix]),
             role: case.role,
             ip_allocation: case.ip_allocation,
@@ -978,7 +978,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         );
     }
 
-    let wrong_guard = ExpectedHostNic {
+    let wrong_guard = ExpectedInterface {
         mac_address: "7A:7B:7C:7D:7E:62".parse()?,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
         network_segment_type: Some(NetworkSegmentType::Admin),
@@ -990,7 +990,7 @@ async fn test_fixed_preallocation_resolves_managed_prefix_and_segment_type(
         .expect_err("the typed segment guard should reject a different segment type");
     assert!(matches!(error, DatabaseError::InvalidArgument(_)));
 
-    let outside_guard = ExpectedHostNic {
+    let outside_guard = ExpectedInterface {
         mac_address: "7A:7B:7C:7D:7E:63".parse()?,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Fixed),
         network_segment_type: Some(NetworkSegmentType::Underlay),
@@ -1029,7 +1029,7 @@ async fn test_explicit_policy_opts_existing_host_interface_into_segment_guard(
     let mut txn = db::Transaction::begin(&pool).await?;
     preallocate_machine_interface(txn.as_pgconn(), mac_address, fixed_ip, None).await?;
 
-    let legacy_interface = ExpectedHostNic {
+    let legacy_interface = ExpectedInterface {
         mac_address,
         network_segment_type: Some(NetworkSegmentType::Admin),
         ..Default::default()
@@ -1044,7 +1044,7 @@ async fn test_explicit_policy_opts_existing_host_interface_into_segment_guard(
     .await?;
     assert_eq!(reconciled.segment_id, segment_id);
 
-    let explicit_policy = ExpectedHostNic {
+    let explicit_policy = ExpectedInterface {
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),
         ..legacy_interface
     };
@@ -1158,7 +1158,7 @@ async fn test_expected_interface_retained_policy_pins_all_dhcp_address_families(
     )
     .await?;
 
-    let expected_interface = ExpectedHostNic {
+    let expected_interface = ExpectedInterface {
         mac_address,
         role: ExpectedInterfaceRole::DpuOs,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Retained),
@@ -1172,7 +1172,7 @@ async fn test_expected_interface_retained_policy_pins_all_dhcp_address_families(
         crate::machine_interface_address::find_for_interface(txn.as_pgconn(), bmc_interface.id)
             .await?;
 
-    let wrong_segment_expected_interface = ExpectedHostNic {
+    let wrong_segment_expected_interface = ExpectedInterface {
         mac_address: wrong_segment_mac,
         role: ExpectedInterfaceRole::DpuOs,
         ip_allocation: Some(ExpectedInterfaceIpAllocation::Retained),
@@ -1266,7 +1266,7 @@ async fn test_expected_interface_role_controls_observed_interface_creation(
             expected_primary: false,
         },
     ] {
-        let expected_interface = ExpectedHostNic {
+        let expected_interface = ExpectedInterface {
             mac_address: MacAddress::new([0x7a, 0x7b, 0x7c, 0x7d, 0x7e, suffix]),
             role,
             ip_allocation: Some(ExpectedInterfaceIpAllocation::Dynamic),

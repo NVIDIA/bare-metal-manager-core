@@ -125,6 +125,9 @@ pub enum PgSecretsError {
     #[error("a re-wrap is already running")]
     ReWrapInProgress,
 
+    #[error("work lock error: {0}")]
+    AcquireLock(#[from] db::work_lock_manager::AcquireLockError),
+
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 

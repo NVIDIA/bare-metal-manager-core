@@ -54,7 +54,7 @@ use crate::handlers::utils::resolve_bmc_address;
 /// `predicted_machine_interfaces` instead: the predicted NIC's MAC and
 /// recorded Redfish interface id form the same [`MachineBootInterface`] the
 /// real row will hold once the lease promotes it. The candidate is chosen by
-/// the shared `pick_boot_prediction` -- the declared `ExpectedHostNic.primary`
+/// the shared `pick_boot_prediction` -- the declared `ExpectedInterface.primary`
 /// (recorded on the prediction), else the sole non-underlay prediction. With
 /// several (e.g. a host whose report lists SuperNICs alongside the boot NIC) and
 /// none declared primary the boot NIC is unknowable; resolution refuses to guess

@@ -23,7 +23,7 @@
 //! Timestamp-file failures share a counter by operation while their paths,
 //! host interface, and errors remain log-only diagnostics.
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue, MetricFamily};
+use carbide_instrument::{DynamicLog, DynamicMessage, Event, LabelValue, LogAt, MetricFamily};
 use dhcproto::v4::MessageType;
 
 use crate::errors::DhcpError;
@@ -295,62 +295,68 @@ pub struct DhcpReplySent {
     pub message_type: MessageTypeLabel,
 }
 
-/// The startup write could not initialize the timestamp file. This server
-/// generation does not start after the failure.
+/// A DHCP timestamp-file operation failed. `operation` names which one, and
+/// picks the level and diagnostic that path already had: an initialize or
+/// write failure keeps its `ERROR`, while a read failure stays `WARN` because
+/// the control RPC still answers with an empty list. `host_interface_id` is
+/// present only for the write path, which is per-interface.
 #[derive(Event)]
 #[event(
-    event_name = "dhcp_timestamp_file_initialization_failed",
+    event_name = "dhcp_timestamp_file_failed",
     metric_name = "carbide_dhcp_timestamp_file_failures_total",
     component = "nico-dhcp",
-    log = error,
+    log = dynamic,
     metric = counter,
-    message = "Failed to init DHCP timestamps file",
+    message = dynamic,
     describe = "Number of DHCP timestamp file failures, by operation"
 )]
-pub(crate) struct DhcpTimestampFileInitializationFailed {
+pub(crate) struct DhcpTimestampFileFailed {
     #[label]
     operation: TimestampFileOperation,
     #[context]
     dhcp_timestamps_path: String,
     #[context]
+    host_interface_id: Option<String>,
+    #[context]
     error: String,
 }
 
-impl DhcpTimestampFileInitializationFailed {
-    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
-        Self {
-            operation: TimestampFileOperation::Initialize,
-            dhcp_timestamps_path,
-            error,
+impl DynamicLog for DhcpTimestampFileFailed {
+    fn log_at(&self) -> LogAt {
+        match self.operation {
+            TimestampFileOperation::Initialize | TimestampFileOperation::Write => {
+                LogAt::Level(tracing::Level::ERROR)
+            }
+            TimestampFileOperation::Read => LogAt::Level(tracing::Level::WARN),
         }
     }
 }
 
-/// Updating the in-memory timestamp succeeded, but persisting the file failed.
-/// Packet processing continues because the timestamp write is best effort.
-#[derive(Event)]
-#[event(
-    event_name = "dhcp_timestamp_file_write_failed",
-    metric_name = "carbide_dhcp_timestamp_file_failures_total",
-    component = "nico-dhcp",
-    log = error,
-    metric = counter,
-    message = "Failed to write DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
-)]
-pub(crate) struct DhcpTimestampFileWriteFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    host_interface_id: String,
-    #[context]
-    error: String,
+impl DynamicMessage for DhcpTimestampFileFailed {
+    fn message(&self) -> &'static str {
+        match self.operation {
+            TimestampFileOperation::Initialize => "Failed to init DHCP timestamps file",
+            TimestampFileOperation::Write => "Failed to write DHCP timestamps file",
+            TimestampFileOperation::Read => "Failed to read DHCP timestamps file",
+        }
+    }
 }
 
-impl DhcpTimestampFileWriteFailed {
-    pub(crate) fn new(
+impl DhcpTimestampFileFailed {
+    /// The startup write could not initialize the file, so this server
+    /// generation does not start.
+    pub(crate) fn initialization(dhcp_timestamps_path: String, error: String) -> Self {
+        Self {
+            operation: TimestampFileOperation::Initialize,
+            dhcp_timestamps_path,
+            host_interface_id: None,
+            error,
+        }
+    }
+
+    /// The in-memory timestamp advanced but the file did not. Packet
+    /// processing continues because the write is best effort.
+    pub(crate) fn write(
         dhcp_timestamps_path: String,
         host_interface_id: String,
         error: String,
@@ -358,38 +364,18 @@ impl DhcpTimestampFileWriteFailed {
         Self {
             operation: TimestampFileOperation::Write,
             dhcp_timestamps_path,
-            host_interface_id,
+            host_interface_id: Some(host_interface_id),
             error,
         }
     }
-}
 
-/// The control RPC could not read the timestamp file. It still returns an
-/// empty list so callers keep treating an unreadable file as no requests yet.
-#[derive(Event)]
-#[event(
-    event_name = "dhcp_timestamp_file_read_failed",
-    metric_name = "carbide_dhcp_timestamp_file_failures_total",
-    component = "nico-dhcp",
-    log = warn,
-    metric = counter,
-    message = "Failed to read DHCP timestamps file",
-    describe = "Number of DHCP timestamp file failures, by operation"
-)]
-pub(crate) struct DhcpTimestampFileReadFailed {
-    #[label]
-    operation: TimestampFileOperation,
-    #[context]
-    dhcp_timestamps_path: String,
-    #[context]
-    error: String,
-}
-
-impl DhcpTimestampFileReadFailed {
-    pub(crate) fn new(dhcp_timestamps_path: String, error: String) -> Self {
+    /// The control RPC could not read the file. It still returns an empty list
+    /// so callers keep treating an unreadable file as no requests yet.
+    pub(crate) fn read(dhcp_timestamps_path: String, error: String) -> Self {
         Self {
             operation: TimestampFileOperation::Read,
             dhcp_timestamps_path,
+            host_interface_id: None,
             error,
         }
     }
@@ -462,14 +448,14 @@ mod tests {
     }
 
     fn emit_timestamp_initialization_failure() {
-        emit(DhcpTimestampFileInitializationFailed::new(
+        emit(DhcpTimestampFileFailed::initialization(
             "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
             "permission denied".to_string(),
         ));
     }
 
     fn emit_timestamp_write_failure() {
-        emit(DhcpTimestampFileWriteFailed::new(
+        emit(DhcpTimestampFileFailed::write(
             "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp".to_string(),
             "60cef902-9779-4666-8362-c9bb4b37185f".to_string(),
             "read-only file system".to_string(),
@@ -477,7 +463,7 @@ mod tests {
     }
 
     fn emit_timestamp_read_failure() {
-        emit(DhcpTimestampFileReadFailed::new(
+        emit(DhcpTimestampFileFailed::read(
             "/var/support/forge-dhcp/logs/dhcp_timestamps.json".to_string(),
             "file not found".to_string(),
         ));
@@ -821,7 +807,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "initialize",
                         tracing::Level::ERROR,
-                        "dhcp_timestamp_file_initialization_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to init DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
                         None,
@@ -836,7 +822,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "write",
                         tracing::Level::ERROR,
-                        "dhcp_timestamp_file_write_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to write DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json.tmp",
                         Some("60cef902-9779-4666-8362-c9bb4b37185f"),
@@ -851,7 +837,7 @@ mod tests {
                     expect: expected_timestamp_file_failure(
                         "read",
                         tracing::Level::WARN,
-                        "dhcp_timestamp_file_read_failed",
+                        "dhcp_timestamp_file_failed",
                         "Failed to read DHCP timestamps file",
                         "/var/support/forge-dhcp/logs/dhcp_timestamps.json",
                         None,

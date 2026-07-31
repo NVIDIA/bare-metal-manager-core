@@ -24,9 +24,10 @@ var _ MappedNullable = &DpuReprovisionRequest{}
 
 // DpuReprovisionRequest Request to trigger DPU reprovisioning for a Machine
 type DpuReprovisionRequest struct {
-	// DPU reprovisioning mode.
+	// Use `Set` to start reprovisioning, `Clear` to remove a pending request, or `Restart` to restart DPUs that already have a request. Restart accepts a host Machine ID only.
 	Mode string `json:"mode"`
-	// Whether to update firmware during reprovisioning.
+	// Deprecated compatibility field. Firmware is always verified and updated during reprovisioning.
+	// Deprecated
 	UpdateFirmware *bool `json:"updateFirmware,omitempty"`
 	// Acknowledges that an Instance is currently attached to the Machine and this action may disrupt Tenant workload on the Instance.
 	AcknowledgeAttachedInstance *bool `json:"acknowledgeAttachedInstance,omitempty"`
@@ -81,6 +82,7 @@ func (o *DpuReprovisionRequest) SetMode(v string) {
 }
 
 // GetUpdateFirmware returns the UpdateFirmware field value if set, zero value otherwise.
+// Deprecated
 func (o *DpuReprovisionRequest) GetUpdateFirmware() bool {
 	if o == nil || IsNil(o.UpdateFirmware) {
 		var ret bool
@@ -91,6 +93,7 @@ func (o *DpuReprovisionRequest) GetUpdateFirmware() bool {
 
 // GetUpdateFirmwareOk returns a tuple with the UpdateFirmware field value if set, nil otherwise
 // and a boolean to check if the value has been set.
+// Deprecated
 func (o *DpuReprovisionRequest) GetUpdateFirmwareOk() (*bool, bool) {
 	if o == nil || IsNil(o.UpdateFirmware) {
 		return nil, false
@@ -108,6 +111,7 @@ func (o *DpuReprovisionRequest) HasUpdateFirmware() bool {
 }
 
 // SetUpdateFirmware gets a reference to the given bool and assigns it to the UpdateFirmware field.
+// Deprecated
 func (o *DpuReprovisionRequest) SetUpdateFirmware(v bool) {
 	o.UpdateFirmware = &v
 }

@@ -182,15 +182,14 @@ NICO_DB="nico_system_nico"
 
 # --- deployment mode ---------------------------------------------------------
 # override (default): all Redfish through site_explorer.bmc_proxy → one mock.
-# scale: MetalLB/nginx mode — one LB Service per BMC, bmc_proxy UNSET, mock
-#   routes per-BMC via the Forwarded header. Uses values/machine-a-tron-scale.yaml
-#   plus two SIMULATED networks added to the nico-core site config (below) and
-#   raised site_explorer throughput knobs. See the chart README "METALLB MODE".
+# scale: Controller Mode — mat-k8s-controller creates one ClusterIP Service per
+#   BMC with ClusterIP = BMC IP. Uses values/machine-a-tron-scale.yaml plus a
+#   NICo network covering the BMC IP range. See the chart README "Controller Mode".
 MAT_MODE="${MAT_MODE:-override}"
-# Simulated networks for scale mode — must match the scale values file
-# (relay addresses) and the MetalLB ipRange (inside the OOB prefix).
-SCALE_OOB_PREFIX="10.100.0.0/17";  SCALE_OOB_GW="10.100.0.1"
-SCALE_ADMIN_PREFIX="10.102.0.0/18"; SCALE_ADMIN_GW="10.102.0.1"
+# Network for scale mode — must be within Kubernetes ServiceCIDR and match the
+# scale values file (oobDhcpRelayAddress).
+SCALE_OOB_PREFIX="10.96.64.0/18";  SCALE_OOB_GW="10.96.64.1"
+SCALE_ADMIN_PREFIX="192.168.176.0/20"; SCALE_ADMIN_GW="192.168.176.1"
 SCALE_RESERVE=1
 # site_explorer throughput knobs applied in scale mode (defaults 30/90/4 make
 # 4500-host ingestion take ~9h; these bring it to ~1-2h).

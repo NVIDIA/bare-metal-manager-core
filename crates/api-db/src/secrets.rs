@@ -116,24 +116,8 @@ pub async fn lock_path(txn: &mut PgTransaction<'_>, path: &str) -> DatabaseResul
 }
 
 /// Take the session-scoped advisory lock for a path on this connection,
-/// without waiting. Returns false when another session already holds it.
-///
-/// Unlike [`lock_path`], the lock outlives any single transaction and is
-/// held for as long as the connection stays open -- so a caller can guard
-/// a long operation without keeping a transaction open across its awaits.
-/// Release it with [`unlock_path_session`], or by dropping the connection.
-pub async fn try_lock_path_session(conn: &mut PgConnection, path: &str) -> DatabaseResult<bool> {
-    let sql = "SELECT pg_try_advisory_lock(hashtextextended('secrets:' || $1, 0))";
-    sqlx::query_scalar(sql)
-        .bind(path)
-        .fetch_one(conn)
-        .await
-        .map_err(|e| DatabaseError::query(sql, e))
-}
-
-/// Take the session-scoped advisory lock for a path on this connection,
-/// waiting until it is free. The same release rules as
-/// [`try_lock_path_session`] apply.
+/// waiting until it is free. The lock is held until
+/// [`unlock_path_session`] runs or the connection drops.
 pub async fn lock_path_session(conn: &mut PgConnection, path: &str) -> DatabaseResult<()> {
     let sql = "SELECT pg_advisory_lock(hashtextextended('secrets:' || $1, 0))";
     sqlx::query(sql)
@@ -144,9 +128,9 @@ pub async fn lock_path_session(conn: &mut PgConnection, path: &str) -> DatabaseR
     Ok(())
 }
 
-/// Release a session-scoped advisory lock taken by [`lock_path_session`] or
-/// [`try_lock_path_session`]. Dropping the connection releases it too, so
-/// this is only needed when the connection is kept for further work.
+/// Release a session-scoped advisory lock taken by [`lock_path_session`].
+/// Dropping the connection releases it too, so this is only needed when the
+/// connection is kept for further work.
 pub async fn unlock_path_session(conn: &mut PgConnection, path: &str) -> DatabaseResult<()> {
     let sql = "SELECT pg_advisory_unlock(hashtextextended('secrets:' || $1, 0))";
     sqlx::query(sql)

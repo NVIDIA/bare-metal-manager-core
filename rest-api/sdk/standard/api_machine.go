@@ -1573,7 +1573,8 @@ func (r ApiMachinePowerControlMachineRequest) Execute() (*MessageResponse, *http
 /*
 MachinePowerControlMachine Machine power control
 
-Execute power control actions for a specific Machine.
+Execute power control actions for a specific Machine. When an Instance is
+attached to the Machine, `acknowledgeAttachedInstance` must be `true`.
 
 Org must have an Infrastructure Provider entity and own the Site that the Machine belongs to. User must have authorization role with `PROVIDER_ADMIN` suffix.
 

@@ -66,6 +66,10 @@
 #   ./setup.sh --core-values /path/to/values.yaml      # use site-specific values for Phase 6
 #   ./setup.sh --metallb-config /path/to/metallb.yaml  # use site-specific MetalLB config (file or kustomize dir)
 #   ./setup.sh --site-overlay /path/to/kustomize-dir   # kubectl apply -k after Phase 6 (NTP services, etc.)
+#   ./setup.sh --with-observability     # also install the local monitoring stack (Loki, Tempo,
+#                                       #   OTEL collector, Prometheus, Grafana) after Core —
+#                                       #   see helm-prereqs/observability/README.md; can also be
+#                                       #   run standalone/later: observability/install-observability.sh
 #   ./setup.sh --debug                  # enable bash -x trace (or run: bash -x ./setup.sh)
 #
 # Notes:
@@ -83,6 +87,7 @@ AUTO_YES=false
 SKIP_CORE=false
 SKIP_REST=false
 SKIP_FLOW=false
+WITH_OBSERVABILITY="${WITH_OBSERVABILITY:-false}"
 CORE_VALUES=""
 METALLB_CONFIG=""
 SITE_OVERLAY=""
@@ -92,6 +97,7 @@ while [[ $# -gt 0 ]]; do
         --skip-core)    SKIP_CORE=true ;;
         --skip-rest)    SKIP_REST=true ;;
         --skip-flow)    SKIP_FLOW=true ;;
+        --with-observability) WITH_OBSERVABILITY=true ;;
         --debug)        set -x         ;;
         --core-values)
             [[ -z "${2:-}" ]] && { echo "Error: --core-values requires a file path"; exit 1; }
@@ -108,7 +114,7 @@ while [[ $# -gt 0 ]]; do
             SITE_OVERLAY="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
             [[ ! -d "${SITE_OVERLAY}" ]] && { echo "Error: --site-overlay directory not found: $2"; exit 1; }
             shift ;;
-        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
+        *) echo "Usage: $0 [-y] [--skip-core] [--skip-rest] [--skip-flow] [--with-observability] [--core-values <file>] [--metallb-config <file-or-dir>] [--site-overlay <dir>] [--debug]"; exit 1 ;;
     esac
     shift
 done
@@ -566,6 +572,35 @@ if [[ -n "${SITE_OVERLAY}" ]]; then
     echo "=== Site overlay: $(basename "${SITE_OVERLAY}") ==="
     kubectl apply -k "${SITE_OVERLAY}"
     echo "Site overlay applied"
+fi
+
+# ---------------------------------------------------------------------------
+# Observability (optional) — local Loki + Tempo + OTEL collector +
+# kube-prometheus-stack. Runs BEFORE the REST section so infra-only /
+# --skip-rest installs still get monitoring. Self-contained and idempotent;
+# can also be run standalone at any later time:
+#   helm-prereqs/observability/install-observability.sh
+# Docs: helm-prereqs/observability/README.md
+# ---------------------------------------------------------------------------
+_OBSERVABILITY_INSTALLED=false
+if "${WITH_OBSERVABILITY}"; then
+    echo ""
+    _SETUP_PHASE="observability"
+    echo "=== Observability (--with-observability) ==="
+    # The stack is optional: a failure here must not abort the rest of the install.
+    # NICO_SERVICEMONITORS=true is safe in this integrated path — Core was just installed
+    # from this same tree, so the release upgrade the installer performs is a no-op apart
+    # from adding the monitor objects.
+    if NICO_SERVICEMONITORS="${NICO_SERVICEMONITORS:-true}" \
+        "${SCRIPT_DIR}/observability/install-observability.sh"; then
+        _OBSERVABILITY_INSTALLED=true
+    else
+        echo "WARNING: observability install failed (optional component) — continuing."
+        echo "         Re-run it any time: ${SCRIPT_DIR}/observability/install-observability.sh"
+    fi
+else
+    echo ""
+    echo "=== Observability — skipped (pass --with-observability or run observability/install-observability.sh later) ==="
 fi
 
 # ---------------------------------------------------------------------------
@@ -1263,6 +1298,9 @@ echo "    • Bootstrap the org and create your first site"
 echo "    • Next: IP blocks and downstream resources"
 echo ""
 echo "  Keycloak deep-dive (realm, clients, roles): helm-prereqs/keycloak/README.md"
+if "${_OBSERVABILITY_INSTALLED}"; then
+    echo "  Grafana (observability): kubectl -n monitoring port-forward svc/obs-grafana 3000:80"
+fi
 echo "========================================================================="
 
 _SETUP_PHASE="complete"  # signals _on_failure trap: clean exit, no prompt needed

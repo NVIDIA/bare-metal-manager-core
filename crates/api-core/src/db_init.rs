@@ -142,23 +142,9 @@ pub async fn create_initial_networks(
             return Ok(());
         }
     };
-    reconcile_network_defs(&mut txn, networks).await?;
+    let to_create = reconcile_network_defs(&mut txn, networks).await?;
 
-    for (name, def) in networks {
-        if db::network_segment::find_by_name(&mut txn, name)
-            .await
-            .is_ok()
-        {
-            // Network segments are only created the first time we start carbide-api;
-            // `reconcile_network_defs` above has already recorded the snapshot if
-            // it was missing (the backfill path).
-            tracing::debug!(
-                network_segment_name = %name,
-                "Network segment exists",
-            );
-            continue;
-        }
-
+    for (name, def) in &to_create {
         let mut ns = NewNetworkSegment::build_from(name, domain_id, def)?;
         ns.can_stretch = Some(true);
         ns.vpc_id = if let Some(vpc_name) = &def.vpc_name {

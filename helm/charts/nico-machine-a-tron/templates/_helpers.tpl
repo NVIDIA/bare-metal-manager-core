@@ -1,8 +1,13 @@
 {{/*
-Allow the release namespace to be overridden for multi-namespace deployments.
+Effective namespace for chart resources.
+Uses global.namespaceOverride if set, otherwise Release.Namespace.
 */}}
 {{- define "nico-machine-a-tron.namespace" -}}
-{{- default .Release.Namespace .Values.namespaceOverride | trunc 63 | trimSuffix "-" -}}
+{{- if and .Values.global .Values.global.namespaceOverride -}}
+{{- .Values.global.namespaceOverride | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- .Release.Namespace -}}
+{{- end -}}
 {{- end -}}
 
 {{/*
@@ -44,6 +49,19 @@ app.kubernetes.io/name: {{ include "nico-machine-a-tron.name" . }}
 app.kubernetes.io/component: machine-a-tron
 {{- end }}
 
+{{/*
+Count pods with machines defined.
+*/}}
+{{- define "nico-machine-a-tron.activePods" -}}
+{{- $activePods := 0 -}}
+{{- range $podName, $podConfig := .Values.pods -}}
+{{- if and $podConfig.machines (gt (len $podConfig.machines) 0) -}}
+{{- $activePods = add $activePods 1 -}}
+{{- end -}}
+{{- end -}}
+{{- print $activePods -}}
+{{- end }}
+
 {{- define "nico-machine-a-tron.certificateSpec" -}}
 duration: {{ .global.certificate.duration }}
 renewBefore: {{ .global.certificate.renewBefore }}
@@ -80,7 +98,7 @@ issuerRef:
   kind: {{ .global.certificate.issuerRef.kind }}
   name: {{ .global.certificate.issuerRef.name }}
   group: {{ .global.certificate.issuerRef.group }}
-secretName: {{ .name }}
+secretName: {{ .secretName | default .name }}
 {{- end }}
 
 {{- define "nico-machine-a-tron.serviceMonitorSpec" -}}

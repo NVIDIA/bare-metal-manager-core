@@ -40,7 +40,7 @@ The Quick Start covers `nicocli login` end-to-end for Keycloak-backed deployment
 
 Confirm that nicocli can reach the API and your credentials are valid:
 
-```
+```bash
 nicocli site list
 nicocli user get
 ```
@@ -53,8 +53,8 @@ nicocli user get
 
 NICo uses a lazy creation model for tenants. There is no explicit "create tenant" API call. Instead, a tenant record is automatically created the first time a Tenant Admin retrieves the current tenant for their organization:
 
-```
-nicocli tenant get-current-tenant
+```bash
+nicocli tenant current
 ```
 
 If no tenant exists for the configured org, NICo creates one and returns it. If a tenant already exists, the same command returns the existing record. The operation is idempotent.
@@ -63,7 +63,7 @@ Each tenant maps one-to-one to an organization in the configured identity provid
 
 In TUI mode:
 
-```
+```bash
 nicocli tui
 > tenant current
 ```
@@ -77,8 +77,8 @@ If either condition is not met, the API returns HTTP 403. NICo trusts whatever t
 
 ### Worked Example
 
-```
-$ nicocli tenant get-current-tenant
+```bash
+$ nicocli tenant current
 {
   "capabilities": {
     "targetedInstanceCreation": true
@@ -96,14 +96,14 @@ $ nicocli tenant get-current-tenant
 | `id` | UUID identifier for the tenant, used in all subsequent API calls |
 | `org` | Organization name (matches your config `api.org`) |
 | `orgDisplayName` | Human-readable name pulled from the IdP's org metadata |
-| `capabilities.targetedInstanceCreation` | Whether this tenant can specify a particular machine ID when creating instances. Set during initial tenant creation: lazy-create via `tenant get-current-tenant` typically leaves it `false`; the service-account bootstrap path (`service-account get`) sets it `true` for self-tenants. |
+| `capabilities.targetedInstanceCreation` | Whether this tenant can specify a particular machine ID when creating instances. Set during initial tenant creation: lazy-create via `tenant current` typically leaves it `false`; the service-account bootstrap path (`service-account current`) sets it `true` for self-tenants. |
 
 ### Verifying the Tenant
 
 Check tenant health with the stats endpoint:
 
-```
-nicocli tenant get-current-tenant-stats
+```bash
+nicocli tenant stats
 ```
 
 Example response for a tenant in active use:
@@ -136,20 +136,20 @@ A tenant alone cannot consume infrastructure -- it needs a tenant account that l
 
 ### Creating the Link
 
-```
+```bash
 nicocli tui
 > tenant-account create
 ```
 
 The TUI prompts for the infrastructure provider ID and the tenant org name. Non-interactive (using individual flags):
 
-```
+```bash
 nicocli tenant-account create --infrastructure-provider-id <provider-uuid> --tenant-org acme-corp
 ```
 
 The tenant account starts in `Invited` status. Listing tenant accounts requires a filter flag -- the bare `nicocli tenant-account list` returns HTTP 400:
 
-```
+```bash
 nicocli tenant-account list --tenant-id <tenant-uuid>
 nicocli tenant-account list --infrastructure-provider-id <provider-uuid>
 ```
@@ -178,20 +178,20 @@ Example tenant account detail (Ready, with active allocations):
 
 The tenant admin must accept the invitation to transition the account to `Ready`. The non-interactive form sends an empty PATCH body -- note the flag-first ordering:
 
-```
+```bash
 nicocli tenant-account update --data '{}' <account-id>
 ```
 
 TUI:
 
-```
+```bash
 nicocli tui
 > tenant-account update
 ```
 
 Only accounts in `Invited` status can be accepted. Attempting to update a `Ready` account returns the verified error:
 
-```
+```bash
 $ nicocli tenant-account update --data '{}' <account-id>
 Error: API error 400: Tenant Account status is not Invited
 ```
@@ -212,13 +212,13 @@ The site administrator defines instance types during Day Zero. NICo validates th
 
 ### Viewing Instance Types
 
-```
+```bash
 nicocli instance-type list --output table
 ```
 
 The TUI provides richer detail:
 
-```
+```bash
 nicocli tui
 > instance-type list
 > instance-type get
@@ -230,7 +230,7 @@ The detail view for an instance type includes an `allocationStats` section showi
 
 Instance type creation is a gRPC operation via nico-admin-cli:
 
-```
+```bash
 nico-admin-cli -a <core-api-url> instance-type create --name "GB200-NVL72" --gpu-count 72
 nico-admin-cli -a <core-api-url> instance-type associate --instance-type-id <id> --machine-id <machine-id>
 ```
@@ -258,7 +258,7 @@ An allocation starts in `Pending` status, transitions to `Registered` once proce
 
 Using the TUI (recommended):
 
-```
+```bash
 nicocli tui
 > allocation create
 ```
@@ -276,7 +276,7 @@ The TUI prompts in this order:
 
 Non-interactive:
 
-```
+```bash
 nicocli allocation create --data-file - <<'EOF'
 {
   "name": "acme-gpu-pool",
@@ -299,7 +299,7 @@ The system validates that enough machines of the specified instance type are ava
 
 ### Creating a Network Allocation
 
-```
+```bash
 nicocli allocation create --data-file - <<'EOF'
 {
   "name": "acme-network",
@@ -321,14 +321,14 @@ A `constraintValue` of 24 allocates a /24 sub-block (256 addresses). The value m
 
 ### Listing and Inspecting Allocations
 
-```
+```bash
 nicocli allocation list --output table
 nicocli allocation get <allocation-id>
 ```
 
 `allocation list` supports rich filter flags (verified via `--help`): `--site-id`, `--tenant-id`, `--infrastructure-provider-id`, `--resource-type` (`InstanceType` or `IPBlock`), `--resource-type-id`, `--status`, `--constraint-type`, `--constraint-value`. The `--query` flag is a free-text search over name/description/status, NOT a key-value filter -- use the dedicated flags instead.
 
-```
+```bash
 nicocli allocation list --resource-type InstanceType
 nicocli allocation list --site-id <site-uuid> --tenant-id <tenant-uuid>
 nicocli allocation list --status Registered --output table
@@ -372,13 +372,13 @@ Example allocation detail (IPBlock allocation, /28 reservation against a /16 poo
 
 Adjust an existing constraint value (e.g., increase a machine quota). Note the flag-first ordering with two positionals:
 
-```
+```bash
 nicocli allocation constraint update --constraint-value 12 <allocation-id> <constraint-id>
 ```
 
 Or with `--data`:
 
-```
+```bash
 nicocli allocation constraint update --data '{"constraintValue": 12}' <allocation-id> <constraint-id>
 ```
 
@@ -389,7 +389,7 @@ The system validates:
 
 ### Deleting an Allocation
 
-```
+```bash
 nicocli allocation delete <allocation-id>
 ```
 
@@ -401,7 +401,7 @@ A tenant can have multiple allocations at the same site with different resource 
 
 ### Allocation Workflow Summary
 
-1. **Provision the tenant** -- `nicocli tenant get-current-tenant`
+1. **Provision the tenant** -- `nicocli tenant current`
 2. **Establish a tenant account** -- Provider admin links provider to tenant org
 3. **Discover available resources** -- List sites, instance types, and IP blocks
 4. **Create compute allocation(s)** -- One per instance type the tenant needs
@@ -430,7 +430,7 @@ A VPC is the logical network container for tenant workloads. It defines the tena
 
 Realistic non-interactive form:
 
-```
+```bash
 nicocli vpc create \
   --name acme-prod \
   --site-id <site-uuid> \
@@ -440,7 +440,7 @@ nicocli vpc create \
 
 TUI flow (prompts in order):
 
-```
+```bash
 nicocli tui
 > vpc create
 ```
@@ -451,7 +451,7 @@ nicocli tui
 
 Verify the VPC reaches `Ready` status:
 
-```
+```bash
 nicocli vpc list --output table
 ```
 
@@ -474,7 +474,7 @@ A subnet is an IP address range within a VPC, carved from an allocated IP block.
 
 Non-interactive (IPv4):
 
-```
+```bash
 nicocli subnet create \
   --name acme-subnet-1 \
   --vpc-id <vpc-uuid> \
@@ -484,13 +484,13 @@ nicocli subnet create \
 
 Or via `--data` (the JSON body uses camelCase even though the flag is single-word):
 
-```
+```bash
 nicocli subnet create --data '{"name": "acme-subnet-1", "vpcId": "<vpc-uuid>", "ipv4BlockId": "<ip-block-uuid>", "prefixLength": 28}'
 ```
 
 TUI flow:
 
-```
+```bash
 nicocli tui
 > subnet create
 ```
@@ -503,7 +503,7 @@ nicocli tui
 
 Verify:
 
-```
+```bash
 nicocli subnet list --output table
 ```
 
@@ -531,7 +531,7 @@ An instance in NICo is a bare-metal machine assigned to a tenant within a VPC. C
 
 Non-interactive form (with one interface and one SSH key group):
 
-```
+```bash
 nicocli instance create --data-file - <<'EOF'
 {
   "name": "acme-worker-01",
@@ -550,7 +550,7 @@ If you want to target a specific machine instead, replace `instanceTypeId` with 
 
 TUI flow:
 
-```
+```bash
 nicocli tui
 > instance create
 ```
@@ -566,7 +566,7 @@ nicocli tui
 
 After creation, the instance goes through these states:
 
-```
+```text
 Pending -> Ready -> BootCompleted          (initial provisioning, OS up + phone-home)
 Pending -> Ready                            (initial provisioning, no phone-home)
 Ready -> Configuring -> Ready               (in-place reconfigure: NSG, SSH keys, OS, iPXE, user-data)
@@ -581,7 +581,7 @@ Two states are easy to miss:
 
 Monitor progress:
 
-```
+```bash
 nicocli instance list --output table
 nicocli instance get <instance-id>
 nicocli instance status-history <instance-id>
@@ -635,7 +635,7 @@ For creating multiple identical instances at once, use `instance batch-create`. 
 
 Non-interactive form:
 
-```
+```bash
 nicocli instance batch-create \
   --tenant-id <tenant-uuid> \
   --vpc-id <vpc-uuid> \
@@ -673,19 +673,19 @@ NICo provides instance-level power management through the REST API. These operat
 
 Reboot:
 
-```
+```bash
 nicocli instance update --trigger-reboot=true <instance-id>
 ```
 
 Reboot with re-provisioning iPXE and pending updates:
 
-```
+```bash
 nicocli instance update --trigger-reboot=true --reboot-with-custom-ipxe=true --apply-updates-on-reboot=true <instance-id>
 ```
 
 TUI:
 
-```
+```bash
 nicocli tui
 > instance reboot
 ```
@@ -694,20 +694,20 @@ The TUI prompts for instance, custom-iPXE flag, apply-updates flag, and a confir
 
 ### Renaming or Updating an Instance
 
-```
+```bash
 nicocli instance update --name acme-worker-01-renamed <instance-id>
 nicocli instance update --description "production worker" <instance-id>
 ```
 
 `sshKeyGroupIds[]` is an array, so changes go through the body:
 
-```
+```bash
 nicocli instance update --data '{"sshKeyGroupIds": ["<group-uuid-1>", "<group-uuid-2>"]}' <instance-id>
 ```
 
 ### Deleting (Terminating) an Instance
 
-```
+```bash
 nicocli instance delete <instance-id>
 ```
 
@@ -717,7 +717,7 @@ In TUI mode, `instance delete` prompts for confirmation before proceeding. Delet
 
 For stuck or unresponsive machines that cannot be managed through the instance API, nico-admin-cli provides direct BMC operations:
 
-```
+```bash
 # Force-reboot via BMC
 nico-admin-cli -a <core-api-url> machine reboot --machine-id="<machine-id>"
 
@@ -731,31 +731,31 @@ See the [Machine Reboot](../playbooks/machine_reboot.md) and [Force Delete](../p
 
 ### Viewing the Current Tenant
 
-```
-nicocli tenant get-current-tenant
+```bash
+nicocli tenant current
 ```
 
 For provider admins needing visibility across tenants, list tenant accounts (a filter flag is required):
 
-```
+```bash
 nicocli tenant-account list --infrastructure-provider-id <provider-uuid> --output table
 ```
 
 ### Monitoring Tenant Health
 
-```
-nicocli tenant get-current-tenant-stats
+```bash
+nicocli tenant stats
 ```
 
 Non-zero `error` counts warrant investigation:
 
-```
+```bash
 nicocli instance list --status error --output table
 ```
 
 Provider admins can get cross-tenant compute allocation stats at a site. `instance-type-stats` is a sub-resource of `tenant`, with a `stats` leaf action -- the full command has three tokens:
 
-```
+```bash
 nicocli tenant instance-type-stats stats --site-id <site-uuid>
 ```
 
@@ -790,15 +790,15 @@ This section ties together the full Day One workflow. The TUI flow is the recomm
 
 ### Step 1: Provision the Tenant (Tenant Admin)
 
-```
-nicocli tenant get-current-tenant
+```bash
+nicocli tenant current
 ```
 
 Idempotent -- creates the tenant lazily on first call.
 
 ### Step 2: Establish Tenant Account (Provider Admin)
 
-```
+```bash
 nicocli tenant-account create --infrastructure-provider-id <provider-uuid> --tenant-org <tenant-org>
 ```
 
@@ -806,7 +806,7 @@ Or via TUI: `tenant-account create`.
 
 ### Step 3: Accept Tenant Account (Tenant Admin)
 
-```
+```bash
 # Find the invitation
 nicocli tenant-account list --tenant-id <tenant-uuid>
 
@@ -818,7 +818,7 @@ nicocli tenant-account update --data '{}' <account-id>
 
 Use the TUI for the first one -- it filters instance types by the selected site and validates capacity:
 
-```
+```bash
 nicocli tui
 > allocation create
 # Site -> name -> tenant -> InstanceType -> select type -> Reserved -> machine count
@@ -826,7 +826,7 @@ nicocli tui
 
 ### Step 5: Create Network Allocation (Provider Admin)
 
-```
+```bash
 nicocli tui
 > allocation create
 # Same site -> name -> tenant -> IPBlock -> select block -> Reserved -> prefix length
@@ -834,7 +834,7 @@ nicocli tui
 
 ### Step 6: Verify Allocations
 
-```
+```bash
 nicocli allocation list --output table --tenant-id <tenant-uuid>
 ```
 
@@ -842,13 +842,13 @@ All allocations should show `Registered` status.
 
 ### Step 7: Create a VPC (Tenant Admin)
 
-```
+```bash
 nicocli vpc create --name <n> --site-id <site-uuid> --routing-profile internal
 ```
 
 ### Step 8: Create a Subnet (Tenant Admin)
 
-```
+```bash
 nicocli subnet create --name <n> --vpc-id <vpc-uuid> --ipv4block-id <ip-block-uuid> --prefix-length 28
 ```
 
@@ -856,7 +856,7 @@ nicocli subnet create --name <n> --vpc-id <vpc-uuid> --ipv4block-id <ip-block-uu
 
 The first instance is easiest via TUI because `interfaces[]` is array-typed:
 
-```
+```bash
 nicocli tui
 > instance create
 # VPC -> Machine -> name -> OS (optional) -> VPC prefix -> SSH key groups (optional)
@@ -866,8 +866,8 @@ For automation, use `--data-file` -- see the Launching an Instance section above
 
 ### Step 10: Verify
 
-```
-nicocli tenant get-current-tenant-stats
+```bash
+nicocli tenant stats
 nicocli instance list --output table
 nicocli instance status-history <instance-id>
 ```
@@ -897,8 +897,8 @@ The instance should reach `Ready` (or `BootCompleted` if `phoneHomeEnabled: true
 
 Use `--debug` on any command to see the full HTTP request and response. The token is redacted in the log; the path-rewriting from `nico` to whatever `api.name` is set to is visible. Real output:
 
-```
-$ nicocli --debug tenant get-current-tenant
+```bash
+$ nicocli --debug tenant current
 time=... msg="API request: GET http://<api>/v2/org/<org>/<api-name>/tenant/current"
 time=... msg="Request headers: {\"Accept\":[\"application/json\"],\"Authorization\":[\"Bearer <redacted>\"]}"
 time=... msg="API response: ... -> 200 OK"
@@ -913,7 +913,7 @@ The CLI version and the API server version are independent. CLI is generated fro
 
 The list view is intentionally lightweight -- each entry has `id`, `endpoint`, `method`, `statusCode`, `userId`, `clientIP`, `apiVersion`, and `timestamp`. To see the full request, including the request body and the resolved user object, fetch a single entry:
 
-```
+```bash
 nicocli audit list --output json --page-size 5      # find entries of interest
 nicocli audit get <audit-id>                         # fetch full detail
 ```
@@ -924,7 +924,7 @@ nicocli audit get <audit-id>                         # fetch full detail
 
 The TUI is the recommended tool for exploratory work. It handles config selection, authentication, and provides tab-complete interactive commands:
 
-```
+```bash
 nicocli tui
 ```
 
@@ -937,9 +937,9 @@ Flag-first ordering -- always put flags before positional args.
 | Operation | Command | Role Required |
 |-----------|---------|--------------|
 | View current user | `nicocli user get` | Any authenticated user |
-| View current tenant | `nicocli tenant get-current-tenant` | Tenant Admin |
-| View tenant stats | `nicocli tenant get-current-tenant-stats` | Tenant Admin |
-| Service-account status | `nicocli service-account get` | Any authenticated user |
+| View current tenant | `nicocli tenant current` | Tenant Admin |
+| View tenant stats | `nicocli tenant stats` | Tenant Admin |
+| Service-account status | `nicocli service-account current` | Any authenticated user |
 | List tenant accounts | `nicocli tenant-account list --tenant-id <id>` (or `--infrastructure-provider-id`) | Provider or Tenant Admin |
 | Create tenant account | `nicocli tenant-account create --infrastructure-provider-id <id> --tenant-org <org>` | Provider Admin |
 | Accept tenant account | `nicocli tenant-account update --data '{}' <account-id>` | Tenant Admin |
