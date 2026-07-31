@@ -2370,6 +2370,7 @@ pub async fn check_restart_in_logs(
             "The server is restarted by chassis control command.", // Lenovo
             "DPU Warm Reset",                                      // Bluefield
             "BMC IP Address Deleted",                              // Bluefield
+            "The property ResetType was assigned the value 'ForceWarmReboot' due to modification by the service.", // GB200
         ]);
 
         // Generic reset keywords
