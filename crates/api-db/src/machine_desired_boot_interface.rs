@@ -433,8 +433,8 @@ pub async fn set(
 /// replacing a target that is already present.
 ///
 /// A stable host already in `Ready` or `Assigned` receives an explicitly
-/// assumed observation. This covers hosts initialized after the status
-/// migration during a combined rollout without scheduling fleet-wide
+/// assumed compatibility observation. This covers a missing row during a
+/// mixed-component rollout or later repair without scheduling fleet-wide
 /// remediation. Normal lifecycle initialization happens on a predicted host or
 /// in `HostInit`, so newly provisioned hosts remain pending real verification.
 pub async fn initialize_if_unset(

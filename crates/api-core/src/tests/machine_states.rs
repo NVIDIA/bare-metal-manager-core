@@ -57,10 +57,11 @@ use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuDiscoveringState,
-    DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
-    HostPlatformConfigurationState, InstallDpuOsState, InstanceState, LockdownMode, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, PowerState, ReadyBootConfigState,
+    BiosConfigInfo, BiosConfigState, BomValidating, BomValidatingContext, CleanupContext,
+    CleanupState, DpuDiscoveringState, DpuInitState, DpuReprovisionStates, FailureCause,
+    FailureDetails, FailureSource, HostPlatformConfigurationState, InstallDpuOsState,
+    InstanceState, LockdownMode, MachineState, MachineValidatingState, MachineValidationContext,
+    ManagedHostState, MeasuringState, PowerState, ReadyBootConfigState,
     ReadyBootConfigTerminalFailure, SetBootOrderInfo, SetBootOrderState, SetSecureBootState,
     SpdmMeasuringState, StateMachineArea, ValidationState,
 };
@@ -3010,8 +3011,9 @@ async fn set_host_hardware_vendor(env: &TestEnv, mh: &TestManagedHost, vendor: &
     txn.commit().await.unwrap();
 }
 
-/// A zero-DPU host skips the DPU reachability wait, but it must still poll the
-/// requested lockdown mode so Disable returns to platform configuration.
+/// A zero-DPU host skips the DPU reachability wait. Disable still polls before
+/// platform configuration, while Enable preserves the established direct
+/// validation path even when reported lockdown status is stale.
 #[crate::sqlx_test]
 async fn test_zero_dpu_lockdown_wait_preserves_mode_transition(pool: sqlx::PgPool) {
     let env = create_zero_dpu_test_env(pool).await;
@@ -3057,6 +3059,38 @@ async fn test_zero_dpu_lockdown_wait_preserves_mode_transition(pool: sqlx::PgPoo
         host.current_state(),
         &ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForPlatformConfiguration { retry_count: 0 },
+        },
+    );
+    drop(txn);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        mh.host().id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::WaitingForLockdown {
+                lockdown_info: model::machine::LockdownInfo {
+                    state: model::machine::LockdownState::TimeWaitForDPUDown,
+                    mode: LockdownMode::Enable,
+                },
+            },
+        },
+        0,
+    )
+    .await;
+    env.redfish_sim
+        .set_lockdown(libredfish::EnabledDisabled::Disabled);
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert_eq!(
+        host.current_state(),
+        &ManagedHostState::BomValidating {
+            bom_validating_state: BomValidating::MatchingSku(BomValidatingContext {
+                machine_validation_context: Some(MachineValidationContext::Discovery),
+                ..BomValidatingContext::default()
+            }),
         },
     );
 }

@@ -17,7 +17,12 @@ ALTER TABLE machine_boot_interfaces
                 verified_version IS NOT NULL
                 AND observed_at IS NOT NULL
             )
-        );
+        ) NOT VALID;
+
+-- Validate separately so the table scan does not hold the stronger lock used
+-- while adding the columns and constraint.
+ALTER TABLE machine_boot_interfaces
+    VALIDATE CONSTRAINT machine_boot_interfaces_status_consistent;
 
 -- Avoid scheduling a fleet-wide boot reconfiguration when this status first
 -- rolls out. These rows predate status tracking, so record the baseline

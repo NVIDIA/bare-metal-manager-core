@@ -5931,13 +5931,7 @@ async fn handle_ready_boot_config(
                             machine_id = %mh_snapshot.host_snapshot.id,
                             "BMC vendor does not support checking lockdown status during Ready boot repair",
                         );
-                        if preflight_complete {
-                            ReadyBootConfigState::LockHost {
-                                terminal_failure: None,
-                            }
-                        } else {
-                            ReadyBootConfigState::CheckHostConfig
-                        }
+                        ReadyBootConfigState::CheckHostConfig
                     }
                     Err(error) => {
                         tracing::warn!(
@@ -5948,13 +5942,6 @@ async fn handle_ready_boot_config(
                         return Ok(StateHandlerOutcome::wait(format!(
                             "Failed to fetch lockdown status: {error}"
                         )));
-                    }
-                    Ok(lockdown_status)
-                        if preflight_complete && lockdown_status.is_fully_disabled() =>
-                    {
-                        ReadyBootConfigState::LockHost {
-                            terminal_failure: None,
-                        }
                     }
                     Ok(lockdown_status) if !lockdown_status.is_fully_disabled() => {
                         ReadyBootConfigState::UnlockHost {
@@ -6572,13 +6559,20 @@ async fn complete_host_init_lockdown(
     }
 
     let mut txn = ctx.services.db_pool.begin().await?;
-    db::machine_desired_boot_interface::mark_verified(
+    let verified = db::machine_desired_boot_interface::mark_verified(
         txn.as_mut(),
         &mh_snapshot.host_snapshot.id,
         desired.version,
         Utc::now(),
     )
     .await?;
+    if !verified {
+        tracing::info!(
+            machine_id = %mh_snapshot.host_snapshot.id,
+            desired_version = %desired.version,
+            "Desired boot interface changed during HostInit verification; leaving it pending",
+        );
+    }
     Ok(outcome.with_txn(txn))
 }
 
@@ -7226,10 +7220,28 @@ impl StateHandler for HostMachineStateHandler {
                         LockdownState::TimeWaitForDPUDown => {
                             if !mh_snapshot.has_managed_dpus() {
                                 // There is no DPU power cycle to observe for
-                                // `Nic`/`Ignore` hosts. Still pass through the
-                                // shared status poll so Disable proceeds to
-                                // platform configuration and Enable completes
-                                // only after the policy is observed.
+                                // `Nic`/`Ignore` hosts. Disable still needs the
+                                // shared status poll to reach platform
+                                // configuration. Preserve the established
+                                // Enable path, which does not require a
+                                // separately readable lockdown status.
+                                if lockdown_info.mode == LockdownMode::Enable {
+                                    return complete_host_init_lockdown(
+                                        ctx,
+                                        mh_snapshot,
+                                        ManagedHostState::BomValidating {
+                                            bom_validating_state: BomValidating::MatchingSku(
+                                                BomValidatingContext {
+                                                    machine_validation_context: Some(
+                                                        MachineValidationContext::Discovery,
+                                                    ),
+                                                    ..BomValidatingContext::default()
+                                                },
+                                            ),
+                                        },
+                                    )
+                                    .await;
+                                }
                                 return Ok(StateHandlerOutcome::transition(
                                     ManagedHostState::HostInit {
                                         machine_state: MachineState::WaitingForLockdown {

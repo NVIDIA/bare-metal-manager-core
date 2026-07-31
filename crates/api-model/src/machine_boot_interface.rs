@@ -102,17 +102,16 @@ pub enum MachineBootInterfaceTarget {
 
 /// Status for the desired boot-interface generation currently treated as converged.
 ///
-/// `assumed` is true only for the rollout baseline used to avoid treating
-/// existing machines as newly drifted when observation tracking is introduced.
-/// Real Redfish verification always records it as false.
+/// `assumed` is true for the compatibility baseline used when an already-stable
+/// host has no persisted row, including during mixed-component rollout. Real
+/// Redfish verification always records it as false.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BootInterfaceStatusObservation {
     /// Desired boot-interface configuration version this status applies to.
     pub config_version: ConfigVersion,
     /// Time this status was recorded.
     pub observed_at: DateTime<Utc>,
-    /// Whether this is the one-time rollout baseline rather than a Redfish
-    /// observation.
+    /// Whether this is a compatibility baseline rather than a Redfish observation.
     pub assumed: bool,
 }
 
