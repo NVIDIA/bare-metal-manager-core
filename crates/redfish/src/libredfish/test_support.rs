@@ -108,6 +108,13 @@ struct RedfishSimState {
     /// secret to assert redaction end to end). Takes precedence over the auth
     /// and reuse checks so it can model a change that fails after authenticating.
     change_password_error: Option<String>,
+    /// When set, every `change_uefi_password` fails with a
+    /// [`RedfishError::GenericError`] carrying this message, modeling a BIOS that
+    /// rejects the UEFI password change (e.g. every current-password candidate is
+    /// wrong). Tests seed it with a secret to assert the recorded rotation error
+    /// is password-redacted, and to exercise the quarantine-and-return-to-Ready
+    /// path in host UEFI rotation.
+    uefi_password_change_error: Option<String>,
 }
 
 /// Build the `HTTPErrorCode` a real BMC would return for a rejected request, so
@@ -378,6 +385,15 @@ impl RedfishSim {
     /// carrying `message`, so redaction of the recorded error can be asserted.
     pub fn set_change_password_error(&self, message: impl Into<String>) {
         self.state.lock().unwrap().change_password_error = Some(message.into());
+    }
+
+    /// Force every `change_uefi_password` to fail with a
+    /// [`RedfishError::GenericError`] carrying `message`, modeling a BIOS that
+    /// rejects the UEFI password change. Drives the host UEFI rotation
+    /// quarantine-and-return-to-Ready path; seed with a secret to assert the
+    /// recorded rotation error is redacted.
+    pub fn set_uefi_password_change_error(&self, message: impl Into<String>) {
+        self.state.lock().unwrap().uefi_password_change_error = Some(message.into());
     }
 
     /// Override the `Vendor` reported by `get_service_root`. Set it to an
@@ -1247,7 +1263,14 @@ impl Redfish for RedfishSimClient {
         _current_uefi_password: &'a str,
         _new_uefi_password: &'a str,
     ) -> libredfish::RedfishFuture<'a, Result<Option<String>, RedfishError>> {
-        Box::pin(async move { Ok(None) })
+        Box::pin(async move {
+            if let Some(message) = &self.state.lock().unwrap().uefi_password_change_error {
+                return Err(RedfishError::GenericError {
+                    error: message.clone(),
+                });
+            }
+            Ok(None)
+        })
     }
 
     fn change_boot_order<'a>(

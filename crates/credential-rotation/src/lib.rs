@@ -68,12 +68,12 @@
 //! already at the rotate-TO value already has the policy in effect; recovery has
 //! nothing to restore.
 //!
-//! # Entry gate ([`BmcRotationGate`])
+//! # Entry gate ([`RotationGate`])
 //!
 //! Controllers must not pay a per-device `device_rotation_status` query on every
-//! 30-second sweep. [`BmcRotationGate`] caches the cheap per-type aggregate
+//! 30-second sweep. [`RotationGate`] caches the cheap per-type aggregate
 //! ([`rotation_status`]) with a short TTL, so a controller's per-object entry
-//! guard ([`BmcRotationGate::bmc_rotation_needed`]) hits the database per-device
+//! guard ([`RotationGate::rotation_needed`]) hits the database per-device
 //! only when the site-wide aggregate says some device actually lags. In steady
 //! state (nothing staged, or fully converged) the gate is one cached aggregate
 //! query per TTL window, not O(devices).
@@ -208,7 +208,7 @@ impl BmcCredentialRotationQuarantined {
     }
 }
 
-/// Default freshness window for the [`BmcRotationGate`] aggregate cache. Short
+/// Default freshness window for the [`RotationGate`] aggregate cache. Short
 /// enough that a freshly staged rotation is picked up within roughly one sweep,
 /// long enough that steady-state sweeps don't hammer the aggregate query.
 const DEFAULT_AGGREGATE_TTL: Duration = Duration::from_secs(15);
@@ -549,11 +549,13 @@ pub fn needs_rotation(status: &DeviceRotationStatus) -> bool {
     !status.converged && !status.quarantined
 }
 
-/// A short-TTL cache of the site-wide BMC rotation aggregate, shared across a
-/// controller's per-object ticks (cheap to clone; `Arc`-backed).
+/// A short-TTL cache of the site-wide rotation aggregate for one credential
+/// family (BMC, host UEFI, ...), shared across a controller's per-object ticks
+/// (cheap to clone; `Arc`-backed). The family is fixed at construction; a
+/// controller that rotates two families holds one gate per family.
 ///
-/// The controller's per-tick entry guard calls
-/// [`Self::bmc_rotation_needed`], which consults the cached aggregate first and
+/// The controller's per-tick entry guard calls [`Self::rotation_needed`], which
+/// consults the cached aggregate first and
 /// only issues the per-device query when the site-wide counts say some device
 /// actually lags. This keeps the steady state (nothing staged / fully
 /// converged) at one cheap aggregate query per TTL window rather than a
@@ -564,9 +566,14 @@ pub fn needs_rotation(status: &DeviceRotationStatus) -> bool {
 /// and the `FOR UPDATE SKIP LOCKED` object claim still serialize the actual
 /// rotation across replicas.
 #[derive(Clone)]
-pub struct BmcRotationGate {
+pub struct RotationGate {
     inner: Arc<Mutex<CachedAggregate>>,
     ttl: Duration,
+    /// The credential family this gate reports on (BMC, host UEFI, ...). A gate
+    /// is single-family: the cached aggregate and the per-device query are both
+    /// scoped to it, so a controller that rotates two families holds one gate
+    /// per family.
+    family: CredentialRotationType,
 }
 
 #[derive(Default)]
@@ -577,24 +584,23 @@ struct CachedAggregate {
     work_pending: bool,
 }
 
-impl Default for BmcRotationGate {
-    fn default() -> Self {
-        Self::with_ttl(DEFAULT_AGGREGATE_TTL)
-    }
-}
-
-impl BmcRotationGate {
-    /// A gate with the default aggregate-cache TTL.
-    pub fn new() -> Self {
-        Self::default()
+impl RotationGate {
+    /// A gate for a credential family with the default aggregate-cache TTL. The
+    /// family is required: the type is family-generic and its cached aggregate
+    /// and per-device query are both scoped to it, so callers always name the
+    /// family they gate on rather than relying on an implicit default.
+    pub fn new_for_family(family: CredentialRotationType) -> Self {
+        Self::with_ttl_and_family(DEFAULT_AGGREGATE_TTL, family)
     }
 
-    /// A gate with an explicit aggregate-cache TTL. A zero TTL disables caching
-    /// (every call re-queries the aggregate) -- useful in tests.
-    pub fn with_ttl(ttl: Duration) -> Self {
+    /// A gate for a credential family with an explicit aggregate-cache TTL. A
+    /// zero TTL disables caching (every call re-queries the aggregate) -- useful
+    /// in tests.
+    pub fn with_ttl_and_family(ttl: Duration, family: CredentialRotationType) -> Self {
         Self {
             inner: Arc::new(Mutex::new(CachedAggregate::default())),
             ttl,
+            family,
         }
     }
 
@@ -622,7 +628,7 @@ impl BmcRotationGate {
         // another tick is harmless: the query is read-only and idempotent, and
         // last-writer-wins on the cache is fine for a gate.
         let mut conn = pool.acquire().await?;
-        let status = rotation_status(&mut conn, BMC).await?;
+        let status = rotation_status(&mut conn, self.family).await?;
         drop(conn);
         let work_pending = status.target_version > 0 && (status.pending + status.quarantined) > 0;
 
@@ -639,7 +645,7 @@ impl BmcRotationGate {
     /// Gated by [`Self::rotation_pending`], so the per-device query runs only
     /// when the cached aggregate says some device lags. A device with no
     /// rotation row (not under management) returns `false`.
-    pub async fn bmc_rotation_needed(
+    pub async fn rotation_needed(
         &self,
         pool: &PgPool,
         device_mac: MacAddress,
@@ -648,7 +654,7 @@ impl BmcRotationGate {
             return Ok(false);
         }
         let mut conn = pool.acquire().await?;
-        let status = device_rotation_status(&mut conn, BMC, device_mac).await?;
+        let status = device_rotation_status(&mut conn, self.family, device_mac).await?;
         Ok(status.as_ref().is_some_and(needs_rotation))
     }
 }
@@ -992,8 +998,8 @@ mod tests {
 
     use super::{
         BMC, BmcCredentialRotationConverged, BmcCredentialRotationQuarantined,
-        BmcCredentialRotationRecovered, BmcRotationGate, BmcRotationTarget, CredentialConvergence,
-        DispatchVendor, RotateOutcome, change_or_recover, needs_rotation, redact,
+        BmcCredentialRotationRecovered, BmcRotationTarget, CredentialConvergence, DispatchVendor,
+        RotateOutcome, RotationGate, change_or_recover, needs_rotation, redact,
         resolve_dispatch_vendor, rotate_bmc,
     };
 
@@ -1823,13 +1829,13 @@ mod tests {
     async fn rotation_gate_caches_aggregate_and_gates_per_device(pool: PgPool) {
         // Nothing staged yet (bmc seeded at target 0): the gate reports no work
         // without a per-device query.
-        let gate = BmcRotationGate::new();
+        let gate = RotationGate::new_for_family(BMC);
         assert!(
             !gate.rotation_pending(&pool).await.unwrap(),
             "target 0 baseline is not work"
         );
         assert!(
-            !gate.bmc_rotation_needed(&pool, test_mac()).await.unwrap(),
+            !gate.rotation_needed(&pool, test_mac()).await.unwrap(),
             "no work means the per-device guard is false"
         );
 
@@ -1843,15 +1849,15 @@ mod tests {
 
         // A zero-TTL gate always re-queries, so it observes the staged work and
         // the per-device guard now fires.
-        let fresh = BmcRotationGate::with_ttl(StdDuration::ZERO);
+        let fresh = RotationGate::with_ttl_and_family(StdDuration::ZERO, BMC);
         assert!(fresh.rotation_pending(&pool).await.unwrap());
         assert!(
-            fresh.bmc_rotation_needed(&pool, test_mac()).await.unwrap(),
+            fresh.rotation_needed(&pool, test_mac()).await.unwrap(),
             "a lagging device under a live target needs rotation"
         );
         // An unknown device has no row, so the guard is false even when work is
         // pending site-wide.
         let unknown: MacAddress = "02:00:00:00:00:ff".parse().unwrap();
-        assert!(!fresh.bmc_rotation_needed(&pool, unknown).await.unwrap());
+        assert!(!fresh.rotation_needed(&pool, unknown).await.unwrap());
     }
 }

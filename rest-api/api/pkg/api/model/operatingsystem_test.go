@@ -921,7 +921,7 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 	}
 }
 
-func TestAPIOperatingSystemCreateRequest_ToProto(t *testing.T) {
+func TestAPIOperatingSystemCreateRequest_ToImageProto(t *testing.T) {
 	id := uuid.New()
 	url := "https://image"
 	sha := "deadbeef"
@@ -936,7 +936,7 @@ func TestAPIOperatingSystemCreateRequest_ToProto(t *testing.T) {
 	}
 	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
 		req := APIOperatingSystemCreateRequest{}
-		got := req.ToProto(os, "org-1")
+		got := req.ToImageProto(os, "org-1")
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, id.String(), got.Id.Value)
@@ -959,14 +959,14 @@ func TestAPIOperatingSystemCreateRequest_ToProto(t *testing.T) {
 			RootFsID:                    &rootFsID,
 		}
 		req := APIOperatingSystemCreateRequest{}
-		got := req.ToProto(osWithCtrl, "org-1")
+		got := req.ToImageProto(osWithCtrl, "org-1")
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, ctrlID.String(), got.Id.Value)
 	})
 }
 
-func TestAPIOperatingSystemUpdateRequest_ToProto(t *testing.T) {
+func TestAPIOperatingSystemUpdateRequest_ToImageProto(t *testing.T) {
 	id := uuid.New()
 	url := "https://image-new"
 	sha := "cafebabe"
@@ -981,7 +981,7 @@ func TestAPIOperatingSystemUpdateRequest_ToProto(t *testing.T) {
 	}
 	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
 		req := APIOperatingSystemUpdateRequest{}
-		got := req.ToProto(uos, "org-2")
+		got := req.ToImageProto(uos, "org-2")
 		require.NotNil(t, got)
 		require.NotNil(t, got.Id)
 		assert.Equal(t, id.String(), got.Id.Value)

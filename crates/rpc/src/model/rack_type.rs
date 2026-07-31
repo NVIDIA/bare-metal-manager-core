@@ -395,6 +395,7 @@ mod tests {
     fn test_rack_profile_proto_conversion() {
         let profile = RackProfile {
             product_family: Some(RackProductFamily::Gb200),
+            firmware_object: None,
             rack_hardware_type: Some(RackHardwareType::from("dsx_gb200nvl_72x1")),
             rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
             rack_hardware_class: Some(RackHardwareClass::Prod),

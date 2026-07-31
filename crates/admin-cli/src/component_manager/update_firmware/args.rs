@@ -405,6 +405,30 @@ mod tests {
 
         scenarios!(
             run = |source| resolve_firmware_source(source).map_err(drop);
+            "both firmware sources are rejected" {
+                FirmwareSourceArgs {
+                    target_version: Some("fw-1.0".to_string()),
+                    sot_json_file: Some(invalid_json.clone()),
+                    access_token: None,
+                } => Fails,
+            }
+
+            "a missing firmware source is rejected" {
+                FirmwareSourceArgs {
+                    target_version: None,
+                    sot_json_file: None,
+                    access_token: None,
+                } => Fails,
+            }
+
+            "an empty target version is rejected" {
+                FirmwareSourceArgs {
+                    target_version: Some(" ".to_string()),
+                    sot_json_file: None,
+                    access_token: None,
+                } => Fails,
+            }
+
             "access token without a SOT JSON file" {
                 FirmwareSourceArgs {
                     target_version: Some("fw-1.0".to_string()),
@@ -423,5 +447,172 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(invalid_json);
+    }
+
+    #[test]
+    fn update_firmware_commands_build_requests_for_every_target() {
+        const CONFIG_JSON: &str = r#"{"Id":"fw-object","Version":"1.2.3"}"#;
+        const MACHINE_ID: &str = "fm100ht038bg3qsho433vkg684heguv282qaggmrsh2ugn1qk096n2c6hcg";
+        const POWER_SHELF_ID: &str = "ps100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
+        const RACK_ID: &str = "rack-test";
+        const SWITCH_ID: &str = "sw100ntjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
+
+        let sot_json = temp_sot_file(CONFIG_JSON);
+        let sot_json = sot_json.to_str().expect("temporary path is UTF-8");
+
+        let switch_request = rpc::forge::UpdateComponentFirmwareRequest::try_from(
+            Args::try_parse_from([
+                "update-firmware",
+                "switch",
+                "--switch-id",
+                SWITCH_ID,
+                "--sot-json-file",
+                sot_json,
+                "--access-token",
+                "token",
+                "--component",
+                "bmc,nvos",
+                "--force-update",
+                "--bypass-state-controller",
+            ])
+            .expect("switch command should parse"),
+        )
+        .expect("switch command should build a request");
+
+        assert_eq!(switch_request.target_version, CONFIG_JSON);
+        assert_eq!(switch_request.access_token.as_deref(), Some("token"));
+        assert!(switch_request.force_update);
+        assert!(switch_request.bypass_state_controller);
+        let Some(rpc::forge::update_component_firmware_request::Target::Switches(target)) =
+            switch_request.target
+        else {
+            panic!("switch command should build a switch target");
+        };
+
+        let switch_ids = target.switch_ids.expect("switch IDs");
+
+        assert_eq!(switch_ids.ids.len(), 1);
+        assert_eq!(switch_ids.ids[0].to_string(), SWITCH_ID);
+
+        assert_eq!(
+            target.components,
+            [
+                rpc::forge::NvSwitchComponent::Bmc as i32,
+                rpc::forge::NvSwitchComponent::Nvos as i32,
+            ]
+        );
+
+        let compute_request = rpc::forge::UpdateComponentFirmwareRequest::try_from(
+            Args::try_parse_from([
+                "update-firmware",
+                "compute-tray",
+                "--machine-id",
+                MACHINE_ID,
+                "--target-version",
+                "fw-1.2.3",
+                "--component",
+                "bmc,bios",
+                "--force-update",
+                "--bypass-state-controller",
+            ])
+            .expect("compute-tray command should parse"),
+        )
+        .expect("compute-tray command should build a request");
+
+        assert_eq!(compute_request.target_version, "fw-1.2.3");
+        assert_eq!(compute_request.access_token, None);
+        assert!(compute_request.force_update);
+        assert!(compute_request.bypass_state_controller);
+        let Some(rpc::forge::update_component_firmware_request::Target::ComputeTrays(target)) =
+            compute_request.target
+        else {
+            panic!("compute-tray command should build a compute-tray target");
+        };
+
+        let machine_ids = target.machine_ids.expect("machine IDs");
+
+        assert_eq!(machine_ids.machine_ids.len(), 1);
+        assert_eq!(machine_ids.machine_ids[0].to_string(), MACHINE_ID);
+
+        assert_eq!(
+            target.components,
+            [
+                rpc::forge::ComputeTrayComponent::Bmc as i32,
+                rpc::forge::ComputeTrayComponent::Bios as i32,
+            ]
+        );
+
+        let power_shelf_request = rpc::forge::UpdateComponentFirmwareRequest::try_from(
+            Args::try_parse_from([
+                "update-firmware",
+                "power-shelf",
+                "--power-shelf-id",
+                POWER_SHELF_ID,
+                "--target-version",
+                "fw-1.2.3",
+                "--component",
+                "pmc,psu",
+                "--force-update",
+                "--bypass-state-controller",
+            ])
+            .expect("power-shelf command should parse"),
+        )
+        .expect("power-shelf command should build a request");
+
+        assert_eq!(power_shelf_request.target_version, "fw-1.2.3");
+        assert_eq!(power_shelf_request.access_token, None);
+        assert!(power_shelf_request.force_update);
+        assert!(power_shelf_request.bypass_state_controller);
+        let Some(rpc::forge::update_component_firmware_request::Target::PowerShelves(target)) =
+            power_shelf_request.target
+        else {
+            panic!("power-shelf command should build a power-shelf target");
+        };
+
+        let power_shelf_ids = target.power_shelf_ids.expect("power shelf IDs");
+
+        assert_eq!(power_shelf_ids.ids.len(), 1);
+        assert_eq!(power_shelf_ids.ids[0].to_string(), POWER_SHELF_ID);
+
+        assert_eq!(
+            target.components,
+            [
+                rpc::forge::PowerShelfComponent::Pmc as i32,
+                rpc::forge::PowerShelfComponent::Psu as i32,
+            ]
+        );
+
+        let rack_request = rpc::forge::UpdateComponentFirmwareRequest::try_from(
+            Args::try_parse_from([
+                "update-firmware",
+                "rack",
+                "--rack-id",
+                RACK_ID,
+                "--sot-json-file",
+                sot_json,
+                "--access-token",
+                "token",
+                "--force-update",
+            ])
+            .expect("rack command should parse"),
+        )
+        .expect("rack command should build a request");
+
+        assert_eq!(rack_request.target_version, CONFIG_JSON);
+        assert_eq!(rack_request.access_token.as_deref(), Some("token"));
+        assert!(rack_request.force_update);
+        assert!(!rack_request.bypass_state_controller);
+        let Some(rpc::forge::update_component_firmware_request::Target::Racks(target)) =
+            rack_request.target
+        else {
+            panic!("rack command should build a rack target");
+        };
+
+        let rack_ids = target.rack_ids.expect("rack IDs");
+
+        assert_eq!(rack_ids.rack_ids.len(), 1);
+        assert_eq!(rack_ids.rack_ids[0].to_string(), RACK_ID);
+
+        let _ = std::fs::remove_file(sot_json);
     }
 }

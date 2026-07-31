@@ -171,6 +171,10 @@ OperatingModes_ChooseOperatingMode = "MinimalPower"
 [rack_profiles.NVL72]
 product_family = "gb200"
 
+[rack_profiles.NVL72.firmware_object]
+url = "https://firmware.example.invalid/sot/nvl72.json"
+fetch_timeout = "45s"
+
 [rack_profiles.NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18

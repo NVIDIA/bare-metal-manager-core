@@ -1,4 +1,4 @@
-# Monitoring and Health
+# Monitoring and Health <Badge intent="launch" minimal>New</Badge>
 
 This page covers monitoring and health workflows for NICo sites after
 deployment: hardware health, DPU health, aggregate host health, health

@@ -22,7 +22,7 @@
 //! adapter. It answers two questions for the state machine:
 //!
 //! - *Should we enter rotation?* [`bmc_rotation_needed`] asks the cached
-//!   [`BmcRotationGate`] whether the host BMC or any of its DPU BMCs lags the
+//!   [`RotationGate`] whether the host BMC or any of its DPU BMCs lags the
 //!   staged site-wide target. The gate keeps the steady state at one cheap
 //!   aggregate query per TTL window (see the engine crate docs).
 //! - *Do one rotation tick.* [`rotate_managed_host_bmcs`] converges the host BMC
@@ -63,7 +63,7 @@ pub(crate) async fn bmc_rotation_needed(
     for endpoint in managed_host_bmc_endpoints(mh) {
         let needed = services
             .bmc_rotation_gate
-            .bmc_rotation_needed(&services.db_pool, endpoint.device_mac)
+            .rotation_needed(&services.db_pool, endpoint.device_mac)
             .await
             .map_err(|e| {
                 StateHandlerError::GenericError(eyre::eyre!("bmc rotation gate query: {e}"))

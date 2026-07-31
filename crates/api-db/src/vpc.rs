@@ -67,7 +67,8 @@ pub async fn persist(
     let query =
                 "INSERT INTO vpcs (id, name, organization_id, network_security_group_id, version, network_virtualization_type,
                 description,
-                labels, routing_profile_type, vni, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *";
+                labels, routing_profile_type, routing_profile_overrides, vni, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *";
     sqlx::query_as(query)
         .bind(value.id)
         .bind(&value.metadata.name)
@@ -78,6 +79,7 @@ pub async fn persist(
         .bind(&value.metadata.description)
         .bind(sqlx::types::Json(&value.metadata.labels))
         .bind(value.routing_profile_type)
+        .bind(value.routing_profile_overrides.map(sqlx::types::Json))
         .bind(value.vni)
         .bind(sqlx::types::Json(&status))
         .fetch_one(txn)

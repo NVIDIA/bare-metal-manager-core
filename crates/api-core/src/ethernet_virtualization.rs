@@ -117,6 +117,8 @@ fn validate_interface_routing_profile(
     for prefix in &interface_profile.allowed_anycast_prefixes {
         if !vpc_profile
             .allowed_anycast_prefixes
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .any(|allowed| prefix_contains(allowed.prefix, *prefix))
         {
@@ -167,23 +169,9 @@ pub(crate) async fn validate_instance_interface_routing_profiles(
                 "instance interface routing_profile requires FNN routing profiles".to_string(),
             )
         })?;
-        let profile_type =
-            vpc.config
-                .routing_profile_type
-                .as_ref()
-                .ok_or_else(|| CarbideError::Internal {
-                    message: "tenant routing profile type not found in VPC record".to_string(),
-                })?;
-        let vpc_profile =
-            fnn.routing_profiles
-                .get(profile_type)
-                .ok_or_else(|| CarbideError::NotFoundError {
-                    kind: "routing_profile_type",
-                    id: profile_type.to_string(),
-                })?;
-
-        // The interface profile must be a subset of the operator profile.
-        validate_interface_routing_profile(vpc_profile, interface_profile)?;
+        // The interface profile must narrow the fully resolved VPC profile.
+        let vpc_profile = fnn.resolve_vpc_routing_profile(&vpc.config)?;
+        validate_interface_routing_profile(vpc_profile.as_ref(), interface_profile)?;
     }
 
     Ok(())
@@ -656,48 +644,37 @@ pub async fn tenant_network(
     let vpc_vni = vpc.as_ref().and_then(|v| v.status.vni).unwrap_or_default() as u32;
 
     // Resolve the routing profile from the VPC attached to this interface.
-    let (vpc_routing_profile, interface_routing_profile) =
-        match (vpc.as_ref(), fnn_config) {
-            (Some(vpc), Some(fnn))
-                if vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn =>
-            {
-                let profile_type = vpc.config.routing_profile_type.as_ref().ok_or_else(|| {
-                    CarbideError::Internal {
-                        message: "tenant routing profile type not found in VPC record".to_string(),
-                    }
-                })?;
-                let profile = fnn.routing_profiles.get(profile_type).ok_or_else(|| {
-                    CarbideError::NotFoundError {
-                        kind: "routing_profile_type",
-                        id: profile_type.to_string(),
-                    }
-                })?;
+    let (vpc_routing_profile, interface_routing_profile) = match (vpc.as_ref(), fnn_config) {
+        (Some(vpc), Some(fnn))
+            if vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn =>
+        {
+            let profile = fnn.resolve_vpc_routing_profile(&vpc.config)?;
 
-                (
-                    Some(rpc::RoutingProfile::from(profile)),
-                    iface
-                        .routing_profile
-                        .as_ref()
-                        .map(rpc::FlatInterfaceRoutingProfile::from),
-                )
+            (
+                Some(rpc::RoutingProfile::from(profile.as_ref())),
+                iface
+                    .routing_profile
+                    .as_ref()
+                    .map(rpc::FlatInterfaceRoutingProfile::from),
+            )
+        }
+        (Some(vpc), None)
+            if vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn =>
+        {
+            return Err(CarbideError::Internal {
+                message: "FNN VPC found but no FNN config found".to_string(),
             }
-            (Some(vpc), None)
-                if vpc.config.network_virtualization_type == VpcVirtualizationType::Fnn =>
-            {
-                return Err(CarbideError::Internal {
-                    message: "FNN VPC found but no FNN config found".to_string(),
-                }
-                .into());
-            }
-            _ if iface.routing_profile.is_some() => {
-                return Err(CarbideError::InvalidArgument(
-                    "instance interface routing_profile is only supported for FNN VPC interfaces"
-                        .to_string(),
-                )
-                .into());
-            }
-            _ => (None, None),
-        };
+            .into());
+        }
+        _ if iface.routing_profile.is_some() => {
+            return Err(CarbideError::InvalidArgument(
+                "instance interface routing_profile is only supported for FNN VPC interfaces"
+                    .to_string(),
+            )
+            .into());
+        }
+        _ => (None, None),
+    };
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
     let (svi_ip, svi_ip_v6) = ds.svi_ips(network_virtualization_type, is_l2_segment)?;
@@ -842,13 +819,15 @@ mod test {
     /// Returns a test FNN routing profile with the provided allowed anycast prefixes.
     fn routing_profile_with_anycast(prefixes: &[&str]) -> FnnRoutingProfileConfig {
         FnnRoutingProfileConfig {
-            allowed_anycast_prefixes: prefixes
-                .iter()
-                .map(|prefix| crate::cfg::file::PrefixFilterPolicyEntry {
-                    prefix: prefix.parse().unwrap(),
-                })
-                .collect(),
-            leak_default_route_from_underlay: true,
+            allowed_anycast_prefixes: Some(
+                prefixes
+                    .iter()
+                    .map(|prefix| crate::cfg::file::PrefixFilterPolicyEntry {
+                        prefix: prefix.parse().unwrap(),
+                    })
+                    .collect(),
+            ),
+            leak_default_route_from_underlay: Some(true),
             ..Default::default()
         }
     }

@@ -391,6 +391,16 @@ service Forge {
   // only withdraws a not-yet-consumed request -- it does not undo or reset any
   // BMC credentials that a prior sweep already rotated.
   rpc TriggerBmcCredentialRotation(BmcCredentialRotationRequest) returns (google.protobuf.Empty);
+  // Operator "force-converge this UEFI credential now" escape hatch for a single
+  // host (DPU support follows). This is asynchronous: the handler only persists
+  // (Set) or removes (Clear) the machine's `uefi_credential_rotation_requested`
+  // flag and returns; it performs no rotation itself. A later machine-controller
+  // sweep observes a set flag and rotates the UEFI password (a BIOS job plus a
+  // host power-cycle), bypassing the passive site-wide gate and the device's
+  // backoff quarantine, then clears the flag once it converges. Clear only
+  // withdraws a not-yet-consumed request -- it does not undo or reset any UEFI
+  // credential that a prior sweep already rotated.
+  rpc TriggerUefiCredentialRotation(UefiCredentialRotationRequest) returns (google.protobuf.Empty);
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
@@ -1630,6 +1640,40 @@ message TenantSearchQuery {
   optional string tenantOrganizationId = 1; // protolint:disable:this FIELD_NAMES_LOWER_SNAKE_CASE
 }
 
+// A presence-aware list of prefix-filter entries.
+message PrefixFilterPolicyEntries {
+  repeated PrefixFilterPolicyEntry values = 1;
+}
+
+// Routing-profile properties set directly on a VPC. Present properties
+// override its named routing profile; omitted properties inherit from it.
+// `internal` and `access_tier` are intentionally not exposed because allocation
+// and access controls must always come from the named base profile.
+message VpcRoutingProfileOverrides {
+  optional common.RouteTargets route_target_imports = 1;
+  optional common.RouteTargets route_targets_on_exports = 2;
+  optional bool leak_default_route_from_underlay = 3;
+  optional bool leak_tenant_host_routes_to_underlay = 4;
+  optional bool tenant_leak_communities_accepted = 5;
+  optional PrefixFilterPolicyEntries accepted_leaks_from_underlay = 6;
+  optional PrefixFilterPolicyEntries allowed_anycast_prefixes = 7;
+}
+
+// The fully resolved routing profile currently applied to an FNN VPC.
+// Unlike VpcRoutingProfileOverrides, this includes the protected properties
+// inherited from the named base profile and has no presence-aware fields.
+message VpcEffectiveRoutingProfile {
+  repeated common.RouteTarget route_target_imports = 1;
+  repeated common.RouteTarget route_targets_on_exports = 2;
+  bool leak_default_route_from_underlay = 3;
+  bool leak_tenant_host_routes_to_underlay = 4;
+  bool tenant_leak_communities_accepted = 5;
+  repeated PrefixFilterPolicyEntry accepted_leaks_from_underlay = 6;
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 7;
+  bool internal = 8;
+  uint32 access_tier = 9;
+}
+
 message VpcConfig {
   string tenant_organization_id = 1;
   optional string tenant_keyset_id = 2;
@@ -1639,6 +1683,7 @@ message VpcConfig {
   // Desired VNI for this VPC. Only populated when explicitly requested during creation.
   optional uint32 vni = 6;
   optional string routing_profile_type = 7;
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 8;
 }
 
 message VpcStatus {
@@ -1646,6 +1691,10 @@ message VpcStatus {
   // explicitly requested, we'd expect this to match config.vni.
   // If not explicitly requested, we'd expect config.vni to be unset.
   optional uint32 vni = 1;
+  // Computed from the API server's current named profile and the persisted
+  // VPC overrides. This value is not persisted and may change when the API
+  // server configuration changes.
+  optional VpcEffectiveRoutingProfile effective_routing_profile = 2;
 }
 
 message Vpc {
@@ -1734,6 +1783,10 @@ message VpcCreationRequest {
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
   optional string routing_profile_type = 17;
+
+  // Properties to overlay on the selected named routing profile. Properties
+  // left unset inherit from the base profile.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 18;
 }
 
 enum VpcVirtualizationType {
@@ -5921,6 +5974,28 @@ message BmcCredentialRotationRequest {
   // cross-check (they must identify the same device). At least one of
   // `device_id` / `bmc_mac` must be set (enforced server-side).
   optional string bmc_mac = 4;
+}
+
+message UefiCredentialRotationRequest {
+  enum Mode {
+    // Explicit zero value so an omitted `mode` decodes here and is rejected,
+    // rather than silently defaulting to a real action (see the handler).
+    Unspecified = 0;
+    Set = 1;
+    Clear = 2;
+  }
+  Mode mode = 1;
+  // The machine (a host; a DPU once DPU UEFI rotation ships) that owns the
+  // target UEFI credential. A machine has exactly one UEFI credential, so its id
+  // uniquely names the target. Unlike a BMC, a UEFI credential only ever belongs
+  // to a machine (never a switch or power shelf), so this is a plain optional
+  // field rather than a device-kind oneof.
+  optional common.MachineId machine_id = 2;
+  // MAC of the machine's BMC (which keys the UEFI rotation bookkeeping),
+  // resolved server-side to its owning machine. May be given alone, or alongside
+  // `machine_id` as a cross-check (they must identify the same machine). At
+  // least one of `machine_id` / `bmc_mac` must be set (enforced server-side).
+  optional string bmc_mac = 3;
 }
 
 message HostReprovisioningListRequest {

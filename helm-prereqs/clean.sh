@@ -20,11 +20,13 @@
 # Destroys in reverse order:
 #   0. NCX stack           (nico-rest helm, temporal, keycloak, ncx postgres)
 #   1. nico core        (separate helm release, if installed)
+#   1b. DPF stack          (DPF CRs, dpf-operator helm release — if installed)
 #   2. helmfile releases   (nico-prereqs, external-secrets, vault, cert-manager,
-#                           postgres-operator)
+#                           postgres-operator, DPF prereqs when installed)
 #   3. cluster-scoped hook resources (ClusterIssuers, ClusterSecretStore, etc.)
 #   4. vault init secrets  (vault-cluster-keys, vaultunsealkeys, vaultroottoken)
-#   5. namespaces          (nico-system, cert-manager, vault, external-secrets, postgres)
+#   5. namespaces          (nico-system, cert-manager, vault, external-secrets,
+#                           postgres, dpf-operator-system)
 #   6. local-path-persistent PVs owned by this stack (Retain policy — not deleted with namespace)
 #   7. local-path-provisioner + StorageClass (applied via kubectl, not helm-managed)
 # =============================================================================
@@ -79,8 +81,88 @@ echo "=== [1/8] Uninstalling nico core ==="
 helm uninstall nico -n nico-system 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
+# 1b. DPF stack (setup.sh, DPF default), skipped fast when never installed.
+#     Order matters: DPF CRs must be deleted while the operator, Kamaji, and
+#     Argo CD controllers are still running so their finalizers can complete.
+#     The four prereq releases (argo-cd, kamaji, maintenance-operator, NFD)
+#     ride the helmfile destroy in step 2.
+# ---------------------------------------------------------------------------
+if kubectl get namespace dpf-operator-system &>/dev/null; then
+    echo "=== [1b] Removing DPF stack ==="
+
+    # DPU-facing CRs first (service chain, then provisioning objects), while
+    # the controllers can still finalize them.
+    kubectl delete dpudeployments,dpuservicechains,dpuservices,dpusets \
+        --all -n dpf-operator-system --timeout=120s 2>/dev/null || true
+    kubectl delete dpuserviceinterfaces,dpuservicetemplates,dpuserviceconfigurations,dpuservicenads \
+        --all -n dpf-operator-system --timeout=120s 2>/dev/null || true
+    # NOTE: if DPUs are mid-provisioning (OSInstall / ConfigureFirmware state)
+    # this deletion will interrupt them and may leave them in an inconsistent
+    # state. Confirm no active provisioning before running clean.sh on a live
+    # site. `dpu` and `dpunodemaintenances` are omitted here: they carry owner
+    # references to DpuNode and are garbage-collected automatically when
+    # DpuNode is deleted.
+    kubectl delete dpudevices,dpunodes \
+        --all -n dpf-operator-system --timeout=180s 2>/dev/null || true
+    kubectl delete bfbs,bluefieldsoftwares,dpuflavors \
+        --all -n dpf-operator-system --timeout=120s 2>/dev/null || true
+    kubectl delete dpfoperatorconfig --all -n dpf-operator-system \
+        --timeout=120s 2>/dev/null || true
+    # DPUCluster last among CRs — deleting it tears down the Kamaji
+    # TenantControlPlane behind the DPU cluster.
+    kubectl delete dpucluster --all -n dpf-operator-system \
+        --timeout=180s 2>/dev/null || true
+    kubectl delete tenantcontrolplane --all -A --timeout=180s 2>/dev/null || true
+    # Kamaji `default` DataStore: carries helm.sh/resource-policy:keep (so
+    # helmfile destroy won't remove it) and a kamaji finalizer. Delete it here,
+    # while the kamaji controller is still alive to finalize it — otherwise its
+    # finalizer blocks the datastores CRD deletion and namespace termination.
+    kubectl delete datastores.kamaji.clastix.io --all -A \
+        --timeout=120s 2>/dev/null || true
+    # Argo CD Applications carry resources-finalizer.argocd.argoproj.io, which
+    # cascades a delete onto the (now-gone) DPU cluster and cannot complete on a
+    # DPU-less / VIP-unroutable cluster. Delete best-effort; stragglers get their
+    # finalizers stripped below before argo-cd itself is destroyed.
+    kubectl delete applications.argoproj.io --all -A \
+        --timeout=60s 2>/dev/null || true
+
+    # Best-effort finalizer strip for anything stuck after the bounded waits.
+    # Cover every DPF CR kind here — plus the kamaji DataStore and the Argo CD
+    # Applications/AppProjects — because `kubectl delete crd` (step 2) blocks
+    # until all instances finalize, so any kind left finalizer-stuck would hang
+    # the whole teardown. Applications must be stripped before argo-cd is
+    # destroyed (below), or nothing can ever clear their cascade finalizer.
+    for _kind in dpudeployments dpuservices dpuservicechains dpuserviceinterfaces \
+                 dpuservicetemplates dpuserviceconfigurations dpuservicenads \
+                 dpus dpudevices dpunodes dpunodemaintenances dpusets \
+                 bfbs bluefieldsoftwares dpuflavors \
+                 dpfoperatorconfigs dpuclusters tenantcontrolplanes \
+                 datastores.kamaji.clastix.io \
+                 applications.argoproj.io appprojects.argoproj.io; do
+        # Discover with the namespace so the patch targets the resource's ACTUAL
+        # namespace (a bare `-o name` + hard-coded `-n dpf-operator-system` would
+        # silently miss anything outside it). Cluster-scoped kinds (e.g.
+        # datastores) report an empty namespace and are patched without -n.
+        # Read the whole line and split on the tab manually — `read` with
+        # IFS=tab would strip the leading tab of a cluster-scoped resource's
+        # empty namespace and drop it (the DataStore is exactly such a resource).
+        while IFS= read -r _line; do
+            _ns="${_line%%$'\t'*}"; _name="${_line#*$'\t'}"
+            [[ -z "${_name}" ]] && continue
+            echo "WARNING: force-removing finalizers on stuck ${_kind}/${_name}${_ns:+ (ns ${_ns})}"
+            kubectl patch "${_kind}/${_name}" ${_ns:+-n "${_ns}"} --type merge \
+                -p '{"metadata":{"finalizers":[]}}' 2>/dev/null || true
+        done < <(kubectl get "${_kind}" -A \
+            -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+    done
+
+    helm uninstall dpf-operator -n dpf-operator-system 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------------------
 # 2. All helmfile releases in reverse dependency order:
-#    nico-prereqs → external-secrets → vault → cert-manager → metallb
+#    nico-prereqs → node-feature-discovery → maintenance-operator → kamaji →
+#    argo-cd → external-secrets → vault → cert-manager → metallb
 # ---------------------------------------------------------------------------
 echo "=== [2/8] Destroying helmfile releases ==="
 
@@ -165,6 +247,28 @@ kubectl get clusterrole,clusterrolebinding -o name \
     | grep nico-rest \
     | xargs kubectl delete --ignore-not-found 2>/dev/null || true
 
+# DPF stack CRDs and cluster-scoped leftovers (DPF is installed by default).
+# Helm does not delete CRDs on uninstall; the prereq operators (argo-cd,
+# kamaji, maintenance-operator, NFD) also leave their CRDs and cluster RBAC.
+# NOTE: match only Argo *CD* CRDs (applications/appprojects/applicationsets),
+# not the whole argoproj.io group — a cluster running Argo Workflows would
+# otherwise have its workflows.argoproj.io CRDs (and live objects) deleted.
+# --timeout bounds the delete: `kubectl delete crd` blocks on CR finalizers
+# (the strip loop in step 1b handles those, but bound it anyway).
+echo "Removing DPF, Argo CD, Kamaji, NFD, and maintenance-operator CRDs..."
+kubectl get crd -o name \
+    | grep -E '\.dpu\.nvidia\.com|(applications|appprojects|applicationsets)\.argoproj\.io|kamaji\.clastix\.io|nfd\.k8s-sigs\.io|maintenance\.nvidia\.com' \
+    | xargs -r kubectl delete --ignore-not-found --timeout=120s 2>/dev/null || true
+kubectl get clusterrole,clusterrolebinding -o name \
+    | grep -E "dpf-operator|argo-cd|argocd|kamaji|maintenance-operator|node-feature-discovery" \
+    | xargs kubectl delete --ignore-not-found 2>/dev/null || true
+# CertificateRequestPolicy + RBAC (only present on approver-policy clusters)
+kubectl delete certificaterequestpolicy dpf-approval-policy \
+    --ignore-not-found 2>/dev/null || true
+kubectl delete "clusterrole/cert-manager-policy:dpf-approval-policy" \
+    "clusterrolebinding/cert-manager-policy:dpf-approval-policy" \
+    --ignore-not-found 2>/dev/null || true
+
 # ---------------------------------------------------------------------------
 # 3. Cluster-scoped resources created by helm hooks.
 #    These survive helm/helmfile uninstall because hook-delete-policy is
@@ -205,12 +309,12 @@ kubectl delete secret vault-cluster-keys vaultunsealkeys vaultroottoken \
 #    conflict with setup.sh's helmfile install into the external-secrets ns.
 # ---------------------------------------------------------------------------
 echo "=== [5/8] Deleting namespaces ==="
-kubectl delete ns nico-system cert-manager vault external-secrets postgres metallb-system \
+kubectl delete ns nico-system cert-manager vault external-secrets postgres metallb-system dpf-operator-system \
     --wait=false --ignore-not-found 2>/dev/null || true
 
 echo "Waiting for namespaces to terminate..."
 kubectl wait --for=delete \
-    ns/nico-system ns/cert-manager ns/vault ns/external-secrets ns/postgres ns/metallb-system \
+    ns/nico-system ns/cert-manager ns/vault ns/external-secrets ns/postgres ns/metallb-system ns/dpf-operator-system \
     --timeout=180s 2>/dev/null || true
 
 echo "Purging default namespace (ESO and other non-kubespray resources)..."
@@ -245,7 +349,7 @@ echo "=== [6/8] Removing Released PersistentVolumes owned by this stack ==="
 kubectl get pv -o json 2>/dev/null \
     | jq -r '.items[] | select(
         .spec.storageClassName == "local-path-persistent" and
-        (.spec.claimRef.namespace // "" | test("^(nico-system|cert-manager|vault|external-secrets|postgres|metallb-system|nico-rest|temporal|loki|tempo|monitoring|otel)$"))
+        (.spec.claimRef.namespace // "" | test("^(nico-system|cert-manager|vault|external-secrets|postgres|metallb-system|dpf-operator-system|nico-rest|temporal|loki|tempo|monitoring|otel)$"))
       ) | .metadata.name' \
     | xargs -r kubectl delete pv --ignore-not-found 2>/dev/null || true
 

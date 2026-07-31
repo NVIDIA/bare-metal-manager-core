@@ -737,11 +737,10 @@ impl MainLoop {
                 .await
                 .wrap_err("restarting OVS after admin network change")
             {
-                OvsRestart::Retrying {
+                carbide_instrument::emit(OvsRestart::Retrying {
                     error: format!("{err:#}"),
                     managed_host_config_version: conf.managed_host_config_version.clone(),
-                }
-                .emit();
+                });
                 status_out.network_config_error = Some(err.to_string());
                 self.ovs_restart_retry_backoff = Some(OvsRestartRetryBackoff {
                     managed_host_config_version: conf.managed_host_config_version.clone(),

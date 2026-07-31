@@ -124,6 +124,7 @@ mod dpf;
 mod firmware_artifact;
 mod helpers;
 mod host_boot_config;
+mod host_uefi_rotation;
 mod machine_validation;
 mod maintenance;
 mod power;
@@ -1100,6 +1101,24 @@ impl MachineStateHandler {
                     ));
                 }
 
+                // Same lowest-precedence idle-only rule as BMC rotation: converge
+                // the host UEFI password only from an otherwise-idle Ready host.
+                // The reboot the apply requires is acceptable for a pool host and
+                // is gated by the site flag / force-converge override in
+                // `host_uefi_rotation::should_enter_host_uefi_rotation`.
+                if host_uefi_rotation::should_enter_host_uefi_rotation(ctx.services, mh_snapshot)
+                    .await?
+                {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::RotatingHostUefi {
+                            uefi_setup_info: UefiSetupInfo {
+                                uefi_password_jid: None,
+                                uefi_setup_state: UefiSetupState::UnlockHost,
+                            },
+                        },
+                    ));
+                }
+
                 Ok(StateHandlerOutcome::do_nothing())
             }
 
@@ -1190,6 +1209,11 @@ impl MachineStateHandler {
                         ManagedHostState::RotatingBmc { retry_count },
                     )),
                 }
+            }
+
+            ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
+                host_uefi_rotation::handle_rotating_host_uefi(ctx, mh_snapshot, uefi_setup_info)
+                    .await
             }
 
             ManagedHostState::Assigned { instance_state: _ } => {
@@ -2424,6 +2448,7 @@ pub async fn check_restart_in_logs(
             "The server is restarted by chassis control command.", // Lenovo
             "DPU Warm Reset",                                      // Bluefield
             "BMC IP Address Deleted",                              // Bluefield
+            "The property ResetType was assigned the value 'ForceWarmReboot' due to modification by the service.", // GB200
         ]);
 
         // Generic reset keywords
@@ -4411,12 +4436,13 @@ impl DpuMachineStateHandler {
 
                 handler_host_power_control(state, ctx, SystemPowerControl::ForceOff).await?;
 
-                let next_state = DpuInitState::WaitingForPlatformPowercycle {
-                    substate: PerformPowerOperation::On,
-                }
-                .next_state_with_all_dpus_updated(&state.managed_state)?;
+                let next_state = DpuInitState::WaitingForPlatformPowerOff
+                    .next_state_with_all_dpus_updated(&state.managed_state)?;
 
                 Ok(StateHandlerOutcome::transition(next_state))
+            }
+            DpuInitState::WaitingForPlatformPowerOff => {
+                self.handle_waiting_for_platform_power_off(state, ctx).await
             }
             DpuInitState::WaitingForPlatformPowercycle {
                 substate: PerformPowerOperation::On,
@@ -5059,6 +5085,32 @@ impl DpuMachineStateHandler {
 
         Ok(StateHandlerOutcome::transition(next_state))
     }
+
+    /// Waits for the one host-wide `ForceOff` to become visible through Redfish.
+    ///
+    /// Normal dispatch calls this before walking individual DPUs so a
+    /// multi-DPU host performs one BMC read per controller iteration.
+    async fn handle_waiting_for_platform_power_off(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        // Redfish power actions are asynchronous. Persist this wait before
+        // trusting a new reading so stale `On` cannot skip the power cycle.
+        if !is_host_powered_off(state, ctx).await? {
+            return Ok(StateHandlerOutcome::wait(format!(
+                "Waiting for host {} to power off before powering it on",
+                state.host_snapshot.id,
+            )));
+        }
+
+        let next_state = DpuInitState::WaitingForPlatformPowercycle {
+            substate: PerformPowerOperation::On,
+        }
+        .next_state_with_all_dpus_updated(&state.managed_state)?;
+
+        Ok(StateHandlerOutcome::transition(next_state))
+    }
 }
 
 #[async_trait::async_trait]
@@ -5082,6 +5134,16 @@ impl StateHandler for DpuMachineStateHandler {
             };
             Ok(StateHandlerOutcome::transition(next_state))
         } else {
+            if let ManagedHostState::DPUInit { dpu_states } = &state.managed_state
+                && !dpu_states.states.is_empty()
+                && dpu_states
+                    .states
+                    .values()
+                    .all(|state| matches!(state, DpuInitState::WaitingForPlatformPowerOff))
+            {
+                return self.handle_waiting_for_platform_power_off(state, ctx).await;
+            }
+
             for dpu_snapshot in &state.dpu_snapshots {
                 state_handler_outcome = self.handle_dpuinit_state(state, dpu_snapshot, ctx).await?;
 
@@ -6733,7 +6795,7 @@ async fn handle_host_uefi_setup(
 
     match uefi_setup_info.uefi_setup_state.clone() {
         UefiSetupState::UnlockHost => {
-            if state.host_snapshot.bmc_vendor().is_dell() {
+            if state.host_snapshot.needs_bmc_unlock_for_uefi_setup() {
                 redfish_client
                     .lockdown_bmc(libredfish::EnabledDisabled::Disabled)
                     .await
@@ -6808,9 +6870,9 @@ async fn handle_host_uefi_setup(
             }
         }
         UefiSetupState::WaitForPasswordJobScheduled => {
-            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
                 let job_state = redfish_client
-                    .get_job_state(&job_id)
+                    .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
 
@@ -6847,14 +6909,14 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::WaitForPasswordJobCompletion => {
-            if let Some(job_id) = uefi_setup_info.uefi_password_jid.clone() {
+            if let Some(job_id) = uefi_setup_info.uefi_password_jid.as_ref() {
                 let redfish_client = ctx
                     .services
                     .create_redfish_client_from_machine(&state.host_snapshot)
                     .await?;
 
                 let job_state = redfish_client
-                    .get_job_state(&job_id)
+                    .get_job_state(job_id)
                     .await
                     .map_err(|e| redfish_error("get_job_state", e))?;
 

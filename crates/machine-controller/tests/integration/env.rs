@@ -166,8 +166,14 @@ impl EnvBuilder {
             // Zero TTL: every guard re-queries the aggregate so tests observe a
             // freshly staged rotation on the next iteration without waiting out
             // the cache window.
-            bmc_rotation_gate: carbide_credential_rotation::BmcRotationGate::with_ttl(
+            bmc_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
                 std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::Bmc,
+            ),
+            // Zero TTL for the same reason as the BMC gate above.
+            uefi_rotation_gate: carbide_credential_rotation::RotationGate::with_ttl_and_family(
+                std::time::Duration::ZERO,
+                db::credential_rotation::CredentialRotationType::HostUefi,
             ),
             per_object_metrics_registry,
             per_object_info: None,

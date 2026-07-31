@@ -844,6 +844,15 @@ pub struct Machine {
     /// bypassing the passive site-wide gate and the device's backoff quarantine.
     pub bmc_credential_rotation_requested: bool,
 
+    /// Operator "force-converge this UEFI credential now" request.
+    /// Set on the machine that owns the UEFI credential (a host machine for its
+    /// host UEFI; a DPU machine for its DPU UEFI). When
+    /// `true`, the machine state controller enters `RotatingHostUefi` (or
+    /// `RotatingDpuUefi` for a DPU) and force-converges this machine's UEFI
+    /// credential on its next sweep,
+    /// bypassing the passive site-wide gate and the device's backoff quarantine.
+    pub uefi_credential_rotation_requested: bool,
+
     /// Does the forge-dpu-agent on this DPU need upgrading?
     pub dpu_agent_upgrade_requested: Option<UpgradeDecision>,
 
@@ -945,6 +954,15 @@ impl Machine {
             Some(hw) => hw.bmc_vendor(),
             None => bmc_vendor::BMCVendor::Unknown,
         }
+    }
+
+    /// Whether this machine's BMC must have its lockdown disabled before its
+    /// UEFI (BIOS setup) password can be changed, and re-enabled afterward.
+    /// Only Dell BMCs enforce a lockdown that blocks the BIOS password change;
+    /// other vendors accept it without unlocking. Centralizes the vendor check
+    /// so the UEFI setup and rotation flows don't special-case Dell inline.
+    pub fn needs_bmc_unlock_for_uefi_setup(&self) -> bool {
+        self.bmc_vendor().is_dell()
     }
 
     /// Does the forge-dpu-agent on this DPU need upgrading?
@@ -1287,6 +1305,26 @@ pub enum ManagedHostState {
     RotatingBmc {
         #[serde(default)]
         retry_count: u32,
+    },
+
+    /// The host is converging its own UEFI (BIOS setup) password to the staged
+    /// site-wide rotation target. A pool-only, top-level state: it
+    /// blocks instance creation (which requires exact `Ready`) for the bounded
+    /// duration of the rotation. Unlike `RotatingBmc`, applying a new UEFI
+    /// password requires a BIOS config job plus a full host power-cycle, so this
+    /// state carries the multi-tick [`UefiSetupInfo`] sub-state (job id + step).
+    /// Unlike the single-tick `RotatingBmc`, there is no separate handler retry
+    /// budget: transient failures use the state framework's built-in retry (as
+    /// the ingestion UEFI-setup FSM does) and device-level faults are backed off
+    /// by the rotation engine's `device_credential_rotation` bookkeeping.
+    ///
+    /// This state is host-specific on purpose: a DPU's UEFI password is a
+    /// distinct device (keyed by the DPU BMC MAC), applied through a DPU restart
+    /// rather than a host power-cycle, and a host can carry several DPUs. That
+    /// gets its own sibling `RotatingDpuUefi` state rather than an overloaded
+    /// discriminator here.
+    RotatingHostUefi {
+        uefi_setup_info: UefiSetupInfo,
     },
 
     /// State used to indicate the API is currently waiting on the
@@ -1976,14 +2014,25 @@ pub enum SetSecureBootState {
     WaitCertificateUpload { task_id: String },
 }
 
-// Since order is derived, Enum members must be in initial to last state sequence.
+// Derived ordering gates states through `Init` and selects the least-advanced
+// DPU for SLA and status reporting. Host-wide power-cycle phases transition
+// every DPU together, so their relative ordering is not observed.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "dpustate", rename_all = "lowercase")]
 pub enum DpuInitState {
-    InstallDpuOs { substate: InstallDpuOsState },
-    DpfStates { state: DpfState },
+    InstallDpuOs {
+        substate: InstallDpuOsState,
+    },
+    DpfStates {
+        state: DpfState,
+    },
     Init,
-    WaitingForPlatformPowercycle { substate: PerformPowerOperation },
+    WaitingForPlatformPowercycle {
+        substate: PerformPowerOperation,
+    },
+    /// Waits for Redfish to confirm the platform is `Off` before the
+    /// idempotent power-on phase begins.
+    WaitingForPlatformPowerOff,
     WaitingForPlatformConfiguration,
     PollingBiosSetup,
     WaitingForNetworkConfig,
@@ -2648,6 +2697,9 @@ impl Display for ManagedHostState {
                 write!(f, "HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::RotatingBmc { .. } => write!(f, "RotatingBmc"),
+            ManagedHostState::RotatingHostUefi { uefi_setup_info } => {
+                write!(f, "RotatingHostUefi/{:?}", uefi_setup_info.uefi_setup_state)
+            }
             ManagedHostState::Measuring { measuring_state } => {
                 write!(f, "Measuring/{measuring_state}")
             }
@@ -2752,6 +2804,7 @@ impl ManagedHostState {
                 format!("HostReprovisioning/{reprovision_state}")
             }
             ManagedHostState::RotatingBmc { .. } => "RotatingBmc".to_string(),
+            ManagedHostState::RotatingHostUefi { .. } => "RotatingHostUefi".to_string(),
             ManagedHostState::Measuring { measuring_state } => {
                 format!("Measuring/{measuring_state}")
             }
@@ -2962,6 +3015,9 @@ pub fn state_sla(
         }
         ManagedHostState::RotatingBmc { .. } => {
             StateSla::with_sla(slas::ROTATING_BMC, time_in_state)
+        }
+        ManagedHostState::RotatingHostUefi { .. } => {
+            StateSla::with_sla(slas::ROTATING_HOST_UEFI, time_in_state)
         }
         ManagedHostState::Measuring { measuring_state } => match measuring_state {
             // The API shouldn't be waiting for measurements for long. As soon

@@ -18,13 +18,15 @@ use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_test_support::Outcome::FailsWith;
+use carbide_test_support::{Case, check_cases_async};
 use carbide_uuid::vpc::VpcId;
 use common::api_fixtures::{create_test_env, populate_network_security_groups};
 use config_version::ConfigVersion;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter};
 use model::metadata::Metadata;
-use model::vpc::{UpdateVpc, UpdateVpcVirtualization};
+use model::vpc::{UpdateVpc, UpdateVpcVirtualization, VpcDefinition, VpcRoutingProfileOverrides};
 use rpc::forge::forge_server::Forge;
 
 use crate::test_support::network_segment::FIXTURE_TENANT_ORG_ID;
@@ -108,7 +110,7 @@ async fn create_vpc_for_tenant_without_profile(
             .await
             .unwrap_err()
             .message()
-            .contains("no tenant or routing profile-type found")
+            .contains("no tenant or routing profile type found")
     );
 
     // Try to request a VPC with a routing profile when the tenant has no routing profile type
@@ -127,7 +129,7 @@ async fn create_vpc_for_tenant_without_profile(
             .await
             .unwrap_err()
             .message()
-            .contains("no tenant or routing profile-type found")
+            .contains("no tenant or routing profile type found")
     );
 
     Ok(())
@@ -151,29 +153,17 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                 (
                     "INTERNAL".to_string(),
                     crate::cfg::file::FnnRoutingProfileConfig {
-                        internal: true,
-                        route_target_imports: vec![],
-                        route_targets_on_exports: vec![],
-                        leak_default_route_from_underlay: false,
-                        leak_tenant_host_routes_to_underlay: false,
-                        tenant_leak_communities_accepted: false,
-                        access_tier: 1,
-                        accepted_leaks_from_underlay: vec![],
-                        allowed_anycast_prefixes: vec![],
+                        internal: Some(true),
+                        access_tier: Some(1),
+                        ..Default::default()
                     },
                 ),
                 (
                     "PRIVILEGED_INTERNAL".to_string(),
                     crate::cfg::file::FnnRoutingProfileConfig {
-                        internal: true,
-                        route_target_imports: vec![],
-                        route_targets_on_exports: vec![],
-                        leak_default_route_from_underlay: false,
-                        leak_tenant_host_routes_to_underlay: false,
-                        tenant_leak_communities_accepted: false,
-                        access_tier: 0,
-                        accepted_leaks_from_underlay: vec![],
-                        allowed_anycast_prefixes: vec![],
+                        internal: Some(true),
+                        access_tier: Some(0),
+                        ..Default::default()
                     },
                 ),
             ]),
@@ -585,7 +575,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
 }
 
 #[crate::sqlx_test]
-async fn create_vpc_without_fnn_rejects_explicit_routing_profile(
+async fn create_vpc_without_fnn_rejects_routing_profile_fields(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env_with_overrides(
@@ -614,26 +604,321 @@ async fn create_vpc_without_fnn_rejects_explicit_routing_profile(
         txn.commit().await?;
     };
 
-    // Requesting a VPC routing profile on a non-FNN VPC type (default
-    // is ETV) should fail early at the API gate. The REST API enforces
-    // this upstream; carbide-core enforces it as defense-in-depth via
-    // `ensure_supports_routing_profiles`.
-    assert!(
-        env.api
-            .create_vpc(
-                VpcCreationRequest::builder(&tenant_organization_id)
+    // Requesting either VPC routing-profile field on a non-FNN VPC type
+    // (default is ETV) should fail early at the API gate. The REST API
+    // enforces this upstream; carbide-core enforces it as defense-in-depth
+    // via `ensure_supports_routing_profiles`.
+    check_cases_async(
+        [
+            Case {
+                scenario: "routing_profile_type",
+                input: VpcCreationRequest::builder(&tenant_organization_id)
                     .metadata(rpc::forge::Metadata {
                         name: "Forge".to_string(),
                         ..Default::default()
                     })
                     .routing_profile_type("PRIVILEGED_INTERNAL".to_string())
                     .tonic_request(),
-            )
-            .await
-            .unwrap_err()
-            .message()
-            .contains("do not support routing profiles")
+                expect: FailsWith(true),
+            },
+            Case {
+                scenario: "routing_profile_overrides",
+                input: VpcCreationRequest::builder(&tenant_organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        ..Default::default()
+                    })
+                    .routing_profile_overrides(rpc::forge::VpcRoutingProfileOverrides {
+                        leak_default_route_from_underlay: Some(false),
+                        ..Default::default()
+                    })
+                    .tonic_request(),
+                expect: FailsWith(true),
+            },
+        ],
+        |request| {
+            let api = env.api.clone();
+            async move {
+                api.create_vpc(request)
+                    .await
+                    .map(drop)
+                    .map_err(|error| {
+                        error.message().contains(
+                            "`routing_profile_type` and `routing_profile_overrides` fields are FNN-only",
+                        )
+                    })
+            }
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
+/// Verifies inline routing-profile values survive persistence and the API
+/// returns their current effective profile on create and find.
+#[crate::sqlx_test]
+async fn create_vpc_persists_inline_routing_profile_overrides(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let profile_type = "INLINE_PROFILE_TEST";
+
+    // Configure the named profile that provides the VPC's protected base.
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(Some(crate::cfg::file::FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                profile_type.to_string(),
+                crate::cfg::file::FnnRoutingProfileConfig {
+                    route_target_imports: Some(vec![crate::cfg::file::RouteTargetConfig {
+                        asn: 65000,
+                        vni: 100,
+                    }]),
+                    internal: Some(true),
+                    leak_default_route_from_underlay: Some(true),
+                    allowed_anycast_prefixes: Some(vec![
+                        crate::cfg::file::PrefixFilterPolicyEntry {
+                            prefix: "198.51.100.0/24".parse()?,
+                        },
+                    ]),
+                    access_tier: Some(1),
+                    ..Default::default()
+                },
+            )]),
+            use_vpc_vrf_loopback: false,
+        })),
+    )
+    .await;
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "inline-profile-test".to_string(),
+            routing_profile_type: Some(profile_type.to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "inline-profile-test".to_string(),
+                ..Default::default()
+            }),
+        }))
+        .await?
+        .into_inner()
+        .tenant
+        .expect("created tenant");
+    let routing_profile_overrides = rpc::forge::VpcRoutingProfileOverrides {
+        route_target_imports: Some(rpc::common::RouteTargets { values: vec![] }),
+        leak_default_route_from_underlay: Some(false),
+        allowed_anycast_prefixes: Some(rpc::forge::PrefixFilterPolicyEntries {
+            values: vec![rpc::forge::PrefixFilterPolicyEntry {
+                prefix: "192.0.2.0/24".to_string(),
+            }],
+        }),
+        ..Default::default()
+    };
+    let expected_effective_profile = rpc::forge::VpcEffectiveRoutingProfile {
+        route_target_imports: vec![],
+        leak_default_route_from_underlay: false,
+        allowed_anycast_prefixes: vec![rpc::forge::PrefixFilterPolicyEntry {
+            prefix: "192.0.2.0/24".to_string(),
+        }],
+        internal: true,
+        access_tier: 1,
+        ..Default::default()
+    };
+
+    // Create the VPC and verify the API echoes the presence-aware override
+    // alongside the profile resolved from the current API configuration.
+    let created = env
+        .api
+        .create_vpc(tonic::Request::new(
+            VpcCreationRequest::builder(&tenant.organization_id)
+                .metadata(rpc::forge::Metadata {
+                    name: "inline profile vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type(profile_type.to_string())
+                .routing_profile_overrides(routing_profile_overrides.clone())
+                .rpc(),
+        ))
+        .await?
+        .into_inner();
+    assert_eq!(
+        forge_vpc_config(&created).routing_profile_overrides,
+        Some(routing_profile_overrides.clone())
     );
+    assert_eq!(
+        created
+            .status
+            .as_ref()
+            .and_then(|status| status.effective_routing_profile.as_ref()),
+        Some(&expected_effective_profile)
+    );
+
+    // Read through the public find API to prove the override was persisted.
+    let found = env
+        .api
+        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+            vpc_ids: vec![created.id.expect("created VPC ID")],
+        }))
+        .await?
+        .into_inner()
+        .vpcs
+        .pop()
+        .expect("persisted VPC");
+    assert_eq!(
+        forge_vpc_config(&found).routing_profile_overrides,
+        Some(routing_profile_overrides)
+    );
+    assert_eq!(
+        found
+            .status
+            .as_ref()
+            .and_then(|status| status.effective_routing_profile.as_ref()),
+        Some(&expected_effective_profile)
+    );
+
+    // Updating unrelated VPC configuration must return the same current
+    // effective profile as create and find.
+    let updated = env
+        .api
+        .update_vpc(
+            VpcUpdateRequest::builder()
+                .set_id(found.id)
+                .metadata(rpc::forge::Metadata {
+                    name: "updated inline profile vpc".to_string(),
+                    ..Default::default()
+                })
+                .tonic_request(),
+        )
+        .await?
+        .into_inner()
+        .vpc
+        .expect("updated VPC");
+    assert_eq!(
+        updated
+            .status
+            .as_ref()
+            .and_then(|status| status.effective_routing_profile.as_ref()),
+        Some(&expected_effective_profile)
+    );
+
+    // The virtualization update API currently permits this transition even
+    // though callers are instructed not to use it. A non-FNN VPC must not
+    // report an effective routing profile retained from its former FNN state.
+    let updated_id = updated.id.expect("updated VPC ID");
+    env.api
+        .update_vpc_virtualization(tonic::Request::new(
+            rpc::forge::VpcUpdateVirtualizationRequest {
+                id: Some(updated_id),
+                if_version_match: None,
+                network_virtualization_type: Some(rpc::forge::VpcVirtualizationType::Flat as i32),
+            },
+        ))
+        .await?;
+    let transitioned = env
+        .api
+        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+            vpc_ids: vec![updated_id],
+        }))
+        .await?
+        .into_inner()
+        .vpcs
+        .pop()
+        .expect("transitioned VPC");
+    assert!(
+        transitioned
+            .status
+            .as_ref()
+            .and_then(|status| status.effective_routing_profile.as_ref())
+            .is_none()
+    );
+
+    Ok(())
+}
+
+/// Verifies seeded inline overrides are rejected even for existing VPCs
+/// because idempotent seed handling must not hide unsupported configuration.
+#[crate::sqlx_test]
+async fn initial_vpc_inline_overrides_are_rejected_before_existing_vpc_check(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
+    let vpc_name = "seeded-inline-profile";
+
+    // Seed a valid VPC so the rejected definition exercises the existing-VPC path.
+    let initial_vpcs = HashMap::from([(
+        vpc_name.to_string(),
+        VpcDefinition {
+            organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
+            network_virtualization_type: VpcVirtualizationType::Fnn,
+            routing_profile_type: Some("BASE".to_string()),
+            routing_profile_overrides: None,
+            vni: None,
+        },
+    )]);
+    db_init::create_initial_vpcs(
+        &env.pool,
+        &initial_vpcs,
+        env.common_pools.ethernet.pool_vpc_vni.as_ref(),
+    )
+    .await?;
+
+    // Re-submit the same name with an override and a valid-looking named base.
+    let vpcs = HashMap::from([(
+        vpc_name.to_string(),
+        VpcDefinition {
+            organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
+            network_virtualization_type: VpcVirtualizationType::Fnn,
+            routing_profile_type: Some("BASE".to_string()),
+            routing_profile_overrides: Some(VpcRoutingProfileOverrides {
+                leak_default_route_from_underlay: Some(true),
+                ..Default::default()
+            }),
+            vni: None,
+        },
+    )]);
+
+    // Reject the unsupported override before the existing-VPC short-circuit.
+    let error = db_init::create_initial_vpcs(
+        &env.pool,
+        &vpcs,
+        env.common_pools.ethernet.pool_vpc_vni.as_ref(),
+    )
+    .await
+    .expect_err("seeded inline overrides must always be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("cannot define `routing_profile_overrides`"),
+        "unexpected error: {error}"
+    );
+
+    // Read through the public API and verify the original VPC remains unchanged.
+    let found_ids = env
+        .api
+        .find_vpc_ids(tonic::Request::new(rpc::forge::VpcSearchFilter {
+            name: Some(vpc_name.to_string()),
+            tenant_org_id: None,
+            label: None,
+        }))
+        .await?
+        .into_inner()
+        .vpc_ids;
+    assert_eq!(found_ids.len(), 1);
+
+    let found = env
+        .api
+        .find_vpcs_by_ids(tonic::Request::new(rpc::forge::VpcsByIdsRequest {
+            vpc_ids: found_ids,
+        }))
+        .await?
+        .into_inner()
+        .vpcs
+        .pop()
+        .expect("persisted VPC");
+    assert!(forge_vpc_config(&found).routing_profile_overrides.is_none());
 
     Ok(())
 }

@@ -92,10 +92,10 @@ async fn run_dhcp_server(args: Args, cancel_token: CancellationToken) {
         // and pollute the logs. We could have read() skip NotFound errors, but that
         // could be misleading in other scenarios.  Let's just "init" the file.
         if let Err(e) = d.write() {
-            emit(DhcpTimestampFileFailed::initialization(
-                dhcp_timestamps_path_context,
-                e.to_string(),
-            ));
+            emit(DhcpTimestampFileFailed::Initialization {
+                dhcp_timestamps_path: dhcp_timestamps_path_context,
+                error: e.to_string(),
+            });
             return;
         }
         d
@@ -738,11 +738,11 @@ async fn process(
         let mut dhcp_timestamps = dhcp_timestamps.lock().await;
         dhcp_timestamps.add_timestamp(host_config.host_interface_id, Utc::now().to_rfc3339());
         if let Err(e) = dhcp_timestamps.write() {
-            emit(DhcpTimestampFileFailed::write(
-                DhcpTimestampsFilePath::HbnTmp.path_str().to_string(),
-                host_config.host_interface_id.to_string(),
-                e.to_string(),
-            ));
+            emit(DhcpTimestampFileFailed::Write {
+                dhcp_timestamps_path: DhcpTimestampsFilePath::HbnTmp.path_str().to_string(),
+                host_interface_id: host_config.host_interface_id.to_string(),
+                error: e.to_string(),
+            });
         }
     }
 }

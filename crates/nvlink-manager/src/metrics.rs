@@ -270,35 +270,31 @@ impl Display for NvlPartitionMonitorMetrics {
     }
 }
 
-/// `NvlPartitionMonitorIterationFinished` closes one partition reconciliation
-/// pass. Every emission records the existing label-free latency histogram; a
-/// returned error also writes the monitor's `WARN` record.
+/// One NVLink partition monitor pass. Both cases sample the duration; only a
+/// failure logs.
 #[derive(Event)]
 #[event(
     event_name = "nvlink_partition_monitor_iteration_finished",
     metric_name = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds",
     component = "nvlink-manager",
-    log = dynamic,
     metric = histogram,
-    message = "NVLink partition monitor error",
     describe = "Time consumed for one monitor iteration"
 )]
-pub(crate) struct NvlPartitionMonitorIterationFinished {
-    #[observation]
-    pub latency: Duration,
-    /// Empty on success, which keeps the completion event metric-only.
-    #[context]
-    pub error: String,
-}
+pub(crate) enum NvlPartitionMonitorIterationFinished {
+    /// A clean pass: sampled, never logged.
+    #[event(log = off)]
+    Succeeded {
+        #[observation]
+        latency: Duration,
+    },
 
-impl DynamicLog for NvlPartitionMonitorIterationFinished {
-    fn log_at(&self) -> LogAt {
-        if self.error.is_empty() {
-            LogAt::Off
-        } else {
-            LogAt::Level(tracing::Level::WARN)
-        }
-    }
+    #[event(log = warn, message = "NVLink partition monitor error")]
+    Failed {
+        #[observation]
+        latency: Duration,
+        #[context]
+        error: String,
+    },
 }
 
 /// Instruments that are used by pub struct NvlPartitionMonitor
@@ -735,9 +731,13 @@ mod tests {
             |IterationCase { latency, error }| {
                 let metrics = MetricsCapture::start();
                 let logs = capture_logs(|| {
-                    emit(NvlPartitionMonitorIterationFinished {
-                        latency,
-                        error: error.to_string(),
+                    emit(if error.is_empty() {
+                        NvlPartitionMonitorIterationFinished::Succeeded { latency }
+                    } else {
+                        NvlPartitionMonitorIterationFinished::Failed {
+                            latency,
+                            error: error.to_string(),
+                        }
                     });
                 });
                 let log = logs.first().map(|log| LogObservation {
@@ -1027,9 +1027,8 @@ mod tests {
         const METRIC_NAME: &str = "carbide_nvlink_partition_monitor_iteration_latency_milliseconds";
 
         let metrics = MetricsCapture::start();
-        emit(NvlPartitionMonitorIterationFinished {
+        emit(NvlPartitionMonitorIterationFinished::Succeeded {
             latency: Duration::from_millis(125),
-            error: String::new(),
         });
 
         let encoded = metrics.render();

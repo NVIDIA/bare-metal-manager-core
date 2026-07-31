@@ -31,14 +31,19 @@ func TestOperatingSystemCreateRequest_Validate_Templated(t *testing.T) {
 		expectErr bool
 	}{
 		{
-			desc:      "templated requires at least one siteId",
+			desc:      "templated requires exactly one siteId",
 			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID},
 			expectErr: true,
 		},
 		{
-			desc:      "templated with siteIds is ok",
+			desc:      "templated with one siteId is ok",
 			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: siteIDs},
 			expectErr: false,
+		},
+		{
+			desc:      "templated with multiple siteIds is rejected",
+			obj:       APIOperatingSystemCreateRequest{Name: "abc", IpxeTemplateId: tmplID, SiteIDs: []string{uuid.NewString(), uuid.NewString()}},
+			expectErr: true,
 		},
 		{
 			desc:      "templated with non-UUID ipxeTemplateId is rejected",
@@ -125,14 +130,18 @@ func TestOperatingSystemUpdateRequest_Validate_Template(t *testing.T) {
 	})
 }
 
-func TestBuildOperatingSystemRequests(t *testing.T) {
+func TestOperatingSystemRequest_ToProto(t *testing.T) {
 	id := uuid.New()
+	tenantID := uuid.New()
 	authToken := "secret-token"
+	createRequest := &APIOperatingSystemCreateRequest{}
+	updateRequest := &APIOperatingSystemUpdateRequest{}
 	os := &cdbm.OperatingSystem{
 		ID:               id,
 		Name:             "templated-os",
 		Description:      cutil.GetPtr("desc"),
 		Org:              "org-1",
+		TenantID:         &tenantID,
 		Type:             cdbm.OperatingSystemTypeTemplatedIPXE,
 		IsActive:         true,
 		AllowOverride:    true,
@@ -148,11 +157,12 @@ func TestBuildOperatingSystemRequests(t *testing.T) {
 		IpxeTemplateDefinitionHash: cutil.GetPtr("hash-1"),
 	}
 
-	t.Run("create request maps all fields", func(t *testing.T) {
-		req := BuildCreateOperatingSystemRequest(os)
+	t.Run("tenant-owned create request maps all fields and tenant org", func(t *testing.T) {
+		req := createRequest.ToProto(os)
 		require.NotNil(t, req)
 		assert.Equal(t, id.String(), req.GetId().GetValue())
 		assert.Equal(t, "templated-os", req.Name)
+		require.NotNil(t, req.TenantOrganizationId)
 		assert.Equal(t, "org-1", req.GetTenantOrganizationId())
 		assert.True(t, req.IsActive)
 		assert.True(t, req.AllowOverride)
@@ -168,8 +178,19 @@ func TestBuildOperatingSystemRequests(t *testing.T) {
 		assert.Nil(t, req.IpxeTemplateArtifacts[0].CachedUrl)
 	})
 
+	t.Run("provider-owned create request omits tenant org", func(t *testing.T) {
+		providerOS := *os
+		providerID := uuid.New()
+		providerOS.TenantID = nil
+		providerOS.InfrastructureProviderID = &providerID
+
+		req := createRequest.ToProto(&providerOS)
+		require.NotNil(t, req)
+		assert.Nil(t, req.TenantOrganizationId)
+	})
+
 	t.Run("update request maps all fields", func(t *testing.T) {
-		req := BuildUpdateOperatingSystemRequest(os)
+		req := updateRequest.ToProto(os)
 		require.NotNil(t, req)
 		assert.Equal(t, id.String(), req.GetId().GetValue())
 		require.NotNil(t, req.Name)
@@ -184,7 +205,7 @@ func TestBuildOperatingSystemRequests(t *testing.T) {
 	})
 
 	t.Run("delete request maps id", func(t *testing.T) {
-		req := BuildDeleteOperatingSystemRequest(os)
+		req := os.ToDeletionRequestProto()
 		require.NotNil(t, req)
 		assert.Equal(t, id.String(), req.GetId().GetValue())
 	})

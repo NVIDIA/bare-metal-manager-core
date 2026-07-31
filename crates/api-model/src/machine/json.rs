@@ -83,6 +83,8 @@ pub struct MachineSnapshotPgJson {
     pub decommission_requested: bool,
     #[serde(default)]
     pub bmc_credential_rotation_requested: bool,
+    #[serde(default)]
+    pub uefi_credential_rotation_requested: bool,
     pub manual_firmware_upgrade_completed: Option<DateTime<Utc>>,
     pub bios_password_set_time: Option<DateTime<Utc>>,
     pub last_machine_validation_time: Option<DateTime<Utc>>,
@@ -342,6 +344,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             machine_maintenance_requested: value.machine_maintenance_requested,
             decommission_requested: value.decommission_requested,
             bmc_credential_rotation_requested: value.bmc_credential_rotation_requested,
+            uefi_credential_rotation_requested: value.uefi_credential_rotation_requested,
             manual_firmware_upgrade_completed: value.manual_firmware_upgrade_completed,
         })
     }

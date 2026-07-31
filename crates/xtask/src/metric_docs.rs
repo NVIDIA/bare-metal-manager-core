@@ -225,7 +225,21 @@ fn collect_items(
                         out.push(metric);
                     }
                 } else if derives_event(&item_struct.attrs)
-                    && let Some(metric) = event_metric(item_struct, source)?
+                    && let Some(metric) = event_metric(&item_struct.attrs, source)?
+                {
+                    out.push(metric);
+                }
+            }
+            // An enum Event declares one metric for the whole enum, exactly as
+            // a struct Event does. Without this arm the gate would not see it
+            // at all -- and would still report OK, which is the wrong way for a
+            // contract check to fail.
+            Item::Enum(item_enum) => {
+                if in_test || has_cfg_test(&item_enum.attrs) {
+                    continue;
+                }
+                if derives_event(&item_enum.attrs)
+                    && let Some(metric) = event_metric(&item_enum.attrs, source)?
                 {
                     out.push(metric);
                 }
@@ -239,7 +253,7 @@ fn collect_items(
 /// Reads the `#[event(...)]` of a `#[derive(Event)]` struct. `Ok(None)` when it
 /// declares no counter/histogram (metric = none) or is `metric_name_unchecked`;
 /// errors (fails closed) when a counter/histogram's name cannot be read.
-fn event_metric(item: &ItemStruct, source: &Path) -> eyre::Result<Option<DeclaredMetric>> {
+fn event_metric(attrs: &[Attribute], source: &Path) -> eyre::Result<Option<DeclaredMetric>> {
     let mut name = None;
     let mut metric = None;
     let mut describe = None;
@@ -247,7 +261,7 @@ fn event_metric(item: &ItemStruct, source: &Path) -> eyre::Result<Option<Declare
     // The derive accumulates every `#[event(...)]` on the struct, so reading
     // only the first would let a split declaration hide its metric name from
     // the gate and slip through undocumented.
-    for attr in item.attrs.iter().filter(|a| a.path().is_ident("event")) {
+    for attr in attrs.iter().filter(|a| a.path().is_ident("event")) {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("metric_name") {
                 name = Some(meta.value()?.parse::<syn::LitStr>()?.value());
@@ -281,6 +295,12 @@ fn event_metric(item: &ItemStruct, source: &Path) -> eyre::Result<Option<Declare
                 let _: syn::LitStr = meta.value()?.parse()?;
             } else if meta.path.is_ident("log") {
                 let _: syn::Ident = meta.value()?.parse()?;
+            } else if meta.path.is_ident("labels") {
+                // An enum Event's label schema. The gate checks the metric's
+                // name and description, not its dimensions, so step over it.
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let _: proc_macro2::TokenStream = content.parse()?;
             } else {
                 // An event key the derive defines but this gate has not been taught:
                 // fail closed so the two stay in sync.

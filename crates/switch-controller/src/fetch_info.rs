@@ -17,7 +17,7 @@
 
 //! Handler for SwitchControllerState::FetchInfo.
 
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use carbide_uuid::switch::SwitchId;
 use model::switch::{Switch, SwitchControllerState, ValidatingState};
 use state_controller::state_handler::{
@@ -40,113 +40,71 @@ enum SwitchSlotTrayEnrichmentFailureStage {
 
 /// `FetchInfo` could not enrich a switch with its RMS slot and tray. These
 /// failures stay best-effort -- the controller still moves to `Validating` --
-/// so `failure_stage` is what tells an operator which dependency left the
-/// location data unset, and picks the diagnostic that step already logged.
-/// `backend` is present only for the stages that actually reached one.
+/// so the variant names which dependency left the location data unset. Only
+/// the stages that actually reached a backend hold one.
 #[derive(Event)]
 #[event(
     event_name = "switch_slot_tray_enrichment_failed",
     metric_name = "carbide_switch_slot_tray_enrichment_failures_total",
     component = "switch-controller",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of switch slot and tray enrichment failures, by failure stage."
+    log = warn,
+    describe = "Number of switch slot and tray enrichment failures, by failure stage.",
+    labels(failure_stage: SwitchSlotTrayEnrichmentFailureStage),
 )]
-struct SwitchSlotTrayEnrichmentFailed {
-    #[label]
-    failure_stage: SwitchSlotTrayEnrichmentFailureStage,
-    #[context]
-    error: String,
-    #[context]
-    switch_id: String,
-    #[context]
-    backend: Option<String>,
-}
-
-impl DynamicMessage for SwitchSlotTrayEnrichmentFailed {
-    fn message(&self) -> &'static str {
-        match self.failure_stage {
-            SwitchSlotTrayEnrichmentFailureStage::EndpointResolution => {
-                "Failed to resolve switch endpoint for slot and tray lookup"
-            }
-            SwitchSlotTrayEnrichmentFailureStage::BackendRequest
-            | SwitchSlotTrayEnrichmentFailureStage::BackendResponse => {
-                "Failed to get slot and tray from component manager backend"
-            }
-            SwitchSlotTrayEnrichmentFailureStage::DatabaseUpdate => {
-                "Failed to update slot_number and tray_index for switch"
-            }
-        }
-    }
-}
-
-impl SwitchSlotTrayEnrichmentFailed {
+enum SwitchSlotTrayEnrichmentFailed {
     /// The switch endpoint could not be resolved, so the backend was never
     /// reached.
-    fn endpoint_resolution(error: String, switch_id: &SwitchId) -> Self {
-        Self::without_backend(
-            SwitchSlotTrayEnrichmentFailureStage::EndpointResolution,
-            error,
-            switch_id,
-        )
-    }
+    #[event(
+        labels(failure_stage = EndpointResolution),
+        message = "Failed to resolve switch endpoint for slot and tray lookup"
+    )]
+    EndpointResolution {
+        #[context]
+        error: String,
+        #[context]
+        switch_id: String,
+    },
 
     /// The component-manager request itself failed.
-    fn backend_request(error: String, switch_id: &SwitchId, backend: &str) -> Self {
-        Self::with_backend(
-            SwitchSlotTrayEnrichmentFailureStage::BackendRequest,
-            error,
-            switch_id,
-            backend,
-        )
-    }
+    #[event(
+        labels(failure_stage = BackendRequest),
+        message = "Failed to reach the component manager for slot and tray"
+    )]
+    BackendRequest {
+        #[context]
+        error: String,
+        #[context]
+        switch_id: String,
+        #[context]
+        backend: String,
+    },
 
     /// The backend answered, but its result could not be used.
-    fn backend_response(error: String, switch_id: &SwitchId, backend: &str) -> Self {
-        Self::with_backend(
-            SwitchSlotTrayEnrichmentFailureStage::BackendResponse,
-            error,
-            switch_id,
-            backend,
-        )
-    }
+    #[event(
+        labels(failure_stage = BackendResponse),
+        message = "Could not read slot and tray from the component manager's answer"
+    )]
+    BackendResponse {
+        #[context]
+        error: String,
+        #[context]
+        switch_id: String,
+        #[context]
+        backend: String,
+    },
 
     /// The location data was fetched but could not be written back.
-    fn persistence(error: String, switch_id: &SwitchId) -> Self {
-        Self::without_backend(
-            SwitchSlotTrayEnrichmentFailureStage::DatabaseUpdate,
-            error,
-            switch_id,
-        )
-    }
-
-    fn with_backend(
-        failure_stage: SwitchSlotTrayEnrichmentFailureStage,
+    #[event(
+        labels(failure_stage = DatabaseUpdate),
+        message = "Failed to update slot_number and tray_index for switch"
+    )]
+    Persistence {
+        #[context]
         error: String,
-        switch_id: &SwitchId,
-        backend: &str,
-    ) -> Self {
-        Self {
-            failure_stage,
-            error,
-            switch_id: switch_id.to_string(),
-            backend: Some(backend.to_string()),
-        }
-    }
-
-    fn without_backend(
-        failure_stage: SwitchSlotTrayEnrichmentFailureStage,
-        error: String,
-        switch_id: &SwitchId,
-    ) -> Self {
-        Self {
-            failure_stage,
-            error,
-            switch_id: switch_id.to_string(),
-            backend: None,
-        }
-    }
+        #[context]
+        switch_id: String,
+    },
 }
 
 /// Handles the FetchInfo state for a switch.
@@ -173,11 +131,11 @@ pub async fn handle_fetch_info(
                 Ok(results) => {
                     if let Some(result) = results.into_iter().next() {
                         if let Some(error) = result.error.as_deref() {
-                            emit(SwitchSlotTrayEnrichmentFailed::backend_response(
-                                error.to_string(),
-                                switch_id,
-                                component_manager.nv_switch.name(),
-                            ));
+                            emit(SwitchSlotTrayEnrichmentFailed::BackendResponse {
+                                error: error.to_string(),
+                                switch_id: switch_id.to_string(),
+                                backend: component_manager.nv_switch.name().to_string(),
+                            });
                         }
                         let mut update_txn = ctx.services.db_pool.begin().await?;
                         if let Err(e) = db::switch::update_slot_and_tray(
@@ -188,10 +146,10 @@ pub async fn handle_fetch_info(
                         )
                         .await
                         {
-                            emit(SwitchSlotTrayEnrichmentFailed::persistence(
-                                e.to_string(),
-                                switch_id,
-                            ));
+                            emit(SwitchSlotTrayEnrichmentFailed::Persistence {
+                                error: e.to_string(),
+                                switch_id: switch_id.to_string(),
+                            });
                             update_txn.rollback().await?;
                         } else {
                             update_txn.commit().await?;
@@ -199,18 +157,18 @@ pub async fn handle_fetch_info(
                     }
                 }
                 Err(error) => {
-                    emit(SwitchSlotTrayEnrichmentFailed::backend_request(
-                        error.to_string(),
-                        switch_id,
-                        component_manager.nv_switch.name(),
-                    ));
+                    emit(SwitchSlotTrayEnrichmentFailed::BackendRequest {
+                        error: error.to_string(),
+                        switch_id: switch_id.to_string(),
+                        backend: component_manager.nv_switch.name().to_string(),
+                    });
                 }
             },
             Err(error) => {
-                emit(SwitchSlotTrayEnrichmentFailed::endpoint_resolution(
-                    error.to_string(),
-                    switch_id,
-                ));
+                emit(SwitchSlotTrayEnrichmentFailed::EndpointResolution {
+                    error: error.to_string(),
+                    switch_id: switch_id.to_string(),
+                });
             }
         }
     }
@@ -288,7 +246,7 @@ mod tests {
                     expect: Observation {
                         log_count: 1,
                         level: tracing::Level::WARN,
-                        message: "Failed to get slot and tray from component manager backend"
+                        message: "Failed to reach the component manager for slot and tray"
                             .to_string(),
                         event_name: Some("switch_slot_tray_enrichment_failed".to_string()),
                         metric_name: Some(METRIC.to_string()),
@@ -305,7 +263,7 @@ mod tests {
                     expect: Observation {
                         log_count: 1,
                         level: tracing::Level::WARN,
-                        message: "Failed to get slot and tray from component manager backend"
+                        message: "Could not read slot and tray from the component manager's answer"
                             .to_string(),
                         event_name: Some("switch_slot_tray_enrichment_failed".to_string()),
                         metric_name: Some(METRIC.to_string()),
@@ -345,30 +303,30 @@ mod tests {
                 let switch_id = SwitchId::from_str(SWITCH_ID).unwrap();
                 let logs = capture_logs(|| match case {
                     FailureCase::EndpointResolution => {
-                        emit(SwitchSlotTrayEnrichmentFailed::endpoint_resolution(
-                            ERROR.to_string(),
-                            &switch_id,
-                        ));
+                        emit(SwitchSlotTrayEnrichmentFailed::EndpointResolution {
+                            error: ERROR.to_string(),
+                            switch_id: switch_id.to_string(),
+                        });
                     }
                     FailureCase::BackendRequest => {
-                        emit(SwitchSlotTrayEnrichmentFailed::backend_request(
-                            ERROR.to_string(),
-                            &switch_id,
-                            "rms",
-                        ));
+                        emit(SwitchSlotTrayEnrichmentFailed::BackendRequest {
+                            error: ERROR.to_string(),
+                            switch_id: switch_id.to_string(),
+                            backend: "rms".to_string(),
+                        });
                     }
                     FailureCase::BackendResponse => {
-                        emit(SwitchSlotTrayEnrichmentFailed::backend_response(
-                            ERROR.to_string(),
-                            &switch_id,
-                            "rms",
-                        ));
+                        emit(SwitchSlotTrayEnrichmentFailed::BackendResponse {
+                            error: ERROR.to_string(),
+                            switch_id: switch_id.to_string(),
+                            backend: "rms".to_string(),
+                        });
                     }
                     FailureCase::DatabaseUpdate => {
-                        emit(SwitchSlotTrayEnrichmentFailed::persistence(
-                            ERROR.to_string(),
-                            &switch_id,
-                        ));
+                        emit(SwitchSlotTrayEnrichmentFailed::Persistence {
+                            error: ERROR.to_string(),
+                            switch_id: switch_id.to_string(),
+                        });
                     }
                 });
                 let log = logs.first().expect("failure Event logged");

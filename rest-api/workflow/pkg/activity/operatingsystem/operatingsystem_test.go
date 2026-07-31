@@ -531,9 +531,10 @@ func TestManageOsImage_UpdateOperatingSystemStatusInDB(t *testing.T) {
 
 // TestManageOsImage_UpdateOperatingSystemsInDB exercises the Operating System
 // inventory reconciliation performed for iPXE / Templated iPXE Operating Systems
-// pushed from nico-core: creation of provider-owned single-site records, skipping
-// of Templated iPXE records whose template is not available at the Site, and
-// deletion-by-absence of single-site records no longer reported by the Site.
+// pushed from nico-core: creation of provider- or tenant-owned single-site records
+// according to tenant_organization_id, skipping of Templated iPXE records whose
+// template is not available at the Site, and deletion-by-absence of single-site
+// records no longer reported by the Site.
 //
 // The suite uses a distinct Infrastructure Provider (and Site) per scenario so
 // the per-Site deletion reconciliation of one scenario cannot affect the records

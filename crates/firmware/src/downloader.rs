@@ -22,7 +22,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use carbide_instrument::{DynamicLog, Event, LabelValue, LogAt, MetricFamily, emit};
+use carbide_instrument::{Event, LabelValue, MetricFamily, emit};
 use eyre::{Report, WrapErr, eyre};
 use futures_util::StreamExt;
 use reqwest_middleware::ClientWithMiddleware as Client;
@@ -102,33 +102,113 @@ pub(crate) enum DownloadOutcome {
     Io,
 }
 
-/// A background firmware download attempt ran to completion. The event owns
-/// the completion log line (INFO on success, ERROR on any failure) and
-/// records the attempt's duration.
+/// One firmware download. Every attempt records its duration; each variant
+/// keeps the level that result already had.
 #[derive(Event)]
 #[event(
     event_name = "firmware_download_finished",
     metric_name = "carbide_firmware_download_duration_seconds",
     component = "carbide-firmware",
-    log = dynamic,
     metric = histogram,
-    message = "Firmware download finished",
     describe = "Duration of background firmware artifact downloads, by outcome; an ok attempt \
                 spans fetch, checksum verification, and publish, and the _count series, split \
-                by outcome, is the download and failure rate."
+                by outcome, is the download and failure rate.",
+    labels(outcome: DownloadOutcome),
 )]
-pub(crate) struct DownloadFinished {
-    #[label]
-    pub outcome: DownloadOutcome,
-    #[observation]
-    pub took: Duration,
-    #[context]
-    pub url: String,
-    #[context]
-    pub filename: String,
-    /// The failure's error chain; empty on success.
-    #[context]
-    pub error: String,
+pub(crate) enum DownloadFinished {
+    #[event(
+        labels(outcome = DownloadOutcome::Ok),
+        log = info,
+        message = "Firmware download finished"
+    )]
+    Ok {
+        #[observation]
+        took: Duration,
+        #[context]
+        url: String,
+        #[context]
+        filename: String,
+    },
+
+    #[event(
+        labels(outcome = DownloadOutcome::Fetch),
+        log = error,
+        message = "Firmware download finished"
+    )]
+    Fetch {
+        #[observation]
+        took: Duration,
+        #[context]
+        url: String,
+        #[context]
+        filename: String,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(outcome = DownloadOutcome::Status),
+        log = error,
+        message = "Firmware download finished"
+    )]
+    Status {
+        #[observation]
+        took: Duration,
+        #[context]
+        url: String,
+        #[context]
+        filename: String,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(outcome = DownloadOutcome::Transfer),
+        log = error,
+        message = "Firmware download finished"
+    )]
+    Transfer {
+        #[observation]
+        took: Duration,
+        #[context]
+        url: String,
+        #[context]
+        filename: String,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(outcome = DownloadOutcome::Checksum),
+        log = error,
+        message = "Firmware download finished"
+    )]
+    Checksum {
+        #[observation]
+        took: Duration,
+        #[context]
+        url: String,
+        #[context]
+        filename: String,
+        #[context]
+        error: String,
+    },
+
+    #[event(
+        labels(outcome = DownloadOutcome::Io),
+        log = error,
+        message = "Firmware download finished"
+    )]
+    Io {
+        #[observation]
+        took: Duration,
+        #[context]
+        url: String,
+        #[context]
+        filename: String,
+        #[context]
+        error: String,
+    },
 }
 
 /// The URL as it may be logged: everything after `?` is dropped, so a
@@ -137,20 +217,6 @@ pub(crate) struct DownloadFinished {
 pub(crate) fn loggable_url(url: &str) -> String {
     url.split('?').next().unwrap_or(url).to_string()
 }
-
-impl DynamicLog for DownloadFinished {
-    fn log_at(&self) -> LogAt {
-        match self.outcome {
-            DownloadOutcome::Ok => LogAt::Level(tracing::Level::INFO),
-            DownloadOutcome::Fetch
-            | DownloadOutcome::Status
-            | DownloadOutcome::Transfer
-            | DownloadOutcome::Checksum
-            | DownloadOutcome::Io => LogAt::Level(tracing::Level::ERROR),
-        }
-    }
-}
-
 /// A failed download attempt: the bounded cause for the metric label, plus
 /// the detailed report for the log line.
 struct DownloadError {
@@ -260,16 +326,52 @@ impl FirmwareDownloader {
             if result.is_err() {
                 std::fs::remove_file(&dst_filename).ok();
             }
-            let (outcome, error) = match result {
-                Ok(()) => (DownloadOutcome::Ok, String::new()),
-                Err(failure) => (failure.outcome, format!("{:#}", failure.report)),
-            };
-            emit(DownloadFinished {
-                outcome,
-                took: started.elapsed(),
-                url: loggable_url(&url),
-                filename: filename_string.clone(),
-                error,
+            let (took, url, filename) = (
+                started.elapsed(),
+                loggable_url(&url),
+                filename_string.clone(),
+            );
+            emit(match result {
+                Ok(()) => DownloadFinished::Ok {
+                    took,
+                    url,
+                    filename,
+                },
+                Err(failure) => {
+                    let error = format!("{:#}", failure.report);
+                    match failure.outcome {
+                        DownloadOutcome::Ok | DownloadOutcome::Fetch => DownloadFinished::Fetch {
+                            took,
+                            url,
+                            filename,
+                            error,
+                        },
+                        DownloadOutcome::Status => DownloadFinished::Status {
+                            took,
+                            url,
+                            filename,
+                            error,
+                        },
+                        DownloadOutcome::Transfer => DownloadFinished::Transfer {
+                            took,
+                            url,
+                            filename,
+                            error,
+                        },
+                        DownloadOutcome::Checksum => DownloadFinished::Checksum {
+                            took,
+                            url,
+                            filename,
+                            error,
+                        },
+                        DownloadOutcome::Io => DownloadFinished::Io {
+                            took,
+                            url,
+                            filename,
+                            error,
+                        },
+                    }
+                }
             });
             actual
                 .lock()

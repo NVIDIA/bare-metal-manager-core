@@ -381,3 +381,22 @@ Rack and component firmware do not use either of the configuration models
 above. Their target version comes from the update request or from the default
 selected by the rack or component backend. Refer to
 [Rack and Tray Firmware Updates](rack-component-firmware.md).
+
+### Rack profile firmware object
+
+A rack profile can specify one firmware-object JSON document to use as the
+default firmware input during rack ingestion:
+
+```toml
+[rack_profiles.NVL72]
+product_family = "gb200"
+
+[rack_profiles.NVL72.firmware_object]
+url = "https://firmware.example.com/objects/nvl72.json"
+fetch_timeout = "30s"
+```
+
+The `url` field identifies the document location. The optional `fetch_timeout`
+field accepts duration strings such as `30s` and `60s` and defaults to `30s`.
+Use seconds for this request timeout, although the parser accepts other
+duration units such as milliseconds (`ms`), minutes (`m`), and hours (`h`).

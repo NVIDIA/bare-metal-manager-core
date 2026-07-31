@@ -26,7 +26,8 @@ use db::{self, ObjectColumnFilter, network_security_group};
 use model::resource_pool;
 use model::tenant::{InvalidTenantOrg, Tenant};
 use model::vpc::{
-    NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcStatus, VpcVirtualizationTypeCapabilities,
+    NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcRoutingProfileOverrides, VpcStatus,
+    VpcVirtualizationTypeCapabilities,
 };
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -107,24 +108,28 @@ pub(crate) async fn create(
         Some(v) => vpc_virtualization_type_try_from_rpc(v).map_err(CarbideError::from)?,
     };
 
-    if vpc_creation_request.routing_profile_type.is_some() {
+    if vpc_creation_request.routing_profile_type.is_some()
+        || vpc_creation_request.routing_profile_overrides.is_some()
+    {
         requested_virtualization_type
             .ensure_supports_routing_profiles()
             .map_err(CarbideError::from)?;
     }
 
+    let requested_profile_type = vpc_creation_request.routing_profile_type.clone();
+    let mut new_vpc = NewVpc::try_from(request.into_inner())?;
+
     let ResolvedVpcRouting {
-        profile_type: requested_profile_type,
+        profile_type: resolved_profile_type,
         internal,
     } = resolve_vpc_routing(
         requested_virtualization_type,
-        vpc_creation_request.routing_profile_type.as_deref(),
+        requested_profile_type.as_deref(),
+        new_vpc.routing_profile_overrides.as_ref(),
         tenant.as_ref(),
         api.runtime_config.fnn.as_ref(),
-        &vpc_creation_request.tenant_organization_id,
+        &new_vpc.tenant_organization_id,
     )?;
-
-    let mut new_vpc = NewVpc::try_from(request.into_inner())?;
 
     let vni = Some(
         allocate_vpc_vni(
@@ -137,11 +142,11 @@ pub(crate) async fn create(
         .await?,
     );
 
-    new_vpc.routing_profile_type = requested_profile_type;
+    new_vpc.routing_profile_type = resolved_profile_type;
 
     let vpc = db::vpc::persist(new_vpc, VpcStatus { vni }, &mut txn).await?;
 
-    let rpc_out: rpc::Vpc = vpc.into();
+    let rpc_out = vpc_to_rpc(vpc, api.runtime_config.fnn.as_ref());
 
     txn.commit().await?;
 
@@ -219,7 +224,7 @@ pub(crate) async fn update(
     txn.commit().await?;
 
     Ok(Response::new(rpc::VpcUpdateResult {
-        vpc: Some(vpc.into()),
+        vpc: Some(vpc_to_rpc(vpc, api.runtime_config.fnn.as_ref())),
     }))
 }
 
@@ -319,7 +324,7 @@ pub(crate) async fn delete(
                     }
                     .into());
                 };
-                profile.internal
+                profile.internal.unwrap_or_default()
             }
         };
 
@@ -387,11 +392,43 @@ pub(crate) async fn find_by_ids(
 
     let result = db_vpcs
         .map(|vpc| rpc::VpcList {
-            vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
+            vpcs: vpc
+                .into_iter()
+                .map(|vpc| vpc_to_rpc(vpc, api.runtime_config.fnn.as_ref()))
+                .collect(),
         })
         .map(Response::new)?;
 
     Ok(result)
+}
+
+/// Converts a persisted VPC to RPC and populates its runtime-derived effective routing profile.
+///
+/// The effective profile is omitted when routing profiles are unsupported, FNN is disabled, or
+/// the named runtime profile cannot be resolved.
+fn vpc_to_rpc(vpc: model::vpc::Vpc, fnn_config: Option<&FnnConfig>) -> rpc::Vpc {
+    let effective_routing_profile = if vpc
+        .config
+        .network_virtualization_type
+        .supports_routing_profiles()
+    {
+        fnn_config.and_then(|fnn| {
+            // A persisted VPC can outlive its named runtime profile. In that
+            // case the status remains available without an effective profile.
+            fnn.resolve_vpc_routing_profile(&vpc.config)
+                .ok()
+                .map(|profile| rpc::VpcEffectiveRoutingProfile::from(profile.as_ref()))
+        })
+    } else {
+        None
+    };
+
+    let mut rpc_vpc = rpc::Vpc::from(vpc);
+    rpc_vpc
+        .status
+        .get_or_insert_default()
+        .effective_routing_profile = effective_routing_profile;
+    rpc_vpc
 }
 
 /// Allocate a value from the vpc vni resource pool.
@@ -524,9 +561,9 @@ impl Default for ResolvedVpcRouting {
 
 /// Resolves the routing-profile and `internal` flag for a VPC create
 /// request from (1) the VPC's virtualization type's capabilities,
-/// (2) the request's `routing_profile_type`, (3) the tenant's
-/// `routing_profile_type`, and (4) the site's FNN config. Surfaces
-/// any contradictions as [`CarbideError`].
+/// (2) the request's `routing_profile_type` and inline overrides,
+/// (3) the tenant's `routing_profile_type`, and (4) the site's FNN
+/// config. Surfaces any contradictions as [`CarbideError`].
 ///
 /// This exists as a function so that resolution rules can be
 /// more easily unit-tested directly, vs. as part of a wider
@@ -534,6 +571,7 @@ impl Default for ResolvedVpcRouting {
 pub(crate) fn resolve_vpc_routing(
     virt_type: VpcVirtualizationType,
     requested_profile_type: Option<&str>,
+    vpc_profile_overrides: Option<&VpcRoutingProfileOverrides>,
     tenant: Option<&Tenant>,
     fnn_config: Option<&FnnConfig>,
     organization_id: &str,
@@ -556,36 +594,46 @@ pub(crate) fn resolve_vpc_routing(
         // Falling back to a default. With FNN disabled, assume
         // internal (legacy/pre-FNN behavior); with FNN enabled,
         // external must be assumed.
-        (None, None) => Ok(ResolvedVpcRouting {
+        (None, None) if vpc_profile_overrides.is_none() => Ok(ResolvedVpcRouting {
             profile_type: None,
             internal: fnn_config.is_none(),
         }),
 
-        // Request asks for a routing profile but no tenant context
-        // exists to validate it against -- reject.
-        (Some(_), None) => Err(CarbideError::FailedPrecondition(format!(
-            "VPC routing-profile type requested but no tenant or routing profile-type found for organization id `{organization_id}`"
+        // A requested profile type or inline profile needs tenant context
+        // to establish and authorize its named base profile.
+        (_, None) => Err(CarbideError::FailedPrecondition(format!(
+            "VPC routing profile type or overrides requested but no tenant or routing profile type found for organization id `{organization_id}`"
         ))),
 
         // Tenant has a routing profile; resolve the request against it.
         (request_profile_type, Some(tenant_profile_type)) => {
-            match (fnn_config, request_profile_type) {
-                // FNN disabled but the request named a profile -- reject.
-                (None, Some(_)) => Err(CarbideError::FailedPrecondition(
-                    "FNN configuration required to request routing-profile for VPCs".to_string(),
-                )),
+            match fnn_config {
+                // Explicit profile properties require FNN configuration.
+                None if request_profile_type.is_some() || vpc_profile_overrides.is_some() => {
+                    Err(CarbideError::FailedPrecondition(
+                        "FNN configuration required to request routing-profile for VPCs"
+                            .to_string(),
+                    ))
+                }
 
                 // FNN disabled with no explicit request: inherit the
                 // tenant's profile name; force `internal=true` (legacy
                 // pre-FNN behavior).
-                (None, None) => Ok(ResolvedVpcRouting {
+                None => Ok(ResolvedVpcRouting {
                     profile_type: Some(tenant_profile_type.to_owned()),
                     internal: true,
                 }),
 
-                // FNN enabled with no explicit request: inherit the
-                // tenant's profile name and its `internal` flag.
-                (Some(fnn), None) => {
+                // Resolve the selected base and enforce its tenant access
+                // boundary. Inline VPC properties cannot change access tiers.
+                Some(fnn) => {
+                    let profile_type = request_profile_type.unwrap_or(tenant_profile_type);
+                    let base_profile = fnn.routing_profiles.get(profile_type).ok_or_else(|| {
+                        CarbideError::NotFoundError {
+                            kind: "routing_profile",
+                            id: profile_type.to_owned(),
+                        }
+                    })?;
                     let tenant_profile =
                         fnn.routing_profiles
                             .get(tenant_profile_type)
@@ -593,32 +641,9 @@ pub(crate) fn resolve_vpc_routing(
                                 kind: "routing_profile",
                                 id: tenant_profile_type.to_owned(),
                             })?;
-                    Ok(ResolvedVpcRouting {
-                        profile_type: Some(tenant_profile_type.to_owned()),
-                        internal: tenant_profile.internal,
-                    })
-                }
-
-                // FNN enabled and the request named a profile: use the
-                // request's profile, but check that its access tier
-                // isn't broader than the tenant's. Higher tier value =
-                // more restricted; lower = broader.
-                (Some(fnn), Some(profile_type)) => {
-                    let routing_profile =
-                        fnn.routing_profiles.get(profile_type).ok_or_else(|| {
-                            CarbideError::NotFoundError {
-                                kind: "routing_profile",
-                                id: profile_type.to_owned(),
-                            }
-                        })?;
-                    let tenant_profile =
-                        fnn.routing_profiles
-                            .get(tenant_profile_type)
-                            .ok_or_else(|| CarbideError::NotFoundError {
-                                kind: "routing_profile",
-                                id: tenant_profile_type.to_owned(),
-                            })?;
-                    if routing_profile.access_tier < tenant_profile.access_tier {
+                    if base_profile.access_tier.unwrap_or_default()
+                        < tenant_profile.access_tier.unwrap_or_default()
+                    {
                         return Err(CarbideError::FailedPrecondition(
                             "requested VPC routing-profile access tier is broader than associated tenant routing-profile access tier"
                                 .to_string(),
@@ -626,7 +651,7 @@ pub(crate) fn resolve_vpc_routing(
                     }
                     Ok(ResolvedVpcRouting {
                         profile_type: Some(profile_type.to_owned()),
-                        internal: routing_profile.internal,
+                        internal: base_profile.internal.unwrap_or_default(),
                     })
                 }
             }
@@ -638,6 +663,8 @@ pub(crate) fn resolve_vpc_routing(
 mod tests {
     use std::collections::HashMap;
 
+    use carbide_test_support::Outcome::{FailsWith, Yields};
+    use carbide_test_support::scenarios;
     use config_version::ConfigVersion;
     use model::metadata::Metadata;
 
@@ -668,186 +695,198 @@ mod tests {
 
     fn profile(internal: bool, access_tier: u32) -> FnnRoutingProfileConfig {
         FnnRoutingProfileConfig {
-            internal,
-            access_tier,
+            internal: Some(internal),
+            access_tier: Some(access_tier),
             ..Default::default()
         }
     }
 
-    #[test]
-    fn flat_short_circuits_regardless_of_inputs() {
-        let resolved = resolve_vpc_routing(
-            VpcVirtualizationType::Flat,
-            Some("EXTERNAL"),
-            Some(&tenant_with_profile(Some("INTERNAL"))),
-            Some(&fnn_with_profiles(&[
-                ("EXTERNAL", profile(false, 2)),
-                ("INTERNAL", profile(true, 1)),
-            ])),
+    struct RoutingResolutionInput {
+        network_virtualization_type: VpcVirtualizationType,
+        requested_profile_type: Option<&'static str>,
+        routing_profile_overrides: Option<VpcRoutingProfileOverrides>,
+        tenant: Option<Tenant>,
+        fnn_config: Option<FnnConfig>,
+    }
+    type RoutingResolution = (Option<String>, bool);
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum RoutingResolutionFailure {
+        FailedPrecondition,
+        NotFound(&'static str),
+        Unexpected(String),
+    }
+
+    fn resolve_routing_case(
+        input: RoutingResolutionInput,
+    ) -> Result<RoutingResolution, RoutingResolutionFailure> {
+        resolve_vpc_routing(
+            input.network_virtualization_type,
+            input.requested_profile_type,
+            input.routing_profile_overrides.as_ref(),
+            input.tenant.as_ref(),
+            input.fnn_config.as_ref(),
             "test-org",
         )
-        .expect("Flat must short-circuit cleanly");
-        assert_eq!(resolved.profile_type, None);
-        assert!(resolved.internal);
+        .map(|resolved| (resolved.profile_type, resolved.internal))
+        .map_err(|error| match error {
+            CarbideError::FailedPrecondition(_) => RoutingResolutionFailure::FailedPrecondition,
+            CarbideError::NotFoundError { kind, .. } => RoutingResolutionFailure::NotFound(kind),
+            error => RoutingResolutionFailure::Unexpected(error.to_string()),
+        })
     }
 
     #[test]
-    fn no_request_no_tenant_no_fnn_defaults_to_internal() {
-        let resolved =
-            resolve_vpc_routing(VpcVirtualizationType::Fnn, None, None, None, "test-org")
-                .expect("no-request no-tenant no-fnn is the legacy pre-FNN default");
-        assert_eq!(resolved.profile_type, None);
-        assert!(
-            resolved.internal,
-            "FNN disabled means we default to internal"
-        );
-    }
+    fn resolve_vpc_routing_scenarios() {
+        use RoutingResolutionFailure::{FailedPrecondition, NotFound};
+        use VpcVirtualizationType::{Flat, Fnn};
 
-    #[test]
-    fn no_request_no_tenant_with_fnn_defaults_to_external() {
-        let fnn = fnn_with_profiles(&[]);
-        let resolved = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            None,
-            None,
-            Some(&fnn),
-            "test-org",
-        )
-        .expect("no-request no-tenant with-fnn must succeed");
-        assert_eq!(resolved.profile_type, None);
-        assert!(
-            !resolved.internal,
-            "FNN enabled means we default to external"
-        );
-    }
+        scenarios!(resolve_routing_case:
+            "VPC types without routing-profile support short-circuit" {
+                // Flat VPCs ignore all routing-profile inputs and retain the internal allocation
+                // default because they have no NICo-managed routing profile.
+                RoutingResolutionInput {
+                    network_virtualization_type: Flat,
+                    requested_profile_type: Some("EXTERNAL"),
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("INTERNAL"))),
+                    fnn_config: Some(fnn_with_profiles(&[
+                        ("EXTERNAL", profile(false, 2)),
+                        ("INTERNAL", profile(true, 1)),
+                    ])),
+                } => Yields((None, true)),
+            }
 
-    #[test]
-    fn request_but_no_tenant_is_rejected() {
-        let err = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            Some("EXTERNAL"),
-            None,
-            None,
-            "test-org",
-        )
-        .expect_err("request without tenant must be rejected");
-        assert!(matches!(err, CarbideError::FailedPrecondition(_)));
-    }
+            "missing tenant context" {
+                // Without FNN or explicit routing properties, preserve the legacy internal
+                // allocation default even when no tenant record is available.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: None,
+                    tenant: None,
+                    fnn_config: None,
+                } => Yields((None, true)),
+                // Enabling FNN changes the no-profile allocation default to external.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: None,
+                    tenant: None,
+                    fnn_config: Some(fnn_with_profiles(&[])),
+                } => Yields((None, false)),
+                // A named profile request needs tenant context to authorize its access tier.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: Some("EXTERNAL"),
+                    routing_profile_overrides: None,
+                    tenant: None,
+                    fnn_config: None,
+                } => FailsWith(FailedPrecondition),
+                // Inline properties need tenant context to select and authorize their base
+                // profile, even when no profile name is requested explicitly.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: Some(VpcRoutingProfileOverrides::default()),
+                    tenant: None,
+                    fnn_config: None,
+                } => FailsWith(FailedPrecondition),
+            }
 
-    #[test]
-    fn fnn_disabled_with_request_is_rejected() {
-        let tenant = tenant_with_profile(Some("INTERNAL"));
-        let err = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            Some("EXTERNAL"),
-            Some(&tenant),
-            None,
-            "test-org",
-        )
-        .expect_err("FNN-disabled + explicit request must be rejected");
-        assert!(matches!(err, CarbideError::FailedPrecondition(_)));
-    }
+            "FNN configuration disabled" {
+                // An explicit profile cannot be resolved when its FNN definition is unavailable.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: Some("EXTERNAL"),
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("INTERNAL"))),
+                    fnn_config: None,
+                } => FailsWith(FailedPrecondition),
+                // Inline properties cannot be applied without an FNN base-profile definition.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: Some(VpcRoutingProfileOverrides::default()),
+                    tenant: Some(tenant_with_profile(Some("INTERNAL"))),
+                    fnn_config: None,
+                } => FailsWith(FailedPrecondition),
+                // With no explicit VPC routing properties, preserve pre-FNN behavior by
+                // inheriting the tenant's stored profile name and forcing internal allocation.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("INTERNAL"))),
+                    fnn_config: None,
+                } => Yields((Some("INTERNAL".to_string()), true)),
+            }
 
-    #[test]
-    fn fnn_disabled_no_request_inherits_tenant_profile() {
-        let tenant = tenant_with_profile(Some("INTERNAL"));
-        let resolved = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            None,
-            Some(&tenant),
-            None,
-            "test-org",
-        )
-        .expect("FNN-disabled + tenant profile must inherit");
-        assert_eq!(resolved.profile_type.as_deref(), Some("INTERNAL"));
-        assert!(
-            resolved.internal,
-            "legacy pre-FNN behavior forces internal=true"
-        );
-    }
+            "tenant profile inheritance" {
+                // With FNN enabled and no explicit request, inherit both the tenant profile name
+                // and its internal-allocation policy.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("EXTERNAL"))),
+                    fnn_config: Some(fnn_with_profiles(&[("EXTERNAL", profile(false, 2))])),
+                } => Yields((Some("EXTERNAL".to_string()), false)),
+                // Inline properties overlay the tenant's base profile but cannot change its
+                // protected internal-allocation policy.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: Some(VpcRoutingProfileOverrides::default()),
+                    tenant: Some(tenant_with_profile(Some("INTERNAL"))),
+                    fnn_config: Some(fnn_with_profiles(&[("INTERNAL", profile(true, 1))])),
+                } => Yields((Some("INTERNAL".to_string()), true)),
+            }
 
-    #[test]
-    fn fnn_enabled_no_request_inherits_tenant_profile_internal_flag() {
-        let tenant = tenant_with_profile(Some("EXTERNAL"));
-        let fnn = fnn_with_profiles(&[("EXTERNAL", profile(false, 2))]);
-        let resolved = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            None,
-            Some(&tenant),
-            Some(&fnn),
-            "test-org",
-        )
-        .expect("FNN-enabled + tenant profile must inherit name + internal flag");
-        assert_eq!(resolved.profile_type.as_deref(), Some("EXTERNAL"));
-        assert!(!resolved.internal);
-    }
+            "requested profile access tier" {
+                // An ADMIN tenant may select a narrower EXTERNAL routing profile.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: Some("EXTERNAL"),
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("ADMIN"))),
+                    fnn_config: Some(fnn_with_profiles(&[
+                        ("ADMIN", profile(true, 0)),
+                        ("EXTERNAL", profile(false, 2)),
+                    ])),
+                } => Yields((Some("EXTERNAL".to_string()), false)),
+                // An EXTERNAL tenant may not broaden its access by selecting ADMIN.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: Some("ADMIN"),
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("EXTERNAL"))),
+                    fnn_config: Some(fnn_with_profiles(&[
+                        ("EXTERNAL", profile(false, 2)),
+                        ("ADMIN", profile(true, 0)),
+                    ])),
+                } => FailsWith(FailedPrecondition),
+            }
 
-    #[test]
-    fn fnn_enabled_request_overrides_when_access_tier_permits() {
-        // tenant tier 0 (broad); request tier 2 (narrower) -- allowed
-        let tenant = tenant_with_profile(Some("ADMIN"));
-        let fnn =
-            fnn_with_profiles(&[("ADMIN", profile(true, 0)), ("EXTERNAL", profile(false, 2))]);
-        let resolved = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            Some("EXTERNAL"),
-            Some(&tenant),
-            Some(&fnn),
-            "test-org",
-        )
-        .expect("narrower request than tenant access tier must succeed");
-        assert_eq!(resolved.profile_type.as_deref(), Some("EXTERNAL"));
-        assert!(!resolved.internal);
-    }
-
-    #[test]
-    fn fnn_enabled_request_broader_than_tenant_is_rejected() {
-        // tenant tier 2 (narrow); request tier 0 (broader) -- rejected
-        let tenant = tenant_with_profile(Some("EXTERNAL"));
-        let fnn =
-            fnn_with_profiles(&[("EXTERNAL", profile(false, 2)), ("ADMIN", profile(true, 0))]);
-        let err = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            Some("ADMIN"),
-            Some(&tenant),
-            Some(&fnn),
-            "test-org",
-        )
-        .expect_err("broader request than tenant access tier must be rejected");
-        assert!(matches!(err, CarbideError::FailedPrecondition(_)));
-    }
-
-    #[test]
-    fn unknown_requested_profile_yields_not_found() {
-        let tenant = tenant_with_profile(Some("EXTERNAL"));
-        let fnn = fnn_with_profiles(&[("EXTERNAL", profile(false, 2))]);
-        let err = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            Some("DOES_NOT_EXIST"),
-            Some(&tenant),
-            Some(&fnn),
-            "test-org",
-        )
-        .expect_err("request naming an undefined routing profile must error");
-        assert!(
-            matches!(err, CarbideError::NotFoundError { kind, .. } if kind == "routing_profile")
-        );
-    }
-
-    #[test]
-    fn unknown_tenant_profile_yields_not_found() {
-        let tenant = tenant_with_profile(Some("UNDEFINED"));
-        let fnn = fnn_with_profiles(&[("EXTERNAL", profile(false, 2))]);
-        let err = resolve_vpc_routing(
-            VpcVirtualizationType::Fnn,
-            None,
-            Some(&tenant),
-            Some(&fnn),
-            "test-org",
-        )
-        .expect_err("tenant naming an undefined routing profile must error");
-        assert!(
-            matches!(err, CarbideError::NotFoundError { kind, .. } if kind == "routing_profile")
+            "unknown named profile" {
+                // Reject an explicit profile name that has no runtime FNN definition.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: Some("DOES_NOT_EXIST"),
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("EXTERNAL"))),
+                    fnn_config: Some(fnn_with_profiles(&[("EXTERNAL", profile(false, 2))])),
+                } => FailsWith(NotFound("routing_profile")),
+                // Reject an unresolved tenant base profile even when the VPC does not request a
+                // different profile explicitly.
+                RoutingResolutionInput {
+                    network_virtualization_type: Fnn,
+                    requested_profile_type: None,
+                    routing_profile_overrides: None,
+                    tenant: Some(tenant_with_profile(Some("UNDEFINED"))),
+                    fnn_config: Some(fnn_with_profiles(&[("EXTERNAL", profile(false, 2))])),
+                } => FailsWith(NotFound("routing_profile")),
+            }
         );
     }
 }

@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use carbide_instrument::{DynamicMessage, Event, LabelValue, emit};
+use carbide_instrument::{Event, LabelValue, emit};
 use notify::{PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -39,35 +39,48 @@ enum StaticCredentialWatcherOperation {
     Reload,
 }
 
+/// The static-credential file watcher hit an error. Each variant is the
+/// operation that failed.
 #[derive(Event)]
 #[event(
     event_name = "static_credential_watcher_failed",
     metric_name = "carbide_static_credential_watcher_failures_total",
     component = "nico-api",
-    log = warn,
     metric = counter,
-    message = dynamic,
-    describe = "Number of static credential watcher failures, by operation."
+    describe = "Number of static credential watcher failures, by operation.",
+    labels(operation: StaticCredentialWatcherOperation),
 )]
-struct StaticCredentialWatcherFailed {
-    #[label]
-    operation: StaticCredentialWatcherOperation,
-    #[context]
-    error: String,
-}
+enum StaticCredentialWatcherFailed {
+    #[event(
+        labels(operation = StaticCredentialWatcherOperation::PrimaryWatch),
+        log = warn,
+        message = "primary static credential watcher error"
+    )]
+    PrimaryWatch {
+        #[context]
+        error: String,
+    },
 
-impl DynamicMessage for StaticCredentialWatcherFailed {
-    fn message(&self) -> &'static str {
-        match self.operation {
-            StaticCredentialWatcherOperation::PrimaryWatch => {
-                "primary static credential watcher error"
-            }
-            StaticCredentialWatcherOperation::PollWatch => "credentials file watcher event error",
-            StaticCredentialWatcherOperation::Reload => "failed to reload credentials file",
-        }
-    }
-}
+    #[event(
+        labels(operation = StaticCredentialWatcherOperation::PollWatch),
+        log = warn,
+        message = "credentials file watcher event error"
+    )]
+    PollWatch {
+        #[context]
+        error: String,
+    },
 
+    #[event(
+        labels(operation = StaticCredentialWatcherOperation::Reload),
+        log = warn,
+        message = "failed to reload credentials file"
+    )]
+    Reload {
+        #[context]
+        error: String,
+    },
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WatchEventDelivery {
     Primary,
@@ -155,8 +168,7 @@ impl FileCredentialsWatcher {
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    emit(StaticCredentialWatcherFailed {
-                        operation: StaticCredentialWatcherOperation::PrimaryWatch,
+                    emit(StaticCredentialWatcherFailed::PrimaryWatch {
                         error: err.to_string(),
                     });
                 }
@@ -202,16 +214,14 @@ impl FileCredentialsWatcher {
                                 credentials_clone.store(Arc::new(updated));
                             }
                             Err(err) => {
-                                emit(StaticCredentialWatcherFailed {
-                                    operation: StaticCredentialWatcherOperation::Reload,
+                                emit(StaticCredentialWatcherFailed::Reload {
                                     error: err.to_string(),
                                 });
                             }
                         }
                     }
                     Err(err) => {
-                        emit(StaticCredentialWatcherFailed {
-                            operation: StaticCredentialWatcherOperation::PollWatch,
+                        emit(StaticCredentialWatcherFailed::PollWatch {
                             error: err.to_string(),
                         });
                     }
@@ -522,9 +532,17 @@ mod tests {
             ],
             |case| {
                 let mut logs = capture_logs(|| {
-                    emit(StaticCredentialWatcherFailed {
-                        operation: case.operation,
-                        error: case.error.to_string(),
+                    let error = case.error.to_string();
+                    emit(match case.operation {
+                        StaticCredentialWatcherOperation::PrimaryWatch => {
+                            StaticCredentialWatcherFailed::PrimaryWatch { error }
+                        }
+                        StaticCredentialWatcherOperation::PollWatch => {
+                            StaticCredentialWatcherFailed::PollWatch { error }
+                        }
+                        StaticCredentialWatcherOperation::Reload => {
+                            StaticCredentialWatcherFailed::Reload { error }
+                        }
                     });
                 });
                 assert_eq!(logs.len(), 1, "one watcher failure logs once");
