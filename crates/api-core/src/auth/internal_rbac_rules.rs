@@ -292,6 +292,10 @@ impl InternalRBACRules {
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
         x.perm("DecommissionManagedHost", vec![ForgeAdminCLI, Flow]);
         x.perm("DeleteDecommissionedManagedHost", vec![ForgeAdminCLI, Flow]);
+        x.perm(
+            "GetDecommissionedManagedHostCredentials",
+            vec![ForgeAdminCLI],
+        );
         x.perm("AdminForceDeleteRack", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminForceDeleteSwitch", vec![ForgeAdminCLI, Machineatron]);
         x.perm(

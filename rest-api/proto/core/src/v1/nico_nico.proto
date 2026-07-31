@@ -346,6 +346,10 @@ service Forge {
   // Permanently removes a managed host after decommissioning has completed.
   rpc DeleteDecommissionedManagedHost(DeleteDecommissionedManagedHostRequest) returns (google.protobuf.Empty);
 
+  // Returns the generated BMC handoff credentials for a managed host and its
+  // DPUs. The managed host must be Decommissioned.
+  rpc GetDecommissionedManagedHostCredentials(common.MachineId) returns (DecommissionedManagedHostCredentials);
+
   // List existing resource pools and their stats
   rpc AdminListResourcePools(ListResourcePoolsRequest) returns (ResourcePools);
 
@@ -9680,4 +9684,14 @@ message SitePrefixIdList {
 
 message SitePrefixList {
   repeated SitePrefix site_prefixes = 1;
+}
+
+message DecommissionedBmcCredential {
+  common.MachineId machine_id = 1;
+  string bmc_mac_address = 2;
+  UsernamePassword credentials = 3;
+}
+
+message DecommissionedManagedHostCredentials {
+  repeated DecommissionedBmcCredential bmc_credentials = 1;
 }

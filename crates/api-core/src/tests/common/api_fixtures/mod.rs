@@ -454,6 +454,7 @@ impl TestEnv {
             ManagedHostState::HostReprovision { .. } => state.clone(),
             ManagedHostState::RotatingBmc { .. } => state.clone(),
             ManagedHostState::RotatingHostUefi { .. } => state.clone(),
+            ManagedHostState::Decommissioning { .. } => state.clone(),
             ManagedHostState::BomValidating { .. } => state.clone(),
             ManagedHostState::Validation { validation_state } => match validation_state {
                 ValidationState::MachineValidation { machine_validation } => {
