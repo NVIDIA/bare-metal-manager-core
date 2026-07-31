@@ -900,6 +900,20 @@ impl MachineStateHandler {
                     return Ok(outcome);
                 }
 
+                // Health and maintenance handling take precedence. The request remains pending
+                // until the host is safely Ready, then is cleared in the state-transition
+                // transaction.
+                if mh_snapshot.host_snapshot.decommission_requested {
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    db::machine::clear_decommission_requested(&mut txn, *host_machine_id).await?;
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::Decommissioning {
+                            decommissioning_state: DecommissioningState::Preparing,
+                        },
+                    )
+                    .with_txn(txn));
+                }
+
                 // An already-committed instance wins before disruptive boot
                 // reconciliation. Allocation locks the machine row, while its
                 // eligibility check rejects an earlier pending desired version.

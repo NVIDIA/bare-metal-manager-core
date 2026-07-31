@@ -86,15 +86,20 @@ pub(crate) async fn decommission_managed_host(
         .into());
     }
 
-    db::machine::update_state(
-        &mut txn,
-        &machine_id,
-        &ManagedHostState::Decommissioning {
-            decommissioning_state: DecommissioningState::Preparing,
-        },
-    )
-    .await?;
+    db::machine::set_decommission_requested(&mut txn, machine_id).await?;
     txn.commit().await?;
+
+    if let Err(error) = api
+        .machine_state_handler_enqueuer
+        .enqueue_object(&machine_id)
+        .await
+    {
+        tracing::warn!(
+            %machine_id,
+            %error,
+            "Failed to enqueue managed host after recording decommission request",
+        );
+    }
 
     Ok(Response::new(()))
 }

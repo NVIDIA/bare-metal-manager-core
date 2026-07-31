@@ -833,6 +833,10 @@ pub struct Machine {
     /// [`ManagedHostState::Maintenance`] to execute the requested operation.
     pub machine_maintenance_requested: Option<MachineMaintenanceRequest>,
 
+    /// When set by the API, the state controller transitions a Ready managed host into the
+    /// decommissioning workflow and clears the marker in the same transaction.
+    pub decommission_requested: bool,
+
     /// Operator "force-converge this BMC now" request (REQ-2). Set on the machine
     /// that owns the BMC (a host machine for its host BMC, a DPU machine for its
     /// DPU BMC). When `true`, the machine state controller enters `RotatingBmc`

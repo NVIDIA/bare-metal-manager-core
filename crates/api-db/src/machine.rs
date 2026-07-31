@@ -2639,6 +2639,32 @@ pub async fn set_machine_maintenance_requested(
     Ok(())
 }
 
+pub async fn set_decommission_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET decommission_requested = TRUE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("set_decommission_requested", error))
+}
+
+pub async fn clear_decommission_requested(
+    txn: &mut PgConnection,
+    machine_id: MachineId,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machines SET decommission_requested = FALSE WHERE id = $1 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .fetch_one(txn)
+        .await
+        .map(|_| ())
+        .map_err(|error| DatabaseError::new("clear_decommission_requested", error))
+}
+
 pub async fn clear_machine_maintenance_requested(
     txn: &mut PgConnection,
     machine_id: MachineId,
