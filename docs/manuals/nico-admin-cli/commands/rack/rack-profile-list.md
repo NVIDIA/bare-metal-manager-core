@@ -13,7 +13,7 @@ nico-admin-cli-rack-profile-list - List configured rack profiles
 
 ## DESCRIPTION
 
-List configured rack profiles
+List rack profiles from the effective runtime configuration. Rack profiles are not persisted rack resources. To add or change a profile, update the runtime configuration.
 
 ## OPTIONS
 
