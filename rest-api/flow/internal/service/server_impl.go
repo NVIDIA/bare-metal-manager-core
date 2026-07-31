@@ -846,6 +846,7 @@ func (rs *FlowServerImpl) decommissionRackImpl(
 		return nil, err
 	}
 
+	opReq.ConflictStrategy, opReq.QueueTimeout = protobuf.QueueOptionsFrom(req.GetQueueOptions())
 	opReq.RuleID = protobuf.OptionalUUIDFrom(req.GetRuleId())
 
 	taskIDs, err := rs.taskManager.SubmitTask(ctx, opReq)
