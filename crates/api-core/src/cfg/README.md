@@ -181,7 +181,7 @@ product_family = "gb200"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 
 [rack_profiles.NVL72.firmware_object]
-url = "https://firmware.example.com/sot/nvl72.json"
+url = "https://firmware.example.com/objects/nvl72.json"
 fetch_timeout = "30s"
 
 [rack_profiles.NVL72.rack_capabilities.compute]

@@ -182,31 +182,6 @@ NICo also supports host definitions embedded in the static `host_models`
 configuration. This is the base catalog supplied with the NICo deployment and
 uses the same firmware data model as `metadata.toml`.
 
-Rack profiles may optionally specify one rack-wide SOT firmware-object
-document:
-
-```toml
-[rack_profiles.NVL72]
-product_family = "gb200"
-
-[rack_profiles.NVL72.firmware_object]
-url = "https://firmware.example.com/sot/nvl72.json"
-fetch_timeout = "30s"
-```
-
-The optional `firmware_object` block enables ingestion firmware update for that
-rack profile. Core validates `url` during configuration parsing.
-`fetch_timeout` defaults to 30 seconds when omitted. The existing RMS request
-includes both compute and switch inventory. At
-`FirmwareUpgrade(Start)`, NICo fetches the document, verifies that the top-level
-JSON value is an object, and passes the JSON string to the existing RMS
-`ApplyFirmwareObject` path.
-Automatic ingestion uses RMS `NOAUTH`; artifact credentials remain part of the
-SOT/RMS contract. The URL is not persisted as desired firmware state. Missing
-profile blocks skip firmware update. Fetch, HTTP status, and JSON
-validation errors leave the rack at `FirmwareUpgrade(Start)` for retry.
-The RMS client must be configured before enabling this workflow.
-
 NICo builds the effective host firmware catalog in this order:
 
 | Applied | Source |
@@ -406,3 +381,20 @@ Rack and component firmware do not use either of the configuration models
 above. Their target version comes from the update request or from the default
 selected by the rack or component backend. Refer to
 [Rack and Tray Firmware Updates](rack-component-firmware.md).
+
+### Rack profile firmware object
+
+A rack profile can specify one firmware-object JSON document to use as the
+default firmware input during rack ingestion:
+
+```toml
+[rack_profiles.NVL72]
+product_family = "gb200"
+
+[rack_profiles.NVL72.firmware_object]
+url = "https://firmware.example.com/objects/nvl72.json"
+fetch_timeout = "30s"
+```
+
+The `url` field identifies the document location. The optional `fetch_timeout`
+field defaults to 30 seconds.

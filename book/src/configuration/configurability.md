@@ -336,12 +336,6 @@ and `failure_retry_time` knobs:
 Defaults are reasonable; touch these only when you have a specific timing
 constraint.
 
-The optional `[rack_profiles.<name>.firmware_object]` block enables firmware
-update during ingestion for that rack profile. Its `url` selects the SOT JSON
-document and `fetch_timeout` defaults to `30s`. Missing blocks skip firmware
-update. Fetch, HTTP status, and JSON validation errors leave the rack at
-`FirmwareUpgrade(Start)` for retry.
-
 ### Host health thresholds
 
 `[host_health]` — `hardware_health_reports = "MonitorOnly"` or `"Enforce"`,
@@ -993,12 +987,12 @@ images plus version constraints). The state controller picks the right
 images when a machine in the model joins. See
 [`crates/api-core/src/cfg/README.md` → host_models](../../../crates/api-core/src/cfg/README.md#hostmodelsfirmware).
 
-### Rack-ingestion firmware object — `[rack_profiles.<name>]`
+### Rack profile firmware object: `[rack_profiles.<name>]`
 
-Each rack profile may define a `firmware_object` block containing one rack-wide
-SOT JSON `url` and a fetch timeout. Core validates the URL during configuration
-parsing. During ingestion, the existing rack firmware request applies that
-document to the profile's discovered compute and switch inventory.
+A rack profile can define a `firmware_object` block for one firmware-object JSON
+document. NICo uses the document as the default firmware input during rack
+ingestion. The block contains a `url` and an optional `fetch_timeout`, which
+defaults to `30s`.
 
 ---
 
