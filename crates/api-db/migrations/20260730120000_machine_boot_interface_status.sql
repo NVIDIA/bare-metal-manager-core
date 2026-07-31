@@ -6,6 +6,9 @@ ALTER TABLE machine_boot_interfaces
     ADD COLUMN verified_version varchar(64),
     ADD COLUMN observed_at timestamp with time zone,
     ADD COLUMN assumed boolean NOT NULL DEFAULT false,
+    -- Existing rows satisfy this constraint through the unset-status branch.
+    -- Add it normally so this single migration remains atomic without implying
+    -- that validation releases the transaction's table lock.
     ADD CONSTRAINT machine_boot_interfaces_status_consistent
         CHECK (
             (
@@ -17,12 +20,7 @@ ALTER TABLE machine_boot_interfaces
                 verified_version IS NOT NULL
                 AND observed_at IS NOT NULL
             )
-        ) NOT VALID;
-
--- Validate separately so the table scan does not hold the stronger lock used
--- while adding the columns and constraint.
-ALTER TABLE machine_boot_interfaces
-    VALIDATE CONSTRAINT machine_boot_interfaces_status_consistent;
+        );
 
 -- Avoid scheduling a fleet-wide boot reconfiguration when this status first
 -- rolls out. These rows predate status tracking, so record the baseline

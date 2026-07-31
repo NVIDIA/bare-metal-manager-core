@@ -1538,11 +1538,19 @@ pub async fn batch_allocate_instances(
             })?;
 
         if let Err(e) = mh_snapshot.is_usable_as_instance(request.allow_unhealthy_machine) {
-            tracing::error!(
-                %machine_id,
-                error = %e,
-                "Host can not be used as instance due to reason",
-            );
+            if matches!(&e, NotAllocatableReason::PendingBootConfiguration) {
+                tracing::info!(
+                    %machine_id,
+                    error = %e,
+                    "Host can not be used as instance due to reason",
+                );
+            } else {
+                tracing::error!(
+                    %machine_id,
+                    error = %e,
+                    "Host can not be used as instance due to reason",
+                );
+            }
             return Err(not_allocatable_error(machine_id, e));
         }
 
