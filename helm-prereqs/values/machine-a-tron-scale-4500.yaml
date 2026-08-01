@@ -83,6 +83,8 @@ pods:
   default: null
   mat-0:
     machines:
+      # the chart's own mat-0 example deep-merges in without this
+      rack-machines: null
       compute:
         hwType: dell_poweredge_r750
         hostCount: 1350
