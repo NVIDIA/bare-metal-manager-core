@@ -591,7 +591,7 @@ func (uerh UpdateExpectedRackHandler) Handle(c echo.Context) error {
 	if apiRequest.RackID != nil && *apiRequest.RackID != expectedRack.RackID {
 		logger.Warn().
 			Str("requestRackID", *apiRequest.RackID).
-			Str("expectedRackID", expectedRack.RackID).
+			Str("currentRackID", expectedRack.RackID).
 			Msg("RackID cannot be changed after creation")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Failed to validate ExpectedRack update request data", validation.Errors{
 			"rackId": errors.New("RackID cannot be changed after creation"),
