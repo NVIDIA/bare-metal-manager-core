@@ -487,6 +487,23 @@ pub async fn discover_dhcp(
     let mut host_primary_declaration: Option<bool> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
+
+    // If DHCP is suppressed for this BMC MAC, acknowledge and refuse.
+    // The decommission workflow polls acknowledged_at to confirm the BMC
+    // DHCP client has returned to the INIT state.
+    if db::bmc_suppression::acknowledge(
+        &mut txn,
+        parsed_mac,
+        model::bmc_suppression::BmcSuppressionSubsystem::Dhcp,
+    )
+    .await?
+    {
+        txn.commit().await?;
+        return Err(CarbideError::FailedPrecondition(format!(
+            "dhcp suppressed for bmc mac {parsed_mac}"
+        )));
+    }
+
     let mut predicted_interface_for_observation = None;
 
     let desired_address_ip: Option<IpAddr> = if is_v6_observation {

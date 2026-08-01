@@ -52,7 +52,7 @@ pub mod routing;
 #[cfg(test)]
 mod tests;
 
-pub use import::{import_secrets, is_vault_import_complete, mark_vault_import_complete};
+pub use import::{import_vault_secrets, is_vault_import_complete};
 pub use metrics::{OperationTimer, SecretsOperation};
 pub use re_wrap::{ReWrapStaleResult, re_wrap_stale};
 pub use routing::SecretRouting;
@@ -100,14 +100,20 @@ pub enum ImportApproach {
     All,
 }
 
-/// What an import did.
-#[derive(Debug, Default)]
-pub struct ImportResult {
-    /// Secrets written to Postgres.
-    pub imported: u64,
-    /// Secrets left alone because their path already had entries
-    /// (`MissingOnly` only).
-    pub skipped: u64,
+/// What happened after a Vault import acquired its database interlock.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ImportResult {
+    /// This transaction committed the secrets and completion marker.
+    Completed {
+        /// Secrets written to Postgres.
+        imported: u64,
+        /// Secrets left alone because their path already had entries
+        /// (`MissingOnly` only).
+        skipped: u64,
+    },
+    /// The permanent marker was already present after taking the import
+    /// interlock, so this transaction wrote nothing.
+    AlreadyComplete,
 }
 
 /// Errors from the Postgres secrets backend.
@@ -422,30 +428,22 @@ impl CredentialWriter for PostgresCredentialManager {
             Zeroizing::new(serde_json::to_vec(credentials).map_err(PgSecretsError::from)?);
         let envelope = self.encrypt_envelope(&path, &json_bytes).await?;
 
-        // Create-only means check-then-insert, and those are two
-        // statements: hold the path's advisory lock for the transaction so
-        // a concurrent create cannot slip between them. Vault gave us this
-        // through its compare-and-set; Postgres needs the lock because the
-        // journal has no unique index to enforce it.
+        // Create-only means check-then-insert, and those are two statements:
+        // hold the path's advisory lock to serialize creates and the table's
+        // write lock to order the check against a bulk import. Vault gave us
+        // the first property through its compare-and-set; Postgres needs both
+        // locks because the journal has no unique path index to enforce it.
         let mut txn = self
             .pool
             .begin()
             .await
             .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?;
-        db::secrets::lock_path(&mut txn, &path)
+        let inserted = db::secrets::insert_if_missing(&mut txn, &envelope.as_new_entry(&path))
             .await
             .map_err(PgSecretsError::from)?;
-
-        if db::secrets::exists(&mut *txn, &path)
-            .await
-            .map_err(PgSecretsError::from)?
-        {
+        if !inserted {
             return Err(PgSecretsError::AlreadyExists(path.to_string()).into());
         }
-
-        db::secrets::insert(&mut txn, &envelope.as_new_entry(&path))
-            .await
-            .map_err(PgSecretsError::from)?;
         txn.commit()
             .await
             .map_err(|e| PgSecretsError::Database(db::DatabaseError::new("commit create", e)))?;

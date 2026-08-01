@@ -23,96 +23,102 @@
 
 use carbide_kms_provider::KmsBackend;
 use carbide_secrets::credentials::Credentials;
+use db::work_lock_manager::WorkLock;
 use sqlx::PgPool;
 use zeroize::Zeroizing;
 
 use super::routing::SecretRouting;
 use super::{ImportApproach, ImportResult, PgSecretsError, VAULT_IMPORT_MARKER_PATH};
 
-/// Import pre-read secrets into Postgres.
+/// Import pre-read Vault secrets into Postgres and record completion.
 ///
-/// With `MissingOnly`, a path that already has entries is skipped before
-/// any encryption happens; the per-path advisory lock inside
-/// `insert_if_missing` keeps a concurrent writer from sneaking an entry in
-/// between the check and the insert. With `All`, every secret appends a new
-/// journal entry unconditionally.
-pub async fn import_secrets(
+/// With `MissingOnly`, every secret is prepared before the transaction, then
+/// paths that already have entries are skipped under the `secrets` table lock.
+/// With `All`, every secret appends a new journal entry unconditionally.
+///
+/// Vault and KMS work finishes before the transaction begins. The transaction
+/// first takes the marker advisory lock used by the legacy importer, then
+/// fences `work_lock`, writes the complete snapshot, and records the permanent
+/// marker atomically. The table lock keeps lock-table use constant even when a
+/// Vault snapshot has thousands of paths; one query finds existing paths and
+/// the selected entries are inserted in bind-limit-sized chunks. Legacy
+/// importers serialize with this batch while their session lock remains live,
+/// and a worker whose lease was taken over can commit neither stale credentials
+/// nor a completion marker.
+pub async fn import_vault_secrets(
     pool: &PgPool,
+    work_lock: &WorkLock,
     routing: &SecretRouting,
     kms: &dyn KmsBackend,
     secrets: &[(String, Credentials)],
     approach: ImportApproach,
 ) -> Result<ImportResult, PgSecretsError> {
-    let mut result = ImportResult::default();
+    let mut skipped = 0;
+    let mut prepared_secrets = Vec::with_capacity(secrets.len());
 
     for (path, credentials) in secrets {
-        // Cheap existence pre-check so MissingOnly re-imports skip the
-        // DEK generation and encryption for secrets that already landed.
-        // The locked check inside insert_if_missing is still the one that
-        // decides.
-        if matches!(approach, ImportApproach::MissingOnly)
-            && db::secrets::exists(pool, path).await?
-        {
-            result.skipped += 1;
-            continue;
-        }
-
         let json_bytes = Zeroizing::new(serde_json::to_vec(credentials)?);
         let envelope = super::encrypt_envelope(routing, kms, path, &json_bytes).await?;
-
-        match approach {
-            ImportApproach::MissingOnly => {
-                let mut txn = pool
-                    .begin()
-                    .await
-                    .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?;
-                let inserted =
-                    db::secrets::insert_if_missing(&mut txn, &envelope.as_new_entry(path)).await?;
-                txn.commit().await.map_err(|e| {
-                    PgSecretsError::Database(db::DatabaseError::new("commit import", e))
-                })?;
-                if inserted {
-                    result.imported += 1;
-                } else {
-                    result.skipped += 1;
-                }
-            }
-            ImportApproach::All => {
-                let mut conn = pool
-                    .acquire()
-                    .await
-                    .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?;
-                db::secrets::insert(&mut conn, &envelope.as_new_entry(path)).await?;
-                result.imported += 1;
-            }
-        }
+        prepared_secrets.push((path, envelope));
     }
 
-    Ok(result)
+    let marker_envelope =
+        super::encrypt_envelope(routing, kms, VAULT_IMPORT_MARKER_PATH, b"completed").await?;
+    let mut txn = pool
+        .begin()
+        .await
+        .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?;
+
+    // This is the same advisory key used by the old session-lock importer.
+    // Take it before the table lock so an old importer can finish its writes,
+    // then recheck its marker before this batch changes anything.
+    db::secrets::lock_path_advisory(&mut txn, VAULT_IMPORT_MARKER_PATH).await?;
+    if db::secrets::exists(&mut *txn, VAULT_IMPORT_MARKER_PATH).await? {
+        txn.rollback().await.map_err(|e| {
+            PgSecretsError::Database(db::DatabaseError::new(
+                "roll back completed vault import",
+                e,
+            ))
+        })?;
+        return Ok(ImportResult::AlreadyComplete);
+    }
+
+    work_lock.fence_transaction(&mut txn).await?;
+    db::secrets::lock_for_bulk_write(&mut txn).await?;
+
+    let mut occupied_paths = match approach {
+        ImportApproach::MissingOnly => {
+            let paths = prepared_secrets
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>();
+            db::secrets::find_existing_paths(&mut *txn, &paths).await?
+        }
+        ImportApproach::All => Default::default(),
+    };
+    let mut entries = Vec::with_capacity(prepared_secrets.len() + 1);
+    for (path, envelope) in &prepared_secrets {
+        if matches!(approach, ImportApproach::MissingOnly)
+            && !occupied_paths.insert((*path).clone())
+        {
+            skipped += 1;
+            continue;
+        }
+        entries.push(envelope.as_new_entry(path));
+    }
+
+    let imported = entries.len() as u64;
+    entries.push(marker_envelope.as_new_entry(VAULT_IMPORT_MARKER_PATH));
+    db::secrets::insert_many(&mut txn, &entries).await?;
+    txn.commit()
+        .await
+        .map_err(|e| PgSecretsError::Database(db::DatabaseError::new("commit vault import", e)))?;
+
+    Ok(ImportResult::Completed { imported, skipped })
 }
 
 /// Whether the vault import has already completed (the marker secret
 /// exists).
 pub async fn is_vault_import_complete(pool: &PgPool) -> Result<bool, PgSecretsError> {
     Ok(db::secrets::exists(pool, VAULT_IMPORT_MARKER_PATH).await?)
-}
-
-/// Record vault import completion by writing the marker secret. The marker
-/// is an ordinary encrypted journal entry, so it needs no schema of its
-/// own.
-pub async fn mark_vault_import_complete(
-    pool: &PgPool,
-    routing: &SecretRouting,
-    kms: &dyn KmsBackend,
-) -> Result<(), PgSecretsError> {
-    let envelope =
-        super::encrypt_envelope(routing, kms, VAULT_IMPORT_MARKER_PATH, b"completed").await?;
-
-    let mut conn = pool
-        .acquire()
-        .await
-        .map_err(|e| PgSecretsError::Database(db::DatabaseError::acquire(e)))?;
-
-    db::secrets::insert(&mut conn, &envelope.as_new_entry(VAULT_IMPORT_MARKER_PATH)).await?;
-    Ok(())
 }

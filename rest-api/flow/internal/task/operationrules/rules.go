@@ -32,6 +32,10 @@ const (
 	ActionBringUpControl    = "BringUpControl"
 	ActionWaitBringUp       = "WaitBringUp"
 	ActionInjectExpectation = "InjectExpectation"
+
+	// Decommission specific actions
+	ActionDecommissionControl = "DecommissionControl"
+	ActionWaitDecommissioned  = "WaitDecommissioned"
 )
 
 // Parameter keys for ActionConfig.Parameters

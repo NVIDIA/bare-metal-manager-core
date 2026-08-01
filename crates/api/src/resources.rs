@@ -18,7 +18,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use carbide_api_core::bootstrap::lock_vault_import_session;
+use carbide_api_core::bootstrap::acquire_vault_import_work_lock;
 use carbide_api_core::cfg::file::{
     CarbideConfig, CredentialBackend, ImportSource, ProviderConfig, SecretsConfig,
 };
@@ -32,6 +32,7 @@ use carbide_secrets::{
     CredentialConfig, ForgeVaultClient, MemoryCredentialStore, SpiffeIdentity, VaultConfig,
     create_certificate_provider, create_credential_manager_from, create_vault_client,
 };
+use db::work_lock_manager::{self, WorkLockManagerHandle};
 use eyre::WrapErr;
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
@@ -45,6 +46,7 @@ pub(crate) struct RuntimeResources {
     pub credential_manager: Arc<dyn CredentialManager>,
     pub certificate_provider: Arc<dyn CertificateProvider>,
     pub db_pool: PgPool,
+    pub work_lock_manager_handle: WorkLockManagerHandle,
     pub secrets_context: Option<SecretsContext>,
 }
 
@@ -78,6 +80,12 @@ pub(crate) async fn setup_resources(
     )?;
 
     let db_pool = connect_postgres(carbide_config).await?;
+    let work_lock_manager_handle = work_lock_manager::start(
+        join_set,
+        db_pool.clone(),
+        work_lock_manager::KeepaliveConfig::default(),
+    )
+    .await?;
 
     // Build the local-override readers (env, file); each is consulted only when
     // its [credentials.*] section is enabled. The backends (postgres,
@@ -146,10 +154,12 @@ pub(crate) async fn setup_resources(
         if secrets_config.import_from == Some(ImportSource::Vault) {
             import_vault_secrets_once(
                 &db_pool,
+                &work_lock_manager_handle,
                 secrets_config,
                 &routing,
                 kms.as_ref(),
                 &vault_client,
+                cancel_token,
             )
             .await?;
         }
@@ -204,6 +214,7 @@ pub(crate) async fn setup_resources(
         credential_manager,
         certificate_provider,
         db_pool,
+        work_lock_manager_handle,
         secrets_context,
     })
 }
@@ -439,15 +450,26 @@ fn build_kms_backend(
 /// where they are stranded. Site-explorer credential rotation is the writer
 /// to worry about; keep it disabled until the whole fleet runs a consistent
 /// config.
-/// TODO(@chet): Migrate this to using WorkLockManager to do scoped locks of
-/// work without holding open a database connection or transaction.
-#[allow(txn_held_across_await)]
+///
+/// During a rolling upgrade, the fenced transaction also takes the marker
+/// advisory lock used by the old session-lock importer. Healthy old and new
+/// importer sessions therefore serialize even though only the new replicas use
+/// `WorkLockManager`. The old implementation cannot be fenced if its detached
+/// lock session dies while its importer keeps running, so deploy this code to
+/// every API replica before starting an import on a site without the marker.
+///
+/// Normal returns and errors wait for the manager to release the work lock; a
+/// hard crash falls back to its lease expiry. Vault and KMS work is prepared
+/// before the transaction atomically commits every secret plus the marker, so
+/// an expired owner cannot write after a replacement takes over.
 async fn import_vault_secrets_once(
     db_pool: &PgPool,
+    work_lock_manager: &WorkLockManagerHandle,
     config: &SecretsConfig,
     routing: &SecretRouting,
     kms: &dyn KmsBackend,
     vault_client: &ForgeVaultClient,
+    cancel_token: &CancellationToken,
 ) -> eyre::Result<()> {
     if is_import_complete(db_pool).await? {
         tracing::info!("Vault import already completed");
@@ -455,71 +477,82 @@ async fn import_vault_secrets_once(
     }
 
     // Several replicas can boot against the same empty database at once.
-    // The marker path's advisory lock lets one of them import while the
-    // rest wait here, re-check the marker, and move on. It is a session
-    // lock on a dedicated connection rather than a transaction-scoped one:
-    // the import awaits Vault enumeration and pool-backed writes, and
-    // holding a transaction across those would trip `txn_held_across_await`
-    // and, under concurrent startup, risk waiters starving the pool the
-    // importer itself needs. Detaching the connection guarantees the lock
-    // releases when it drops, including on an early error return.
-    let mut lock_connection = db_pool
-        .acquire()
-        .await
-        .wrap_err("acquire vault import lock connection")?
-        .detach();
-    lock_vault_import_session(&mut lock_connection)
-        .await
-        .map_err(eyre::Report::new)
-        .wrap_err("acquire vault import lock")?;
-    if is_import_complete(db_pool).await? {
+    // The work lock coordinates healthy replicas without keeping a dedicated
+    // database session open across Vault and KMS calls. Waiters keep checking
+    // the permanent marker so they can finish as soon as the importer writes it.
+    let Some(work_lock) =
+        acquire_vault_import_work_lock(db_pool, work_lock_manager, cancel_token).await?
+    else {
         tracing::info!("Vault import completed by another replica");
         return Ok(());
-    }
+    };
 
-    // Strict enumeration: any list or read failure aborts the boot rather
-    // than importing a subset and recording it as complete. The marker is
-    // permanent, so a partial import here would be silent credential loss.
-    let secrets = vault_client
-        .get_secrets_strict()
-        .await
-        .map_err(eyre::Report::from)
-        .wrap_err("enumerate vault secrets for import")?;
-    if secrets.is_empty() {
-        return Err(eyre::eyre!(
-            "vault enumeration returned no secrets; refusing to record an import from an empty vault. if this site really has no vault secrets, remove import_from from the [secrets] config; otherwise fix vault and restart"
-        ));
-    }
+    let import_result: eyre::Result<()> = async {
+        // Strict enumeration: any list or read failure aborts the boot rather
+        // than importing a subset and recording it as complete. The marker is
+        // permanent, so a partial import here would be silent credential loss.
+        let secrets = vault_client
+            .get_secrets_strict()
+            .await
+            .map_err(eyre::Report::from)
+            .wrap_err("enumerate vault secrets for import")?;
+        if secrets.is_empty() {
+            return Err(eyre::eyre!(
+                "vault enumeration returned no secrets; refusing to record an import from an empty vault. if this site really has no vault secrets, remove import_from from the [secrets] config; otherwise fix vault and restart"
+            ));
+        }
 
-    tracing::info!(
-        vault_secret_count = secrets.len(),
-        approach = ?config.import_approach,
-        "Importing secrets from vault"
-    );
-    let result = carbide_api_core::secrets::import_secrets(
-        db_pool,
-        routing,
-        kms,
-        &secrets,
-        config.import_approach,
-    )
-    .await
-    .map_err(eyre::Report::new)
-    .wrap_err("vault secret import")?;
-    tracing::info!(
-        imported_secret_count = result.imported,
-        skipped_secret_count = result.skipped,
-        "Vault secret import completed"
-    );
-    carbide_api_core::secrets::mark_vault_import_complete(db_pool, routing, kms)
+        tracing::info!(
+            vault_secret_count = secrets.len(),
+            approach = ?config.import_approach,
+            "Importing secrets from vault"
+        );
+        let stats = carbide_api_core::secrets::import_vault_secrets(
+            db_pool,
+            &work_lock,
+            routing,
+            kms,
+            &secrets,
+            config.import_approach,
+        )
         .await
         .map_err(eyre::Report::new)
-        .wrap_err("mark vault import complete")?;
-    tracing::info!("Vault import marked complete");
+        .wrap_err("vault secret import")?;
+        match stats {
+            carbide_api_core::secrets::ImportResult::Completed { imported, skipped } => {
+                tracing::info!(
+                    imported_secret_count = imported,
+                    skipped_secret_count = skipped,
+                    "Vault secret import completed"
+                );
+            }
+            carbide_api_core::secrets::ImportResult::AlreadyComplete => {
+                tracing::info!("Vault import completed by another replica");
+            }
+        }
 
-    // lock_connection drops here, closing the connection and releasing the
-    // session advisory lock.
-    Ok(())
+        Ok(())
+    }
+    .await;
+
+    match (import_result, work_lock.release().await) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(import_error), Ok(())) => Err(import_error),
+        (Ok(()), Err(release_error)) => {
+            tracing::warn!(
+                error = %release_error,
+                "Vault import committed but its work lock could not be released"
+            );
+            Ok(())
+        }
+        (Err(import_error), Err(release_error)) => {
+            tracing::warn!(
+                error = %release_error,
+                "Vault import failed and its work lock could not be released"
+            );
+            Err(import_error)
+        }
+    }
 }
 
 async fn is_import_complete(db_pool: &PgPool) -> eyre::Result<bool> {

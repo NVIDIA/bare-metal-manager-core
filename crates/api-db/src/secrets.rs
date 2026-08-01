@@ -27,12 +27,16 @@
 //! callers that decrypt and parse whole result sets never trip over a
 //! non-credential payload.
 
+use std::collections::HashSet;
+
 use carbide_uuid::secret::SecretId;
 use model::secrets::SecretRow;
 use sqlx::{PgConnection, PgTransaction};
 
 use crate::db_read::DbReader;
-use crate::{DatabaseError, DatabaseResult};
+use crate::{BIND_LIMIT, DatabaseError, DatabaseResult};
+
+const SECRET_ENTRY_BINDS: usize = 7;
 
 /// The envelope-encryption columns for one journal entry, exactly as the
 /// manager produced them. Grouped so the insert paths cannot mix up five
@@ -78,6 +82,78 @@ pub async fn insert(txn: &mut PgConnection, entry: &NewSecretEntry<'_>) -> Datab
     Ok(())
 }
 
+/// Append a batch of journal entries with as few INSERT statements as the
+/// PostgreSQL bind limit permits. Each row binds seven values, so oversized
+/// batches are split at [`BIND_LIMIT`] / 7 entries per statement.
+///
+/// When `entries` spans multiple chunks, callers that require all-or-nothing
+/// behavior must pass a connection borrowed from an open transaction. On a
+/// bare connection, an error in a later chunk leaves earlier chunks committed.
+pub async fn insert_many(
+    txn: &mut PgConnection,
+    entries: &[NewSecretEntry<'_>],
+) -> DatabaseResult<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let sql = "INSERT INTO secrets
+         (secret_id, path, encrypted_value, nonce,
+          kek_id, encrypted_dek, dek_nonce) ";
+    for chunk in entries.chunks(BIND_LIMIT / SECRET_ENTRY_BINDS) {
+        let mut query = sqlx::QueryBuilder::new(sql);
+        query.push_values(chunk, |mut row, entry| {
+            row.push_bind(SecretId::new())
+                .push_bind(entry.path)
+                .push_bind(entry.encrypted_value)
+                .push_bind(entry.nonce)
+                .push_bind(entry.kek_id)
+                .push_bind(entry.encrypted_dek)
+                .push_bind(entry.dek_nonce);
+        });
+        query
+            .build()
+            .execute(&mut *txn)
+            .await
+            .map_err(|e| DatabaseError::query(sql, e))?;
+    }
+    Ok(())
+}
+
+/// Return the requested paths that already have journal entries.
+pub async fn find_existing_paths(
+    txn: impl DbReader<'_>,
+    paths: &[&str],
+) -> DatabaseResult<HashSet<String>> {
+    if paths.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    let sql = "SELECT DISTINCT path FROM secrets WHERE path = ANY($1)";
+    let existing = sqlx::query_scalar(sql)
+        .bind(paths)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(sql, e))?;
+    Ok(existing.into_iter().collect())
+}
+
+/// `lock_for_bulk_write` blocks concurrent mutations of `secrets` until
+/// `txn` ends while leaving ordinary reads available.
+///
+/// An atomic batch would otherwise retain one transaction-scoped advisory
+/// lock per path. `SHARE ROW EXCLUSIVE` gives the whole batch one table lock
+/// instead. Callers must take it before reading or writing any of the batch's
+/// credential paths.
+pub async fn lock_for_bulk_write(txn: &mut PgTransaction<'_>) -> DatabaseResult<()> {
+    let sql = "LOCK TABLE secrets IN SHARE ROW EXCLUSIVE MODE";
+    sqlx::query(sql)
+        .execute(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::query(sql, e))?;
+    Ok(())
+}
+
 /// Append a new journal entry only if the path has no entries yet. Returns
 /// true when the row was inserted, false when entries already existed.
 ///
@@ -97,45 +173,43 @@ pub async fn insert_if_missing(
     Ok(true)
 }
 
-/// Take the transaction-scoped advisory lock for a path. Callers that need
-/// check-then-write semantics on a path (there is no unique index -- the
-/// journal allows many rows per path) take this lock first so concurrent
-/// writers serialize.
+/// Serialize a check-then-write operation for one path. There is no unique
+/// path index -- the journal allows many rows per path -- so concurrent
+/// callers take the path's advisory lock and a compatible table-write lock
+/// before checking whether it exists.
 ///
 /// The hashed string is namespaced with "secrets:" so this can never
 /// collide with other subsystems that take advisory locks on their own
 /// hashed strings.
 pub async fn lock_path(txn: &mut PgTransaction<'_>, path: &str) -> DatabaseResult<()> {
+    // Keep the advisory-first order used by older replicas. If a new caller
+    // held `ROW EXCLUSIVE` while waiting on an old caller's advisory lock, a
+    // queued bulk writer could otherwise complete a three-way deadlock.
+    lock_path_advisory(txn, path).await?;
+
+    // A bulk writer takes `SHARE ROW EXCLUSIVE` before checking any paths.
+    // Take our compatible `ROW EXCLUSIVE` lock before the existence check too:
+    // if a bulk write is active, we need to wait before deciding the path is
+    // missing rather than after the later `INSERT`.
+    let table_lock_sql = "LOCK TABLE secrets IN ROW EXCLUSIVE MODE";
+    sqlx::query(table_lock_sql)
+        .execute(&mut **txn)
+        .await
+        .map_err(|e| DatabaseError::query(table_lock_sql, e))?;
+    Ok(())
+}
+
+/// Take only the transaction-scoped advisory lock for `path`.
+///
+/// Most check-then-write callers need [`lock_path`], which also orders their
+/// existence check against bulk writes. The Vault import uses this narrower
+/// helper for its legacy marker interlock, then takes the batch's stronger
+/// table lock once without an unnecessary `ROW EXCLUSIVE` lock for the marker.
+pub async fn lock_path_advisory(txn: &mut PgTransaction<'_>, path: &str) -> DatabaseResult<()> {
     let sql = "SELECT pg_advisory_xact_lock(hashtextextended('secrets:' || $1, 0))";
     sqlx::query(sql)
         .bind(path)
         .execute(&mut **txn)
-        .await
-        .map_err(|e| DatabaseError::query(sql, e))?;
-    Ok(())
-}
-
-/// Take the session-scoped advisory lock for a path on this connection,
-/// waiting until it is free. The lock is held until
-/// [`unlock_path_session`] runs or the connection drops.
-pub async fn lock_path_session(conn: &mut PgConnection, path: &str) -> DatabaseResult<()> {
-    let sql = "SELECT pg_advisory_lock(hashtextextended('secrets:' || $1, 0))";
-    sqlx::query(sql)
-        .bind(path)
-        .execute(conn)
-        .await
-        .map_err(|e| DatabaseError::query(sql, e))?;
-    Ok(())
-}
-
-/// Release a session-scoped advisory lock taken by [`lock_path_session`].
-/// Dropping the connection releases it too, so this is only needed when the
-/// connection is kept for further work.
-pub async fn unlock_path_session(conn: &mut PgConnection, path: &str) -> DatabaseResult<()> {
-    let sql = "SELECT pg_advisory_unlock(hashtextextended('secrets:' || $1, 0))";
-    sqlx::query(sql)
-        .bind(path)
-        .execute(conn)
         .await
         .map_err(|e| DatabaseError::query(sql, e))?;
     Ok(())
@@ -295,4 +369,40 @@ pub async fn update_dek_wrap(
         .await
         .map_err(|e| DatabaseError::query(sql, e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[crate::sqlx_test]
+    async fn batched_insert_splits_at_bind_limit(pool: sqlx::PgPool) {
+        let entry_count = BIND_LIMIT / SECRET_ENTRY_BINDS + 1;
+        let paths = (0..entry_count)
+            .map(|index| format!("batch/{index}"))
+            .collect::<Vec<_>>();
+        let entries = paths
+            .iter()
+            .map(|path| NewSecretEntry {
+                path,
+                encrypted_value: b"value",
+                nonce: b"nonce",
+                kek_id: "kek",
+                encrypted_dek: b"dek",
+                dek_nonce: b"dek-nonce",
+            })
+            .collect::<Vec<_>>();
+        let mut connection = pool.acquire().await.expect("acquire database connection");
+
+        insert_many(&mut connection, &entries)
+            .await
+            .expect("insert secret batch");
+        drop(connection);
+
+        let row_count: i64 = sqlx::query_scalar("SELECT count(*) FROM secrets")
+            .fetch_one(&pool)
+            .await
+            .expect("count inserted secrets");
+        assert_eq!(row_count, entry_count as i64);
+    }
 }

@@ -77,6 +77,8 @@ func Descriptor() cmcatalog.Descriptor {
 		},
 		RequiredProviders: []string{nicoprovider.ProviderName},
 		Capabilities: capability.CapabilitySet{
+			capability.CapabilityDecommissionControl,
+			capability.CapabilityDecommissionStatus,
 			capability.CapabilityFirmwareControl,
 			capability.CapabilityFirmwareStatus,
 			capability.CapabilityInjectExpectation,
@@ -380,5 +382,54 @@ func (m *Manager) GetFirmwareStatus(
 		}
 	}
 
+	return result, nil
+}
+
+// Decommission initiates decommissioning of the target power shelves via NICo.
+func (m *Manager) Decommission(
+	ctx context.Context,
+	target common.Target,
+	_ operations.DecommissionTaskInfo,
+) error {
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	for _, shelfID := range target.ComponentIDs {
+		if err := m.nicoClient.DecommissionPowerShelf(ctx, shelfID); err != nil {
+			return fmt.Errorf("DecommissionPowerShelf failed for %s: %w", shelfID, err)
+		}
+	}
+
+	log.Info().
+		Strs("shelf_ids", target.ComponentIDs).
+		Msg("Decommission initiated for PowerShelf components")
+	return nil
+}
+
+// GetDecommissionStatus returns the current decommission state for each
+// target power shelf, keyed by shelf ID.
+func (m *Manager) GetDecommissionStatus(
+	ctx context.Context,
+	target common.Target,
+) (map[string]string, error) {
+	if err := target.Validate(); err != nil {
+		return nil, fmt.Errorf("target is invalid: %w", err)
+	}
+
+	states, err := m.nicoClient.FindPowerShelfControllerStates(ctx, target.ComponentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("FindPowerShelfControllerStates: %w", err)
+	}
+
+	// Ensure every requested component is present in the result.
+	result := make(map[string]string, len(target.ComponentIDs))
+	for _, id := range target.ComponentIDs {
+		if s, ok := states[id]; ok {
+			result[id] = s
+		} else {
+			result[id] = ""
+		}
+	}
 	return result, nil
 }
