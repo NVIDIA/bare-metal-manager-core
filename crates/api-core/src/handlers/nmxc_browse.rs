@@ -152,23 +152,9 @@ pub(crate) async fn nmxc_browse(
 
     let request = request.into_inner();
 
-    let chassis_serial = request.chassis_serial.trim();
     let rack_id = request.rack_id.as_ref();
-
-    if rack_id.is_some() && !chassis_serial.is_empty() {
-        return Err(CarbideError::InvalidArgument(
-            "chassis_serial and rack_id are mutually exclusive".to_string(),
-        )
-        .into());
-    }
-
-    let group_type = if rack_id.is_some() {
-        ManagedHostGroupType::Rack
-    } else if !chassis_serial.is_empty() {
-        ManagedHostGroupType::Chassis
-    } else {
-        return Err(CarbideError::MissingArgument("chassis_serial or rack_id").into());
-    };
+    let group_type = resolve_group_type(&request.chassis_serial, rack_id)?;
+    let chassis_serial = request.chassis_serial.trim();
 
     let op = rpc::NmxcBrowseOperation::try_from(request.operation)
         .unwrap_or(rpc::NmxcBrowseOperation::Unspecified);
@@ -262,5 +248,74 @@ pub(crate) async fn nmxc_browse(
         }
     } else {
         Err(CarbideError::internal("nvlink config not enabled".to_string()).into())
+    }
+}
+
+/// Determines the `ManagedHostGroupType` from a browse request's selector fields.
+///
+/// `chassis_serial` is trimmed before inspection, so a whitespace-only value is
+/// treated as absent. The two selectors are mutually exclusive: providing both
+/// is an `InvalidArgument` error; providing neither is a `MissingArgument` error.
+fn resolve_group_type(
+    chassis_serial: &str,
+    rack_id: Option<&carbide_uuid::rack::RackId>,
+) -> Result<ManagedHostGroupType, CarbideError> {
+    let chassis_serial = chassis_serial.trim();
+    if rack_id.is_some() && !chassis_serial.is_empty() {
+        return Err(CarbideError::InvalidArgument(
+            "chassis_serial and rack_id are mutually exclusive".to_string(),
+        ));
+    }
+    if rack_id.is_some() {
+        Ok(ManagedHostGroupType::Rack)
+    } else if !chassis_serial.is_empty() {
+        Ok(ManagedHostGroupType::Chassis)
+    } else {
+        Err(CarbideError::MissingArgument("chassis_serial or rack_id"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use carbide_test_support::Outcome::{FailsWith, Yields};
+    use carbide_test_support::scenarios;
+    use carbide_uuid::rack::RackId;
+
+    use super::*;
+
+    /// Mapped error discriminant so table rows can assert which validation rule fired.
+    #[derive(Debug, PartialEq)]
+    enum SelectionError {
+        BothProvided,
+        NeitherProvided,
+    }
+
+    #[test]
+    fn selector_validation_resolves_group_type_or_rejects_invalid_inputs() {
+        scenarios!(run = |(chassis_serial, rack_id_str): (&str, Option<&str>)| {
+            let rack_id = rack_id_str.map(RackId::new);
+            resolve_group_type(chassis_serial, rack_id.as_ref()).map_err(|e| match e {
+                CarbideError::InvalidArgument(_) => SelectionError::BothProvided,
+                _ => SelectionError::NeitherProvided,
+            })
+        };
+            "rack-only" {
+                ("", Some("rack-a")) => Yields(ManagedHostGroupType::Rack),
+            }
+
+            "chassis-only" {
+                ("SN-123", None) => Yields(ManagedHostGroupType::Chassis),
+                ("  SN-123  ", None) => Yields(ManagedHostGroupType::Chassis),
+            }
+
+            "both provided" {
+                ("SN-123", Some("rack-a")) => FailsWith(SelectionError::BothProvided),
+            }
+
+            "neither provided" {
+                ("", None) => FailsWith(SelectionError::NeitherProvided),
+                ("   ", None) => FailsWith(SelectionError::NeitherProvided),
+            }
+        );
     }
 }
