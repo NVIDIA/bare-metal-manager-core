@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
@@ -196,6 +197,10 @@ pub struct Switch {
     /// FabricManager / NMX-C status set by the rack state machine.
     pub fabric_manager_status: Option<FabricManagerStatus>,
 
+    /// Last non-nil NVLink domain observed through the rack's selected NMX-C endpoint.
+    /// Failed or nil observations leave the previous value unchanged.
+    pub nvlink_domain_uuid: Option<NvLinkDomainId>,
+
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
@@ -263,6 +268,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             nvos_update_status: nvos_update_status.map(|j| j.0),
             fabric_manager_status: fabric_manager_status.map(|j| j.0),
+            // A reader may overlap the additive migration during a rolling deployment.
+            nvlink_domain_uuid: row.try_get("nvlink_domain_uuid").ok().flatten(),
             metadata,
             version: row.try_get("version")?,
             is_primary: row.try_get("is_primary").unwrap_or(false),

@@ -2438,6 +2438,9 @@ message Switch {
 
   // NVOS host endpoint
   SwitchNvosInfo nvos_info = 15;
+
+  // NVLink domain UUID
+  common.NVLinkDomainId nvlink_domain_uuid = 16;
 }
 
 message SwitchList {

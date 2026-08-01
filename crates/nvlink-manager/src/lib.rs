@@ -102,8 +102,8 @@ type ManagedHostsByRackId<'a> = HashMap<RackId, Vec<&'a ManagedHostStateSnapshot
 
 /// Groups managed hosts for monitor work.
 ///
-/// Hosts with a `rack_id` are rack-scoped only. Hosts without a `rack_id` are
-/// grouped using chassis serial.
+/// Hosts with a `rack_id` are grouped into the rack's single current NMX-C
+/// domain. Hosts without a `rack_id` are grouped using chassis serial.
 fn group_managed_hosts_by_group_type(
     snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
 ) -> (ManagedHostsByChassisSerial<'_>, ManagedHostsByRackId<'_>) {
@@ -133,6 +133,10 @@ fn group_managed_hosts_by_group_type(
     (by_chassis_serial, by_rack_id)
 }
 
+/// Extracts the domain identifier from a successful NMX-C Hello response.
+///
+/// Transport success does not guarantee that the server header or UUID is
+/// present and well formed, so callers must handle this as protocol data.
 fn domain_uuid_from_nmx_c_hello(
     hello: &libnmxc::nmxc_model::ServerHello,
 ) -> NvLinkManagerResult<NvLinkDomainId> {
@@ -1116,6 +1120,9 @@ struct ProcessMachineGroupInput<'a> {
     group_type: nmx_c_endpoint::ManagedHostGroupType,
     snapshots: &'a [&'a ManagedHostStateSnapshot],
     endpoint_url: Option<&'a str>,
+
+    /// Rack associated with the selected switch endpoint; absent for chassis mappings.
+    rack_id: Option<&'a RackId>,
     all_managed_host_snapshots: &'a HashMap<MachineId, ManagedHostStateSnapshot>,
     machine_nvlink_info: &'a mut HashMap<MachineId, Option<MachineNvLinkInfo>>,
     db_nvl_partitions: &'a [NvlPartition],
@@ -1286,27 +1293,41 @@ impl NvlPartitionMonitor {
             }
         }
 
-        let rack_id_to_resolved_endpoint = if managed_host_snapshots_by_rack_id.is_empty() {
-            HashMap::new()
-        } else {
-            db::switch::find_ready_control_plane_configured_switch_endpoints(&mut txn)
+        // Close the inventory transaction before contacting NMX-C. Endpoint
+        // lookup is best effort only when no rack partition work depends on it.
+        let rack_endpoint_rows =
+            match db::switch::find_ready_control_plane_configured_switch_endpoints(&mut txn)
                 .await
-                .map_err(NvLinkManagerError::from)?
-                .into_iter()
-                .filter(|row| managed_host_snapshots_by_rack_id.contains_key(&row.rack_id))
-                .map(|row| {
-                    let endpoint_url = nmx_c_endpoint::nmx_c_endpoint_url_from_nvos_ip(
-                        &row.nvos_ip,
-                        None,
-                        &self.config,
+                .map_err(NvLinkManagerError::from)
+            {
+                Ok(rows) => {
+                    txn.commit().await?;
+                    rows
+                }
+                Err(error) if managed_host_snapshots_by_rack_id.is_empty() => {
+                    tracing::warn!(
+                        %error,
+                        "Unable to load rack NMX-C endpoints; switch domain publication skipped"
                     );
-                    (row.rack_id, endpoint_url)
-                })
-                .collect()
-        };
 
-        // Don't hold the transaction across unrelated awaits
-        txn.commit().await?;
+                    txn.rollback().await?;
+                    Vec::new()
+                }
+                Err(error) => return Err(error),
+            };
+
+        let rack_id_to_resolved_endpoint = rack_endpoint_rows
+            .into_iter()
+            .map(|row| {
+                let endpoint_url = nmx_c_endpoint::nmx_c_endpoint_url_from_nvos_ip(
+                    &row.nvos_ip,
+                    None,
+                    &self.config,
+                );
+
+                (row.rack_id, endpoint_url)
+            })
+            .collect::<HashMap<_, _>>();
 
         metrics.num_logical_partitions = db_nvl_logical_partitions.len();
         metrics.num_physical_partitions = db_nvl_partitions.len();
@@ -1324,6 +1345,7 @@ impl NvlPartitionMonitor {
                         endpoint_url: chassis_serial_to_resolved_endpoint
                             .get(chassis_serial)
                             .map(String::as_str),
+                        rack_id: None,
                         all_managed_host_snapshots: &managed_host_snapshots,
                         machine_nvlink_info: &mut machine_nvlink_info,
                         db_nvl_partitions: &db_nvl_partitions,
@@ -1348,6 +1370,7 @@ impl NvlPartitionMonitor {
                         endpoint_url: rack_id_to_resolved_endpoint
                             .get(rack_id)
                             .map(String::as_str),
+                        rack_id: Some(rack_id),
                         all_managed_host_snapshots: &managed_host_snapshots,
                         machine_nvlink_info: &mut machine_nvlink_info,
                         db_nvl_partitions: &db_nvl_partitions,
@@ -1359,6 +1382,16 @@ impl NvlPartitionMonitor {
                 .await;
         }
 
+        // Rack groups already observe Hello while reconciling partitions. Racks
+        // without managed hosts need a separate Hello solely to publish switch
+        // metadata, so each endpoint is contacted at most once per iteration.
+        for (rack_id, endpoint_url) in &rack_id_to_resolved_endpoint {
+            if !managed_host_snapshots_by_rack_id.contains_key(rack_id) {
+                self.observe_and_record_rack_switch_domain_uuid(rack_id, endpoint_url)
+                    .await;
+            }
+        }
+
         self.record_null_nvlink_status_observations(&pending_null_nvlink_observations, metrics)
             .await?;
 
@@ -1368,6 +1401,10 @@ impl NvlPartitionMonitor {
     }
 
     /// Connects to NMX-C for one chassis- or rack-scoped host group and reconciles partitions.
+    ///
+    /// A valid rack-scoped Hello is published before partition work. Publication
+    /// is best effort and cannot turn successful partition reconciliation into a
+    /// failure.
     async fn process_nmx_c_partition_monitor_group(
         &self,
         input: ProcessMachineGroupInput<'_>,
@@ -1379,6 +1416,7 @@ impl NvlPartitionMonitor {
             group_type,
             snapshots,
             endpoint_url,
+            rack_id,
             all_managed_host_snapshots,
             machine_nvlink_info,
             db_nvl_partitions,
@@ -1484,6 +1522,13 @@ impl NvlPartitionMonitor {
             }
         };
 
+        // Current ingestion treats one rack as one NMX-C domain. Publish the
+        // rack's Hello observation to the switches using that same boundary.
+        if let Some(rack_id) = rack_id {
+            self.record_rack_switch_domain_uuid(rack_id, domain_uuid)
+                .await;
+        }
+
         // Endpoint + component versions for this group, so the metric-read failures below log them.
         metrics.nmxc.endpoint = endpoint_url.to_string();
         metrics.nmxc.version = hello
@@ -1582,6 +1627,118 @@ impl NvlPartitionMonitor {
                     ChassisNmxCUnreachableReason::PartitionMonitorWorkFailed,
                 );
                 0
+            }
+        }
+    }
+
+    /// Observes a rack domain when no managed-host group triggers reconciliation.
+    ///
+    /// Invalid endpoints, failed Hello calls, and nil domain identifiers retain
+    /// the last valid observation and are retried on the next monitor iteration.
+    async fn observe_and_record_rack_switch_domain_uuid(
+        &self,
+        rack_id: &RackId,
+        endpoint_url: &str,
+    ) {
+        let endpoint = match Endpoint::new(endpoint_url) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                tracing::warn!(
+                    %rack_id,
+                    endpoint = %endpoint_url,
+                    %error,
+                    "Invalid rack NMX-C endpoint; switch domain publication skipped"
+                );
+
+                return;
+            }
+        };
+
+        let mut client = match self.nmxc_client_pool.create_client(endpoint).await {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::warn!(
+                    %rack_id,
+                    endpoint = %endpoint_url,
+                    %error,
+                    "Failed to create rack NMX-C client; switch domain publication skipped"
+                );
+
+                return;
+            }
+        };
+
+        let hello = match client.hello(NMX_C_GATEWAY_ID).await {
+            Ok(hello) => hello,
+            Err(error) => {
+                tracing::warn!(
+                    %rack_id,
+                    endpoint = %endpoint_url,
+                    %error,
+                    "Rack NMX-C hello failed; switch domain publication skipped"
+                );
+
+                return;
+            }
+        };
+
+        let domain_uuid = match domain_uuid_from_nmx_c_hello(&hello) {
+            Ok(domain_uuid) => domain_uuid,
+            Err(error) => {
+                tracing::warn!(
+                    %rack_id,
+                    endpoint = %endpoint_url,
+                    %error,
+                    "Failed to parse rack NMX-C domain UUID; switch domain publication skipped"
+                );
+
+                return;
+            }
+        };
+
+        self.record_rack_switch_domain_uuid(rack_id, domain_uuid)
+            .await;
+    }
+
+    /// Persists a non-nil rack observation in a short, independent transaction.
+    ///
+    /// Nil observations and database failures leave the last valid value
+    /// unchanged. Publication must not block partition reconciliation.
+    async fn record_rack_switch_domain_uuid(&self, rack_id: &RackId, domain_uuid: NvLinkDomainId) {
+        if domain_uuid == NvLinkDomainId::nil() {
+            return;
+        }
+
+        let update_result: NvLinkManagerResult<_> = async {
+            let mut txn = self.db_pool.txn_begin().await?;
+
+            let changed_switches =
+                db::switch::update_nvlink_domain_uuid_for_rack(&mut txn, rack_id, domain_uuid)
+                    .await?;
+
+            txn.commit().await?;
+
+            Ok(changed_switches)
+        }
+        .await;
+
+        match update_result {
+            Ok(changed_switches) if !changed_switches.is_empty() => {
+                tracing::info!(
+                    %rack_id,
+                    %domain_uuid,
+                    changed_switch_count = changed_switches.len(),
+                    "Recorded NMX-C NVLink domain for rack switches"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    %rack_id,
+                    %domain_uuid,
+                    %error,
+                    "Failed to record NMX-C NVLink domain for rack switches; continuing partition monitor work"
+                );
             }
         }
     }
@@ -3073,9 +3230,11 @@ mod machine_group_tests {
     use carbide_utils::test_support::test_meter::TestMeter;
     use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
     use carbide_uuid::nvlink::NvLinkDomainId;
-    use carbide_uuid::rack::RackId;
+    use carbide_uuid::rack::{RackId, RackProfileId};
+    use db::test_support::switch::create_seeded_discovered;
     use model::hardware_info::MachineNvLinkInfo;
     use model::machine::{HostHealthConfig, ManagedHostStateSnapshot};
+    use model::rack::RackConfig;
     use model::test_support::machine_snapshot::managed_host_state_snapshot;
     use tokio::task::JoinSet;
 
@@ -3273,15 +3432,45 @@ mod machine_group_tests {
     }
 
     #[sqlx_test]
-    async fn processes_rack_group_and_queues_endpoint_failures(
+    async fn rack_group_publishes_domain_and_queues_endpoint_failures(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let rack_id = RackId::new("rack-1");
+        let mut txn = pool.begin().await?;
+
+        db::rack::create(
+            txn.as_mut(),
+            &rack_id,
+            Some(&RackProfileId::new("NVL72")),
+            &RackConfig::default(),
+            None,
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+        let endpoint_switch = create_seeded_discovered(txn.as_mut(), 31, "endpoint switch").await?;
+        let other_switch = create_seeded_discovered(txn.as_mut(), 32, "other switch").await?;
+
+        for switch_id in [endpoint_switch.id, other_switch.id] {
+            sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+                .bind(&rack_id)
+                .bind(switch_id)
+                .execute(txn.as_mut())
+                .await?;
+        }
+
+        txn.commit().await?;
+
         let mut join_set = JoinSet::new();
         let work_lock_manager =
             db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default()).await?;
+
         let test_meter = TestMeter::default();
+
         let monitor = NvlPartitionMonitor::new(
-            pool,
+            pool.clone(),
             Arc::new(NmxcSimClient::default()),
             test_meter.meter(),
             NvLinkConfig::default(),
@@ -3349,6 +3538,7 @@ mod machine_group_tests {
                         group_type: nmx_c_endpoint::ManagedHostGroupType::Rack,
                         snapshots: &rack_snapshots,
                         endpoint_url,
+                        rack_id: Some(&rack_id),
                         all_managed_host_snapshots: &all_snapshots,
                         machine_nvlink_info: &mut machine_nvlink_info,
                         db_nvl_partitions: &[],
@@ -3383,8 +3573,45 @@ mod machine_group_tests {
             }
         }
 
+        // Nil is a valid protocol UUID representation but not a domain
+        // observation. It must not erase the value published by the successful
+        // rack-group case above.
+        monitor
+            .record_rack_switch_domain_uuid(&rack_id, NvLinkDomainId::nil())
+            .await;
+
+        let matching_switch_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM switches WHERE rack_id = $1 AND nvlink_domain_uuid = $2",
+        )
+        .bind(&rack_id)
+        .bind(domain_uuid)
+        .fetch_one(&pool)
+        .await?;
+
+        assert_eq!(matching_switch_count, 2);
+
+        sqlx::query("UPDATE switches SET nvlink_domain_uuid = NULL WHERE rack_id = $1")
+            .bind(&rack_id)
+            .execute(&pool)
+            .await?;
+
+        monitor
+            .observe_and_record_rack_switch_domain_uuid(&rack_id, "http://nmxc.example:9370")
+            .await;
+
+        let matching_switch_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM switches WHERE rack_id = $1 AND nvlink_domain_uuid = $2",
+        )
+        .bind(&rack_id)
+        .bind(domain_uuid)
+        .fetch_one(&pool)
+        .await?;
+
+        assert_eq!(matching_switch_count, 2);
+
         drop(monitor);
         join_set.shutdown().await;
+
         Ok(())
     }
 }

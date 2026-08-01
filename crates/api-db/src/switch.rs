@@ -17,6 +17,7 @@
 
 use std::net::IpAddr;
 
+use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
@@ -136,6 +137,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         firmware_upgrade_status: None,
         nvos_update_status: None,
         fabric_manager_status: None,
+        nvlink_domain_uuid: None,
         metadata,
         version,
         is_primary: false,
@@ -490,6 +492,32 @@ pub async fn update_fabric_manager_status(
         .await
         .map_err(|e| DatabaseError::new("update_fabric_manager_status", e))?;
     Ok(())
+}
+
+/// Records one rack-scoped NVLink domain observation on every active switch.
+///
+/// Repeated observations are idempotent. Soft-deleted switches retain their
+/// previous value. Returns the active switches whose stored value changed.
+pub async fn update_nvlink_domain_uuid_for_rack(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    nvlink_domain_uuid: NvLinkDomainId,
+) -> DatabaseResult<Vec<SwitchId>> {
+    sqlx::query_scalar(
+        r#"
+        UPDATE switches
+        SET nvlink_domain_uuid = $1
+        WHERE rack_id = $2
+          AND deleted IS NULL
+          AND nvlink_domain_uuid IS DISTINCT FROM $1
+        RETURNING id
+        "#,
+    )
+    .bind(nvlink_domain_uuid)
+    .bind(rack_id)
+    .fetch_all(txn)
+    .await
+    .map_err(|error| DatabaseError::new("update_nvlink_domain_uuid_for_rack", error))
 }
 
 pub async fn update_slot_and_tray(
@@ -1021,6 +1049,89 @@ mod tests {
         assert_eq!(bmc_info.machine_interface_id, Some(bmc_interface_id));
         assert_eq!(bmc_info.mac, Some(bmc_mac.parse()?));
         assert_eq!(bmc_info.ip, Some(bmc_ip));
+
+        Ok(())
+    }
+
+    #[crate::sqlx_test]
+    async fn rack_domain_update_is_idempotent_and_excludes_deleted_switches(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let rack_id = RackId::new("rack-nvlink-domain");
+        let rack_profile_id = RackProfileId::new("NVL72");
+        let mut txn = pool.begin().await?;
+
+        crate::rack::create(
+            txn.as_mut(),
+            &rack_id,
+            Some(&rack_profile_id),
+            &RackConfig::default(),
+            None,
+        )
+        .await?;
+
+        txn.commit().await?;
+
+        for (seed, name) in [
+            (21, "rack switch 1"),
+            (22, "rack switch 2"),
+            (23, "deleted rack switch"),
+        ] {
+            let mut txn = pool.begin().await?;
+            let mut switch = create_seeded_discovered(txn.as_mut(), seed, name).await?;
+            sqlx::query("UPDATE switches SET rack_id = $1 WHERE id = $2")
+                .bind(&rack_id)
+                .bind(switch.id)
+                .execute(txn.as_mut())
+                .await?;
+
+            if seed == 23 {
+                mark_as_deleted(&mut switch, txn.as_mut()).await?;
+            }
+
+            txn.commit().await?;
+        }
+
+        let first_domain: NvLinkDomainId = "11111111-1111-1111-1111-111111111111".parse()?;
+        let replacement_domain: NvLinkDomainId = "33333333-3333-3333-3333-333333333333".parse()?;
+        let mut txn = pool.begin().await?;
+
+        for (scenario, domain_uuid, expected_changes) in [
+            ("initial observation", first_domain, 2),
+            ("repeated observation", first_domain, 0),
+            ("replacement observation", replacement_domain, 2),
+        ] {
+            let changed =
+                update_nvlink_domain_uuid_for_rack(txn.as_mut(), &rack_id, domain_uuid).await?;
+
+            assert_eq!(changed.len(), expected_changes, "{scenario}");
+        }
+
+        txn.commit().await?;
+
+        let mut txn = pool.begin().await?;
+
+        let counts: (i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE deleted IS NULL AND nvlink_domain_uuid = $1
+                ),
+                COUNT(*) FILTER (
+                    WHERE deleted IS NOT NULL AND nvlink_domain_uuid IS NULL
+                )
+            FROM switches
+            WHERE rack_id = $2
+            "#,
+        )
+        .bind(replacement_domain)
+        .bind(&rack_id)
+        .fetch_one(txn.as_mut())
+        .await?;
+
+        assert_eq!(counts, (2, 1));
+
+        txn.rollback().await?;
 
         Ok(())
     }
