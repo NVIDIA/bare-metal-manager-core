@@ -244,6 +244,22 @@ hwMacAddressRanges:
   rangeHostBits: 8
 ```
 
+### Persistence
+
+Enable persistence when machine-a-tron runs alongside a long-lived NICo
+database:
+
+```yaml
+persistence:
+  enabled: true
+```
+
+Machine-a-tron then stores simulated machine identity and installed operating
+system state in a persistent volume. On a graceful pod restart it restores the
+devices and resumes them powered on. Without persistence, a restart creates new
+powered-off simulator state while Core may still consider the old machines
+assigned, preventing the simulated DPU agents from resuming their reports.
+
 ### Supported Hardware Types
 
 | Type | Description |

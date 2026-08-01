@@ -63,6 +63,25 @@ tests:
           count: 1
         template: deployment.yaml
 
+  - it: should mount persisted machine state when persistence is enabled
+    set:
+      persistence:
+        enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /tmp/machine-a-tron-data
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: nico-machine-a-tron-mat-0-data
+        template: deployment.yaml
+
   - it: should mount per-pod tls secrets in multi-pod mode
     set:
       mat-k8s-controller:
