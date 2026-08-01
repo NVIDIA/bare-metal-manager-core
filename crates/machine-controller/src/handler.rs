@@ -119,6 +119,7 @@ use crate::{MeasuringOutcome, get_measuring_prerequisites, handle_measuring_stat
 
 pub mod attestation;
 mod bios_config;
+mod boot_interface_observation;
 mod dpf;
 mod dpu_uefi_rotation;
 mod firmware_artifact;
@@ -1119,7 +1120,9 @@ impl MachineStateHandler {
                     ));
                 }
 
-                Ok(StateHandlerOutcome::do_nothing())
+                // Periodic BMC observation is deliberately Ready's final work,
+                // so it cannot preempt lifecycle or operator-requested actions.
+                boot_interface_observation::observe_verified_boot_interface(ctx, mh_snapshot).await
             }
 
             ManagedHostState::BootConfiguring {
@@ -7999,9 +8002,15 @@ impl StateHandler for InstanceStateHandler {
 
                         Ok(StateHandlerOutcome::transition(next_state).with_txn(txn))
                     } else if let Some(txn) = txn_opt {
+                        // Commit extension cleanup before the observer performs
+                        // Redfish I/O in a separate attempt.
                         Ok(StateHandlerOutcome::do_nothing().with_txn(txn))
                     } else {
-                        Ok(StateHandlerOutcome::do_nothing())
+                        boot_interface_observation::observe_verified_boot_interface(
+                            ctx,
+                            mh_snapshot,
+                        )
+                        .await
                     }
                 }
                 InstanceState::HostPlatformConfiguration {

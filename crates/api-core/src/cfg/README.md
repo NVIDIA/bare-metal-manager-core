@@ -386,7 +386,20 @@ Extends `StateControllerConfig` with:
 | `uefi_boot_wait` | `Duration` | `5m`    | Wait time for UEFI boot completion after host reboot. |
 | `max_bios_config_retries` | `u32` | `3` | Shared retry budget for automated host boot-configuration convergence across BIOS recovery and boot-order verification. |
 | `polling_bios_setup_stuck_threshold` | `Duration` | `15m` | Time in PollingBiosSetup with `is_bios_setup == false` before recovery escalation. |
+| `boot_interface_observation_interval` | `Duration` | `10m` | Positive time between successful Redfish observations of an already-verified boot interface. |
 | `controller` | `StateControllerConfig` | *(default)* | Common state controller timing (see [StateControllerConfig](#statecontrollerconfig)). |
+
+The Redfish observation is read-only. A successful match refreshes the last
+observation timestamp. A mismatch records a new pending generation for the same
+desired target: Ready enters the existing boot-configuration flow on its next
+controller sweep, while Assigned defers remediation until release. Failed reads
+and skipped observations preserve the last successful observation and retry on
+a later controller iteration.
+
+The controller skips periodic observation for locked Supermicro hosts because
+their reported boot-order view remains stale until lockdown is disabled and the
+host is rebooted. Profiles configured with `disable_lockdown = true` use the
+normal observation path.
 
 ### `NetworkSegmentStateControllerConfig`
 

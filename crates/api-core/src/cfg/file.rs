@@ -3975,6 +3975,7 @@ mod tests {
             uefi_boot_wait: Duration::minutes(5),
             max_bios_config_retries: 3,
             polling_bios_setup_stuck_threshold: Duration::minutes(15),
+            boot_interface_observation_interval: Duration::hours(2),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -3995,6 +3996,7 @@ mod tests {
     fn deserialize_machine_controller_config() {
         let config = r#"{"dpu_wait_time": "20m","power_down_wait":"10s",
         "failure_retry_time":"1h30m", "dpu_up_threshold": "1w",
+        "boot_interface_observation_interval": "2h",
         "controller": {"iteration_time": "33s", "max_object_handling_time": "63s", "max_concurrency": 13}}"#;
         let config: MachineStateControllerConfig = serde_json::from_str(config).unwrap();
 
@@ -4021,6 +4023,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::hours(2),
             }
         );
     }
@@ -4044,8 +4047,21 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::minutes(10),
             }
         );
+    }
+
+    #[test]
+    fn reject_nonpositive_boot_interface_observation_intervals() {
+        for invalid_interval in ["0s", "-1s"] {
+            let config_json =
+                format!(r#"{{"boot_interface_observation_interval": "{invalid_interval}"}}"#);
+            assert!(
+                serde_json::from_str::<MachineStateControllerConfig>(&config_json).is_err(),
+                "boot_interface_observation_interval={invalid_interval} must be rejected",
+            );
+        }
     }
 
     #[test]
@@ -4469,6 +4485,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::hours(2),
             }
         );
         assert_eq!(
@@ -4710,6 +4727,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::minutes(10),
             }
         );
         assert_eq!(
@@ -5094,6 +5112,7 @@ mod tests {
                 uefi_boot_wait: Duration::minutes(5),
                 max_bios_config_retries: 3,
                 polling_bios_setup_stuck_threshold: Duration::minutes(15),
+                boot_interface_observation_interval: Duration::hours(2),
             }
         );
         assert_eq!(
