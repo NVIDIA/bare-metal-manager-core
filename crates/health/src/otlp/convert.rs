@@ -487,6 +487,9 @@ mod tests {
     fn resource_attributes_include_switch_placement_metadata_when_present() {
         let switch_id = test_switch_id("switch-a");
         let switch_id_attr = switch_id.to_string();
+        let nvlink_domain_uuid = NvLinkDomainId::new();
+        let nvlink_domain_uuid_attr = nvlink_domain_uuid.to_string();
+
         let context = EventContext {
             endpoint_key: "11:22:33:44:55:66".to_string(),
             addr: BmcAddr {
@@ -501,6 +504,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: Some(nvlink_domain_uuid),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -519,6 +523,11 @@ mod tests {
         assert_eq!(attr_value(&attrs, "component.type"), Some("nvlink_switch"));
         assert_eq!(attr_int_value(&attrs, "switch.slot_number"), Some(7));
         assert_eq!(attr_int_value(&attrs, "switch.tray_index"), Some(3));
+
+        assert_eq!(
+            attr_value(&attrs, "nvlink.domain.uuid"),
+            Some(nvlink_domain_uuid_attr.as_str())
+        );
     }
 
     #[test]
@@ -539,6 +548,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,
@@ -592,6 +602,7 @@ mod tests {
                 serial: "SN-SWITCH-BMC-001".to_string(),
                 slot_number: Some(8),
                 tray_index: Some(4),
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Bmc,
                 is_primary: false,
                 nmxc_enabled: false,
@@ -878,6 +889,7 @@ mod tests {
                 serial: "SN-SWITCH-001".to_string(),
                 slot_number: Some(7),
                 tray_index: Some(3),
+                nvlink_domain_uuid: None,
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,

@@ -114,6 +114,7 @@ impl StaticEndpointSource {
                     serial,
                     slot_number: switch.slot_number,
                     tray_index: switch.tray_index,
+                    nvlink_domain_uuid: None,
                     endpoint_role,
                     is_primary: switch.is_primary,
                     nmxc_enabled,
@@ -351,6 +352,7 @@ mod tests {
                 assert_eq!(s.serial, "SN-001");
                 assert_eq!(s.slot_number, Some(7));
                 assert_eq!(s.tray_index, Some(3));
+                assert_eq!(s.nvlink_domain_uuid, None);
                 assert_eq!(s.endpoint_role, SwitchEndpointRole::Host);
                 assert!(s.is_primary);
                 assert!(s.nmxc_enabled);

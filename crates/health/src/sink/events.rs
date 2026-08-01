@@ -122,10 +122,13 @@ impl EventContext {
             .and_then(|machine| machine.tray_index)
     }
 
-    /// Returns the NVLink domain UUID when the machine participates in one.
+    /// Returns the NVLink domain UUID associated with the endpoint, when known.
     pub fn nvlink_domain_uuid(&self) -> Option<NvLinkDomainId> {
-        self.machine_metadata()
-            .and_then(|machine| machine.nvlink_domain_uuid)
+        match &self.metadata {
+            Some(EndpointMetadata::Machine(machine)) => machine.nvlink_domain_uuid,
+            Some(EndpointMetadata::Switch(switch)) => switch.nvlink_domain_uuid,
+            _ => None,
+        }
     }
 
     pub fn switch_id(&self) -> Option<SwitchId> {
@@ -667,6 +670,7 @@ mod tests {
                 serial: "SW-001".to_string(),
                 slot_number: Some(9),
                 tray_index: Some(4),
+                nvlink_domain_uuid: Some(nvlink_domain_id()),
                 endpoint_role: SwitchEndpointRole::Host,
                 is_primary: true,
                 nmxc_enabled: true,
@@ -1167,7 +1171,7 @@ mod tests {
                     machine_id: None,
                     slot_number: None,
                     tray_index: None,
-                    nvlink_domain_uuid: None,
+                    nvlink_domain_uuid: Some(nvlink_domain_id().to_string()),
                     machine_serial: None,
                     driver_version: None,
                     component_type: Some("nvlink_switch"),
