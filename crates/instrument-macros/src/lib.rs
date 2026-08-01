@@ -126,7 +126,16 @@ enum LogSpec {
 enum MetricSpec {
     Counter,
     Histogram,
+    Gauge,
     None,
+}
+
+impl MetricSpec {
+    /// Whether the kind takes its value from an `#[observation]` rather than
+    /// counting the emit.
+    fn records_observation(self) -> bool {
+        matches!(self, MetricSpec::Histogram | MetricSpec::Gauge)
+    }
 }
 
 /// The metric-side declaration shared by an inline `#[event(...)]` metric and a
@@ -134,7 +143,7 @@ enum MetricSpec {
 /// held to the same naming and documentation conventions.
 struct MetricDeclaration<'a> {
     metric_name: &'a LitStr,
-    counter: bool,
+    kind: MetricSpec,
     unit: Option<&'a LitStr>,
     describe: Option<&'a LitStr>,
     metric_name_unchecked: bool,
@@ -154,9 +163,9 @@ fn validate_metric(
     // dashboard greps straight back to this line. Validate the conventions
     // unless the site is migrating a grandfathered pre-standard name.
     let metric_name_value = decl.metric_name.value();
-    let mut histogram_unit: Option<&'static str> = None;
-    if !decl.counter {
-        histogram_unit = UNIT_SUFFIXES
+    let mut suffix_unit: Option<&'static str> = None;
+    if decl.kind.records_observation() {
+        suffix_unit = UNIT_SUFFIXES
             .iter()
             .find(|(suffix, _)| metric_name_value.ends_with(suffix))
             .map(|(_, unit)| *unit);
@@ -165,11 +174,11 @@ fn validate_metric(
     // otherwise the histogram rule below reports a condition a counter cannot
     // satisfy and the diagnostic names the wrong mistake.
     if let Some(unit) = decl.unit
-        && decl.counter
+        && decl.kind == MetricSpec::Counter
     {
         return Err(syn::Error::new_spanned(
             unit,
-            "`unit` is only valid for histogram metrics",
+            "`unit` is only valid for histogram and gauge metrics",
         ));
     }
     if !decl.metric_name_unchecked {
@@ -180,7 +189,7 @@ fn validate_metric(
                  keep a grandfathered pre-standard name)",
             ));
         }
-        if decl.counter {
+        if decl.kind == MetricSpec::Counter {
             if !metric_name_value.ends_with("_total") {
                 return Err(syn::Error::new_spanned(
                     decl.metric_name,
@@ -202,7 +211,19 @@ fn validate_metric(
                      `_total` (use metric_name_unchecked only to keep a grandfathered doubled name)",
                 ));
             }
-        } else if histogram_unit.is_none() {
+        } else if decl.kind == MetricSpec::Gauge {
+            // A gauge rises and falls, so the counter's `_total` reads as the
+            // wrong instrument to anyone querying it. Its unit suffix is
+            // optional: plenty of gauges count things rather than measure one.
+            if metric_name_value.ends_with("_total") {
+                return Err(syn::Error::new_spanned(
+                    decl.metric_name,
+                    "`_total` is the counter suffix (Prometheus convention); a gauge names what \
+                     it measures, optionally ending in its unit (use metric_name_unchecked only \
+                     to keep a grandfathered pre-standard name)",
+                ));
+            }
+        } else if suffix_unit.is_none() {
             return Err(syn::Error::new_spanned(
                 decl.metric_name,
                 "histogram names end in their unit: one of `_seconds`, `_milliseconds`, \
@@ -223,7 +244,19 @@ fn validate_metric(
     // `describe_unchecked` is the escape hatch for a grandfathered describe --
     // legacy phrasings, or the "Total number of ..." on a metric_name_unchecked
     // counter -- mirroring `metric_name_unchecked` for names.
-    if decl.counter && !decl.describe_unchecked {
+    if decl.kind == MetricSpec::Gauge
+        && !decl.describe_unchecked
+        && decl
+            .describe
+            .is_none_or(|describe| describe.value().is_empty())
+    {
+        return Err(syn::Error::new_spanned(
+            item,
+            "a gauge must document itself: add describe = \"...\" (its Prometheus HELP text, and \
+             the core_metrics.md catalogue row)",
+        ));
+    }
+    if decl.kind == MetricSpec::Counter && !decl.describe_unchecked {
         match decl.describe {
             None => {
                 return Err(syn::Error::new_spanned(
@@ -244,12 +277,12 @@ fn validate_metric(
         }
     }
 
-    let unit_value: String = match (decl.unit, histogram_unit) {
+    let unit_value: String = match (decl.unit, suffix_unit) {
         (Some(explicit), _) => explicit.value(),
         (None, Some(from_suffix)) => from_suffix.to_string(),
         (None, None) => String::new(),
     };
-    if !decl.counter && unit_value.is_empty() {
+    if decl.kind == MetricSpec::Histogram && unit_value.is_empty() {
         return Err(syn::Error::new_spanned(
             decl.metric_name,
             "a metric_name_unchecked histogram without a recognized suffix needs an explicit \
@@ -380,6 +413,7 @@ fn parse_event_args(input: &DeriveInput) -> syn::Result<EventArgs> {
                 args.metric = match ident.to_string().as_str() {
                     "counter" => MetricSpec::Counter,
                     "histogram" => MetricSpec::Histogram,
+                    "gauge" => MetricSpec::Gauge,
                     "none" => MetricSpec::None,
                     other => {
                         return Err(meta.error(format!(
@@ -791,13 +825,13 @@ fn expand_event_enum(input: &DeriveInput, args: &EventArgs) -> syn::Result<Token
     }
     // A family owns the metric side; without one the enum declares it, under
     // the same name/unit/describe conventions a struct Event follows.
-    let (unit_value, is_histogram) = match (family, args.metric_name.as_ref()) {
-        (Some(_), _) => (String::new(), false),
+    let (unit_value, declared_kind) = match (family, args.metric_name.as_ref()) {
+        (Some(_), _) => (String::new(), MetricSpec::None),
         (None, Some(metric_name)) => {
             let unit = validate_metric(
                 &MetricDeclaration {
                     metric_name,
-                    counter: args.metric == MetricSpec::Counter,
+                    kind: args.metric,
                     unit: args.unit.as_ref(),
                     describe: args.describe.as_ref(),
                     metric_name_unchecked: args.metric_name_unchecked,
@@ -805,7 +839,7 @@ fn expand_event_enum(input: &DeriveInput, args: &EventArgs) -> syn::Result<Token
                 },
                 enum_ident,
             )?;
-            (unit, args.metric == MetricSpec::Histogram)
+            (unit, args.metric)
         }
         (None, None) => {
             return Err(syn::Error::new_spanned(
@@ -836,7 +870,9 @@ fn expand_event_enum(input: &DeriveInput, args: &EventArgs) -> syn::Result<Token
     // an `#[observation]` is settled here. With one the kind is only known at
     // the type level, so the variants are held to each other and then to the
     // family in a const assertion below.
-    let declared_observation = family.is_none().then_some(is_histogram);
+    let declared_observation = family
+        .is_none()
+        .then(|| declared_kind.records_observation());
     let mut inferred_observation: Option<bool> = None;
     let observation_unit = match family {
         Some(family) => quote! {
@@ -1277,10 +1313,14 @@ fn expand_event_enum(input: &DeriveInput, args: &EventArgs) -> syn::Result<Token
                 .as_ref()
                 .map(LitStr::value)
                 .unwrap_or_default();
-            let kind = if is_histogram {
-                quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
-            } else {
-                quote! { ::carbide_instrument::MetricKind::Counter }
+            let kind = match declared_kind {
+                MetricSpec::Histogram => {
+                    quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+                }
+                MetricSpec::Gauge => {
+                    quote! { ::carbide_instrument::MetricKind::Gauge { unit: #unit_value } }
+                }
+                _ => quote! { ::carbide_instrument::MetricKind::Counter },
             };
             (
                 quote! { ::std::option::Option::Some(#metric_name) },
@@ -1316,7 +1356,7 @@ fn expand_event_enum(input: &DeriveInput, args: &EventArgs) -> syn::Result<Token
         quote! {
             const _: () = {
                 assert!(
-                    ::carbide_instrument::__private::is_histogram(
+                    ::carbide_instrument::__private::records_observation(
                         <#family as ::carbide_instrument::MetricFamily>::METRIC,
                     ) == #has_observation,
                     "a histogram metric family needs exactly one #[observation] field on every \
@@ -1501,7 +1541,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         Some(metric_name) => validate_metric(
             &MetricDeclaration {
                 metric_name,
-                counter: matches!(args.metric, MetricSpec::Counter),
+                kind: args.metric,
                 unit: args.unit.as_ref(),
                 describe: args.describe.as_ref(),
                 metric_name_unchecked: args.metric_name_unchecked,
@@ -1595,11 +1635,17 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
     }
 
     match (&args.metric, observations.len()) {
-        (MetricSpec::Histogram, 1) => {}
+        (MetricSpec::Histogram | MetricSpec::Gauge, 1) => {}
         (MetricSpec::Histogram, _) => {
             return Err(syn::Error::new_spanned(
                 &input.ident,
                 "a histogram event needs exactly one #[observation] field",
+            ));
+        }
+        (MetricSpec::Gauge, _) => {
+            return Err(syn::Error::new_spanned(
+                &input.ident,
+                "a gauge event needs exactly one #[observation] field: the value to set",
             ));
         }
         // A family declares the kind, which is only known at the type level
@@ -1691,6 +1737,9 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
                 MetricSpec::Histogram => {
                     quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
                 }
+                MetricSpec::Gauge => {
+                    quote! { ::carbide_instrument::MetricKind::Gauge { unit: #unit_value } }
+                }
                 _ => quote! { ::carbide_instrument::MetricKind::None },
             };
             let metric_name_const = match metric_name {
@@ -1752,7 +1801,7 @@ fn expand_event(input: DeriveInput) -> syn::Result<TokenStream> {
         quote! {
             const _: () = {
                 assert!(
-                    ::carbide_instrument::__private::is_histogram(
+                    ::carbide_instrument::__private::records_observation(
                         <#family as ::carbide_instrument::MetricFamily>::METRIC,
                     ) == #has_observation,
                     "a histogram metric family needs exactly one #[observation] field on each \
@@ -1941,7 +1990,7 @@ pub fn derive_metric_family(input: TokenStream) -> TokenStream {
 
 struct MetricArgs {
     name: Option<LitStr>,
-    counter: Option<bool>,
+    kind: Option<MetricSpec>,
     component: Option<LitStr>,
     describe: Option<LitStr>,
     unit: Option<LitStr>,
@@ -1952,7 +2001,7 @@ struct MetricArgs {
 fn parse_metric_args(input: &DeriveInput) -> syn::Result<MetricArgs> {
     let mut args = MetricArgs {
         name: None,
-        counter: None,
+        kind: None,
         component: None,
         describe: None,
         unit: None,
@@ -1974,13 +2023,14 @@ fn parse_metric_args(input: &DeriveInput) -> syn::Result<MetricArgs> {
                 args.name = Some(meta.value()?.parse()?);
             } else if meta.path.is_ident("kind") {
                 let ident: Ident = meta.value()?.parse()?;
-                args.counter = Some(match ident.to_string().as_str() {
-                    "counter" => true,
-                    "histogram" => false,
+                args.kind = Some(match ident.to_string().as_str() {
+                    "counter" => MetricSpec::Counter,
+                    "histogram" => MetricSpec::Histogram,
+                    "gauge" => MetricSpec::Gauge,
                     other => {
                         return Err(meta.error(format!(
-                            "unknown metric kind `{other}`; a family is counter | histogram (an \
-                             Event with no metric declares metric = none instead)"
+                            "unknown metric kind `{other}`; a family is counter | histogram | \
+                             gauge (an Event with no metric declares metric = none instead)"
                         )));
                     }
                 });
@@ -2036,17 +2086,17 @@ fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
     let component = args.component.as_ref().ok_or_else(|| {
         syn::Error::new_spanned(&input.ident, "#[metric(...)] requires component = \"...\"")
     })?;
-    let counter = args.counter.ok_or_else(|| {
+    let kind = args.kind.ok_or_else(|| {
         syn::Error::new_spanned(
             &input.ident,
-            "#[metric(...)] requires kind = counter or kind = histogram",
+            "#[metric(...)] requires kind = counter, kind = histogram, or kind = gauge",
         )
     })?;
 
     let unit_value = validate_metric(
         &MetricDeclaration {
             metric_name: name,
-            counter,
+            kind,
             unit: args.unit.as_ref(),
             describe: args.describe.as_ref(),
             metric_name_unchecked: args.metric_name_unchecked,
@@ -2113,10 +2163,14 @@ fn expand_metric_family(input: DeriveInput) -> syn::Result<TokenStream> {
         .as_ref()
         .map(LitStr::value)
         .unwrap_or_default();
-    let metric_const = if counter {
-        quote! { ::carbide_instrument::MetricKind::Counter }
-    } else {
-        quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+    let metric_const = match kind {
+        MetricSpec::Gauge => {
+            quote! { ::carbide_instrument::MetricKind::Gauge { unit: #unit_value } }
+        }
+        MetricSpec::Histogram => {
+            quote! { ::carbide_instrument::MetricKind::Histogram { unit: #unit_value } }
+        }
+        _ => quote! { ::carbide_instrument::MetricKind::Counter },
     };
 
     let label_types: Vec<&syn::Type> = labels_fields.iter().map(|field| &field.ty).collect();
@@ -2276,6 +2330,21 @@ mod tests {
                 scenario: "event name is declared once",
                 source: r#"#[event(event_name = "first", event_name = "second", component = "demo", message = "demo")] struct Demo {}"#,
                 expected: "duplicate `event_name`",
+            },
+            Case {
+                scenario: "a gauge does not wear the counter's suffix",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_total", component = "demo", log = off, metric = gauge, describe = "Number of demo things")] struct Demo { #[observation] value: f64 }"#,
+                expected: "`_total` is the counter suffix",
+            },
+            Case {
+                scenario: "a gauge documents itself for the catalogue",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_things", component = "demo", log = off, metric = gauge)] struct Demo { #[observation] value: f64 }"#,
+                expected: "a gauge must document itself",
+            },
+            Case {
+                scenario: "a gauge needs the value it sets",
+                source: r#"#[event(event_name = "demo", metric_name = "carbide_demo_things", component = "demo", log = off, metric = gauge, describe = "Number of demo things")] struct Demo {}"#,
+                expected: "a gauge event needs exactly one #[observation] field",
             },
             Case {
                 scenario: "metric name is declared once",
@@ -2622,7 +2691,7 @@ mod tests {
                     scenario: "a family declares its instrument kind",
                     input: DiagnosticInput {
                         source: r#"#[metric(name = "carbide_f_total", component = "c", describe = "Number of things")] struct F {}"#,
-                        expected: "requires kind = counter or kind = histogram",
+                        expected: "requires kind = counter, kind = histogram, or kind = gauge",
                     },
                     expect: None,
                 },
@@ -2670,7 +2739,7 @@ mod tests {
                     scenario: "a counter takes no unit, whatever its name",
                     input: DiagnosticInput {
                         source: r#"#[metric(name = "carbide_f_total", kind = counter, component = "c", describe = "Number of things", unit = "ms")] struct F {}"#,
-                        expected: "`unit` is only valid for histogram metrics",
+                        expected: "`unit` is only valid for histogram and gauge metrics",
                     },
                     expect: None,
                 },

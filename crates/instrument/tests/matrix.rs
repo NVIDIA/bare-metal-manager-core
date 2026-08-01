@@ -1272,3 +1272,79 @@ fn enum_event_context_answers_for_the_variant() {
         ]
     );
 }
+
+/// A gauge Event sets its metric to the latest `#[observation]`: it holds a
+/// level rather than accumulating, so a second emit replaces the first rather
+/// than adding to it.
+#[test]
+fn a_gauge_event_holds_the_latest_observation() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_pool_size_observed",
+        metric_name = "carbide_test_matrix_pool_members",
+        component = "matrix-test",
+        log = off,
+        metric = gauge,
+        describe = "Number of members in the matrix test pool"
+    )]
+    struct PoolSizeObserved {
+        #[observation]
+        members: u64,
+    }
+
+    assert_eq!(
+        <PoolSizeObserved as Event>::METRIC,
+        MetricKind::Gauge { unit: "" }
+    );
+
+    let metrics = MetricsCapture::start();
+    emit(PoolSizeObserved { members: 7 });
+    assert_eq!(
+        metrics.gauge_value("carbide_test_matrix_pool_members", &[]),
+        7.0
+    );
+
+    // A level, not a total: the second emit replaces the first.
+    emit(PoolSizeObserved { members: 3 });
+    assert_eq!(
+        metrics.gauge_value("carbide_test_matrix_pool_members", &[]),
+        3.0
+    );
+}
+
+/// A gauge whose name ends in a unit suffix records through that unit, the same
+/// conversion a histogram gets.
+#[test]
+fn a_gauge_converts_through_its_unit_suffix() {
+    #[derive(Event)]
+    #[event(
+        event_name = "test_matrix_refresh_window_observed",
+        metric_name = "carbide_test_matrix_refresh_window_seconds",
+        component = "matrix-test",
+        log = off,
+        metric = gauge,
+        describe = "Time remaining in the matrix test refresh window"
+    )]
+    struct RefreshWindowObserved {
+        #[observation]
+        remaining: Duration,
+    }
+
+    assert_eq!(
+        <RefreshWindowObserved as Event>::METRIC,
+        MetricKind::Gauge { unit: "s" }
+    );
+
+    let event = RefreshWindowObserved {
+        remaining: Duration::from_millis(2500),
+    };
+    // 2500ms observed as 2.5 seconds, per the name's suffix.
+    assert!((Event::observation(&event) - 2.5).abs() < f64::EPSILON);
+
+    let metrics = MetricsCapture::start();
+    emit(event);
+    assert_eq!(
+        metrics.gauge_value("carbide_test_matrix_refresh_window_seconds", &[]),
+        2.5
+    );
+}

@@ -341,6 +341,18 @@ pub enum MetricKind {
         /// The OpenTelemetry unit string, derived from the name suffix.
         unit: &'static str,
     },
+    /// A gauge set to the latest [`Event::observation`]: a value that rises and
+    /// falls, sampled at the moment the event happens. A gauge takes a unit
+    /// suffix when it measures one, and never ends in `_total`.
+    ///
+    /// This is the *synchronous* form, for a value something observes as it
+    /// works. A value that only answers "what is it now?" at scrape time is an
+    /// observable gauge, which has no occurrence to log and stays a hand-rolled
+    /// callback instrument.
+    Gauge {
+        /// The OpenTelemetry unit string, derived from the name suffix.
+        unit: &'static str,
+    },
     /// No metric; the event is a structured log only.
     None,
 }
@@ -527,6 +539,9 @@ pub fn emit<E: Event>(event: E) {
         __private::CachedInstrument::Histogram(histogram) => {
             histogram.record(event.observation(), event.labels().as_ref());
         }
+        __private::CachedInstrument::Gauge(gauge) => {
+            gauge.record(event.observation(), event.labels().as_ref());
+        }
         __private::CachedInstrument::None => {}
     }
 }
@@ -550,7 +565,9 @@ pub fn initialize_counter_series<E: Event>(event: &E) -> bool {
             counter.add(0, event.labels().as_ref());
             true
         }
-        __private::CachedInstrument::Histogram(_) | __private::CachedInstrument::None => false,
+        __private::CachedInstrument::Histogram(_)
+        | __private::CachedInstrument::Gauge(_)
+        | __private::CachedInstrument::None => false,
     }
 }
 
@@ -600,6 +617,7 @@ pub mod __private {
     pub enum CachedInstrument {
         Counter(opentelemetry::metrics::Counter<u64>),
         Histogram(opentelemetry::metrics::Histogram<f64>),
+        Gauge(opentelemetry::metrics::Gauge<f64>),
         None,
     }
 
@@ -631,18 +649,7 @@ pub mod __private {
                 CachedInstrument::Counter(builder.build())
             }
             crate::MetricKind::Histogram { unit } => {
-                let suffix = match unit {
-                    "s" => "_seconds",
-                    "ms" => "_milliseconds",
-                    "us" => "_microseconds",
-                    "By" => "_bytes",
-                    _ => "",
-                };
-                let name = if suffix.is_empty() {
-                    metric_name
-                } else {
-                    metric_name.strip_suffix(suffix).unwrap_or(metric_name)
-                };
+                let name = strip_unit_suffix(metric_name, unit);
                 let mut builder = meter.f64_histogram(name);
                 if !unit.is_empty() {
                     builder = builder.with_unit(unit);
@@ -652,23 +659,55 @@ pub mod __private {
                 }
                 CachedInstrument::Histogram(builder.build())
             }
+            crate::MetricKind::Gauge { unit } => {
+                let name = strip_unit_suffix(metric_name, unit);
+                let mut builder = meter.f64_gauge(name);
+                if !unit.is_empty() {
+                    builder = builder.with_unit(unit);
+                }
+                if !describe.is_empty() {
+                    builder = builder.with_description(describe);
+                }
+                CachedInstrument::Gauge(builder.build())
+            }
             crate::MetricKind::None => CachedInstrument::None,
         }
     }
 
-    /// Whether a declared metric records a histogram. The `Event` derive uses
-    /// this in a `const` assertion: an Event that names a histogram family
-    /// needs an `#[observation]` field, and the family's kind is only known at
-    /// the type level from the Event's declaration site.
-    pub const fn is_histogram(metric: crate::MetricKind) -> bool {
-        matches!(metric, crate::MetricKind::Histogram { .. })
+    /// The exporter appends a unit's conventional suffix itself, so the
+    /// instrument registers without it and `/metrics` shows `metric_name`.
+    fn strip_unit_suffix(metric_name: &'static str, unit: &'static str) -> &'static str {
+        let suffix = match unit {
+            "s" => "_seconds",
+            "ms" => "_milliseconds",
+            "us" => "_microseconds",
+            "By" => "_bytes",
+            _ => "",
+        };
+        if suffix.is_empty() {
+            metric_name
+        } else {
+            metric_name.strip_suffix(suffix).unwrap_or(metric_name)
+        }
+    }
+
+    /// Whether a declared metric takes its value from [`Event::observation`]
+    /// rather than counting the emit. The `Event` derive uses this in a `const`
+    /// assertion: an Event that names a histogram or gauge family needs an
+    /// `#[observation]` field, and the family's kind is only known at the type
+    /// level from the Event's declaration site.
+    pub const fn records_observation(metric: crate::MetricKind) -> bool {
+        matches!(
+            metric,
+            crate::MetricKind::Histogram { .. } | crate::MetricKind::Gauge { .. }
+        )
     }
 
     /// The unit a declared metric records in, for converting an
     /// `#[observation]` when the kind lives on a `MetricFamily`.
     pub const fn metric_unit(metric: crate::MetricKind) -> &'static str {
         match metric {
-            crate::MetricKind::Histogram { unit } => unit,
+            crate::MetricKind::Histogram { unit } | crate::MetricKind::Gauge { unit } => unit,
             crate::MetricKind::Counter | crate::MetricKind::None => "",
         }
     }

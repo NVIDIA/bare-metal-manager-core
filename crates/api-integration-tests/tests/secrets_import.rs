@@ -249,9 +249,7 @@ async fn exercise_import(test_pool: &PgPool) -> eyre::Result<()> {
         vault_cacert: Some(vault.ca_cert.clone()),
         ..Default::default()
     };
-
-    let meter = opentelemetry::global::meter("secrets-import-test");
-    let vault_client = create_vault_client(&vault_config, meter)?;
+    let vault_client = create_vault_client(&vault_config)?;
 
     // --- Populate Vault with secrets ---
     let secrets = generate_test_secrets(100);
