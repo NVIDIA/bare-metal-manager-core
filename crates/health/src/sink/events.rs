@@ -641,8 +641,8 @@ mod tests {
     }
 
     fn nvlink_domain_id() -> NvLinkDomainId {
-        NvLinkDomainId::from_str("00000000-0000-0000-0000-000000000000")
-            .expect("valid NVLink domain id")
+        NvLinkDomainId::from_str("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+            .expect("valid non-nil NVLink domain id")
     }
 
     fn addr() -> BmcAddr {

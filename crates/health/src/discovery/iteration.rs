@@ -109,9 +109,9 @@ pub async fn run_discovery_iteration(
     // prune before respawn so downgraded auto-mode endpoints get replaced
     ctx.collectors.prune_finished_logs();
 
-    // A domain change does not change the endpoint key, so the idempotent spawn
-    // path would preserve collectors with stale EventContext metadata. Stop them
-    // first and wait for metric registrations to be released before respawn.
+    // A domain change keeps the same endpoint key and collector type. Complete
+    // old collector cleanup before respawn so a late CollectorRemoved cannot
+    // unregister the replacement's metrics.
     stop_stale_switch_collectors(ctx, &sharded_endpoints).await;
 
     for endpoint in &sharded_endpoints {

@@ -255,6 +255,11 @@ pub struct StaticSwitchEndpoint {
     pub slot_number: Option<i32>,
     #[serde(alias = "compute_tray_index")]
     pub tray_index: Option<i32>,
+
+    /// Optional non-nil NVLink domain UUID associated with this switch.
+    /// Invalid or nil values are omitted from telemetry.
+    pub nvlink_domain_uuid: Option<String>,
+
     #[serde(default = "default_static_switch_endpoint_role")]
     pub endpoint_role: StaticSwitchEndpointRole,
     #[serde(default)]
@@ -1918,6 +1923,7 @@ mod tests {
             serial: Some("switch-serial".to_string()),
             slot_number: None,
             tray_index: None,
+            nvlink_domain_uuid: None,
             endpoint_role: StaticSwitchEndpointRole::Host,
             is_primary: false,
             nmxc_enabled: None,
@@ -3866,7 +3872,7 @@ ip = "10.0.1.2"
 mac = "11:22:33:44:55:77"
 username = "admin"
 password = "pass"
-switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true }
+switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", serial = "SN-SW-002", endpoint_role = "host", is_primary = false, nmxc_enabled = true, nmxt_enabled = true, nvlink_domain_uuid = "9f4b45ec-705a-4af4-89f7-a112bc9c8f4e" }
 "#;
 
         let config: Config = Figment::new()
@@ -3884,6 +3890,11 @@ switch = { id = "fsw100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0", 
         assert!(!switch.is_primary);
         assert_eq!(switch.nmxc_enabled, Some(true));
         assert_eq!(switch.nmxt_enabled, Some(true));
+
+        assert_eq!(
+            switch.nvlink_domain_uuid.as_deref(),
+            Some("9f4b45ec-705a-4af4-89f7-a112bc9c8f4e")
+        );
     }
 
     #[test]
