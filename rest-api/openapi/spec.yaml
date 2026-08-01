@@ -24528,7 +24528,7 @@ components:
           minLength: 1
           deprecated: true
           description: |-
-            Operator-supplied rack identifier. Immutable on update: omit this field, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
+            Operator-supplied rack identifier. Immutable on update: omit this field, send `null`, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
         rackProfileId:
           type:
             - string

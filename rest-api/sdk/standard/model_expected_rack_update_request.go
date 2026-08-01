@@ -24,7 +24,7 @@ var _ MappedNullable = &ExpectedRackUpdateRequest{}
 type ExpectedRackUpdateRequest struct {
 	// Unique identifier (UUID) of the Expected Rack to update. Optional for single Expected Rack update (must be empty or match the id from the URL path).
 	Id NullableString `json:"id,omitempty"`
-	// Operator-supplied rack identifier. Immutable on update: omit this field, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
+	// Operator-supplied rack identifier. Immutable on update: omit this field, send `null`, or provide the existing value as a compatibility no-op. A changed value is rejected because Core and Flow use rackId as the identity key for expected racks.
 	// Deprecated
 	RackId NullableString `json:"rackId,omitempty"`
 	// Optional new Rack Profile identifier. If provided, must be non-empty.
