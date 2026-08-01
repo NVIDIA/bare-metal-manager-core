@@ -19,6 +19,7 @@ mod agent_upgrade_policy;
 mod health_report;
 mod network;
 mod reprovision;
+mod set_uefi_password;
 mod status;
 mod versions;
 
@@ -50,4 +51,6 @@ pub enum Cmd {
         visible_alias = "hr"
     )]
     HealthReport(health_report::Args),
+    #[clap(about = "Set DPU UEFI password directly on the device (via Redfish)")]
+    SetUefiPassword(set_uefi_password::Args),
 }

@@ -38,7 +38,7 @@ pub struct SwitchStateHandlerServices {
     pub switch_mtls_services: Vec<i32>,
     /// Shared registry backing the generic per-object health metrics.
     pub per_object_metrics_registry: Arc<PerObjectMetricsRegistry>,
-    /// Libredfish pool used to converge the switch BMC credential (REQ-2). The
+    /// Libredfish pool used to converge the switch BMC credential. The
     /// same shared instance the machine-controller uses.
     pub redfish_client_pool: Arc<dyn RedfishClientPool>,
     /// Short-TTL cache of the site-wide BMC rotation aggregate, shared across

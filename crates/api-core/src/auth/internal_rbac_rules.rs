@@ -329,6 +329,7 @@ impl InternalRBACRules {
         x.perm("UpdateInstancePhoneHomeLastContact", vec![Agent]);
         x.perm("SetHostUefiPassword", vec![ForgeAdminCLI]);
         x.perm("ClearHostUefiPassword", vec![ForgeAdminCLI]);
+        x.perm("SetDpuUefiPassword", vec![ForgeAdminCLI]);
         x.perm(
             "AddExpectedMachine",
             vec![ForgeAdminCLI, SiteAgent, Flow, Machineatron],

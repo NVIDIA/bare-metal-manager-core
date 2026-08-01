@@ -1,6 +1,6 @@
 -- Add bmc_credential_rotation_requested column to power_shelves table.
 -- bmc_credential_rotation_requested: an operator "force-converge this PMC now"
--- escape hatch (REQ-2), the power-shelf analogue of
+-- escape hatch, the power-shelf analogue of
 -- machines.bmc_credential_rotation_requested and
 -- switches.bmc_credential_rotation_requested. When true, the power-shelf state
 -- controller enters RotatingBmc and force-converges the power shelf BMC (PMC),

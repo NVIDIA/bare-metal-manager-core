@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-//! Machine-controller BMC credential rotation (REQ-2).
+//! Machine-controller BMC credential rotation.
 //!
 //! The shared [`carbide_credential_rotation`] engine owns the actual password
 //! dance, backoff, and crash-safety; this module is the thin machine-controller

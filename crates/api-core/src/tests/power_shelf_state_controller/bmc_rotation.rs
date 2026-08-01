@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-//! End-to-end coverage for power-shelf-controller BMC (PMC) credential rotation
-//! (REQ-2): with the site-wide flag enabled, a staged target drives a Ready
+//! End-to-end coverage for power-shelf-controller BMC (PMC) credential rotation:
+//! with the site-wide flag enabled, a staged target drives a Ready
 //! power shelf through `PowerShelfControllerState::RotatingBmc` and back to
 //! Ready, converging the device and persisting the rotated per-device secret.
 //! Mirrors the switch-controller integration test

@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
-// Keep the suites in one executable: sqlx-testing's migrated template is process-local.
-mod bmc_rotation;
-mod dpu_uefi_rotation;
-mod env;
-mod firmware_upgrade_completion;
-mod host_uefi_rotation;
-mod maintenance;
-mod power_management;
-mod rack_firmware_upgrade;
+use super::args::Args;
+use crate::errors::CarbideCliResult;
+use crate::rpc::ApiClient;
+
+pub async fn set_uefi_password(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    api_client.0.set_dpu_uefi_password(data).await?;
+    // A DPU stages the change through Redfish BIOS settings and schedules no job;
+    // it commits on the next DPU restart, so there is no job id to report.
+    println!(
+        "successfully staged the site-wide UEFI password on the DPU; it commits on the next DPU restart"
+    );
+    Ok(())
+}

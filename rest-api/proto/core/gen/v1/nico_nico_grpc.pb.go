@@ -216,6 +216,7 @@ const (
 	Forge_UpdateInstancePhoneHomeLastContact_FullMethodName                 = "/forge.Forge/UpdateInstancePhoneHomeLastContact"
 	Forge_SetHostUefiPassword_FullMethodName                                = "/forge.Forge/SetHostUefiPassword"
 	Forge_ClearHostUefiPassword_FullMethodName                              = "/forge.Forge/ClearHostUefiPassword"
+	Forge_SetDpuUefiPassword_FullMethodName                                 = "/forge.Forge/SetDpuUefiPassword"
 	Forge_AddExpectedMachine_FullMethodName                                 = "/forge.Forge/AddExpectedMachine"
 	Forge_DeleteExpectedMachine_FullMethodName                              = "/forge.Forge/DeleteExpectedMachine"
 	Forge_UpdateExpectedMachine_FullMethodName                              = "/forge.Forge/UpdateExpectedMachine"
@@ -854,6 +855,10 @@ type ForgeClient interface {
 	// Set Host UEFI password
 	SetHostUefiPassword(ctx context.Context, in *SetHostUefiPasswordRequest, opts ...grpc.CallOption) (*SetHostUefiPasswordResponse, error)
 	ClearHostUefiPassword(ctx context.Context, in *ClearHostUefiPasswordRequest, opts ...grpc.CallOption) (*ClearHostUefiPasswordResponse, error)
+	// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+	// SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+	// DPU's Redfish BIOS settings and restart the DPU to commit it.
+	SetDpuUefiPassword(ctx context.Context, in *SetDpuUefiPasswordRequest, opts ...grpc.CallOption) (*SetDpuUefiPasswordResponse, error)
 	// Expected Machine Management
 	// Add expected machine
 	AddExpectedMachine(ctx context.Context, in *ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -3264,6 +3269,16 @@ func (c *forgeClient) ClearHostUefiPassword(ctx context.Context, in *ClearHostUe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ClearHostUefiPasswordResponse)
 	err := c.cc.Invoke(ctx, Forge_ClearHostUefiPassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *forgeClient) SetDpuUefiPassword(ctx context.Context, in *SetDpuUefiPasswordRequest, opts ...grpc.CallOption) (*SetDpuUefiPasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDpuUefiPasswordResponse)
+	err := c.cc.Invoke(ctx, Forge_SetDpuUefiPassword_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -6393,6 +6408,10 @@ type ForgeServer interface {
 	// Set Host UEFI password
 	SetHostUefiPassword(context.Context, *SetHostUefiPasswordRequest) (*SetHostUefiPasswordResponse, error)
 	ClearHostUefiPassword(context.Context, *ClearHostUefiPasswordRequest) (*ClearHostUefiPasswordResponse, error)
+	// Set a DPU's UEFI password directly on the device (the DPU equivalent of
+	// SetHostUefiPassword): stage the site-wide DPU UEFI credential through the
+	// DPU's Redfish BIOS settings and restart the DPU to commit it.
+	SetDpuUefiPassword(context.Context, *SetDpuUefiPasswordRequest) (*SetDpuUefiPasswordResponse, error)
 	// Expected Machine Management
 	// Add expected machine
 	AddExpectedMachine(context.Context, *ExpectedMachine) (*emptypb.Empty, error)
@@ -7449,6 +7468,9 @@ func (UnimplementedForgeServer) SetHostUefiPassword(context.Context, *SetHostUef
 }
 func (UnimplementedForgeServer) ClearHostUefiPassword(context.Context, *ClearHostUefiPasswordRequest) (*ClearHostUefiPasswordResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ClearHostUefiPassword not implemented")
+}
+func (UnimplementedForgeServer) SetDpuUefiPassword(context.Context, *SetDpuUefiPasswordRequest) (*SetDpuUefiPasswordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetDpuUefiPassword not implemented")
 }
 func (UnimplementedForgeServer) AddExpectedMachine(context.Context, *ExpectedMachine) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddExpectedMachine not implemented")
@@ -11768,6 +11790,24 @@ func _Forge_ClearHostUefiPassword_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ForgeServer).ClearHostUefiPassword(ctx, req.(*ClearHostUefiPasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Forge_SetDpuUefiPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDpuUefiPasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ForgeServer).SetDpuUefiPassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Forge_SetDpuUefiPassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ForgeServer).SetDpuUefiPassword(ctx, req.(*SetDpuUefiPasswordRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -17507,6 +17547,10 @@ var Forge_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ClearHostUefiPassword",
 			Handler:    _Forge_ClearHostUefiPassword_Handler,
+		},
+		{
+			MethodName: "SetDpuUefiPassword",
+			Handler:    _Forge_SetDpuUefiPassword_Handler,
 		},
 		{
 			MethodName: "AddExpectedMachine",
