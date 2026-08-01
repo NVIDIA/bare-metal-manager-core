@@ -609,6 +609,11 @@ knobs = [
     # PROXY-DIRECT: the Redfish client injects "Forwarded: host=<BMC IP>"
     # whenever bmc_proxy is set; the mock's registry routes on it. One
     # ClusterIP service serves the whole simulated fleet.
+    # CONTROLLER MODE (MAT_MULTIPOD=1) is the exception: mat-k8s-controller
+    # gives every BMC its own ClusterIP and site-explorer must dial those
+    # directly, so bmc_proxy stays dropped (values/machine-a-tron-scale*.yaml
+    # documents this requirement).
+] if os.environ.get("MAT_MULTIPOD") == "1" else [
     f'      bmc_proxy = "{env["BMC_PROXY"]}"',
     f'      concurrent_explorations = {env["KNOB_CONC"]}',
     f'      explorations_per_run = {env["KNOB_EPR"]}',
