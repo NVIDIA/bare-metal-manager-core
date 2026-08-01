@@ -20,7 +20,9 @@ Change the endpoint URL for a chassis serial
 ## OPTIONS
 
 **--chassis-serial** *\<SERIAL\>*  
+
 **--endpoint** *\<ENDPOINT\>*  
+
 **--extended**  
 Extended result output.
 

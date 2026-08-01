@@ -18,6 +18,7 @@ Update instance OS
 ## OPTIONS
 
 **-i**, **--instance** *\<INSTANCE\>*  
+
 **--os** *\<OS_JSON\>*  
 OS definition in JSON format
 

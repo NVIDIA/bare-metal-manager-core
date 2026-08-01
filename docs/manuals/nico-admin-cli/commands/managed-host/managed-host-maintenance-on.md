@@ -24,7 +24,7 @@ assigned to it
 Managed Host ID
 
 **--reference** *\<REFERENCE\>*  
-URL of reference (ticket, issue, etc) for this machines maintenance
+URL of reference (ticket, issue, etc) for this machine's maintenance
 
 **--extended**  
 Extended result output.

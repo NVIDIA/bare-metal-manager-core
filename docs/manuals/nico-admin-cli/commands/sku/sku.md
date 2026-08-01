@@ -50,7 +50,7 @@ Print help (see a summary with -h)
 | [`unassign`](./sku-unassign.md) | Unassign a SKU from a machine |
 | [`verify`](./sku-verify.md) | Verify a machine against its SKU |
 | [`update-metadata`](./sku-update-metadata.md) | Update the metadata of a SKU |
-| [`bulk-update-metadata`](./sku-bulk-update-metadata.md) | Update multiple SKU's metadata from a file |
+| [`bulk-update-metadata`](./sku-bulk-update-metadata.md) | Update metadata for multiple SKUs from a file |
 | [`replace`](./sku-replace.md) | Replace the component list of a SKU |
 
 ---

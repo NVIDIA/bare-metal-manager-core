@@ -99,7 +99,7 @@ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypasswo
 | [`disable-secure-boot`](./redfish-disable-secure-boot.md) | Disable Secure Boot |
 | [`get-chassis-all`](./redfish-get-chassis-all.md) | List Chassis |
 | [`get-chassis`](./redfish-get-chassis.md) | List Chassis Subsystem |
-| [`get-bmc-ethernet-interfaces`](./redfish-get-bmc-ethernet-interfaces.md) | Show BMC's Ethernet interface information |
+| [`get-bmc-ethernet-interfaces`](./redfish-get-bmc-ethernet-interfaces.md) | Show BMC Ethernet interface information |
 | [`get-system-ethernet-interfaces`](./redfish-get-system-ethernet-interfaces.md) | Show System Ethernet interface information |
 | [`get-bmc-accounts`](./redfish-get-bmc-accounts.md) | List of existing BMC accounts |
 | [`change-bmc-username`](./redfish-change-bmc-username.md) | Rename an account |

@@ -4,8 +4,8 @@ _[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › [dpu](./
 
 ## NAME
 
-nico-admin-cli-redfish-dpu-firmware-update - Update BMCs FW to the given
-FW package
+nico-admin-cli-redfish-dpu-firmware-update - Update BMC firmware to the
+given firmware package
 
 ## SYNOPSIS
 
@@ -14,7 +14,7 @@ FW package
 
 ## DESCRIPTION
 
-Update BMCs FW to the given FW package
+Update BMC firmware to the given firmware package
 
 ## OPTIONS
 

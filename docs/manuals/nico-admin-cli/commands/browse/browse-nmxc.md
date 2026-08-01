@@ -30,9 +30,15 @@ NMX-C browse operation to run\
 
 - compute-node-info-list
 
+- switch-node-info-list
+
 - gpu-info
 
 - gpu-info-list
+
+- partition-info-list
+
+- get-domain-properties
 
 **--gpu-uid** *\<GPU_UID\>* \[default: 0\]  
 GPU UID (used by the gpu-info operation)
@@ -62,7 +68,10 @@ Print help (see a summary with -h)
 ```sh
 nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info-list
 nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation compute-node-info-list
+nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation switch-node-info-list
 nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation gpu-info --gpu-uid 42
+nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation partition-info-list
+nico-admin-cli browse nmxc --chassis-serial 1234567890 --operation get-domain-properties
 ```
 
 ---

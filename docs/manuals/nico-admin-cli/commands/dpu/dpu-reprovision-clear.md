@@ -23,6 +23,7 @@ DPU Machine ID for which reprovisioning should be cleared, or host
 machine id if all DPUs should be cleared.
 
 **-u**, **--update-firmware**  
+
 **--extended**  
 Extended result output.
 

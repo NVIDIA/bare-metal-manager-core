@@ -10,7 +10,7 @@ defaults
 ## SYNOPSIS
 
 **nico-admin-cli redfish reset-bios** \[**-r**\|**--reboot**\]
-\[**--extended**\] \[**--sort-by** *\<SORT_BY\>*\] \[**-h**\|**--help**\]
+\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
@@ -26,7 +26,7 @@ Perform a forced restart after the BMC accepts the BIOS reset request
 **--extended**  
 Extended result output.
 
-This is used by measured boot, where basic output contains just what you
+This used by measured boot, where basic output contains just what you
 probably care about, and "extended" output also dumps out all the
 internal UUIDs that are used to associate instances.
 

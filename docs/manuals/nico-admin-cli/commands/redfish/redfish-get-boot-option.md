@@ -19,7 +19,9 @@ List one or all BIOS boot options
 ## OPTIONS
 
 **--all**  
+
 **--id** *\<ID\>*  
+
 **--extended**  
 Extended result output.
 

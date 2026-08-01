@@ -20,6 +20,7 @@ Display Machine information
 ## OPTIONS
 
 **--help**  
+
 **-a**, **--all**  
 Show all machines (DEPRECATED)
 
@@ -33,7 +34,7 @@ Show only hosts
 Show only machines for this instance type
 
 **-c**, **--history-count** *\<HISTORY_COUNT\>* \[default: 5\]  
-History count. Valid if \`machine\` argument is passed.
+History count. Valid if `machine` argument is passed.
 
 **--extended**  
 Extended result output.

@@ -6,9 +6,10 @@ _[Hardware commands](../../hardware.md) › **dpf**_
 
 nico-admin-cli-dpf - DPF-related commands. Note: These commands update
 the DPF state of the machine, which determines DPF-based DPU
-re-provisioning. The state is saved in the machines metadata and will be
-deleted if the machine is force-deleted. To make the state persistent,
-add the DPF state for a machine (host) to the expected machines table.
+re-provisioning. The state is saved in the machine's metadata and will
+be deleted if the machine is force-deleted. To make the state
+persistent, add the DPF state for a machine (host) to the expected
+machines table.
 
 ## SYNOPSIS
 
@@ -19,7 +20,7 @@ add the DPF state for a machine (host) to the expected machines table.
 
 DPF-related commands. Note: These commands update the DPF state of the
 machine, which determines DPF-based DPU re-provisioning. The state is
-saved in the machines metadata and will be deleted if the machine is
+saved in the machine's metadata and will be deleted if the machine is
 force-deleted. To make the state persistent, add the DPF state for a
 machine (host) to the expected machines table.
 

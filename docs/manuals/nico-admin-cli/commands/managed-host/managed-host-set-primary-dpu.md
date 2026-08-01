@@ -4,23 +4,29 @@ _[Hardware commands](../../hardware.md) â€º [managed-host](./managed-host.md) â€
 
 ## NAME
 
-nico-admin-cli-managed-host-set-primary-dpu - Set the primary DPU for
-the managed host
+nico-admin-cli-managed-host-set-primary-dpu - Deprecated: use
+set-primary-interface. Sets the primary DPU.
 
 ## SYNOPSIS
 
-**nico-admin-cli managed-host set-primary-dpu** \[**--reboot**\]
-\[**--extended**\] \[**--sort-by**\] \[**-h**\|**--help**\]
-\<*HOST_MACHINE_ID*\> \<*DPU_MACHINE_ID*\>
+**nico-admin-cli managed-host set-primary-dpu**
+\[**--force-reconcile**\] \[**--reboot**\] \[**--extended**\]
+\[**--sort-by**\] \[**-h**\|**--help**\] \<*HOST_MACHINE_ID*\>
+\<*DPU_MACHINE_ID*\>
 
 ## DESCRIPTION
 
-Set the primary DPU for the managed host
+Deprecated: use set-primary-interface. Sets the primary DPU.
 
 ## OPTIONS
 
+**--force-reconcile**  
+Request a fresh machine-controller reconciliation even when this DPU is
+already selected
+
 **--reboot**  
-Reboot the host after the update
+Deprecated compatibility alias; use --force-reconcile with current
+servers
 
 **--extended**  
 Extended result output.
@@ -52,7 +58,7 @@ ID of the DPU machine to make primary
 
 ```sh
 nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789
-nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 --reboot
+nico-admin-cli managed-host set-primary-dpu 12345678-1234-5678-90ab-cdef01234567 abcdef01-2345-6789-abcd-ef0123456789 --force-reconcile
 ```
 
 ---

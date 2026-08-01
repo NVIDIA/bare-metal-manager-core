@@ -26,10 +26,10 @@ Show all discovered firmware key/values
 Show BMC FW Version
 
 **--dpu-os**  
-Show DPU OS version (shortcut for \`show DPU_OS\`)
+Show DPU OS version (shortcut for `show DPU_OS`)
 
 **--uefi**  
-Show UEFI version (shortcut for \`show DPU_UEFI\`)
+Show UEFI version (shortcut for `show DPU_UEFI`)
 
 **--extended**  
 Extended result output.

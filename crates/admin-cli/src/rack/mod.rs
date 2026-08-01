@@ -47,6 +47,9 @@ pub enum Cmd {
     Profile(profile::Args),
     #[clap(subcommand, about = "On-demand rack maintenance")]
     Maintenance(maintenance::Args),
-    #[clap(about = "Show rack state history")]
+    #[clap(
+        about = "Show rack state history",
+        long_about = "Show rack state history.\n\nRecords are always returned in chronological order (oldest first). The global --sort-by option is inherited by this command but has no effect on the output."
+    )]
     StateHistory(state_history::Args),
 }

@@ -52,7 +52,11 @@ pub struct Args {
     #[clap(long, help = "Set whether users can override OS parameters.")]
     pub allow_override: Option<bool>,
 
-    #[clap(long, help = "Set whether phone-home on first boot is enabled.")]
+    #[clap(
+        long,
+        help = "Set whether phone-home on first boot is enabled.",
+        long_help = "Set whether the instance is held in a provisioning state until the booted OS calls back (\"phones home\") to NICo's metadata service, instead of being reported ready as soon as provisioning finishes. NICo injects the cloud-init `phone_home` block into your user-data for you, so your `userData` must be valid cloud-init YAML when this is enabled. Refer to [Phone-home](../../../../configuration/tenant_management.md#phone-home) for what it injects, the endpoint, and usage guidance."
+    )]
     pub phone_home_enabled: Option<bool>,
 
     #[clap(long, help = "Update the cloud-init / user-data script.")]

@@ -20,6 +20,7 @@ Display instance information
 ## OPTIONS
 
 **-e**, **--extrainfo**  
+
 **-t**, **--tenant-org-id** *\<TENANT_ORG_ID\>*  
 The Tenant Org ID to query
 

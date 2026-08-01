@@ -19,6 +19,7 @@ Remove a mapping by chassis serial
 ## OPTIONS
 
 **--chassis-serial** *\<SERIAL\>*  
+
 **--extended**  
 Extended result output.
 

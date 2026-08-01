@@ -18,6 +18,7 @@ update, preserves unprovided fields).
 \[**--rack-id**\] \[**--default_pause_ingestion_and_poweron**\]
 \[**--dpf-enabled**\] \[**--bmc-ip-address**\] \[**--extended**\]
 \[**--bmc-retain-credentials**\] \[**--dpu-policy**\]
+\[**--bmc-ip-allocation**\] \[**--interfaces**\]
 \[**--disable-lockdown**\] \[**--sort-by**\] \[**-h**\|**--help**\]
 
 ## DESCRIPTION
@@ -77,8 +78,8 @@ A SKU ID that will be added for the newly created Machine.
 A RACK ID that will be added for the newly created Machine.
 
 **--default_pause_ingestion_and_poweron** *\<DEFAULT_PAUSE_INGESTION_AND_POWERON\>*  
-Optional flag to pause machines ingestion and power on. False - dont
-pause, true - will pause it. The actual mutable state is stored in
+Optional flag to pause machine ingestion and power-on. False - don't
+pause; true - pause it. The actual mutable state is stored in
 explored_endpoints.\
 
 \
@@ -120,14 +121,13 @@ factory-default credentials in Vault as-is\
 
 - false
 
-**--dpu-policy** *\<DPU_POLICY\>*\
-Per-host DPU policy. \`manage\`: inherit the site policy, which defaults
-to managing DPUs; \`nic\`: configure DPU hardware as plain NICs;
-\`ignore\`: do not configure or attach DPU hardware. Unset preserves the
-existing per-host value. The previous \`use-as-nic\` value remains accepted
-as an alias. The legacy \`--dpu-mode\` flag also remains accepted:
-\`dpu-mode\` maps to \`manage\`, \`nic-mode\` to \`nic\`, and \`no-dpu\`
-to \`ignore\`.\
+**--dpu-policy** *\<DPU_POLICY\>*  
+Per-host DPU policy. `manage`: inherit the site policy, which defaults
+to managing DPUs; `nic`: configure DPU hardware as plain NICs; `ignore`:
+do not configure or attach DPU hardware. Unset preserves the existing
+per-host value. The previous `use-as-nic` value remains accepted as an
+alias. The legacy `--dpu-mode` flag also remains accepted: `dpu-mode`
+maps to `manage`, `nic-mode` to `nic`, and `no-dpu` to `ignore`.\
 
 \
 *Possible values:*
@@ -137,6 +137,39 @@ to \`ignore\`.\
 - nic
 
 - ignore
+
+**--bmc-ip-allocation** *\<BMC_IP_ALLOCATION\>*  
+Per-host control over how this BMC's IP is assigned and retained. `auto`
+(default): infer from `--bmc-ip-address` -- a configured address is
+`fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that
+may expire and change; `fixed`: the operator-specified
+`--bmc-ip-address` (static); `retained`: an auto-allocated address
+pinned as static (never expires). Unset preserves the existing per-host
+value.\
+
+\
+*Possible values:*
+
+- unspecified
+
+- auto
+
+- dynamic
+
+- fixed
+
+- retained
+
+**--interfaces** *\<INTERFACES\>*  
+Interfaces as a JSON array of ExpectedInterface objects (fields:
+mac_address, role, ip_allocation, network_segment_type, fixed_ip,
+fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values:
+role=host\|dpu_os\|dpu_bmc\|host_bmc\|unspecified and
+ip_allocation=dynamic\|fixed\|retained\|unspecified. Replaces the
+machine's full interface list. For a matching stored MAC, omitting role
+preserves the stored role; role=unspecified resets it to host. Omitting
+ip_allocation preserves the stored policy when the presence of fixed_ip
+is unchanged; ip_allocation=unspecified resets it to fixed_ip inference.
 
 **--disable-lockdown** *\<DISABLE_LOCKDOWN\>*  
 If true, do not lock down the server as part of lifecycle management
@@ -170,6 +203,9 @@ nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --sku-
 nico-admin-cli expected-machine patch --id 12345678-1234-5678-90ab-cdef01234567 --sku-id DGX-H100-640GB
 nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mynewpassword
 nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --dpu-policy ignore
+nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --bmc-ip-allocation retained
+nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --interfaces '[{"mac_address":"02:00:00:00:20:01","fixed_ip":"192.0.2.10"}]'
+nico-admin-cli expected-machine patch --bmc-mac-address 00:11:22:33:44:55 --interfaces '[{"mac_address":"02:00:00:00:20:01","role":"unspecified","ip_allocation":"unspecified","fixed_ip":"192.0.2.10"}]'
 ```
 
 ---

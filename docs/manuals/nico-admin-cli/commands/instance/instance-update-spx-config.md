@@ -20,6 +20,7 @@ Update instance SPX configuration
 ## OPTIONS
 
 **-i**, **--instance** *\<INSTANCE\>*  
+
 **--config** *\<SPX_JSON\>*  
 SPX configuration in JSON format
 

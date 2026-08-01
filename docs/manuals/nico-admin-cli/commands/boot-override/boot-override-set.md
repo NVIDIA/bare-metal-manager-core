@@ -17,7 +17,9 @@ nico-admin-cli-boot-override-set
 ## OPTIONS
 
 **-p**, **--custom-pxe** *\<CUSTOM_PXE\>*  
+
 **-u**, **--custom-user-data** *\<CUSTOM_USER_DATA\>*  
+
 **--extended**  
 Extended result output.
 

@@ -58,7 +58,7 @@ pub enum Cmd {
     Verify(verify::Args),
     #[clap(about = "Update the metadata of a SKU")]
     UpdateMetadata(update_metadata::Args),
-    #[clap(about = "Update multiple SKU's metadata from a file")]
+    #[clap(about = "Update metadata for multiple SKUs from a file")]
     BulkUpdateMetadata(bulk_update_metadata::Args),
     #[clap(about = "Replace the component list of a SKU")]
     Replace(replace::Args),

@@ -40,6 +40,7 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*POWER_SHELF_ID*\>  
+
 \<*REPORT_SOURCE*\>
 
 ## Examples

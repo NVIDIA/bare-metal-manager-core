@@ -18,7 +18,8 @@ Add route server addresses
 ## OPTIONS
 
 **--source-type** *\<SOURCE_TYPE\>* \[default: admin_api\]  
-The source_type to use for the target addresses. Defaults to admin_api.\
+The source_type to use for the target addresses. Defaults to
+admin_api.\
 
 \
 *Possible values:*

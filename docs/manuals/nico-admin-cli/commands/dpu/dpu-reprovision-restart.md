@@ -22,6 +22,7 @@ Restart the DPU reprovision.
 Host Machine ID for which reprovisioning should be restarted.
 
 **-u**, **--update-firmware**  
+
 **--extended**  
 Extended result output.
 

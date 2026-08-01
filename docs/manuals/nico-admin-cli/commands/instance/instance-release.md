@@ -19,7 +19,9 @@ De-allocate instance
 ## OPTIONS
 
 **-i**, **--instance** *\<INSTANCE\>*  
+
 **-m**, **--machine** *\<MACHINE\>*  
+
 **--label-key** *\<LABEL_KEY\>*  
 The key of label instance to query
 

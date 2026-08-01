@@ -20,6 +20,7 @@ Update instance IB configuration
 ## OPTIONS
 
 **-i**, **--instance** *\<INSTANCE\>*  
+
 **--config** *\<IB_JSON\>*  
 IB configuration in JSON format
 

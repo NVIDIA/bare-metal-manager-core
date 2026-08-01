@@ -4,7 +4,7 @@ _[Admin commands](../../admin.md) › [ssh](./ssh.md) › **show-obmc-log**_
 
 ## NAME
 
-nico-admin-cli-ssh-show-obmc-log - Show the DPUs BMCs OBMC log
+nico-admin-cli-ssh-show-obmc-log - Show the OBMC log for the DPU's BMC
 
 ## SYNOPSIS
 
@@ -14,7 +14,7 @@ nico-admin-cli-ssh-show-obmc-log - Show the DPUs BMCs OBMC log
 
 ## DESCRIPTION
 
-Show the DPUs BMCs OBMC log
+Show the OBMC log for the DPU's BMC
 
 ## OPTIONS
 

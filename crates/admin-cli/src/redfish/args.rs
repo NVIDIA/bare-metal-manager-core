@@ -179,7 +179,7 @@ Gracefully shut a machine down (also accepted as the alias `shutdown`):
     GetChassisAll,
     /// List Chassis Subsystem
     GetChassis(Chassis),
-    /// Show BMC's Ethernet interface information
+    /// Show BMC Ethernet interface information
     GetBmcEthernetInterfaces,
     /// Show System Ethernet interface information
     GetSystemEthernetInterfaces,
@@ -231,10 +231,11 @@ Clear the UEFI password (supply the current one):
     ClearNvram,
     /// Set BIOS options
     SetBios(SetBios),
-    /// Reset BIOS settings to factory defaults. Returns once the BMC accepts
-    /// the reset request. A system restart is required for the settings to
-    /// take effect.
-    #[command(after_long_help = "\
+    /// Reset BIOS settings to factory defaults.
+    #[command(
+        about = "Reset BIOS settings to factory defaults",
+        long_about = "Reset BIOS settings to factory defaults. Returns once the BMC accepts the reset request. A system restart is required for the settings to take effect.",
+        after_long_help = "\
 EXAMPLES:
 
 Reset BIOS settings to factory defaults:
@@ -244,7 +245,8 @@ Reset BIOS settings and restart the system to apply the change:
     $ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypassword \
     reset-bios --reboot
 
-")]
+"
+    )]
     ResetBios(ResetBiosArgs),
     /// Get DPU mode
     GetNicMode,
@@ -329,8 +331,8 @@ Show DPU port information:
 
 ")]
 pub enum DpuOperations {
-    /// BMC's FW Commands
-    #[clap(visible_alias = "fw", about = "BMC's FW Commands", subcommand)]
+    /// BMC firmware commands
+    #[clap(visible_alias = "fw", about = "BMC firmware commands", subcommand)]
     Firmware(FwCommand),
     /// Show ports information
     Ports(ShowPort),
@@ -356,7 +358,7 @@ Show all discovered firmware versions:
 pub enum FwCommand {
     /// Print FW update status
     Status,
-    /// Update BMC's FW to the given FW package
+    /// Update BMC firmware to the given firmware package
     Update(FwPackage),
     /// Show FW versions of different components
     Show(ShowFw),

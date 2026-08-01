@@ -18,6 +18,7 @@ Display remediation information
 ## OPTIONS
 
 **--display-script**  
+
 **--extended**  
 Extended result output.
 

@@ -30,6 +30,7 @@ Example json file: { "expected_machines": \[ { "bmc_mac_address":
 ## OPTIONS
 
 **-f**, **--filename** *\<FILENAME\>*  
+
 **--extended**  
 Extended result output.
 

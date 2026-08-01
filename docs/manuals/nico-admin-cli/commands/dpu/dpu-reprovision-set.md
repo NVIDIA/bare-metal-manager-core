@@ -23,6 +23,7 @@ DPU Machine ID for which reprovisioning is needed, or host machine id if
 all DPUs should be reprovisioned.
 
 **-u**, **--update-firmware**  
+
 **--update-message** *\<UPDATE_MESSAGE\>*  
 If set, a HostUpdateInProgress health alert will be applied to the host
 

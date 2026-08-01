@@ -20,8 +20,11 @@ Reboot instance, potentially applying firmware updates
 ## OPTIONS
 
 **-i**, **--instance** *\<INSTANCE\>*  
+
 **-c**, **--custom-pxe**  
+
 **-a**, **--apply-updates-on-reboot**  
+
 **--extended**  
 Extended result output.
 

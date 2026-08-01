@@ -21,6 +21,7 @@ carbide-api admin_grow_resource_pool docs for example TOML.
 ## OPTIONS
 
 **-f**, **--filename** *\<FILENAME\>*  
+
 **--extended**  
 Extended result output.
 

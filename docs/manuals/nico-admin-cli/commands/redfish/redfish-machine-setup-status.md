@@ -5,7 +5,7 @@ _[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **machin
 ## NAME
 
 nico-admin-cli-redfish-machine-setup-status - Is everything MachineSetup
-does already done? Whats missing?
+does already done? What's missing?
 
 ## SYNOPSIS
 
@@ -15,7 +15,7 @@ does already done? Whats missing?
 
 ## DESCRIPTION
 
-Is everything MachineSetup does already done? Whats missing?
+Is everything MachineSetup does already done? What's missing?
 
 ## OPTIONS
 

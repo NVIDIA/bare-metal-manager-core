@@ -18,6 +18,7 @@ Unassign a SKU from a machine
 ## OPTIONS
 
 **--force**  
+
 **--extended**  
 Extended result output.
 

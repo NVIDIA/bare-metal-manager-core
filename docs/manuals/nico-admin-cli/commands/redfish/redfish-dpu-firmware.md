@@ -4,7 +4,7 @@ _[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › [dpu](./
 
 ## NAME
 
-nico-admin-cli-redfish-dpu-firmware - BMCs FW Commands
+nico-admin-cli-redfish-dpu-firmware - BMC firmware commands
 
 ## SYNOPSIS
 
@@ -13,7 +13,7 @@ nico-admin-cli-redfish-dpu-firmware - BMCs FW Commands
 
 ## DESCRIPTION
 
-BMCs FW Commands
+BMC firmware commands
 
 ## OPTIONS
 
@@ -50,7 +50,7 @@ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypasswo
 | Subcommand | Description |
 |---|---|
 | [`status`](./redfish-dpu-firmware-status.md) | Print FW update status |
-| [`update`](./redfish-dpu-firmware-update.md) | Update BMC's FW to the given FW package |
+| [`update`](./redfish-dpu-firmware-update.md) | Update BMC firmware to the given firmware package |
 | [`show`](./redfish-dpu-firmware-show.md) | Show FW versions of different components |
 
 ---

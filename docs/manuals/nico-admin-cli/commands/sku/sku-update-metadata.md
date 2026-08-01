@@ -19,10 +19,10 @@ Update the metadata of a SKU
 ## OPTIONS
 
 **--description** *\<DESCRIPTION\>*  
-Update the SKUs description
+Update the SKU's description
 
 **--device-type** *\<DEVICE_TYPE\>*  
-Update the SKUs device type
+Update the SKU's device type
 
 **--extended**  
 Extended result output.

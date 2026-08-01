@@ -4,8 +4,8 @@ _[Hardware commands](../../hardware.md) › [sku](./sku.md) › **bulk-update-me
 
 ## NAME
 
-nico-admin-cli-sku-bulk-update-metadata - Update multiple SKUs metadata
-from a file
+nico-admin-cli-sku-bulk-update-metadata - Update metadata for multiple
+SKUs from a file
 
 ## SYNOPSIS
 
@@ -14,7 +14,7 @@ from a file
 
 ## DESCRIPTION
 
-Update multiple SKUs metadata from a file
+Update metadata for multiple SKUs from a file
 
 ## OPTIONS
 

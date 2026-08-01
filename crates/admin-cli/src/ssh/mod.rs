@@ -40,6 +40,6 @@ pub enum Cmd {
     EnableRshim(enable_rshim::Args),
     #[clap(about = "Copy BFB to the DPU BMC's RSHIM ")]
     CopyBfb(copy_bfb::Args),
-    #[clap(about = "Show the DPU's BMC's OBMC log")]
+    #[clap(about = "Show the OBMC log for the DPU's BMC")]
     ShowObmcLog(show_obmc_log::Args),
 }

@@ -48,13 +48,13 @@ The virtualizer to use for this VPC\
 
 - fnn
 
-- flat: \`Flat\` is for VPCs whose tenant instances live directly on the
+- flat: `Flat` is for VPCs whose tenant instances live directly on the
   underlay (zero-DPU hosts, or hosts with their DPU in NIC mode) and
-  whose interfaces are bound to \`HostInband\` network segments rather
+  whose interfaces are bound to `HostInband` network segments rather
   than a NICo-managed overlay. Flat VPCs are still real tenant VPCs with
-  a VNI and NSGs, but NICo doesnt drive their data plane -- routing and
+  a VNI and NSGs, but NICo doesn't drive their data plane -- routing and
   ACL enforcement between Flat VPCs and other VPCs is the network
-  operators responsibility
+  operator's responsibility
 
 ## Examples
 

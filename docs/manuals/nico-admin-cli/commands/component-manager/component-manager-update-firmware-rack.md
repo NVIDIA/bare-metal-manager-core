@@ -27,7 +27,7 @@ Rack IDs to target
 Firmware target version for legacy direct-update paths
 
 **--sot-json-file** *\<PATH\>*  
-SOT JSON file for RMS ApplyFirmwareObjectFromJSON
+SOT JSON file for RMS ApplyFirmwareObject
 
 **--access-token** *\<ACCESS_TOKEN\>*  
 Artifact access token for RMS SOT JSON downloads; omit or pass empty for

@@ -4,7 +4,7 @@ _[Hardware commands](../../hardware.md) › [redfish](./redfish.md) › **get-bm
 
 ## NAME
 
-nico-admin-cli-redfish-get-bmc-ethernet-interfaces - Show BMCs Ethernet
+nico-admin-cli-redfish-get-bmc-ethernet-interfaces - Show BMC Ethernet
 interface information
 
 ## SYNOPSIS
@@ -14,7 +14,7 @@ interface information
 
 ## DESCRIPTION
 
-Show BMCs Ethernet interface information
+Show BMC Ethernet interface information
 
 ## OPTIONS
 

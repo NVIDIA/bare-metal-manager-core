@@ -20,6 +20,7 @@ Insert a mapping for a chassis serial
 ## OPTIONS
 
 **--chassis-serial** *\<SERIAL\>*  
+
 **--endpoint** *\<ENDPOINT\>*  
 NMX-C gRPC base URL (e.g. https://host:50051)
 

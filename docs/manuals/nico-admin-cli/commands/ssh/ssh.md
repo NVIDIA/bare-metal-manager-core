@@ -45,7 +45,7 @@ Print help (see a summary with -h)
 | [`disable-rshim`](./ssh-disable-rshim.md) | Disable Rshim |
 | [`enable-rshim`](./ssh-enable-rshim.md) | EnableRshim |
 | [`copy-bfb`](./ssh-copy-bfb.md) | Copy BFB to the DPU BMC's RSHIM |
-| [`show-obmc-log`](./ssh-show-obmc-log.md) | Show the DPU's BMC's OBMC log |
+| [`show-obmc-log`](./ssh-show-obmc-log.md) | Show the OBMC log for the DPU's BMC |
 
 ---
 

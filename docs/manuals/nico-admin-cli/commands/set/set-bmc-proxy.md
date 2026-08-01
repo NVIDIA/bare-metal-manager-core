@@ -28,7 +28,7 @@ Enable site-explorer bmc_proxy\
 - false
 
 **--proxy** *\<PROXY\>*  
-host:port string use as a proxy for talking to BMCs
+host:port string to use as a proxy for talking to BMCs
 
 **--extended**  
 Extended result output.

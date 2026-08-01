@@ -29,7 +29,7 @@ Set a targeted filter that reverts after 30 minutes:
 
 ")]
 pub struct Args {
-    #[clap(short, long, help = "Set server's RUST_LOG.")]
+    #[clap(short, long, help = "Set the server's RUST_LOG.")]
     pub filter: String,
     #[clap(
         long,

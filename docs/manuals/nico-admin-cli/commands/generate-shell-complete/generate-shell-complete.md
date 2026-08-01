@@ -5,8 +5,8 @@ _[Admin commands](../../admin.md) › **generate-shell-complete**_
 ## NAME
 
 nico-admin-cli-generate-shell-complete - Generate shell autocomplete.
-Source the output of this command: \`source \<(nico-admin-cli
-generate-shell-complete bash)\`
+Source the output of this command:
+`source <(nico-admin-cli generate-shell-complete bash)`
 
 ## SYNOPSIS
 
@@ -15,8 +15,8 @@ generate-shell-complete bash)\`
 
 ## DESCRIPTION
 
-Generate shell autocomplete. Source the output of this command: \`source
-\<(nico-admin-cli generate-shell-complete bash)\`
+Generate shell autocomplete. Source the output of this command:
+`source <(nico-admin-cli generate-shell-complete bash)`
 
 ## OPTIONS
 

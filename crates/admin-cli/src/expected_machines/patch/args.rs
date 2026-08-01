@@ -167,7 +167,7 @@ pub struct Args {
     #[clap(
         long = "default_pause_ingestion_and_poweron",
         value_name = "DEFAULT_PAUSE_INGESTION_AND_POWERON",
-        help = "Optional flag to pause machine's ingestion and power on. False - don't pause, true - will pause it. The actual mutable state is stored in explored_endpoints."
+        help = "Optional flag to pause machine ingestion and power-on. False - don't pause; true - pause it. The actual mutable state is stored in explored_endpoints."
     )]
     pub default_pause_ingestion_and_poweron: Option<bool>,
 

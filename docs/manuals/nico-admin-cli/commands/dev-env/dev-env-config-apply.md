@@ -18,7 +18,7 @@ Apply devenv config
 ## OPTIONS
 
 **-m**, **--mode** *\<MODE\>*  
-Vpc prefix or network segment?\
+Vpc prefix, tenant network segment, or HostInband segment?\
 
 \
 *Possible values:*
@@ -26,6 +26,9 @@ Vpc prefix or network segment?\
 - network-segment
 
 - vpc-prefix
+
+- host-inband-segment: Flat VPC plus HostInband segment for hosts with
+  no DPU
 
 **--extended**  
 Extended result output.

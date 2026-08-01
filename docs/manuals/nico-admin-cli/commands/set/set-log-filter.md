@@ -19,7 +19,7 @@ Set RUST_LOG
 ## OPTIONS
 
 **-f**, **--filter** *\<FILTER\>*  
-Set servers RUST_LOG.
+Set the server's RUST_LOG.
 
 **--expiry** *\<EXPIRY\>* \[default: 1h\]  
 Revert to startup RUST_LOG after this much time, friendly format e.g.

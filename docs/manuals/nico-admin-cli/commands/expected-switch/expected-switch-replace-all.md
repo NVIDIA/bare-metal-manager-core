@@ -20,6 +20,7 @@ Replace all expected switches
 ## OPTIONS
 
 **-f**, **--filename** *\<FILENAME\>*  
+
 **--extended**  
 Extended result output.
 

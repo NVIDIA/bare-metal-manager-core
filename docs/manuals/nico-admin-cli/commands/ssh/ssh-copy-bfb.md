@@ -4,7 +4,7 @@ _[Admin commands](../../admin.md) › [ssh](./ssh.md) › **copy-bfb**_
 
 ## NAME
 
-nico-admin-cli-ssh-copy-bfb - Copy BFB to the DPU BMCs RSHIM
+nico-admin-cli-ssh-copy-bfb - Copy BFB to the DPU BMC's RSHIM
 
 ## SYNOPSIS
 
@@ -14,7 +14,7 @@ nico-admin-cli-ssh-copy-bfb - Copy BFB to the DPU BMCs RSHIM
 
 ## DESCRIPTION
 
-Copy BFB to the DPU BMCs RSHIM
+Copy BFB to the DPU BMC's RSHIM
 
 ## OPTIONS
 

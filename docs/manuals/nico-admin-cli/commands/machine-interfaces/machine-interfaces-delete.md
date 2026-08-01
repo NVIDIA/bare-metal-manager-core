@@ -38,8 +38,7 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*INTERFACE_ID*\>  
-The interface ID to delete. Redeploy kea after deleting machine
-interfaces.
+The interface ID to delete.
 
 ## Examples
 

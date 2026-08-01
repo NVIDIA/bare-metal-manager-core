@@ -13,11 +13,12 @@ nico-admin-cli-expected-machine-add - Add expected machine
 \[**-p**\|**--bmc-password**\] \<**-s**\|**--chassis-serial-number**\>
 \[**-d**\|**--fallback-dpu-serial-number**\] \[**--meta-name**\]
 \[**--meta-description**\] \[**--label**\] \[**--sku-id**\] \[**--id**\]
-\[**--host_nics**\] \[**--rack_id**\]
+\[**--interfaces**\] \[**--rack_id**\]
 \[**--default_pause_ingestion_and_poweron**\] \[**--dpf-enabled**\]
 \[**--extended**\] \[**--bmc-ip-address**\]
 \[**--bmc-retain-credentials**\] \[**--dpu-policy**\]
-\[**--disable-lockdown**\] \[**--sort-by**\] \[**-h**\|**--help**\]
+\[**--bmc-ip-allocation**\] \[**--disable-lockdown**\] \[**--sort-by**\]
+\[**-h**\|**--help**\]
 
 ## DESCRIPTION
 
@@ -63,16 +64,26 @@ A SKU ID that will be added for the newly created Machine.
 **--id** *\<UUID\>*  
 Optional unique ID to assign to the ExpectedMachine on create
 
-**--host_nics** *\<HOST_NICS\>*  
-Host NICs as a JSON array of ExpectedHostNic objects (fields:
-mac_address, nic_type, fixed_ip, fixed_mask, fixed_gateway, primary)
+**--interfaces** *\<INTERFACES\>*  
+Interfaces as a JSON array of ExpectedInterface objects (fields:
+mac_address, role, ip_allocation, network_segment_type, fixed_ip,
+fixed_mask, fixed_gateway, primary; legacy: nic_type). Accepted values:
+role=host\|dpu_os\|dpu_bmc\|host_bmc and
+ip_allocation=dynamic\|fixed\|retained. An omitted role defaults to
+host. When ip_allocation is omitted, fixed_ip implies fixed; without
+fixed_ip, host_bmc defaults to retained and every other role defaults to
+dynamic. Explicit fixed policies, DPU fixed addresses, and inferred
+host_bmc fixed addresses with a segment guard must fall within a
+configured managed prefix. Legacy host entries with an omitted policy
+and unguarded inferred host_bmc fixed addresses keep the
+static-assignments fallback.
 
 **--rack_id** *\<RACK_ID\>*  
 Rack ID for this machine
 
 **--default_pause_ingestion_and_poweron** *\<DEFAULT_PAUSE_INGESTION_AND_POWERON\>*  
-Optional flag to pause machines ingestion and power on. False - dont
-pause, true - will pause it. The actual mutable state is stored in
+Optional flag to pause machine ingestion and power-on. False - don't
+pause; true - pause it. The actual mutable state is stored in
 explored_endpoints.\
 
 \
@@ -114,14 +125,14 @@ factory-default credentials in Vault as-is\
 
 - false
 
-**--dpu-policy** *\<DPU_POLICY\>*\
-Per-host DPU policy. \`manage\` (default): inherit the site policy,
-which defaults to managing DPUs; \`nic\`: configure DPU hardware
-as plain NICs; \`ignore\`: do not configure or attach DPU hardware.
-Unset defers to the site-wide \`\[site_explorer\] dpu_policy\` setting.
-The previous \`use-as-nic\` value remains accepted as an alias. The legacy
-\`--dpu-mode\` flag also remains accepted: \`dpu-mode\` maps to \`manage\`,
-\`nic-mode\` to \`nic\`, and \`no-dpu\` to \`ignore\`.\
+**--dpu-policy** *\<DPU_POLICY\>*  
+Per-host DPU policy. `manage` (default): inherit the site policy, which
+defaults to managing DPUs; `nic`: configure DPU hardware as plain NICs;
+`ignore`: do not configure or attach DPU hardware. Unset defers to the
+site-wide `[site_explorer] dpu_policy` setting. The previous
+`use-as-nic` value remains accepted as an alias. The legacy `--dpu-mode`
+flag also remains accepted: `dpu-mode` maps to `manage`, `nic-mode` to
+`nic`, and `no-dpu` to `ignore`.\
 
 \
 *Possible values:*
@@ -131,6 +142,28 @@ The previous \`use-as-nic\` value remains accepted as an alias. The legacy
 - nic
 
 - ignore
+
+**--bmc-ip-allocation** *\<BMC_IP_ALLOCATION\>*  
+Per-host control over how this BMC's IP is assigned and retained. `auto`
+(default): infer from `--bmc-ip-address` -- a configured address is
+`fixed`, no address is `retained`; `dynamic`: a normal DHCP lease that
+may expire and change; `fixed`: the operator-specified
+`--bmc-ip-address` (static); `retained`: an auto-allocated address
+pinned as static (never expires). Unset defers to the server default
+(`auto`).\
+
+\
+*Possible values:*
+
+- unspecified
+
+- auto
+
+- dynamic
+
+- fixed
+
+- retained
 
 **--disable-lockdown** *\<DISABLE_LOCKDOWN\>*  
 If true, do not lock down the server as part of lifecycle management
@@ -164,6 +197,9 @@ nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-us
 nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --meta-name MyMachine --label DATACENTER:XYZ --sku-id DGX-H100-640GB
 nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --bmc-ip-address 192.0.2.20
 nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --dpu-policy nic
+nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --interfaces '[{"mac_address":"00:11:22:33:44:55","role":"host_bmc","ip_allocation":"retained"}]'
+nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --interfaces '[{"mac_address":"02:00:00:00:20:01","role":"dpu_os","ip_allocation":"fixed","fixed_ip":"192.0.2.10"}]'
+nico-admin-cli expected-machine add --bmc-mac-address 00:11:22:33:44:55 --bmc-username admin --bmc-password mypassword --chassis-serial-number sample_serial-1 --bmc-ip-allocation retained
 ```
 
 ---

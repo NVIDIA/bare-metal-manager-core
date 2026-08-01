@@ -22,6 +22,7 @@ Clear the reprovisioning mode.
 Machine ID for which reprovisioning should be cleared.
 
 **-u**, **--update-firmware**  
+
 **--extended**  
 Extended result output.
 

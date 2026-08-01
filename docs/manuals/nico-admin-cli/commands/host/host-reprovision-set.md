@@ -23,6 +23,7 @@ Set the host in reprovisioning mode.
 Machine ID for which reprovisioning is needed.
 
 **-u**, **--update-firmware**  
+
 **--update-message** *\<UPDATE_MESSAGE\>*  
 If set, a HostUpdateInProgress health alert will be applied to the host
 

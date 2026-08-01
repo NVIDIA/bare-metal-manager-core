@@ -31,6 +31,10 @@ Disable the BMC proxy:
 pub struct Args {
     #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer bmc_proxy")]
     pub enabled: bool,
-    #[clap(long, action = clap::ArgAction::Set, help = "host:port string use as a proxy for talking to BMC's")]
+    #[clap(
+        long,
+        action = clap::ArgAction::Set,
+        help = "host:port string to use as a proxy for talking to BMCs"
+    )]
     pub proxy: Option<String>,
 }

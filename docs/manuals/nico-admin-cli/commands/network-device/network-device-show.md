@@ -41,8 +41,8 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \[*ID*\] \[default: \]  
-Show data for the given network device (e.g. \`mac=\<mac\>\`), leave
-empty for all (default)
+Show data for the given network device (e.g. `mac=<mac>`), leave empty
+for all (default)
 
 ## Examples
 

@@ -50,7 +50,7 @@ Print help (see a summary with -h)
 The machine-id to approve (or \* for all).
 
 \<*APPROVAL_TYPE*\>  
-Whether to set \`oneshot\` or \`persist\`.\
+Whether to set `oneshot` or `persist`.\
 
 \
 *Possible values:*

@@ -18,6 +18,7 @@ Assign a SKU to a machine
 ## OPTIONS
 
 **--force**  
+
 **--extended**  
 Extended result output.
 
@@ -39,6 +40,7 @@ Sort output by specified field\
 Print help (see a summary with -h)
 
 \<*SKU_ID*\>  
+
 \<*MACHINE_ID*\>
 
 ## Examples

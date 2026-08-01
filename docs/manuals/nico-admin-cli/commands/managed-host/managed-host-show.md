@@ -20,6 +20,7 @@ Display managed host information
 ## OPTIONS
 
 **--help**  
+
 **-a**, **--all**  
 Show all managed hosts (DEPRECATED)
 

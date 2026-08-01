@@ -48,7 +48,7 @@ nico-admin-cli redfish --address 192.0.2.10 --username admin --password mypasswo
 
 | Subcommand | Description |
 |---|---|
-| [`firmware`](./redfish-dpu-firmware.md) | BMC's FW Commands |
+| [`firmware`](./redfish-dpu-firmware.md) | BMC firmware commands |
 | [`ports`](./redfish-dpu-ports.md) | Show ports information |
 
 ---

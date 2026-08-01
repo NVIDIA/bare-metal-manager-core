@@ -54,10 +54,10 @@ pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
     // Render every command's roff man page into a scratch directory. clap_mangen
     // names each file by the full command path joined with '-' (e.g.
     // `nico-admin-cli-vpc-show.1`), which we reconstruct per node below.
-    let man_dir = std::env::temp_dir().join("nico-admin-cli-cli-docs-man");
-    let _ = std::fs::remove_dir_all(&man_dir);
-    std::fs::create_dir_all(&man_dir)?;
-    clap_mangen::generate_to(root.clone(), &man_dir)?;
+    let man_dir = tempfile::Builder::new()
+        .prefix("nico-admin-cli-cli-docs-man-")
+        .tempdir()?;
+    clap_mangen::generate_to(root.clone(), man_dir.path())?;
 
     // One directory per top-level command, holding that command's page plus a
     // page for each (flattened) descendant. Rebuilt from scratch so a renamed or
@@ -89,7 +89,7 @@ pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
             sub,
             vec![BIN.to_string(), name.clone()],
             domain,
-            &man_dir,
+            man_dir.path(),
             &dir,
         )?;
 
@@ -107,7 +107,6 @@ pub fn generate(out_dir: &Path) -> CarbideCliResult<()> {
         )?;
     }
 
-    let _ = std::fs::remove_dir_all(&man_dir);
     Ok(())
 }
 
@@ -276,15 +275,20 @@ fn strip_sections(md: &str, names: &[&str]) -> String {
 /// man page's `# NAME`/`# OPTIONS`/… sections to `## ` so each generated page
 /// can own the `# ` title (the full command invocation).
 fn man_to_markdown(man_file: &Path) -> CarbideCliResult<String> {
+    let roff = std::fs::read_to_string(man_file)?;
+    let normalized_roff = normalize_roff_for_pandoc(&roff);
+    let pandoc_input = tempfile::NamedTempFile::new()?;
+    std::fs::write(pandoc_input.path(), normalized_roff)?;
+
     let mut pandoc = pandoc::new();
-    pandoc.add_input(man_file);
+    pandoc.add_input(pandoc_input.path());
     pandoc.set_input_format(pandoc::InputFormat::Other("man".to_string()), Vec::new());
     pandoc.set_output_format(pandoc::OutputFormat::Other("gfm".to_string()), Vec::new());
     pandoc.add_option(pandoc::PandocOption::ShiftHeadingLevelBy(1));
     pandoc.set_output(pandoc::OutputKind::Pipe);
 
     match pandoc.execute() {
-        Ok(pandoc::PandocOutput::ToBuffer(markdown)) => Ok(markdown),
+        Ok(pandoc::PandocOutput::ToBuffer(markdown)) => Ok(normalize_pandoc_markdown(&markdown)),
         Ok(_) => Err(CarbideCliError::GenericError(format!(
             "pandoc returned non-text output converting man page {}",
             man_file.display()
@@ -293,6 +297,299 @@ fn man_to_markdown(man_file: &Path) -> CarbideCliResult<String> {
             "while converting man page {} to markdown with pandoc: {err}",
             man_file.display()
         ))),
+    }
+}
+
+/// Expands the small subset of roff emitted by clap_mangen that pandoc's man
+/// reader does not preserve when converting to GFM.
+fn normalize_roff_for_pandoc(roff: &str) -> String {
+    let roff = normalize_roff_apostrophes(roff);
+    let mut normalized = String::with_capacity(roff.len());
+
+    for line in roff.split_inclusive('\n') {
+        let backticks = line.matches('`').count();
+        if backticks >= 2 && backticks.is_multiple_of(2) {
+            let mut in_code = false;
+            for character in line.chars() {
+                if character == '`' {
+                    normalized.push_str(if in_code { r"\f[]" } else { r"\f[C]" });
+                    in_code = !in_code;
+                } else {
+                    normalized.push(character);
+                }
+            }
+        } else {
+            normalized.push_str(line);
+        }
+    }
+
+    normalized
+}
+
+fn normalize_roff_apostrophes(roff: &str) -> String {
+    const APOSTROPHE: &str = r"\*(Aq";
+    const SUFFIXES: [&str; 7] = ["s", "t", "d", "m", "re", "ve", "ll"];
+
+    let mut normalized = String::with_capacity(roff.len());
+    let mut remaining = roff;
+    while let Some(position) = remaining.find(APOSTROPHE) {
+        normalized.push_str(&remaining[..position]);
+        let after = &remaining[position + APOSTROPHE.len()..];
+        let follows_word = normalized
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric);
+        if follows_word && SUFFIXES.iter().any(|suffix| after.starts_with(suffix)) {
+            normalized.push('\'');
+        }
+        remaining = after;
+    }
+    normalized.push_str(remaining);
+    normalized
+}
+
+/// Keeps generated GFM stable across the roff emitted by clap_mangen and the
+/// GFM writers in supported pandoc versions.
+///
+/// Newer combinations render the roff used for a value enumeration as a
+/// blockquote and use Markdown hard-break spaces. The original checked-in CLI
+/// reference used ordinary lists and backslash hard breaks. Normalize this
+/// narrow construct instead of reformatting prose, so paragraph wrapping and
+/// all user-facing text remain untouched.
+fn normalize_pandoc_markdown(markdown: &str) -> String {
+    let mut lines: Vec<String> = markdown.lines().map(str::to_string).collect();
+
+    for possible_values in 0..lines.len() {
+        if lines[possible_values].trim() != "*Possible values:*" {
+            continue;
+        }
+
+        if possible_values >= 3
+            && lines[possible_values - 1].trim().is_empty()
+            && lines[possible_values - 2].is_empty()
+            && lines[possible_values - 3].ends_with("  ")
+        {
+            let description = &mut lines[possible_values - 3];
+            description.truncate(description.len() - 2);
+            description.push('\\');
+            lines[possible_values - 1] = "\\".to_string();
+        } else if possible_values >= 2
+            && lines[possible_values - 1].trim().is_empty()
+            && lines[possible_values - 2].ends_with("  ")
+        {
+            lines[possible_values - 1] = "\\".to_string();
+        }
+    }
+
+    normalize_possible_value_lists(&mut lines);
+
+    let mut normalized = restore_escaped_markdown_links(&lines.join("\n"));
+    if markdown.ends_with('\n') {
+        normalized.push('\n');
+    }
+    normalized
+}
+
+fn restore_escaped_markdown_links(markdown: &str) -> String {
+    let mut normalized = String::with_capacity(markdown.len());
+    let mut remaining = markdown;
+
+    while let Some(open) = remaining.find(r"\[") {
+        normalized.push_str(&remaining[..open]);
+        let candidate = &remaining[open + 2..];
+        let Some(label_end) = candidate.find(r"\](") else {
+            normalized.push_str(&remaining[open..]);
+            return normalized;
+        };
+        if candidate[..label_end].contains('\n') {
+            normalized.push_str(&remaining[open..open + 2]);
+            remaining = candidate;
+            continue;
+        }
+        let destination = &candidate[label_end + 3..];
+        let Some(destination_end) = destination.find(')') else {
+            normalized.push_str(&remaining[open..]);
+            return normalized;
+        };
+        if destination[..destination_end]
+            .chars()
+            .any(|character| character == '\n' || character == ' ')
+        {
+            normalized.push_str(&remaining[open..open + 2]);
+            remaining = candidate;
+            continue;
+        }
+
+        normalized.push('[');
+        normalized.push_str(&candidate[..label_end]);
+        normalized.push_str("](");
+        normalized.push_str(&destination[..=destination_end]);
+        remaining = &destination[destination_end + 1..];
+    }
+
+    normalized.push_str(remaining);
+    normalized
+}
+
+fn normalize_possible_value_lists(lines: &mut Vec<String>) {
+    let mut heading = 0;
+    while heading < lines.len() {
+        if lines[heading].trim() != "*Possible values:*" {
+            heading += 1;
+            continue;
+        }
+
+        let start = heading + 1;
+        let mut end = start;
+        let mut items = Vec::new();
+        let mut current = String::new();
+
+        while end < lines.len() {
+            let line = &lines[end];
+            if let Some(item) = value_list_item(line) {
+                if !current.is_empty() {
+                    items.push(current);
+                }
+                current = item.to_string();
+            } else if let Some(continuation) = value_list_continuation(line) {
+                if !current.is_empty() {
+                    current.push(' ');
+                    current.push_str(continuation);
+                }
+            } else if !line.is_empty() && line != ">" {
+                break;
+            }
+            end += 1;
+        }
+        if !current.is_empty() {
+            items.push(current);
+        }
+
+        if items.is_empty() {
+            heading += 1;
+            continue;
+        }
+
+        let had_trailing_separator =
+            end > start && (lines[end - 1].is_empty() || lines[end - 1] == ">");
+        let item_count = items.len();
+        let mut rendered = vec![String::new()];
+        for (index, item) in items.into_iter().enumerate() {
+            rendered.extend(wrap_value_list_item(&item));
+            if index + 1 < item_count || had_trailing_separator {
+                rendered.push(String::new());
+            }
+        }
+        let rendered_len = rendered.len();
+        lines.splice(start..end, rendered);
+        heading = start + rendered_len;
+    }
+}
+
+fn value_list_item(line: &str) -> Option<&str> {
+    line.strip_prefix("> -")
+        .or_else(|| line.strip_prefix("- "))
+        .map(str::trim_start)
+}
+
+fn value_list_continuation(line: &str) -> Option<&str> {
+    line.strip_prefix('>')
+        .filter(|continuation| continuation.starts_with("   "))
+        .or_else(|| line.starts_with("  ").then_some(line))
+        .map(str::trim)
+}
+
+fn wrap_value_list_item(item: &str) -> Vec<String> {
+    // pandoc 2's GFM writer wrapped these roff definition-list values at 72
+    // columns. Keep that established layout when normalizing pandoc 3 output.
+    const WIDTH: usize = 72;
+
+    let mut wrapped = Vec::new();
+    let mut line = String::from("- ");
+    for word in item.split_whitespace() {
+        let separator = usize::from(line.len() > 2);
+        if line.len() + separator + word.len() > WIDTH && line.len() > 2 {
+            wrapped.push(line);
+            line = format!("  {word}");
+        } else {
+            if separator == 1 {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+    }
+    wrapped.push(line);
+    wrapped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        normalize_pandoc_markdown, normalize_roff_for_pandoc, restore_escaped_markdown_links,
+    };
+
+    #[test]
+    fn expands_clap_mangen_apostrophes_and_inline_code_for_pandoc() {
+        let input = "Set a BMC\\*(Aqs password (use `credential rotate`)\n";
+        let expected = "Set a BMC's password (use \\f[C]credential rotate\\f[])\n";
+
+        assert_eq!(normalize_roff_for_pandoc(input), expected);
+    }
+
+    #[test]
+    fn drops_roff_quote_marks_around_help_flags() {
+        let input = "Print help (see a summary with \\*(Aq-h\\*(Aq)\n";
+        let expected = "Print help (see a summary with -h)\n";
+
+        assert_eq!(normalize_roff_for_pandoc(input), expected);
+    }
+
+    #[test]
+    fn leaves_unpaired_roff_backticks_unchanged() {
+        let input = "A lone ` is ordinary text.\n";
+
+        assert_eq!(normalize_roff_for_pandoc(input), input);
+    }
+
+    #[test]
+    fn restores_links_escaped_by_pandoc_without_touching_synopsis_brackets() {
+        let input = r"Refer to \[Phone-home\](../../configuration.md#phone-home). \[**--flag**\]";
+        let expected = r"Refer to [Phone-home](../../configuration.md#phone-home). \[**--flag**\]";
+
+        assert_eq!(restore_escaped_markdown_links(input), expected);
+    }
+
+    #[test]
+    fn normalizes_possible_value_lists_without_reflowing_prose() {
+        let input = "Description that stays on its original line.  \n\n  \n*Possible values:*\n\n> - first\n>\n> -   second: description\n\nNext paragraph.\n";
+        let expected = "Description that stays on its original line.\\\n\n\\\n*Possible values:*\n\n- first\n\n- second: description\n\nNext paragraph.\n";
+
+        assert_eq!(normalize_pandoc_markdown(input), expected);
+    }
+
+    #[test]
+    fn leaves_unrelated_markdown_unchanged() {
+        let input = "A paragraph.\n\n> A real blockquote.\n";
+
+        assert_eq!(normalize_pandoc_markdown(input), input);
+    }
+
+    #[test]
+    fn normalizes_empty_descriptions_and_wrapped_value_details() {
+        let input = "**--vendor**  \n  \n*Possible values:*\n\n> - first: a long description\n>   continued here\n";
+        let expected = "**--vendor**  \n\\\n*Possible values:*\n\n- first: a long description continued here\n";
+
+        assert_eq!(normalize_pandoc_markdown(input), expected);
+    }
+
+    #[test]
+    fn wraps_value_details_independently_of_pandoc_list_indentation() {
+        let pandoc_2 = "*Possible values:*\n\n-   flat: instances live directly on the underlay and use an operator-managed data plane instead of an overlay\n";
+        let pandoc_3 = "*Possible values:*\n\n> - flat: instances live directly on the underlay and use an\n>   operator-managed data plane instead of an overlay\n";
+        let expected = "*Possible values:*\n\n- flat: instances live directly on the underlay and use an\n  operator-managed data plane instead of an overlay\n";
+
+        assert_eq!(normalize_pandoc_markdown(pandoc_2), expected);
+        assert_eq!(normalize_pandoc_markdown(pandoc_3), expected);
     }
 }
 

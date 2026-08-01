@@ -20,6 +20,7 @@ Update instance NVLink configuration
 ## OPTIONS
 
 **-i**, **--instance** *\<INSTANCE\>*  
+
 **--config** *\<NVLINK_JSON\>*  
 NVLink configuration in JSON format
 
