@@ -542,7 +542,7 @@ override are combined, properties still unset use the effective defaults above.
 | `organization_id` | `Option<String>` | — | Tenant organization that owns the seeded VPC. |
 | `network_virtualization_type` | `VpcVirtualizationType` | **required** | Data plane used by the VPC. |
 | `routing_profile_type` | `Option<String>` | — | Named FNN routing profile recorded on the seeded VPC. |
-| `routing_profile_overrides` | `Option<VpcRoutingProfileOverrides>` | — | Unsupported for seeded VPCs. Any configured value causes startup to fail; inline overrides are accepted only by VPC creation requests. |
+| `routing_profile_overrides` | `Option<VpcRoutingProfileOverrides>` | — | Unsupported for seeded VPCs. Any configured value causes startup to fail; inline overrides are accepted only by VPC creation or update requests. |
 | `vni` | `Option<i32>` | — | Desired VNI; when absent, one is allocated. |
 
 ### `PrefixFilterPolicyEntry`

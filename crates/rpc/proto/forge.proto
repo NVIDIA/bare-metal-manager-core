@@ -1855,6 +1855,12 @@ message VpcUpdateRequest {
   // The ID of the default NVLink Logical Partition for a VPC. This is the
   // NVLink Logical Partition that will be used by default for all instances in the VPC.
   optional common.NVLinkLogicalPartitionId default_nvlink_logical_partition_id = 18;
+
+  // Replaces the current inline routing-profile definition when present.
+  // Properties left unset inherit from the named base profile rather than the
+  // previous inline definition. Omit this field to preserve the current
+  // definition; send an empty message to restore inheritance for every property.
+  optional VpcRoutingProfileOverrides routing_profile_overrides = 19;
 }
 
 message VpcUpdateResult {
