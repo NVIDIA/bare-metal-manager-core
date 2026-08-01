@@ -21,6 +21,10 @@ spec:
       # with E2BIG ("argument list too long").
       enableServiceLinks: false
       serviceAccountName: {{ include "mat-k8s-controller.serviceAccountName" . }}
+      {{- with (default .Values.global.imagePullSecrets .Values.imagePullSecrets) }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: controller
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
