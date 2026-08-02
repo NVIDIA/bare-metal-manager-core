@@ -479,8 +479,8 @@ async fn test_suppressed_unexplored_endpoint_does_not_consume_budget_and_resumes
     let routine_after = db::explored_endpoints::find_all_by_ip(routine_ip, txn.as_mut()).await?;
     assert_eq!(routine_after.len(), 1);
     assert_eq!(
-        routine_after[0].report_version,
-        routine_before[0].report_version.increment()
+        routine_after[0].report_version.version_nr(),
+        routine_before[0].report_version.version_nr() + 1
     );
     db::bmc_suppression::delete(
         txn.as_mut(),
