@@ -24,6 +24,16 @@ ip_command=${SCOUT_IP_COMMAND:-ip}
 networkctl_command=${SCOUT_NETWORKCTL_COMMAND:-networkctl}
 networkd_runtime_dir=${SCOUT_NETWORKD_RUNTIME_DIR:-/run/systemd/network}
 networkd_dhcp_file=${SCOUT_NETWORKD_DHCP_FILE:-/etc/systemd/network/dhcp.network}
+# The boot NIC is frequently not usable yet when this script first runs. The kernel
+# probes PCI devices in domain order, so the interface named by `mac=` can appear
+# tens of seconds into boot -- on a GB300 compute tray the BlueField-3 boot NIC sits
+# on domain 0016 and is probed *after* four ConnectX-8s, ~24s in, while the loader
+# invokes this script at ~9s. Waiting for the interface to appear, gain carrier and
+# lease an address is therefore required for correctness, not just robustness:
+# without it the readiness checks below simply find nothing and the whole filter
+# silently no-ops on exactly the multi-NIC hosts it exists to serve.
+network_wait_seconds=${SCOUT_NETWORK_WAIT_SECONDS:-60}
+network_poll_interval=${SCOUT_NETWORK_POLL_INTERVAL:-1}
 
 if ! cmdline=$(cat "$cmdline_file"); then
 	echo "Skipping Scout network configuration: reason=cmdline_unreadable" >&2
@@ -58,41 +68,62 @@ case "$preferred_mac" in
 esac
 preferred_mac=$(printf '%s\n' "$preferred_mac" | tr '[:upper:]' '[:lower:]')
 
+probe_attempts=0
+probe_max_attempts=$((network_wait_seconds / network_poll_interval))
+[ "$probe_max_attempts" -lt 1 ] && probe_max_attempts=1
+
 preferred_interface=
-preferred_interface_count=0
-for net_path in "$sys_class_net"/*
+while :
 do
-	[ -e "$net_path" ] || continue
-	[ -r "$net_path/address" ] || continue
+	preferred_interface=
+	preferred_interface_count=0
+	for net_path in "$sys_class_net"/*
+	do
+		[ -e "$net_path" ] || continue
+		[ -r "$net_path/address" ] || continue
 
-	interface_mac=$(cat "$net_path/address") || continue
-	interface_mac=$(printf '%s\n' "$interface_mac" | tr '[:upper:]' '[:lower:]')
-	if [ "$interface_mac" = "$preferred_mac" ]; then
-		preferred_interface=${net_path##*/}
-		preferred_interface_count=$((preferred_interface_count + 1))
-	fi
-done
+		interface_mac=$(cat "$net_path/address") || continue
+		interface_mac=$(printf '%s\n' "$interface_mac" | tr '[:upper:]' '[:lower:]')
+		if [ "$interface_mac" = "$preferred_mac" ]; then
+			preferred_interface=${net_path##*/}
+			preferred_interface_count=$((preferred_interface_count + 1))
+		fi
+	done
 
-if [ "$preferred_interface_count" -ne 1 ]; then
-	echo "Skipping Scout network configuration: reason=preferred_interface_count count=$preferred_interface_count" >&2
-	exit 0
-fi
-
-carrier_file="$sys_class_net/$preferred_interface/carrier"
-if [ ! -r "$carrier_file" ] || [ "$(cat "$carrier_file")" != 1 ]; then
-	echo "Skipping Scout network configuration: interface=$preferred_interface reason=no_carrier" >&2
-	exit 0
-fi
-
-if global_addresses=$("$ip_command" -o address show dev "$preferred_interface" scope global); then
-	if [ -z "$global_addresses" ]; then
-		echo "Skipping Scout network configuration: interface=$preferred_interface reason=no_global_address" >&2
+	# More than one interface owning the same MAC is a configuration fault, not a
+	# timing one -- waiting cannot resolve it, so give up immediately.
+	if [ "$preferred_interface_count" -gt 1 ]; then
+		echo "Skipping Scout network configuration: reason=preferred_interface_count count=$preferred_interface_count" >&2
 		exit 0
 	fi
-else
-	echo "Skipping Scout network configuration: interface=$preferred_interface reason=address_inspection_failed" >&2
-	exit 0
-fi
+
+	not_ready=
+	if [ "$preferred_interface_count" -ne 1 ]; then
+		not_ready=no_interface
+	else
+		carrier_file="$sys_class_net/$preferred_interface/carrier"
+		# Reading `carrier` fails with EINVAL while the link is administratively
+		# down, so treat an unreadable value the same as "no carrier yet".
+		if [ ! -r "$carrier_file" ] || [ "$(cat "$carrier_file" 2>/dev/null)" != 1 ]; then
+			not_ready=no_carrier
+		elif ! global_addresses=$("$ip_command" -o address show dev "$preferred_interface" scope global); then
+			not_ready=address_inspection_failed
+		elif [ -z "$global_addresses" ]; then
+			not_ready=no_global_address
+		fi
+	fi
+
+	[ -z "$not_ready" ] && break
+
+	probe_attempts=$((probe_attempts + 1))
+	if [ "$probe_attempts" -ge "$probe_max_attempts" ]; then
+		# Non-zero: the caller retries and reports. Exiting 0 here would mask a
+		# real failure as success and leave every NIC running DHCP.
+		echo "Scout network configuration timed out: interface=${preferred_interface:-<none>} mac=$preferred_mac reason=$not_ready waited=${network_wait_seconds}s" >&2
+		exit 1
+	fi
+	sleep "$network_poll_interval"
+done
 
 runtime_network_file="$networkd_runtime_dir/00-forge-scout-nonpreferred.network"
 
