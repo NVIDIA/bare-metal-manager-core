@@ -1385,7 +1385,6 @@ pub enum InstallingVanillaBfbState {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(tag = "state", rename_all = "lowercase")]
 pub enum VerifyingDhcpReleaseState {
-    SettingBmcPasswords { completed: HashSet<MachineId> },
     SuppressingDhcp,
     ResettingBmcs { completed: HashSet<MachineId> },
     WaitingForAcknowledgement,

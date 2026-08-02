@@ -335,11 +335,6 @@ pub enum BmcCredentialType {
     BmcForgeAdmin {
         bmc_mac_address: MacAddress,
     },
-    /// Per-BMC root credential generated for operator handoff after a managed
-    /// host reaches the Decommissioned state.
-    DecommissionedBmcRoot {
-        bmc_mac_address: MacAddress,
-    },
     /// Site-wide DPU BMC `service` account password
     /// (`machines/bmc/site/dpu_service`). Written on first ingestion of a DPU
     /// BMC that exposes a factory `service` account (currently BF4 only; BF3
@@ -705,9 +700,6 @@ impl CredentialKey {
                 }
                 BmcCredentialType::BmcForgeAdmin { bmc_mac_address } => Cow::from(format!(
                     "machines/bmc/{bmc_mac_address}/forge-admin-account"
-                )),
-                BmcCredentialType::DecommissionedBmcRoot { bmc_mac_address } => Cow::from(format!(
-                    "machines/bmc/{bmc_mac_address}/decommissioned-root"
                 )),
                 BmcCredentialType::SiteWideDpuBmcService => {
                     Cow::from("machines/bmc/site/dpu_service")
@@ -1183,18 +1175,6 @@ mod tests {
                     expect: PathChecks::all_hold(),
                 },
                 Check {
-                    scenario: "decommissioned bmc root",
-                    input: Row {
-                        key: CredentialKey::BmcCredentials {
-                            credential_type: BmcCredentialType::DecommissionedBmcRoot {
-                                bmc_mac_address: mac,
-                            },
-                        },
-                        expected_prefix: "machines/bmc/",
-                    },
-                    expect: PathChecks::all_hold(),
-                },
-                Check {
                     scenario: "bmc site wide dpu service",
                     input: Row {
                         key: CredentialKey::BmcCredentials {
@@ -1380,11 +1360,6 @@ mod tests {
             },
             CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::SiteWideRootVersioned { version: 0 },
-            },
-            CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::DecommissionedBmcRoot {
-                    bmc_mac_address: mac,
-                },
             },
             CredentialKey::NicLockdownIkm {
                 credential_type: NicLockdownIkm::SiteWide { version: 0 },

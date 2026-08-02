@@ -1188,14 +1188,6 @@ impl Forge for Api {
         crate::handlers::managed_host::delete_decommissioned_managed_host(self, request).await
     }
 
-    async fn get_decommissioned_managed_host_credentials(
-        &self,
-        request: Request<carbide_uuid::machine::MachineId>,
-    ) -> Result<Response<rpc::DecommissionedManagedHostCredentials>, Status> {
-        crate::handlers::managed_host::get_decommissioned_managed_host_credentials(self, request)
-            .await
-    }
-
     /// Example TOML data in request.text:
     ///
     /// [lo-ip]

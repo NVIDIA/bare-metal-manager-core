@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialManager, Credentials,
-};
+use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::machine::MachineId;
 use chrono::{Duration, Utc};
 use libredfish::model::task::TaskState;
@@ -664,9 +662,7 @@ pub(super) async fn handle_installing_vanilla_bfb(
                 return Ok(StateHandlerOutcome::transition(
                     ManagedHostState::Decommissioning {
                         decommissioning_state: DecommissioningState::VerifyingDhcpRelease {
-                            verifying_state: VerifyingDhcpReleaseState::SettingBmcPasswords {
-                                completed: HashSet::new(),
-                            },
+                            verifying_state: VerifyingDhcpReleaseState::SuppressingDhcp,
                         },
                     },
                 ));
@@ -727,9 +723,7 @@ pub(super) async fn handle_installing_vanilla_bfb(
                                         decommissioning_state:
                                             DecommissioningState::VerifyingDhcpRelease {
                                                 verifying_state:
-                                                    VerifyingDhcpReleaseState::SettingBmcPasswords {
-                                                        completed: HashSet::new(),
-                                                    },
+                                                    VerifyingDhcpReleaseState::SuppressingDhcp,
                                             },
                                     },
                                 ))
@@ -776,197 +770,6 @@ fn next_uncompleted_machine<'a>(
     all_machines(state).find(|machine| !completed.contains(&machine.id))
 }
 
-async fn set_and_verify_decommissioned_bmc_password(
-    machine: &model::machine::Machine,
-    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-) -> Result<(), StateHandlerError> {
-    let bmc_mac = machine
-        .status
-        .bmc_info
-        .mac
-        .ok_or_else(|| StateHandlerError::MissingData {
-            object_id: machine.id.to_string(),
-            missing: "bmc_mac",
-        })?;
-    let bmc_addr = machine
-        .bmc_addr()
-        .ok_or_else(|| StateHandlerError::MissingData {
-            object_id: machine.id.to_string(),
-            missing: "bmc_addr",
-        })?;
-    let credential_key = CredentialKey::BmcCredentials {
-        credential_type: BmcCredentialType::BmcRoot {
-            bmc_mac_address: bmc_mac,
-        },
-    };
-    let current_credentials = ctx
-        .services
-        .credential_manager
-        .get_credentials(&credential_key)
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to read BMC credentials for {}: {error}",
-                machine.id
-            ))
-        })?
-        .ok_or_else(|| StateHandlerError::MissingData {
-            object_id: machine.id.to_string(),
-            missing: "bmc_credentials",
-        })?;
-    let Credentials::UsernamePassword { username, .. } = &current_credentials;
-    let target_credentials = get_or_create_decommissioned_bmc_credentials(
-        ctx.services.credential_manager.as_ref(),
-        bmc_mac,
-        username,
-    )
-    .await?;
-    let Credentials::UsernamePassword {
-        password: target_password,
-        ..
-    } = &target_credentials;
-    let host = bmc_addr.ip().to_string();
-    let port = Some(bmc_addr.port());
-
-    let already_set = ctx
-        .services
-        .redfish_client_pool
-        .bmc_credentials_valid(&host, port, target_credentials.clone())
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to probe decommissioned BMC credentials for {}: {error}",
-                machine.id
-            ))
-        })?;
-    if !already_set {
-        let vendor = ctx
-            .services
-            .redfish_client_pool
-            .probe_bmc_vendor(&host, port, current_credentials.clone())
-            .await
-            .map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to determine BMC vendor for {}: {error}",
-                    machine.id
-                ))
-            })?;
-        ctx.services
-            .redfish_client_pool
-            .set_bmc_root_password(
-                &host,
-                port,
-                vendor,
-                current_credentials,
-                target_password.clone(),
-            )
-            .await
-            .map_err(|error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to set decommissioned BMC password for {}: {error}",
-                    machine.id
-                ))
-            })?;
-    }
-
-    let verified = ctx
-        .services
-        .redfish_client_pool
-        .bmc_credentials_valid(&host, port, target_credentials.clone())
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to verify decommissioned BMC password for {}: {error}",
-                machine.id
-            ))
-        })?;
-    if !verified {
-        return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "decommissioned BMC password verification failed for {}",
-            machine.id
-        )));
-    }
-
-    ctx.services
-        .credential_manager
-        .set_credentials(&credential_key, &target_credentials)
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to persist decommissioned BMC credentials for {}: {error}",
-                machine.id
-            ))
-        })?;
-    Ok(())
-}
-
-/// Return the already-staged handoff credential, or generate it once and
-/// verify that it was persisted by the credential writer (Vault in
-/// production). The create-only write plus readback makes decommission retries
-/// and concurrent attempts converge on the same password.
-async fn get_or_create_decommissioned_bmc_credentials(
-    credential_manager: &dyn CredentialManager,
-    bmc_mac: mac_address::MacAddress,
-    username: &str,
-) -> Result<Credentials, StateHandlerError> {
-    let handoff_key = CredentialKey::BmcCredentials {
-        credential_type: BmcCredentialType::DecommissionedBmcRoot {
-            bmc_mac_address: bmc_mac,
-        },
-    };
-
-    if let Some(credentials) = credential_manager
-        .get_credentials_from_writer(&handoff_key)
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to read decommissioned BMC credentials for {bmc_mac}: {error}"
-            ))
-        })?
-    {
-        return Ok(credentials);
-    }
-
-    let generated = Credentials::new(username, Credentials::generate_password());
-    let staged = match credential_manager
-        .create_credentials(&handoff_key, &generated)
-        .await
-    {
-        Ok(()) => generated,
-        Err(create_error) => credential_manager
-            .get_credentials_from_writer(&handoff_key)
-            .await
-            .map_err(|read_error| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to create decommissioned BMC credentials for {bmc_mac}: \
-                     {create_error}; read after create failure also failed: {read_error}"
-                ))
-            })?
-            .ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "failed to create decommissioned BMC credentials for {bmc_mac}: \
-                     {create_error}"
-                ))
-            })?,
-    };
-
-    let persisted = credential_manager
-        .get_credentials_from_writer(&handoff_key)
-        .await
-        .map_err(|error| {
-            StateHandlerError::GenericError(eyre::eyre!(
-                "failed to read back decommissioned BMC credentials for {bmc_mac}: {error}"
-            ))
-        })?;
-    if persisted.as_ref() != Some(&staged) {
-        return Err(StateHandlerError::GenericError(eyre::eyre!(
-            "decommissioned BMC credential readback did not match for {bmc_mac}"
-        )));
-    }
-
-    Ok(staged)
-}
-
 async fn all_dhcp_suppressions_acknowledged(
     state: &ManagedHostStateSnapshot,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
@@ -1000,19 +803,6 @@ pub(super) async fn handle_verifying_dhcp_release(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     match verifying_state {
-        VerifyingDhcpReleaseState::SettingBmcPasswords { completed } => {
-            let Some(machine) = next_uncompleted_machine(state, completed) else {
-                return Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                    VerifyingDhcpReleaseState::SuppressingDhcp,
-                )));
-            };
-            set_and_verify_decommissioned_bmc_password(machine, ctx).await?;
-            let mut completed = completed.clone();
-            completed.insert(machine.id);
-            Ok(StateHandlerOutcome::transition(verifying_dhcp_release(
-                VerifyingDhcpReleaseState::SettingBmcPasswords { completed },
-            )))
-        }
         VerifyingDhcpReleaseState::SuppressingDhcp => {
             let mut txn = ctx.services.db_pool.begin().await?;
             for machine in all_machines(state) {
@@ -1133,50 +923,5 @@ pub(super) async fn handle_verifying_dhcp_release(
                 state.host_snapshot.id
             )))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use carbide_secrets::credentials::CredentialWriter;
-    use carbide_secrets::test_support::credentials::TestCredentialManager;
-    use mac_address::MacAddress;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn decommissioned_bmc_credentials_are_generated_once_and_persisted() {
-        let credential_manager = TestCredentialManager::default();
-        let bmc_mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
-
-        let generated = get_or_create_decommissioned_bmc_credentials(
-            &credential_manager,
-            bmc_mac,
-            "root",
-        )
-        .await
-        .expect("generate handoff credential");
-        let Credentials::UsernamePassword { username, password } = &generated;
-        assert_eq!(username, "root");
-        Credentials::validate_password_strength(password).expect("generated password is strong");
-
-        let retried = get_or_create_decommissioned_bmc_credentials(
-            &credential_manager,
-            bmc_mac,
-            "different-user",
-        )
-        .await
-        .expect("reuse handoff credential");
-        assert_eq!(retried, generated);
-
-        let persisted = credential_manager
-            .get_credentials_from_writer(&CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::DecommissionedBmcRoot {
-                    bmc_mac_address: bmc_mac,
-                },
-            })
-            .await
-            .expect("read persisted handoff credential");
-        assert_eq!(persisted, Some(generated));
     }
 }

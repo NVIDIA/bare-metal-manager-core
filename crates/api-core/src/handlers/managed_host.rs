@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 
 use ::rpc::forge as rpc;
 use carbide_redfish::boot_interface::BootInterfaceTarget;
-use carbide_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+use carbide_secrets::credentials::CredentialKey;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use model::bmc_suppression::BmcSuppressionSubsystem;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -104,84 +104,6 @@ pub(crate) async fn decommission_managed_host(
     Ok(Response::new(()))
 }
 
-pub(crate) async fn get_decommissioned_managed_host_credentials(
-    api: &Api,
-    request: Request<MachineId>,
-) -> Result<Response<rpc::DecommissionedManagedHostCredentials>, Status> {
-    log_request_data(&request);
-    let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
-    if machine_id.machine_type().is_dpu() {
-        return Err(CarbideError::InvalidArgument(format!(
-            "machine {machine_id} is a DPU, not a managed host"
-        ))
-        .into());
-    }
-
-    let mut txn = api.txn_begin().await?;
-    let host = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "managed host",
-            id: machine_id.to_string(),
-        })?;
-    if !matches!(
-        host.current_state(),
-        ManagedHostState::Decommissioning {
-            decommissioning_state: DecommissioningState::Decommissioned,
-        }
-    ) {
-        return Err(CarbideError::FailedPrecondition(format!(
-            "managed host {machine_id} must be Decommissioned to retrieve handoff credentials \
-             (current state: {})",
-            host.current_state()
-        ))
-        .into());
-    }
-    let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
-    txn.rollback().await?;
-
-    let mut bmc_credentials = Vec::with_capacity(dpus.len() + 1);
-    for machine in std::iter::once(&host).chain(&dpus) {
-        let bmc_mac = machine.status.bmc_info.mac.ok_or_else(|| {
-            CarbideError::FailedPrecondition(format!(
-                "machine {} has no BMC MAC address",
-                machine.id
-            ))
-        })?;
-        let key = CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::DecommissionedBmcRoot {
-                bmc_mac_address: bmc_mac,
-            },
-        };
-        let credentials = api
-            .credential_manager
-            .get_credentials_from_writer(&key)
-            .await
-            .map_err(|error| {
-                CarbideError::internal(format!(
-                    "failed to read decommissioned BMC credentials for {}: {error:?}",
-                    machine.id
-                ))
-            })?
-            .ok_or_else(|| {
-                CarbideError::FailedPrecondition(format!(
-                    "decommissioned BMC credentials are unavailable for machine {}",
-                    machine.id
-                ))
-            })?;
-        let Credentials::UsernamePassword { username, password } = credentials;
-        bmc_credentials.push(rpc::DecommissionedBmcCredential {
-            machine_id: Some(machine.id),
-            bmc_mac_address: bmc_mac.to_string(),
-            credentials: Some(rpc::UsernamePassword { username, password }),
-        });
-    }
-
-    Ok(Response::new(rpc::DecommissionedManagedHostCredentials {
-        bmc_credentials,
-    }))
-}
-
 pub(crate) async fn delete_decommissioned_managed_host(
     api: &Api,
     request: Request<rpc::DeleteDecommissionedManagedHostRequest>,
@@ -232,35 +154,6 @@ pub(crate) async fn delete_decommissioned_managed_host(
     for machine in &machines {
         if let Some(bmc_mac) = machine.status.bmc_info.mac {
             crate::handlers::credential::delete_bmc_root_credentials_by_mac(api, bmc_mac).await?;
-            let handoff_key = CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::DecommissionedBmcRoot {
-                    bmc_mac_address: bmc_mac,
-                },
-            };
-            // Hosts that completed decommissioning before handoff credentials
-            // were introduced have no dedicated secret to remove.
-            if api
-                .credential_manager
-                .get_credentials_from_writer(&handoff_key)
-                .await
-                .map_err(|error| {
-                    CarbideError::internal(format!(
-                        "error reading decommissioned BMC credentials for {}: {error:?}",
-                        machine.id
-                    ))
-                })?
-                .is_some()
-            {
-                api.credential_manager
-                    .delete_credentials(&handoff_key)
-                    .await
-                    .map_err(|error| {
-                        CarbideError::internal(format!(
-                            "error deleting decommissioned BMC credentials for {}: {error:?}",
-                            machine.id
-                        ))
-                    })?;
-            }
         }
         if machine.is_dpu() {
             for credential_key in [
