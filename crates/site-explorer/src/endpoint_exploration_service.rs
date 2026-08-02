@@ -113,8 +113,23 @@ impl EndpointExplorationService {
         expected: Option<&ExpectedEntity>,
         last_exploration_error: Option<&EndpointExplorationError>,
         boot_interface: Option<BootInterfaceTarget>,
-    ) -> Option<EndpointProbeResult> {
-        let guard = self.locks.try_claim(address.ip())?;
+    ) -> Result<Option<EndpointProbeResult>, EndpointExplorationServiceError> {
+        let Some(guard) = self.locks.try_claim(address.ip()) else {
+            return Ok(None);
+        };
+
+        if db::bmc_suppression::is_suppressed(
+            &self.database_connection,
+            interface.mac_address,
+            BmcSuppressionSubsystem::SiteExplorer,
+        )
+        .await?
+        {
+            return Err(EndpointExplorationServiceError::Suppressed {
+                bmc_ip: address.ip(),
+                bmc_mac_address: interface.mac_address,
+            });
+        }
 
         let redfish_explore_started_at = Instant::now();
         let result = self
@@ -129,11 +144,15 @@ impl EndpointExplorationService {
             .await;
         let redfish_explore_duration = redfish_explore_started_at.elapsed();
 
-        Some(EndpointProbeResult {
+        Ok(Some(EndpointProbeResult {
             result,
             redfish_explore_duration,
             _guard: guard,
-        })
+        }))
+    }
+
+    pub(crate) fn try_claim_endpoint(&self, bmc_ip: IpAddr) -> Option<EndpointExplorationGuard> {
+        self.locks.try_claim(bmc_ip)
     }
 
     pub async fn refresh_endpoint_report(
@@ -157,19 +176,6 @@ impl EndpointExplorationService {
                 kind: "machine_interface",
                 id: bmc_ip.to_string(),
             })?;
-
-        if db::bmc_suppression::is_suppressed(
-            txn.as_pgconn(),
-            bmc_interface.mac_address,
-            BmcSuppressionSubsystem::SiteExplorer,
-        )
-        .await?
-        {
-            return Err(EndpointExplorationServiceError::Suppressed {
-                bmc_ip,
-                bmc_mac_address: bmc_interface.mac_address,
-            });
-        }
 
         let expected_machine =
             db::expected_machine::find_by_bmc_mac_address(&mut txn, bmc_interface.mac_address)
@@ -209,7 +215,7 @@ impl EndpointExplorationService {
                     existing_report.last_exploration_error.as_ref(),
                     boot_interface,
                 )
-                .await
+                .await?
                 .ok_or(EndpointExplorationServiceError::AlreadyInProgress(bmc_ip))?;
 
             let mut report = match probe.result {

@@ -1013,7 +1013,9 @@ impl SiteExplorer {
 
         // Identify and create power shelves
         let identify_power_shelves_to_ingest_start = Instant::now();
-        let explored_power_shelves = self.identify_power_shelves_to_ingest().await?;
+        let explored_power_shelves = self
+            .identify_power_shelves_to_ingest(&expected_endpoint_index, &run_context)
+            .await?;
         metrics.record_phase_latency(
             "identify_power_shelves_to_ingest",
             identify_power_shelves_to_ingest_start.elapsed(),
@@ -1038,7 +1040,9 @@ impl SiteExplorer {
 
         // Identify and create switches
         let identify_switches_to_ingest_start = Instant::now();
-        let explored_switches = self.identify_switches_to_ingest().await?;
+        let explored_switches = self
+            .identify_switches_to_ingest(&expected_endpoint_index, &run_context)
+            .await?;
         metrics.record_phase_latency(
             "identify_switches_to_ingest",
             identify_switches_to_ingest_start.elapsed(),
@@ -1950,6 +1954,8 @@ impl SiteExplorer {
 
     async fn identify_power_shelves_to_ingest(
         &self,
+        expected_endpoint_index: &ExploredEndpointIndex,
+        run_context: &SiteExplorerRunContext,
     ) -> SiteExplorerResult<Vec<(ExploredEndpoint, EndpointExplorationReport)>> {
         let mut txn = self
             .database_connection
@@ -1966,6 +1972,20 @@ impl SiteExplorer {
 
         let mut explored_power_shelves = Vec::new();
         for ep in explored_endpoints.into_iter() {
+            if let Some(expected) =
+                expected_endpoint_index.matched_expected_power_shelf(&ep.address)
+                && run_context
+                    .suppressed_bmc_macs
+                    .contains(&expected.bmc_mac_address)
+            {
+                tracing::info!(
+                    bmc_ip_address = %ep.address,
+                    bmc_mac_address = %expected.bmc_mac_address,
+                    "Skipping ingestion of suppressed power shelf",
+                );
+                continue;
+            }
+
             if ep.report.endpoint_type != EndpointType::Bmc {
                 continue;
             }
@@ -1978,7 +1998,11 @@ impl SiteExplorer {
         Ok(explored_power_shelves)
     }
 
-    async fn identify_switches_to_ingest(&self) -> SiteExplorerResult<Vec<ExploredManagedSwitch>> {
+    async fn identify_switches_to_ingest(
+        &self,
+        expected_endpoint_index: &ExploredEndpointIndex,
+        run_context: &SiteExplorerRunContext,
+    ) -> SiteExplorerResult<Vec<ExploredManagedSwitch>> {
         let mut txn = self
             .database_connection
             .begin()
@@ -1993,6 +2017,21 @@ impl SiteExplorer {
             .map_err(|e| DatabaseError::new("end find_all_preingestion_complete data", e))?;
         let managed_switches = explored_endpoints
             .iter()
+            .filter(|ep| {
+                if let Some(expected) = expected_endpoint_index.matched_expected_switch(&ep.address)
+                    && run_context
+                        .suppressed_bmc_macs
+                        .contains(&expected.bmc_mac_address)
+                {
+                    tracing::info!(
+                        bmc_ip_address = %ep.address,
+                        bmc_mac_address = %expected.bmc_mac_address,
+                        "Skipping ingestion of suppressed switch",
+                    );
+                    return false;
+                }
+                true
+            })
             .filter(|ep| ep.report.endpoint_type == EndpointType::Bmc && ep.report.is_switch())
             .map(|ep| ExploredManagedSwitch {
                 bmc_ip: ep.address,
@@ -2025,22 +2064,54 @@ impl SiteExplorer {
     async fn acknowledge_site_explorer_suppressions(
         &self,
     ) -> SiteExplorerResult<HashSet<MacAddress>> {
-        let mut txn = self.txn_begin().await?;
-        db::bmc_suppression::acknowledge_unacknowledged(
-            &mut txn,
+        let suppressions = db::bmc_suppression::find_all_by_subsystem(
+            &self.database_connection,
             BmcSuppressionSubsystem::SiteExplorer,
         )
         .await?;
-        let suppressed_bmc_macs = db::bmc_suppression::find_all_by_subsystem(
-            &mut txn,
-            BmcSuppressionSubsystem::SiteExplorer,
-        )
-        .await?
-        .into_iter()
-        .filter(|suppression| suppression.acknowledged_at.is_some())
-        .map(|suppression| suppression.bmc_mac_address)
-        .collect();
-        txn.commit().await?;
+        let suppressed_bmc_macs = suppressions
+            .iter()
+            .map(|suppression| suppression.bmc_mac_address)
+            .collect();
+
+        let mut guards = Vec::new();
+        let mut acknowledgements = Vec::new();
+        for suppression in suppressions
+            .iter()
+            .filter(|suppression| suppression.acknowledged_at.is_none())
+        {
+            let bmc_ips = db::machine_interface::lookup_bmc_ip_by_mac_address(
+                &self.database_connection,
+                suppression.bmc_mac_address,
+            )
+            .await?;
+            let mut suppression_guards = Vec::new();
+            let mut all_endpoints_available = true;
+            for bmc_ip in bmc_ips {
+                let Some(guard) = self.endpoint_exploration_service.try_claim_endpoint(bmc_ip)
+                else {
+                    all_endpoints_available = false;
+                    break;
+                };
+                suppression_guards.push(guard);
+            }
+            if all_endpoints_available {
+                guards.extend(suppression_guards);
+                acknowledgements.push(suppression.bmc_mac_address);
+            }
+        }
+
+        if !acknowledgements.is_empty() {
+            let mut txn = self.txn_begin().await?;
+            db::bmc_suppression::acknowledge_unacknowledged(
+                &mut txn,
+                &acknowledgements,
+                BmcSuppressionSubsystem::SiteExplorer,
+            )
+            .await?;
+            txn.commit().await?;
+        }
+        drop(guards);
 
         Ok(suppressed_bmc_macs)
     }
@@ -2499,7 +2570,7 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
-                    let Some(probe) = endpoint_exploration_service
+                    let probe = match endpoint_exploration_service
                         .try_explore_endpoint(
                             bmc_target_addr,
                             endpoint.iface,
@@ -2513,12 +2584,30 @@ impl SiteExplorer {
                                 .map(Into::into),
                         )
                         .await
-                    else {
-                        tracing::info!(
-                            bmc_ip_address = %endpoint.address,
-                            "Skipping periodic endpoint exploration; endpoint already in progress"
-                        );
-                        return Ok(None);
+                    {
+                        Ok(Some(probe)) => probe,
+                        Ok(None) => {
+                            tracing::info!(
+                                bmc_ip_address = %endpoint.address,
+                                "Skipping periodic endpoint exploration; endpoint already in progress"
+                            );
+                            return Ok(None);
+                        }
+                        Err(EndpointExplorationServiceError::Suppressed {
+                            bmc_ip,
+                            bmc_mac_address,
+                        }) => {
+                            tracing::info!(
+                                bmc_ip_address = %bmc_ip,
+                                bmc_mac_address = %bmc_mac_address,
+                                "Skipping periodic endpoint exploration; endpoint is suppressed"
+                            );
+                            return Ok(None);
+                        }
+                        Err(EndpointExplorationServiceError::Database(error)) => {
+                            return Err(error.into());
+                        }
+                        Err(error) => return Err(SiteExplorerError::internal(error.to_string())),
                     };
                     steps.redfish_explore = probe.redfish_explore_duration;
                     let mut result = probe.result;

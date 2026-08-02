@@ -100,19 +100,23 @@ pub async fn find_all_by_subsystem(
         .map_err(|e| DatabaseError::query(QUERY, e))
 }
 
-/// Acknowledges every pending suppression request for `subsystem`.
+/// Acknowledges pending suppression requests for the selected BMC MAC addresses.
 ///
 /// Returns the BMC MAC addresses acknowledged by this call.
 pub async fn acknowledge_unacknowledged(
     txn: &mut PgConnection,
+    bmc_mac_addresses: &[MacAddress],
     subsystem: BmcSuppressionSubsystem,
 ) -> DatabaseResult<Vec<MacAddress>> {
     const QUERY: &str = "UPDATE bmc_suppressions
         SET acknowledged_at = statement_timestamp()
-        WHERE subsystem = $1 AND acknowledged_at IS NULL
+        WHERE bmc_mac_address = ANY($1)
+            AND subsystem = $2
+            AND acknowledged_at IS NULL
         RETURNING bmc_mac_address";
 
     sqlx::query_scalar(QUERY)
+        .bind(bmc_mac_addresses)
         .bind(subsystem)
         .fetch_all(txn)
         .await
@@ -330,9 +334,10 @@ mod tests {
             .unwrap();
         }
 
-        let acknowledged = acknowledge_unacknowledged(txn.as_mut(), SITE_EXPLORER)
-            .await
-            .unwrap();
+        let acknowledged =
+            acknowledge_unacknowledged(txn.as_mut(), &[mac(1), mac(3), mac(4)], SITE_EXPLORER)
+                .await
+                .unwrap();
         assert_eq!(acknowledged.len(), 2);
         assert!(acknowledged.contains(&mac(1)));
         assert!(acknowledged.contains(&mac(3)));
@@ -353,7 +358,7 @@ mod tests {
                 .is_none()
         );
         assert!(
-            acknowledge_unacknowledged(txn.as_mut(), SITE_EXPLORER)
+            acknowledge_unacknowledged(txn.as_mut(), &[mac(1), mac(3)], SITE_EXPLORER)
                 .await
                 .unwrap()
                 .is_empty()

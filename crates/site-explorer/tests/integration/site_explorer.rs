@@ -293,6 +293,124 @@ async fn test_periodic_suppression_skips_every_candidate_class(
 }
 
 #[sqlx_test]
+async fn test_suppression_skips_cached_switch_and_power_shelf_ingestion(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let mut devices = vec![
+        env.new_machine("02:00:00:00:10:11", "SwitchVendor"),
+        env.new_machine("02:00:00:00:10:12", "PowerShelfVendor"),
+    ];
+    devices.discover_dhcp(env.api()).await?;
+    let switch_ip: IpAddr = devices[0].ip.parse()?;
+    let power_shelf_ip: IpAddr = devices[1].ip.parse()?;
+
+    let switch_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        chassis: vec![Chassis {
+            id: "mgx_nvswitch_0".to_string(),
+            manufacturer: Some("NVIDIA".to_string()),
+            model: Some("Switch".to_string()),
+            serial_number: Some("SUPPRESSED-SWITCH".to_string()),
+            part_number: Some("SUPPRESSED-SWITCH".to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let power_shelf_report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        chassis: vec![Chassis {
+            id: "powershelf".to_string(),
+            manufacturer: Some("NVIDIA".to_string()),
+            model: Some("PowerShelf".to_string()),
+            serial_number: Some("SUPPRESSED-POWER-SHELF".to_string()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_switch::create(
+        &mut txn,
+        model::expected_switch::ExpectedSwitch {
+            expected_switch_id: None,
+            bmc_mac_address: devices[0].mac,
+            nvos_mac_addresses: Vec::new(),
+            serial_number: "SUPPRESSED-SWITCH".to_string(),
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            nvos_username: None,
+            nvos_password: None,
+            bmc_ip_address: None,
+            nvos_ip_address: None,
+            metadata: Metadata {
+                name: "Suppressed switch".to_string(),
+                ..Default::default()
+            },
+            rack_id: None,
+            bmc_retain_credentials: None,
+        },
+    )
+    .await?;
+    db::expected_power_shelf::create(
+        &mut txn,
+        model::expected_power_shelf::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: devices[1].mac,
+            bmc_username: "admin".to_string(),
+            bmc_password: "password".to_string(),
+            serial_number: "SUPPRESSED-POWER-SHELF".to_string(),
+            bmc_ip_address: None,
+            metadata: Metadata {
+                name: "Suppressed power shelf".to_string(),
+                ..Default::default()
+            },
+            rack_id: None,
+            bmc_retain_credentials: None,
+        },
+    )
+    .await?;
+    for (device, ip, report) in [
+        (&devices[0], switch_ip, &switch_report),
+        (&devices[1], power_shelf_ip, &power_shelf_report),
+    ] {
+        db::explored_endpoints::insert(ip, report, false, txn.as_mut()).await?;
+        db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+        db::bmc_suppression::upsert(
+            txn.as_mut(),
+            &suppression_input(device.mac, BmcSuppressionSubsystem::SiteExplorer),
+        )
+        .await?;
+    }
+    txn.commit().await?;
+
+    let explorer = env.test_site_explorer(SiteExplorerConfig {
+        create_machines: Arc::new(false.into()),
+        create_switches: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        power_shelves_created_per_run: 1,
+        ..suppression_test_config(2)
+    });
+    explorer.run_single_iteration().await?;
+
+    let mut txn = env.pool.begin().await?;
+    assert!(
+        db::switch::find_by_bmc_mac_address(txn.as_mut(), devices[0].mac)
+            .await?
+            .is_none()
+    );
+    assert!(
+        db::power_shelf::find_by_bmc_mac_address(txn.as_mut(), devices[1].mac)
+            .await?
+            .is_none()
+    );
+    txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
 async fn test_suppressed_unexplored_endpoint_does_not_consume_budget_and_resumes(
     pool: PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -446,6 +564,69 @@ async fn test_suppression_is_acknowledged_before_precondition_failure(
         .is_some()
     );
     txn.commit().await?;
+
+    Ok(())
+}
+
+#[sqlx_test]
+async fn test_suppression_acknowledgement_waits_for_in_flight_exploration(
+    pool: PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = Env::new(pool).await;
+    let mut machine = env.new_machine("02:00:00:00:12:11", "Vendor");
+    machine.discover_dhcp(env.api()).await?;
+    let bmc_ip: IpAddr = machine.ip.parse()?;
+    let report = EndpointExplorationReport {
+        endpoint_type: EndpointType::Bmc,
+        ..Default::default()
+    };
+
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::insert(bmc_ip, &report, false, txn.as_mut()).await?;
+    txn.commit().await?;
+
+    let explorer = env.test_site_explorer(suppression_test_config(1));
+    explorer.insert_endpoints(vec![(bmc_ip, report)]);
+    let blocker = explorer.endpoint_explorer().block_next_exploration();
+    let service = explorer.endpoint_exploration_service();
+    let refresh = tokio::spawn(async move { service.refresh_endpoint_report(bmc_ip).await });
+    blocker.wait_until_started().await;
+
+    let mut txn = env.pool.begin().await?;
+    db::bmc_suppression::upsert(
+        txn.as_mut(),
+        &suppression_input(machine.mac, BmcSuppressionSubsystem::SiteExplorer),
+    )
+    .await?;
+    txn.commit().await?;
+
+    explorer.run_single_iteration().await?;
+    let suppression = db::bmc_suppression::find(
+        &env.pool,
+        machine.mac,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await?
+    .unwrap();
+    assert!(
+        suppression.acknowledged_at.is_none(),
+        "suppression must remain pending while an endpoint probe holds the lock"
+    );
+
+    blocker.release();
+    refresh.await??;
+    explorer.run_single_iteration().await?;
+    let suppression = db::bmc_suppression::find(
+        &env.pool,
+        machine.mac,
+        BmcSuppressionSubsystem::SiteExplorer,
+    )
+    .await?
+    .unwrap();
+    assert!(
+        suppression.acknowledged_at.is_some(),
+        "suppression should be acknowledged after the in-flight probe releases its lock"
+    );
 
     Ok(())
 }
