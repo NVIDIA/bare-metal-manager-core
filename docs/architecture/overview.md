@@ -201,6 +201,34 @@ pods. There are three different K8s statefulsets that run on the controller node
 
 ## Optional services
 
+### DSX Exchange Event Bus
+
+Configure the DSX Exchange Event Bus when NICo must publish managed-host state
+to an MQTT broker. With the event bus enabled, NICo publishes each
+`ManagedHostState` transition to `<topic_prefix>/<machine-id>/state` and uses
+the BMS metadata subscription to learn the topics for rack leak, isolation, and
+heartbeat values.
+
+```toml
+[dsx_exchange_event_bus]
+enabled = true
+mqtt_endpoint = "<mqtt-broker>"
+mqtt_broker_port = 1883
+topic_prefix = "NICO/v1/machine"
+
+[dsx_exchange_event_bus.periodic_state_republish]
+enabled = true
+interval = "5m"
+```
+
+`topic_prefix` defaults to `NICO/v1/machine`. NATS subjects are
+case-sensitive, so it must match the broker's producer publish permission. The
+periodic republisher is enabled by default whenever the event bus is enabled;
+it republishes the current state every five minutes in addition to normal
+change-driven messages. Set `enabled = false` in that subsection to disable
+only periodic republishing. The interval is clamped to one second through one
+hour.
+
 The point of having a site controller is to administer a site that has been populated with tenant managed hosts.
 Each managed host is a pairing of a Bluefield (BF) 2/3 DPUs and a host server (only two DPUs have been tested).
 During initial deployment [scout](https://github.com/NVIDIA/infra-controller/blob/main/crates/scout) runs and
