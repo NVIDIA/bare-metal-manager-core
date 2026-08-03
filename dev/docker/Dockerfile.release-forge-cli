@@ -25,12 +25,30 @@ WORKDIR ./carbide
 COPY . ./
 
 # --mount=type=cache persists the sccache directory across builds. Requires BuildKit (default in Docker 23+).
+# On CI the BuildKit state is discarded per job, so prefer the shared Actions
+# cache backend when the workflow supplies credentials.
 RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
+    --mount=type=secret,id=actions_results_url \
+    --mount=type=secret,id=actions_runtime_token \
   cd /carbide && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
   export CARGO_PROFILE_RELEASE_DEBUG=true && \
-  cargo build --release -p nico-admin-cli
+  if grep -qE "^https?://" /run/secrets/actions_results_url 2>/dev/null; then \
+    export SCCACHE_GHA_ENABLED=true; \
+    export ACTIONS_RESULTS_URL="$(cat /run/secrets/actions_results_url)"; \
+    export ACTIONS_RUNTIME_TOKEN="$(cat /run/secrets/actions_runtime_token)"; \
+    if sccache --start-server >/dev/null 2>&1; then \
+      echo "sccache: using GitHub Actions cache backend"; \
+    else \
+      echo "sccache: Actions cache unreachable, falling back to local cache mount"; \
+      unset SCCACHE_GHA_ENABLED ACTIONS_RESULTS_URL ACTIONS_RUNTIME_TOKEN; \
+    fi; \
+  else \
+    echo "sccache: using local cache mount at ${SCCACHE_DIR}"; \
+  fi && \
+  cargo build --release -p nico-admin-cli && \
+  { sccache --show-stats || true; }
 
 FROM debian:12-slim
 ARG CI_COMMIT_SHORT_SHA
