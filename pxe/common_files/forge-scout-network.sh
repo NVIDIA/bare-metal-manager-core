@@ -27,6 +27,21 @@ networkd_dhcp_file=${SCOUT_NETWORKD_DHCP_FILE:-/etc/systemd/network/dhcp.network
 network_wait_seconds=${SCOUT_NETWORK_WAIT_SECONDS:-60}
 network_poll_interval=${SCOUT_NETWORK_POLL_INTERVAL:-1}
 
+validate_positive_integer() {
+	value=$1
+	name=$2
+
+	case "$value" in
+		''|*[!0-9]*|0|0*)
+			echo "Invalid Scout network timing value: variable=$name value=$value reason=positive_integer_required" >&2
+			exit 1
+			;;
+	esac
+}
+
+validate_positive_integer "$network_wait_seconds" SCOUT_NETWORK_WAIT_SECONDS
+validate_positive_integer "$network_poll_interval" SCOUT_NETWORK_POLL_INTERVAL
+
 if ! cmdline=$(cat "$cmdline_file"); then
 	echo "Skipping Scout network configuration: reason=cmdline_unreadable" >&2
 	exit 0

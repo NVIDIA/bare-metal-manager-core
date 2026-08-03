@@ -110,6 +110,8 @@ dependencies = [
 [tasks.stage-scout-loader-rclocal]
 description = "Copies the Scout loader helpers to the scout loader profile directories"
 script = '''
+  set -e
+
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-aarch64/mkosi.extra/etc/rc.local
   cp ${REPO_ROOT}/pxe/common_files/scout-loader-rclocal ${REPO_ROOT}/pxe/mkosi.profiles/scout-loader-x86_64/mkosi.extra/etc/rc.local
 
