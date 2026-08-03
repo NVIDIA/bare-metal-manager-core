@@ -63,6 +63,9 @@ pub mod delta_power_shelf;
 /// Support of NVIDIA Switch ND5200_LD.
 pub mod nvidia_switch_nd5200_ld;
 
+/// Support of NVIDIA Switch N5700_LD.
+pub mod nvidia_switch_n5700_ld;
+
 /// Support of NVIDIA DGX H100.
 pub mod nvidia_dgx_h100;
 
