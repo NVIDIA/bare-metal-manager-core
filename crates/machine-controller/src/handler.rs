@@ -11916,7 +11916,7 @@ async fn restart_dpu(
     }
 
     let power_state = host_power_state(dpu_redfish_client.as_ref()).await?;
-    let power_action = dpu_restart_power_action(power_state);
+    let power_action = dpu_restart_power_action(power_state)?;
     if power_action == SystemPowerControl::On {
         tracing::warn!(
             machine_id = %machine.id,
@@ -11933,11 +11933,20 @@ async fn restart_dpu(
     Ok(())
 }
 
-fn dpu_restart_power_action(power_state: libredfish::PowerState) -> SystemPowerControl {
-    if power_state == libredfish::PowerState::Off {
-        SystemPowerControl::On
-    } else {
-        SystemPowerControl::ForceRestart
+#[inline]
+fn dpu_restart_power_action(
+    power_state: libredfish::PowerState,
+) -> Result<SystemPowerControl, StateHandlerError> {
+    match power_state {
+        libredfish::PowerState::Off => Ok(SystemPowerControl::On),
+        libredfish::PowerState::On => Ok(SystemPowerControl::ForceRestart),
+        libredfish::PowerState::PoweringOff
+        | libredfish::PowerState::PoweringOn
+        | libredfish::PowerState::Paused
+        | libredfish::PowerState::Reset
+        | libredfish::PowerState::Unknown => Err(StateHandlerError::GenericError(eyre!(
+            "cannot restart DPU while its power state is {power_state}; retrying"
+        ))),
     }
 }
 
@@ -13293,21 +13302,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dpu_restart_powers_on_an_off_dpu() {
+    fn dpu_restart_requires_a_stable_power_state() {
         check_values(
             [
                 Check {
                     scenario: "powered-off DPU is powered on",
                     input: libredfish::PowerState::Off,
-                    expect: SystemPowerControl::On,
+                    expect: Ok(SystemPowerControl::On),
                 },
                 Check {
                     scenario: "powered-on DPU is restarted",
                     input: libredfish::PowerState::On,
-                    expect: SystemPowerControl::ForceRestart,
+                    expect: Ok(SystemPowerControl::ForceRestart),
+                },
+                Check {
+                    scenario: "DPU that is powering off is retried",
+                    input: libredfish::PowerState::PoweringOff,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU that is powering on is retried",
+                    input: libredfish::PowerState::PoweringOn,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "paused DPU is retried",
+                    input: libredfish::PowerState::Paused,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "resetting DPU is retried",
+                    input: libredfish::PowerState::Reset,
+                    expect: Err(()),
+                },
+                Check {
+                    scenario: "DPU with unknown power state is retried",
+                    input: libredfish::PowerState::Unknown,
+                    expect: Err(()),
                 },
             ],
-            dpu_restart_power_action,
+            |power_state| dpu_restart_power_action(power_state).map_err(|_| ()),
         );
     }
 
