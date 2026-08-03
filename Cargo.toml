@@ -27,7 +27,7 @@ repository = "https://github.com/NVIDIA/infra-controller"
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
-libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.46.2" }
+libredfish = { git = "https://github.com/NVIDIA/libredfish.git", tag = "v0.46.3" }
 librms = { git = "https://github.com/NVIDIA/nv-rms-client.git", tag = "v0.10.0" }
 ansi-to-html = "0.2.2"
 
