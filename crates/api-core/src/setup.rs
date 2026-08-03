@@ -214,7 +214,7 @@ pub(crate) async fn start_runtime(
             (carbide_config.dpf.enabled, &carbide_config.vmaas_config),
             (true, Some(_))
         ),
-        "VMaaS and DPF cannot both be enabled. Disable one in the configuration."
+        "cannot enable both VMaaS and DPF; disable one in the configuration"
     );
 
     let ipmi_tool = create_ipmi_tool(
