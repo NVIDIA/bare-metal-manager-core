@@ -113,6 +113,13 @@ flush_interval = "2s"
 # attach them. OTLP exports parent logs normally and keeps diagnostics as
 # latest-wins per endpoint while the drain is backed up.
 include_diagnostics = false
+
+# Include per-alert detail on health report records for this target. Health
+# report records otherwise carry only alert and success counts. When enabled,
+# each record with alerts gains a `health_report.alerts` attribute holding a
+# JSON array of up to 64 alerts; a truncated record also carries
+# `health_report.alerts.dropped` with the number omitted.
+include_alert_details = false
 #
 # TLS-only target with an explicit CA bundle.
 # The reload interval is optional and defaults to five minutes.
@@ -121,6 +128,7 @@ include_diagnostics = false
 # batch_size = 1024
 # flush_interval = "5s"
 # include_diagnostics = true
+# include_alert_details = true
 #
 # [sinks.otlp.targets.tls]
 # ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"
@@ -133,6 +141,7 @@ include_diagnostics = false
 # batch_size = 1024
 # flush_interval = "5s"
 # include_diagnostics = true
+# include_alert_details = true
 #
 # [sinks.otlp.targets.tls]
 # ca_cert_path = "/var/run/secrets/central-otlp/ca.crt"

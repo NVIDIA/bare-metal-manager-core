@@ -521,6 +521,7 @@ mod tests {
                 batch_size: 512,
                 flush_interval: std::time::Duration::from_secs(2),
                 include_diagnostics: false,
+                include_alert_details: false,
                 tls: None,
             },
             OtlpTargetConfig {
@@ -528,6 +529,7 @@ mod tests {
                 batch_size: 512,
                 flush_interval: std::time::Duration::from_secs(2),
                 include_diagnostics: false,
+                include_alert_details: false,
                 tls: None,
             },
         ];
