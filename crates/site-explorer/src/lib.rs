@@ -2570,7 +2570,7 @@ impl SiteExplorer {
                         .await
                         .expect("Semaphore can't be closed");
 
-                    let probe = match endpoint_exploration_service
+                    let Some(probe) = endpoint_exploration_service
                         .try_explore_endpoint(
                             bmc_target_addr,
                             endpoint.iface,
@@ -2584,30 +2584,12 @@ impl SiteExplorer {
                                 .map(Into::into),
                         )
                         .await
-                    {
-                        Ok(Some(probe)) => probe,
-                        Ok(None) => {
-                            tracing::info!(
-                                bmc_ip_address = %endpoint.address,
-                                "Skipping periodic endpoint exploration; endpoint already in progress"
-                            );
-                            return Ok(None);
-                        }
-                        Err(EndpointExplorationServiceError::Suppressed {
-                            bmc_ip,
-                            bmc_mac_address,
-                        }) => {
-                            tracing::info!(
-                                bmc_ip_address = %bmc_ip,
-                                bmc_mac_address = %bmc_mac_address,
-                                "Skipping periodic endpoint exploration; endpoint is suppressed"
-                            );
-                            return Ok(None);
-                        }
-                        Err(EndpointExplorationServiceError::Database(error)) => {
-                            return Err(error.into());
-                        }
-                        Err(error) => return Err(SiteExplorerError::internal(error.to_string())),
+                    else {
+                        tracing::info!(
+                            bmc_ip_address = %endpoint.address,
+                            "Skipping periodic endpoint exploration; endpoint already in progress"
+                        );
+                        return Ok(None);
                     };
                     steps.redfish_explore = probe.redfish_explore_duration;
                     let mut result = probe.result;
