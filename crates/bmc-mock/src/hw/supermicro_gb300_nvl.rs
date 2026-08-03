@@ -124,7 +124,7 @@ impl SupermicroGB300Nvl<'_> {
         let system_id = "System_0";
         let boot_options = std::iter::once(
             redfish::boot_option::builder(
-                &redfish::boot_option::resource(system_id, "0002"),
+                &redfish::boot_option::resource(system_id, "Boot0002"),
                 BootOptionKind::Disk,
             )
             .boot_option_reference("Boot0002")
@@ -136,21 +136,20 @@ impl SupermicroGB300Nvl<'_> {
                 .into_iter()
                 .enumerate()
                 .map(|(n, nic)| {
-                    let id = format!("{:04X}", n + 3); // Starting with 0003
+                    let id = format!("Boot{:04X}", n + 3); // Starting with Boot0003
                     let pci_path = "PciRoot(0x0)/Pci(0x10,0x0)/Pci(0x0,0x0)";
                     redfish::boot_option::builder(
                         &redfish::boot_option::resource(system_id, &id),
                         BootOptionKind::Network,
                     )
-                    .boot_option_reference(&format!("Boot{id}"))
+                    .boot_option_reference(&id)
                     .display_name(&format!(
-                        "UEFI HTTP IPv4 Nvidia Network Adapter - {} - {}",
-                        nic.mac_address,
+                        "UEFI HTTPv4 (MAC:{})",
                         nic.mac_address.to_string().replace(":", "")
                     ))
                     .uefi_device_path(&format!(
                         "{pci_path}/MAC({},0x1)\
-                             /IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
+                         /IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
                         nic.mac_address.to_string().replace(":", "")
                     ))
                     .build()
