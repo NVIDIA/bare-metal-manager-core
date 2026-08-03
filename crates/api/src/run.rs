@@ -31,7 +31,8 @@ use crate::logging::setup_logging;
 use crate::metrics::{Metrics, setup_metrics};
 use crate::resources::{RuntimeResources, setup_resources};
 
-/// Run the carbide-api server until `cancel_token` is cancelled.
+/// Run the carbide-api server until `cancel_token` is cancelled or the process
+/// receives a shutdown signal.
 #[allow(clippy::too_many_arguments)]
 pub async fn run(
     debug: u8,
@@ -89,6 +90,7 @@ pub async fn run(
     // initialization is complete, we use [`JoinSet::join_all`] to wait for them all to complete,
     // while propagating any panics to the current task.
     let mut join_set = JoinSet::new();
+    crate::shutdown_handler::start(&mut join_set, cancel_token.clone());
     start_metrics_endpoint(
         &mut join_set,
         &carbide_config,
