@@ -11933,7 +11933,6 @@ async fn restart_dpu(
     Ok(())
 }
 
-#[inline]
 fn dpu_restart_power_action(
     power_state: libredfish::PowerState,
 ) -> Result<SystemPowerControl, StateHandlerError> {
