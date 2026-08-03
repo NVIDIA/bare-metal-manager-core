@@ -358,7 +358,7 @@ pub async fn start(
     let router = axum::Router::new()
         .route("/", axum::routing::get(root_url))
         .route_service(
-            "/forge.Forge/{*rpc}",
+            ::rpc::service_path!("{*rpc}"),
             rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
         .route_service(

@@ -1541,6 +1541,7 @@ name = "carbide-authn"
 version = "0.0.0"
 dependencies = [
  "carbide-instrument",
+ "carbide-rpc",
  "carbide-test-support",
  "hyper",
  "rcgen",
@@ -2897,6 +2898,7 @@ dependencies = [
  "chrono",
  "clap",
  "config-version",
+ "const_format",
  "criterion",
  "csv",
  "data-encoding",
