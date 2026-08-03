@@ -6,8 +6,9 @@ The [Tenant Management](../configuration/tenant_management.md) guide uses this r
 
 ## Installation
 
-Building `nicocli` or `nico-mcp` requires Go 1.26.4 or newer, plus working
-`git` and `make`. You also need write access to the selected install directory,
+Building `nicocli` or `nico-mcp` from current main requires Go 1.26.4 or
+newer; use Go 1.26.5 for the v2.0.0 release. You also need working `git` and
+`make`, write access to the selected install directory,
 and that directory must be on `$PATH` to invoke the installed binary by name.
 
 Build and install from the `rest-api/` directory of the `infra-controller` repo:
