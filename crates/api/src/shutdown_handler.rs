@@ -23,13 +23,16 @@ use tokio_util::sync::CancellationToken;
 /// Start a task that will wait for SIGINT or SIGTERM, and will cancel the given CancellationToken
 /// when either of them occur.
 pub fn start(join_set: &mut JoinSet<()>, cancel_token: CancellationToken) {
+    // Register the signals before returning
+    let signal_future = shutdown_signal();
+
     join_set
         .build_task()
         .name("shutdown signal handler")
         .spawn(async move {
             tokio::select! {
                 _ = cancel_token.cancelled() => {}
-                signal = shutdown_signal() => {
+                signal = signal_future => {
                     tracing::info!(%signal, "Shutdown signal received");
                     cancel_token.cancel();
                 }
@@ -55,24 +58,34 @@ impl Display for ShutdownCause {
 }
 
 #[cfg(unix)]
-async fn shutdown_signal() -> ShutdownCause {
+fn shutdown_signal() -> impl Future<Output = ShutdownCause> {
     use tokio::signal::unix::{SignalKind, signal};
 
+    // Register the signals before returning
     let mut terminate =
         signal(SignalKind::terminate()).expect("Failed to register SIGTERM handler");
-    tokio::select! {
-        result = tokio::signal::ctrl_c() => {
-            result.expect("Failed to listen for SIGINT");
-            ShutdownCause::Int
+    let interrupt = tokio::signal::ctrl_c();
+
+    async move {
+        tokio::select! {
+            result = interrupt => {
+                result.expect("Failed to listen for SIGINT");
+                ShutdownCause::Int
+            }
+            _ = terminate.recv() => ShutdownCause::Term,
         }
-        _ = terminate.recv() => ShutdownCause::Term,
     }
 }
 
 #[cfg(not(unix))]
-async fn shutdown_signal() -> ShutdownCause {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to listen for shutdown signal");
-    ShutdownCause::Int
+fn shutdown_signal() -> impl Future<Output = ShutdownCause> {
+    // Register the signal before returning
+    let interrupt = tokio::signal::ctrl_c();
+
+    async move {
+        interrupt
+            .await
+            .expect("Failed to listen for shutdown signal");
+        ShutdownCause::Int
+    }
 }
